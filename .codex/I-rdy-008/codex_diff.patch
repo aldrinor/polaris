@@ -1,265 +1,401 @@
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index a7893bda..56d10e8c 100644
+index 56d10e8c..8299f879 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -376,3 +376,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+@@ -384,3 +384,8 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
  
  ### Diff review
- - iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected; no explicit malformed-artifact_dir test — impl handles it). convergence accept_remaining. ast.parse 3/3; pytest 11 passed (5 new + 6 health/runs regression-free). Backend slice — no frontend. P1 trajectory 0.
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff — expected process metadata). convergence accept_remaining. web/lib/api.ts +240 — 17 AuditIr* TS interfaces + getAuditRun(). prettier/tsc/eslint(0 err)/build green. P1 trajectory 0.
 +
-+## I-rdy-008 (#504) slice 2 — frontend AuditIR client helper + types
++## I-rdy-008 (#504) slice 3 — migrate inspector shell + summary to the AuditIR client
 +
 +### Brief review
-+- iter 1: APPROVE — clean, 0 P0/P1/P2. convergence accept_remaining. Slice 2 of ~12 for #504, Option A. web/lib/api.ts only — 17 AuditIr* TS interfaces mirroring the AuditIR dataclass tree + getAuditRun() → the slice-1 route. Frontend-lib only, no web/app/** change. Web smoke: prettier/tsc/eslint(0 err)/build all green.
-+
-+### Diff review
-+- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff — expected process metadata). convergence accept_remaining. web/lib/api.ts +240 — 17 AuditIr* TS interfaces + getAuditRun(). prettier/tsc/eslint(0 err)/build green. P1 trajectory 0.
-diff --git a/web/lib/api.ts b/web/lib/api.ts
-index ca1f76fb..d02ef94f 100644
---- a/web/lib/api.ts
-+++ b/web/lib/api.ts
-@@ -1167,3 +1167,243 @@ export async function getRunGraph(runId: string): Promise<GraphPayload> {
-   }
-   return res.json() as Promise<GraphPayload>;
++- iter 1: APPROVE — 0 P0/P1, 3 non-blocking P2 (extract FastAPI detail from ApiError.body not err.message; neutral fallback for nullable ir.protocol; two-family PASS/FAIL only when both family strings non-empty + unequal — all 3 baked into commit 1). convergence accept_remaining. Slice 3 of ~12 for #504, Option A. web/app/inspector/[runId]/page.tsx only — migrate the shell (3 status cards + run-header) + Executive-summary tab off getBundle()/EvidenceContract onto getAuditRun()/AuditIrRun; 5 other tabs + EvidencePane intentionally untouched (slices 4-7). ~103k tokens.
+diff --git a/web/app/inspector/[runId]/page.tsx b/web/app/inspector/[runId]/page.tsx
+index 3b1befbf..ec2cd0d7 100644
+--- a/web/app/inspector/[runId]/page.tsx
++++ b/web/app/inspector/[runId]/page.tsx
+@@ -15,8 +15,11 @@ import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
+ import { VegaChart } from "@/components/ui/vega-chart";
+ import {
+   downloadBundleAsJson,
++  getAuditRun,
+   getBundle,
+   getChart,
++  type ApiError,
++  type AuditIrRun,
+   type ChartType,
+   type EvidenceContract,
+   type SourceSpan,
+@@ -27,8 +30,56 @@ interface InspectorPageProps {
+   params: Promise<{ runId: string }>;
  }
-+
-+// ---------------------------------------------------------------------------
-+// I-rdy-008 (#504) slice 2 — live-run AuditIR client.
-+// Mirrors the to_json_dict() projection of the AuditIR dataclass tree in
-+// src/polaris_graph/audit_ir/loader.py. The canonical faithful shape for the
-+// rich UI surfaces (Option A, Codex arch-decision consult): raw T1-T7 tiers,
-+// range-keyed evidence-span tokens, no EvidenceContract coercion. The UI
-+// migration off getBundle()/EvidenceContract is slice 3.
-+// ---------------------------------------------------------------------------
-+
-+export interface AuditIrEvidenceSpanToken {
-+  evidence_id: string;
-+  start: number;
-+  end: number;
-+}
-+
-+export interface AuditIrBibliographyEntry {
-+  num: number;
-+  evidence_id: string;
-+  statement: string;
-+  tier: string;
-+  url: string;
-+}
-+
-+export interface AuditIrSentence {
-+  claim_id: string;
-+  section: string;
-+  text: string;
-+  tokens: AuditIrEvidenceSpanToken[];
-+  is_verified: boolean;
-+  failure_reasons: string[];
-+}
-+
-+export interface AuditIrSection {
-+  title: string;
-+  kept_count: number;
-+  dropped_count: number;
-+  total_in: number;
-+  dropped_due_to_failure: number;
-+  sentences: AuditIrSentence[];
-+}
-+
-+export interface AuditIrVerifiedReport {
-+  sections: AuditIrSection[];
-+  sentences_verified: number;
-+  sentences_dropped: number;
-+  drop_reason_counts: Record<string, number>;
-+}
-+
-+export interface AuditIrContradictionClaim {
-+  evidence_id: string;
-+  subject: string;
-+  predicate: string;
-+  arm: string;
-+  dose: string;
-+  value: number;
-+  unit: string;
-+  source_tier: string;
-+  source_url: string;
-+  context_snippet: string;
-+  endpoint_phrase: string;
-+}
-+
-+export interface AuditIrContradictionCluster {
-+  cluster_id: number;
-+  subject: string;
-+  predicate: string;
-+  severity: string;
-+  absolute_difference: number;
-+  relative_difference: number;
-+  recommended_action: string;
-+  claims: AuditIrContradictionClaim[];
-+}
-+
-+export interface AuditIrRetrievalAttempt {
-+  attempt_index: number;
-+  source: string;
-+  url: string;
-+  outcome: string;
-+  http_status: number | null;
-+}
-+
-+export interface AuditIrFrameCoverageEntry {
-+  entity_id: string;
-+  entity_type: string;
-+  section: string;
-+  slot_id: string;
-+  subsection_title: string;
-+  status: string;
-+  doi: string | null;
-+  pmid: string | null;
-+  failure_reason: string | null;
-+  available_artifacts: string[];
-+  required_fields: string[];
-+  min_fields_for_completion: number;
-+  provenance_class: string;
-+  human_completion_eligible: boolean;
-+  human_curated_provenance: string | null;
-+  is_pipeline_fault: boolean;
-+  retrieval_attempt_log: AuditIrRetrievalAttempt[];
-+}
-+
-+export interface AuditIrFrameCoverageReport {
-+  pass_count: number;
-+  partial_count: number;
-+  frame_gap_count: number;
-+  pipeline_fault_count: number;
-+  total_entities: number;
-+  total_slots: number;
-+  research_question: string;
-+  schema_version: string;
-+  semantics_warning: string | null;
-+  entries: AuditIrFrameCoverageEntry[];
-+}
-+
-+export interface AuditIrTierMix {
-+  fractions: Record<string, number>;
-+  corpus_count: number;
-+  approved: boolean;
-+  material_deviation: boolean;
-+}
-+
-+export interface AuditIrEvaluatorGate {
-+  gate_class: string;
-+  release_allowed: boolean;
-+  reasons: string[];
-+  rule_blockers: string[];
-+  judge_critical_axes: string[];
-+  judge_parse_ok: boolean;
-+}
-+
-+export interface AuditIrRetrievalStats {
-+  pre_filter: number;
-+  fetched: number;
-+  failed: number;
-+  by_provider: Record<string, number>;
-+  queries: string[];
-+}
-+
-+export interface AuditIrManifest {
-+  run_id: string;
-+  slug: string;
-+  status: string;
-+  question: string;
-+  protocol_sha256: string;
-+  cost_usd: number;
-+  budget_cap_usd: number;
-+  word_count: number;
-+  sentences_verified: number;
-+  sentences_dropped: number;
-+  contradictions_found: number;
-+  completeness_percent: number;
-+  evaluator_gate: AuditIrEvaluatorGate;
-+  release_allowed: boolean;
-+  v30_enabled: boolean;
-+  v30_warnings: string[];
-+  retrieval_stats: AuditIrRetrievalStats | null;
-+}
-+
-+export interface AuditIrRuleCheck {
-+  item_id: string;
-+  name: string;
-+  passed: boolean;
-+  details: string;
-+}
-+
-+export interface AuditIrModelProvenance {
-+  generator_family: string;
-+  generator_model: string;
-+  evaluator_family: string;
-+  evaluator_model: string;
-+  judge_model: string;
-+  judge_parse_ok: boolean;
-+  judge_input_tokens: number;
-+  judge_output_tokens: number;
-+  contradictions_disclosed: number;
-+  contradictions_missing: string[];
-+  rule_checks: AuditIrRuleCheck[];
-+}
-+
-+export interface AuditIrTierExpectation {
-+  tier: string;
-+  min_fraction: number;
-+  max_fraction: number;
-+  rationale: string;
-+}
-+
-+export interface AuditIrProtocolMetadata {
-+  research_question: string;
-+  created_at_iso: string;
-+  created_at_unix: number;
-+  scope_decision: string;
-+  expected_tier_distribution: AuditIrTierExpectation[];
-+}
-+
-+export interface AuditIrAdequacyGate {
-+  decision: string;
-+  findings_ok: number;
-+  findings_total: number;
-+  critical_count: number;
-+}
-+
-+export interface AuditIrCorpusApprovalGate {
-+  approved: boolean;
-+  decision_at_iso: string;
-+  user_note: string;
-+  approved_count: number;
-+  rejected_count: number;
-+}
-+
-+/** The full faithful AuditIR for one completed run — the canonical shape. */
-+export interface AuditIrRun {
-+  ir_schema_version: string;
-+  run_id: string;
-+  artifact_dir: string;
-+  report_md: string;
-+  manifest: AuditIrManifest;
-+  bibliography: AuditIrBibliographyEntry[];
-+  contradictions: AuditIrContradictionCluster[];
-+  frame_coverage: AuditIrFrameCoverageReport;
-+  tier_mix: AuditIrTierMix;
-+  verified_report: AuditIrVerifiedReport;
-+  model_provenance: AuditIrModelProvenance | null;
-+  protocol: AuditIrProtocolMetadata | null;
-+  adequacy: AuditIrAdequacyGate | null;
-+  corpus_approval: AuditIrCorpusApprovalGate | null;
+ 
++/**
++ * Extract a human-readable message from a thrown error. FastAPI puts its
++ * 404/409/422 reason in the JSON response body's `detail` field, which
++ * `asJsonOrThrow` stores on `ApiError.body` — `err.message` alone would
++ * surface only the bare "POLARIS backend returned 422".
++ */
++function apiErrorMessage(err: unknown, fallback: string): string {
++  if (err && typeof err === "object" && "body" in err) {
++    const body = (err as ApiError).body;
++    if (body && typeof body === "object" && "detail" in body) {
++      const detail = (body as { detail: unknown }).detail;
++      if (typeof detail === "string" && detail.length > 0) return detail;
++    }
++  }
++  return err instanceof Error ? err.message : fallback;
 +}
 +
 +/**
-+ * Fetch the faithful AuditIR for a completed run from the v6 live-inspector
-+ * route (I-rdy-008 slice 1, `GET /api/inspector/runs/{run_id}`). Throws an
-+ * ApiError on 404 (unknown run), 409 (not completed), or 422 (abort/error run
-+ * or unloadable artifact_dir).
++ * Two-family invariant (CLAUDE.md §9.1.1) derived from the AuditIR model
++ * provenance. AuditIR carries no stored `family_segregation_passed` boolean —
++ * the invariant *is* "generator and evaluator from different lineages", so it
++ * is recomputed from the family strings. PASS/FAIL is only meaningful when
++ * both family strings are recorded; otherwise the state is "not recorded".
 + */
-+export async function getAuditRun(runId: string): Promise<AuditIrRun> {
-+  const response = await authFetch(
-+    `${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}`,
-+  );
-+  return asJsonOrThrow<AuditIrRun>(response);
++function twoFamilyState(ir: AuditIrRun): {
++  known: boolean;
++  passed: boolean;
++  generatorModel: string;
++  evaluatorModel: string;
++} {
++  const mp = ir.model_provenance;
++  if (mp == null || mp.generator_family === "" || mp.evaluator_family === "") {
++    return {
++      known: false,
++      passed: false,
++      generatorModel: "",
++      evaluatorModel: "",
++    };
++  }
++  return {
++    known: true,
++    passed: mp.generator_family !== mp.evaluator_family,
++    generatorModel: mp.generator_model,
++    evaluatorModel: mp.evaluator_model,
++  };
 +}
-# canonical-diff-sha256: 78ed69e1b497900d82f079804848178be9e7897ef987e65642dab9ae63516be6
++
+ export default function InspectorPage({ params }: InspectorPageProps) {
+   const { runId } = use(params);
++  const [ir, setIr] = useState<AuditIrRun | null>(null);
+   const [bundle, setBundle] = useState<EvidenceContract | null>(null);
+   const [error, setError] = useState<string | null>(null);
+   const [selectedEvidence, setSelectedEvidence] = useState<SourceSpan | null>(
+@@ -38,15 +89,28 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+     "summary" | "sentences" | "frames" | "contradictions" | "pool" | "charts"
+   >("summary");
+ 
++  // I-rdy-008 (#504) slice 3 — dual-fetch transition state. The shell + the
++  // Executive-summary tab read the faithful AuditIR (`getAuditRun`); the other
++  // 5 tabs + EvidencePane still read the legacy bundle (`getBundle`). Slices
++  // 4-7 migrate the remaining tabs, after which the `getBundle` call is
++  // removed.
+   useEffect(() => {
+     let cancelled = false;
++    getAuditRun(runId)
++      .then((r) => {
++        if (!cancelled) setIr(r);
++      })
++      .catch((err) => {
++        if (!cancelled)
++          setError(apiErrorMessage(err, "Run inspector load failed"));
++      });
+     getBundle(runId)
+       .then((b) => {
+         if (!cancelled) setBundle(b);
+       })
+       .catch((err) => {
+         if (!cancelled)
+-          setError(err instanceof Error ? err.message : "Bundle load failed");
++          setError(apiErrorMessage(err, "Evidence bundle load failed"));
+       });
+     return () => {
+       cancelled = true;
+@@ -121,7 +185,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+               id="inspector-error-heading"
+               className="text-foreground text-2xl font-semibold tracking-tight"
+             >
+-              Bundle load failed
++              Run inspector unavailable
+             </h1>
+             <p className="border-destructive/60 text-foreground mt-2 rounded-md border p-3 text-sm font-medium">
+               {error}
+@@ -129,66 +193,9 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+           </section>
+         )}
+ 
+-        {bundle && (
++        {ir && bundle && (
+           <>
+-            <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
+-              <Card>
+-                <CardHeader>
+-                  <CardDescription className="text-xs tracking-widest uppercase">
+-                    Pipeline status
+-                  </CardDescription>
+-                  <CardTitle className="font-mono text-sm">
+-                    {bundle.pipeline_status}
+-                  </CardTitle>
+-                </CardHeader>
+-              </Card>
+-              <Card
+-                className={
+-                  bundle.family_segregation_passed
+-                    ? "border-emerald-500/40 bg-emerald-50/30"
+-                    : "border-destructive/60"
+-                }
+-              >
+-                <CardHeader>
+-                  <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
+-                    Two-family invariant
+-                  </CardDescription>
+-                  <CardTitle className="text-sm">
+-                    {bundle.family_segregation_passed ? "PASS" : "FAIL"} ·{" "}
+-                    {bundle.generator_model} → {bundle.verifier_model}
+-                  </CardTitle>
+-                </CardHeader>
+-                {!bundle.family_segregation_passed && (
+-                  <CardContent className="text-foreground text-sm font-medium">
+-                    CLAUDE.md §9.1 invariant violated. Run output is suspect:
+-                    generator and verifier share lineage. Re-run with
+-                    family-segregated models before trusting verdicts.
+-                  </CardContent>
+-                )}
+-              </Card>
+-              <Card>
+-                <CardHeader>
+-                  <CardDescription className="text-xs tracking-widest uppercase">
+-                    Cost
+-                  </CardDescription>
+-                  <CardTitle className="text-sm">
+-                    USD {bundle.cost_usd.toFixed(2)}
+-                  </CardTitle>
+-                </CardHeader>
+-              </Card>
+-            </section>
+-
+-            <section className="flex flex-col gap-2">
+-              <h1 className="text-foreground text-2xl font-semibold tracking-tight">
+-                {bundle.question}
+-              </h1>
+-              <p className="text-muted-foreground text-sm">
+-                Template:{" "}
+-                <span className="text-foreground">{bundle.template}</span>
+-                {" · "}Queued <time>{bundle.queued_at}</time>
+-                {" · "}Finished <time>{bundle.finished_at}</time>
+-              </p>
+-            </section>
++            <RunShell ir={ir} />
+ 
+             <nav className="border-border flex gap-2 border-b">
+               {tabs.map((t) => (
+@@ -213,7 +220,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+                 {activeTab === "summary" && (
+                   <ExecutiveSummaryTab
+                     runId={runId}
+-                    bundle={bundle}
++                    ir={ir}
+                     onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                   />
+                 )}
+@@ -261,6 +268,88 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+   );
+ }
+ 
++/**
++ * Run shell — the 3 status cards + run-header, rendered from the faithful
++ * AuditIR (I-rdy-008 #504 slice 3). `template` / `queued_at` / `finished_at`
++ * are run_store lifecycle fields with no AuditIR equivalent; the header
++ * instead shows the AuditIR-native `slug`, `scope_decision`, and
++ * `created_at_iso` (the latter two only when `protocol` is recorded).
++ */
++function RunShell({ ir }: { ir: AuditIrRun }) {
++  const twoFamily = twoFamilyState(ir);
++  return (
++    <>
++      <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
++        <Card>
++          <CardHeader>
++            <CardDescription className="text-xs tracking-widest uppercase">
++              Pipeline status
++            </CardDescription>
++            <CardTitle className="font-mono text-sm">
++              {ir.manifest.status}
++            </CardTitle>
++          </CardHeader>
++        </Card>
++        <Card
++          className={
++            !twoFamily.known
++              ? ""
++              : twoFamily.passed
++                ? "border-emerald-500/40 bg-emerald-50/30"
++                : "border-destructive/60"
++          }
++        >
++          <CardHeader>
++            <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
++              Two-family invariant
++            </CardDescription>
++            <CardTitle className="text-sm">
++              {!twoFamily.known
++                ? "Model provenance not recorded"
++                : `${twoFamily.passed ? "PASS" : "FAIL"} · ${twoFamily.generatorModel} → ${twoFamily.evaluatorModel}`}
++            </CardTitle>
++          </CardHeader>
++          {twoFamily.known && !twoFamily.passed && (
++            <CardContent className="text-foreground text-sm font-medium">
++              CLAUDE.md §9.1 invariant violated. Run output is suspect:
++              generator and evaluator share lineage. Re-run with
++              family-segregated models before trusting verdicts.
++            </CardContent>
++          )}
++        </Card>
++        <Card>
++          <CardHeader>
++            <CardDescription className="text-xs tracking-widest uppercase">
++              Cost
++            </CardDescription>
++            <CardTitle className="text-sm">
++              USD {ir.manifest.cost_usd.toFixed(2)}
++            </CardTitle>
++          </CardHeader>
++        </Card>
++      </section>
++
++      <section className="flex flex-col gap-2">
++        <h1 className="text-foreground text-2xl font-semibold tracking-tight">
++          {ir.manifest.question}
++        </h1>
++        <p className="text-muted-foreground text-sm">
++          Run <span className="text-foreground">{ir.manifest.slug}</span>
++          {ir.protocol && (
++            <>
++              {" · "}Scope{" "}
++              <span className="text-foreground">
++                {ir.protocol.scope_decision}
++              </span>
++              {" · "}Created <time>{ir.protocol.created_at_iso}</time>
++            </>
++          )}
++        </p>
++      </section>
++    </>
++  );
++}
++
+ function SentencesTab({
+   bundle,
+   evidenceById,
+@@ -458,17 +547,19 @@ function ContradictionsTab({
+ 
+ function ExecutiveSummaryTab({
+   runId,
+-  bundle,
++  ir,
+   onSelect,
+ }: {
+   runId: string;
+-  bundle: EvidenceContract;
++  ir: AuditIrRun;
+   onSelect: (id: string) => void;
+ }) {
+   /**
+    * F10c executive-summary infographic — composes all 3 chart types
+    * (forest_plot + comparison_table + timeline) into a single page-
+    * level briefing view, anchored by the run question + key counts.
++   * I-rdy-008 #504 slice 3: counts + tier mix now read the faithful
++   * AuditIR manifest/bibliography rather than the legacy bundle.
+    */
+   const chartTypes: ChartType[] = [
+     "forest_plot",
+@@ -506,18 +597,20 @@ function ExecutiveSummaryTab({
+     };
+   }, [runId]);
+ 
+-  const verifiedCount = bundle.verified_sentences.length;
+-  const droppedCount = bundle.verified_sentences.filter(
+-    (s) => s.drop_reason,
+-  ).length;
+-  const contradictionCount = bundle.contradictions.length;
+-  const tierCounts = bundle.evidence_pool.reduce<Record<string, number>>(
+-    (acc, span) => {
+-      acc[span.source_tier] = (acc[span.source_tier] ?? 0) + 1;
++  const verifiedCount = ir.manifest.sentences_verified;
++  const droppedCount = ir.manifest.sentences_dropped;
++  const contradictionCount = ir.manifest.contradictions_found;
++  const tierCounts = ir.bibliography.reduce<Record<string, number>>(
++    (acc, entry) => {
++      acc[entry.tier] = (acc[entry.tier] ?? 0) + 1;
+       return acc;
+     },
+     {},
+   );
++  const tierSummary = Object.keys(tierCounts)
++    .sort()
++    .map((tier) => `${tier}:${tierCounts[tier]}`)
++    .join(" · ");
+ 
+   return (
+     <div className="flex flex-col gap-4">
+@@ -526,10 +619,10 @@ function ExecutiveSummaryTab({
+           <CardDescription className="text-xs tracking-widest uppercase">
+             Executive briefing — at a glance
+           </CardDescription>
+-          <CardTitle className="text-base">{bundle.template} run</CardTitle>
++          <CardTitle className="text-base">{ir.manifest.slug} run</CardTitle>
+         </CardHeader>
+         <CardContent>
+-          <p className="text-foreground text-sm">{bundle.question}</p>
++          <p className="text-foreground text-sm">{ir.manifest.question}</p>
+           <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+             <div>
+               <p className="text-muted-foreground text-xs uppercase">
+@@ -556,10 +649,9 @@ function ExecutiveSummaryTab({
+             <div>
+               <p className="text-muted-foreground text-xs uppercase">Sources</p>
+               <p className="text-foreground text-xl font-semibold">
+-                {bundle.evidence_pool.length}
++                {ir.bibliography.length}
+                 <span className="text-muted-foreground ml-2 text-xs font-normal">
+-                  T1:{tierCounts.T1 ?? 0} · T2:{tierCounts.T2 ?? 0} · T3:
+-                  {tierCounts.T3 ?? 0}
++                  {tierSummary || "no tiers"}
+                 </span>
+               </p>
+             </div>
+@@ -567,6 +659,29 @@ function ExecutiveSummaryTab({
+         </CardContent>
+       </Card>
+ 
++      {ir.report_md && (
++        <Card>
++          <CardHeader>
++            <CardDescription className="text-xs tracking-widest uppercase">
++              Verified report
++            </CardDescription>
++            <CardTitle className="text-sm">
++              Full markdown · {ir.manifest.word_count} words
++            </CardTitle>
++          </CardHeader>
++          <CardContent>
++            <details>
++              <summary className="text-muted-foreground cursor-pointer text-xs">
++                View full verified report (raw markdown)
++              </summary>
++              <pre className="bg-muted text-foreground mt-2 max-h-[32rem] overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap">
++                {ir.report_md}
++              </pre>
++            </details>
++          </CardContent>
++        </Card>
++      )}
++
+       {chartTypes.map((t) => {
+         const spec = specs[t];
+         if (!spec) {
+
+# canonical-diff-sha256: e174c3063b1de9c2333cddac86a42274b4cdbc5c44f3800710fee88806eb2925
