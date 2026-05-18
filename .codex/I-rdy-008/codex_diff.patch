@@ -1,404 +1,257 @@
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 56d10e8c..53e73b2b 100644
+index 53e73b2b..7feff395 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -384,3 +384,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+@@ -392,3 +392,8 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
  
  ### Diff review
- - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff — expected process metadata). convergence accept_remaining. web/lib/api.ts +240 — 17 AuditIr* TS interfaces + getAuditRun(). prettier/tsc/eslint(0 err)/build green. P1 trajectory 0.
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff alongside page.tsx — expected process metadata, same note as slices 1-2). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +192/-77 (805→920 lines) — shell + Executive-summary tab on getAuditRun()/AuditIrRun; RunShell + twoFamilyState + apiErrorMessage helpers. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~91k tokens.
 +
-+## I-rdy-008 (#504) slice 3 — migrate inspector shell + summary to the AuditIR client
++## I-rdy-008 (#504) slice 4 — migrate the verified-sentences tab to the AuditIR client
 +
 +### Brief review
-+- iter 1: APPROVE — 0 P0/P1, 3 non-blocking P2 (extract FastAPI detail from ApiError.body not err.message; neutral fallback for nullable ir.protocol; two-family PASS/FAIL only when both family strings non-empty + unequal — all 3 baked into commit 1). convergence accept_remaining. Slice 3 of ~12 for #504, Option A. web/app/inspector/[runId]/page.tsx only — migrate the shell (3 status cards + run-header) + Executive-summary tab off getBundle()/EvidenceContract onto getAuditRun()/AuditIrRun; 5 other tabs + EvidencePane intentionally untouched (slices 4-7). ~103k tokens.
-+
-+### Diff review
-+- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff alongside page.tsx — expected process metadata, same note as slices 1-2). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +192/-77 (805→920 lines) — shell + Executive-summary tab on getAuditRun()/AuditIrRun; RunShell + twoFamilyState + apiErrorMessage helpers. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~91k tokens.
++- iter 1: APPROVE — 0 P0/P1, 2 non-blocking P2 (gate the tabs initializer on `ir && bundle` since the sentence count now reads `ir`; normalize the contradiction-badge section identifier — AuditIrSentence.section is a title, bundle contradictions[].section_id is a _slugify'd slug — both baked into commit 1). All 6 §3 scope-boundary calls ruled accept. convergence accept_remaining. Slice 4 of ~12 for #504, Option A. web/app/inspector/[runId]/page.tsx + web/components/ui/evidence-tooltip.tsx — SentencesTab + renderSentenceWithTokens migrate off EvidenceContract/SourceSpan onto AuditIR verified_report.sections[].sentences[] + bibliography; sourceTier widened to string for raw T1-T7; 4 other tabs + EvidencePane intentionally untouched (slices 5-7). ~183k tokens.
 diff --git a/web/app/inspector/[runId]/page.tsx b/web/app/inspector/[runId]/page.tsx
-index 3b1befbf..ec2cd0d7 100644
+index ec2cd0d7..4694504e 100644
 --- a/web/app/inspector/[runId]/page.tsx
 +++ b/web/app/inspector/[runId]/page.tsx
-@@ -15,8 +15,11 @@ import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
- import { VegaChart } from "@/components/ui/vega-chart";
- import {
-   downloadBundleAsJson,
-+  getAuditRun,
+@@ -19,6 +19,7 @@ import {
    getBundle,
    getChart,
-+  type ApiError,
-+  type AuditIrRun,
+   type ApiError,
++  type AuditIrBibliographyEntry,
+   type AuditIrRun,
    type ChartType,
    type EvidenceContract,
-   type SourceSpan,
-@@ -27,8 +30,56 @@ interface InspectorPageProps {
-   params: Promise<{ runId: string }>;
- }
+@@ -120,40 +121,43 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+   const evidenceById = (id: string) =>
+     bundle?.evidence_pool.find((s) => s.evidence_id === id) ?? null;
  
-+/**
-+ * Extract a human-readable message from a thrown error. FastAPI puts its
-+ * 404/409/422 reason in the JSON response body's `detail` field, which
-+ * `asJsonOrThrow` stores on `ApiError.body` — `err.message` alone would
-+ * surface only the bare "POLARIS backend returned 422".
-+ */
-+function apiErrorMessage(err: unknown, fallback: string): string {
-+  if (err && typeof err === "object" && "body" in err) {
-+    const body = (err as ApiError).body;
-+    if (body && typeof body === "object" && "detail" in body) {
-+      const detail = (body as { detail: unknown }).detail;
-+      if (typeof detail === "string" && detail.length > 0) return detail;
-+    }
-+  }
-+  return err instanceof Error ? err.message : fallback;
-+}
-+
-+/**
-+ * Two-family invariant (CLAUDE.md §9.1.1) derived from the AuditIR model
-+ * provenance. AuditIR carries no stored `family_segregation_passed` boolean —
-+ * the invariant *is* "generator and evaluator from different lineages", so it
-+ * is recomputed from the family strings. PASS/FAIL is only meaningful when
-+ * both family strings are recorded; otherwise the state is "not recorded".
-+ */
-+function twoFamilyState(ir: AuditIrRun): {
-+  known: boolean;
-+  passed: boolean;
-+  generatorModel: string;
-+  evaluatorModel: string;
-+} {
-+  const mp = ir.model_provenance;
-+  if (mp == null || mp.generator_family === "" || mp.evaluator_family === "") {
-+    return {
-+      known: false,
-+      passed: false,
-+      generatorModel: "",
-+      evaluatorModel: "",
-+    };
-+  }
-+  return {
-+    known: true,
-+    passed: mp.generator_family !== mp.evaluator_family,
-+    generatorModel: mp.generator_model,
-+    evaluatorModel: mp.evaluator_model,
-+  };
-+}
-+
- export default function InspectorPage({ params }: InspectorPageProps) {
-   const { runId } = use(params);
-+  const [ir, setIr] = useState<AuditIrRun | null>(null);
-   const [bundle, setBundle] = useState<EvidenceContract | null>(null);
-   const [error, setError] = useState<string | null>(null);
-   const [selectedEvidence, setSelectedEvidence] = useState<SourceSpan | null>(
-@@ -38,15 +89,28 @@ export default function InspectorPage({ params }: InspectorPageProps) {
-     "summary" | "sentences" | "frames" | "contradictions" | "pool" | "charts"
-   >("summary");
- 
-+  // I-rdy-008 (#504) slice 3 — dual-fetch transition state. The shell + the
-+  // Executive-summary tab read the faithful AuditIR (`getAuditRun`); the other
-+  // 5 tabs + EvidencePane still read the legacy bundle (`getBundle`). Slices
-+  // 4-7 migrate the remaining tabs, after which the `getBundle` call is
-+  // removed.
-   useEffect(() => {
-     let cancelled = false;
-+    getAuditRun(runId)
-+      .then((r) => {
-+        if (!cancelled) setIr(r);
-+      })
-+      .catch((err) => {
-+        if (!cancelled)
-+          setError(apiErrorMessage(err, "Run inspector load failed"));
-+      });
-     getBundle(runId)
-       .then((b) => {
-         if (!cancelled) setBundle(b);
-       })
-       .catch((err) => {
-         if (!cancelled)
--          setError(err instanceof Error ? err.message : "Bundle load failed");
-+          setError(apiErrorMessage(err, "Evidence bundle load failed"));
-       });
-     return () => {
-       cancelled = true;
-@@ -121,7 +185,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
-               id="inspector-error-heading"
-               className="text-foreground text-2xl font-semibold tracking-tight"
-             >
--              Bundle load failed
-+              Run inspector unavailable
-             </h1>
-             <p className="border-destructive/60 text-foreground mt-2 rounded-md border p-3 text-sm font-medium">
-               {error}
-@@ -129,66 +193,9 @@ export default function InspectorPage({ params }: InspectorPageProps) {
-           </section>
-         )}
- 
--        {bundle && (
-+        {ir && bundle && (
-           <>
--            <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
--              <Card>
--                <CardHeader>
--                  <CardDescription className="text-xs tracking-widest uppercase">
--                    Pipeline status
--                  </CardDescription>
--                  <CardTitle className="font-mono text-sm">
--                    {bundle.pipeline_status}
--                  </CardTitle>
--                </CardHeader>
--              </Card>
--              <Card
--                className={
--                  bundle.family_segregation_passed
--                    ? "border-emerald-500/40 bg-emerald-50/30"
--                    : "border-destructive/60"
--                }
--              >
--                <CardHeader>
--                  <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
--                    Two-family invariant
--                  </CardDescription>
--                  <CardTitle className="text-sm">
--                    {bundle.family_segregation_passed ? "PASS" : "FAIL"} ·{" "}
--                    {bundle.generator_model} → {bundle.verifier_model}
--                  </CardTitle>
--                </CardHeader>
--                {!bundle.family_segregation_passed && (
--                  <CardContent className="text-foreground text-sm font-medium">
--                    CLAUDE.md §9.1 invariant violated. Run output is suspect:
--                    generator and verifier share lineage. Re-run with
--                    family-segregated models before trusting verdicts.
--                  </CardContent>
--                )}
--              </Card>
--              <Card>
--                <CardHeader>
--                  <CardDescription className="text-xs tracking-widest uppercase">
--                    Cost
--                  </CardDescription>
--                  <CardTitle className="text-sm">
--                    USD {bundle.cost_usd.toFixed(2)}
--                  </CardTitle>
--                </CardHeader>
--              </Card>
--            </section>
--
--            <section className="flex flex-col gap-2">
--              <h1 className="text-foreground text-2xl font-semibold tracking-tight">
--                {bundle.question}
--              </h1>
--              <p className="text-muted-foreground text-sm">
--                Template:{" "}
--                <span className="text-foreground">{bundle.template}</span>
--                {" · "}Queued <time>{bundle.queued_at}</time>
--                {" · "}Finished <time>{bundle.finished_at}</time>
--              </p>
--            </section>
-+            <RunShell ir={ir} />
- 
-             <nav className="border-border flex gap-2 border-b">
-               {tabs.map((t) => (
-@@ -213,7 +220,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
-                 {activeTab === "summary" && (
-                   <ExecutiveSummaryTab
-                     runId={runId}
--                    bundle={bundle}
-+                    ir={ir}
-                     onSelect={(id) => setSelectedEvidence(evidenceById(id))}
-                   />
-                 )}
-@@ -261,6 +268,88 @@ export default function InspectorPage({ params }: InspectorPageProps) {
-   );
- }
- 
-+/**
-+ * Run shell — the 3 status cards + run-header, rendered from the faithful
-+ * AuditIR (I-rdy-008 #504 slice 3). `template` / `queued_at` / `finished_at`
-+ * are run_store lifecycle fields with no AuditIR equivalent; the header
-+ * instead shows the AuditIR-native `slug`, `scope_decision`, and
-+ * `created_at_iso` (the latter two only when `protocol` is recorded).
-+ */
-+function RunShell({ ir }: { ir: AuditIrRun }) {
-+  const twoFamily = twoFamilyState(ir);
-+  return (
-+    <>
-+      <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
-+        <Card>
-+          <CardHeader>
-+            <CardDescription className="text-xs tracking-widest uppercase">
-+              Pipeline status
-+            </CardDescription>
-+            <CardTitle className="font-mono text-sm">
-+              {ir.manifest.status}
-+            </CardTitle>
-+          </CardHeader>
-+        </Card>
-+        <Card
-+          className={
-+            !twoFamily.known
-+              ? ""
-+              : twoFamily.passed
-+                ? "border-emerald-500/40 bg-emerald-50/30"
-+                : "border-destructive/60"
-+          }
-+        >
-+          <CardHeader>
-+            <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
-+              Two-family invariant
-+            </CardDescription>
-+            <CardTitle className="text-sm">
-+              {!twoFamily.known
-+                ? "Model provenance not recorded"
-+                : `${twoFamily.passed ? "PASS" : "FAIL"} · ${twoFamily.generatorModel} → ${twoFamily.evaluatorModel}`}
-+            </CardTitle>
-+          </CardHeader>
-+          {twoFamily.known && !twoFamily.passed && (
-+            <CardContent className="text-foreground text-sm font-medium">
-+              CLAUDE.md §9.1 invariant violated. Run output is suspect:
-+              generator and evaluator share lineage. Re-run with
-+              family-segregated models before trusting verdicts.
-+            </CardContent>
-+          )}
-+        </Card>
-+        <Card>
-+          <CardHeader>
-+            <CardDescription className="text-xs tracking-widest uppercase">
-+              Cost
-+            </CardDescription>
-+            <CardTitle className="text-sm">
-+              USD {ir.manifest.cost_usd.toFixed(2)}
-+            </CardTitle>
-+          </CardHeader>
-+        </Card>
-+      </section>
-+
-+      <section className="flex flex-col gap-2">
-+        <h1 className="text-foreground text-2xl font-semibold tracking-tight">
-+          {ir.manifest.question}
-+        </h1>
-+        <p className="text-muted-foreground text-sm">
-+          Run <span className="text-foreground">{ir.manifest.slug}</span>
-+          {ir.protocol && (
-+            <>
-+              {" · "}Scope{" "}
-+              <span className="text-foreground">
-+                {ir.protocol.scope_decision}
-+              </span>
-+              {" · "}Created <time>{ir.protocol.created_at_iso}</time>
-+            </>
-+          )}
-+        </p>
-+      </section>
-+    </>
-+  );
-+}
-+
- function SentencesTab({
-   bundle,
-   evidenceById,
-@@ -458,17 +547,19 @@ function ContradictionsTab({
- 
- function ExecutiveSummaryTab({
-   runId,
--  bundle,
-+  ir,
-   onSelect,
- }: {
-   runId: string;
--  bundle: EvidenceContract;
-+  ir: AuditIrRun;
-   onSelect: (id: string) => void;
- }) {
-   /**
-    * F10c executive-summary infographic — composes all 3 chart types
-    * (forest_plot + comparison_table + timeline) into a single page-
-    * level briefing view, anchored by the run question + key counts.
-+   * I-rdy-008 #504 slice 3: counts + tier mix now read the faithful
-+   * AuditIR manifest/bibliography rather than the legacy bundle.
-    */
-   const chartTypes: ChartType[] = [
-     "forest_plot",
-@@ -506,18 +597,20 @@ function ExecutiveSummaryTab({
-     };
-   }, [runId]);
- 
--  const verifiedCount = bundle.verified_sentences.length;
--  const droppedCount = bundle.verified_sentences.filter(
--    (s) => s.drop_reason,
--  ).length;
--  const contradictionCount = bundle.contradictions.length;
--  const tierCounts = bundle.evidence_pool.reduce<Record<string, number>>(
--    (acc, span) => {
--      acc[span.source_tier] = (acc[span.source_tier] ?? 0) + 1;
-+  const verifiedCount = ir.manifest.sentences_verified;
-+  const droppedCount = ir.manifest.sentences_dropped;
-+  const contradictionCount = ir.manifest.contradictions_found;
-+  const tierCounts = ir.bibliography.reduce<Record<string, number>>(
-+    (acc, entry) => {
-+      acc[entry.tier] = (acc[entry.tier] ?? 0) + 1;
-       return acc;
-     },
-     {},
-   );
-+  const tierSummary = Object.keys(tierCounts)
-+    .sort()
-+    .map((tier) => `${tier}:${tierCounts[tier]}`)
-+    .join(" · ");
+-  const tabs: { id: typeof activeTab; label: string; count: number }[] = bundle
+-    ? [
+-        {
+-          id: "summary",
+-          label: "Executive summary",
+-          count: 3,
+-        },
+-        {
+-          id: "sentences",
+-          label: "Verified sentences",
+-          count: bundle.verified_sentences.length,
+-        },
+-        {
+-          id: "frames",
+-          label: "Frame coverage",
+-          count: bundle.frame_coverage.length,
+-        },
+-        {
+-          id: "contradictions",
+-          label: "Contradictions",
+-          count: bundle.contradictions.length,
+-        },
+-        {
+-          id: "pool",
+-          label: "Evidence pool",
+-          count: bundle.evidence_pool.length,
+-        },
+-        {
+-          id: "charts",
+-          label: "Charts",
+-          count: 3,
+-        },
+-      ]
+-    : [];
++  const tabs: { id: typeof activeTab; label: string; count: number }[] =
++    ir && bundle
++      ? [
++          {
++            id: "summary",
++            label: "Executive summary",
++            count: 3,
++          },
++          {
++            id: "sentences",
++            label: "Verified sentences",
++            count:
++              ir.verified_report.sentences_verified +
++              ir.verified_report.sentences_dropped,
++          },
++          {
++            id: "frames",
++            label: "Frame coverage",
++            count: bundle.frame_coverage.length,
++          },
++          {
++            id: "contradictions",
++            label: "Contradictions",
++            count: bundle.contradictions.length,
++          },
++          {
++            id: "pool",
++            label: "Evidence pool",
++            count: bundle.evidence_pool.length,
++          },
++          {
++            id: "charts",
++            label: "Charts",
++            count: 3,
++          },
++        ]
++      : [];
  
    return (
-     <div className="flex flex-col gap-4">
-@@ -526,10 +619,10 @@ function ExecutiveSummaryTab({
-           <CardDescription className="text-xs tracking-widest uppercase">
-             Executive briefing — at a glance
-           </CardDescription>
--          <CardTitle className="text-base">{bundle.template} run</CardTitle>
-+          <CardTitle className="text-base">{ir.manifest.slug} run</CardTitle>
-         </CardHeader>
-         <CardContent>
--          <p className="text-foreground text-sm">{bundle.question}</p>
-+          <p className="text-foreground text-sm">{ir.manifest.question}</p>
-           <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-             <div>
-               <p className="text-muted-foreground text-xs uppercase">
-@@ -556,10 +649,9 @@ function ExecutiveSummaryTab({
-             <div>
-               <p className="text-muted-foreground text-xs uppercase">Sources</p>
-               <p className="text-foreground text-xl font-semibold">
--                {bundle.evidence_pool.length}
-+                {ir.bibliography.length}
-                 <span className="text-muted-foreground ml-2 text-xs font-normal">
--                  T1:{tierCounts.T1 ?? 0} · T2:{tierCounts.T2 ?? 0} · T3:
--                  {tierCounts.T3 ?? 0}
-+                  {tierSummary || "no tiers"}
-                 </span>
-               </p>
-             </div>
-@@ -567,6 +659,29 @@ function ExecutiveSummaryTab({
-         </CardContent>
-       </Card>
+     <div className="flex min-h-screen flex-col">
+@@ -226,8 +230,8 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+                 )}
+                 {activeTab === "sentences" && (
+                   <SentencesTab
++                    ir={ir}
+                     bundle={bundle}
+-                    evidenceById={evidenceById}
+                     onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                     onJumpToContradictions={() =>
+                       setActiveTab("contradictions")
+@@ -350,38 +354,62 @@ function RunShell({ ir }: { ir: AuditIrRun }) {
+   );
+ }
  
-+      {ir.report_md && (
-+        <Card>
-+          <CardHeader>
-+            <CardDescription className="text-xs tracking-widest uppercase">
-+              Verified report
-+            </CardDescription>
-+            <CardTitle className="text-sm">
-+              Full markdown · {ir.manifest.word_count} words
-+            </CardTitle>
-+          </CardHeader>
-+          <CardContent>
-+            <details>
-+              <summary className="text-muted-foreground cursor-pointer text-xs">
-+                View full verified report (raw markdown)
-+              </summary>
-+              <pre className="bg-muted text-foreground mt-2 max-h-[32rem] overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap">
-+                {ir.report_md}
-+              </pre>
-+            </details>
-+          </CardContent>
-+        </Card>
-+      )}
++/**
++ * Slug of a section title — mirrors the backend `_slugify` in
++ * `src/polaris_v6/api/artifact_to_slice_chain.py`
++ * (`re.sub(r"[^a-z0-9_]+", "_", text.lower()).strip("_")[:60]`) so an
++ * AuditIR section title (`AuditIrSentence.section`, a display title) can be
++ * matched against the legacy bundle's slugified `contradictions[].section_id`.
++ */
++function slugifySection(text: string): string {
++  return (text || "")
++    .toLowerCase()
++    .replace(/[^a-z0-9_]+/g, "_")
++    .replace(/^_+|_+$/g, "")
++    .slice(0, 60);
++}
 +
-       {chartTypes.map((t) => {
-         const spec = specs[t];
-         if (!spec) {
++/**
++ * I-rdy-008 (#504) slice 4 — the verified-sentences tab reads the faithful
++ * AuditIR `verified_report.sections[].sentences[]` (flattened) instead of the
++ * legacy flat `bundle.verified_sentences`. The contradiction-in-section
++ * cross-link stays bundle-backed (AuditIR contradiction clusters carry no
++ * section field); the contradictions tab itself migrates in a later slice.
++ */
+ function SentencesTab({
++  ir,
+   bundle,
+-  evidenceById,
+   onSelect,
+   onJumpToContradictions,
+ }: {
++  ir: AuditIrRun;
+   bundle: EvidenceContract;
+-  evidenceById: (id: string) => SourceSpan | null;
+   onSelect: (id: string) => void;
+   onJumpToContradictions: () => void;
+ }) {
+-  if (bundle.verified_sentences.length === 0) {
++  const sentences = ir.verified_report.sections.flatMap((sec) => sec.sentences);
++  if (sentences.length === 0) {
+     return (
+       <p className="text-muted-foreground text-sm">
+         No verified sentences. Pipeline status:{" "}
+-        <span className="font-mono">{bundle.pipeline_status}</span>.
++        <span className="font-mono">{ir.manifest.status}</span>.
+       </p>
+     );
+   }
+   const sectionsWithContradictions = new Set(
+     bundle.contradictions.map((c) => c.section_id),
+   );
++  const bibById = (id: string): AuditIrBibliographyEntry | null =>
++    ir.bibliography.find((b) => b.evidence_id === id) ?? null;
+   return (
+     <ul className="flex flex-col gap-3">
+-      {bundle.verified_sentences.map((s, idx) => (
+-        <li key={idx}>
++      {sentences.map((s) => (
++        <li key={s.claim_id}>
+           <Card>
+             <CardHeader>
+               <CardDescription className="text-xs tracking-widest uppercase">
+-                {s.section_id} · {s.verifier_local_pass ? "local✓" : "local✗"} ·{" "}
+-                {s.verifier_global_pass ? "global✓" : "global✗"}
+-                {sectionsWithContradictions.has(s.section_id) && (
++                {s.section} · {s.is_verified ? "verified✓" : "verified✗"}
++                {sectionsWithContradictions.has(slugifySection(s.section)) && (
+                   <button
+                     type="button"
+                     onClick={onJumpToContradictions}
+@@ -394,16 +422,19 @@ function SentencesTab({
+             </CardHeader>
+             <CardContent>
+               <p className="text-sm">
+-                {renderSentenceWithTokens(
+-                  s.sentence_text,
+-                  onSelect,
+-                  evidenceById,
+-                )}
++                {renderSentenceWithTokens(s.text, onSelect, bibById)}
+               </p>
+-              {s.drop_reason && (
+-                <p className="text-foreground mt-2 text-xs font-medium">
+-                  Dropped: {s.drop_reason}
+-                </p>
++              {s.failure_reasons.length > 0 && (
++                <ul className="mt-2 flex flex-col gap-1">
++                  {s.failure_reasons.map((reason, ridx) => (
++                    <li
++                      key={ridx}
++                      className="text-foreground text-xs font-medium"
++                    >
++                      Dropped: {reason}
++                    </li>
++                  ))}
++                </ul>
+               )}
+             </CardContent>
+           </Card>
+@@ -416,7 +447,7 @@ function SentencesTab({
+ function renderSentenceWithTokens(
+   text: string,
+   onSelect: (id: string) => void,
+-  evidenceById?: (id: string) => SourceSpan | null,
++  bibById?: (id: string) => AuditIrBibliographyEntry | null,
+ ): React.ReactNode {
+   const parts: React.ReactNode[] = [];
+   const re = /\[#ev:([^:\]]+):\d+-\d+\]/g;
+@@ -425,14 +456,14 @@ function renderSentenceWithTokens(
+   while ((match = re.exec(text)) !== null) {
+     if (match.index > last) parts.push(text.slice(last, match.index));
+     const evidenceId = match[1];
+-    const span = evidenceById?.(evidenceId);
++    const bib = bibById?.(evidenceId);
+     parts.push(
+       <EvidenceTooltip
+         key={`${match.index}-${evidenceId}`}
+         evidenceId={evidenceId}
+-        sourceUrl={span?.source_url}
+-        spanText={span?.span_text}
+-        sourceTier={span?.source_tier}
++        sourceUrl={bib?.url}
++        spanText={bib?.statement}
++        sourceTier={bib?.tier}
+         onClickToInspect={() => onSelect(evidenceId)}
+       >
+         {match[0]}
+diff --git a/web/components/ui/evidence-tooltip.tsx b/web/components/ui/evidence-tooltip.tsx
+index ef965dfe..3d1f719c 100644
+--- a/web/components/ui/evidence-tooltip.tsx
++++ b/web/components/ui/evidence-tooltip.tsx
+@@ -7,7 +7,7 @@ interface EvidenceTooltipProps {
+   evidenceId: string;
+   sourceUrl?: string;
+   spanText?: string;
+-  sourceTier?: "T1" | "T2" | "T3";
++  sourceTier?: string;
+   /**
+    * I-f6-001: optional publication-date string surfaced in the popup
+    * as `Published: <date>`. When undefined/null, the line is omitted.
 
-# canonical-diff-sha256: 8ea6e55dd98b99975f6bdbb9e8a82d5e3a057cba426022ab7d5b699fdc3c7aba
+# canonical-diff-sha256: f82f2c34fee37b0c21548f8d86e5ce7fd4533ec4ab5480c941ceadbc3fbae2f3
