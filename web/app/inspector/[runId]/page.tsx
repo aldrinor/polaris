@@ -139,7 +139,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
           {
             id: "frames",
             label: "Frame coverage",
-            count: bundle.frame_coverage.length,
+            count: ir.frame_coverage.entries.length,
           },
           {
             id: "contradictions",
@@ -238,7 +238,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
                     }
                   />
                 )}
-                {activeTab === "frames" && <FramesTab bundle={bundle} />}
+                {activeTab === "frames" && <FramesTab ir={ir} />}
                 {activeTab === "contradictions" && (
                   <ContradictionsTab
                     bundle={bundle}
@@ -475,37 +475,142 @@ function renderSentenceWithTokens(
   return <>{parts}</>;
 }
 
-function FramesTab({ bundle }: { bundle: EvidenceContract }) {
-  if (bundle.frame_coverage.length === 0) {
+/** Heuristic color for a frame-coverage entry status (free string). */
+function frameStatusClass(status: string): string {
+  if (status === "pass") return "bg-emerald-100 text-emerald-900";
+  if (status === "partial") return "bg-amber-100 text-amber-900";
+  return "bg-red-100 text-red-900";
+}
+
+/**
+ * I-rdy-008 (#504) slice 5 — the frame-coverage tab reads the faithful
+ * AuditIR `frame_coverage` report (retrieval-coverage manifest) instead of
+ * the legacy flat bundle list. AuditIR entries carry a discrete `status`
+ * (not a coverage percentage), so the per-frame progress bar is replaced by
+ * a report-level summary + per-entry status badges.
+ */
+function FramesTab({ ir }: { ir: AuditIrRun }) {
+  const fc = ir.frame_coverage;
+  if (fc.entries.length === 0) {
     return <p className="text-muted-foreground text-sm">No frame coverage.</p>;
   }
   return (
-    <ul className="flex flex-col gap-2">
-      {bundle.frame_coverage.map((f) => (
-        <li key={f.frame_id}>
-          <Card>
-            <CardHeader>
-              <CardDescription className="text-xs tracking-widest uppercase">
-                {f.frame_id}
-              </CardDescription>
-              <CardTitle className="text-base">{f.frame_name}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="bg-muted h-2 w-full overflow-hidden rounded">
-                <div
-                  className="bg-foreground h-full"
-                  style={{ width: `${f.coverage_percent}%` }}
-                />
-              </div>
-              <p className="text-muted-foreground mt-2 text-xs">
-                {f.sources_assigned} sources · {f.coverage_percent.toFixed(1)}%
-                coverage
-              </p>
-            </CardContent>
-          </Card>
-        </li>
-      ))}
-    </ul>
+    <div className="flex flex-col gap-3">
+      {fc.semantics_warning && (
+        <p
+          role="note"
+          className="border-border text-muted-foreground rounded-md border p-3 text-xs"
+        >
+          {fc.semantics_warning}
+        </p>
+      )}
+      <Card className="border-foreground/30 bg-muted/20">
+        <CardHeader>
+          <CardDescription className="text-xs tracking-widest uppercase">
+            Frame coverage — retrieval manifest
+          </CardDescription>
+          <CardTitle className="text-sm">
+            {fc.pass_count} pass · {fc.partial_count} partial ·{" "}
+            {fc.frame_gap_count} gap · {fc.pipeline_fault_count} pipeline-fault
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground text-xs">
+            {fc.total_entities} entities · {fc.total_slots} slots · schema{" "}
+            {fc.schema_version}
+          </p>
+        </CardContent>
+      </Card>
+      <ul className="flex flex-col gap-2">
+        {fc.entries.map((e, idx) => (
+          <li key={`${e.entity_id}:${e.slot_id}:${idx}`}>
+            <Card>
+              <CardHeader>
+                <CardDescription className="text-xs tracking-widest uppercase">
+                  {e.section}
+                  {e.slot_id && ` · ${e.slot_id}`}
+                  <span
+                    className={`ml-2 inline-flex items-center rounded px-2 py-0.5 text-xs font-medium normal-case ${frameStatusClass(e.status)}`}
+                  >
+                    {e.status}
+                  </span>
+                </CardDescription>
+                <CardTitle className="text-base">
+                  {e.subsection_title || e.entity_id}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-1 text-xs">
+                <p className="text-muted-foreground">
+                  {e.entity_type} · provenance: {e.provenance_class}
+                  {e.is_pipeline_fault && " · pipeline-fault"}
+                </p>
+                {e.failure_reason && (
+                  <p className="text-foreground font-medium">
+                    {e.failure_reason}
+                  </p>
+                )}
+                {(e.doi || e.pmid) && (
+                  <p className="text-muted-foreground">
+                    {e.doi && (
+                      <a
+                        href={`https://doi.org/${e.doi}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline-offset-4 hover:underline"
+                      >
+                        DOI {e.doi}
+                      </a>
+                    )}
+                    {e.doi && e.pmid && " · "}
+                    {e.pmid && (
+                      <a
+                        href={`https://pubmed.ncbi.nlm.nih.gov/${e.pmid}/`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline-offset-4 hover:underline"
+                      >
+                        PMID {e.pmid}
+                      </a>
+                    )}
+                  </p>
+                )}
+                {e.retrieval_attempt_log.length > 0 && (
+                  <details className="mt-1">
+                    <summary className="text-muted-foreground cursor-pointer">
+                      Retrieval attempts ({e.retrieval_attempt_log.length})
+                    </summary>
+                    <ul className="mt-1 flex flex-col gap-1">
+                      {e.retrieval_attempt_log.map((a) => (
+                        <li
+                          key={a.attempt_index}
+                          className="text-muted-foreground"
+                        >
+                          #{a.attempt_index} · {a.source} · {a.outcome}
+                          {a.http_status != null && ` · HTTP ${a.http_status}`}
+                          {a.url && (
+                            <>
+                              {" · "}
+                              <a
+                                href={a.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline-offset-4 hover:underline"
+                              >
+                                {a.url}
+                              </a>
+                            </>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </CardContent>
+            </Card>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
