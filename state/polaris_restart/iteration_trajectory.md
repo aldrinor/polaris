@@ -340,3 +340,13 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. ast.parse 2/2; pytest test_backup_gpg_sign 2 passed + 4 skipped (key tests skip on Windows gpg-agent — run on CI Linux), test_backup_restore 6/6 regression-free. Production ~97 LOC, test ~283 LOC (mandatory acceptance test). P1 trajectory: 1→1→0.
+
+## I-hygiene-001 (#432) — root-folder hygiene: .gitignore re-accumulation hardening
+
+### Brief review
+- iter 1: REQUEST_CHANGES — 2 P1 (dot-pytest pattern must carry trailing `*`; shadowing check needs `--no-index` — bare `git check-ignore` skips tracked paths → vacuous).
+- iter 2: REQUEST_CHANGES — 1 P1 (`--no-index` against whole .gitignore reports pre-existing tracked-path matches → "empty" not a truthful gate; scope the check to the new block's line range).
+- iter 3: APPROVE — 0 P0/P1, 2 non-blocking P2 (.pytest_cache already ignored by line 41 — audit-text accuracy; separate global-excludes permission warning — both folded into claude_audit.md). convergence continue. P1 trajectory 2→1→0. One small slice of #432 per Codex disposition B_close_recut_fresh after PR #433 (233-file mega-PR) closed: .gitignore gains 21 anchored root-only patterns for the ~150 observed scratch-dir families. #432 stays open (physical archiving is Windows-ACL user-gated; .codex/ mass-archive deferred).
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md alongside .gitignore — expected process metadata; the code commit be777332 is .gitignore only +27/-0). convergence accept_remaining. Shadowing check (lines 166-186) empty; positive coverage 23/23 dirs; no CRLF reflow. P1 trajectory 0.
