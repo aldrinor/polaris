@@ -445,3 +445,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (accepted residual — golden-run artifact_dirs may lack evidence_pool.json so the Pool tab can render "Evidence unavailable" rather than grouped spans; demo-hardening follow-up, not a slice-7c blocker — the terminal-state test passes either way). convergence accept_remaining. web/tests/e2e/inspector.spec.ts +26/-7 (one CI-run e2e spec — stale EvidenceContract header comment + Export-button test → terminal-state Pool-tab test). prettier/lint(0 err)/tsc/build green. ~33k tokens.
+
+## I-rdy-008 (#504) slice 8 — migrate the charts route off golden fixtures onto run_store + chart_from_audit_ir
+
+Two Codex consults preceded slice 8: scope consult (Option A — #504 residual = charts) + charts arch consult (Option A — run_store/AuditIR + a new chart_from_audit_ir derivation; no artifact→EvidenceContract bridge, no fabricated coverage_percent/CIs). Slice 8 is #504's FINAL slice.
+
+### Brief review
+- iter 1: REQUEST_CHANGES — 0 P0, 2 P1 (P1-1: test_api_charts.py assumed golden_* IDs resolve via run_store, but its client fixture uses the default DB with no golden rows → 404 after migration; must seed an isolated run_store like test_inspector_route.py. P1-2: the no-contradiction forest fallback computes kept_count/total_in, but loader.py defaults a missing total_in to 0 → ZeroDivisionError → 500; guard total_in<=0). convergence continue. ~106k tokens.
+- iter 2: APPROVE — 0 P0/P1, 3 non-blocking P2 (shared seed helpers in a tests/v6 helper module not a cross-test import; skip zero-token timeline sentences rather than using claim_id as evidence_id; forest label = subject or predicate or cluster-{id} to avoid blank y-axis labels — all 3 baked into commit 1). convergence accept_remaining. Fixes: test_api_charts.py rewritten onto a seeded isolated run_store; _forest_plot skips total_in<=0 sections. Slice 8 = charts.py run_store/AuditIR migration + new src/polaris_v6/charts/from_audit_ir.py + run_resolver.py extraction + tests/v6/_audit_ir_fixtures.py. ~76k tokens.
