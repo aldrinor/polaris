@@ -3,6 +3,7 @@ novel_p0: []
 continuing_p0: []
 p1: []
 p2:
-  - "scope: after the requested exclusions, the diff still includes `state/polaris_restart/iteration_trajectory.md:412` in addition to `web/app/inspector/[runId]/page.tsx`, despite the stated one-file scope. Non-execution process metadata, not a blocker."
+  - "Scope metadata: canonical/branch diff also includes state/polaris_restart/iteration_trajectory.md:420, despite the stated 2-file slice scope. Process metadata only; not an execution blocker."
+  - "Test gap: tests cover same evidence_id with different ranges, but not two sentences citing the same (evidence_id,start,end) aggregating two claim_ids. Implementation appears correct."
 convergence_call: accept_remaining
 remaining_blockers_for_execution: []
