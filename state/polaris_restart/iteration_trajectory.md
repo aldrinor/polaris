@@ -375,4 +375,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 2: APPROVE — 0 P0/P1, 1 non-blocking P2 (also catch plain ValueError/TypeError from the loader — folded in). convergence accept_remaining. P1 trajectory 1→0. Slice 1 of ~12 for #504, Option A (Codex arch-decision consult verdict A — migrate the rich UI onto run_id→artifact_dir→load_audit_ir()→AuditIR). New src/polaris_v6/api/inspector.py — GET /api/inspector/runs/{run_id}; demo-scoped v6 facade (does NOT wholesale-mount inspector_router.py per the consult stale-correction). Backend only.
 
 ### Diff review
-- (pending — Codex diff review iter 1)
+- iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected; no explicit malformed-artifact_dir test — impl handles it). convergence accept_remaining. ast.parse 3/3; pytest 11 passed (5 new + 6 health/runs regression-free). Backend slice — no frontend. P1 trajectory 0.
