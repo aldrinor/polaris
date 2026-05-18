@@ -30,7 +30,13 @@ Usage:
     python scripts/v6/backup_orchestrator_state.py backup \
         [--db PATH] [--artifact-root PATH] [--dest DIR]
     python scripts/v6/backup_orchestrator_state.py restore \
-        --archive PATH [--db PATH] [--expect-sha256 HEX] [--force]
+        --archive PATH [--db PATH] [--expect-sha256 HEX] [--force] [--verify-sig]
+
+`backup` writes an optional GPG detached signature `<archive>.asc` when
+`POLARIS_GPG_KEY_ID` is set (the same demo key the audit-bundle signer uses);
+it no-ops gracefully to sha256-only integrity when the env var is unset.
+`restore --verify-sig` runs `gpg --verify` over `<archive>.asc` before
+extraction and fails loud on a bad / absent signature.
 """
 
 from __future__ import annotations
@@ -71,6 +77,79 @@ def _sha256_file(path: Path) -> str:
 
 def _utc_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _maybe_sign_archive(archive: Path) -> None:
+    """Write a GPG detached signature `<archive>.asc` when POLARIS_GPG_KEY_ID is set.
+
+    No-ops gracefully (sha256-only integrity) when the key id is unset, so a
+    backup on a box without the demo key still succeeds. Fails loud if signing
+    is requested but gpg cannot produce a signature (CLAUDE.md LAW II — never
+    leave a backup that silently lacks the signature it claims).
+    """
+    key_id = os.environ.get("POLARIS_GPG_KEY_ID", "").strip() or None
+    if key_id is None:
+        print("  gpg: POLARIS_GPG_KEY_ID unset — sha256-only, no .asc signature")
+        return
+    import gnupg  # lazy: the sha256-only path must not require python-gnupg
+
+    gpg = gnupg.GPG(gnupghome=os.environ.get("GNUPGHOME") or None)
+    passphrase = os.environ.get("POLARIS_GPG_PASSPHRASE") or None
+    # No `output=`: a successful detached `sign_file(output=...)` writes the
+    # file but leaves `.data` empty — capture the armored signature from
+    # `.data` and write it ourselves (the proven gpg_signer.py pattern).
+    with open(archive, "rb") as fh:
+        signed = gpg.sign_file(fh, keyid=key_id, detach=True, passphrase=passphrase)
+    if not signed or not getattr(signed, "data", None):
+        _fail(
+            f"gpg signing requested (POLARIS_GPG_KEY_ID={key_id}) but failed: "
+            f"status={getattr(signed, 'status', None)!r} "
+            f"stderr={getattr(signed, 'stderr', '')!r}"
+        )
+    sig = signed.data if isinstance(signed.data, bytes) else str(signed).encode("utf-8")
+    asc_path = archive.parent / f"{archive.name}.asc"
+    asc_path.write_bytes(sig)
+    print(f"  gpg: signed -> {asc_path.name}")
+
+
+def _verify_archive_signature(archive: Path) -> None:
+    """Verify `<archive>.asc` against the archive; fail loud on bad/absent sig.
+
+    Invoked by `restore --verify-sig`. When POLARIS_GPG_KEY_ID is set to a hex
+    key id / fingerprint the signing key is also pinned — a valid signature
+    from an unexpected key is rejected (matched against both the signature
+    fingerprint and the primary-key fingerprint, so a subkey signature still
+    passes). A non-hex selector (email / user-id) is not fingerprint-matched.
+    """
+    asc = archive.parent / f"{archive.name}.asc"
+    if not asc.is_file():
+        _fail(f"--verify-sig given but no signature {asc.name} beside the archive")
+    import gnupg  # lazy
+
+    gpg = gnupg.GPG(gnupghome=os.environ.get("GNUPGHOME") or None)
+    with open(asc, "rb") as sf:
+        verified = gpg.verify_file(sf, str(archive))
+    if not verified or not getattr(verified, "valid", False):
+        _fail(
+            f"GPG signature verification FAILED for {archive.name}: "
+            f"status={getattr(verified, 'status', None)!r}"
+        )
+    key_id = os.environ.get("POLARIS_GPG_KEY_ID", "").strip()
+    if key_id:
+        kid = key_id.upper()
+        if all(c in "0123456789ABCDEF" for c in kid):  # hex id/fingerprint
+            fps = {
+                (verified.fingerprint or "").upper(),
+                (getattr(verified, "pubkey_fingerprint", "") or "").upper(),
+            }
+            if not any(fp and fp.endswith(kid) for fp in fps):
+                _fail(
+                    f"GPG signature is valid but from an unexpected key for "
+                    f"{archive.name}: got fingerprint={verified.fingerprint}, "
+                    f"pubkey_fingerprint={getattr(verified, 'pubkey_fingerprint', None)}"
+                    f", expected POLARIS_GPG_KEY_ID={key_id}"
+                )
+    print(f"  gpg: signature verified (fingerprint {verified.fingerprint})")
 
 
 def _assert_no_symlinks(root: Path) -> None:
@@ -180,6 +259,9 @@ def cmd_backup(args: argparse.Namespace) -> None:
     (archive.parent / f"{archive.name}.sha256").write_text(
         f"{digest}  {archive.name}\n", encoding="utf-8"
     )
+    # Optional GPG detached signature — runs before the success print so a
+    # signing failure (fail-loud) is never masked by a "backup OK" message.
+    _maybe_sign_archive(archive)
     print(f"backup OK: {archive}")
     print(f"  sha256: {digest}")
     print(f"  runs: {row_count}  artifact dirs: {len(run_ids)}  files: {artifact_file_count}")
@@ -215,6 +297,9 @@ def cmd_restore(args: argparse.Namespace) -> None:
     actual = _sha256_file(archive)
     if actual != expected:
         _fail(f"archive sha256 mismatch (expected {expected}, got {actual}) — refusing restore")
+
+    if args.verify_sig:
+        _verify_archive_signature(archive)
 
     db_path = Path(args.db).resolve()
 
@@ -284,6 +369,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="replace an existing destination DB / artifact dir (never merges)",
+    )
+    restore.add_argument(
+        "--verify-sig",
+        action="store_true",
+        help="GPG-verify <archive>.asc before extraction; fail loud on a "
+        "bad/absent signature",
     )
     restore.set_defaults(func=cmd_restore)
     return parser
