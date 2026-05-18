@@ -146,7 +146,7 @@ index 2124d887..d3a936a2 100644
      return parser
  
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 5c641f0a..feb57c96 100644
+index 5c641f0a..b3c879ba 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -330,3 +330,13 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -162,7 +162,7 @@ index 5c641f0a..feb57c96 100644
 +- iter 3: APPROVE — 0 P0/P1, 1 non-blocking P2 (expected-key check also consider pubkey_fingerprint for subkeys — folded into impl). convergence accept_remaining. Code+test feature: env-gated detached sign on backup + restore --verify-sig; python-gnupg direct (script self-contained); requirements-v6.txt += python-gnupg==0.5.6; new tests/v6/test_backup_gpg_sign.py (6 tests).
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. ast.parse 2/2; pytest test_backup_gpg_sign 2 passed + 4 skipped (key tests skip on Windows gpg-agent — run on CI Linux), test_backup_restore 6/6 regression-free. Production ~97 LOC, test ~283 LOC (mandatory acceptance test). P1 trajectory: 1→1→0.
 diff --git a/tests/v6/test_backup_gpg_sign.py b/tests/v6/test_backup_gpg_sign.py
 new file mode 100644
 index 00000000..8e54020e
@@ -452,4 +452,4 @@ index 00000000..8e54020e
 +        "restore --verify-sig must reject a valid signature from an unexpected key"
 +    )
 +    assert "unexpected key" in result.stderr.lower(), result.stderr
-# canonical-diff-sha256: 164be8d43e5d9952b4e7893e4d340c3f9ab83d80f142b715f3facccf6376774b
+# canonical-diff-sha256: 97afff262f9c9ba2a4e43805170d1f6d6bb034cb968334248cc2e67d6121a7c2
