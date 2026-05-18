@@ -505,3 +505,6 @@ Recut of PR #541 (`bot/I-rdy-013-concurrent-session-limit`): #541 earned Codex b
 
 ### Brief review
 - iter 1: APPROVE — 0 P0/P1/P2. convergence accept_remaining. Recut brief front-loaded #541's prior brief APPROVE iter-3 + diff APPROVE iter-2, the recut/staleness rationale, and the #509↔#505/#506/#507 layering (esp. the run_store.py overlap — keep #507's `_RUN_COLUMNS`/`_row_to_response`, add only #509's net-new). 6 files, +517/-32. ~114k tokens.
+
+### Diff review
+- iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (iteration_trajectory.md in the canonical/live diff alongside the 6 execution files — process metadata only, standard per-issue pattern). convergence accept_remaining. Codex confirmed: the atomic `BEGIN IMMEDIATE` 1-session gate, `busy_timeout` no-crash, the structured-409 + `ConcurrentRunError` + callout UX, the enqueue-failure `mark_failed` slot-free (the 409 branch does NOT mark_failed — no row inserted), the run_store.py #507-overlap handling (no duplicate `_RUN_COLUMNS`/`_row_to_response`), and the conftest autouse fixture composing. 6 source files + trajectory.md. ~129k tokens.
