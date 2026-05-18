@@ -1,0 +1,17 @@
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index fe410f1a..2db8786e 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -350,3 +350,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md alongside .gitignore — expected process metadata; the code commit be777332 is .gitignore only +27/-0). convergence accept_remaining. Shadowing check (lines 166-186) empty; positive coverage 23/23 dirs; no CRLF reflow. P1 trajectory 0.
++
++## I-beat-001 (#400) — finalize the BEAT-BOTH proof (definitive summary)
++
++### Brief review
++- iter 1: APPROVE — 0 P0/P1, 4 P2 (bound headline numbers to the 55-claim audited sample; word Q1-Q4 support as produced-reports + sampled cross-review not full per-sentence audits; scope GRADE/Cochrane to clinical claims only; de-dup the Q5-C4 follow-up against existing #422). convergence accept_remaining. All 4 P2 folded into the implementation. Finalizes #400 per operator "finalize as-is, no rerun" — consolidates the completed 55-claim cross-review (cross_review_v12) into the definitive BEAT_BOTH_SUMMARY.md superseding stale v3; pure doc consolidation, no generation run.
++
++### Diff review
++- (pending — Codex diff review iter 1)
+# canonical-diff-sha256: 7c5a5f9a7171ce111f03eb081ecc2436caf2811140ac140f81b8efde5b6a1cfc
