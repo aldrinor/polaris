@@ -2127,6 +2127,27 @@ async def run_one_query(
                     f"{_p2_exc} — falling back to legacy generator"
                 )
 
+        # I-rdy-010 (#506): inject sovereignty-cleared uploaded-document
+        # evidence. Prepended onto evidence_for_gen (mirroring the V30-P2
+        # contract-row prepend above) so it flows into the generator AND
+        # ev_pool -> evidence_pool.json -> the report bibliography.
+        _upload_docs = q.get("uploaded_documents") or []
+        if _upload_docs:
+            from polaris_v6.adapters.upload_evidence import (
+                build_upload_evidence_rows,
+            )
+            _upload_rows = build_upload_evidence_rows(_upload_docs)
+            if _upload_rows:
+                evidence_for_gen = _upload_rows + list(evidence_for_gen)
+            _log(
+                f"[upload]      injected {len(_upload_rows)} evidence row(s) "
+                f"from {len(_upload_docs)} uploaded document(s)"
+            )
+        summary["uploaded_documents_used"] = len(_upload_docs)
+        summary["uploaded_documents_blocked"] = int(
+            q.get("uploaded_documents_blocked_count", 0) or 0
+        )
+
         multi = await generate_multi_section_report(
             research_question=q["question"],
             evidence=evidence_for_gen,
@@ -2745,6 +2766,11 @@ async def run_one_query(
             "domain": q["domain"],
             "question": q["question"],
             "status": unified_status,
+            # I-rdy-010 (#506): uploaded-document grounding + sovereignty proof.
+            "uploaded_documents_used": summary.get("uploaded_documents_used", 0),
+            "uploaded_documents_blocked": summary.get(
+                "uploaded_documents_blocked", 0
+            ),
             # BUG-M-205: evaluator gate decision surfaced to downstream
             "release_allowed": eval_gate.release_allowed,
             "evaluator_gate": eval_gate.to_dict(),

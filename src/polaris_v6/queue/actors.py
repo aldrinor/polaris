@@ -113,6 +113,27 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
         "template_id": template_id,
     }
 
+    # I-rdy-010 (#506): sovereignty-filter uploaded documents before they
+    # become generator evidence. The pipeline generator is an external LLM
+    # call; only PUBLIC_SYNTHETIC uploads may egress. CLIENT / CAN_REAL /
+    # PRIVATE / UNKNOWN are blocked — recorded metadata-only (counts, never
+    # document text) and never forwarded into the q-dict / pipeline.
+    from polaris_v6.adapters.upload_evidence import partition_uploads_by_sovereignty
+
+    uploaded_documents = request_payload.get("uploaded_documents") or []
+    allowed_uploads, blocked_uploads = partition_uploads_by_sovereignty(
+        uploaded_documents
+    )
+    q["uploaded_documents"] = allowed_uploads
+    q["uploaded_documents_blocked_count"] = len(blocked_uploads)
+    if uploaded_documents:
+        logger.info(
+            "[actor] uploads run_id=%s used=%d blocked=%d",
+            run_id,
+            len(allowed_uploads),
+            len(blocked_uploads),
+        )
+
     # I-arch-001b: synthesize v30.1 contract patch from v6 template's
     # frame_manifest. Pipeline-A merges this into the scope template's
     # per_query_report_contract before compile_frame / load_report_contract_for_slug.
