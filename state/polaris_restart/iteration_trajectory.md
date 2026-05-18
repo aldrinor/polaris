@@ -400,3 +400,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff alongside the 2 code files — expected process metadata, same note as slices 1-3). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +95/-59 + evidence-tooltip.tsx sourceTier widening. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~104k tokens.
+
+## I-rdy-008 (#504) slice 5 — migrate the frame-coverage tab to the AuditIR client
+
+### Brief review
+- iter 1: APPROVE — 0 P0/P1, 1 P2 (all 5 §3 scope-boundary calls ruled accept: no per-entry coverage_percent → status badge + report-level summary; entity/slot identifiers replace frame_id/frame_name; semantics_warning disclosure banner; collapsible retrieval_attempt_log in slice 5; raw-status heuristic coloring). convergence continue (verdict APPROVE, 0 P0/P1). Slice 5 of ~12 for #504, Option A. web/app/inspector/[runId]/page.tsx only — FramesTab migrates off EvidenceContract onto AuditIR frame_coverage (AuditIrFrameCoverageReport → entries → retrieval_attempt_log); ContradictionsTab/ChartsTab/PoolTab/EvidencePane intentionally untouched (slices 6-7). ~33k tokens.
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected process metadata; zero-entry frame_coverage returns the empty-state before the report-level semantics_warning/summary — Codex explicitly "edge-case UI omission, not an execution blocker", accepted-residual: a run with zero frame entries does not occur in practice). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +140/-30 — FramesTab on AuditIR frame_coverage. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~54k tokens.
