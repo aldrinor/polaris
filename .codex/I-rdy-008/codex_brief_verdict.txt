@@ -3,7 +3,7 @@ novel_p0: []
 continuing_p0: []
 p1: []
 p2:
-  - "Non-blocking implementation note: render source_url as a link only when non-empty, since the loader defaults missing source_url to ''."
-  - "Scope calls accepted: 3.1 N-claim list redesign; 3.2 subject/predicate/severity header with cluster_id key-only; 3.3 recommended_action as the resolution successor; 3.4 bundle-backed onSelect during dual-fetch; 3.5 full claim detail rendering; 3.6 no SentencesTab action."
+  - "3.2: Accept, but mirror the precedent completely: support `source_id` as an id alias in addition to `evidence_id`; for metadata, prefer `source_url` with `url` as a harmless fallback."
+  - "Test plan should add focused coverage for zero-token 200, malformed `evidence_pool.json`, missing body text, and the `{\"sources\": [...]}` container/field-precedence path. These are coverage gaps, not execution blockers."
 convergence_call: accept_remaining
 remaining_blockers_for_execution: []

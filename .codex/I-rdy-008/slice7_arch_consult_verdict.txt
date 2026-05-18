@@ -1,0 +1,56 @@
+# Codex architecture consult — I-rdy-008 (#504) slice 7
+# Slimmed to the verdict block; the raw exec transcript is discarded per the
+# verdict-only .codex artifact rule. Consult brief: slice7_arch_consult.md.
+
+verdict: >
+  Reject the frontend-only bibliography fallback. The blocker is solvable
+  without a generator change: live runs DO persist the source text in
+  evidence_pool.json. Slice 7 splits into a backend evidence-span facade, then
+  a frontend migration that removes inspector-page dependence on getBundle().
+  Do not coerce this back through EvidenceContract; preserve AuditIR tiers and
+  range-keyed tokens.
+
+span_text_source_for_live_runs: >
+  artifact_dir/evidence_pool.json. Pipeline-A strict_verify verifies tokens
+  against each row's direct_quote (fallback statement), and
+  scripts/run_honest_sweep_r3.py persists that pool after verification. The
+  exact displayed span is reconstructed as body[start:end] for each token in
+  verification_details.json. No 7a-pre generator persistence slice is needed
+  for current HEAD; older artifacts missing evidence_pool.json must fail loud,
+  not fall back to bibliography.statement.
+
+decomposition:
+  - slice: 7a (backend) — new v6 route GET /api/inspector/runs/{run_id}/evidence,
+    reusing run_store -> artifact_dir -> load_audit_ir() resolution; read
+    evidence_pool.json, derive range-keyed spans from ir.verified_report
+    tokens, return source_url, raw tier, span_start/end, span_text, claim_ids;
+    422 on missing evidence ids and out-of-range spans; fail loud on missing
+    evidence_pool.json.
+  - slice: 7b (frontend) — getInspectorEvidence() client/types; migrate
+    PoolTab + EvidencePane to range-keyed spans; remove getBundle() from the
+    inspector page, gate the shell on ir only; replace the SentencesTab
+    contradiction badge with an AuditIR-derived signal or remove it;
+    replace/remove the Export button.
+  - slice: 7c (tests/demo) — rebaseline inspector e2e/demo fixtures onto
+    AuditIR-loadable run_store artifacts + evidence_pool.json.
+
+getbundle_removal: >
+  full removal at 7b from the inspector page. Keep the backend golden-fixture
+  /runs/{id}/bundle route only as a legacy/non-inspector fixture route until
+  the separate F15 bundle-JSON migration.
+
+merged_slices_1_6_sound: >
+  yes-with-note: the dual `ir && bundle` gate was acceptable migration
+  scaffolding while tabs and EvidencePane still needed bundle data, but it
+  meant slices 1-6 were not live-run complete. From 7b onward the gate must be
+  ir-only.
+
+risks:
+  - Do not key EvidencePane by evidence_id alone; live runs can cite multiple
+    ranges from the same evidence_id.
+  - Do not coerce tiers to T1/T2/T3; live AuditIR/bibliography can carry
+    T4-T7/UNKNOWN.
+  - Do not show bibliography.statement as span_text; if evidence_pool.json is
+    missing or a token is out-of-bounds, surface an explicit error.
+  - Charts, follow-up, compare, and /runs/{id}/bundle remain golden-bound
+    outside this slice; they need later #504 slices before full completion.
