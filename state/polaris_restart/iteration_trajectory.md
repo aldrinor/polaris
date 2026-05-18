@@ -515,3 +515,6 @@ Loop selected #571 per the Codex next-action consult (`.codex/autonomous_overnig
 
 ### Brief review
 - iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (the brief's `[a-c]` rested on a false claim that carved ids beyond c don't exist — `I-arch-001d/e/f` do; Codex: `[a-c]` acceptable but the claim is wrong). Resolved at implementation by widening `[a-c]`→`[a-z]` (zero ambiguity cost — the leading-dash is the carved-vs-slug discriminator, not the letter range). convergence accept_remaining. 2 files, +152/-4. ~64k tokens.
+
+### Diff review
+- iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (the brief-review row above records the *code change* as `2 files, +152/-4`; the canonical diff/hash also contains `iteration_trajectory.md` itself → 3 files — standard self-referential process-metadata pattern, no execution impact). convergence accept_remaining. Codex confirmed: `-followup` no longer collapses onto the parent id, carved `[a-z]` ids no longer rejected, `BASH_REMATCH[1]`-only (group renumber inert), additive/zero-regression on every pre-existing branch form, POSIX-ERE↔Python-`re` 1:1, the test extracts the live regex from the YAML (drift-proof), and downstream `.codex/${ISSUE_ID}/` + canonical-diff pathspecs consume the full id. 2 code files + trajectory.md. ~86k tokens.
