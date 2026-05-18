@@ -19,12 +19,14 @@ import {
   createRun,
   listTemplates,
   uploadDocument,
+  type AmbiguityCandidate,
   type AmbiguityResult,
   type ScopeDecision,
   type TemplateContent,
   type TemplateId,
   type UploadResponse,
 } from "@/lib/api";
+import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
 
 // Static fallback if /templates is unreachable. Keeps the dashboard usable
 // even if the backend is down; live data preferred when available.
@@ -82,6 +84,17 @@ export default function DashboardPage() {
   const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
   const [acknowledgedAmbiguity, setAcknowledgedAmbiguity] = useState(false);
   const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
+  // I-rdy-009 (#505): pre-run disambiguation. `disambigModalOpen` drives the
+  // DisambiguationModal; `pickedClusterId` is the "selected one cluster"
+  // resolution mode (distinct from `acknowledgedAmbiguity` = "run on all");
+  // `ambiguityCheckedKey` marks which (question, template, uploads) the
+  // `ambiguity` result is valid for, so the onSubmit preflight can detect a
+  // stale result and re-check.
+  const [disambigModalOpen, setDisambigModalOpen] = useState(false);
+  const [pickedClusterId, setPickedClusterId] = useState<number | null>(null);
+  const [ambiguityCheckedKey, setAmbiguityCheckedKey] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -99,6 +112,39 @@ export default function DashboardPage() {
     };
   }, []);
 
+  // I-rdy-009 (#505): the ambiguity result is valid only for the exact
+  // (question, template, uploads) it was computed for. This key lets the
+  // onSubmit preflight detect a stale result and re-check a changed query.
+  const currentInputKey = () =>
+    JSON.stringify({
+      q: question.trim(),
+      t: template,
+      d: uploads.map((u) => u.document_id),
+    });
+
+  // The light-detector candidates: one per uploaded-document chunk preview.
+  const buildCandidates = (): AmbiguityCandidate[] =>
+    uploads.flatMap((u, ui) =>
+      u.chunk_preview.map((text, ci) => ({
+        source_id: `${u.document_id}:${ui}-${ci}`,
+        text,
+      })),
+    );
+
+  // I-rdy-009 (#505): a question / template / uploads change invalidates
+  // any prior ambiguity result AND modal selection — otherwise a cluster
+  // picked for an earlier query could wrongly unblock a later, changed one
+  // (the freshness key alone does not clear `pickedClusterId`). Called from
+  // every input-change handler — NOT a useEffect (resetting state in an
+  // effect is the react-hooks/set-state-in-effect anti-pattern).
+  const resetAmbiguityState = () => {
+    setAmbiguity(null);
+    setAcknowledgedAmbiguity(false);
+    setPickedClusterId(null);
+    setAmbiguityCheckedKey(null);
+    setDisambigModalOpen(false);
+  };
+
   const handleFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
     if (list.length === 0) return;
@@ -111,6 +157,7 @@ export default function DashboardPage() {
         results.push(result);
       }
       setUploads((prev) => [...prev, ...results]);
+      resetAmbiguityState();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -132,19 +179,23 @@ export default function DashboardPage() {
     setError(null);
     setAmbiguity(null);
     setAcknowledgedAmbiguity(false);
+    setPickedClusterId(null);
+    setAmbiguityCheckedKey(null);
     try {
       const decision = await checkScope(template, question.trim());
       setScopeDecision(decision);
-      if (decision.verdict === "accepted" && uploads.length > 0) {
-        const candidates = uploads.flatMap((u, ui) =>
-          u.chunk_preview.map((text, ci) => ({
-            source_id: `${u.document_id}:${ui}-${ci}`,
-            text,
-          })),
-        );
+      if (decision.verdict === "accepted") {
+        const candidates = buildCandidates();
         if (candidates.length > 0) {
+          const key = currentInputKey();
           const result = await checkAmbiguity(question.trim(), candidates);
+          // Ignore a late result whose inputs changed during the await.
+          if (currentInputKey() !== key) return;
           setAmbiguity(result);
+          setAmbiguityCheckedKey(key);
+          if (result.is_ambiguous && result.clusters.length > 0) {
+            setDisambigModalOpen(true);
+          }
         }
       }
     } catch (err) {
@@ -164,14 +215,53 @@ export default function DashboardPage() {
       setError("Scope gate rejected this question. Reframe before submitting.");
       return;
     }
-    if (ambiguity?.is_ambiguous && !acknowledgedAmbiguity) {
-      setError(
-        "Ambiguity detected. Acknowledge in the panel below or refine the question.",
-      );
+    setError(null);
+    setSubmitting(true);
+
+    // I-rdy-009 (#505): mandatory pre-run ambiguity preflight. createRun()
+    // cannot fire until ambiguity has been checked for the CURRENT inputs
+    // and is either absent or resolved (a cluster picked, or all clusters
+    // acknowledged) — so the disambiguation modal cannot be bypassed by
+    // clicking "Start run" without first running "Check scope".
+    let amb = ambiguity;
+    const key = currentInputKey();
+    if (ambiguityCheckedKey !== key) {
+      const candidates = buildCandidates();
+      if (candidates.length === 0) {
+        // No candidate snippets — nothing for the detector to cluster.
+        amb = null;
+        setAmbiguity(null);
+        setAmbiguityCheckedKey(key);
+      } else {
+        try {
+          const result = await checkAmbiguity(question.trim(), candidates);
+          if (currentInputKey() !== key) {
+            // Inputs changed mid-flight — discard this stale result.
+            setSubmitting(false);
+            return;
+          }
+          amb = result;
+          setAmbiguity(result);
+          setAmbiguityCheckedKey(key);
+        } catch (err) {
+          setError(
+            err instanceof Error ? err.message : "Ambiguity check failed",
+          );
+          setSubmitting(false);
+          return;
+        }
+      }
+    }
+
+    const resolved = pickedClusterId !== null || acknowledgedAmbiguity;
+    if (amb?.is_ambiguous && !resolved) {
+      // Open the disambiguation modal and hold the run until the operator
+      // picks a meaning (or acknowledges all clusters in the panel).
+      setDisambigModalOpen(true);
+      setSubmitting(false);
       return;
     }
-    setSubmitting(true);
-    setError(null);
+
     try {
       const run = await createRun({
         template,
@@ -235,7 +325,10 @@ export default function DashboardPage() {
                     type="button"
                     role="radio"
                     aria-checked={selected}
-                    onClick={() => setTemplate(t.id)}
+                    onClick={() => {
+                      setTemplate(t.id);
+                      resetAmbiguityState();
+                    }}
                     className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
                       selected
                         ? "border-foreground"
@@ -266,7 +359,10 @@ export default function DashboardPage() {
               type="text"
               placeholder="What does the latest CMHC data say about Q3 2025 housing starts?"
               value={question}
-              onChange={(e) => setQuestion(e.target.value)}
+              onChange={(e) => {
+                setQuestion(e.target.value);
+                resetAmbiguityState();
+              }}
               minLength={4}
               maxLength={2000}
               required
@@ -331,11 +427,12 @@ export default function DashboardPage() {
                     </span>
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
                         setUploads((prev) =>
                           prev.filter((p) => p.document_id !== u.document_id),
-                        )
-                      }
+                        );
+                        resetAmbiguityState();
+                      }}
                       className="text-foreground inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded px-1 font-medium hover:underline"
                     >
                       remove
@@ -418,16 +515,34 @@ export default function DashboardPage() {
                     </li>
                   ))}
                 </ul>
-                <div className="mt-3 flex gap-2">
-                  <Button
-                    type="button"
-                    variant={acknowledgedAmbiguity ? "default" : "outline"}
-                    onClick={() => setAcknowledgedAmbiguity((v) => !v)}
-                  >
-                    {acknowledgedAmbiguity
-                      ? "Acknowledged — will run on all clusters"
-                      : "Acknowledge ambiguity"}
-                  </Button>
+                <div className="mt-3 flex flex-col gap-2">
+                  {pickedClusterId !== null ? (
+                    // Resolution mode: one cluster picked via the modal.
+                    <p className="text-foreground text-sm font-medium">
+                      Focused on Cluster {pickedClusterId + 1} — the run will
+                      proceed with that interpretation.
+                    </p>
+                  ) : (
+                    // Unresolved: re-open the modal to pick one, or
+                    // acknowledge all clusters to run on every meaning.
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        onClick={() => setDisambigModalOpen(true)}
+                      >
+                        Pick a meaning…
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={acknowledgedAmbiguity ? "default" : "outline"}
+                        onClick={() => setAcknowledgedAmbiguity((v) => !v)}
+                      >
+                        {acknowledgedAmbiguity
+                          ? "Acknowledged — will run on all clusters"
+                          : "Acknowledge ambiguity"}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -465,6 +580,27 @@ export default function DashboardPage() {
               {submitting ? "Queuing…" : "Start run"}
             </Button>
           </div>
+
+          {/* I-rdy-009 (#505): the disambiguation modal — opened by the
+              onSubmit ambiguity preflight (and by "Check scope" / "Pick a
+              meaning…"). Picking a cluster resolves the ambiguity and lets
+              the held run proceed. Clusters are the real AmbiguityResult
+              clusters; representative_text is reused 1:1 as the label. */}
+          <DisambiguationModal
+            open={disambigModalOpen}
+            clusters={
+              ambiguity?.clusters.map((c) => ({
+                cluster_id: c.cluster_id,
+                label: c.representative_text,
+                sample_snippets: [c.representative_text],
+              })) ?? []
+            }
+            onSelectCluster={(cid) => {
+              setPickedClusterId(cid);
+              setDisambigModalOpen(false);
+            }}
+            onCancel={() => setDisambigModalOpen(false)}
+          />
         </form>
       </main>
 
