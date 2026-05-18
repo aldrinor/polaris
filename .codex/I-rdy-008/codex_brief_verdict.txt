@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Loader error mapping is slightly narrow: `load_audit_ir()` can still raise plain `ValueError`/`TypeError` from malformed numeric fields, not only `AuditIRSchemaError`/`JSONDecodeError`. Not blocking the slice, but consider mapping those artifact-shape failures to 422 too."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

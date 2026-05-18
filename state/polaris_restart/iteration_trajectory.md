@@ -367,3 +367,12 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (doc §2.3 wording 'schema marks required only under non-abort' vs the schema's root required=[manifest] with no if/then conditional — accepted: the optional-at-root schema achieves the abort-dir effect; Codex 'prose contract otherwise correct'). convergence accept_remaining. Docs-only, no code; schema check_schema PASS + validates real success+abort artifacts. P1 trajectory 0.
+
+## I-rdy-008 (#504) slice 1 — v6 live-inspector AuditIR resolver route
+
+### Brief review
+- iter 1: REQUEST_CHANGES — 1 P1 (loadable test depended on gitignored outputs/honest_sweep_r3 — not clean-checkout reproducible), 3 P2 (run_id should be str not UUID-typed; tests must seed POLARIS_V6_RUN_DB; map json.JSONDecodeError too).
+- iter 2: APPROVE — 0 P0/P1, 1 non-blocking P2 (also catch plain ValueError/TypeError from the loader — folded in). convergence accept_remaining. P1 trajectory 1→0. Slice 1 of ~12 for #504, Option A (Codex arch-decision consult verdict A — migrate the rich UI onto run_id→artifact_dir→load_audit_ir()→AuditIR). New src/polaris_v6/api/inspector.py — GET /api/inspector/runs/{run_id}; demo-scoped v6 facade (does NOT wholesale-mount inspector_router.py per the consult stale-correction). Backend only.
+
+### Diff review
+- (pending — Codex diff review iter 1)
