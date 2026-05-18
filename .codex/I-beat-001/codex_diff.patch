@@ -1,5 +1,5 @@
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index fe410f1a..2db8786e 100644
+index fe410f1a..baf51e40 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -350,3 +350,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -13,5 +13,5 @@ index fe410f1a..2db8786e 100644
 +- iter 1: APPROVE — 0 P0/P1, 4 P2 (bound headline numbers to the 55-claim audited sample; word Q1-Q4 support as produced-reports + sampled cross-review not full per-sentence audits; scope GRADE/Cochrane to clinical claims only; de-dup the Q5-C4 follow-up against existing #422). convergence accept_remaining. All 4 P2 folded into the implementation. Finalizes #400 per operator "finalize as-is, no rerun" — consolidates the completed 55-claim cross-review (cross_review_v12) into the definitive BEAT_BOTH_SUMMARY.md superseding stale v3; pure doc consolidation, no generation run.
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
-# canonical-diff-sha256: 7c5a5f9a7171ce111f03eb081ecc2436caf2811140ac140f81b8efde5b6a1cfc
++- iter 1: APPROVE — 0 P0, 0 P1, 0 P2 (clean). convergence accept_remaining. Pure doc consolidation — definitive BEAT_BOTH_SUMMARY.md from cross_review_v12 (55-claim cross-review, 0 fab); no code/test/config. Canonical diff = trajectory append only (deliverable in CI-excluded outputs/audits/I-beat-001/). P1 trajectory 0.
+# canonical-diff-sha256: c564bfabf75cea6fb9f7f5d71a4b3f6202207666819aa073c022d6af14f824c4
