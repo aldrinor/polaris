@@ -397,3 +397,6 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Brief review
 - iter 1: APPROVE — 0 P0/P1, 2 non-blocking P2 (gate the tabs initializer on `ir && bundle` since the sentence count now reads `ir`; normalize the contradiction-badge section identifier — AuditIrSentence.section is a title, bundle contradictions[].section_id is a _slugify'd slug — both baked into commit 1). All 6 §3 scope-boundary calls ruled accept. convergence accept_remaining. Slice 4 of ~12 for #504, Option A. web/app/inspector/[runId]/page.tsx + web/components/ui/evidence-tooltip.tsx — SentencesTab + renderSentenceWithTokens migrate off EvidenceContract/SourceSpan onto AuditIR verified_report.sections[].sentences[] + bibliography; sourceTier widened to string for raw T1-T7; 4 other tabs + EvidencePane intentionally untouched (slices 5-7). ~183k tokens.
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff alongside the 2 code files — expected process metadata, same note as slices 1-3). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +95/-59 + evidence-tooltip.tsx sourceTier widening. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~104k tokens.
