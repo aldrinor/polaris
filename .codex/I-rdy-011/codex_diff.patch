@@ -1,0 +1,894 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 2d5bad6b..9d03f1bb 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1111,6 +1111,49 @@ def _capture_run_pin(
+         return None
+ 
+ 
++def _abort_if_cancelled(
++    q: dict,
++    run_dir: Path,
++    run_id: str,
++    summary: dict,
++    log_fn,
++) -> bool:
++    """I-rdy-011 (#507): cooperative cancel checkpoint for a v6 run.
++
++    If a cancellation was requested for this v6 run, write a terminal
++    `cancelled` manifest, emit the SSE terminal event, mark the summary, and
++    return True so run_one_query aborts early at this stage boundary. Returns
++    False for non-v6 runs or when no cancel is pending.
++
++    Best-effort: a run_store lookup failure returns False — a healthy run is
++    never aborted on a transient backend hiccup.
++    """
++    ext = q.get("external_run_id")
++    if not (q.get("v6_mode") and ext):
++        return False
++    try:
++        from polaris_v6.queue import run_store
++
++        if not run_store.is_cancel_requested(ext):
++            return False
++    except Exception:  # noqa: BLE001 — cancel-check failure must not abort a healthy run
++        return False
++    log_fn("[cancel]      cancellation requested — aborting run cooperatively")
++    manifest = {
++        "run_id": run_id,
++        "slug": q.get("slug", ""),
++        "domain": q.get("domain", ""),
++        "question": q.get("question", ""),
++        "status": "cancelled",
++    }
++    (run_dir / "manifest.json").write_text(
++        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
++    )
++    emit_event(ext, "run.completed", {"status": "cancelled"})
++    summary["status"] = "cancelled"
++    return True
++
++
+ async def run_one_query(
+     q: dict,
+     out_root: Path,
+@@ -1207,6 +1250,11 @@ async def run_one_query(
+                 },
+             )
+ 
++        # I-rdy-011 (#507): cooperative cancel checkpoint — before the
++        # retrieval stage (the first long-running stage).
++        if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
++            return summary
++
+         # M-INT-4: best-effort LLM scope classification alongside
+         # the deterministic template-driven gate. Telemetry only —
+         # does NOT gate retrieval. PG_USE_LLM_SCOPE=0 disables.
+@@ -2148,6 +2196,11 @@ async def run_one_query(
+             q.get("uploaded_documents_blocked_count", 0) or 0
+         )
+ 
++        # I-rdy-011 (#507): cooperative cancel checkpoint — before the
++        # generator stage (the most expensive stage).
++        if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
++            return summary
++
+         multi = await generate_multi_section_report(
+             research_question=q["question"],
+             evidence=evidence_for_gen,
+@@ -2661,6 +2714,12 @@ async def run_one_query(
+         )
+ 
+         # Evaluator rule checks
++        # I-rdy-011 (#507): cooperative cancel checkpoint — after generation,
++        # before the evaluator. A cancel requested during the (long) generator
++        # stage is observed here rather than silently completing the run.
++        if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
++            return summary
++
+         ev_out = run_external_evaluation(
+             report_text=final_report,
+             protocol=protocol,
+diff --git a/src/polaris_v6/api/runs.py b/src/polaris_v6/api/runs.py
+index 62b1084d..a1c8ad11 100644
+--- a/src/polaris_v6/api/runs.py
++++ b/src/polaris_v6/api/runs.py
+@@ -1,4 +1,4 @@
+-"""Runs router — POST /runs, GET /runs/{id}.
++"""Runs router — POST /runs, GET /runs/{id}, POST /runs/{id}/cancel.
+ 
+ I-phase0-005 (Codex APPROVE iter 4): persist runs to SQLite via
+ polaris_v6.queue.run_store and enqueue the Dramatiq actor on POST.
+@@ -9,6 +9,11 @@ BEFORE inserting/enqueuing the run, so a missing or unparsed upload fails
+ loud here rather than leaving a queued orphan run. The resolved content is
+ embedded in the actor message because the Dramatiq worker is a separate
+ process and cannot read the API process's in-memory upload table.
++
++I-rdy-011 (#507): POST /runs/{id}/cancel — a queued run cancels instantly;
++an in-progress run records the cancel request (the worker observes it at
++the next pipeline stage boundary). Already-terminal runs are an idempotent
++no-op.
+ """
+ 
+ from __future__ import annotations
+@@ -102,3 +107,27 @@ def get_run(run_id: str) -> RunStatusResponse:
+     if record is None:
+         raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
+     return record
++
++
++@router.post("/{run_id}/cancel", response_model=RunStatusResponse)
++def cancel_run(run_id: str) -> RunStatusResponse:
++    """Request cancellation of a run (I-rdy-011 / #507).
++
++    - Unknown run → 404.
++    - Already terminal (completed / failed / cancelled) → idempotent no-op,
++      returns the current record (200).
++    - queued → cancelled instantly; in_progress → cancel requested, the
++      worker aborts cooperatively at the next pipeline stage boundary.
++    """
++    record = run_store.get_run(run_id)
++    if record is None:
++        raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
++    if record.lifecycle_status in run_store.TERMINAL_STATUSES:
++        return record  # idempotent — nothing to cancel
++
++    run_store.request_cancel(run_id)
++
++    updated = run_store.get_run(run_id)
++    if updated is None:  # pragma: no cover — the row existed a line ago
++        raise HTTPException(status_code=500, detail="run row vanished after cancel")
++    return updated
+diff --git a/src/polaris_v6/queue/actors.py b/src/polaris_v6/queue/actors.py
+index 021bcf87..75780e0f 100644
+--- a/src/polaris_v6/queue/actors.py
++++ b/src/polaris_v6/queue/actors.py
+@@ -84,7 +84,23 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
+     if run_store.get_run(run_id) is None:
+         return {"run_id": run_id, "status": "completed", "echo": request_payload}
+ 
++    # I-rdy-011 (#507): honor a cancel requested before pipeline start.
++    # Cancellation is detected ONLY via is_cancel_requested — never inferred
++    # from the mark_in_progress CAS return, which is also False for a retry /
++    # duplicate delivery of an already-terminal run (Codex diff-iter-1 P1: a
++    # retry must NOT rewrite a 'failed'/'completed' row to 'cancelled'). The
++    # CAS itself still guards against resurrecting a just-cancelled row.
++    if run_store.is_cancel_requested(run_id):
++        run_store.mark_cancelled(run_id)
++        logger.info("[actor] run_id=%s cancelled before pipeline start", run_id)
++        return {"run_id": run_id, "status": "cancelled"}
+     run_store.mark_in_progress(run_id)
++    # A cancel may have landed in the window above; the CAS means
++    # mark_in_progress did not resurrect the row if so.
++    if run_store.is_cancel_requested(run_id):
++        run_store.mark_cancelled(run_id)
++        logger.info("[actor] run_id=%s cancelled at pipeline start", run_id)
++        return {"run_id": run_id, "status": "cancelled"}
+     decision_id = str(uuid.uuid4())
+     output_root = Path(os.environ.get("POLARIS_V6_OUTPUT_ROOT", "outputs/v6_runs"))
+     artifact_dir_root = output_root / run_id
+@@ -212,10 +228,24 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
+ 
+     run_store.set_pipeline_meta(run_id, manifest_run_id=manifest_run_id)
+ 
++    # I-rdy-011 (#507) — Codex diff-iter-2 P1: a cancel requested at ANY point
++    # during run_one_query (including the late evaluator/judge stage, past the
++    # last cooperative checkpoint) must win over a success/partial/abort
++    # manifest. This actor-side backstop guarantees the cooperative-cancel
++    # contract regardless of which pipeline stage the cancel landed in.
++    if run_store.is_cancel_requested(run_id):
++        run_store.mark_cancelled(run_id)
++        logger.info("[actor] run_id=%s cancelled during pipeline run", run_id)
++        return summary
++
+     if pipeline_status == "success" or pipeline_status.startswith("partial_"):
+         run_store.mark_completed(
+             run_id, summary, pipeline_status=pipeline_status, cost_usd=cost_usd_f
+         )
++    elif pipeline_status == "cancelled":
++        # I-rdy-011 (#507): pipeline-A wrote a cooperative-cancel manifest
++        # after observing cancel_requested at a stage boundary.
++        run_store.mark_cancelled(run_id)
+     elif pipeline_status.startswith("abort_"):
+         run_store.mark_aborted(
+             run_id,
+diff --git a/src/polaris_v6/queue/run_events.py b/src/polaris_v6/queue/run_events.py
+index 61c76654..074b2672 100644
+--- a/src/polaris_v6/queue/run_events.py
++++ b/src/polaris_v6/queue/run_events.py
+@@ -183,7 +183,10 @@ async def _check_lifecycle_terminal(external_run_id: str) -> bool:
+     """Async wrapper for the sync sqlite lookup."""
+     import asyncio  # noqa: PLC0415
+     status = await asyncio.to_thread(_get_lifecycle_status, external_run_id)
+-    return status in ("completed", "failed")
++    # I-rdy-011 (#507): `cancelled` is terminal — a queued-cancel writes no
++    # Redis terminal event, so without this an SSE consumer would hang on
++    # keepalives until the run is forgotten.
++    return status in ("completed", "failed", "cancelled")
+ 
+ 
+ def _is_connection_failure(exc: BaseException) -> bool:
+diff --git a/src/polaris_v6/queue/run_store.py b/src/polaris_v6/queue/run_store.py
+index f7f263b3..3e6679a9 100644
+--- a/src/polaris_v6/queue/run_store.py
++++ b/src/polaris_v6/queue/run_store.py
+@@ -7,6 +7,15 @@ I-arch-001a (2026-05-12):
+ - New helpers: mark_failed, mark_aborted, set_pipeline_meta
+ - get_run returns the full RunStatusResponse with new optional fields
+ 
++I-rdy-011 (2026-05-16): cancellation support.
++- New column: cancel_requested (INTEGER 0/1).
++- request_cancel: queued → cancelled atomically (T1, instant); in_progress
++  → set the cancel flag (T2, cooperative — the worker observes it).
++- mark_in_progress is now a compare-and-swap (only transitions a queued,
++  not-cancel-requested row) so a queued cancel cannot be overwritten.
++- is_cancel_requested / mark_cancelled support the worker's cooperative
++  abort path.
++
+ Default DB path: state/v6_runs.sqlite (gitignored). Override via env
+ `POLARIS_V6_RUN_DB`. WAL mode enabled.
+ """
+@@ -24,6 +33,19 @@ from polaris_v6.schemas.run_status import RunStatusResponse
+ DEFAULT_DB_PATH = "state/v6_runs.sqlite"
+ ENV_DB_PATH = "POLARIS_V6_RUN_DB"
+ 
++# Lifecycle states from which a run can no longer transition. Public so the
++# /runs/{id}/cancel endpoint shares one definition of "terminal".
++TERMINAL_STATUSES = ("completed", "failed", "cancelled")
++
++# Columns selected by get_run (single source of truth for both the
++# first-attempt and post-migration-retry queries).
++_RUN_COLUMNS = (
++    "run_id, template, question, lifecycle_status, pipeline_status, "
++    "queued_at, started_at, finished_at, result_json, error_json, "
++    "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id, "
++    "cancel_requested"
++)
++
+ 
+ def _resolve_path(path: str | None) -> str:
+     if path is not None:
+@@ -52,7 +74,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
+     2. If legacy `status` column exists and `lifecycle_status` doesn't,
+        RENAME COLUMN to preserve values (SQLite 3.25+, Python 3.11 ships
+        SQLite 3.34+).
+-    3. ADD COLUMN for each I-arch-001a field if missing.
++    3. ADD COLUMN for each I-arch-001a / I-rdy-011 field if missing.
+     4. CREATE INDEX IF NOT EXISTS for query lookups.
+     """
+     conn.execute(
+@@ -82,6 +104,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
+         "pipeline_status": "TEXT",
+         "cost_usd": "REAL",
+         "decision_id": "TEXT",
++        "cancel_requested": "INTEGER NOT NULL DEFAULT 0",
+     }.items():
+         if col_name not in cols:
+             conn.execute(f"ALTER TABLE runs ADD COLUMN {col_name} {col_type}")
+@@ -115,12 +138,94 @@ def insert_run(run_id: str, template: str, question: str, *, path: str | None =
+         conn.close()
+ 
+ 
+-def mark_in_progress(run_id: str, *, path: str | None = None) -> None:
+-    """Transition queued → in_progress, set started_at."""
++def mark_in_progress(run_id: str, *, path: str | None = None) -> bool:
++    """Transition queued → in_progress IFF the run is not cancel-requested.
++
++    I-rdy-011: compare-and-swap. The `WHERE lifecycle_status='queued' AND
++    cancel_requested=0` guard means a queued cancel that already flipped the
++    row to 'cancelled' cannot be overwritten by a worker picking the run up.
++
++    Returns True iff the row transitioned; False means the run was cancelled
++    (or already past 'queued') and the caller must not run the pipeline.
++    """
++    conn = _connect(path)
++    try:
++        cur = conn.execute(
++            "UPDATE runs SET lifecycle_status='in_progress', started_at=? "
++            "WHERE run_id=? AND lifecycle_status='queued' AND cancel_requested=0",
++            (_now_iso(), run_id),
++        )
++        conn.commit()
++        return cur.rowcount > 0
++    finally:
++        conn.close()
++
++
++def request_cancel(run_id: str, *, path: str | None = None) -> str | None:
++    """Request cancellation of a run (I-rdy-011).
++
++    - queued run → atomically transitioned to terminal 'cancelled' (T1,
++      instant — the worker's mark_in_progress CAS will then no-op).
++    - in_progress run → cancel_requested flag set; lifecycle stays
++      'in_progress' until the worker observes the flag at a pipeline stage
++      boundary and calls mark_cancelled (T2, cooperative).
++
++    Returns the resulting lifecycle_status ('cancelled' or 'in_progress'),
++    or None if the run does not exist or is already terminal.
++    """
++    conn = _connect(path)
++    try:
++        # T1: queued → cancelled, atomically.
++        cur = conn.execute(
++            "UPDATE runs SET lifecycle_status='cancelled', cancel_requested=1, "
++            "finished_at=? WHERE run_id=? AND lifecycle_status='queued'",
++            (_now_iso(), run_id),
++        )
++        if cur.rowcount > 0:
++            conn.commit()
++            return "cancelled"
++        # T2: in_progress → set the flag for the worker to observe.
++        cur = conn.execute(
++            "UPDATE runs SET cancel_requested=1 "
++            "WHERE run_id=? AND lifecycle_status='in_progress'",
++            (run_id,),
++        )
++        conn.commit()
++        return "in_progress" if cur.rowcount > 0 else None
++    finally:
++        conn.close()
++
++
++def is_cancel_requested(run_id: str, *, path: str | None = None) -> bool:
++    """True iff a cancellation has been requested for the run.
++
++    Best-effort: a missing run / missing table returns False.
++    """
++    conn = _connect(path)
++    try:
++        try:
++            row = conn.execute(
++                "SELECT cancel_requested FROM runs WHERE run_id=?", (run_id,)
++            ).fetchone()
++        except sqlite3.OperationalError:
++            return False
++        return bool(row["cancel_requested"]) if row is not None else False
++    finally:
++        conn.close()
++
++
++def mark_cancelled(run_id: str, *, path: str | None = None) -> None:
++    """Terminal transition → lifecycle_status='cancelled' + finished_at.
++
++    Used by the worker when it observes cancel_requested at a pipeline
++    stage boundary (cooperative T2 abort), and as the actor's mapping for a
++    pipeline-A manifest with status 'cancelled'.
++    """
+     conn = _connect(path)
+     try:
+         conn.execute(
+-            "UPDATE runs SET lifecycle_status='in_progress', started_at=? WHERE run_id=?",
++            "UPDATE runs SET lifecycle_status='cancelled', cancel_requested=1, "
++            "finished_at=? WHERE run_id=?",
+             (_now_iso(), run_id),
+         )
+         conn.commit()
+@@ -227,6 +332,27 @@ def mark_failed(run_id: str, error: str, *, path: str | None = None) -> None:
+         conn.close()
+ 
+ 
++def _row_to_response(row: sqlite3.Row) -> RunStatusResponse:
++    return RunStatusResponse(
++        run_id=row["run_id"],
++        template=row["template"],
++        question=row["question"],
++        lifecycle_status=row["lifecycle_status"],
++        pipeline_status=row["pipeline_status"],
++        queued_at=row["queued_at"],
++        started_at=row["started_at"],
++        finished_at=row["finished_at"],
++        result_json=row["result_json"],
++        error_json=row["error_json"],
++        query_slug=row["query_slug"],
++        manifest_run_id=row["manifest_run_id"],
++        artifact_dir=row["artifact_dir"],
++        cost_usd=row["cost_usd"],
++        decision_id=row["decision_id"],
++        cancel_requested=bool(row["cancel_requested"]),
++    )
++
++
+ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None:
+     """Return the run record or None if missing.
+ 
+@@ -244,10 +370,7 @@ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None
+     try:
+         try:
+             row = conn.execute(
+-                "SELECT run_id, template, question, lifecycle_status, pipeline_status, "
+-                "queued_at, started_at, finished_at, result_json, error_json, "
+-                "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id "
+-                "FROM runs WHERE run_id=?",
++                f"SELECT {_RUN_COLUMNS} FROM runs WHERE run_id=?",
+                 (run_id,),
+             ).fetchone()
+         except sqlite3.OperationalError as exc:
+@@ -264,10 +387,7 @@ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None
+                 init_db(path)
+                 conn = _connect(path)
+                 row = conn.execute(
+-                    "SELECT run_id, template, question, lifecycle_status, pipeline_status, "
+-                    "queued_at, started_at, finished_at, result_json, error_json, "
+-                    "query_slug, manifest_run_id, artifact_dir, cost_usd, decision_id "
+-                    "FROM runs WHERE run_id=?",
++                    f"SELECT {_RUN_COLUMNS} FROM runs WHERE run_id=?",
+                     (run_id,),
+                 ).fetchone()
+             else:
+@@ -276,20 +396,4 @@ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None
+         conn.close()
+     if row is None:
+         return None
+-    return RunStatusResponse(
+-        run_id=row["run_id"],
+-        template=row["template"],
+-        question=row["question"],
+-        lifecycle_status=row["lifecycle_status"],
+-        pipeline_status=row["pipeline_status"],
+-        queued_at=row["queued_at"],
+-        started_at=row["started_at"],
+-        finished_at=row["finished_at"],
+-        result_json=row["result_json"],
+-        error_json=row["error_json"],
+-        query_slug=row["query_slug"],
+-        manifest_run_id=row["manifest_run_id"],
+-        artifact_dir=row["artifact_dir"],
+-        cost_usd=row["cost_usd"],
+-        decision_id=row["decision_id"],
+-    )
++    return _row_to_response(row)
+diff --git a/src/polaris_v6/schemas/run_status.py b/src/polaris_v6/schemas/run_status.py
+index 90ff9154..27f2d191 100644
+--- a/src/polaris_v6/schemas/run_status.py
++++ b/src/polaris_v6/schemas/run_status.py
+@@ -3,6 +3,10 @@
+ I-arch-001a (2026-05-12): split lifecycle (operational) from pipeline_status
+ (pipeline-A manifest verdict). Old `status` retained as computed alias for
+ tests/v6/ backcompat — populated from lifecycle_status.
++
++I-rdy-011 (2026-05-16): `cancel_requested` surfaced so the UI can show a
++cancel as in-flight in <5s, before an in-progress run reaches the next
++pipeline stage boundary and transitions to terminal `cancelled`.
+ """
+ 
+ from __future__ import annotations
+@@ -64,6 +68,14 @@ class RunStatusResponse(BaseModel):
+     artifact_dir: str | None = None
+     cost_usd: float | None = None
+     decision_id: str | None = None
++    # I-rdy-011: True once a cancel has been requested. For a queued run the
++    # request is applied atomically (lifecycle_status flips to 'cancelled');
++    # for an in_progress run this stays True while lifecycle_status is still
++    # 'in_progress', until the worker observes it at a stage boundary.
++    cancel_requested: bool = Field(
++        default=False,
++        description="True iff cancellation has been requested for this run.",
++    )
+ 
+     @computed_field  # serialized in JSON and readable as attr
+     @property
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 23cfa38d..5326daf2 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -478,3 +478,13 @@ Recut of PR #536 (`bot/I-rdy-010-document-grounding`): #536 earned Codex brief A
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (state/polaris_restart/iteration_trajectory.md is in the canonical/live diff alongside the 6 source files — process metadata only, no execution impact; this is the standard per-issue pattern, the CI codex-required gate's canonical-diff-sha256 covers it). convergence accept_remaining. Codex confirmed: sovereignty holds (only the partition_uploads_by_sovereignty allowed/PUBLIC_SYNTHETIC partition enters q["uploaded_documents"]; build_upload_evidence_rows re-raises on any forbidden doc — single enforcement point, no bypass path); fail-loud HTTP 400 on missing/unparsed uploads; cross-process correctness (resolved content rides in the actor message); no fabricated evidence; MAX_GROUNDING_CHUNKS=40 bounds the payload; recut fidelity intact. 6 source files + trajectory.md. ~162k tokens.
++
++## I-rdy-011 (#507) — implement run cancellation (queued + cooperative)
++
++Recut of PR #538 (`bot/I-rdy-011-cancellation-resume`): #538 earned Codex brief APPROVE iter-1 + diff APPROVE across 3 diff-iters (iter-1 false-cancel-on-retry P1, iter-2 late-stage-cancel-backstop P1, iter-3 APPROVE) but became unmergeable — 42 commits stale AND its `.codex/I-rdy-011/` committed ~65k lines of raw Codex transcripts (verdict-only-rule violation per CLAUDE.md §8.3 / #535). Recut onto a clean `bot/I-rdy-011` off polaris HEAD fbcfb630, re-applying #538's APPROVE'd source with proper slim verdict artifacts; PR #538 closed. polaris's 42 commits touched 5 of 9 source files — 3 (runs.py/actors.py/run_honest_sweep_r3.py) diverged because #506 (merged this session as PR #601) modified them, so #507's cancellation deltas were layered on #506's document-grounding changes. 4 files re-applied verbatim, 5 re-anchored manually, 1 NEW file vs #538 (test_runs_db_integration.py schema-assertion fix — #538 missed it because its pytest_v6 CI skips via the pip-dry-run dependency; this recut's offline smoke caught it). Smoke: ast.parse 7/7, pytest test_cancellation.py 17/17 + test_runs_db_integration.py 4/4 + 55 adjacent v6 tests green, web prettier/lint/tsc/build green.
++
++### Brief review
++- iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (web/app/runs/[runId]/page.tsx is not byte-for-byte verbatim from the #538 branch — the only drift is prettier formatting of the cancel-error ternary, no behavioral divergence; Codex confirmed). convergence accept_remaining. Codex confirmed the recut fidelity, the #506-overlap layering, both #538 diff-iter P1 fixes preserved, and the #507-vs-#539 scope boundary. 10 files, +589/-35. ~193k tokens.
++
++### Diff review
++- iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (run_honest_sweep_r3.py cooperative-cancel early returns skip the normal run_one_query tail cleanup that other abort paths do explicitly; cancelled manifest + SSE semantics work, not a blocker — harmonization is a follow-up tracked alongside #539 I-rdy-011-followup). convergence accept_remaining. Codex confirmed: cancel <5s (queued = one atomic UPDATE; in_progress flag immediate), the mark_in_progress CAS guards the queued-cancel race, false-cancel-on-retry guarded (cancellation via is_cancel_requested only, never the CAS return), the late-stage actor backstop, _abort_if_cancelled best-effort + v6-gated, `cancelled` terminal for SSE, and the recut fidelity / #506-overlap layering. 10 source files + trajectory.md. ~108k tokens.
+diff --git a/tests/v6/acceptance/test_runs_db_integration.py b/tests/v6/acceptance/test_runs_db_integration.py
+index 214d8b10..2c46fe96 100644
+--- a/tests/v6/acceptance/test_runs_db_integration.py
++++ b/tests/v6/acceptance/test_runs_db_integration.py
+@@ -43,7 +43,7 @@ def isolated_db(monkeypatch, tmp_path):
+ 
+ 
+ def test_init_db_creates_schema(isolated_db):
+-    """Acceptance #1: init_db creates the runs table with 9 named columns."""
++    """Acceptance #1: init_db creates the runs table with all named columns."""
+     from polaris_v6.queue import run_store
+ 
+     run_store.init_db()
+@@ -61,6 +61,8 @@ def test_init_db_creates_schema(isolated_db):
+         # New I-arch-001a columns:
+         "query_slug", "manifest_run_id", "artifact_dir",
+         "pipeline_status", "cost_usd", "decision_id",
++        # I-rdy-011 (#507): cancellation-support column.
++        "cancel_requested",
+     }
+     assert cols == expected
+ 
+diff --git a/tests/v6/test_cancellation.py b/tests/v6/test_cancellation.py
+new file mode 100644
+index 00000000..2ae4f560
+--- /dev/null
++++ b/tests/v6/test_cancellation.py
+@@ -0,0 +1,262 @@
++"""Tests for I-rdy-011 (#507) — run cancellation.
++
++Covers the cancel path end to end, offline (no real broker, no network):
++* run_store cancel methods — request_cancel (queued→cancelled T1, in_progress
++  →flag T2), is_cancel_requested, mark_cancelled, and the mark_in_progress
++  compare-and-swap (a queued cancel must not be overwritten by worker pickup).
++* POST /runs/{id}/cancel (the `cancel_run` route function) — 404 / terminal
++  no-op / queued→cancelled.
++* The actor honoring a cancel requested before pipeline start.
++* run_one_query's `_abort_if_cancelled` cooperative checkpoint.
++"""
++
++from __future__ import annotations
++
++import json
++
++import pytest
++from fastapi import HTTPException
++
++from polaris_v6.api.runs import cancel_run
++from polaris_v6.queue import run_store
++
++
++@pytest.fixture
++def db(tmp_path, monkeypatch):
++    """Isolate the run-store DB per test via POLARIS_V6_RUN_DB."""
++    path = str(tmp_path / "cancel_test.sqlite")
++    monkeypatch.setenv("POLARIS_V6_RUN_DB", path)
++    return path
++
++
++# --------------------------------------------------------------------------
++# run_store cancel methods
++# --------------------------------------------------------------------------
++
++def test_request_cancel_queued_is_instant(db):
++    run_store.insert_run("r1", "clinical", "question?")
++    assert run_store.request_cancel("r1") == "cancelled"
++    rec = run_store.get_run("r1")
++    assert rec is not None
++    assert rec.lifecycle_status == "cancelled"
++    assert rec.cancel_requested is True
++    assert rec.finished_at is not None
++
++
++def test_request_cancel_in_progress_sets_flag(db):
++    run_store.insert_run("r2", "clinical", "question?")
++    assert run_store.mark_in_progress("r2") is True
++    # T2: in_progress → flag set, lifecycle stays in_progress (cooperative).
++    assert run_store.request_cancel("r2") == "in_progress"
++    rec = run_store.get_run("r2")
++    assert rec is not None
++    assert rec.lifecycle_status == "in_progress"
++    assert rec.cancel_requested is True
++
++
++def test_request_cancel_unknown_returns_none(db):
++    run_store.init_db()
++    assert run_store.request_cancel("does-not-exist") is None
++
++
++def test_request_cancel_terminal_returns_none(db):
++    run_store.insert_run("r3", "clinical", "question?")
++    run_store.mark_in_progress("r3")
++    run_store.mark_completed("r3", {"ok": True})
++    assert run_store.request_cancel("r3") is None
++
++
++def test_mark_in_progress_cas_does_not_overwrite_cancelled(db):
++    """P2-2: a queued cancel must not be overwritten by a concurrent
++    worker mark_in_progress."""
++    run_store.insert_run("r4", "clinical", "question?")
++    run_store.request_cancel("r4")  # queued → cancelled
++    assert run_store.mark_in_progress("r4") is False  # CAS no-op
++    rec = run_store.get_run("r4")
++    assert rec is not None
++    assert rec.lifecycle_status == "cancelled"
++
++
++def test_is_cancel_requested(db):
++    run_store.insert_run("r5", "clinical", "question?")
++    assert run_store.is_cancel_requested("r5") is False
++    run_store.request_cancel("r5")
++    assert run_store.is_cancel_requested("r5") is True
++
++
++def test_is_cancel_requested_missing_run(db):
++    run_store.init_db()
++    assert run_store.is_cancel_requested("does-not-exist") is False
++
++
++def test_mark_cancelled(db):
++    run_store.insert_run("r6", "clinical", "question?")
++    run_store.mark_in_progress("r6")
++    run_store.mark_cancelled("r6")
++    rec = run_store.get_run("r6")
++    assert rec is not None
++    assert rec.lifecycle_status == "cancelled"
++    assert rec.cancel_requested is True
++    assert rec.finished_at is not None
++
++
++# --------------------------------------------------------------------------
++# POST /runs/{id}/cancel — the cancel_run route function
++# --------------------------------------------------------------------------
++
++def test_cancel_run_unknown_raises_404(db):
++    run_store.init_db()
++    with pytest.raises(HTTPException) as exc:
++        cancel_run("does-not-exist")
++    assert exc.value.status_code == 404
++
++
++def test_cancel_run_queued_cancels(db):
++    run_store.insert_run("r7", "clinical", "question?")
++    rec = cancel_run("r7")
++    assert rec.lifecycle_status == "cancelled"
++    assert rec.cancel_requested is True
++
++
++def test_cancel_run_terminal_is_idempotent_noop(db):
++    run_store.insert_run("r8", "clinical", "question?")
++    run_store.mark_in_progress("r8")
++    run_store.mark_completed("r8", {"ok": True})
++    rec = cancel_run("r8")  # already terminal — no-op
++    assert rec.lifecycle_status == "completed"
++
++
++# --------------------------------------------------------------------------
++# Actor honors a cancel requested before pipeline start
++# --------------------------------------------------------------------------
++
++def test_actor_honors_cancel_before_pipeline(db, tmp_path, monkeypatch):
++    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path / "v6_runs"))
++    from polaris_v6.queue.actors import enqueue_research_run
++
++    run_store.insert_run("r9", "clinical", "What does the data show?")
++    run_store.request_cancel("r9")  # queued → cancelled before worker pickup
++    result = enqueue_research_run.fn(
++        "r9",
++        {"template": "clinical", "question": "What does the data show?", "document_ids": []},
++    )
++    # Actor returns cancelled without ever invoking pipeline-A.
++    assert result["status"] == "cancelled"
++    rec = run_store.get_run("r9")
++    assert rec is not None
++    assert rec.lifecycle_status == "cancelled"
++
++
++def test_actor_retry_of_failed_run_not_marked_cancelled(db, tmp_path, monkeypatch):
++    """Codex diff-iter-1 P1: a Dramatiq retry of an already-failed run must
++    NOT be rewritten to 'cancelled'. The actor detects cancellation only via
++    is_cancel_requested — never from the mark_in_progress CAS return (which is
++    also False for a non-queued retry row)."""
++    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path / "v6_runs"))
++
++    async def _fake_run_one_query(q, out_root):  # noqa: ARG001
++        out_root.mkdir(parents=True, exist_ok=True)
++        (out_root / "manifest.json").write_text(
++            json.dumps({"run_id": "SWEEP_x", "status": "success"}) + "\n"
++        )
++        return {"status": "success"}
++
++    monkeypatch.setattr(
++        "scripts.run_honest_sweep_r3.run_one_query", _fake_run_one_query, raising=False
++    )
++    from polaris_v6.queue.actors import enqueue_research_run
++
++    run_store.insert_run("r12", "clinical", "Question?")
++    run_store.mark_in_progress("r12")
++    run_store.mark_failed("r12", "attempt-1 crash")  # a prior failed attempt
++    # No cancel requested — the retry must run the pipeline, not false-cancel.
++    enqueue_research_run.fn(
++        "r12", {"template": "clinical", "question": "Question?", "document_ids": []}
++    )
++    rec = run_store.get_run("r12")
++    assert rec is not None
++    # The buggy code would have marked the failed row 'cancelled'; the retry
++    # instead re-runs the pipeline and reaches 'completed'.
++    assert rec.lifecycle_status == "completed"
++
++
++def test_actor_late_cancel_overrides_success_manifest(db, tmp_path, monkeypatch):
++    """Codex diff-iter-2 P1: a cancel requested during run_one_query's final
++    stage (past the last cooperative checkpoint) must still win — the actor's
++    post-run backstop marks the run cancelled even though the manifest is a
++    success verdict."""
++    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path / "v6_runs"))
++
++    async def _fake_run_one_query(q, out_root):  # noqa: ARG001
++        out_root.mkdir(parents=True, exist_ok=True)
++        (out_root / "manifest.json").write_text(
++            json.dumps({"run_id": "SWEEP_x", "status": "success"}) + "\n"
++        )
++        # A cancel lands during the run's final (post-checkpoint) stage.
++        run_store.request_cancel("r13")
++        return {"status": "success"}
++
++    monkeypatch.setattr(
++        "scripts.run_honest_sweep_r3.run_one_query", _fake_run_one_query, raising=False
++    )
++    from polaris_v6.queue.actors import enqueue_research_run
++
++    run_store.insert_run("r13", "clinical", "Question?")
++    enqueue_research_run.fn(
++        "r13", {"template": "clinical", "question": "Question?", "document_ids": []}
++    )
++    rec = run_store.get_run("r13")
++    assert rec is not None
++    # The success manifest must NOT win — the user cancelled.
++    assert rec.lifecycle_status == "cancelled"
++
++
++# --------------------------------------------------------------------------
++# run_one_query cooperative checkpoint — _abort_if_cancelled
++# --------------------------------------------------------------------------
++
++def test_abort_if_cancelled_non_v6_run_is_noop(db, tmp_path):
++    from scripts.run_honest_sweep_r3 import _abort_if_cancelled
++
++    summary: dict = {}
++    q = {"slug": "s", "domain": "d", "question": "q"}  # no v6_mode
++    assert _abort_if_cancelled(q, tmp_path, "rid", summary, lambda _m: None) is False
++    assert not (tmp_path / "manifest.json").exists()
++
++
++def test_abort_if_cancelled_v6_cancelled(db, tmp_path):
++    from scripts.run_honest_sweep_r3 import _abort_if_cancelled
++
++    run_store.insert_run("r10", "clinical", "question?")
++    run_store.mark_in_progress("r10")
++    run_store.request_cancel("r10")  # in_progress → cancel flag set
++    summary: dict = {}
++    q = {
++        "v6_mode": True,
++        "external_run_id": "r10",
++        "slug": "s",
++        "domain": "clinical",
++        "question": "question?",
++    }
++    assert _abort_if_cancelled(q, tmp_path, "SWEEP_x", summary, lambda _m: None) is True
++    assert summary["status"] == "cancelled"
++    manifest = json.loads((tmp_path / "manifest.json").read_text())
++    assert manifest["status"] == "cancelled"
++    assert manifest["run_id"] == "SWEEP_x"
++
++
++def test_abort_if_cancelled_v6_not_cancelled(db, tmp_path):
++    from scripts.run_honest_sweep_r3 import _abort_if_cancelled
++
++    run_store.insert_run("r11", "clinical", "question?")
++    run_store.mark_in_progress("r11")
++    summary: dict = {}
++    q = {
++        "v6_mode": True,
++        "external_run_id": "r11",
++        "slug": "s",
++        "domain": "clinical",
++        "question": "question?",
++    }
++    assert _abort_if_cancelled(q, tmp_path, "SWEEP_x", summary, lambda _m: None) is False
++    assert not (tmp_path / "manifest.json").exists()
+diff --git a/web/app/runs/[runId]/page.tsx b/web/app/runs/[runId]/page.tsx
+index 320bfd2b..6d12ce4d 100644
+--- a/web/app/runs/[runId]/page.tsx
++++ b/web/app/runs/[runId]/page.tsx
+@@ -12,6 +12,7 @@ import {
+   CardTitle,
+ } from "@/components/ui/card";
+ import {
++  cancelRun,
+   downloadBundleAsJson,
+   getBundle,
+   getRun,
+@@ -24,11 +25,16 @@ interface RunPageProps {
+   params: Promise<{ runId: string }>;
+ }
+ 
++// I-rdy-011 (#507): lifecycle states from which a run can no longer be
++// cancelled — the Cancel button is disabled for these.
++const TERMINAL_STATUSES = ["completed", "failed", "cancelled"];
++
+ export default function RunDetailPage({ params }: RunPageProps) {
+   const { runId } = use(params);
+   const [status, setStatus] = useState<RunStatusResponse | null>(null);
+   const [events, setEvents] = useState<StreamEvent[]>([]);
+   const [error, setError] = useState<string | null>(null);
++  const [cancelling, setCancelling] = useState(false);
+ 
+   useEffect(() => {
+     let cancelled = false;
+@@ -59,6 +65,30 @@ export default function RunDetailPage({ params }: RunPageProps) {
+     };
+   }, [runId]);
+ 
++  // I-rdy-011 (#507): a queued run cancels instantly; an in-progress run
++  // aborts cooperatively at the next pipeline stage boundary. The button is
++  // disabled once the run is terminal (or its status is not yet loaded).
++  const isTerminal =
++    status !== null && TERMINAL_STATUSES.includes(status.status);
++  const cancelRequested = status?.cancel_requested ?? false;
++
++  const onCancel = async () => {
++    setCancelling(true);
++    setError(null);
++    try {
++      const updated = await cancelRun(runId);
++      setStatus(updated);
++    } catch (err) {
++      setError(
++        err instanceof Error
++          ? `Cancel failed: ${err.message}`
++          : "Cancel failed",
++      );
++    } finally {
++      setCancelling(false);
++    }
++  };
++
+   return (
+     <div className="flex min-h-screen flex-col">
+       <header className="border-border bg-background border-b">
+@@ -166,10 +196,19 @@ export default function RunDetailPage({ params }: RunPageProps) {
+             <Button
+               type="button"
+               variant="outline"
+-              disabled
+-              title="Phase 1: cancel a queued or in-progress run"
++              disabled={status === null || isTerminal || cancelling}
++              title={
++                cancelRequested
++                  ? "Cancellation requested — the run is winding down"
++                  : "Cancel this queued or in-progress run"
++              }
++              onClick={onCancel}
+             >
+-              Cancel run
++              {cancelRequested
++                ? "Cancelling…"
++                : cancelling
++                  ? "Requesting…"
++                  : "Cancel run"}
+             </Button>
+             <Button
+               type="button"
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 5bd68583..cd560254 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -83,6 +83,9 @@ export interface RunRequest {
+ export interface RunStatusResponse {
+   run_id: string;
+   status: RunStatus;
++  // I-rdy-011 (#507): true once a cancel has been requested; lets the run
++  // page show a cancel as in-flight before an in-progress run transitions.
++  cancel_requested?: boolean;
+   template: string;
+   question: string;
+   queued_at: string;
+@@ -124,6 +127,17 @@ export async function getRun(runId: string): Promise<RunStatusResponse> {
+   return asJsonOrThrow<RunStatusResponse>(response);
+ }
+ 
++// I-rdy-011 (#507): request cancellation of a run. A queued run cancels
++// instantly; an in-progress run aborts cooperatively at the next pipeline
++// stage boundary. Already-terminal runs are an idempotent no-op.
++export async function cancelRun(runId: string): Promise<RunStatusResponse> {
++  const response = await authFetch(
++    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/cancel`,
++    { method: "POST" },
++  );
++  return asJsonOrThrow<RunStatusResponse>(response);
++}
++
+ export type DataClassification =
+   | "PUBLIC_SYNTHETIC"
+   | "CAN_REAL"
+
+# canonical-diff-sha256: ac709014ebfb78638940d23e64966a5ea0bf7c25092175b06550d1687a6a794d

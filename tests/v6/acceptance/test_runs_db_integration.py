@@ -43,7 +43,7 @@ def isolated_db(monkeypatch, tmp_path):
 
 
 def test_init_db_creates_schema(isolated_db):
-    """Acceptance #1: init_db creates the runs table with 9 named columns."""
+    """Acceptance #1: init_db creates the runs table with all named columns."""
     from polaris_v6.queue import run_store
 
     run_store.init_db()
@@ -61,6 +61,8 @@ def test_init_db_creates_schema(isolated_db):
         # New I-arch-001a columns:
         "query_slug", "manifest_run_id", "artifact_dir",
         "pipeline_status", "cost_usd", "decision_id",
+        # I-rdy-011 (#507): cancellation-support column.
+        "cancel_requested",
     }
     assert cols == expected
 
