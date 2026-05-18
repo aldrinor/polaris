@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -88,13 +88,15 @@ export default function DashboardPage() {
   // DisambiguationModal; `pickedClusterId` is the "selected one cluster"
   // resolution mode (distinct from `acknowledgedAmbiguity` = "run on all");
   // `ambiguityCheckedKey` marks which (question, template, uploads) the
-  // `ambiguity` result is valid for, so the onSubmit preflight can detect a
-  // stale result and re-check.
+  // `ambiguity` result is valid for; `resolvedForKey` binds a resolution
+  // (a pick or an acknowledge) to the input key it was made for, so a stale
+  // resolution cannot unblock a later, changed query (Codex diff iter-1 P1).
   const [disambigModalOpen, setDisambigModalOpen] = useState(false);
   const [pickedClusterId, setPickedClusterId] = useState<number | null>(null);
   const [ambiguityCheckedKey, setAmbiguityCheckedKey] = useState<string | null>(
     null,
   );
+  const [resolvedForKey, setResolvedForKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,14 +115,20 @@ export default function DashboardPage() {
   }, []);
 
   // I-rdy-009 (#505): the ambiguity result is valid only for the exact
-  // (question, template, uploads) it was computed for. This key lets the
-  // onSubmit preflight detect a stale result and re-check a changed query.
-  const currentInputKey = () =>
-    JSON.stringify({
-      q: question.trim(),
-      t: template,
-      d: uploads.map((u) => u.document_id),
-    });
+  // (question, template, uploads) it was computed for. `currentInputKey` is
+  // recomputed every render; `latestInputKeyRef` mirrors it so async code
+  // can compare a captured key against the LATEST committed inputs after an
+  // await — a plain `currentInputKey` re-read inside an async handler would
+  // only see that handler's stale render closure (Codex diff iter-1 P1).
+  const currentInputKey = JSON.stringify({
+    q: question.trim(),
+    t: template,
+    d: uploads.map((u) => u.document_id),
+  });
+  const latestInputKeyRef = useRef(currentInputKey);
+  useEffect(() => {
+    latestInputKeyRef.current = currentInputKey;
+  });
 
   // The light-detector candidates: one per uploaded-document chunk preview.
   const buildCandidates = (): AmbiguityCandidate[] =>
@@ -142,6 +150,7 @@ export default function DashboardPage() {
     setAcknowledgedAmbiguity(false);
     setPickedClusterId(null);
     setAmbiguityCheckedKey(null);
+    setResolvedForKey(null);
     setDisambigModalOpen(false);
   };
 
@@ -181,16 +190,20 @@ export default function DashboardPage() {
     setAcknowledgedAmbiguity(false);
     setPickedClusterId(null);
     setAmbiguityCheckedKey(null);
+    setResolvedForKey(null);
+    // Captured before any await; compared against latestInputKeyRef (the
+    // latest committed inputs) afterwards — not a stale closure re-read.
+    const key = currentInputKey;
     try {
       const decision = await checkScope(template, question.trim());
+      if (latestInputKeyRef.current !== key) return;
       setScopeDecision(decision);
       if (decision.verdict === "accepted") {
         const candidates = buildCandidates();
         if (candidates.length > 0) {
-          const key = currentInputKey();
           const result = await checkAmbiguity(question.trim(), candidates);
           // Ignore a late result whose inputs changed during the await.
-          if (currentInputKey() !== key) return;
+          if (latestInputKeyRef.current !== key) return;
           setAmbiguity(result);
           setAmbiguityCheckedKey(key);
           if (result.is_ambiguous && result.clusters.length > 0) {
@@ -224,7 +237,10 @@ export default function DashboardPage() {
     // acknowledged) — so the disambiguation modal cannot be bypassed by
     // clicking "Start run" without first running "Check scope".
     let amb = ambiguity;
-    const key = currentInputKey();
+    // Captured before any await; the stale-guard compares it against
+    // latestInputKeyRef (the latest committed inputs), never a re-read of
+    // this handler's own stale render closure (Codex diff iter-1 P1).
+    const key = currentInputKey;
     if (ambiguityCheckedKey !== key) {
       const candidates = buildCandidates();
       if (candidates.length === 0) {
@@ -235,7 +251,7 @@ export default function DashboardPage() {
       } else {
         try {
           const result = await checkAmbiguity(question.trim(), candidates);
-          if (currentInputKey() !== key) {
+          if (latestInputKeyRef.current !== key) {
             // Inputs changed mid-flight — discard this stale result.
             setSubmitting(false);
             return;
@@ -253,7 +269,12 @@ export default function DashboardPage() {
       }
     }
 
-    const resolved = pickedClusterId !== null || acknowledgedAmbiguity;
+    // A pick / acknowledge only resolves the ambiguity if it was made for
+    // THIS input key — a resolution recorded for an earlier query must not
+    // unblock a changed one (Codex diff iter-1 P1).
+    const resolved =
+      resolvedForKey === key &&
+      (pickedClusterId !== null || acknowledgedAmbiguity);
     if (amb?.is_ambiguous && !resolved) {
       // Open the disambiguation modal and hold the run until the operator
       // picks a meaning (or acknowledges all clusters in the panel).
@@ -535,7 +556,12 @@ export default function DashboardPage() {
                       <Button
                         type="button"
                         variant={acknowledgedAmbiguity ? "default" : "outline"}
-                        onClick={() => setAcknowledgedAmbiguity((v) => !v)}
+                        onClick={() => {
+                          setAcknowledgedAmbiguity((v) => !v);
+                          // Bind the acknowledge decision to the current
+                          // input key (Codex diff iter-1 P1).
+                          setResolvedForKey(currentInputKey);
+                        }}
                       >
                         {acknowledgedAmbiguity
                           ? "Acknowledged — will run on all clusters"
@@ -597,6 +623,10 @@ export default function DashboardPage() {
             }
             onSelectCluster={(cid) => {
               setPickedClusterId(cid);
+              // Bind the resolution to the input key it was made for, so a
+              // pick cannot unblock a later, changed query (Codex diff
+              // iter-1 P1).
+              setResolvedForKey(currentInputKey);
               setDisambigModalOpen(false);
             }}
             onCancel={() => setDisambigModalOpen(false)}
