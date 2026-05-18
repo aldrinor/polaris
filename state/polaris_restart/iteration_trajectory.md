@@ -475,3 +475,6 @@ Recut of PR #536 (`bot/I-rdy-010-document-grounding`): #536 earned Codex brief A
 
 ### Brief review
 - iter 1: APPROVE — 0 P0/P1/P2. convergence accept_remaining. Recut brief front-loaded the prior #536 brief+diff APPROVE iter-1, the recut/staleness rationale, the divergence handling, and the #506-vs-#537 scope boundary; Codex confirmed the recut fidelity, the polaris-HEAD divergence handling, and the scope boundary (the 3 P2s are correctly out of #506). 6 files, +460/-1. ~92k tokens.
+
+### Diff review
+- iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (state/polaris_restart/iteration_trajectory.md is in the canonical/live diff alongside the 6 source files — process metadata only, no execution impact; this is the standard per-issue pattern, the CI codex-required gate's canonical-diff-sha256 covers it). convergence accept_remaining. Codex confirmed: sovereignty holds (only the partition_uploads_by_sovereignty allowed/PUBLIC_SYNTHETIC partition enters q["uploaded_documents"]; build_upload_evidence_rows re-raises on any forbidden doc — single enforcement point, no bypass path); fail-loud HTTP 400 on missing/unparsed uploads; cross-process correctness (resolved content rides in the actor message); no fabricated evidence; MAX_GROUNDING_CHUNKS=40 bounds the payload; recut fidelity intact. 6 source files + trajectory.md. ~162k tokens.
