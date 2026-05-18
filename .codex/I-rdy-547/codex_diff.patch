@@ -1,0 +1,455 @@
+diff --git a/requirements-v6.txt b/requirements-v6.txt
+index b9c90ef6..ab6e923d 100644
+--- a/requirements-v6.txt
++++ b/requirements-v6.txt
+@@ -41,6 +41,10 @@ opentelemetry-instrumentation-httpx==0.62b1
+ # (GHSA-7gcm-g887-7qv7) affects 6.30.0rc1..6.33.4. Pin to patched range.
+ protobuf==6.33.6
+ 
++# --- Backup tooling (I-rdy-016 / #547): GPG detached-signature path in
++# scripts/v6/backup_orchestrator_state.py (optional, gated on POLARIS_GPG_KEY_ID) ---
++python-gnupg==0.5.6
++
+ # --- Test ---
+ pytest==8.4.1
+ pytest-asyncio==1.3.0
+diff --git a/scripts/v6/backup_orchestrator_state.py b/scripts/v6/backup_orchestrator_state.py
+index 2124d887..d3a936a2 100644
+--- a/scripts/v6/backup_orchestrator_state.py
++++ b/scripts/v6/backup_orchestrator_state.py
+@@ -30,7 +30,13 @@ Usage:
+     python scripts/v6/backup_orchestrator_state.py backup \
+         [--db PATH] [--artifact-root PATH] [--dest DIR]
+     python scripts/v6/backup_orchestrator_state.py restore \
+-        --archive PATH [--db PATH] [--expect-sha256 HEX] [--force]
++        --archive PATH [--db PATH] [--expect-sha256 HEX] [--force] [--verify-sig]
++
++`backup` writes an optional GPG detached signature `<archive>.asc` when
++`POLARIS_GPG_KEY_ID` is set (the same demo key the audit-bundle signer uses);
++it no-ops gracefully to sha256-only integrity when the env var is unset.
++`restore --verify-sig` runs `gpg --verify` over `<archive>.asc` before
++extraction and fails loud on a bad / absent signature.
+ """
+ 
+ from __future__ import annotations
+@@ -73,6 +79,79 @@ def _utc_stamp() -> str:
+     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+ 
+ 
++def _maybe_sign_archive(archive: Path) -> None:
++    """Write a GPG detached signature `<archive>.asc` when POLARIS_GPG_KEY_ID is set.
++
++    No-ops gracefully (sha256-only integrity) when the key id is unset, so a
++    backup on a box without the demo key still succeeds. Fails loud if signing
++    is requested but gpg cannot produce a signature (CLAUDE.md LAW II — never
++    leave a backup that silently lacks the signature it claims).
++    """
++    key_id = os.environ.get("POLARIS_GPG_KEY_ID", "").strip() or None
++    if key_id is None:
++        print("  gpg: POLARIS_GPG_KEY_ID unset — sha256-only, no .asc signature")
++        return
++    import gnupg  # lazy: the sha256-only path must not require python-gnupg
++
++    gpg = gnupg.GPG(gnupghome=os.environ.get("GNUPGHOME") or None)
++    passphrase = os.environ.get("POLARIS_GPG_PASSPHRASE") or None
++    # No `output=`: a successful detached `sign_file(output=...)` writes the
++    # file but leaves `.data` empty — capture the armored signature from
++    # `.data` and write it ourselves (the proven gpg_signer.py pattern).
++    with open(archive, "rb") as fh:
++        signed = gpg.sign_file(fh, keyid=key_id, detach=True, passphrase=passphrase)
++    if not signed or not getattr(signed, "data", None):
++        _fail(
++            f"gpg signing requested (POLARIS_GPG_KEY_ID={key_id}) but failed: "
++            f"status={getattr(signed, 'status', None)!r} "
++            f"stderr={getattr(signed, 'stderr', '')!r}"
++        )
++    sig = signed.data if isinstance(signed.data, bytes) else str(signed).encode("utf-8")
++    asc_path = archive.parent / f"{archive.name}.asc"
++    asc_path.write_bytes(sig)
++    print(f"  gpg: signed -> {asc_path.name}")
++
++
++def _verify_archive_signature(archive: Path) -> None:
++    """Verify `<archive>.asc` against the archive; fail loud on bad/absent sig.
++
++    Invoked by `restore --verify-sig`. When POLARIS_GPG_KEY_ID is set to a hex
++    key id / fingerprint the signing key is also pinned — a valid signature
++    from an unexpected key is rejected (matched against both the signature
++    fingerprint and the primary-key fingerprint, so a subkey signature still
++    passes). A non-hex selector (email / user-id) is not fingerprint-matched.
++    """
++    asc = archive.parent / f"{archive.name}.asc"
++    if not asc.is_file():
++        _fail(f"--verify-sig given but no signature {asc.name} beside the archive")
++    import gnupg  # lazy
++
++    gpg = gnupg.GPG(gnupghome=os.environ.get("GNUPGHOME") or None)
++    with open(asc, "rb") as sf:
++        verified = gpg.verify_file(sf, str(archive))
++    if not verified or not getattr(verified, "valid", False):
++        _fail(
++            f"GPG signature verification FAILED for {archive.name}: "
++            f"status={getattr(verified, 'status', None)!r}"
++        )
++    key_id = os.environ.get("POLARIS_GPG_KEY_ID", "").strip()
++    if key_id:
++        kid = key_id.upper()
++        if all(c in "0123456789ABCDEF" for c in kid):  # hex id/fingerprint
++            fps = {
++                (verified.fingerprint or "").upper(),
++                (getattr(verified, "pubkey_fingerprint", "") or "").upper(),
++            }
++            if not any(fp and fp.endswith(kid) for fp in fps):
++                _fail(
++                    f"GPG signature is valid but from an unexpected key for "
++                    f"{archive.name}: got fingerprint={verified.fingerprint}, "
++                    f"pubkey_fingerprint={getattr(verified, 'pubkey_fingerprint', None)}"
++                    f", expected POLARIS_GPG_KEY_ID={key_id}"
++                )
++    print(f"  gpg: signature verified (fingerprint {verified.fingerprint})")
++
++
+ def _assert_no_symlinks(root: Path) -> None:
+     """Reject symlinks / special files anywhere in the artifact tree.
+ 
+@@ -180,6 +259,9 @@ def cmd_backup(args: argparse.Namespace) -> None:
+     (archive.parent / f"{archive.name}.sha256").write_text(
+         f"{digest}  {archive.name}\n", encoding="utf-8"
+     )
++    # Optional GPG detached signature — runs before the success print so a
++    # signing failure (fail-loud) is never masked by a "backup OK" message.
++    _maybe_sign_archive(archive)
+     print(f"backup OK: {archive}")
+     print(f"  sha256: {digest}")
+     print(f"  runs: {row_count}  artifact dirs: {len(run_ids)}  files: {artifact_file_count}")
+@@ -216,6 +298,9 @@ def cmd_restore(args: argparse.Namespace) -> None:
+     if actual != expected:
+         _fail(f"archive sha256 mismatch (expected {expected}, got {actual}) — refusing restore")
+ 
++    if args.verify_sig:
++        _verify_archive_signature(archive)
++
+     db_path = Path(args.db).resolve()
+ 
+     with tempfile.TemporaryDirectory(prefix="polaris_restore_") as tmp:
+@@ -285,6 +370,12 @@ def _build_parser() -> argparse.ArgumentParser:
+         action="store_true",
+         help="replace an existing destination DB / artifact dir (never merges)",
+     )
++    restore.add_argument(
++        "--verify-sig",
++        action="store_true",
++        help="GPG-verify <archive>.asc before extraction; fail loud on a "
++        "bad/absent signature",
++    )
+     restore.set_defaults(func=cmd_restore)
+     return parser
+ 
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 5c641f0a..feb57c96 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -330,3 +330,13 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata; the code commit f6a03ddf is the 1 new test file only). convergence accept_remaining. Test-only; ast.parse OK; pytest 15 passed (3 new + 12 sibling). P1 trajectory 0.
++
++## I-rdy-547 (#547) — GPG-sign orchestrator backup archives + restore --verify-sig
++
++### Brief review
++- iter 1: REQUEST_CHANGES — 1 P1 (sign_file(output=) leaves .data empty on success → false-reject), 3 P2 (lazy gnupg import; no-key-test env leak; sign before "backup OK").
++- iter 2: REQUEST_CHANGES — 1 P1 (tests/v6/ CI installs only requirements-v6.txt, lacks python-gnupg → ImportError), 1 P2 (verify should check expected key, not any keyring key).
++- iter 3: APPROVE — 0 P0/P1, 1 non-blocking P2 (expected-key check also consider pubkey_fingerprint for subkeys — folded into impl). convergence accept_remaining. Code+test feature: env-gated detached sign on backup + restore --verify-sig; python-gnupg direct (script self-contained); requirements-v6.txt += python-gnupg==0.5.6; new tests/v6/test_backup_gpg_sign.py (6 tests).
++
++### Diff review
++- (pending — Codex diff review iter 1)
+diff --git a/tests/v6/test_backup_gpg_sign.py b/tests/v6/test_backup_gpg_sign.py
+new file mode 100644
+index 00000000..8e54020e
+--- /dev/null
++++ b/tests/v6/test_backup_gpg_sign.py
+@@ -0,0 +1,283 @@
++"""GPG detached-signature path for the v6 orchestrator-state backup
++(GH #547, I-rdy-016-followup).
++
++Subprocess-drives `scripts/v6/backup_orchestrator_state.py` end-to-end against
++an ephemeral GPG keyring (throwaway keys generated per test), the same
++hermetic pattern as `tests/polaris_graph/audit_bundle/test_gpg_signer.py`.
++Skips cleanly when the host gpg binary / gpg-agent is unavailable.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import shutil
++import subprocess
++import sys
++from pathlib import Path
++
++import gnupg
++import pytest
++
++from polaris_v6.queue import run_store
++
++REPO_ROOT = Path(__file__).resolve().parents[2]
++SCRIPT = REPO_ROOT / "scripts" / "v6" / "backup_orchestrator_state.py"
++
++# GPG-related env vars stripped from every subprocess env so a parent-process
++# / .env value can never leak into a test that expects them unset.
++_GPG_ENV = ("POLARIS_GPG_KEY_ID", "POLARIS_GPG_PASSPHRASE", "GNUPGHOME")
++_PASSPHRASE = "test-passphrase"
++
++
++# ---------- Skip when gpg unavailable ----------
++
++def _gpg_callable() -> bool:
++    try:
++        _ = gnupg.GPG().version
++        return True
++    except Exception:
++        return False
++
++
++pytestmark = pytest.mark.skipif(
++    not _gpg_callable(),
++    reason="system gpg binary not available — skipping GPG backup-signing tests",
++)
++
++
++# ---------- Fixtures ----------
++
++def _gen_key(gpg: gnupg.GPG, email: str) -> str:
++    """Generate one throwaway RSA key in `gpg`'s keyring; return its fingerprint."""
++    key = gpg.gen_key(
++        gpg.gen_key_input(
++            name_real="POLARIS Backup Test",
++            name_email=email,
++            key_type="RSA",
++            key_length=2048,
++            passphrase=_PASSPHRASE,
++            expire_date=0,
++        )
++    )
++    if not key.fingerprint:
++        pytest.skip(
++            f"gpg key generation unavailable in this env (gpg-agent issue?); "
++            f"stderr={key.stderr!r}"
++        )
++    return str(key.fingerprint)
++
++
++@pytest.fixture
++def keyring(tmp_path: Path) -> tuple[Path, str]:
++    """An ephemeral GNUPGHOME holding one test signing key — (home, fingerprint)."""
++    home = tmp_path / "gnupg"
++    home.mkdir(mode=0o700)
++    gpg = gnupg.GPG(gnupghome=str(home))
++    return home, _gen_key(gpg, "backup-signer@polaris.local")
++
++
++# ---------- Helpers ----------
++
++def _build_db(db: Path, artifact_root: Path, run_ids: list[str]) -> None:
++    """Build a genuine run-store DB + artifact dirs via the real run_store API."""
++    db.parent.mkdir(parents=True, exist_ok=True)
++    for run_id in run_ids:
++        run_store.insert_run(
++            run_id, "clinical_efficacy", f"Question {run_id}", path=str(db)
++        )
++        adir = artifact_root / run_id
++        adir.mkdir(parents=True)
++        (adir / "manifest.json").write_text(
++            json.dumps({"run_id": run_id}), encoding="utf-8"
++        )
++        run_store.set_pipeline_meta(run_id, artifact_dir=str(adir), path=str(db))
++        run_store.mark_completed(run_id, {"ok": True}, path=str(db))
++
++
++def _run(
++    *args: str,
++    extra_env: dict[str, str] | None = None,
++    drop_env: tuple[str, ...] = (),
++) -> subprocess.CompletedProcess[str]:
++    """Subprocess-drive the backup script with an explicitly-built child env."""
++    env = os.environ.copy()
++    env["PYTHONPATH"] = str(REPO_ROOT / "src")
++    for key in drop_env:
++        env.pop(key, None)
++    if extra_env:
++        env.update(extra_env)
++    return subprocess.run(
++        [sys.executable, str(SCRIPT), *args],
++        cwd=REPO_ROOT,
++        env=env,
++        capture_output=True,
++        text=True,
++        check=False,
++    )
++
++
++def _backup(
++    tmp_path: Path,
++    *,
++    extra_env: dict[str, str] | None = None,
++    drop_env: tuple[str, ...] = (),
++) -> Path:
++    """Run `backup` against a fresh fixture DB; return the produced archive."""
++    db = tmp_path / "state" / "v6_runs.sqlite"
++    artifact_root = tmp_path / "outputs" / "v6_runs"
++    dest = tmp_path / "backups"
++    _build_db(db, artifact_root, ["run-aaa"])
++    result = _run(
++        "backup",
++        "--db", str(db),
++        "--artifact-root", str(artifact_root),
++        "--dest", str(dest),
++        extra_env=extra_env,
++        drop_env=drop_env,
++    )
++    assert result.returncode == 0, f"backup failed: {result.stderr}"
++    archives = list(dest.glob("polaris_v6_state_*.tar.gz"))
++    assert len(archives) == 1, archives
++    return archives[0]
++
++
++def _restore_db(tmp_path: Path) -> Path:
++    return tmp_path / "state" / "v6_runs.sqlite"
++
++
++def _wipe_live_state(tmp_path: Path) -> None:
++    shutil.rmtree(tmp_path / "state", ignore_errors=True)
++    shutil.rmtree(tmp_path / "outputs", ignore_errors=True)
++
++
++# ---------- Tests ----------
++
++def test_backup_signs_when_key_set(tmp_path: Path, keyring: tuple[Path, str]):
++    """`backup` writes `<archive>.asc` when POLARIS_GPG_KEY_ID is set."""
++    home, fingerprint = keyring
++    archive = _backup(
++        tmp_path,
++        extra_env={
++            "POLARIS_GPG_KEY_ID": fingerprint,
++            "GNUPGHOME": str(home),
++            "POLARIS_GPG_PASSPHRASE": _PASSPHRASE,
++        },
++    )
++    asc = archive.parent / f"{archive.name}.asc"
++    assert asc.is_file(), "backup did not write the .asc detached signature"
++    assert asc.read_bytes(), ".asc signature file is empty"
++    assert b"PGP SIGNATURE" in asc.read_bytes()
++
++
++def test_backup_no_asc_when_key_unset(tmp_path: Path):
++    """`backup` no-ops to sha256-only when POLARIS_GPG_KEY_ID is unset."""
++    archive = _backup(tmp_path, drop_env=_GPG_ENV)
++    asc = archive.parent / f"{archive.name}.asc"
++    assert not asc.exists(), "an unsigned backup must not produce a .asc"
++    # sha256 tamper-evidence is still present.
++    assert (archive.parent / f"{archive.name}.sha256").is_file()
++
++
++def test_restore_verify_sig_passes_on_good_signature(
++    tmp_path: Path, keyring: tuple[Path, str]
++):
++    """`restore --verify-sig` succeeds against a genuine signature."""
++    home, fingerprint = keyring
++    archive = _backup(
++        tmp_path,
++        extra_env={
++            "POLARIS_GPG_KEY_ID": fingerprint,
++            "GNUPGHOME": str(home),
++            "POLARIS_GPG_PASSPHRASE": _PASSPHRASE,
++        },
++    )
++    _wipe_live_state(tmp_path)
++    # POLARIS_GPG_KEY_ID intentionally unset for restore — any valid signature
++    # from a public key in the keyring is accepted.
++    result = _run(
++        "restore", "--archive", str(archive), "--db", str(_restore_db(tmp_path)),
++        "--verify-sig",
++        extra_env={"GNUPGHOME": str(home)},
++        drop_env=_GPG_ENV,
++    )
++    assert result.returncode == 0, (
++        f"restore --verify-sig failed on a good signature: {result.stderr}"
++    )
++
++
++def test_restore_verify_sig_fails_on_absent_signature(tmp_path: Path):
++    """`restore --verify-sig` fails loud when no `.asc` accompanies the archive."""
++    archive = _backup(tmp_path, drop_env=_GPG_ENV)  # unsigned — no .asc
++    _wipe_live_state(tmp_path)
++    result = _run(
++        "restore", "--archive", str(archive), "--db", str(_restore_db(tmp_path)),
++        "--verify-sig",
++        drop_env=_GPG_ENV,
++    )
++    assert result.returncode != 0, "must fail when the .asc is absent"
++    assert ".asc" in result.stderr or "signature" in result.stderr.lower()
++
++
++def test_restore_verify_sig_fails_on_bad_signature(
++    tmp_path: Path, keyring: tuple[Path, str]
++):
++    """`restore --verify-sig` fails loud on a corrupted signature file."""
++    home, fingerprint = keyring
++    archive = _backup(
++        tmp_path,
++        extra_env={
++            "POLARIS_GPG_KEY_ID": fingerprint,
++            "GNUPGHOME": str(home),
++            "POLARIS_GPG_PASSPHRASE": _PASSPHRASE,
++        },
++    )
++    asc = archive.parent / f"{archive.name}.asc"
++    # Truncate the armored signature to half — guaranteed unverifiable.
++    original = asc.read_bytes()
++    asc.write_bytes(original[: len(original) // 2])
++    _wipe_live_state(tmp_path)
++    result = _run(
++        "restore", "--archive", str(archive), "--db", str(_restore_db(tmp_path)),
++        "--verify-sig",
++        extra_env={"GNUPGHOME": str(home)},
++        drop_env=_GPG_ENV,
++    )
++    assert result.returncode != 0, "must fail on a corrupted .asc"
++    assert (
++        "verif" in result.stderr.lower() or "fail" in result.stderr.lower()
++    ), result.stderr
++
++
++def test_restore_verify_sig_fails_on_wrong_key(
++    tmp_path: Path, keyring: tuple[Path, str]
++):
++    """A valid signature from an unexpected key is rejected when
++    POLARIS_GPG_KEY_ID pins a different key."""
++    home, fingerprint_a = keyring
++    # A second key in the same keyring.
++    gpg = gnupg.GPG(gnupghome=str(home))
++    fingerprint_b = _gen_key(gpg, "other-signer@polaris.local")
++    assert fingerprint_b != fingerprint_a
++
++    archive = _backup(
++        tmp_path,
++        extra_env={
++            "POLARIS_GPG_KEY_ID": fingerprint_a,
++            "GNUPGHOME": str(home),
++            "POLARIS_GPG_PASSPHRASE": _PASSPHRASE,
++        },
++    )
++    _wipe_live_state(tmp_path)
++    # Restore expecting key B — the signature is cryptographically valid but
++    # from key A, so the expected-key check must reject it.
++    result = _run(
++        "restore", "--archive", str(archive), "--db", str(_restore_db(tmp_path)),
++        "--verify-sig",
++        extra_env={"GNUPGHOME": str(home), "POLARIS_GPG_KEY_ID": fingerprint_b},
++        drop_env=_GPG_ENV,
++    )
++    assert result.returncode != 0, (
++        "restore --verify-sig must reject a valid signature from an unexpected key"
++    )
++    assert "unexpected key" in result.stderr.lower(), result.stderr
+# canonical-diff-sha256: 164be8d43e5d9952b4e7893e4d340c3f9ab83d80f142b715f3facccf6376774b
