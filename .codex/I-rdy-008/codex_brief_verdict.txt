@@ -3,7 +3,10 @@ novel_p0: []
 continuing_p0: []
 p1: []
 p2:
-  - "3.2: Accept, but mirror the precedent completely: support `source_id` as an id alias in addition to `evidence_id`; for metadata, prefer `source_url` with `url` as a harmless fallback."
-  - "Test plan should add focused coverage for zero-token 200, malformed `evidence_pool.json`, missing body text, and the `{\"sources\": [...]}` container/field-precedence path. These are coverage gaps, not execution blockers."
+  - "Implementation guardrail: because the body gates on `ir` only, `PoolTab` must handle `evidence === null` as loading/empty rather than dereferencing `evidence.spans` unguarded."
+  - "Implementation guardrail: if `EvidencePane` is expected to show `evidenceError`, pass that error/status into the pane; `spans/evidenceId/onClose` alone cannot render the evidence fetch failure."
+  - "When dropping the SentencesTab contradiction badge, also remove the now-unused `slugifySection` helper/comment path so lint/typecheck do not pick up dead code."
 convergence_call: accept_remaining
-remaining_blockers_for_execution: []
+remaining_blockers_for_execution:
+  - "none"
+  - "Scope rulings: 3.1 accept; 3.2 accept; 3.3 accept removal; 3.4 accept removal; 3.5 accept one PR; 3.6 confirm no action for this slice."

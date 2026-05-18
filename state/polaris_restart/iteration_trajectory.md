@@ -428,3 +428,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected process metadata; one further test-coverage nicety — two sentences citing the exact same (evidence_id,start,end) aggregating claim_ids — Codex: "implementation appears correct", accepted-residual). convergence accept_remaining. src/polaris_v6/api/inspector.py +196 + tests/v6/test_inspector_route.py +260. ast.parse clean; pytest 15/15 green. P1 trajectory 0. ~145k tokens.
+
+## I-rdy-008 (#504) slice 7b — migrate the inspector page off getBundle() onto the live evidence route
+
+### Brief review
+- iter 1: APPROVE — 0 P0/P1, 3 non-blocking P2 (PoolTab must guard `evidence === null` as loading/empty since the body now gates on `ir` only; EvidencePane must receive `evidenceError` so an evidence-fetch failure is rendered, not masked; remove the now-dead `slugifySection` helper alongside the SentencesTab contradiction badge — all 3 baked into commit 1). convergence accept_remaining; §3 scope rulings 3.1-3.5 accept, 3.6 confirm no action. Slice 7b of #504 (frontend half of the Codex-consult 7a/7b/7c split). web/app/inspector/[runId]/page.tsx + web/lib/api.ts — getInspectorEvidence client + AuditIrEvidenceSpan/AuditIrEvidenceResponse types; PoolTab/EvidencePane migrate off getBundle()/EvidenceContract onto the slice-7a GET /api/inspector/runs/{id}/evidence route; bundle Export button + dead slugifySection dropped; body gate `ir && bundle` → `ir`. getBundle() retained for web/app/runs/[runId]/page.tsx. e2e/demo fixture rebaseline deferred to slice 7c. ~71k tokens.
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (state/polaris_restart/iteration_trajectory.md is a 4th non-excluded file in the canonical diff alongside the 3 code/bug_log files — Codex: "process metadata only, no execution impact", same accepted-residual as slices 1-7a). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +190/-138 + web/lib/api.ts +39 + logs/bug_log.md +82. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~143k tokens.

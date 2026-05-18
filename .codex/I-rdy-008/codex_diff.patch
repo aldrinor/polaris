@@ -1,527 +1,661 @@
-diff --git a/src/polaris_v6/api/inspector.py b/src/polaris_v6/api/inspector.py
-index 93d73dd1..7f150597 100644
---- a/src/polaris_v6/api/inspector.py
-+++ b/src/polaris_v6/api/inspector.py
-@@ -1,12 +1,18 @@
--"""GET /api/inspector/runs/{run_id} — v6 live-inspector AuditIR resolver.
-+"""v6 live-inspector AuditIR resolver routes.
+diff --git a/logs/bug_log.md b/logs/bug_log.md
+index 7a87df8d..7d8d0e33 100644
+--- a/logs/bug_log.md
++++ b/logs/bug_log.md
+@@ -1,5 +1,87 @@
+ # POLARIS Bug Log
  
--I-rdy-008 (#504) slice 1, Option A (Codex architecture-decision consult,
--`.codex/I-rdy-008/arch_decision_verdict.txt`): the rich UI surfaces migrate
--onto the canonical completed-run path
--`run_id -> artifact_dir -> load_audit_ir() -> AuditIR`.
-+I-rdy-008 (#504): the rich UI surfaces migrate onto the canonical
-+completed-run path `run_id -> artifact_dir -> load_audit_ir() -> AuditIR`
-+(slice 1, Option A — Codex architecture-decision consult
-+`.codex/I-rdy-008/arch_decision_verdict.txt`).
++## Degradation Proposal: I-rdy-008 (#504) cannot complete as a frontend-only AuditIR migration (2026-05-18)
++
++**Status:** RESOLVED 2026-05-18 — routed to a Codex architecture consult
++(`.codex/I-rdy-008/slice7_arch_consult_verdict.txt`), NOT to the operator
++(architecture decisions go to Codex per `feedback_route_policy_questions_to_codex`).
++Codex verdict: reject the lossy `bibliography.statement` fallback; live runs
++DO persist the verified span text in `artifact_dir/evidence_pool.json`
++(strict_verify's pool, persisted by `run_honest_sweep_r3.py` after
++verification) — no generator change needed. Slice 7 splits into 7a (backend
++evidence-span route) / 7b (frontend migration, removes inspector `getBundle()`)
++/ 7c (test+demo fixture rebaseline). Loop unblocked; proceeding with 7a.
++**Severity:** P1 — blocked #504 ("wire live runs into the rich UI") from
++achieving its stated goal; the inspector page was functional only for the 7
++golden-fixture runs, not for live runs.
++**APD reference:** GH #504 (I-rdy-008), Phase 3.5. Slices 1-6 merged
++(PR #590/#591/#592/#593/#594/#595). Slice 7 was scoped (per the Codex
++arch-decision consult, verdict A) as "migrate `PoolTab` + `EvidencePane` off
++`getBundle()`/`EvidenceContract`."
++
++**The blocker (grounded against code on `polaris` HEAD `06fbf61a`):**
++
++1. `getBundle()` hits `GET /runs/{run_id}/bundle` — that route
++   (`src/polaris_v6/api/bundle.py`) is **golden-fixture-only**: a hardcoded
++   `_GOLDEN_RUN_INDEX` of 7 run_ids → fixture JSON; **404 for any other
++   run_id**, i.e. for every live run.
++2. The inspector page (`web/app/inspector/[runId]/page.tsx`) dual-fetches
++   `getAuditRun()` + `getBundle()` and gates its whole body on
++   `{ir && bundle && (...)}` (added slice 3). For a live run `getAuditRun()`
++   succeeds but `getBundle()` 404s → `bundle` stays null → the body is
++   hidden and the error panel renders. **The inspector page is therefore
++   golden-fixture-only — slices 3-6 migrated the rendering of 4 surfaces to
++   AuditIR but did not remove the hard `getBundle()` dependency, so #504's
++   live-run goal is not yet met and cannot be met by a frontend-only slice.**
++3. `EvidencePane` + `PoolTab` display the **exact ≤500-char verified source
++   span** + char offsets (`SourceSpan.span_text`/`span_start`/`span_end`) —
++   the F5 clinical-audit core (an auditor verifies a claim against the exact
++   cited span). **AuditIR carries no span text anywhere**:
++   `BibliographyEntry` is `num/evidence_id/statement/tier/url`;
++   `statement` ≠ the verified span. The AuditIR loader has no
++   evidence-pool-with-text concept.
++4. Removing `getBundle()` also takes out two more consumers: the
++   `SentencesTab` contradiction-in-section badge (reads
++   `bundle.contradictions[].section_id`) and the "Export bundle JSON" button
++   (`downloadBundleAsJson`).
++
++**Why the obvious frontend-only fix is rejected:** migrating `EvidencePane`
++to `bibliography.statement` would let the page drop `getBundle()` and work
++for live runs — but it **silently degrades the clinical-audit core**
++(LAW II "no silent downgrade" + §-1.1: the exact cited span is what a
++line-by-line audit verifies against). A structurally-clean diff that
++substitutes `statement` for the verified span would pass Codex code review
++but fail the §-1 clinical standard. Not acceptable.
++
++**Proposed fix (scope change — requires approval):** split slice 7 into
++two slices —
++- **7a (backend):** extend the AuditIR loader / the v6 inspector route to
++  expose the per-evidence verified spans for a live run (candidate source:
++  the run artifact_dir's `live_corpus_dump.json`, which carries the fetched
++  evidence with text — to be confirmed in 7a's grounding). This makes the
++  exact span available on the live-run AuditIR path.
++- **7b (frontend):** migrate `PoolTab` + `EvidencePane` onto the 7a
++  span source, drop `getBundle()`, flip the page gate from `ir && bundle`
++  to `ir &&` (the page then works for live runs), and resolve the two
++  cascading consumers (SentencesTab badge — drop or derive; Export button —
++  repoint to the AuditIR JSON or a v6 bundle route).
++
++**Expected impact:** +1 slice (backend 7a) vs the verdict-A 12-slice plan;
++#504 grows to ~13 slices. No degradation of any audit surface. Until
++approved, slices 8-12 (charts/compare/follow-up/pin-replay/memory) are also
++gated — they sit on the same page that is golden-fixture-only.
++
++**RESOLUTION (2026-05-18):** the scope change was routed to a Codex
++architecture consult (the acceptable alternative noted above), NOT escalated
++to the operator — escalating an architecture decision to the operator was
++itself the bug the operator flagged. Codex's decomposition
++(`.codex/I-rdy-008/slice7_arch_consult_verdict.txt`): 7a backend route
++`GET /api/inspector/runs/{run_id}/evidence` (reads `evidence_pool.json`,
++returns range-keyed `span_text`/offsets/tier/url, 422 on missing/OOB) → 7b
++frontend (migrate `PoolTab`+`EvidencePane`, drop inspector `getBundle()`,
++gate `ir &&` only) → 7c (rebaseline inspector e2e/demo fixtures). The loop
++is UNBLOCKED and proceeds with 7a.
++
+ ## BUG-V28-PRIMARY-CUSTODY: Selector drops anchor-matched primaries despite retrieval success (2026-04-22)
  
--This is the demo-scoped v6 facade route — it exposes ONE completed-run read.
--It deliberately does NOT mount `polaris_graph.audit_ir.inspector_router`, which
-+Routes:
-+- `GET /api/inspector/runs/{run_id}` (slice 1) — the full faithful AuditIR.
-+- `GET /api/inspector/runs/{run_id}/evidence` (slice 7a) — the verified
-+  evidence spans cited by the run, reconstructed from `evidence_pool.json`
-+  (Codex arch consult `.codex/I-rdy-008/slice7_arch_consult_verdict.txt`).
-+
-+This is the demo-scoped v6 facade — it exposes completed-run reads only. It
-+deliberately does NOT mount `polaris_graph.audit_ir.inspector_router`, which
- in current HEAD also carries non-demo surfaces (jobs, workspaces, operator
- dashboards, metrics) per the consult's stale-correction.
- 
-@@ -17,6 +23,7 @@ the loader is called.
- 
- from __future__ import annotations
- 
-+import json
- from pathlib import Path
- from typing import Any
- 
-@@ -29,19 +36,17 @@ from polaris_v6.queue import run_store
- router = APIRouter(prefix="/api/inspector", tags=["inspector"])
- 
- 
--@router.get("/runs/{run_id}")
--def get_inspector_run(run_id: str) -> dict[str, Any]:
--    """Return the full faithful AuditIR for a completed run as a JSON dict.
-+def _resolve_completed_artifact_dir(run_id: str) -> Path:
-+    """Resolve a completed run to its on-disk artifact_dir, or raise.
- 
--    The canonical data source for the Evidence Inspector and every derivative
--    rich surface (I-rdy-008 #504, Option A). Resolution:
-+    The shared run-resolution for every inspector route (slice 7a extracted
-+    this from `get_inspector_run` so the evidence route reuses identical
-+    behavior — same status codes, same messages):
- 
-     - unknown run -> 404
-     - run not completed -> 409
-     - abort_* / error_* run -> 422 (no AuditIR-loadable artifacts)
-     - missing / absent artifact_dir -> 404
--    - artifact_dir present but unloadable -> 422 (fail loud, no zero-fill)
--    - completed loadable run -> 200, full AuditIR JSON
-     """
-     record = run_store.get_run(run_id)
-     if record is None:
-@@ -78,6 +83,84 @@ def get_inspector_run(run_id: str) -> dict[str, Any]:
-             status_code=404,
-             detail=f"artifact_dir does not exist on disk: {artifact_dir}",
-         )
-+    return artifact_dir
-+
-+
-+def _load_evidence_pool(artifact_dir: Path, run_id: str) -> dict[str, dict[str, Any]]:
-+    """Index `evidence_pool.json` by evidence id. Fail loud if absent/malformed.
-+
-+    Mirrors `artifact_to_slice_chain._full_text_for_evidence_id`: the pool is
-+    EITHER a bare JSON list OR `{"sources": [...]}`; a row is keyed by
-+    `evidence_id` or `source_id`. Returns `{evidence_id: row}`.
-+
-+    A run with no `evidence_pool.json` predates evidence-pool persistence — it
-+    is not span-renderable; 422 (fail loud, no `bibliography.statement`
-+    fallback) per the Codex arch consult + LAW II.
-+    """
-+    pool_path = artifact_dir / "evidence_pool.json"
-+    if not pool_path.is_file():
-+        raise HTTPException(
-+            status_code=422,
-+            detail=(
-+                f"run {run_id} has no evidence_pool.json — the verified "
-+                f"evidence spans cannot be reconstructed (this run predates "
-+                f"evidence-pool persistence)"
-+            ),
-+        )
-+    try:
-+        raw = json.loads(pool_path.read_text(encoding="utf-8"))
-+    except (ValueError, OSError) as exc:
-+        raise HTTPException(
-+            status_code=422,
-+            detail=f"run {run_id} evidence_pool.json is unreadable: {exc}",
-+        ) from exc
-+
-+    rows = raw.get("sources") if isinstance(raw, dict) else raw
-+    if not isinstance(rows, list):
-+        raise HTTPException(
-+            status_code=422,
-+            detail=(
-+                f"run {run_id} evidence_pool.json is not a list of sources "
-+                f"(nor a {{'sources': [...]}} object)"
-+            ),
-+        )
-+
-+    indexed: dict[str, dict[str, Any]] = {}
-+    for row in rows:
-+        if not isinstance(row, dict):
-+            continue
-+        ev_id = row.get("evidence_id") or row.get("source_id")
-+        if ev_id:
-+            indexed[str(ev_id)] = row
-+    return indexed
-+
-+
-+def _evidence_body(row: dict[str, Any]) -> str:
-+    """The per-row evidence body text — `full_text`/`direct_quote`/`snippet`
-+    precedence, mirroring `artifact_to_slice_chain._full_text_for_evidence_id`.
-+    """
-+    for key in ("full_text", "direct_quote", "snippet"):
-+        value = row.get(key)
-+        if isinstance(value, str) and value:
-+            return value
-+    return ""
-+
-+
-+@router.get("/runs/{run_id}")
-+def get_inspector_run(run_id: str) -> dict[str, Any]:
-+    """Return the full faithful AuditIR for a completed run as a JSON dict.
-+
-+    The canonical data source for the Evidence Inspector and every derivative
-+    rich surface (I-rdy-008 #504, Option A). Resolution:
-+
-+    - unknown run -> 404
-+    - run not completed -> 409
-+    - abort_* / error_* run -> 422 (no AuditIR-loadable artifacts)
-+    - missing / absent artifact_dir -> 404
-+    - artifact_dir present but unloadable -> 422 (fail loud, no zero-fill)
-+    - completed loadable run -> 200, full AuditIR JSON
-+    """
-+    artifact_dir = _resolve_completed_artifact_dir(run_id)
- 
-     try:
-         ir = load_audit_ir(artifact_dir)
-@@ -92,3 +175,88 @@ def get_inspector_run(run_id: str) -> dict[str, Any]:
-         ) from exc
- 
-     return to_json_dict(ir)
-+
-+
-+@router.get("/runs/{run_id}/evidence")
-+def get_inspector_run_evidence(run_id: str) -> dict[str, Any]:
-+    """Return the verified evidence spans cited by a completed run.
-+
-+    I-rdy-008 (#504) slice 7a (Codex arch consult
-+    `.codex/I-rdy-008/slice7_arch_consult_verdict.txt`). Every verified-report
-+    sentence carries `[#ev:<id>:<start>-<end>]` tokens; this route resolves
-+    each token's `evidence_id` against `evidence_pool.json` and reconstructs
-+    the exact cited span as `body[start:end]` — the auditable source text an
-+    auditor verifies a claim against. Spans are range-keyed
-+    (`evidence_id, start, end`) and de-duplicated; `claim_ids` lists every
-+    sentence that cites the span.
-+
-+    Fails loud (422) — never degrades to a bibliography statement — when
-+    `evidence_pool.json` is absent/malformed, a token cites an evidence id
-+    absent from the pool, a row has no body text, or a token's offsets are
-+    out of range.
-+
-+    Resolution: unknown 404 / not-completed 409 / abort 422 / missing
-+    artifact_dir 404 / unloadable AuditIR 422 / no evidence_pool.json 422 /
-+    completed + loadable + pooled -> 200.
-+    """
-+    artifact_dir = _resolve_completed_artifact_dir(run_id)
-+    pool = _load_evidence_pool(artifact_dir, run_id)
-+
-+    try:
-+        ir = load_audit_ir(artifact_dir)
-+    except (FileNotFoundError, NotADirectoryError, ValueError, TypeError) as exc:
-+        raise HTTPException(
-+            status_code=422,
-+            detail=f"run {run_id} artifact_dir failed AuditIR load: {exc}",
-+        ) from exc
-+
-+    # Range key (evidence_id, start, end) -> set of citing sentence claim_ids.
-+    claim_ids_by_span: dict[tuple[str, int, int], set[str]] = {}
-+    for section in ir.verified_report.sections:
-+        for sentence in section.sentences:
-+            for token in sentence.tokens:
-+                key = (token.evidence_id, token.start, token.end)
-+                claim_ids_by_span.setdefault(key, set()).add(sentence.claim_id)
-+
-+    spans: list[dict[str, Any]] = []
-+    for evidence_id, start, end in sorted(claim_ids_by_span):
-+        row = pool.get(evidence_id)
-+        if row is None:
-+            raise HTTPException(
-+                status_code=422,
-+                detail=(
-+                    f"run {run_id}: a verified sentence token cites evidence "
-+                    f"{evidence_id!r}, which is absent from evidence_pool.json"
-+                ),
-+            )
-+        body = _evidence_body(row)
-+        if not body:
-+            raise HTTPException(
-+                status_code=422,
-+                detail=(
-+                    f"run {run_id}: evidence {evidence_id!r} has no body text "
-+                    f"in evidence_pool.json — the span cannot be reconstructed"
-+                ),
-+            )
-+        if start < 0 or start > end or end > len(body):
-+            raise HTTPException(
-+                status_code=422,
-+                detail=(
-+                    f"run {run_id}: evidence {evidence_id!r} span "
-+                    f"[{start}:{end}] is out of range for its {len(body)}-char "
-+                    f"body text"
-+                ),
-+            )
-+        spans.append(
-+            {
-+                "evidence_id": evidence_id,
-+                "span_start": start,
-+                "span_end": end,
-+                "span_text": body[start:end],
-+                "tier": str(row.get("tier", "")),
-+                "source_url": str(row.get("source_url") or row.get("url") or ""),
-+                "claim_ids": sorted(claim_ids_by_span[(evidence_id, start, end)]),
-+            }
-+        )
-+
-+    return {"run_id": run_id, "spans": spans}
+ **Status:** OPEN — V29 fix scoped (candidates A+B+C per
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 7a95ea5e..be528f08 100644
+index be528f08..951885a5 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -416,3 +416,15 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+@@ -428,3 +428,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
  
  ### Diff review
- - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff alongside page.tsx — expected process metadata, same note as slices 1-5). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +77/-38 — ContradictionsTab on AuditIR N-claim clusters. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~82k tokens.
+ - iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected process metadata; one further test-coverage nicety — two sentences citing the exact same (evidence_id,start,end) aggregating claim_ids — Codex: "implementation appears correct", accepted-residual). convergence accept_remaining. src/polaris_v6/api/inspector.py +196 + tests/v6/test_inspector_route.py +260. ast.parse clean; pytest 15/15 green. P1 trajectory 0. ~145k tokens.
 +
-+## I-rdy-008 (#504) slice 7 — ARCH CONSULT (getBundle golden-only blocker)
-+
-+- Slice-7 grounding found getBundle()'s route is golden-fixture-only + AuditIR has no span text → inspector page works only for 7 golden runs, not live runs. Filed §6.2 Degradation Proposal; operator flagged that an architecture decision must go to Codex, not be escalated as USER APPROVAL REQUIRED (feedback_route_policy_questions_to_codex repeat-flag 2026-05-18). Routed to a Codex architecture consult (.codex/I-rdy-008/slice7_arch_consult{,_verdict}.txt). Codex verdict: live runs DO persist span text in evidence_pool.json; split slice 7 → 7a backend evidence route / 7b frontend migration / 7c test rebaseline; reject the lossy bibliography.statement fallback. §6.2 resolved; loop unblocked. ~xhigh-reasoning consult.
-+
-+## I-rdy-008 (#504) slice 7a — v6 inspector evidence-span route
++## I-rdy-008 (#504) slice 7b — migrate the inspector page off getBundle() onto the live evidence route
 +
 +### Brief review
-+- iter 1: APPROVE — 0 P0/P1, 2 non-blocking P2 (mirror the _full_text_for_evidence_id precedent fully — source_id id-alias + source_url||url fallback; expand test coverage for zero-token-200/malformed-pool/missing-body/{sources:[]}-container — all baked into commit 1). convergence accept_remaining. Slice 7a of #504 (backend half of the Codex-consult 7a/7b/7c split). New GET /api/inspector/runs/{run_id}/evidence in src/polaris_v6/api/inspector.py — reads evidence_pool.json, range-keyed verified spans (span_text=body[start:end]), fail-loud 422; +10 tests. Backend only, no web/. ~53k tokens.
++- iter 1: APPROVE — 0 P0/P1, 3 non-blocking P2 (PoolTab must guard `evidence === null` as loading/empty since the body now gates on `ir` only; EvidencePane must receive `evidenceError` so an evidence-fetch failure is rendered, not masked; remove the now-dead `slugifySection` helper alongside the SentencesTab contradiction badge — all 3 baked into commit 1). convergence accept_remaining; §3 scope rulings 3.1-3.5 accept, 3.6 confirm no action. Slice 7b of #504 (frontend half of the Codex-consult 7a/7b/7c split). web/app/inspector/[runId]/page.tsx + web/lib/api.ts — getInspectorEvidence client + AuditIrEvidenceSpan/AuditIrEvidenceResponse types; PoolTab/EvidencePane migrate off getBundle()/EvidenceContract onto the slice-7a GET /api/inspector/runs/{id}/evidence route; bundle Export button + dead slugifySection dropped; body gate `ir && bundle` → `ir`. getBundle() retained for web/app/runs/[runId]/page.tsx. e2e/demo fixture rebaseline deferred to slice 7c. ~71k tokens.
 +
 +### Diff review
-+- iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected process metadata; one further test-coverage nicety — two sentences citing the exact same (evidence_id,start,end) aggregating claim_ids — Codex: "implementation appears correct", accepted-residual). convergence accept_remaining. src/polaris_v6/api/inspector.py +196 + tests/v6/test_inspector_route.py +260. ast.parse clean; pytest 15/15 green. P1 trajectory 0. ~145k tokens.
-diff --git a/tests/v6/test_inspector_route.py b/tests/v6/test_inspector_route.py
-index 75e6f1ad..1829bb7a 100644
---- a/tests/v6/test_inspector_route.py
-+++ b/tests/v6/test_inspector_route.py
-@@ -115,3 +115,263 @@ def test_loadable_completed_run_returns_200_audit_ir(client, tmp_path):
-     assert "manifest" in body
-     assert "bibliography" in body
-     assert "verified_report" in body
-+
-+
-+# ---------------------------------------------------------------------------
-+# I-rdy-008 (#504) slice 7a — GET /api/inspector/runs/{run_id}/evidence
-+#
-+# The evidence-span route reconstructs each verified token's exact cited span
-+# as evidence_pool.json's body[start:end]. Per the Codex arch consult
-+# (.codex/I-rdy-008/slice7_arch_consult_verdict.txt) it fails loud (422)
-+# rather than degrade to a bibliography statement.
-+# ---------------------------------------------------------------------------
-+
-+# A known 40-char body so exact-slice assertions are unambiguous.
-+_BODY = "0123456789ABCDEFGHIJabcdefghij0123456789"
-+
-+
-+def _write_artifact_dir_with_evidence(d: Path, *, kept, evidence_pool) -> Path:
-+    """A minimal artifact_dir whose verification_details.json carries tokened
-+    kept sentences, plus an optional evidence_pool.json.
-+
-+    ``kept`` — the kept-sentence dicts (``{sentence, tokens}``).
-+    ``evidence_pool`` — written as evidence_pool.json: a str is written
-+    verbatim (the malformed-JSON case); a list/dict is JSON-dumped; ``None``
-+    omits the file entirely (the missing-pool case).
-+    """
-+    _write_minimal_artifact_dir(d)
-+    (d / "verification_details.json").write_text(
-+        json.dumps(
-+            {
-+                "sections": [{"title": "Efficacy", "kept": kept, "dropped": []}],
-+                "totals": {},
-+            }
-+        ),
-+        encoding="utf-8",
-+    )
-+    if evidence_pool is not None:
-+        (d / "evidence_pool.json").write_text(
-+            evidence_pool
-+            if isinstance(evidence_pool, str)
-+            else json.dumps(evidence_pool),
-+            encoding="utf-8",
-+        )
-+    return d
-+
-+
-+def _seed_completed(run_id: str, artifact_dir: Path) -> None:
-+    """Seed run_store with a completed run pointing at ``artifact_dir``."""
-+    run_store.insert_run(run_id, "clinical", _QUESTION)
-+    run_store.set_pipeline_meta(run_id, artifact_dir=str(artifact_dir))
-+    run_store.mark_completed(run_id, {}, pipeline_status="success")
-+
-+
-+def test_evidence_unknown_run_returns_404(client):
-+    # Shared-resolver regression: the evidence route reuses get_inspector_run's
-+    # run-resolution, so an unknown run still 404s.
-+    response = client.get("/api/inspector/runs/no_such_run/evidence")
-+    assert response.status_code == 404
-+
-+
-+def test_evidence_200_exact_span_slice(client, tmp_path):
-+    artifact_dir = _write_artifact_dir_with_evidence(
-+        tmp_path / "artifacts" / "ev_run",
-+        kept=[
-+            {
-+                "sentence": "Claim one [#ev:ev_001:5-25].",
-+                "tokens": [{"evidence_id": "ev_001", "start": 5, "end": 25}],
-+            }
-+        ],
-+        evidence_pool=[
-+            {
-+                "evidence_id": "ev_001",
-+                "direct_quote": _BODY,
-+                "source_url": "https://example.test/a",
-+                "tier": "T2",
-+            }
-+        ],
-+    )
-+    _seed_completed("ev_run", artifact_dir)
-+
-+    response = client.get("/api/inspector/runs/ev_run/evidence")
-+    assert response.status_code == 200, response.text
-+    body = response.json()
-+    assert body["run_id"] == "ev_run"
-+    assert len(body["spans"]) == 1
-+    span = body["spans"][0]
-+    assert span["evidence_id"] == "ev_001"
-+    assert span["span_start"] == 5
-+    assert span["span_end"] == 25
-+    assert span["span_text"] == _BODY[5:25]
-+    assert span["tier"] == "T2"
-+    assert span["source_url"] == "https://example.test/a"
-+    assert span["claim_ids"] == ["Efficacy:kept:0"]
-+
-+
-+def test_evidence_multi_span_same_evidence_id(client, tmp_path):
-+    # One sentence, two tokens on the SAME evidence_id but different ranges →
-+    # two distinct range-keyed span entries.
-+    artifact_dir = _write_artifact_dir_with_evidence(
-+        tmp_path / "artifacts" / "multi_run",
-+        kept=[
-+            {
-+                "sentence": "Two ranges [#ev:ev_001:0-10] [#ev:ev_001:10-20].",
-+                "tokens": [
-+                    {"evidence_id": "ev_001", "start": 0, "end": 10},
-+                    {"evidence_id": "ev_001", "start": 10, "end": 20},
-+                ],
-+            }
-+        ],
-+        evidence_pool=[{"evidence_id": "ev_001", "direct_quote": _BODY, "tier": "T1"}],
-+    )
-+    _seed_completed("multi_run", artifact_dir)
-+
-+    response = client.get("/api/inspector/runs/multi_run/evidence")
-+    assert response.status_code == 200, response.text
-+    spans = response.json()["spans"]
-+    assert len(spans) == 2
-+    assert {(s["span_start"], s["span_end"]) for s in spans} == {(0, 10), (10, 20)}
-+    assert spans[0]["span_text"] == _BODY[0:10]
-+    assert spans[1]["span_text"] == _BODY[10:20]
-+
-+
-+def test_evidence_missing_pool_returns_422(client, tmp_path):
-+    artifact_dir = _write_artifact_dir_with_evidence(
-+        tmp_path / "artifacts" / "nopool_run",
-+        kept=[
-+            {
-+                "sentence": "Claim [#ev:ev_001:0-5].",
-+                "tokens": [{"evidence_id": "ev_001", "start": 0, "end": 5}],
-+            }
-+        ],
-+        evidence_pool=None,  # evidence_pool.json deliberately omitted
-+    )
-+    _seed_completed("nopool_run", artifact_dir)
-+
-+    response = client.get("/api/inspector/runs/nopool_run/evidence")
-+    assert response.status_code == 422
-+    assert "evidence_pool.json" in response.json()["detail"]
-+
-+
-+def test_evidence_malformed_pool_returns_422(client, tmp_path):
-+    artifact_dir = _write_artifact_dir_with_evidence(
-+        tmp_path / "artifacts" / "badpool_run",
-+        kept=[
-+            {
-+                "sentence": "Claim [#ev:ev_001:0-5].",
-+                "tokens": [{"evidence_id": "ev_001", "start": 0, "end": 5}],
-+            }
-+        ],
-+        evidence_pool="{not valid json",
-+    )
-+    _seed_completed("badpool_run", artifact_dir)
-+
-+    response = client.get("/api/inspector/runs/badpool_run/evidence")
-+    assert response.status_code == 422
-+
-+
-+def test_evidence_out_of_range_offset_returns_422(client, tmp_path):
-+    artifact_dir = _write_artifact_dir_with_evidence(
-+        tmp_path / "artifacts" / "oob_run",
-+        kept=[
-+            {
-+                "sentence": "Claim [#ev:ev_001:0-9999].",
-+                "tokens": [{"evidence_id": "ev_001", "start": 0, "end": 9999}],
-+            }
-+        ],
-+        evidence_pool=[{"evidence_id": "ev_001", "direct_quote": _BODY, "tier": "T1"}],
-+    )
-+    _seed_completed("oob_run", artifact_dir)
-+
-+    response = client.get("/api/inspector/runs/oob_run/evidence")
-+    assert response.status_code == 422
-+    assert "out of range" in response.json()["detail"]
-+
-+
-+def test_evidence_unknown_evidence_id_returns_422(client, tmp_path):
-+    # A verified token cites ev_999, which is absent from the pool.
-+    artifact_dir = _write_artifact_dir_with_evidence(
-+        tmp_path / "artifacts" / "missing_ev_run",
-+        kept=[
-+            {
-+                "sentence": "Claim [#ev:ev_999:0-5].",
-+                "tokens": [{"evidence_id": "ev_999", "start": 0, "end": 5}],
-+            }
-+        ],
-+        evidence_pool=[{"evidence_id": "ev_001", "direct_quote": _BODY, "tier": "T1"}],
-+    )
-+    _seed_completed("missing_ev_run", artifact_dir)
-+
-+    response = client.get("/api/inspector/runs/missing_ev_run/evidence")
-+    assert response.status_code == 422
-+    assert "ev_999" in response.json()["detail"]
-+
-+
-+def test_evidence_missing_body_text_returns_422(client, tmp_path):
-+    # The pool row has no full_text / direct_quote / snippet body.
-+    artifact_dir = _write_artifact_dir_with_evidence(
-+        tmp_path / "artifacts" / "nobody_run",
-+        kept=[
-+            {
-+                "sentence": "Claim [#ev:ev_001:0-5].",
-+                "tokens": [{"evidence_id": "ev_001", "start": 0, "end": 5}],
-+            }
-+        ],
-+        evidence_pool=[
-+            {
-+                "evidence_id": "ev_001",
-+                "source_url": "https://example.test/a",
-+                "tier": "T1",
-+            }
-+        ],
-+    )
-+    _seed_completed("nobody_run", artifact_dir)
-+
-+    response = client.get("/api/inspector/runs/nobody_run/evidence")
-+    assert response.status_code == 422
-+    assert "no body text" in response.json()["detail"]
-+
-+
-+def test_evidence_zero_token_run_returns_200_empty(client, tmp_path):
-+    # A verified sentence with no tokens (e.g. a synthesis claim) contributes
-+    # no spans; a run with zero tokens overall is a valid 200 with spans: [].
-+    artifact_dir = _write_artifact_dir_with_evidence(
-+        tmp_path / "artifacts" / "zerotok_run",
-+        kept=[{"sentence": "A synthesis sentence with no citation.", "tokens": []}],
-+        evidence_pool=[{"evidence_id": "ev_001", "direct_quote": _BODY, "tier": "T1"}],
-+    )
-+    _seed_completed("zerotok_run", artifact_dir)
-+
-+    response = client.get("/api/inspector/runs/zerotok_run/evidence")
-+    assert response.status_code == 200, response.text
-+    assert response.json()["spans"] == []
-+
-+
-+def test_evidence_sources_container_and_full_text_precedence(client, tmp_path):
-+    # evidence_pool.json as {"sources": [...]} (not a bare list); the body
-+    # field precedence is full_text > direct_quote, so full_text wins.
-+    artifact_dir = _write_artifact_dir_with_evidence(
-+        tmp_path / "artifacts" / "sources_run",
-+        kept=[
-+            {
-+                "sentence": "Claim [#ev:ev_001:0-10].",
-+                "tokens": [{"evidence_id": "ev_001", "start": 0, "end": 10}],
-+            }
-+        ],
-+        evidence_pool={
-+            "sources": [
-+                {
-+                    "evidence_id": "ev_001",
-+                    "full_text": _BODY,
-+                    "direct_quote": "WRONG-this-should-not-be-used",
-+                    "tier": "T1",
-+                }
-+            ]
++- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (state/polaris_restart/iteration_trajectory.md is a 4th non-excluded file in the canonical diff alongside the 3 code/bug_log files — Codex: "process metadata only, no execution impact", same accepted-residual as slices 1-7a). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +190/-138 + web/lib/api.ts +39 + logs/bug_log.md +82. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~143k tokens.
+diff --git a/web/app/inspector/[runId]/page.tsx b/web/app/inspector/[runId]/page.tsx
+index 21351265..8f1f516f 100644
+--- a/web/app/inspector/[runId]/page.tsx
++++ b/web/app/inspector/[runId]/page.tsx
+@@ -14,16 +14,15 @@ import {
+ import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
+ import { VegaChart } from "@/components/ui/vega-chart";
+ import {
+-  downloadBundleAsJson,
+   getAuditRun,
+-  getBundle,
+   getChart,
++  getInspectorEvidence,
+   type ApiError,
+   type AuditIrBibliographyEntry,
++  type AuditIrEvidenceResponse,
++  type AuditIrEvidenceSpan,
+   type AuditIrRun,
+   type ChartType,
+-  type EvidenceContract,
+-  type SourceSpan,
+   type VegaLiteSpec,
+ } from "@/lib/api";
+ 
+@@ -81,20 +80,24 @@ function twoFamilyState(ir: AuditIrRun): {
+ export default function InspectorPage({ params }: InspectorPageProps) {
+   const { runId } = use(params);
+   const [ir, setIr] = useState<AuditIrRun | null>(null);
+-  const [bundle, setBundle] = useState<EvidenceContract | null>(null);
++  const [evidence, setEvidence] = useState<AuditIrEvidenceResponse | null>(
++    null,
++  );
++  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+   const [error, setError] = useState<string | null>(null);
+-  const [selectedEvidence, setSelectedEvidence] = useState<SourceSpan | null>(
++  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(
+     null,
+   );
+   const [activeTab, setActiveTab] = useState<
+     "summary" | "sentences" | "frames" | "contradictions" | "pool" | "charts"
+   >("summary");
+ 
+-  // I-rdy-008 (#504) slice 3 — dual-fetch transition state. The shell + the
+-  // Executive-summary tab read the faithful AuditIR (`getAuditRun`); the other
+-  // 5 tabs + EvidencePane still read the legacy bundle (`getBundle`). Slices
+-  // 4-7 migrate the remaining tabs, after which the `getBundle` call is
+-  // removed.
++  // I-rdy-008 (#504) slice 7b — the inspector page reads only the faithful
++  // AuditIR path: getAuditRun() for every rich surface + getInspectorEvidence()
++  // for the evidence-pool / EvidencePane spans. getBundle() (golden-fixture-
++  // only — 404 for every live run) is gone, so the page now works for live
++  // runs. The evidence fetch is INDEPENDENT of the page gate: its failure
++  // degrades only the Evidence-pool tab + EvidencePane, not the whole page.
+   useEffect(() => {
+     let cancelled = false;
+     getAuditRun(runId)
+@@ -105,59 +108,59 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+         if (!cancelled)
+           setError(apiErrorMessage(err, "Run inspector load failed"));
+       });
+-    getBundle(runId)
+-      .then((b) => {
+-        if (!cancelled) setBundle(b);
++    getInspectorEvidence(runId)
++      .then((e) => {
++        if (!cancelled) setEvidence(e);
+       })
+       .catch((err) => {
+         if (!cancelled)
+-          setError(apiErrorMessage(err, "Evidence bundle load failed"));
++          setEvidenceError(apiErrorMessage(err, "Evidence load failed"));
+       });
+     return () => {
+       cancelled = true;
+     };
+   }, [runId]);
+ 
+-  const evidenceById = (id: string) =>
+-    bundle?.evidence_pool.find((s) => s.evidence_id === id) ?? null;
++  const spansForEvidenceId = (id: string): AuditIrEvidenceSpan[] =>
++    evidence?.spans.filter((s) => s.evidence_id === id) ?? [];
+ 
+-  const tabs: { id: typeof activeTab; label: string; count: number }[] =
+-    ir && bundle
+-      ? [
+-          {
+-            id: "summary",
+-            label: "Executive summary",
+-            count: 3,
+-          },
+-          {
+-            id: "sentences",
+-            label: "Verified sentences",
+-            count:
+-              ir.verified_report.sentences_verified +
+-              ir.verified_report.sentences_dropped,
+-          },
+-          {
+-            id: "frames",
+-            label: "Frame coverage",
+-            count: ir.frame_coverage.entries.length,
+-          },
+-          {
+-            id: "contradictions",
+-            label: "Contradictions",
+-            count: ir.contradictions.length,
+-          },
+-          {
+-            id: "pool",
+-            label: "Evidence pool",
+-            count: bundle.evidence_pool.length,
+-          },
+-          {
+-            id: "charts",
+-            label: "Charts",
+-            count: 3,
+-          },
+-        ]
+-      : [];
++  const tabs: { id: typeof activeTab; label: string; count: number }[] = ir
++    ? [
++        {
++          id: "summary",
++          label: "Executive summary",
++          count: 3,
 +        },
-+    )
-+    _seed_completed("sources_run", artifact_dir)
++        {
++          id: "sentences",
++          label: "Verified sentences",
++          count:
++            ir.verified_report.sentences_verified +
++            ir.verified_report.sentences_dropped,
++        },
++        {
++          id: "frames",
++          label: "Frame coverage",
++          count: ir.frame_coverage.entries.length,
++        },
++        {
++          id: "contradictions",
++          label: "Contradictions",
++          count: ir.contradictions.length,
++        },
++        {
++          id: "pool",
++          label: "Evidence pool",
++          count: new Set((evidence?.spans ?? []).map((s) => s.evidence_id))
++            .size,
++        },
++        {
++          id: "charts",
++          label: "Charts",
++          count: 3,
++        },
++      ]
++    : [];
+ 
+   return (
+     <div className="flex min-h-screen flex-col">
+@@ -171,14 +174,6 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+               Run {runId}
+             </span>
+           </Link>
+-          {bundle && (
+-            <Button
+-              variant="outline"
+-              onClick={() => downloadBundleAsJson(bundle)}
+-            >
+-              Export bundle JSON
+-            </Button>
+-          )}
+         </div>
+       </header>
+ 
+@@ -197,7 +192,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+           </section>
+         )}
+ 
+-        {ir && bundle && (
++        {ir && (
+           <>
+             <RunShell ir={ir} />
+ 
+@@ -225,43 +220,46 @@ export default function InspectorPage({ params }: InspectorPageProps) {
+                   <ExecutiveSummaryTab
+                     runId={runId}
+                     ir={ir}
+-                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
++                    onSelect={(id) => setSelectedEvidenceId(id)}
+                   />
+                 )}
+                 {activeTab === "sentences" && (
+                   <SentencesTab
+                     ir={ir}
+-                    bundle={bundle}
+-                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+-                    onJumpToContradictions={() =>
+-                      setActiveTab("contradictions")
+-                    }
++                    onSelect={(id) => setSelectedEvidenceId(id)}
+                   />
+                 )}
+                 {activeTab === "frames" && <FramesTab ir={ir} />}
+                 {activeTab === "contradictions" && (
+                   <ContradictionsTab
+                     ir={ir}
+-                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
++                    onSelect={(id) => setSelectedEvidenceId(id)}
+                   />
+                 )}
+                 {activeTab === "pool" && (
+                   <PoolTab
+-                    bundle={bundle}
+-                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
++                    evidence={evidence}
++                    evidenceError={evidenceError}
++                    onSelect={(id) => setSelectedEvidenceId(id)}
+                   />
+                 )}
+                 {activeTab === "charts" && (
+                   <ChartsTab
+                     runId={runId}
+-                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
++                    onSelect={(id) => setSelectedEvidenceId(id)}
+                   />
+                 )}
+               </div>
+               <aside className="lg:col-span-1">
+                 <EvidencePane
+-                  span={selectedEvidence}
+-                  onClose={() => setSelectedEvidence(null)}
++                  evidenceId={selectedEvidenceId}
++                  spans={
++                    selectedEvidenceId
++                      ? spansForEvidenceId(selectedEvidenceId)
++                      : []
++                  }
++                  evidenceError={evidenceError}
++                  onClose={() => setSelectedEvidenceId(null)}
+                 />
+               </aside>
+             </div>
+@@ -355,37 +353,17 @@ function RunShell({ ir }: { ir: AuditIrRun }) {
+ }
+ 
+ /**
+- * Slug of a section title — mirrors the backend `_slugify` in
+- * `src/polaris_v6/api/artifact_to_slice_chain.py`
+- * (`re.sub(r"[^a-z0-9_]+", "_", text.lower()).strip("_")[:60]`) so an
+- * AuditIR section title (`AuditIrSentence.section`, a display title) can be
+- * matched against the legacy bundle's slugified `contradictions[].section_id`.
+- */
+-function slugifySection(text: string): string {
+-  return (text || "")
+-    .toLowerCase()
+-    .replace(/[^a-z0-9_]+/g, "_")
+-    .replace(/^_+|_+$/g, "")
+-    .slice(0, 60);
+-}
+-
+-/**
+- * I-rdy-008 (#504) slice 4 — the verified-sentences tab reads the faithful
+- * AuditIR `verified_report.sections[].sentences[]` (flattened) instead of the
+- * legacy flat `bundle.verified_sentences`. The contradiction-in-section
+- * cross-link stays bundle-backed (AuditIR contradiction clusters carry no
+- * section field); the contradictions tab itself migrates in a later slice.
++ * I-rdy-008 (#504) slice 4/7b — the verified-sentences tab reads the faithful
++ * AuditIR `verified_report.sections[].sentences[]` (flattened). The legacy
++ * contradiction-in-section badge was dropped in slice 7b: AuditIR
++ * contradiction clusters carry no section field, and `getBundle()` is gone.
+  */
+ function SentencesTab({
+   ir,
+-  bundle,
+   onSelect,
+-  onJumpToContradictions,
+ }: {
+   ir: AuditIrRun;
+-  bundle: EvidenceContract;
+   onSelect: (id: string) => void;
+-  onJumpToContradictions: () => void;
+ }) {
+   const sentences = ir.verified_report.sections.flatMap((sec) => sec.sentences);
+   if (sentences.length === 0) {
+@@ -396,9 +374,6 @@ function SentencesTab({
+       </p>
+     );
+   }
+-  const sectionsWithContradictions = new Set(
+-    bundle.contradictions.map((c) => c.section_id),
+-  );
+   const bibById = (id: string): AuditIrBibliographyEntry | null =>
+     ir.bibliography.find((b) => b.evidence_id === id) ?? null;
+   return (
+@@ -409,15 +384,6 @@ function SentencesTab({
+             <CardHeader>
+               <CardDescription className="text-xs tracking-widest uppercase">
+                 {s.section} · {s.is_verified ? "verified✓" : "verified✗"}
+-                {sectionsWithContradictions.has(slugifySection(s.section)) && (
+-                  <button
+-                    type="button"
+-                    onClick={onJumpToContradictions}
+-                    className="ml-2 inline-flex min-h-[24px] items-center rounded bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-900 normal-case hover:bg-yellow-200"
+-                  >
+-                    contradiction in section →
+-                  </button>
+-                )}
+               </CardDescription>
+             </CardHeader>
+             <CardContent>
+@@ -1008,28 +974,62 @@ function ChartsTab({
+   );
+ }
+ 
++/**
++ * I-rdy-008 (#504) slice 7b — the evidence-pool tab reads the AuditIR
++ * evidence route (`getInspectorEvidence`). Range-keyed spans are grouped by
++ * `evidence_id` (one row per source). An evidence-fetch failure (e.g. a run
++ * with no `evidence_pool.json`) degrades only this tab — fail loud, no
++ * silent fallback.
++ */
+ function PoolTab({
+-  bundle,
++  evidence,
++  evidenceError,
+   onSelect,
+ }: {
+-  bundle: EvidenceContract;
++  evidence: AuditIrEvidenceResponse | null;
++  evidenceError: string | null;
+   onSelect: (id: string) => void;
+ }) {
++  if (evidenceError) {
++    return (
++      <p className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium">
++        Evidence unavailable: {evidenceError}
++      </p>
++    );
++  }
++  if (evidence === null) {
++    return <p className="text-muted-foreground text-sm">Loading evidence…</p>;
++  }
++  if (evidence.spans.length === 0) {
++    return (
++      <p className="text-muted-foreground text-sm">
++        No verified evidence spans for this run.
++      </p>
++    );
++  }
++  // Group the range-keyed spans by evidence_id — one row per source.
++  const byId = new Map<string, AuditIrEvidenceSpan[]>();
++  for (const span of evidence.spans) {
++    const list = byId.get(span.evidence_id);
++    if (list) list.push(span);
++    else byId.set(span.evidence_id, [span]);
++  }
+   return (
+     <ul className="flex flex-col gap-2">
+-      {bundle.evidence_pool.map((s) => (
+-        <li key={s.evidence_id}>
++      {[...byId.entries()].map(([evidenceId, spans]) => (
++        <li key={evidenceId}>
+           <button
+             type="button"
+-            onClick={() => onSelect(s.evidence_id)}
++            onClick={() => onSelect(evidenceId)}
+             className="border-border hover:border-foreground w-full rounded-md border p-3 text-left text-sm transition"
+           >
+             <p className="text-muted-foreground font-mono text-xs">
+-              {s.evidence_id} · tier {s.source_tier}
++              {evidenceId} · tier {spans[0].tier} · {spans.length} span
++              {spans.length === 1 ? "" : "s"}
+             </p>
+             <p className="text-foreground mt-1">
+-              {s.span_text.slice(0, 120)}
+-              {s.span_text.length > 120 ? "…" : ""}
++              {spans[0].span_text.slice(0, 120)}
++              {spans[0].span_text.length > 120 ? "…" : ""}
+             </p>
+           </button>
+         </li>
+@@ -1038,14 +1038,23 @@ function PoolTab({
+   );
+ }
+ 
++/**
++ * I-rdy-008 (#504) slice 7b — the side pane renders every verified span of
++ * the clicked `evidence_id` (live runs cite multiple ranges per evidence id —
++ * the pane shows them all, it is not keyed to a single range).
++ */
+ function EvidencePane({
+-  span,
++  evidenceId,
++  spans,
++  evidenceError,
+   onClose,
+ }: {
+-  span: SourceSpan | null;
++  evidenceId: string | null;
++  spans: AuditIrEvidenceSpan[];
++  evidenceError: string | null;
+   onClose: () => void;
+ }) {
+-  if (!span) {
++  if (evidenceId === null) {
+     return (
+       <Card>
+         <CardHeader>
+@@ -1057,36 +1066,79 @@ function EvidencePane({
+       </Card>
+     );
+   }
++  if (evidenceError) {
++    return (
++      <Card>
++        <CardHeader>
++          <CardDescription className="text-xs tracking-widest uppercase">
++            {evidenceId}
++          </CardDescription>
++          <CardTitle className="text-sm">Evidence unavailable</CardTitle>
++        </CardHeader>
++        <CardContent>
++          <p className="border-destructive/60 text-foreground rounded-md border p-3 text-xs font-medium">
++            {evidenceError}
++          </p>
++          <Button
++            type="button"
++            variant="ghost"
++            onClick={onClose}
++            className="mt-3"
++          >
++            Close
++          </Button>
++        </CardContent>
++      </Card>
++    );
++  }
++  if (spans.length === 0) {
++    return (
++      <Card>
++        <CardHeader>
++          <CardDescription className="text-xs tracking-widest uppercase">
++            {evidenceId}
++          </CardDescription>
++          <CardTitle className="text-sm">
++            No verified span recorded for this evidence id
++          </CardTitle>
++        </CardHeader>
++        <CardContent>
++          <Button type="button" variant="ghost" onClick={onClose}>
++            Close
++          </Button>
++        </CardContent>
++      </Card>
++    );
++  }
+   return (
+     <Card>
+       <CardHeader>
+         <CardDescription className="text-xs tracking-widest uppercase">
+-          {span.evidence_id} · tier {span.source_tier}
++          {evidenceId} · tier {spans[0].tier}
+         </CardDescription>
+         <CardTitle className="text-sm break-all">
+           <a
+-            href={span.source_url}
++            href={spans[0].source_url}
+             target="_blank"
+             rel="noreferrer"
+             className="underline-offset-4 hover:underline"
+           >
+-            {span.source_url}
++            {spans[0].source_url}
+           </a>
+         </CardTitle>
+       </CardHeader>
+-      <CardContent>
+-        <p className="text-muted-foreground text-xs">
+-          chars {span.span_start}–{span.span_end}
+-        </p>
+-        <pre className="bg-muted text-foreground mt-2 overflow-x-auto rounded-md p-3 text-xs whitespace-pre-wrap">
+-          {span.span_text}
+-        </pre>
+-        <Button
+-          type="button"
+-          variant="ghost"
+-          onClick={onClose}
+-          className="mt-3"
+-        >
++      <CardContent className="flex flex-col gap-3">
++        {spans.map((span, idx) => (
++          <div key={idx}>
++            <p className="text-muted-foreground text-xs">
++              chars {span.span_start}–{span.span_end}
++            </p>
++            <pre className="bg-muted text-foreground mt-1 overflow-x-auto rounded-md p-3 text-xs whitespace-pre-wrap">
++              {span.span_text}
++            </pre>
++          </div>
++        ))}
++        <Button type="button" variant="ghost" onClick={onClose}>
+           Close
+         </Button>
+       </CardContent>
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index d02ef94f..5bd68583 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -1407,3 +1407,42 @@ export async function getAuditRun(runId: string): Promise<AuditIrRun> {
+   );
+   return asJsonOrThrow<AuditIrRun>(response);
+ }
 +
-+    response = client.get("/api/inspector/runs/sources_run/evidence")
-+    assert response.status_code == 200, response.text
-+    span = response.json()["spans"][0]
-+    assert span["span_text"] == _BODY[0:10]
++/**
++ * I-rdy-008 (#504) slice 7a/7b — one verified evidence span cited by a run.
++ * The exact `body[start:end]` slice from `evidence_pool.json` (the auditable
++ * source text behind a claim). `tier` is the raw T1-T7/UNKNOWN string — not
++ * coerced. A single `evidence_id` may appear in multiple spans (ranges).
++ */
++export interface AuditIrEvidenceSpan {
++  evidence_id: string;
++  span_start: number;
++  span_end: number;
++  span_text: string;
++  tier: string;
++  source_url: string;
++  claim_ids: string[];
++}
++
++/** The verified evidence spans for one completed run. */
++export interface AuditIrEvidenceResponse {
++  run_id: string;
++  spans: AuditIrEvidenceSpan[];
++}
++
++/**
++ * Fetch the verified evidence spans for a completed run from the v6
++ * live-inspector route (I-rdy-008 slice 7a,
++ * `GET /api/inspector/runs/{run_id}/evidence`). Throws an ApiError on 404
++ * (unknown run), 409 (not completed), or 422 (abort/error run, unloadable
++ * artifact, or no evidence_pool.json — the route fails loud, never degrading
++ * to a bibliography statement).
++ */
++export async function getInspectorEvidence(
++  runId: string,
++): Promise<AuditIrEvidenceResponse> {
++  const response = await authFetch(
++    `${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}/evidence`,
++  );
++  return asJsonOrThrow<AuditIrEvidenceResponse>(response);
++}
 
-# canonical-diff-sha256: b99c790d6fe0657deb497a7ea3df22072a0c750258491bea7a83a56491a3ba19
+# canonical-diff-sha256: 506bc3505f03d459f2be6341aeea81e13b9897f3deab255fea99d77c8bb80d53

@@ -1407,3 +1407,42 @@ export async function getAuditRun(runId: string): Promise<AuditIrRun> {
   );
   return asJsonOrThrow<AuditIrRun>(response);
 }
+
+/**
+ * I-rdy-008 (#504) slice 7a/7b — one verified evidence span cited by a run.
+ * The exact `body[start:end]` slice from `evidence_pool.json` (the auditable
+ * source text behind a claim). `tier` is the raw T1-T7/UNKNOWN string — not
+ * coerced. A single `evidence_id` may appear in multiple spans (ranges).
+ */
+export interface AuditIrEvidenceSpan {
+  evidence_id: string;
+  span_start: number;
+  span_end: number;
+  span_text: string;
+  tier: string;
+  source_url: string;
+  claim_ids: string[];
+}
+
+/** The verified evidence spans for one completed run. */
+export interface AuditIrEvidenceResponse {
+  run_id: string;
+  spans: AuditIrEvidenceSpan[];
+}
+
+/**
+ * Fetch the verified evidence spans for a completed run from the v6
+ * live-inspector route (I-rdy-008 slice 7a,
+ * `GET /api/inspector/runs/{run_id}/evidence`). Throws an ApiError on 404
+ * (unknown run), 409 (not completed), or 422 (abort/error run, unloadable
+ * artifact, or no evidence_pool.json — the route fails loud, never degrading
+ * to a bibliography statement).
+ */
+export async function getInspectorEvidence(
+  runId: string,
+): Promise<AuditIrEvidenceResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}/evidence`,
+  );
+  return asJsonOrThrow<AuditIrEvidenceResponse>(response);
+}

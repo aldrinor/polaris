@@ -1,5 +1,87 @@
 # POLARIS Bug Log
 
+## Degradation Proposal: I-rdy-008 (#504) cannot complete as a frontend-only AuditIR migration (2026-05-18)
+
+**Status:** RESOLVED 2026-05-18 — routed to a Codex architecture consult
+(`.codex/I-rdy-008/slice7_arch_consult_verdict.txt`), NOT to the operator
+(architecture decisions go to Codex per `feedback_route_policy_questions_to_codex`).
+Codex verdict: reject the lossy `bibliography.statement` fallback; live runs
+DO persist the verified span text in `artifact_dir/evidence_pool.json`
+(strict_verify's pool, persisted by `run_honest_sweep_r3.py` after
+verification) — no generator change needed. Slice 7 splits into 7a (backend
+evidence-span route) / 7b (frontend migration, removes inspector `getBundle()`)
+/ 7c (test+demo fixture rebaseline). Loop unblocked; proceeding with 7a.
+**Severity:** P1 — blocked #504 ("wire live runs into the rich UI") from
+achieving its stated goal; the inspector page was functional only for the 7
+golden-fixture runs, not for live runs.
+**APD reference:** GH #504 (I-rdy-008), Phase 3.5. Slices 1-6 merged
+(PR #590/#591/#592/#593/#594/#595). Slice 7 was scoped (per the Codex
+arch-decision consult, verdict A) as "migrate `PoolTab` + `EvidencePane` off
+`getBundle()`/`EvidenceContract`."
+
+**The blocker (grounded against code on `polaris` HEAD `06fbf61a`):**
+
+1. `getBundle()` hits `GET /runs/{run_id}/bundle` — that route
+   (`src/polaris_v6/api/bundle.py`) is **golden-fixture-only**: a hardcoded
+   `_GOLDEN_RUN_INDEX` of 7 run_ids → fixture JSON; **404 for any other
+   run_id**, i.e. for every live run.
+2. The inspector page (`web/app/inspector/[runId]/page.tsx`) dual-fetches
+   `getAuditRun()` + `getBundle()` and gates its whole body on
+   `{ir && bundle && (...)}` (added slice 3). For a live run `getAuditRun()`
+   succeeds but `getBundle()` 404s → `bundle` stays null → the body is
+   hidden and the error panel renders. **The inspector page is therefore
+   golden-fixture-only — slices 3-6 migrated the rendering of 4 surfaces to
+   AuditIR but did not remove the hard `getBundle()` dependency, so #504's
+   live-run goal is not yet met and cannot be met by a frontend-only slice.**
+3. `EvidencePane` + `PoolTab` display the **exact ≤500-char verified source
+   span** + char offsets (`SourceSpan.span_text`/`span_start`/`span_end`) —
+   the F5 clinical-audit core (an auditor verifies a claim against the exact
+   cited span). **AuditIR carries no span text anywhere**:
+   `BibliographyEntry` is `num/evidence_id/statement/tier/url`;
+   `statement` ≠ the verified span. The AuditIR loader has no
+   evidence-pool-with-text concept.
+4. Removing `getBundle()` also takes out two more consumers: the
+   `SentencesTab` contradiction-in-section badge (reads
+   `bundle.contradictions[].section_id`) and the "Export bundle JSON" button
+   (`downloadBundleAsJson`).
+
+**Why the obvious frontend-only fix is rejected:** migrating `EvidencePane`
+to `bibliography.statement` would let the page drop `getBundle()` and work
+for live runs — but it **silently degrades the clinical-audit core**
+(LAW II "no silent downgrade" + §-1.1: the exact cited span is what a
+line-by-line audit verifies against). A structurally-clean diff that
+substitutes `statement` for the verified span would pass Codex code review
+but fail the §-1 clinical standard. Not acceptable.
+
+**Proposed fix (scope change — requires approval):** split slice 7 into
+two slices —
+- **7a (backend):** extend the AuditIR loader / the v6 inspector route to
+  expose the per-evidence verified spans for a live run (candidate source:
+  the run artifact_dir's `live_corpus_dump.json`, which carries the fetched
+  evidence with text — to be confirmed in 7a's grounding). This makes the
+  exact span available on the live-run AuditIR path.
+- **7b (frontend):** migrate `PoolTab` + `EvidencePane` onto the 7a
+  span source, drop `getBundle()`, flip the page gate from `ir && bundle`
+  to `ir &&` (the page then works for live runs), and resolve the two
+  cascading consumers (SentencesTab badge — drop or derive; Export button —
+  repoint to the AuditIR JSON or a v6 bundle route).
+
+**Expected impact:** +1 slice (backend 7a) vs the verdict-A 12-slice plan;
+#504 grows to ~13 slices. No degradation of any audit surface. Until
+approved, slices 8-12 (charts/compare/follow-up/pin-replay/memory) are also
+gated — they sit on the same page that is golden-fixture-only.
+
+**RESOLUTION (2026-05-18):** the scope change was routed to a Codex
+architecture consult (the acceptable alternative noted above), NOT escalated
+to the operator — escalating an architecture decision to the operator was
+itself the bug the operator flagged. Codex's decomposition
+(`.codex/I-rdy-008/slice7_arch_consult_verdict.txt`): 7a backend route
+`GET /api/inspector/runs/{run_id}/evidence` (reads `evidence_pool.json`,
+returns range-keyed `span_text`/offsets/tier/url, 422 on missing/OOB) → 7b
+frontend (migrate `PoolTab`+`EvidencePane`, drop inspector `getBundle()`,
+gate `ir &&` only) → 7c (rebaseline inspector e2e/demo fixtures). The loop
+is UNBLOCKED and proceeds with 7a.
+
 ## BUG-V28-PRIMARY-CUSTODY: Selector drops anchor-matched primaries despite retrieval success (2026-04-22)
 
 **Status:** OPEN — V29 fix scoped (candidates A+B+C per
