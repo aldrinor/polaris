@@ -37,7 +37,7 @@ index c70b07ce..0a91c974 100644
  .codex/round_*/stdout.log
  .codex/round_*/stderr.log
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index b3c879ba..9eef98d5 100644
+index b3c879ba..fe410f1a 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -340,3 +340,13 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -53,5 +53,5 @@ index b3c879ba..9eef98d5 100644
 +- iter 3: APPROVE — 0 P0/P1, 2 non-blocking P2 (.pytest_cache already ignored by line 41 — audit-text accuracy; separate global-excludes permission warning — both folded into claude_audit.md). convergence continue. P1 trajectory 2→1→0. One small slice of #432 per Codex disposition B_close_recut_fresh after PR #433 (233-file mega-PR) closed: .gitignore gains 21 anchored root-only patterns for the ~150 observed scratch-dir families. #432 stays open (physical archiving is Windows-ACL user-gated; .codex/ mass-archive deferred).
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
-# canonical-diff-sha256: 1c85a1f3a8c79e374884b4fea0a9269d13e665bd7d4802daadb7e753c0258166
++- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md alongside .gitignore — expected process metadata; the code commit be777332 is .gitignore only +27/-0). convergence accept_remaining. Shadowing check (lines 166-186) empty; positive coverage 23/23 dirs; no CRLF reflow. P1 trajectory 0.
+# canonical-diff-sha256: fe47b3913b66eb681ee155d01db62c6896885c8edaceb7cf1d1ec99447721c60
