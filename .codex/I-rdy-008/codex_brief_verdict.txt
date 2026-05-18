@@ -3,6 +3,8 @@ novel_p0: []
 continuing_p0: []
 p1: []
 p2:
-  - "Accept scope call 3.3: the terminal-state Pool-tab test is acceptable for 7c. Adding golden-run evidence_pool.json is real follow-up/demo hardening, but not required for this test rebaseline."
+  - "6.5 ADJUST: prefer moving seeded run_store/artifact helpers into `tests/v6/conftest.py` or a small helper module instead of importing from `test_inspector_route.py`; direct import is workable but brittle."
+  - "Timeline zero-token sentences: using `sentence.claim_id` in the `evidence_id` field weakens provenance click-through. Non-blocking, but prefer skipping zero-token sentences or making the title/placeholder explicit."
+  - "Forest labels: `cluster.subject` can be empty under the loader defaults; use `subject or predicate or f'cluster-{cluster_id}'` to avoid blank/duplicate y-axis labels."
 convergence_call: accept_remaining
 remaining_blockers_for_execution: []

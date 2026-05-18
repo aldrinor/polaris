@@ -1,4 +1,4 @@
-# Codex BRIEF review — I-rdy-008 / GH #504 slice 7c: rebaseline the inspector e2e spec for the slice-7b data-path migration
+# Codex BRIEF review — I-rdy-008 / GH #504 slice 8: migrate the charts route off golden fixtures onto run_store + a new chart_from_audit_ir derivation
 
 HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
@@ -14,158 +14,223 @@ HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
 
 Pre-implementation **brief** review — reviewing the *plan*, NOT a diff. No code written yet.
 
-## 0.1 This is slice 7c of #504 — the last slice of the slice-7 split
+## 0.1 This is slice 8 of #504 — the FINAL slice; the architecture is settled
 
-#504 (I-rdy-008, Phase 3.5 — "wire live runs into the rich UI"). Slices 1-6 +
-7a + 7b merged (PR #590-#597). Slice 7 was split by a Codex architecture
-consult (`.codex/I-rdy-008/slice7_arch_consult_verdict.txt`) into 7a backend
-evidence route / 7b frontend migration / **7c test rebaseline**. 7a (PR #596)
-shipped `GET /api/inspector/runs/{run_id}/evidence`; 7b (PR #597) migrated the
-inspector page off the golden-fixture-only `getBundle()` onto that route.
-Slice 7c is the test rebaseline. After 7c, #504 continues with slices 8-12.
+#504 (I-rdy-008, Phase 3.5 — "wire live runs into the rich UI"). Slices
+1-7c merged (PR #590-#598) — the Evidence Inspector is fully migrated onto
+the AuditIR data path. Two Codex consults this session settled slice 8:
+- **Scope consult** (`.codex/I-rdy-008/slice8_scope_consult_verdict.txt`,
+  Option A): #504's only residual surface is **charts** —
+  pin-replay/follow-up/compare/bundle are carved to #532/#542/#543/#544
+  (operator-excluded); memory is already run_store-independent. Slice 8 is
+  #504's **final** slice; #504 closes after it merges.
+- **Charts architecture consult**
+  (`.codex/I-rdy-008/slice8_charts_arch_consult_verdict.txt`, Option A):
+  `charts.py` is `EvidenceContract`-coupled and there is NO
+  `artifact_dir → EvidenceContract` producer (that is #544's excluded
+  scope). Therefore slice 8 = resolve `run_store → artifact_dir →
+  load_audit_ir()` and derive the charts from a **new `chart_from_audit_ir`**
+  built on AuditIR-native quantities.
 
-This is a NORMAL implementation brief (Codex reviews the plan). The slice-7
-architecture is settled.
+This brief is a NORMAL implementation brief — review the plan.
 
-## 1. What slice 7b changed (the thing 7c must rebaseline against)
+## 1. The problem
 
-PR #597 (`web/app/inspector/[runId]/page.tsx`):
-- Removed the **"Export bundle JSON" header button** + `downloadBundleAsJson`.
-- Migrated `PoolTab` + `EvidencePane` off `getBundle()`/`EvidenceContract`
-  onto `getInspectorEvidence()` → `GET /api/inspector/runs/{id}/evidence`.
-- The body gate `ir && bundle` → `ir`; the evidence fetch is now an
-  independent fetch — a 422/failure sets `evidenceError` and degrades ONLY
-  the Pool tab + `EvidencePane`, never the rest of the page.
+`src/polaris_v6/api/charts.py` (full, 32 lines): `GET /runs/{run_id}/
+charts/{chart_type}` resolves `run_id` against the hardcoded
+`_GOLDEN_RUN_INDEX` (imported from `bundle.py`) → 404 for any non-golden
+run; reads the golden `EvidenceContract` fixture; calls
+`chart_from_bundle(bundle, chart_type)` → Vega-Lite spec. So the inspector
+Charts tab (`web/app/inspector/[runId]/page.tsx` ChartsTab → `getChart()`)
+renders only for the 7 golden fixtures, not for live completed runs.
 
-## 2. Grounding (done — Codex should VERIFY, not re-discover)
+## 2. Grounding (Codex: VERIFY, do not re-discover)
 
-**The CI e2e job runs exactly 4 specs.** `.github/workflows/web_ci.yml` job
-`e2e_playwright` starts a real `uvicorn polaris_v6.api.app:app` backend +
-`next start`, then runs ONLY: `tests/e2e/inspector.spec.ts` (step
-`run_e2e_inspector`), `accessibility.spec.ts`, `performance.spec.ts`,
-`evidence_tooltip_perf.spec.ts`. The 16+ `sentence_inspector_*.spec.ts` files
-are **NOT CI-run**.
+- **The resolver to reuse.** `src/polaris_v6/api/inspector.py:39`
+  `_resolve_completed_artifact_dir(run_id) -> Path` (slice-7a) does exactly
+  the `run_store.get_run` → 404/409/422 → `artifact_dir` resolution; slice-1
+  `get_inspector_run` + slice-7a `get_inspector_run_evidence` both call it.
+- **The chart builders to reuse.** `src/polaris_v6/charts/spec_builder.py`
+  — `build_forest_plot(title, points, x_label)` / `build_comparison_table
+  (title, rows)` / `build_timeline(title, points, period_kind)` consuming
+  `ForestPlotPoint(label, estimate, ci_low, ci_high, evidence_id)` /
+  `ComparisonRow(entity, metric, value, evidence_id)` / `TimelinePoint
+  (period, value, series, evidence_id)`. Vega-Lite layer — UNCHANGED by
+  slice 8; `chart_from_audit_ir` feeds it AuditIR-derived inputs.
+- **AuditIR has the chartable quantities** (`src/polaris_graph/audit_ir/
+  loader.py`): `ContradictionCluster(cluster_id, subject, predicate,
+  severity, absolute_difference, claims)` + `ContradictionClaim(evidence_id,
+  subject, value: float, unit, source_tier, ...)`; `BibliographyEntry(num,
+  evidence_id, statement, tier, url)`; `VerifiedReport(sections,
+  sentences_verified, ...)` + `ReportSection(title, kept_count,
+  dropped_count, total_in, sentences)` + `ReportSentence(claim_id, section,
+  text, tokens, is_verified, ...)`. **AuditIR has NO `coverage_percent`**
+  (`FrameCoverageEntry` carries `status: str` only) — the existing
+  `chart_from_bundle` `coverage_percent/100.0` math has no AuditIR
+  equivalent (this is why the arch consult ruled a redesign, not a port).
+- **`chart_from_bundle` is already a "Phase 0/1 stub"** — its own docstring
+  says "deterministic synthetic mapping"; e.g. its contradiction forest_plot
+  hardcodes `estimate=0.0, ci_low=-1.0, ci_high=1.0` and its timeline uses
+  `value=float(idx+1)`. So the existing charts are NOT real magnitudes
+  either — slice 8 does not regress honesty, it can improve it.
+- **No shared-surface breakage.** `compare.py` + `followup.py` import
+  `_GOLDEN_RUN_INDEX`/`_FIXTURE_DIR` from **`bundle.py`** (verified), NOT
+  from `charts.py`. `charts.py` losing its own `bundle` import does not
+  touch them; `bundle.py` keeps the symbols.
 
-**Only `inspector.spec.ts` carries a slice-7b-broken assertion.** I grepped
-all 4 CI-run specs for `Export` / `bundle` / `getBundle` / `EvidenceContract`
-/ `downloadBundle` / `Pool` / `/evidence`:
-- `accessibility.spec.ts` — zero slice-7b-affected refs.
-- `performance.spec.ts` — zero slice-7b-affected refs.
-- `evidence_tooltip_perf.spec.ts` — zero slice-7b-affected refs (it exercises
-  the `EvidenceTooltip` hover-card on the Verified-sentences tab, which is
-  AuditIR-backed since slice 4 — untouched by 7b).
-- `inspector.spec.ts` — **one broken test**: `"Export bundle JSON button is
-  present"` (lines 47-51) asserts `getByRole("button", {name:/Export bundle
-  JSON/})` is visible; slice 7b removed that button. Also the file-header
-  comment (lines 3-9) is now stale: it says "the backend serves real
-  EvidenceContract JSON from `tests/v6/fixtures/evidence_contract_v1/*.json`"
-  — the inspector page now reads `GET /api/inspector/runs/{id}` (AuditIR) +
-  `GET /api/inspector/runs/{id}/evidence`.
+## 3. The two HARD CONSTRAINTS (Codex arch consult — treat as P0 review criteria)
 
-**No e2e spec currently clicks the Evidence-pool tab** — grep of
-`web/tests/e2e/*.spec.ts` for `Evidence pool` / `pool tab` / `Pool` returns
-nothing. The Pool tab — the surface 7b rewrote — has zero e2e coverage.
+1. **Do NOT build an `artifact_dir → EvidenceContract` adapter.** That is
+   #544's operator-excluded scope. Slice 8 derives charts from the
+   `AuditIR` only.
+2. **Do NOT synthesize per-frame `coverage_percent` or statistical
+   confidence intervals from AuditIR `status` fields.** No fabricated
+   magnitudes; every numeric shown must be a real AuditIR quantity (a
+   count, a rate that is genuinely `kept/total`, or a value a source
+   actually reported). No band labeled "95% CI" unless it IS one.
 
-**Open question — golden-run `evidence_pool.json` (a scope-boundary call,
-see §3).** The CI backend resolves the golden runs (`golden_clinical_001`
-etc.) through `get_inspector_run` → `run_store` → `artifact_dir` →
-`load_audit_ir`. The slice-7a `/evidence` route additionally requires
-`artifact_dir/evidence_pool.json` and fails loud (422) if absent. I could
-not locate where/whether the golden-run artifact_dirs carry
-`evidence_pool.json` (no golden-run seeding found in `app.py`, no
-`inspector_seed` module; `golden_clinical_001` appears only in `bundle.py`'s
-`_GOLDEN_RUN_INDEX`). If the golden artifact_dirs lack `evidence_pool.json`,
-the Pool tab renders the honest "Evidence unavailable" state for golden runs
-— which is correct slice-7b fail-loud behavior, not a bug.
+## 4. Plan
 
-## 3. Plan
+### 4.1 `src/polaris_v6/api/run_resolver.py` (new) — extract the shared resolver
+Move `_resolve_completed_artifact_dir` out of `inspector.py` into a new
+`src/polaris_v6/api/run_resolver.py` (behavior-preserving — same body, same
+404/409/422 + detail strings). `inspector.py` imports it from there;
+`charts.py` imports it from there. Rationale: two route modules now need
+it; a `_`-private cross-route import is worse hygiene than a shared module.
+(Scope-boundary call 6.1.)
 
-**One file: `web/tests/e2e/inspector.spec.ts`.** No production-code change,
-no fixture change, no backend change.
+### 4.2 `src/polaris_v6/charts/from_audit_ir.py` (new) — `chart_from_audit_ir`
+`chart_from_audit_ir(*, ir: AuditIR, chart_type: ChartType) -> dict`,
+deriving each of the 3 chart types from AuditIR-native quantities and
+feeding the existing `spec_builder` builders:
 
-1. **Fix the stale header comment** (lines 3-9) — describe the actual data
-   path: the inspector page reads `GET /api/inspector/runs/{id}` (the
-   faithful AuditIR) + `GET /api/inspector/runs/{id}/evidence` (the verified
-   evidence spans), served by a real `polaris_v6.api.app` backend.
-2. **Replace the `"Export bundle JSON button is present"` test** — the
-   button no longer exists. Replace it with an **Evidence-pool tab test that
-   waits for a FINAL `PoolTab` state**: navigate to `golden_clinical_001`,
-   click the "Evidence pool" tab, then assert the tab panel SETTLES into one
-   of the three terminal `PoolTab` states — the grouped evidence list (a row
-   per `evidence_id`), OR "No verified evidence spans for this run.", OR
-   "Evidence unavailable:". Use a Playwright web-first assertion that retries
-   until a final state is visible (e.g. `expect(locator).toBeVisible()` on a
-   locator that matches any of the three terminal states; or assert the
-   transient state has cleared first).
-   **The transient "Loading evidence…" state is explicitly NOT an accepted
-   pass condition** (Codex brief iter-1 P1): `PoolTab` renders "Loading
-   evidence…" whenever `evidence === null` (the pre-fetch state), so a test
-   that accepts it would pass even if the evidence request never resolves or
-   is mis-wired. The test must wait past "Loading evidence…" to a terminal
-   state; it MAY additionally assert "Loading evidence…" is transient (was
-   visible, then gone), but must never treat it as terminal. This assertion
-   does NOT depend on golden-fixture `evidence_pool.json` being present
-   (any of the three terminal states satisfies it), so it is robust to the
-   §2 open question — while still proving the evidence fetch actually
-   resolved. This gives the 7b-rewritten Pool tab its first e2e coverage.
-3. The other `inspector.spec.ts` tests (KPI cards, two-family invariant,
-   Executive-summary default tab, Verified-sentences provenance tokens,
-   Contradictions `noted_both`, Charts Vega-Lite, Dashboard scope) are NOT
-   slice-7b-affected and stay verbatim.
+- **forest_plot** ← contradiction value spreads. One `ForestPlotPoint` per
+  `ContradictionCluster`: `estimate` = mean of `claims[].value`,
+  `ci_low`/`ci_high` = min/max of `claims[].value` — the **real range of
+  the values disagreeing sources reported** (not a statistical CI). Pass
+  `x_label="Reported value across disagreeing sources"` (honest label —
+  the spec_builder default "Effect estimate (95% CI)" would misrepresent).
+  `label` = `f"{cluster.subject}"`, `evidence_id` = `claims[0].evidence_id`.
+  Title makes the mean/range explicit, e.g. "Contradictions — point = mean
+  of reported values, bar = min–max across disagreeing sources" (Codex
+  brief iter-1 P2: spec_builder's tooltip field names are `estimate`/
+  `ci_low`/`ci_high` and cannot be renamed without touching spec_builder,
+  out of scope — the title/x_label carry the honest wording instead).
+  Fallback when `ir.contradictions` is empty: one `ForestPlotPoint` per
+  `ReportSection` with `estimate = kept_count / total_in` (a genuine
+  verification rate 0-1) and `ci_low = ci_high = estimate` (a point, no
+  invented band); `x_label="Section verification rate (verified / total)"`.
+  **Zero-denominator guard (Codex brief iter-1 P1-2):** `loader.py` accepts
+  `ReportSection.total_in == 0` (when `verification_details` omits
+  `total_in`), so `kept_count / total_in` would `ZeroDivisionError` → 500.
+  Sections with `total_in <= 0` are SKIPPED from the fallback (no honest
+  rate exists for them). If every section has `total_in <= 0` (or there are
+  no sections), emit the single `(no data)` placeholder point instead.
+  Empty-report fallback: a single labelled `(no data)` placeholder point
+  (mirrors `chart_from_bundle`'s placeholder pattern — `build_*` raise on
+  empty input).
+- **comparison_table** ← source-tier mix. Count `ir.bibliography` entries
+  per `tier`; one `ComparisonRow` per tier (`entity=f"Tier {tier}"`,
+  `metric="source_count"`, `value=<count>`, `evidence_id`=the first
+  bibliography `evidence_id` of that tier). Honest counts. Empty-bibliography
+  fallback: `(no sources)` placeholder row.
+- **timeline** ← report-order sentence series. Iterate
+  `ir.verified_report.sections[]` in order, then `.sentences[]`; one
+  `TimelinePoint` per sentence (`period=f"step-{n:02d}"`, `value=<1-based
+  position>`, `series=<section title>`, `evidence_id`=`sentence.tokens[0]
+  .evidence_id` if any else `sentence.claim_id`). This is a positional
+  series — `value` is a real ordinal position, not an invented magnitude
+  (the same shape `chart_from_bundle`'s timeline already uses). Empty
+  fallback: `(no sentences)` placeholder.
 
-## 4. Scope-boundary calls (Codex: rule accept / adjust)
+### 4.3 `src/polaris_v6/api/charts.py` — rewrite the route
+`get_chart` resolves `artifact_dir = _resolve_completed_artifact_dir(run_id)`
+→ `ir = load_audit_ir(artifact_dir)` (catching the same loader exceptions
+the inspector route catches → 422) → `return chart_from_audit_ir(ir=ir,
+chart_type=chart_type)`. Drop the `_GOLDEN_RUN_INDEX`/`_FIXTURE_DIR`/
+`EvidenceContract`/`chart_from_bundle` imports. Resolution taxonomy then
+matches the inspector route: unknown 404 / not-completed 409 / abort 422 /
+missing artifact_dir 404 / unloadable AuditIR 422.
 
-- **3.1 — `inspector.spec.ts` only.** Slice 7c rebaselines exactly the one
-  CI-run spec with a slice-7b-broken assertion. Recommend ACCEPT.
-- **3.2 — replace the Export test with a Pool-tab render test** (vs. just
-  delete it, vs. a negative "Export button absent" assertion). The Pool tab
-  is the surface 7b rewrote and currently has zero e2e coverage; a
-  positive render test is the higher-value choice and keeps the spec count
-  stable. Recommend ACCEPT the Pool-tab render test.
-- **3.3 — the Pool-tab test waits for any of the three TERMINAL states**
-  (grouped rows / "No verified evidence spans" / "Evidence unavailable") —
-  not specific span content, and explicitly not the transient "Loading
-  evidence…" state (Codex brief iter-1 P1, addressed in §3 step 2) — so it
-  does not require adding `evidence_pool.json` to the golden fixtures while
-  still proving the evidence fetch resolves. Adding golden-fixture
-  `evidence_pool.json` so the Pool tab shows real spans in the demo is a
-  REAL follow-up (it affects the demo experience for #504) but is fixture
-  work beyond a test rebaseline — recommend DEFER to a follow-up issue, not
-  slice 7c. Codex: rule whether the state-agnostic test is acceptable for
-  7c or whether the fixture work must land here.
-- **3.4 — the 16+ `sentence_inspector_*.spec.ts` are NOT CI-run** and are
-  out of scope for 7c. Recommend ACCEPT (out of scope; no CI gate depends
-  on them).
-- **3.5 — slice 7c does not attempt to fix pre-existing, non-slice-7b e2e
-  failures.** The `e2e_playwright` CI job has been red across slices (a
-  documented loop NON-halt). Slice 7c makes the `inspector.spec.ts`
-  assertions CORRECT for the post-7b page; it does not claim to turn the
-  whole e2e job green. Recommend ACCEPT.
+### 4.4 `tests/v6/test_api_charts.py` — rewrite onto a seeded run_store
+**Codex brief iter-1 P1-1 (corrected):** the current `test_api_charts.py`
+`client` fixture is `TestClient(create_app())` against the DEFAULT
+`run_store` — which contains NO `golden_*` rows. After the migration,
+`_resolve_completed_artifact_dir("golden_clinical_001")` → `run_store.get_run`
+returns `None` → 404; every existing chart test would fail. (The earlier
+draft's claim that "the inspector e2e proves golden runs resolve via
+run_store" conflated the Playwright CI backend with these unit tests — the
+unit tests use the default DB and must seed it themselves.)
 
-## 5. Smoke test
+Rewrite `test_api_charts.py` to mirror `tests/v6/test_inspector_route.py`:
+the `client` fixture sets a temp `POLARIS_V6_RUN_DB` env BEFORE
+`create_app()`, calls `run_store.init_db()`, and seeds completed runs
+pointing at loadable AuditIR `artifact_dir`s — reuse
+`test_inspector_route.py`'s artifact-dir + `_seed_completed` helpers
+(import them, or factor a shared `tests/v6/` fixture helper if cleaner —
+scope-boundary call 6.5). Seed at least: a run whose AuditIR has
+`contradictions` (forest_plot real-spread path), a run with no
+contradictions (forest_plot section-rate fallback), a run with a
+`total_in == 0` section (the P1-2 zero-denominator guard), a run with a
+populated `bibliography` (comparison_table tier mix), and verified-report
+sentences (timeline). Tests then target the seeded run_ids — NOT `golden_*`.
+Cover: each of the 3 chart types → 200 + the right `polaris_provenance
+.chart_type`; unknown run → 404; unknown chart_type (`pie_chart`) → 422;
+the `total_in == 0` section does not 500; an `abort_*` run → 422.
 
-`cd web && npx prettier --write tests/e2e/inspector.spec.ts && npm run lint &&
-npm run typecheck && npm run build`. The changed file is a Playwright spec
-(not built into the Next bundle); lint + typecheck cover it. The e2e job
-itself runs only in CI (needs the live backend) — not part of the offline
-smoke.
+## 5. Smoke
 
-## 6. Files I have ALSO checked and they're clean
+`python -c "import ast; ast.parse(...)"` on every changed/new `.py` file
+(`run_resolver.py`, `inspector.py`, `charts.py`, `from_audit_ir.py`,
+`test_api_charts.py`); `PYTHONPATH='src;.' pytest tests/v6/test_api_charts.py
+tests/v6/test_inspector_route.py` (the latter because `inspector.py`'s
+resolver import path changes — confirm slice-1/7a inspector tests still
+pass). Pre-existing failures (if any) verified identical on clean `polaris`
+HEAD via `git stash`. No `web/` change — the ChartsTab consumes the
+Vega-Lite spec shape, which `spec_builder` keeps stable.
 
-- `web/tests/e2e/accessibility.spec.ts`, `performance.spec.ts`,
-  `evidence_tooltip_perf.spec.ts` — the 3 other CI-run e2e specs; zero
-  slice-7b-affected assertions; NOT modified.
-- `.github/workflows/web_ci.yml` — confirms the `e2e_playwright` job runs
-  exactly those 4 specs against a live backend; NOT modified.
-- `web/app/inspector/[runId]/page.tsx` — the slice-7b page (the thing the
-  spec is rebaselined against); NOT modified (7b shipped it).
-- `web/components/ui/evidence-tooltip.tsx` — `EvidenceTooltip`, exercised by
-  `evidence_tooltip_perf.spec.ts`; AuditIR-backed since slice 4; NOT touched
-  by 7b or 7c.
-- `web/tests/e2e/sentence_inspector_*.spec.ts` (16+ files) — NOT CI-run, out
-  of scope, NOT modified.
+## 6. Scope-boundary calls (Codex: rule accept / adjust)
 
-## 7. Output schema (§8.3.9)
+- **6.1 — extract `_resolve_completed_artifact_dir` to a new
+  `run_resolver.py`** (vs. `charts.py` importing the `_`-private straight
+  from `inspector.py`). Recommend ACCEPT the extraction — cleaner shared
+  surface, behavior-preserving, ~1 small refactor of `inspector.py`'s
+  import.
+- **6.2 — `chart_from_bundle` / `from_bundle.py` become dead code** once
+  `charts.py` stops importing them (grep: `charts.py` is the only
+  importer). Recommend slice 8 LEAVES them in place (do not delete) — a
+  focused migration; a dead-code sweep is a separate hygiene follow-up.
+  Codex: rule whether leaving dead code is acceptable for this slice or it
+  must be deleted here.
+- **6.3 — the forest_plot empty-contradictions fallback** (per-section
+  verification rate, with the §4.2 `total_in <= 0` skip guard from Codex
+  brief iter-1 P1-2). Recommend ACCEPT — keeps the chart meaningful for the
+  common no-contradiction run without inventing magnitudes and without the
+  zero-division 500.
+- **6.4 — charts go fully run_store** (no dual golden/run_store path).
+  Recommend ACCEPT — a single run_store path serves any completed run
+  (golden or live); a dual path would be dead complexity. The unit tests
+  seed their own run_store (§4.4), so no golden-DB dependency remains.
+- **6.5 — the seeded-run_store test helpers** (§4.4). Recommend importing
+  `test_inspector_route.py`'s existing artifact-dir + `_seed_completed`
+  helpers directly (vs. factoring a shared `tests/v6/conftest.py` fixture).
+  Codex: rule whether a direct cross-test-module import is acceptable or a
+  shared `conftest.py`/helper module is required.
+
+## 7. Files I have ALSO checked and they're clean
+
+- `src/polaris_v6/api/bundle.py` — keeps `_GOLDEN_RUN_INDEX`/`_FIXTURE_DIR`;
+  `compare.py` + `followup.py` still import them from here; NOT modified.
+- `src/polaris_v6/api/compare.py`, `followup.py` — import from `bundle.py`
+  not `charts.py`; unaffected; NOT modified.
+- `src/polaris_v6/charts/spec_builder.py` — the Vega-Lite builders;
+  reused as-is; NOT modified.
+- `src/polaris_v6/api/app.py` — mounts the charts router; the route path is
+  unchanged; NOT modified.
+- `web/app/inspector/[runId]/page.tsx` ChartsTab + `getChart()` — consume
+  the Vega-Lite spec shape (stable via `spec_builder`); NOT modified.
+
+## 8. Output schema (§8.3.9)
 
 ```yaml
 verdict: APPROVE | REQUEST_CHANGES
