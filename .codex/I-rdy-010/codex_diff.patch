@@ -1,0 +1,581 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index eb3b929c..2d5bad6b 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -2127,6 +2127,27 @@ async def run_one_query(
+                     f"{_p2_exc} — falling back to legacy generator"
+                 )
+ 
++        # I-rdy-010 (#506): inject sovereignty-cleared uploaded-document
++        # evidence. Prepended onto evidence_for_gen (mirroring the V30-P2
++        # contract-row prepend above) so it flows into the generator AND
++        # ev_pool -> evidence_pool.json -> the report bibliography.
++        _upload_docs = q.get("uploaded_documents") or []
++        if _upload_docs:
++            from polaris_v6.adapters.upload_evidence import (
++                build_upload_evidence_rows,
++            )
++            _upload_rows = build_upload_evidence_rows(_upload_docs)
++            if _upload_rows:
++                evidence_for_gen = _upload_rows + list(evidence_for_gen)
++            _log(
++                f"[upload]      injected {len(_upload_rows)} evidence row(s) "
++                f"from {len(_upload_docs)} uploaded document(s)"
++            )
++        summary["uploaded_documents_used"] = len(_upload_docs)
++        summary["uploaded_documents_blocked"] = int(
++            q.get("uploaded_documents_blocked_count", 0) or 0
++        )
++
+         multi = await generate_multi_section_report(
+             research_question=q["question"],
+             evidence=evidence_for_gen,
+@@ -2745,6 +2766,11 @@ async def run_one_query(
+             "domain": q["domain"],
+             "question": q["question"],
+             "status": unified_status,
++            # I-rdy-010 (#506): uploaded-document grounding + sovereignty proof.
++            "uploaded_documents_used": summary.get("uploaded_documents_used", 0),
++            "uploaded_documents_blocked": summary.get(
++                "uploaded_documents_blocked", 0
++            ),
+             # BUG-M-205: evaluator gate decision surfaced to downstream
+             "release_allowed": eval_gate.release_allowed,
+             "evaluator_gate": eval_gate.to_dict(),
+diff --git a/src/polaris_v6/adapters/upload_evidence.py b/src/polaris_v6/adapters/upload_evidence.py
+new file mode 100644
+index 00000000..2f139d46
+--- /dev/null
++++ b/src/polaris_v6/adapters/upload_evidence.py
+@@ -0,0 +1,99 @@
++"""Uploaded-document grounding for the v6 research pipeline (I-rdy-010 / #506).
++
++The v6 worker actor resolves uploaded ``document_ids`` to content, then this
++module does two things:
++
++1. ``partition_uploads_by_sovereignty`` — splits resolved uploads into
++   egress-allowed vs egress-blocked via the sovereignty router. The pipeline
++   generator is an external LLM call, so only ``PUBLIC_SYNTHETIC`` documents
++   may become evidence; ``CLIENT`` / ``CAN_REAL`` / ``PRIVATE`` / ``UNKNOWN``
++   are ``EXTERNAL_LEAK_FORBIDDEN`` and never reach the generator.
++2. ``build_upload_evidence_rows`` — turns sovereignty-cleared documents into
++   the pipeline-A evidence dict-row shape (matching the V30-P2 contract rows
++   at ``scripts/run_honest_sweep_r3.py:2044-2059``), so uploaded-document
++   evidence is prepended onto ``evidence_for_gen`` and flows into the report
++   bibliography + ``evidence_pool.json``.
++
++Per CLAUDE.md LAW II: a forbidden classification reaching
++``build_upload_evidence_rows`` raises rather than silently passing — the
++actor-stage sovereignty filter is the gate, and this re-check is
++belt-and-suspenders.
++"""
++
++from __future__ import annotations
++
++from polaris_graph.sovereignty.router import filter_for_external_egress
++
++# Only PUBLIC_SYNTHETIC uploads may become external-generator evidence;
++# every other classification is EXTERNAL_LEAK_FORBIDDEN.
++EGRESS_SAFE_CLASSIFICATION = "PUBLIC_SYNTHETIC"
++
++
++class UploadSovereigntyError(RuntimeError):
++    """Raised when a non-egress-safe uploaded document reaches evidence-row
++    construction. A forbidden document here is a bug — the actor-stage
++    sovereignty filter should have blocked it — never a silent pass."""
++
++
++def partition_uploads_by_sovereignty(
++    uploaded_documents: list[dict],
++) -> tuple[list[dict], list[dict]]:
++    """Split uploaded documents into (egress-allowed, egress-blocked).
++
++    Each document is a dict carrying a ``classification`` key. Delegates to
++    the sovereignty router (``filter_for_external_egress``, non-strict) so
++    the EXTERNAL_LEAK_FORBIDDEN policy is enforced in exactly one place.
++    """
++    decision = filter_for_external_egress(uploaded_documents, strict=False)
++    return list(decision.allowed), list(decision.blocked)
++
++
++def build_upload_evidence_rows(uploaded_documents: list[dict]) -> list[dict]:
++    """Build pipeline-A evidence dict rows from sovereignty-cleared uploads.
++
++    Args:
++        uploaded_documents: list of ``{document_id, classification,
++            filename, chunks}`` — expected to be the *allowed* partition
++            from ``partition_uploads_by_sovereignty``.
++
++    Returns:
++        One evidence dict row per non-empty chunk, shaped like the V30-P2
++        contract rows so the generator + ``evidence_pool`` consume them.
++
++    Raises:
++        UploadSovereigntyError: if any document is not PUBLIC_SYNTHETIC.
++    """
++    rows: list[dict] = []
++    for doc in uploaded_documents:
++        classification = doc.get("classification")
++        if classification != EGRESS_SAFE_CLASSIFICATION:
++            raise UploadSovereigntyError(
++                f"uploaded document {doc.get('document_id')!r} has "
++                f"classification {classification!r}; only "
++                f"{EGRESS_SAFE_CLASSIFICATION} may become external-generator "
++                "evidence — the actor-stage sovereignty filter should have "
++                "blocked this document."
++            )
++        document_id = doc["document_id"]
++        filename = doc.get("filename") or "uploaded document"
++        for chunk_index, chunk in enumerate(doc.get("chunks") or []):
++            text = (chunk or "").strip()
++            if not text:
++                continue
++            rows.append(
++                {
++                    "evidence_id": f"ev_upload_{document_id}_{chunk_index}",
++                    "statement": text,
++                    "direct_quote": text,
++                    "source_url": f"upload://{document_id}",
++                    "title": filename,
++                    "authors": [],
++                    "journal": "",
++                    "year": None,
++                    "doi": "",
++                    "pmid": "",
++                    "tier": "T2",
++                    "uploaded_document": True,
++                }
++            )
++    return rows
+diff --git a/src/polaris_v6/api/runs.py b/src/polaris_v6/api/runs.py
+index f71d704c..62b1084d 100644
+--- a/src/polaris_v6/api/runs.py
++++ b/src/polaris_v6/api/runs.py
+@@ -3,6 +3,12 @@
+ I-phase0-005 (Codex APPROVE iter 4): persist runs to SQLite via
+ polaris_v6.queue.run_store and enqueue the Dramatiq actor on POST.
+ Replaces the previous in-memory `_run_table` dict.
++
++I-rdy-010 (#506): POST /runs resolves uploaded `document_ids` to content
++BEFORE inserting/enqueuing the run, so a missing or unparsed upload fails
++loud here rather than leaving a queued orphan run. The resolved content is
++embedded in the actor message because the Dramatiq worker is a separate
++process and cannot read the API process's in-memory upload table.
+ """
+ 
+ from __future__ import annotations
+@@ -12,6 +18,7 @@ import uuid
+ 
+ from fastapi import APIRouter, HTTPException
+ 
++from polaris_v6.api.upload import chunk_text, get_upload_record
+ from polaris_v6.queue import run_store
+ from polaris_v6.queue.actors import enqueue_research_run
+ from polaris_v6.schemas.run_request import RunRequest
+@@ -20,8 +27,53 @@ from polaris_v6.schemas.run_status import RunStatusResponse
+ router = APIRouter(prefix="/runs", tags=["runs"])
+ 
+ 
++def _resolve_uploaded_documents(document_ids: list[str]) -> list[dict]:
++    """Resolve uploaded document_ids → content for actor-message embedding.
++
++    Returns one dict per id: `{document_id, classification, filename,
++    chunks}`. `chunks` is `chunk_text(record.content)` — the full document
++    re-chunked (and capped), NOT the 3-chunk `chunk_preview`.
++
++    Fails loud (HTTP 400) per LAW II on:
++      * a document_id with no upload record;
++      * an upload that yields no extractable text (e.g. an unparsed
++        pdf/docx) — a silent zero-evidence run would mislead the operator.
++    """
++    resolved: list[dict] = []
++    for document_id in document_ids:
++        record = get_upload_record(document_id)
++        if record is None:
++            raise HTTPException(
++                status_code=400,
++                detail=f"uploaded document {document_id!r} not found",
++            )
++        chunks = chunk_text(record.content)
++        if not chunks:
++            raise HTTPException(
++                status_code=400,
++                detail=(
++                    f"uploaded document {document_id!r} ({record.filename}) "
++                    "has no extractable text — pdf/docx parsing is not yet "
++                    "available; upload a .md or .txt document to ground a run."
++                ),
++            )
++        resolved.append(
++            {
++                "document_id": document_id,
++                "classification": record.classification,
++                "filename": record.filename,
++                "chunks": chunks,
++            }
++        )
++    return resolved
++
++
+ @router.post("", response_model=RunStatusResponse, status_code=202)
+ def create_run(payload: RunRequest) -> RunStatusResponse:
++    # I-rdy-010: resolve uploads BEFORE insert_run/enqueue so a bad
++    # document_id fails loud here instead of orphaning a queued run.
++    uploaded_documents = _resolve_uploaded_documents(payload.document_ids)
++
+     run_id = uuid.uuid4().hex
+     try:
+         run_store.insert_run(run_id, payload.template, payload.question)
+@@ -32,7 +84,11 @@ def create_run(payload: RunRequest) -> RunStatusResponse:
+         # init_db permission-denied or similar
+         raise HTTPException(status_code=503, detail=str(exc)) from exc
+ 
+-    enqueue_research_run.send(run_id, payload.model_dump())
++    # The actor message carries the resolved upload content (the worker is
++    # a separate process — it cannot read the API process's upload table).
++    actor_payload = payload.model_dump()
++    actor_payload["uploaded_documents"] = uploaded_documents
++    enqueue_research_run.send(run_id, actor_payload)
+ 
+     record = run_store.get_run(run_id)
+     if record is None:  # pragma: no cover — insert just succeeded
+diff --git a/src/polaris_v6/api/upload.py b/src/polaris_v6/api/upload.py
+index 2c1b0655..4901acf3 100644
+--- a/src/polaris_v6/api/upload.py
++++ b/src/polaris_v6/api/upload.py
+@@ -9,6 +9,12 @@ infra).
+ Per CLAUDE.md security posture: file content classification
+ (PUBLIC_SYNTHETIC | CAN_REAL | PRIVATE | CLIENT | UNKNOWN) is set by
+ the caller; default is UNKNOWN and triggers conservative routing.
++
++I-rdy-010 (#506): `get_upload_record` + `chunk_text` let POST /runs
++resolve uploaded document_ids to content at run-creation time. The
++upload table is an in-process dict — the Dramatiq worker is a separate
++process and cannot read it — so /runs (which runs in the API process)
++resolves the content and embeds it in the actor message.
+ """
+ 
+ from __future__ import annotations
+@@ -34,6 +40,13 @@ DataClassification = Literal[
+ ALLOWED_EXTENSIONS = {".pdf", ".docx", ".md", ".txt"}
+ MAX_BYTES = 50 * 1024 * 1024  # 50 MB per upload (I-f3-005 frontend dropzone)
+ 
++# I-rdy-010 (#506): grounding-chunk parameters. CHUNK_SIZE matches the
++# upload-endpoint preview chunking; MAX_GROUNDING_CHUNKS bounds how much
++# uploaded text is embedded into a Dramatiq actor message — a .md/.txt
++# upload can be up to MAX_BYTES, so the full document is NOT embedded.
++CHUNK_SIZE = 280
++MAX_GROUNDING_CHUNKS = 40
++
+ 
+ class UploadResponse(BaseModel):
+     document_id: str
+@@ -50,6 +63,34 @@ class UploadResponse(BaseModel):
+ _UPLOAD_TABLE: dict[str, UploadResponse] = {}
+ 
+ 
++def chunk_text(
++    text: str,
++    *,
++    size: int = CHUNK_SIZE,
++    max_chunks: int = MAX_GROUNDING_CHUNKS,
++) -> list[str]:
++    """Split text into fixed-size chunks, capped at ``max_chunks``.
++
++    The cap bounds the embedded actor-message payload (I-rdy-010) — an
++    uploaded .md/.txt document can be up to ``MAX_BYTES``, so only the
++    leading ``max_chunks`` are used to ground a run.
++    """
++    text = text.strip()
++    if not text:
++        return []
++    chunks = [text[i : i + size] for i in range(0, len(text), size)]
++    return chunks[:max_chunks]
++
++
++def get_upload_record(document_id: str) -> UploadResponse | None:
++    """Look up an uploaded document by id, or None if absent.
++
++    Used by POST /runs (I-rdy-010) to resolve document_ids → content at
++    run-creation time, in the API process that owns ``_UPLOAD_TABLE``.
++    """
++    return _UPLOAD_TABLE.get(document_id)
++
++
+ @router.post("", response_model=UploadResponse, status_code=201)
+ async def upload_document(
+     file: UploadFile,
+diff --git a/src/polaris_v6/queue/actors.py b/src/polaris_v6/queue/actors.py
+index ef568b3d..021bcf87 100644
+--- a/src/polaris_v6/queue/actors.py
++++ b/src/polaris_v6/queue/actors.py
+@@ -113,6 +113,27 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
+         "template_id": template_id,
+     }
+ 
++    # I-rdy-010 (#506): sovereignty-filter uploaded documents before they
++    # become generator evidence. The pipeline generator is an external LLM
++    # call; only PUBLIC_SYNTHETIC uploads may egress. CLIENT / CAN_REAL /
++    # PRIVATE / UNKNOWN are blocked — recorded metadata-only (counts, never
++    # document text) and never forwarded into the q-dict / pipeline.
++    from polaris_v6.adapters.upload_evidence import partition_uploads_by_sovereignty
++
++    uploaded_documents = request_payload.get("uploaded_documents") or []
++    allowed_uploads, blocked_uploads = partition_uploads_by_sovereignty(
++        uploaded_documents
++    )
++    q["uploaded_documents"] = allowed_uploads
++    q["uploaded_documents_blocked_count"] = len(blocked_uploads)
++    if uploaded_documents:
++        logger.info(
++            "[actor] uploads run_id=%s used=%d blocked=%d",
++            run_id,
++            len(allowed_uploads),
++            len(blocked_uploads),
++        )
++
+     # I-arch-001b: synthesize v30.1 contract patch from v6 template's
+     # frame_manifest. Pipeline-A merges this into the scope template's
+     # per_query_report_contract before compile_frame / load_report_contract_for_slug.
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 56af615e..23cfa38d 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -468,3 +468,13 @@ A Codex scope consult (.codex/I-rdy-009/scope_consult_verdict.txt, Option B) pre
+ ### Diff review
+ - iter 1: REQUEST_CHANGES — 0 P0, 1 P1 (stale_async_guard_uses_stale_render_closure: the onSubmit ambiguity preflight re-read currentInputKey() AFTER `await checkAmbiguity` to detect a mid-flight input change, but the re-read used the SAME render closure's question/template/uploads — it could never observe a change that occurred during the await, so the stale guard was a dead no-op; required fix — capture an immutable input snapshot before the async work and compare against a latest-key ref afterwards). convergence continue. 65k tokens.
+ - iter 2: APPROVE — 0 P0/P1/P2. convergence accept_remaining. Fix (commit 30a9d67e): currentInputKey is now a render-computed const mirrored into latestInputKeyRef via a no-dep useEffect (a ref WRITE, not setState — lint-clean, does not trip react-hooks/set-state-in-effect); onSubmit + runScopeCheck capture `const key = currentInputKey` before the await and guard with `latestInputKeyRef.current !== key`; new resolvedForKey state binds a resolution (a modal cluster pick or an acknowledge-all) to the input key it was made for, and `resolved` is now `resolvedForKey === key && (pickedClusterId !== null || acknowledgedAmbiguity)` — a resolution recorded for an earlier query can no longer unblock a later, changed one. resetAmbiguityState() clears resolvedForKey; onSelectCluster + the acknowledge toggle set it. web/app/dashboard/page.tsx only. Codex confirmed createRun() is after the ambiguity gate, stale results are discarded via the captured-key/ref comparison, resolutions are key-bound, and every post-setSubmitting(true) early return clears submitting. 86k tokens.
++
++## I-rdy-010 (#506) — async worker consumes uploaded document_ids
++
++Recut of PR #536 (`bot/I-rdy-010-document-grounding`): #536 earned Codex brief APPROVE iter-1 + diff APPROVE iter-1 for the #506 implementation (3 non-blocking P2s carved to #537) but became unmergeable — 41 commits stale AND its `.codex/I-rdy-010/` committed ~68k lines of raw Codex transcripts as the "verdict" files (verdict-only-rule violation per CLAUDE.md §8.3 / the #535 secret-exposure surface). Codex-advisor-confirmed decision: recut onto a clean `bot/I-rdy-010` off polaris HEAD 30c0b488, re-applying #536's APPROVE'd source with proper slim verdict artifacts; PR #536 closed. polaris's 41 commits touched only `scripts/run_honest_sweep_r3.py` (I-naming-003/I-gen-561/I-modref-004/I-gen-004) — the +26 delta re-anchored manually; the other 5 files re-applied verbatim. Smoke: ast.parse 6/6, pytest test_document_grounding.py 14/14, 50/50 adjacent v6 suites green.
++
++### Brief review
++- iter 1: APPROVE — 0 P0/P1/P2. convergence accept_remaining. Recut brief front-loaded the prior #536 brief+diff APPROVE iter-1, the recut/staleness rationale, the divergence handling, and the #506-vs-#537 scope boundary; Codex confirmed the recut fidelity, the polaris-HEAD divergence handling, and the scope boundary (the 3 P2s are correctly out of #506). 6 files, +460/-1. ~92k tokens.
++
++### Diff review
++- iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (state/polaris_restart/iteration_trajectory.md is in the canonical/live diff alongside the 6 source files — process metadata only, no execution impact; this is the standard per-issue pattern, the CI codex-required gate's canonical-diff-sha256 covers it). convergence accept_remaining. Codex confirmed: sovereignty holds (only the partition_uploads_by_sovereignty allowed/PUBLIC_SYNTHETIC partition enters q["uploaded_documents"]; build_upload_evidence_rows re-raises on any forbidden doc — single enforcement point, no bypass path); fail-loud HTTP 400 on missing/unparsed uploads; cross-process correctness (resolved content rides in the actor message); no fabricated evidence; MAX_GROUNDING_CHUNKS=40 bounds the payload; recut fidelity intact. 6 source files + trajectory.md. ~162k tokens.
+diff --git a/tests/v6/test_document_grounding.py b/tests/v6/test_document_grounding.py
+new file mode 100644
+index 00000000..9c0deb0a
+--- /dev/null
++++ b/tests/v6/test_document_grounding.py
+@@ -0,0 +1,216 @@
++"""Tests for I-rdy-010 (#506) — uploaded-document grounding.
++
++Covers the four units the async worker uses to ground a run on uploaded
++documents:
++* `chunk_text` / `get_upload_record` — upload-content resolution helpers.
++* `_resolve_uploaded_documents` (POST /runs) — resolves document_ids →
++  content before insert/enqueue; fails loud on a missing or unparsed id.
++* `partition_uploads_by_sovereignty` — splits uploads into egress-allowed
++  (PUBLIC_SYNTHETIC) vs blocked (CLIENT/CAN_REAL/PRIVATE/UNKNOWN).
++* `build_upload_evidence_rows` — turns cleared uploads into pipeline-A
++  evidence dict rows; rejects any forbidden classification.
++
++The sovereignty router runs for real (per CLAUDE.md §9.4 — do not mock the
++policy under test); only the in-memory upload table is populated directly.
++"""
++
++from __future__ import annotations
++
++import pytest
++from fastapi import HTTPException
++
++from polaris_v6.adapters.upload_evidence import (
++    UploadSovereigntyError,
++    build_upload_evidence_rows,
++    partition_uploads_by_sovereignty,
++)
++from polaris_v6.api import upload as upload_mod
++from polaris_v6.api.runs import _resolve_uploaded_documents
++from polaris_v6.api.upload import (
++    MAX_GROUNDING_CHUNKS,
++    UploadResponse,
++    chunk_text,
++    get_upload_record,
++)
++
++
++def _make_upload(
++    document_id: str,
++    *,
++    classification: str = "PUBLIC_SYNTHETIC",
++    content: str = "some uploaded text",
++    filename: str = "doc.md",
++) -> UploadResponse:
++    return UploadResponse(
++        document_id=document_id,
++        filename=filename,
++        bytes=len(content.encode()),
++        sha256="0" * 64,
++        classification=classification,
++        parse_status="completed" if content else "queued",
++        chunk_preview=[content[:280]] if content else [],
++        content=content,
++        html="",
++    )
++
++
++@pytest.fixture(autouse=True)
++def _clean_upload_table():
++    upload_mod._UPLOAD_TABLE.clear()
++    yield
++    upload_mod._UPLOAD_TABLE.clear()
++
++
++# --------------------------------------------------------------------------
++# chunk_text
++# --------------------------------------------------------------------------
++
++def test_chunk_text_empty_returns_empty():
++    assert chunk_text("") == []
++    assert chunk_text("   \n  ") == []
++
++
++def test_chunk_text_short_text_single_chunk():
++    assert chunk_text("hello world") == ["hello world"]
++
++
++def test_chunk_text_splits_and_caps_at_max():
++    # 100 chunks worth of text — must be capped at MAX_GROUNDING_CHUNKS.
++    text = "x" * (280 * 100)
++    chunks = chunk_text(text)
++    assert len(chunks) == MAX_GROUNDING_CHUNKS
++    assert all(len(c) <= 280 for c in chunks)
++
++
++# --------------------------------------------------------------------------
++# get_upload_record
++# --------------------------------------------------------------------------
++
++def test_get_upload_record_missing_returns_none():
++    assert get_upload_record("nonexistent") is None
++
++
++def test_get_upload_record_returns_inserted():
++    record = _make_upload("doc1")
++    upload_mod._UPLOAD_TABLE["doc1"] = record
++    assert get_upload_record("doc1") is record
++
++
++# --------------------------------------------------------------------------
++# _resolve_uploaded_documents (POST /runs)
++# --------------------------------------------------------------------------
++
++def test_resolve_empty_list():
++    assert _resolve_uploaded_documents([]) == []
++
++
++def test_resolve_missing_document_id_raises_400():
++    with pytest.raises(HTTPException) as exc:
++        _resolve_uploaded_documents(["missing-id"])
++    assert exc.value.status_code == 400
++    assert "not found" in str(exc.value.detail)
++
++
++def test_resolve_unparsed_document_raises_400():
++    # An unparsed pdf/docx upload yields no extractable text — fail loud,
++    # not a silent zero-evidence run.
++    upload_mod._UPLOAD_TABLE["pdf1"] = _make_upload(
++        "pdf1", content="", filename="report.pdf"
++    )
++    with pytest.raises(HTTPException) as exc:
++        _resolve_uploaded_documents(["pdf1"])
++    assert exc.value.status_code == 400
++    assert "no extractable text" in str(exc.value.detail)
++
++
++def test_resolve_happy_path_preserves_classification():
++    upload_mod._UPLOAD_TABLE["doc1"] = _make_upload(
++        "doc1",
++        classification="CLIENT",
++        content="alpha beta gamma",
++        filename="brief.txt",
++    )
++    resolved = _resolve_uploaded_documents(["doc1"])
++    assert len(resolved) == 1
++    assert resolved[0]["document_id"] == "doc1"
++    # Classification is preserved verbatim — the sovereignty filter runs
++    # later, in the actor; /runs only resolves content.
++    assert resolved[0]["classification"] == "CLIENT"
++    assert resolved[0]["filename"] == "brief.txt"
++    assert resolved[0]["chunks"] == ["alpha beta gamma"]
++
++
++# --------------------------------------------------------------------------
++# partition_uploads_by_sovereignty
++# --------------------------------------------------------------------------
++
++def test_partition_allows_public_synthetic_blocks_others():
++    docs = [
++        {"document_id": "a", "classification": "PUBLIC_SYNTHETIC"},
++        {"document_id": "b", "classification": "CLIENT"},
++        {"document_id": "c", "classification": "CAN_REAL"},
++        {"document_id": "d", "classification": "PRIVATE"},
++        {"document_id": "e", "classification": "UNKNOWN"},
++    ]
++    allowed, blocked = partition_uploads_by_sovereignty(docs)
++    assert [d["document_id"] for d in allowed] == ["a"]
++    assert {d["document_id"] for d in blocked} == {"b", "c", "d", "e"}
++
++
++def test_partition_empty():
++    assert partition_uploads_by_sovereignty([]) == ([], [])
++
++
++# --------------------------------------------------------------------------
++# build_upload_evidence_rows
++# --------------------------------------------------------------------------
++
++def test_build_rows_from_public_synthetic():
++    docs = [
++        {
++            "document_id": "a",
++            "classification": "PUBLIC_SYNTHETIC",
++            "filename": "f.txt",
++            "chunks": ["chunk one", "chunk two"],
++        }
++    ]
++    rows = build_upload_evidence_rows(docs)
++    assert len(rows) == 2
++    assert rows[0]["evidence_id"] == "ev_upload_a_0"
++    assert rows[1]["evidence_id"] == "ev_upload_a_1"
++    assert rows[0]["statement"] == "chunk one"
++    assert rows[0]["direct_quote"] == "chunk one"
++    assert rows[0]["source_url"] == "upload://a"
++    assert rows[0]["title"] == "f.txt"
++    assert rows[0]["tier"] == "T2"
++    assert rows[0]["uploaded_document"] is True
++
++
++def test_build_rows_skips_empty_chunks():
++    docs = [
++        {
++            "document_id": "a",
++            "classification": "PUBLIC_SYNTHETIC",
++            "filename": "f.txt",
++            "chunks": ["real text", "   ", ""],
++        }
++    ]
++    rows = build_upload_evidence_rows(docs)
++    assert len(rows) == 1
++    assert rows[0]["statement"] == "real text"
++
++
++def test_build_rows_rejects_forbidden_classification():
++    # Belt-and-suspenders: a CLIENT doc reaching row construction is a bug
++    # (the actor-stage filter should have blocked it) — must raise, never
++    # silently leak into generator evidence.
++    docs = [
++        {
++            "document_id": "secret",
++            "classification": "CLIENT",
++            "filename": "c.txt",
++            "chunks": ["confidential client text"],
++        }
++    ]
++    with pytest.raises(UploadSovereigntyError, match="CLIENT"):
++        build_upload_evidence_rows(docs)
+
+# canonical-diff-sha256: 5a9152453a6d3b9aec9bdb08b83f8be6ecd7739f2582c3dec0eaad213163b35f
