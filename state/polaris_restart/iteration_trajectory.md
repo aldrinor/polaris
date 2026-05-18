@@ -339,4 +339,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 3: APPROVE — 0 P0/P1, 1 non-blocking P2 (expected-key check also consider pubkey_fingerprint for subkeys — folded into impl). convergence accept_remaining. Code+test feature: env-gated detached sign on backup + restore --verify-sig; python-gnupg direct (script self-contained); requirements-v6.txt += python-gnupg==0.5.6; new tests/v6/test_backup_gpg_sign.py (6 tests).
 
 ### Diff review
-- (pending — Codex diff review iter 1)
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. ast.parse 2/2; pytest test_backup_gpg_sign 2 passed + 4 skipped (key tests skip on Windows gpg-agent — run on CI Linux), test_backup_restore 6/6 regression-free. Production ~97 LOC, test ~283 LOC (mandatory acceptance test). P1 trajectory: 1→1→0.
