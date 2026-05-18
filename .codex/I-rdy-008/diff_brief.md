@@ -1,4 +1,4 @@
-# Codex DIFF review — I-rdy-008 / GH #504 slice 3: migrate inspector shell + summary to the AuditIR client
+# Codex DIFF review — I-rdy-008 / GH #504 slice 4: migrate the verified-sentences tab to AuditIR
 
 HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
@@ -12,76 +12,86 @@ HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 
 ## 1. What you are reviewing
 
-The commit-1 diff for #504 **slice 3** — `git diff origin/polaris...HEAD`
+The commit-1 diff for #504 **slice 4** — `git diff origin/polaris...HEAD`
 excluding `.codex/I-rdy-008/` and `outputs/audits/I-rdy-008/` (canonical diff
 in `.codex/I-rdy-008/codex_diff.patch`, sha256 trailer). Implements the
-Codex-APPROVE'd brief `.codex/I-rdy-008/brief.md` (brief APPROVE iter 1, 3 P2).
-**1 file, +192 / -77 — `web/app/inspector/[runId]/page.tsx`** (805 → 920 lines).
+Codex-APPROVE'd brief `.codex/I-rdy-008/brief.md` (brief APPROVE iter 1, 2 P2
+baked in). **2 files: `web/app/inspector/[runId]/page.tsx` +
+`web/components/ui/evidence-tooltip.tsx`.**
 
-Slice 3 of ~12 for #504 (Option A). Migrates the inspector page **shell**
-(3 status cards + run-header) + **Executive-summary tab** off
-`getBundle()`/`EvidenceContract` onto `getAuditRun()`/`AuditIrRun`. The 5 other
-tabs (`SentencesTab`/`FramesTab`/`ContradictionsTab`/`ChartsTab`/`PoolTab`),
-`EvidencePane`, `renderSentenceWithTokens`, `evidenceById` are intentionally
-**unchanged** — they migrate in slices 4-7. Do NOT flag "the other tabs still
-use getBundle()" — that is the consult's deliberate split-by-surface plan.
+Slice 4 of ~12 for #504 (Option A). Migrates the inspector page
+**verified-sentences tab** (`SentencesTab` + `renderSentenceWithTokens`) off
+`getBundle()`/`EvidenceContract`/`SourceSpan` onto the AuditIR
+`verified_report.sections[].sentences[]` + `AuditIrBibliographyEntry`. The 4
+other tabs (`FramesTab`/`ContradictionsTab`/`ChartsTab`/`PoolTab`) +
+`EvidencePane` stay on `getBundle()` — slices 5-7. Do NOT flag "the other
+tabs still use getBundle()" — deliberate, per the consult's split-by-surface
+plan.
 
 ## 2. The change
 
-- `InspectorPage` dual-fetches `getAuditRun()` → `ir` + `getBundle()` →
-  `bundle` (one `useEffect`, single `cancelled` guard); body gates on
-  `ir && bundle`.
-- New `RunShell` renders pipeline-status / two-family / cost from
-  `ir.manifest` + `ir.model_provenance`; run-header from
-  `ir.manifest.{question,slug}` + `ir.protocol?.{scope_decision,created_at_iso}`.
-- New `twoFamilyState(ir)` derives the §9.1.1 invariant from the family
-  strings (`known` false when `model_provenance` null or a family string is
-  empty).
-- New `apiErrorMessage(err, fallback)` extracts the FastAPI `detail` from
-  `ApiError.body`.
-- `ExecutiveSummaryTab` takes `ir` instead of `bundle`; counts from
-  `ir.manifest`; tier mix from `ir.bibliography` (raw `tier`); new collapsible
-  `report_md` block; 3 `getChart()` charts unchanged.
+- `SentencesTab` — new props `{ ir, bundle, onSelect, onJumpToContradictions }`;
+  flattens `ir.verified_report.sections.flatMap(sec => sec.sentences)`; per
+  card: `s.section`, `s.is_verified` badge, `s.failure_reasons[]` list, body
+  via `renderSentenceWithTokens`; bibliography resolver `bibById` from
+  `ir.bibliography`.
+- `renderSentenceWithTokens` — 3rd param now `bibById: (id) =>
+  AuditIrBibliographyEntry | null`; `EvidenceTooltip` gets `sourceUrl` ←
+  `bib?.url`, `spanText` ← `bib?.statement`, `sourceTier` ← `bib?.tier`. The
+  `[#ev:...]` regex is unchanged.
+- New `slugifySection` — mirrors the backend `_slugify`
+  (`artifact_to_slice_chain.py`).
+- `tabs` initializer guard `bundle ?` → `ir && bundle ?`; `sentences` count
+  from `ir.verified_report`.
+- `evidence-tooltip.tsx` — `sourceTier` type `"T1"|"T2"|"T3"` → `string`.
 
 ## 3. Verify
 
-1. **AuditIR field access is faithful.** Cross-check every `ir.*` access in
-   `RunShell` / `twoFamilyState` / `ExecutiveSummaryTab` against the
-   `AuditIrRun` interface (`web/lib/api.ts:1309-1396`, slice 2) — field names
-   + nullability. `model_provenance`/`protocol` are `| null`.
-2. **The 3 brief P2s are implemented.** (P2-1) `apiErrorMessage` reads
-   `body.detail` not just `err.message`; (P2-2) `protocol` null → run-header
-   omits scope/created, no `undefined` render; (P2-3) two-family PASS/FAIL
-   only in the `known` branch (both families non-empty + unequal).
-3. **No fabricated state.** `model_provenance == null` → "Model provenance
-   not recorded", no PASS/FAIL, no border tint.
-4. **The 5 un-migrated tabs are byte-identical** to `polaris` HEAD —
-   `SentencesTab`/`renderSentenceWithTokens`/`FramesTab`/`ContradictionsTab`/
-   `ChartsTab`/`PoolTab`/`EvidencePane`. `evidenceById` + `tabs` stay
-   `bundle`-based.
-4b. **`cancelled` guard** covers both promises; both `.catch` set `error`.
-5. **Scope** — only `web/app/inspector/[runId]/page.tsx`; no `web/lib/api.ts`,
-   no `src/`, no other `web/app/**`.
+1. **AuditIR field access faithful.** `ir.verified_report.sections[].sentences[]`
+   (`AuditIrSentence`: `claim_id`, `section`, `text`, `tokens`, `is_verified`,
+   `failure_reasons`), `ir.bibliography` (`AuditIrBibliographyEntry`:
+   `evidence_id`, `url`, `tier`, `statement`), `ir.verified_report.sentences_
+   verified/_dropped`, `ir.manifest.status` — cross-check against
+   `web/lib/api.ts` (slice 2) + `src/polaris_graph/audit_ir/loader.py`.
+2. **The 2 brief P2s.** (P2-1) the `tabs` initializer is gated `ir && bundle`
+   so the `ir.verified_report.*` count never null-derefs. (P2-2)
+   `slugifySection` exactly mirrors `_slugify`
+   (`re.sub(r"[^a-z0-9_]+","_",lower).strip("_")[:60]`) — the contradiction
+   badge compares `slugifySection(s.section)` against the bundle's
+   already-slugified `contradictions[].section_id`.
+3. **Regex still correct.** `renderSentenceWithTokens` runs the unchanged
+   `/\[#ev:([^:\]]+):\d+-\d+\]/g` over `AuditIrSentence.text` (inline markers
+   confirmed present in `verification_details.json`).
+4. **No fabrication.** `failure_reasons` rendered only when non-empty;
+   `bibById` returns `null` when an `evidence_id` is absent → tooltip
+   `sourceUrl`/`spanText`/`sourceTier` become `undefined` (all optional props).
+5. **The 4 un-migrated tabs + `EvidencePane`** are byte-identical to
+   `polaris` HEAD; `evidenceById` + the `onSelect`→`EvidencePane` click chain
+   stay bundle-backed.
+6. **`sourceTier` widening** — `string` is a safe supertype; display-only
+   prop; both `EvidenceTooltip` call sites still valid.
+7. **Scope** — only the 2 named files; no `web/lib/api.ts`, no `src/`.
 
 ## 4. Files I have ALSO checked and they're clean
 
-- `web/lib/api.ts` — `getAuditRun()` + `AuditIrRun` (slice 2); `getBundle()`/
-  `EvidenceContract`/`getChart()`/`ApiError`/`downloadBundleAsJson` all still
-  present; NOT modified.
-- `src/polaris_v6/api/inspector.py` (slice 1) — the route `getAuditRun`
-  targets; NOT modified.
-- `web/app/runs/[runId]/page.tsx` — also uses `getBundle()`; a separate page,
-  not in #504 slice 3 scope; NOT modified.
+- `web/lib/api.ts` — `AuditIrSentence`/`AuditIrSection`/`AuditIrVerifiedReport`/
+  `AuditIrBibliographyEntry` (slice 2); NOT modified.
+- `src/polaris_graph/audit_ir/loader.py` — `_parse_verification_sentence`
+  (`text=raw["sentence"]` retains `[#ev]` markers; `is_verified=
+  (status=="kept")`); NOT modified.
+- `src/polaris_v6/api/artifact_to_slice_chain.py` — `_slugify` (the function
+  `slugifySection` mirrors); NOT modified.
+- `web/app/sentence_hover_test/_demo_evidence_tooltip.tsx` — the other
+  `EvidenceTooltip` call site (`sourceTier="T1"`, valid vs `string`); NOT
+  modified.
 
 ## 5. Smoke state
 
-`web/`: `prettier --write app/inspector/[runId]/page.tsx` → unchanged;
-`npm run lint` → 0 errors (1 pre-existing inspector-page warning preserved
-verbatim — `chartTypes` `exhaustive-deps` in `ExecutiveSummaryTab`, present in
-the original code; 2 unrelated pre-existing warnings); `npm run typecheck`
-→ clean; `npm run build` → OK. Repo-wide `format:check` 189-file debt is
-pre-existing (untouched files). The `lint + format + typecheck + build` CI job
-is in scope for this web/ PR.
+`web/`: `prettier --write` the 2 files → applied; `npm run lint` → 0 errors
+(3 pre-existing warnings, count unchanged — `chartTypes` `exhaustive-deps` in
+the inspector page is pre-existing in `ExecutiveSummaryTab`); `npm run
+typecheck` → clean; `npm run build` → OK. The `lint + format + typecheck +
+build` CI job is in scope for this web/ PR.
 
 ## 6. Required output schema (§8.3.9)
 
