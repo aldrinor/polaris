@@ -1,3 +1,19 @@
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index a7893bda..56d10e8c 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -376,3 +376,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected; no explicit malformed-artifact_dir test — impl handles it). convergence accept_remaining. ast.parse 3/3; pytest 11 passed (5 new + 6 health/runs regression-free). Backend slice — no frontend. P1 trajectory 0.
++
++## I-rdy-008 (#504) slice 2 — frontend AuditIR client helper + types
++
++### Brief review
++- iter 1: APPROVE — clean, 0 P0/P1/P2. convergence accept_remaining. Slice 2 of ~12 for #504, Option A. web/lib/api.ts only — 17 AuditIr* TS interfaces mirroring the AuditIR dataclass tree + getAuditRun() → the slice-1 route. Frontend-lib only, no web/app/** change. Web smoke: prettier/tsc/eslint(0 err)/build all green.
++
++### Diff review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff — expected process metadata). convergence accept_remaining. web/lib/api.ts +240 — 17 AuditIr* TS interfaces + getAuditRun(). prettier/tsc/eslint(0 err)/build green. P1 trajectory 0.
 diff --git a/web/lib/api.ts b/web/lib/api.ts
 index ca1f76fb..d02ef94f 100644
 --- a/web/lib/api.ts
@@ -246,4 +262,4 @@ index ca1f76fb..d02ef94f 100644
 +  );
 +  return asJsonOrThrow<AuditIrRun>(response);
 +}
-# canonical-diff-sha256: 4050dd1941a39f9c9c1c2e6ef7f797b8601d613864e18090fc311e47653d9179
+# canonical-diff-sha256: 78ed69e1b497900d82f079804848178be9e7897ef987e65642dab9ae63516be6
