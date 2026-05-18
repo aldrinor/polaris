@@ -3,8 +3,8 @@ novel_p0: []
 continuing_p0: []
 p1: []
 p2:
-  - "§3.4: if implementation literally uses `err.message`, FastAPI 422 detail will be hidden because `asJsonOrThrow()` stores it on `ApiError.body`; extract `body.detail` when present."
-  - "§2.2: `ir.protocol` is nullable, so use neutral fallback text for missing `scope_decision` / `created_at_iso`."
-  - "§3.3: deriving two-family PASS/FAIL from families is acceptable, but show PASS only when both family strings are non-empty and unequal; otherwise use neutral provenance-incomplete state."
+  - "When changing the tab count to `ir.verified_report.sentences_verified + ir.verified_report.sentences_dropped`, also gate the `tabs` initializer on `ir && bundle` or derive the sentence count safely; the current guard is only `bundle ? ... : []`."
+  - "For the contradiction badge, preserve the bundle-backed behavior but ensure the section comparison uses compatible identifiers; `AuditIrSentence.section` is a display title, while legacy `bundle.contradictions[].section_id` is an id/slug."
 convergence_call: accept_remaining
-remaining_blockers_for_execution: []
+remaining_blockers_for_execution:
+  - "None. Rules: 3.1 accept flattening; 3.2 accept single `is_verified`; 3.3 accept `failure_reasons[]`; 3.4 accept bundle-backed badge with identifier normalization; 3.5 accept bibliography `statement` as transitional hover text; 3.6 accept widening `sourceTier` to `string`."

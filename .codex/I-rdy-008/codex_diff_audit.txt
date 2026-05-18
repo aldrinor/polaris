@@ -3,6 +3,6 @@ novel_p0: []
 continuing_p0: []
 p1: []
 p2:
-  - "Non-blocking scope drift: `git diff origin/polaris...HEAD` includes `state/polaris_restart/iteration_trajectory.md:388` in addition to `web/app/inspector/[runId]/page.tsx`. Execution path is unaffected, but it contradicts the stated one-file slice unless this process metadata is intentionally allowed."
+  - "Scope: canonical diff also modifies state/polaris_restart/iteration_trajectory.md outside the excluded dirs; process metadata only, not an execution blocker."
 convergence_call: accept_remaining
 remaining_blockers_for_execution: []

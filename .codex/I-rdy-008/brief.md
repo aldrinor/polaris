@@ -1,4 +1,4 @@
-# Codex BRIEF review — I-rdy-008 / GH #504 slice 3: migrate inspector shell + summary to the AuditIR client
+# Codex BRIEF review — I-rdy-008 / GH #504 slice 4: migrate the verified-sentences tab + citation hover to AuditIR
 
 HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
@@ -14,222 +14,208 @@ HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 
 Pre-implementation **brief** review — reviewing the *plan*, NOT a diff. No code written yet.
 
-## 0.1 This is slice 3 of #504, Option A
+## 0.1 This is slice 4 of #504, Option A
 
-#504 (I-rdy-008, Phase 3.5 — "wire live runs into the rich UI") is sliced ~12
-ways per the Codex arch-decision consult (`.codex/I-rdy-008/arch_decision_verdict.txt`,
-verdict A: serve the faithful `AuditIR`, do NOT wholesale-mount the legacy
+#504 (I-rdy-008, Phase 3.5 — "wire live runs into the rich UI") is sliced
+~12 ways per the Codex arch-decision consult (`.codex/I-rdy-008/arch_decision_verdict.txt`,
+verdict A: serve the faithful `AuditIR`; do NOT wholesale-mount the legacy
 1400-line `polaris_graph/audit_ir/inspector_router.py`).
 
-- **Slice 1 shipped** (PR #590): the v6 backend route
-  `GET /api/inspector/runs/{run_id}` → `to_json_dict(load_audit_ir(artifact_dir))`,
-  i.e. faithful `AuditIR` JSON. 404 unknown / 409 not-completed / 422 abort-or-error
-  run or unloadable `artifact_dir`.
-- **Slice 2 shipped** (PR #591): `web/lib/api.ts` gained 17 `AuditIr*` interfaces
-  + `getAuditRun(runId): Promise<AuditIrRun>`.
-- **This is slice 3: migrate the inspector page SHELL + SUMMARY tab** off
-  `getBundle()`/`EvidenceContract` onto `getAuditRun()`/`AuditIrRun`.
+- **Slices 1-3 shipped**: route `GET /api/inspector/runs/{run_id}` (PR #590);
+  `web/lib/api.ts` `AuditIr*` types + `getAuditRun()` (PR #591); inspector
+  page **shell + Executive-summary tab** migrated to `getAuditRun()`/
+  `AuditIrRun` (PR #592).
+- **This is slice 4: migrate the verified-sentences tab** — `SentencesTab`
+  + `renderSentenceWithTokens` in `web/app/inspector/[runId]/page.tsx` — off
+  `getBundle()`/`EvidenceContract`/`SourceSpan` onto the AuditIR
+  `verified_report.sections[].sentences[]` (`AuditIrSentence`) +
+  `AuditIrEvidenceSpanToken` + `AuditIrBibliographyEntry`.
 
-**The consult's key_risk is binding:** "the inspector page should be split by
-tabs/surfaces, not rewritten in one PR." Slice 3 migrates ONLY the shell
-(status cards + run-header) and the Executive-summary tab. The other 5 tabs
-(`SentencesTab`/`FramesTab`/`ContradictionsTab`/`PoolTab`/`ChartsTab`),
-`EvidencePane`, `renderSentenceWithTokens`, and `evidenceById` stay on
-`getBundle()`/`EvidenceContract` — those migrate in slices 4-7. #504 closes
-when the last slice lands. Do NOT flag "the other 5 tabs still use getBundle()"
-— that is intentional, deferred to later slices.
+**Consult key_risk (binding):** "split by tabs/surfaces, not rewritten in one
+PR." Slice 4 touches ONLY `SentencesTab` + `renderSentenceWithTokens` (+ one
+1-line type widening — §3.6). `FramesTab` / `ContradictionsTab` / `ChartsTab`
+/ `PoolTab` / `EvidencePane` stay on `getBundle()`/`EvidenceContract` —
+slices 5-7. Do NOT flag "the other tabs still use getBundle()" — deliberate.
 
 ## 1. Grounded state
 
-### 1.1 The file being changed — `web/app/inspector/[runId]/page.tsx` (805 lines)
+### 1.1 The file — `web/app/inspector/[runId]/page.tsx` (920 lines, post-slice-3)
 
-- `InspectorPage` (lines 30-262): `getBundle(runId)` → `bundle: EvidenceContract`;
-  6-tab nav (`summary`/`sentences`/`frames`/`contradictions`/`pool`/`charts`);
-  `evidenceById` resolves `bundle.evidence_pool`; whole body gated on `bundle &&`.
-- **Shell pieces** (the slice-3 target):
-  - 3 status cards (lines 134-179): `bundle.pipeline_status`,
-    `bundle.family_segregation_passed` + `bundle.generator_model` +
-    `bundle.verifier_model`, `bundle.cost_usd`.
-  - run-header section (lines 181-191): `bundle.question`, `bundle.template`,
-    `bundle.queued_at`, `bundle.finished_at`.
-  - "Export bundle JSON" button (lines 106-113): `downloadBundleAsJson(bundle)`.
-- **`ExecutiveSummaryTab`** (lines 459-609, the slice-3 target): renders
-  `bundle.template`/`bundle.question`; counts `verifiedCount` /`droppedCount`
-  (from `bundle.verified_sentences`), `contradictionCount` (from
-  `bundle.contradictions`), `tierCounts` (reduced over `bundle.evidence_pool`,
-  shows T1/T2/T3 only); 3 `getChart()` charts (`forest_plot`/`comparison_table`/
-  `timeline`).
-- **NOT touched by slice 3:** `SentencesTab` (264), `renderSentenceWithTokens`
-  (327), `FramesTab` (358), `ContradictionsTab` (392), `ChartsTab` (611),
-  `PoolTab` (721), `EvidencePane` (751). All keep `EvidenceContract`/`SourceSpan`.
+- `InspectorPage` dual-fetches `getAuditRun()`→`ir` + `getBundle()`→`bundle`;
+  body gates on `ir && bundle`. Slice-4 target call site is line 227-234:
+  `<SentencesTab bundle={bundle} evidenceById={evidenceById}
+  onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+  onJumpToContradictions={() => setActiveTab("contradictions")} />`.
+- `SentencesTab` (line 353) — `{ bundle, evidenceById, onSelect,
+  onJumpToContradictions }`. Iterates the flat `bundle.verified_sentences`;
+  per card: `s.section_id`, `s.verifier_local_pass`/`s.verifier_global_pass`
+  ("local✓/✗ · global✓/✗"), `renderSentenceWithTokens(s.sentence_text, …)`,
+  `s.drop_reason`; "contradiction in section →" badge from a
+  `Set(bundle.contradictions.map(c => c.section_id))`.
+- `renderSentenceWithTokens` (line 416) — `(text, onSelect, evidenceById?)`;
+  regex `/\[#ev:([^:\]]+):\d+-\d+\]/g` over `text`, per match emits an
+  `<EvidenceTooltip>` with `sourceUrl`/`spanText`/`sourceTier` from
+  `evidenceById(id): SourceSpan | null`.
+- `tabs` array (`InspectorPage`) — the `sentences` tab count is
+  `bundle.verified_sentences.length`.
 
-### 1.2 The data shapes
+### 1.2 The AuditIR shapes (slice-2 `web/lib/api.ts`, verified vs `loader.py`)
 
-- `getAuditRun()` → `AuditIrRun` (api.ts:1381) — `manifest` (`AuditIrManifest`:
-  `run_id`, `slug`, `status`, `question`, `cost_usd`, `budget_cap_usd`,
-  `word_count`, `sentences_verified`, `sentences_dropped`,
-  `contradictions_found`, `completeness_percent`, `release_allowed`, …);
-  `model_provenance` (`AuditIrModelProvenance | null`: `generator_family`,
-  `generator_model`, `evaluator_family`, `evaluator_model`, …); `protocol`
-  (`AuditIrProtocolMetadata | null`: `created_at_iso`, `scope_decision`, …);
-  `bibliography` (`AuditIrBibliographyEntry[]`, each with raw `tier: string`);
-  `tier_mix` (`AuditIrTierMix`: `fractions: Record<string,number>`,
-  `corpus_count`); `report_md: string`; etc.
-- `getBundle()` → `EvidenceContract` (api.ts:266) — carries `template`,
-  `queued_at`, `finished_at`, `pipeline_status`, `cost_usd`,
-  `family_segregation_passed`, `generator_model`, `verifier_model`,
-  `evidence_pool`, `verified_sentences`, `frame_coverage`, `contradictions`.
+- `AuditIrRun.verified_report` (`AuditIrVerifiedReport`): `sections`
+  (`AuditIrSection[]`), `sentences_verified`, `sentences_dropped`,
+  `drop_reason_counts`.
+- `AuditIrSection`: `title`, `kept_count`, `dropped_count`, `total_in`,
+  `dropped_due_to_failure`, `sentences` (`AuditIrSentence[]`).
+- `AuditIrSentence`: `claim_id`, `section`, `text`, `tokens`
+  (`AuditIrEvidenceSpanToken[]`), `is_verified` (bool), `failure_reasons`
+  (`string[]`).
+- `AuditIrBibliographyEntry`: `num`, `evidence_id`, `statement`, `tier`
+  (raw `string`), `url`.
 
-### 1.3 Field-availability gap (drives the §3 scope calls)
+**Grounding done — confirmed against a real `verification_details.json`
+(`outputs/carney_demo_rehearsal_smoke/clinical/clinical_tirzepatide_t2dm/`):**
+the per-sentence `text` field STILL CONTAINS inline `[#ev:<id>:<start>-<end>]`
+markers (`'[#ev:' in text` → True), so `renderSentenceWithTokens`'s regex
+approach carries over unchanged — only the per-token *resolver* changes.
+`failure_reasons` is a list of strings (e.g.
+`"number_not_in_any_cited_span:ev_005:missing=[…]"`); empty/`None` for kept
+sentences (loader: `is_verified=(status=="kept")`).
 
-`AuditIR` is the **artifact** IR — it does NOT carry run-lifecycle fields.
-`EvidenceContract.template`, `.queued_at`, `.finished_at` have **no AuditIR
-equivalent** (they are `run_store` lifecycle columns, surfaced by the separate
-`getRun()` → `RunStatusResponse` helper, api.ts:122). `AuditIR` carries
-`manifest.slug`, `protocol.created_at_iso`, `protocol.scope_decision` instead.
-There is also **no `family_segregation_passed` boolean** in `AuditIR` — the
-two-family invariant must be derived.
+## 2. The plan — 2 files
 
-## 2. The plan — `web/app/inspector/[runId]/page.tsx` only (1 file)
+### 2.1 `web/app/inspector/[runId]/page.tsx`
 
-### 2.1 Dual-fetch during the staged migration
+**`SentencesTab`** — new props `{ ir: AuditIrRun; bundle: EvidenceContract;
+onSelect; onJumpToContradictions }`:
+- Flatten `ir.verified_report.sections.flatMap(s => s.sentences)` into the
+  rendered list (preserves the current flat-list UX; each card keeps a
+  section label, now `sentence.section`). Empty-state check on the flattened
+  length.
+- Per card: section label `s.section`; verification badge `s.is_verified ?
+  "verified✓" : "verified✗"`; body `renderSentenceWithTokens(s.text, …)`;
+  when `s.failure_reasons.length > 0`, render them (the AuditIR replacement
+  for the single `drop_reason` string — see §3.3).
+- "contradiction in section →" badge: keep reading
+  `Set(bundle.contradictions.map(c => c.section_id))` — AuditIR contradiction
+  clusters carry NO section field (§3.4).
+- Build a bibliography resolver `bibById = (id) =>
+  ir.bibliography.find(b => b.evidence_id === id) ?? null` and pass it to
+  `renderSentenceWithTokens`.
 
-`InspectorPage` fetches **both** `getAuditRun()` → `ir: AuditIrRun | null`
-**and** `getBundle()` → `bundle: EvidenceContract | null` (two independent
-`useEffect` promises, each with the existing `cancelled` guard). The shell +
-`ExecutiveSummaryTab` read `ir`; the 5 un-migrated tabs + `EvidencePane` +
-`downloadBundleAsJson` + `evidenceById` keep reading `bundle`. The full
-inspector body renders gated on `ir && bundle`. When slices 4-7 migrate the
-last tab off `bundle`, the `getBundle()` call is removed.
+**`renderSentenceWithTokens`** — signature `(text, onSelect, bibById?)`
+where `bibById: (id) => AuditIrBibliographyEntry | null`:
+- Same regex over `text` (markers confirmed present).
+- Per match: `<EvidenceTooltip>` with `sourceUrl={bib?.url}`,
+  `spanText={bib?.statement}`, `sourceTier={bib?.tier}`,
+  `onClickToInspect={() => onSelect(evidenceId)}` (§3.5).
 
-### 2.2 Shell migration mapping
+**`InspectorPage`** — the call site passes `ir={ir} bundle={bundle}` (drop
+the `evidenceById` prop — `SentencesTab` builds its own `bibById`); `onSelect`
+unchanged (still `setSelectedEvidence(evidenceById(id))` — `EvidencePane`
+stays bundle-backed, §3.5). The `sentences` tab count becomes
+`ir.verified_report.sentences_verified + ir.verified_report.sentences_dropped`.
 
-| UI element | was (`bundle`) | becomes (`ir`) |
-|---|---|---|
-| Pipeline status card | `bundle.pipeline_status` | `ir.manifest.status` |
-| Two-family card PASS/FAIL | `bundle.family_segregation_passed` | derived: `ir.model_provenance != null && ir.model_provenance.generator_family !== ir.model_provenance.evaluator_family` |
-| Two-family card models | `generator_model → verifier_model` | `ir.model_provenance.generator_model → ir.model_provenance.evaluator_model` |
-| Cost card | `bundle.cost_usd` | `ir.manifest.cost_usd` |
-| Run-header question | `bundle.question` | `ir.manifest.question` |
-| Run-header sub-line | `Template: {template} · Queued {queued_at} · Finished {finished_at}` | `Run {ir.manifest.slug} · Scope {ir.protocol?.scope_decision} · Created {ir.protocol?.created_at_iso}` (see §3.1) |
+### 2.2 `web/components/ui/evidence-tooltip.tsx` — 1-line type widening (§3.6)
 
-If `ir.model_provenance` is `null` (loader returns `None` for legacy/abort
-artifacts), the two-family card shows a neutral "model provenance not recorded"
-state rather than a fabricated PASS/FAIL.
-
-### 2.3 `ExecutiveSummaryTab` migration mapping
-
-| UI element | was | becomes |
-|---|---|---|
-| heading | `bundle.template` | `ir.manifest.slug` |
-| question | `bundle.question` | `ir.manifest.question` |
-| Verified count | `bundle.verified_sentences.length` | `ir.manifest.sentences_verified` |
-| Dropped count | `verified_sentences.filter(drop_reason)` | `ir.manifest.sentences_dropped` |
-| Contradictions count | `bundle.contradictions.length` | `ir.manifest.contradictions_found` |
-| Sources + tier mix | reduce `bundle.evidence_pool` (T1/T2/T3 only) | reduce `ir.bibliography` by raw `tier` → exact T1-T7 counts; total = `ir.bibliography.length` |
-| 3 charts | `getChart(runId, t)` | UNCHANGED — `getChart` is a separate route |
-
-The chart-click `onSelect(evidenceId)` still resolves through the
-`bundle`-based `evidenceById` → `EvidencePane` — that chain migrates with the
-pool tab in a later slice; it stays functional in the dual-fetch state.
-
-### 2.4 Error / non-completed handling
-
-`getAuditRun()` throws `ApiError` on 404 (unknown) / 409 (not completed) /
-422 (abort/error run or unloadable artifact). The `.catch` sets `error` to the
-thrown message; the existing error `<section role="alert">` renders it. This
-means an **abort/error run shows an explicit failure panel** instead of the
-old empty-tabs inspector — see §3.4.
+Widen `EvidenceTooltipProps.sourceTier` from `"T1" | "T2" | "T3"` to
+`string`. `sourceTier` is display-only (line 164: `{sourceTier && \` · tier
+${sourceTier}\`}`); both call sites (the inspector page + the
+`_demo_evidence_tooltip.tsx` harness passing `"T1"`) remain valid against
+`string`. No runtime behavior change.
 
 ## 3. Scope-boundary calls for Codex — please rule explicitly
 
-**3.1 — drop `template`/`finished_at` from the run-header.** `AuditIR` has no
-`template` name and no `finished_at`. The plan renders `slug` +
-`scope_decision` + `created_at_iso` from `AuditIR` instead. Alternative: also
-fetch `getRun()` for the lifecycle fields (a 3rd fetch). Recommend the
-AuditIR-only path (single migration target, faithful — `slug`/`scope_decision`
-are richer provenance than a bare template label; no UX element is silently
-blanked, the line is replaced with named AuditIR fields). Rule: accept, or
-require the `getRun()` compose?
+**3.1 — nested → flat.** AuditIR `verified_report` is nested
+`sections[].sentences[]`; the legacy `bundle.verified_sentences` is flat.
+Plan flattens via `flatMap` and keeps the per-card `section` label (current
+UX preserved). Alternative: render section-grouped (bigger change). Recommend
+flatten. Rule.
 
-**3.2 — `report_md` rendering.** The consult listed "render report_md" for
-slice 3. There is **no markdown renderer in `web/`** (no `react-markdown`/
-`marked`/`remark` dependency; verified against `web/package.json`). Plan:
-render `ir.report_md` as raw monospace text inside a collapsible
-`<details>`/`<pre>` block in the summary tab — zero new dependency, faithful
-(shows the actual report bytes). Proper markdown rendering (adding
-`react-markdown`) is deferred to a later polish slice. Rule: accept the raw
-`<pre>` for slice 3, or defer `report_md` entirely to the markdown-renderer
-slice?
+**3.2 — no local/global verifier split.** `AuditIrSentence` has a single
+`is_verified` bool, not `verifier_local_pass`/`verifier_global_pass`. Plan:
+the card header shows `verified✓`/`verified✗`. The local/global distinction
+is dropped (AuditIR does not carry it). Rule: accept?
 
-**3.3 — two-family PASS/FAIL is derived, not stored.** `AuditIR` has no
-`family_segregation_passed` boolean. Plan derives it from
-`generator_family !== evaluator_family` (CLAUDE.md §9.1.1 — the invariant *is*
-"generator and evaluator from different lineages"). Rule: is deriving from the
-family strings acceptable, or is a stored boolean required?
+**3.3 — `drop_reason` (string) → `failure_reasons` (string[]).** The legacy
+card showed a single `Dropped: <drop_reason>` line. `AuditIrSentence` has
+`failure_reasons: string[]`. Plan: render the list (e.g. each reason on its
+own line under the sentence when non-empty). Rule: accept?
 
-**3.4 — abort/error runs lose the inspector page.** Slice-1's route 422s on
-`pipeline_status` starting `abort_`/`error_`. Post-slice-3, an abort run hits
-the `error` panel ("Bundle load failed" → will be relabeled "Run inspector
-unavailable" + the 422 detail) instead of the old `getBundle()` empty-tabs
-view. Recommend accepting this — an abort run showing an honest "run aborted:
-<status>" message is more correct than empty tabs, and matches slice-1's
-deliberate 422 design. Rule: accept, or require a `bundle`-fallback path?
+**3.4 — contradiction-in-section badge stays bundle-backed.** AuditIR
+`AuditIrContradictionCluster` has NO `section`/`section_id` field — the
+"contradiction in section →" cross-link cannot be derived from AuditIR.
+Plan: `SentencesTab` keeps reading `bundle.contradictions` for the
+section-set during the dual-fetch transition (no UX regression). Slice 6
+(contradictions migration) decides the permanent linkage (evidence-id-based,
+or drop). Alternative: drop the badge now. Recommend keep-via-bundle. Rule.
 
-**3.5 — dual-fetch is the intended transition state.** The page issues two
-fetches and the body gates on `ir && bundle`. This is the consult's
-"split by surface" pattern, not an oversight. Confirm acceptable.
+**3.5 — token click + hover during the transition.** The token CLICK still
+calls `onSelect(evidenceId)` → `InspectorPage` resolves via the bundle
+`evidenceById` → `EvidencePane` (bundle-backed; migrates with the pool
+surface in a later slice). The token HOVER tooltip resolves via
+`ir.bibliography`: `sourceUrl` ← `entry.url`, `sourceTier` ← `entry.tier`,
+`spanText` ← `entry.statement`. **AuditIR has no flat `evidence_pool` with
+the exact ≤500-char cited span** — `bibliography.statement` is the closest
+faithful AuditIR field for the hover preview; the exact span text is still
+shown on click via the (bundle-backed) `EvidencePane`. Rule: accept
+`statement` as the hover preview text, or omit `spanText` until the pool
+surface migrates?
+
+**3.6 — one out-of-page-file change: widen `EvidenceTooltip.sourceTier`.**
+AuditIR tiers are raw `string` (T1-T7); the prop is typed `"T1"|"T2"|"T3"`.
+The 1-line widening to `string` is the minimal faithful fix (display-only
+prop, safe for both call sites). Alternative: cast/omit T4-T7 tiers in the
+page file only (a faithfulness loss). Recommend the widening. Rule: accept
+touching `evidence-tooltip.tsx`?
 
 ## 4. Scope boundary
 
-- **IN:** `web/app/inspector/[runId]/page.tsx` — `InspectorPage` shell
-  (3 status cards + run-header) + `ExecutiveSummaryTab` migrate to
-  `getAuditRun()`/`AuditIrRun`; add the `getAuditRun()` fetch; relabel the
-  error panel.
-- **OUT:** `SentencesTab`/`FramesTab`/`ContradictionsTab`/`ChartsTab`/`PoolTab`/
-  `EvidencePane`/`renderSentenceWithTokens`/`evidenceById` (slices 4-7);
-  `web/lib/api.ts` (slice 2 already shipped the client — no change); any `src/`
-  change; `web/app/runs/[runId]/page.tsx` (separate page, also uses
-  `getBundle()` — not in #504 slice 3 scope).
+- **IN:** `web/app/inspector/[runId]/page.tsx` (`SentencesTab` +
+  `renderSentenceWithTokens` + their call site + the `sentences` tab count);
+  `web/components/ui/evidence-tooltip.tsx` (1-line `sourceTier` widening).
+- **OUT:** `RunShell` / `ExecutiveSummaryTab` (slice 3, done); `FramesTab` /
+  `ContradictionsTab` / `ChartsTab` / `PoolTab` / `EvidencePane` (slices
+  5-7); `web/lib/api.ts` (slice 2 shipped the types — no change); any `src/`
+  change; the `getBundle()` fetch (removed only when the last tab migrates).
 
 ## 5. Smoke test
 
-Frontend-only change → the `lint + format + typecheck + build` CI job is IN
-SCOPE and must pass. Offline: `cd web && npm run format:check && npm run lint
-&& npm run typecheck && npm run build` — all green. No new unit test (a
-data-source swap in a client component with no new logic branches; consistent
-with how the inspector page itself was added). If `npm run typecheck` flags
-the `AuditIrRun` field access, fix before commit. The 3 pre-existing
-`inspector/[runId]/page.tsx` lint warnings noted in slice 2 — verify the count
-does not increase.
+Frontend change → the `lint + format + typecheck + build` CI job is IN
+SCOPE. Offline: `cd web && npx prettier --write` the 2 files
+`&& npm run format:check && npm run lint && npm run typecheck && npm run
+build` — all green. No new unit test (a data-source swap in a client
+component, no new logic branches — consistent with slices 1-3). The 1
+pre-existing inspector-page lint warning (`chartTypes` `exhaustive-deps` in
+`ExecutiveSummaryTab`) must not increase.
 
 ## 6. Files I have ALSO checked and they're clean
 
-- `web/lib/api.ts` — `getAuditRun()` + the 17 `AuditIr*` interfaces (slice 2,
-  PR #591); `getBundle()`/`EvidenceContract`/`getChart()` all still present;
-  NOT modified by slice 3.
-- `src/polaris_v6/api/inspector.py` (slice 1) — the route `getAuditRun()`
-  targets; NOT modified.
-- `src/polaris_graph/audit_ir/loader.py` — the dataclass tree the `AuditIr*`
-  types mirror (cross-checked: `AuditIrManifest`/`ModelProvenance`/
-  `ProtocolMetadata`/`BibliographyEntry`/`TierMix` field names + types match);
+- `src/polaris_graph/audit_ir/loader.py` — `_parse_verification_sentence` /
+  `_parse_verified_report`: `ReportSentence.text = raw["sentence"]` (inline
+  `[#ev]` markers retained), `is_verified=(status=="kept")`,
+  `failure_reasons` from raw. NOT modified.
+- `web/lib/api.ts` — `AuditIrVerifiedReport`/`AuditIrSection`/`AuditIrSentence`/
+  `AuditIrEvidenceSpanToken`/`AuditIrBibliographyEntry` (slice 2); NOT modified.
+- `web/components/ui/evidence-tooltip.tsx` — only `sourceTier` is touched
+  (1-line type); `sourceTier` is display-only (line 164).
+- `web/app/sentence_hover_test/_demo_evidence_tooltip.tsx` — the other
+  `EvidenceTooltip` call site; passes `sourceTier="T1"` (valid vs `string`);
   NOT modified.
-- `web/app/runs/[runId]/page.tsx` — also calls `getBundle()`; a separate page,
-  NOT in #504 slice 3 scope; NOT modified.
-- `web/components/ui/evidence-tooltip.tsx`, `vega-chart.tsx` — consumed by the
-  un-migrated tabs; NOT modified.
+- `EvidencePane` / `PoolTab` / `evidenceById` — stay bundle-backed; NOT
+  modified.
 
-## 7. Acceptance criteria for THIS PR (slice 3)
+## 7. Acceptance criteria for THIS PR (slice 4)
 
-1. `InspectorPage` fetches `getAuditRun()`; the 3 status cards + run-header +
-   `ExecutiveSummaryTab` render from `AuditIrRun` per the §2.2/§2.3 mappings.
-2. The 5 un-migrated tabs + `EvidencePane` continue to render from
-   `getBundle()`/`EvidenceContract` unchanged (dual-fetch transition state).
-3. `ir.model_provenance == null` is handled (neutral two-family state, no
-   fabricated PASS/FAIL).
-4. `npm run format:check` + `lint` + `typecheck` + `build` all green; no
-   increase in pre-existing lint-warning count.
-5. No `web/lib/api.ts` / `src/` change; no other `web/app/**` file changed.
+1. `SentencesTab` renders `ir.verified_report.sections[].sentences[]`
+   (flattened) — section label, `is_verified` badge, `failure_reasons`;
+   `renderSentenceWithTokens` resolves token hover data via `ir.bibliography`.
+2. The contradiction-in-section badge + `onSelect`→`EvidencePane` click chain
+   stay bundle-backed (dual-fetch transition); no UX regression.
+3. `EvidenceTooltip.sourceTier` widened to `string`; renders raw AuditIR
+   T1-T7 tiers.
+4. `format:check` + `lint` + `typecheck` + `build` green; pre-existing
+   lint-warning count not increased.
+5. No change outside the 2 named files; no `web/lib/api.ts` / `src/` change.
 
 ## 8. Required output schema (§8.3.9)
 
