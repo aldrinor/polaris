@@ -1,12 +1,51 @@
 # Codex DIFF review — GH #505 (I-rdy-009): wire the disambiguation modal into the /dashboard flow
 
-HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
 - Same quality bar regardless of iteration count.
 - "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
 - If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
 - If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
 - Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+---
+
+## 0. Iter-1 finding — addressed (VERIFY the fix)
+
+Iter 1 returned REQUEST_CHANGES with 1 P1 (0 P0):
+
+**P1 `stale_async_guard_uses_stale_render_closure`** — the `onSubmit`
+ambiguity preflight re-read `currentInputKey()` AFTER `await
+checkAmbiguity` to detect a mid-flight input change, but the re-read used
+the SAME render closure's `question`/`template`/`uploads` — it could
+never observe a change that occurred during the await, so the stale guard
+was a dead no-op. Required fix: "Capture an immutable input snapshot
+before async work, compare against a latest-key ref after awaits before
+setting ambiguity/modal state or proceeding to `createRun()`, and only
+treat `pickedClusterId`/`acknowledgedAmbiguity` as resolving the ambiguity
+when it belongs to the fresh checked key."
+
+**Fix applied (commit `30a9d67e`), web/app/dashboard/page.tsx:**
+- `currentInputKey` is now a **render-computed const** (was a function);
+  a no-dep `useEffect` mirrors it into `latestInputKeyRef` — a ref WRITE,
+  not `setState`, so it does not trip `react-hooks/set-state-in-effect`.
+  Async code now compares a captured key against `latestInputKeyRef
+  .current` (the LATEST committed inputs), never a stale closure re-read.
+- `onSubmit` and `runScopeCheck` capture `const key = currentInputKey`
+  BEFORE the await and guard with `latestInputKeyRef.current !== key`.
+- New `resolvedForKey` state binds a resolution (a modal cluster pick or
+  an acknowledge-all) to the input key it was made for. `resolved` is now
+  `resolvedForKey === key && (pickedClusterId !== null ||
+  acknowledgedAmbiguity)` — a resolution recorded for an earlier query
+  can no longer unblock a later, changed one.
+- `resetAmbiguityState()` clears `resolvedForKey`; `onSelectCluster` and
+  the inline-card acknowledge toggle both `setResolvedForKey(
+  currentInputKey)`.
+
+**VERIFY:** confirm the iter-1 P1 is closed — the post-await guard now
+reads `latestInputKeyRef`, the resolution is key-bound, and no new P0/P1
+was introduced (e.g. the `latestInputKeyRef` effect is lint-clean; the
+`resolved` key-binding does not wrongly re-block a still-valid pick).
 
 ---
 
