@@ -1,8 +1,8 @@
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 20f82e9f..ee2ee77b 100644
+index 20f82e9f..7a95ea5e 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -408,3 +408,8 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+@@ -408,3 +408,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
  
  ### Diff review
  - iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected process metadata; zero-entry frame_coverage returns the empty-state before the report-level semantics_warning/summary — Codex explicitly "edge-case UI omission, not an execution blocker", accepted-residual: a run with zero frame entries does not occur in practice). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +140/-30 — FramesTab on AuditIR frame_coverage. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~54k tokens.
@@ -11,6 +11,9 @@ index 20f82e9f..ee2ee77b 100644
 +
 +### Brief review
 +- iter 1: APPROVE — 0 P0/P1, 1 P2 (render source_url link only when non-empty — loader defaults missing to "" — baked into commit 1; all 6 §3 scope-boundary calls ruled accept: N-claim cluster list replaces 2-sided A/B; cluster_id key-only header; recommended_action as the resolution successor; bundle-backed onSelect during dual-fetch; full claim detail; SentencesTab contradiction-in-section badge unaffected). convergence accept_remaining. Slice 6 of ~12 for #504, Option A. web/app/inspector/[runId]/page.tsx only — ContradictionsTab migrates off EvidenceContract onto AuditIR contradictions (AuditIrContradictionCluster → AuditIrContradictionClaim); ChartsTab/PoolTab/EvidencePane intentionally untouched (slices 7+). ~22k tokens.
++
++### Diff review
++- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff alongside page.tsx — expected process metadata, same note as slices 1-5). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +77/-38 — ContradictionsTab on AuditIR N-claim clusters. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~82k tokens.
 diff --git a/web/app/inspector/[runId]/page.tsx b/web/app/inspector/[runId]/page.tsx
 index f5a18eb0..21351265 100644
 --- a/web/app/inspector/[runId]/page.tsx
@@ -174,4 +177,4 @@ index f5a18eb0..21351265 100644
            </Card>
          </li>
 
-# canonical-diff-sha256: 2b312797c8c8710cb9898acdfbb434248552b65741d68d24d69d30cdba70cb60
+# canonical-diff-sha256: e7caf58a976719d38dd6ff6cd3cb1af82c09c5ae60811f232853f8adcc9fd751
