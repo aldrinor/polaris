@@ -286,10 +286,10 @@ index 00000000..7187994f
 +            conn.close()
 +        return [_row_to_entry(r) for r in rows]
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 5326daf2..d489f490 100644
+index 5326daf2..3ff5cfb6 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -488,3 +488,10 @@ Recut of PR #538 (`bot/I-rdy-011-cancellation-resume`): #538 earned Codex brief
+@@ -488,3 +488,13 @@ Recut of PR #538 (`bot/I-rdy-011-cancellation-resume`): #538 earned Codex brief
  
  ### Diff review
  - iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (run_honest_sweep_r3.py cooperative-cancel early returns skip the normal run_one_query tail cleanup that other abort paths do explicitly; cancelled manifest + SSE semantics work, not a blocker — harmonization is a follow-up tracked alongside #539 I-rdy-011-followup). convergence accept_remaining. Codex confirmed: cancel <5s (queued = one atomic UPDATE; in_progress flag immediate), the mark_in_progress CAS guards the queued-cancel race, false-cancel-on-retry guarded (cancellation via is_cancel_requested only, never the CAS return), the late-stage actor backstop, _abort_if_cancelled best-effort + v6-gated, `cancelled` terminal for SSE, and the recut fidelity / #506-overlap layering. 10 source files + trajectory.md. ~108k tokens.
@@ -300,6 +300,9 @@ index 5326daf2..d489f490 100644
 +
 +### Brief review
 +- iter 1: APPROVE — 0 P0/P1/P2. convergence accept_remaining. Recut brief front-loaded #540's prior brief+diff APPROVE, the recut/staleness rationale, the zero-divergence verbatim re-application, and the #508-vs-deferred-semantic-recall scope boundary. 4 files, +436/-7. ~80k tokens.
++
++### Diff review
++- iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (sqlite_store.py `_migrate_schema` is idempotent for absent/full-schema DBs but not truly additive for a pre-existing memory_entries table missing later columns — Codex: "Non-blocking for this first SQLite memory rollout"; there is no pre-existing field DB with an older schema, the edge only bites once a future column is added — residual noted). convergence accept_remaining. Codex confirmed: durability (fresh store instance reads prior entries), workspace isolation (workspace_id normalized identically write+read, no cross-workspace leak path), cited recall (derived_from_run_ids round-trips), migration safety (HTTP contract unchanged), and the verbatim recut fidelity. 4 files + trajectory.md. ~82k tokens.
 diff --git a/tests/v6/test_api_memory.py b/tests/v6/test_api_memory.py
 index 0afdd7fd..29507ffe 100644
 --- a/tests/v6/test_api_memory.py
@@ -503,4 +506,4 @@ index 00000000..0daf7a05
 +    store = SqliteWorkspaceMemoryStore(path=db_path)
 +    assert store.forget(workspace_id="ws1", entry_id="does-not-exist") is False
 
-# canonical-diff-sha256: 2352f796eeed5946bf04501af38514338e4bc31254250db44b6f9878053e71fe
+# canonical-diff-sha256: 48eb1181d811adabef8cb03c509f3b97d48c7d59292a48d044f0f94befddc29f
