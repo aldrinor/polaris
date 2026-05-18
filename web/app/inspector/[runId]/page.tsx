@@ -144,7 +144,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
           {
             id: "contradictions",
             label: "Contradictions",
-            count: bundle.contradictions.length,
+            count: ir.contradictions.length,
           },
           {
             id: "pool",
@@ -241,7 +241,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
                 {activeTab === "frames" && <FramesTab ir={ir} />}
                 {activeTab === "contradictions" && (
                   <ContradictionsTab
-                    bundle={bundle}
+                    ir={ir}
                     onSelect={(id) => setSelectedEvidence(evidenceById(id))}
                   />
                 )}
@@ -614,14 +614,30 @@ function FramesTab({ ir }: { ir: AuditIrRun }) {
   );
 }
 
+/** Heuristic color for a contradiction-cluster severity (free string). */
+function contradictionSeverityClass(severity: string): string {
+  if (severity === "high") return "bg-red-100 text-red-900";
+  if (severity === "moderate" || severity === "medium")
+    return "bg-amber-100 text-amber-900";
+  return "bg-muted text-muted-foreground";
+}
+
+/**
+ * I-rdy-008 (#504) slice 6 — the contradictions tab reads the faithful
+ * AuditIR `contradictions` (N-claim clusters) instead of the legacy 2-sided
+ * A/B bundle shape. Each cluster carries subject/predicate, severity, the
+ * numeric disagreement, and a recommended_action; each claim row carries the
+ * arm/dose/value/unit measurement + its source. Token clicks still resolve
+ * through the bundle-backed EvidencePane during the dual-fetch transition.
+ */
 function ContradictionsTab({
-  bundle,
+  ir,
   onSelect,
 }: {
-  bundle: EvidenceContract;
+  ir: AuditIrRun;
   onSelect: (id: string) => void;
 }) {
-  if (bundle.contradictions.length === 0) {
+  if (ir.contradictions.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
         No contradictions detected.
@@ -630,49 +646,72 @@ function ContradictionsTab({
   }
   return (
     <ul className="flex flex-col gap-3">
-      {bundle.contradictions.map((c) => (
-        <li key={c.contradiction_id}>
+      {ir.contradictions.map((c) => (
+        <li key={c.cluster_id}>
           <Card>
             <CardHeader>
               <CardDescription className="text-xs tracking-widest uppercase">
-                {c.contradiction_id} · {c.section_id} · {c.resolution}
+                <span
+                  className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium normal-case ${contradictionSeverityClass(c.severity)}`}
+                >
+                  {c.severity}
+                </span>{" "}
+                · Δabs {c.absolute_difference} · Δrel {c.relative_difference}
               </CardDescription>
+              <CardTitle className="text-base">
+                {c.subject} — {c.predicate}
+              </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                <div className="border-border rounded-md border p-2">
-                  <p className="text-foreground text-sm font-medium">A</p>
-                  <p className="text-sm">{c.claim_a}</p>
-                  <div className="mt-1 flex flex-wrap gap-1 text-xs">
-                    {c.evidence_a.map((id) => (
+            <CardContent className="flex flex-col gap-2">
+              {c.recommended_action && (
+                <p className="text-foreground text-sm font-medium">
+                  Recommended: {c.recommended_action}
+                </p>
+              )}
+              <ul className="flex flex-col gap-2">
+                {c.claims.map((claim, idx) => (
+                  <li
+                    key={`${c.cluster_id}:${idx}`}
+                    className="border-border rounded-md border p-2 text-xs"
+                  >
+                    <p className="text-foreground text-sm font-medium">
+                      {claim.value} {claim.unit}
+                      {claim.endpoint_phrase && ` · ${claim.endpoint_phrase}`}
+                    </p>
+                    <p className="text-muted-foreground mt-1">
+                      {claim.arm && `arm: ${claim.arm}`}
+                      {claim.arm && claim.dose && " · "}
+                      {claim.dose && `dose: ${claim.dose}`}
+                      {(claim.arm || claim.dose) && " · "}
+                      tier {claim.source_tier}
+                    </p>
+                    {claim.context_snippet && (
+                      <p className="text-muted-foreground mt-1">
+                        {claim.context_snippet}
+                      </p>
+                    )}
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
                       <button
-                        key={id}
                         type="button"
-                        onClick={() => onSelect(id)}
+                        onClick={() => onSelect(claim.evidence_id)}
                         className="bg-muted rounded px-1 font-mono"
                       >
-                        {id}
+                        {claim.evidence_id}
                       </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="border-border rounded-md border p-2">
-                  <p className="text-foreground text-sm font-medium">B</p>
-                  <p className="text-sm">{c.claim_b}</p>
-                  <div className="mt-1 flex flex-wrap gap-1 text-xs">
-                    {c.evidence_b.map((id) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => onSelect(id)}
-                        className="bg-muted rounded px-1 font-mono"
-                      >
-                        {id}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
+                      {claim.source_url && (
+                        <a
+                          href={claim.source_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-muted-foreground underline-offset-4 hover:underline"
+                        >
+                          source
+                        </a>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </CardContent>
           </Card>
         </li>

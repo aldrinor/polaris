@@ -1,4 +1,4 @@
-# Codex BRIEF review — I-rdy-008 / GH #504 slice 5: migrate the frame-coverage tab to AuditIR
+# Codex BRIEF review — I-rdy-008 / GH #504 slice 6: migrate the contradictions tab to AuditIR
 
 HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
@@ -14,124 +14,128 @@ HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 
 Pre-implementation **brief** review — reviewing the *plan*, NOT a diff. No code written yet.
 
-## 0.1 This is slice 5 of #504, Option A
+## 0.1 This is slice 6 of #504, Option A
 
 #504 (I-rdy-008, Phase 3.5 — "wire live runs into the rich UI") is sliced
 ~12 ways per the Codex arch-decision consult (verdict A: serve the faithful
 `AuditIR`; do NOT wholesale-mount the legacy 1400-line `inspector_router.py`).
 
-- **Slices 1-4 shipped**: v6 route (PR #590); `web/lib/api.ts` `AuditIr*`
-  types + `getAuditRun()` (PR #591); inspector shell + Executive-summary tab
-  (PR #592); verified-sentences tab (PR #593).
-- **This is slice 5: migrate the frame-coverage tab** — `FramesTab` in
-  `web/app/inspector/[runId]/page.tsx` — off `getBundle()`/`EvidenceContract`
-  onto the AuditIR `frame_coverage` (`AuditIrFrameCoverageReport` →
-  `AuditIrFrameCoverageEntry` → `AuditIrRetrievalAttempt`).
+- **Slices 1-5 shipped**: v6 route (PR #590); `AuditIr*` types +
+  `getAuditRun()` (PR #591); shell + Executive-summary tab (PR #592);
+  verified-sentences tab (PR #593); frame-coverage tab (PR #594).
+- **This is slice 6: migrate the contradictions tab** — `ContradictionsTab`
+  in `web/app/inspector/[runId]/page.tsx` — off `getBundle()`/
+  `EvidenceContract` onto the AuditIR `contradictions`
+  (`AuditIrContradictionCluster` → `AuditIrContradictionClaim`).
 
 **Consult key_risk (binding):** "split by tabs/surfaces, not rewritten in one
-PR." Slice 5 touches ONLY `FramesTab` (+ its call site + the `frames` tab
-count). `ContradictionsTab` / `ChartsTab` / `PoolTab` / `EvidencePane` stay
-on `getBundle()` — slices 6-7. Do NOT flag "the other tabs still use
+PR." Slice 6 touches ONLY `ContradictionsTab` (+ its call site + the
+`contradictions` tab count). `ChartsTab` / `PoolTab` / `EvidencePane` stay on
+`getBundle()` — slices 7+. Do NOT flag "the other tabs still use
 getBundle()" — deliberate.
 
 ## 1. Grounded state
 
-### 1.1 The current `FramesTab` (`web/app/inspector/[runId]/page.tsx:478`)
+### 1.1 The current `ContradictionsTab` (`web/app/inspector/[runId]/page.tsx:617`)
 
-`FramesTab({ bundle })` — iterates the flat `bundle.frame_coverage`
-(`{ frame_id, frame_name, sources_assigned, coverage_percent }[]`); per frame
-a Card: `frame_id` (description), `frame_name` (title), a progress bar at
-`width: coverage_percent%`, `{sources_assigned} sources ·
-{coverage_percent}% coverage`. `FramesTab` takes ONLY `bundle` — no
-`onSelect`/`evidenceById`/contradiction cross-link (it is the simplest tab).
-Call site `page.tsx:241` — `{activeTab === "frames" && <FramesTab
-bundle={bundle} />}`. The `frames` tab count (`page.tsx:142`) is
-`bundle.frame_coverage.length`.
+`ContradictionsTab({ bundle, onSelect })` — iterates `bundle.contradictions`
+(`{ contradiction_id, section_id, claim_a, claim_b, evidence_a[],
+evidence_b[], resolution }[]` — a **2-sided A/B** shape); per item a Card with
+a `contradiction_id · section_id · resolution` header and a 2-column grid
+(column A = `claim_a` + `evidence_a[]` clickable id buttons; column B =
+`claim_b` + `evidence_b[]`). Each id button → `onSelect(id)`. Call site
+`page.tsx:242-247` — `<ContradictionsTab bundle={bundle} onSelect={(id) =>
+setSelectedEvidence(evidenceById(id))} />`. The `contradictions` tab count
+(`page.tsx:147`) is `bundle.contradictions.length`.
 
 ### 1.2 The AuditIR shape (slice-2 `web/lib/api.ts`, verified vs `loader.py`
-+ a real `manifest.json` `frame_coverage_report` block)
++ a real `contradictions.json`)
 
-`AuditIrRun.frame_coverage` is `AuditIrFrameCoverageReport` — **a report,
-not a flat list**:
-- summary: `pass_count`, `partial_count`, `frame_gap_count`,
-  `pipeline_fault_count`, `total_entities`, `total_slots`,
-  `research_question`, `schema_version`, `semantics_warning` (`string|null`).
-- `entries` (`AuditIrFrameCoverageEntry[]`): `entity_id`, `entity_type`,
-  `section`, `slot_id`, `subsection_title`, `status`, `doi` (`string|null`),
-  `pmid` (`string|null`), `failure_reason` (`string|null`),
-  `available_artifacts` (`string[]`), `required_fields` (`string[]`),
-  `min_fields_for_completion`, `provenance_class`,
-  `human_completion_eligible`, `human_curated_provenance` (`string|null`),
-  `is_pipeline_fault`, `retrieval_attempt_log` (`AuditIrRetrievalAttempt[]`:
-  `attempt_index`, `source`, `url`, `outcome`, `http_status` `number|null`).
+`AuditIrRun.contradictions` is `AuditIrContradictionCluster[]` — **an N-claim
+cluster, NOT a 2-sided A/B**:
+- `AuditIrContradictionCluster`: `cluster_id` (loader-assigned enumerate
+  index — `_parse_contradictions` line 569), `subject`, `predicate`,
+  `severity` (string, loader default `"unknown"`), `absolute_difference`
+  (number), `relative_difference` (number), `recommended_action` (string),
+  `claims` (`AuditIrContradictionClaim[]`, loader requires ≥2).
+- `AuditIrContradictionClaim`: `evidence_id`, `subject`, `predicate`, `arm`,
+  `dose`, `value` (number), `unit`, `source_tier`, `source_url`,
+  `context_snippet`, `endpoint_phrase`.
 
-**Grounding done** — a real `manifest.json.frame_coverage_report`
+**Grounding done** — a real `contradictions.json`
 (`outputs/carney_demo_rehearsal_smoke/clinical/clinical_tirzepatide_t2dm/`):
-15 entries, `pass_count=14` / `partial_count=0` / `frame_gap_count=1` /
-`pipeline_fault_count=0` / `total_entities=15` / `total_slots=15`;
-`status` values seen `pass` and `fail_min_fields`; `subsection_title` is the
-human label (e.g. "SURPASS-1 (Rosenstock et al., Lancet 2021)");
-`provenance_class` e.g. "abstract_only". The loader derives `pass_count`/
-`partial_count` from the raw `by_status` map; the TS `AuditIr*` types already
-mirror the loader's projected shape (slice 2).
+the file is a list of 4 clusters; cluster keys `subject`/`predicate`/
+`severity`/`absolute_difference`/`relative_difference`/`recommended_action`/
+`claims` (NO `cluster_id` in the raw JSON — the loader assigns it from the
+list index); claim keys `evidence_id`/`subject`/`predicate`/`arm`/`dose`/
+`value`/`unit`/`source_tier`/`source_url`/`context_snippet`/`endpoint_phrase`;
+`severity` value seen: `"high"`.
 
 ## 2. The plan — `web/app/inspector/[runId]/page.tsx` only (1 file)
 
-`FramesTab` — new prop `{ ir: AuditIrRun }` (drop `bundle`):
-- Empty-state: `ir.frame_coverage.entries.length === 0` → "No frame coverage."
-- **`semantics_warning` banner** — when `ir.frame_coverage.semantics_warning`
-  is non-null, render it as a disclosure banner above the list (the report
-  measures *retrieval* coverage, not verified-report coverage — loader
-  docstring §195).
-- **Summary card** — `pass_count` / `partial_count` / `frame_gap_count` /
-  `pipeline_fault_count`, plus `total_entities` / `total_slots`.
-- **Per-entry list** — each `AuditIrFrameCoverageEntry` → Card:
-  `subsection_title` (title), `section · slot_id` (description), a `status`
-  badge (color: `pass`→emerald, `partial`→amber, anything else→destructive),
-  `provenance_class`, `failure_reason` when non-null, `doi`/`pmid` links when
-  non-null, and a collapsible `<details>` with the `retrieval_attempt_log`
-  (`attempt_index` · `source` · `outcome` · `http_status` · `url`). Key =
-  `${entity_id}:${slot_id}` (index fallback).
-- Call site `page.tsx:241` → `<FramesTab ir={ir} />`.
-- `frames` tab count → `ir.frame_coverage.entries.length`.
+`ContradictionsTab` — new props `{ ir: AuditIrRun; onSelect: (id: string) =>
+void }` (drop `bundle`):
+- Empty-state: `ir.contradictions.length === 0` → "No contradictions
+  detected."
+- Per **cluster** Card (`key = cluster.cluster_id`):
+  - Header: `subject` — `predicate` (CardTitle); a `severity` badge
+    (color-coded high→red / moderate→amber / else→neutral) + the diff
+    (`absolute_difference` / `relative_difference`) in the CardDescription.
+  - `recommended_action` line under the header.
+  - **Claims list** — each `AuditIrContradictionClaim` a row: `arm`/`dose`
+    label, the numeric disagreement `value` `unit`, `endpoint_phrase`,
+    `source_tier`, `context_snippet`, an `evidence_id` clickable button →
+    `onSelect(evidence_id)`, and a `source_url` link.
+- New `contradictionSeverityClass(severity)` — heuristic color.
+- Call site `page.tsx:243` → `<ContradictionsTab ir={ir} onSelect={...} />`.
+- `contradictions` tab count → `ir.contradictions.length`.
 
 ## 3. Scope-boundary calls for Codex — please rule explicitly
 
-**3.1 — no per-entry `coverage_percent`.** The legacy per-frame progress bar
-read a flat `coverage_percent` (0-100). AuditIR entries carry a discrete
-`status`, NOT a percent — there is no faithful per-entry percentage. Plan:
-drop the per-entry progress bar; render the per-entry `status` badge + a
-report-level summary card (`pass_count`/`partial_count`/`frame_gap_count`/
-`pipeline_fault_count` over `total_entities`). Rule: accept?
+**3.1 — 2-sided A/B → N-claim cluster.** The legacy `claim_a`/`claim_b`
+two-column grid is a 2-sided shape; an AuditIR cluster has `claims[]` (N≥2).
+Plan renders the cluster as a header + an N-row claims list (one row per
+`AuditIrContradictionClaim`). Rule: accept the N-claim list re-design?
 
-**3.2 — `frame_id`/`frame_name` → AuditIR `entity`/`slot` identifiers.**
-AuditIR entries have no `frame_id`/`frame_name`; plan uses `subsection_title`
-as the card title and `section · slot_id` as the description. Rule: accept?
+**3.2 — no `section_id` / `contradiction_id` / `resolution` on the AuditIR
+cluster.** The legacy per-card header `contradiction_id · section_id ·
+resolution` has no AuditIR equivalent. Plan: the header becomes `subject` —
+`predicate` + `severity`; `cluster_id` (the loader-assigned index) is the
+React key only (not displayed as a label). Rule: accept?
 
-**3.3 — `semantics_warning` disclosure banner.** The AuditIR
-`frame_coverage` is explicitly *retrieval* coverage, not verified-content
-coverage (loader docstring). Plan renders `semantics_warning` as a banner
-when present. Rule: accept (recommended — honest disclosure).
+**3.3 — `resolution` → `recommended_action`.** The legacy `resolution`
+string maps to the AuditIR cluster's `recommended_action` (the closest
+faithful field). Rule: accept?
 
-**3.4 — `retrieval_attempt_log` rendering.** Each entry carries a nested
-`retrieval_attempt_log`. Plan: a collapsible `<details>` per entry. Rule:
-accept the collapsible, or defer the retrieval log to a later polish slice
-(render only the entry status + failure_reason in slice 5)?
+**3.4 — `onSelect` token-click stays bundle-backed.** Each claim's
+`evidence_id` is a clickable button → `onSelect(evidence_id)` → the
+`InspectorPage` closure resolves it via the bundle `evidenceById` →
+`EvidencePane` (bundle-backed; migrates with the pool surface in a later
+slice). The click chain stays functional in the dual-fetch state. Confirm
+acceptable.
 
-**3.5 — `status` is a free string.** The loader stores `status` as a raw
-string (`str(raw["status"])`); real data shows `pass` / `fail_min_fields`,
-plus `partial` implied by `partial_count`. Plan renders the raw string and
-color-codes by `pass`→emerald / `partial`→amber / else→destructive. Rule:
-accept the heuristic coloring?
+**3.5 — new affordances.** AuditIR adds `severity`, `absolute_difference`,
+`relative_difference`, `recommended_action`, and per-claim `value`/`unit`/
+`arm`/`dose`/`endpoint_phrase`/`context_snippet`/`source_tier`/`source_url`.
+Plan renders all of them (the numeric disagreement is the core audit value).
+Rule: accept rendering the full claim detail, or trim any field?
+
+**3.6 — the SentencesTab contradiction-in-section badge is unaffected.**
+Slice 4's `SentencesTab` reads `bundle.contradictions[].section_id` for the
+"contradiction in section →" badge. That cross-link stays bundle-backed and
+is NOT touched by slice 6 (only `ContradictionsTab`'s own rendering
+migrates). Confirm this is correct / no action needed.
 
 ## 4. Scope boundary
 
-- **IN:** `web/app/inspector/[runId]/page.tsx` — `FramesTab` migrates to
-  `getAuditRun()`/`AuditIrRun`; its call site; the `frames` tab count.
-- **OUT:** `SentencesTab` (slice 4, done) / `ContradictionsTab` / `ChartsTab`
-  / `PoolTab` / `EvidencePane` (slices 6-7); `web/lib/api.ts` (slice 2
-  shipped the types — no change); `web/components/ui/**`; any `src/` change;
-  the `getBundle()` fetch (removed when the last tab migrates).
+- **IN:** `web/app/inspector/[runId]/page.tsx` — `ContradictionsTab`
+  migrates to `getAuditRun()`/`AuditIrRun`; its call site; the
+  `contradictions` tab count.
+- **OUT:** `SentencesTab` (slice 4) / `FramesTab` (slice 5) / `ChartsTab` /
+  `PoolTab` / `EvidencePane` (slices 7+); `web/lib/api.ts` (slice 2 shipped
+  the types — no change); `web/components/ui/**`; any `src/` change; the
+  `getBundle()` fetch (removed when the last tab migrates); the SentencesTab
+  contradiction badge (§3.6 — stays bundle-backed).
 
 ## 5. Smoke test
 
@@ -139,36 +143,36 @@ Frontend change → the `lint + format + typecheck + build` CI job is IN
 SCOPE. Offline: `cd web && npx prettier --write app/inspector/[runId]/page.tsx
 && npm run format:check && npm run lint && npm run typecheck && npm run
 build` — all green. No new unit test (a data-source swap in a client
-component, no new logic branches — consistent with slices 1-4). The 1
+component, no new logic branches — consistent with slices 1-5). The 1
 pre-existing inspector-page lint warning (`chartTypes` `exhaustive-deps` in
 `ExecutiveSummaryTab`) must not increase.
 
 ## 6. Files I have ALSO checked and they're clean
 
-- `web/lib/api.ts` — `AuditIrFrameCoverageReport`/`AuditIrFrameCoverageEntry`/
-  `AuditIrRetrievalAttempt` (slice 2); NOT modified.
-- `src/polaris_graph/audit_ir/loader.py` — `_parse_frame_coverage` /
-  `_parse_frame_coverage_entry` (`frame_coverage` from
-  `manifest.json.frame_coverage_report`; `by_status`→`pass_count`/
-  `partial_count`); NOT modified.
-- `FramesTab` takes only `bundle` today — no `onSelect`/`EvidencePane`
-  coupling; the migration has no evidence-resolver blast radius.
-- `SentencesTab` / `ContradictionsTab` / `ChartsTab` / `PoolTab` /
-  `EvidencePane` — untouched.
+- `web/lib/api.ts` — `AuditIrContradictionCluster`/`AuditIrContradictionClaim`
+  (slice 2); NOT modified.
+- `src/polaris_graph/audit_ir/loader.py` — `_parse_contradictions` /
+  `_parse_contradiction_claim` (`cluster_id=idx`; `claims` requires ≥2;
+  `severity` default `"unknown"`); NOT modified.
+- `SentencesTab` — its `bundle.contradictions[].section_id` badge is
+  independent of `ContradictionsTab`'s data source; NOT modified.
+- `FramesTab` (slice 5) / `ChartsTab` / `PoolTab` / `EvidencePane` —
+  untouched.
 
-## 7. Acceptance criteria for THIS PR (slice 5)
+## 7. Acceptance criteria for THIS PR (slice 6)
 
-1. `FramesTab` renders `ir.frame_coverage` — `semantics_warning` banner (when
-   present), a summary card (pass/partial/gap/fault counts), and the
-   per-entry list (`subsection_title`, `section`/`slot_id`, `status` badge,
-   `provenance_class`, `failure_reason`, `doi`/`pmid`, retrieval log).
-2. The call site passes `ir`; the `frames` tab count reads
-   `ir.frame_coverage.entries.length`.
-3. `ContradictionsTab` / `ChartsTab` / `PoolTab` / `EvidencePane` unchanged.
+1. `ContradictionsTab` renders `ir.contradictions` — per-cluster header
+   (`subject`/`predicate`/`severity` badge/diff/`recommended_action`) + an
+   N-row claims list (`arm`/`dose`, `value` `unit`, `endpoint_phrase`,
+   `source_tier`, `context_snippet`, `evidence_id` click button, `source_url`).
+2. The call site passes `ir`; the `contradictions` tab count reads
+   `ir.contradictions.length`.
+3. `onSelect`→`EvidencePane` click chain stays bundle-backed (dual-fetch).
 4. `format:check` + `lint` + `typecheck` + `build` green; pre-existing
    lint-warning count not increased.
 5. Only `web/app/inspector/[runId]/page.tsx` changed; no `web/lib/api.ts` /
-   `src/` change.
+   `src/` change; `SentencesTab`/`FramesTab`/`ChartsTab`/`PoolTab`/
+   `EvidencePane` untouched.
 
 ## 8. Required output schema (§8.3.9)
 
