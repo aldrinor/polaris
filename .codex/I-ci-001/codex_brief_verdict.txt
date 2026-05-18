@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Non-blocking scope note: the repo has historical refs/artifacts for carved IDs beyond c, e.g. I-arch-001d/e/f. The proposed [a-c] is acceptable for GH #571's stated live a/b/c acceptance, but the brief should avoid claiming beyond-c carved IDs do not exist globally."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
