@@ -41,10 +41,10 @@ index ffe8efe7..06245e64 100644
              echo "       OR (b) infra allowlist: bot/pr-(a|a2|a3|b|b2|c|d|e|f) or"
              echo "          bot/cleanup-pr-(1|2|3a|3b|3c|4|5|6|7|8) [with optional -<slug>]"
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index be821e11..ee707ed9 100644
+index be821e11..9ea6c334 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -508,3 +508,10 @@ Recut of PR #541 (`bot/I-rdy-013-concurrent-session-limit`): #541 earned Codex b
+@@ -508,3 +508,13 @@ Recut of PR #541 (`bot/I-rdy-013-concurrent-session-limit`): #541 earned Codex b
  
  ### Diff review
  - iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (iteration_trajectory.md in the canonical/live diff alongside the 6 execution files — process metadata only, standard per-issue pattern). convergence accept_remaining. Codex confirmed: the atomic `BEGIN IMMEDIATE` 1-session gate, `busy_timeout` no-crash, the structured-409 + `ConcurrentRunError` + callout UX, the enqueue-failure `mark_failed` slot-free (the 409 branch does NOT mark_failed — no row inserted), the run_store.py #507-overlap handling (no duplicate `_RUN_COLUMNS`/`_row_to_response`), and the conftest autouse fixture composing. 6 source files + trajectory.md. ~129k tokens.
@@ -55,6 +55,9 @@ index be821e11..ee707ed9 100644
 +
 +### Brief review
 +- iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (the brief's `[a-c]` rested on a false claim that carved ids beyond c don't exist — `I-arch-001d/e/f` do; Codex: `[a-c]` acceptable but the claim is wrong). Resolved at implementation by widening `[a-c]`→`[a-z]` (zero ambiguity cost — the leading-dash is the carved-vs-slug discriminator, not the letter range). convergence accept_remaining. 2 files, +152/-4. ~64k tokens.
++
++### Diff review
++- iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (the brief-review row above records the *code change* as `2 files, +152/-4`; the canonical diff/hash also contains `iteration_trajectory.md` itself → 3 files — standard self-referential process-metadata pattern, no execution impact). convergence accept_remaining. Codex confirmed: `-followup` no longer collapses onto the parent id, carved `[a-z]` ids no longer rejected, `BASH_REMATCH[1]`-only (group renumber inert), additive/zero-regression on every pre-existing branch form, POSIX-ERE↔Python-`re` 1:1, the test extracts the live regex from the YAML (drift-proof), and downstream `.codex/${ISSUE_ID}/` + canonical-diff pathspecs consume the full id. 2 code files + trajectory.md. ~86k tokens.
 diff --git a/tests/test_codex_required_issue_id_regex.py b/tests/test_codex_required_issue_id_regex.py
 new file mode 100644
 index 00000000..efd69b36
@@ -197,4 +200,4 @@ index 00000000..efd69b36
 +            f"carved branch {ref!r} must match the issue-branch regex"
 +        )
 
-# canonical-diff-sha256: 8292683e7dd1c751b0a5b751a1effa7e940556a9b62ec9776200bbf4b303d4bb
+# canonical-diff-sha256: 1acbae164dd0ec2855c2034d9b53bcf58017a61d125679c9fdad92f93c1e3e69
