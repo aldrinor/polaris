@@ -1,8 +1,8 @@
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index c4430021..01923ce3 100644
+index c4430021..56af615e 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -456,3 +456,11 @@ Two Codex consults preceded slice 8: scope consult (Option A — #504 residual =
+@@ -456,3 +456,15 @@ Two Codex consults preceded slice 8: scope consult (Option A — #504 residual =
  
  ### Diff review
  - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (from_audit_ir.py docstring lines 5-6 name from_bundle.chart_from_bundle / EvidenceContract as historical "what this replaces" context — Codex confirmed there is NO runtime import, bundle construction, or artifact_dir→EvidenceContract bridge; the prose mention is correct documentation, left as-is). convergence accept_remaining. 7 files: src/polaris_v6/api/{run_resolver.py(new),inspector.py,charts.py} + src/polaris_v6/charts/from_audit_ir.py(new) + tests/v6/{_audit_ir_fixtures.py(new),test_api_charts.py} + iteration_trajectory.md; ~635 LOC code (intrinsic — the arch consult mandated a new derivation module + seeded test rewrite; brief APPROVE'd at this scope). ast.parse clean; pytest tests/v6/test_api_charts.py + test_inspector_route.py 26/26 green. P1 trajectory 0. ~127k tokens.
@@ -14,6 +14,10 @@ index c4430021..01923ce3 100644
 +### Brief review
 +- iter 1: REQUEST_CHANGES — 0 P0, 1 P1 ("Start run" can call createRun() without ever running the optional "Check scope", so an ambiguous dashboard query could create a run with the modal never shown — the plan must wire the ambiguity check into the onSubmit path itself). convergence continue. ~18k tokens.
 +- iter 2: APPROVE — 0 P0/P1, 5 non-blocking P2 (SB1 reuse light checkAmbiguity; SB2 client-side cluster-selection with visible representation; SB3 keep the inline card; SB4 the mandatory submit preflight closes the bypass, no-upload empty-candidate limitation accepted; SB5 no backend-backed e2e required; impl caution: capture+stale-check the input key around the async preflight — all baked into commit 1). convergence accept_remaining. Fix: onSubmit now runs a mandatory ambiguity preflight before createRun(); resetAmbiguityState() in every input-change handler (not a useEffect, per react-hooks/set-state-in-effect) + an ambiguityCheckedKey freshness key invalidate stale results/selections. web/app/dashboard/page.tsx only. ~52k tokens.
++
++### Diff review
++- iter 1: REQUEST_CHANGES — 0 P0, 1 P1 (stale_async_guard_uses_stale_render_closure: the onSubmit ambiguity preflight re-read currentInputKey() AFTER `await checkAmbiguity` to detect a mid-flight input change, but the re-read used the SAME render closure's question/template/uploads — it could never observe a change that occurred during the await, so the stale guard was a dead no-op; required fix — capture an immutable input snapshot before the async work and compare against a latest-key ref afterwards). convergence continue. 65k tokens.
++- iter 2: APPROVE — 0 P0/P1/P2. convergence accept_remaining. Fix (commit 30a9d67e): currentInputKey is now a render-computed const mirrored into latestInputKeyRef via a no-dep useEffect (a ref WRITE, not setState — lint-clean, does not trip react-hooks/set-state-in-effect); onSubmit + runScopeCheck capture `const key = currentInputKey` before the await and guard with `latestInputKeyRef.current !== key`; new resolvedForKey state binds a resolution (a modal cluster pick or an acknowledge-all) to the input key it was made for, and `resolved` is now `resolvedForKey === key && (pickedClusterId !== null || acknowledgedAmbiguity)` — a resolution recorded for an earlier query can no longer unblock a later, changed one. resetAmbiguityState() clears resolvedForKey; onSelectCluster + the acknowledge toggle set it. web/app/dashboard/page.tsx only. Codex confirmed createRun() is after the ambiguity gate, stale results are discarded via the captured-key/ref comparison, resolutions are key-bound, and every post-setSubmitting(true) early return clears submitting. 86k tokens.
 diff --git a/web/app/dashboard/page.tsx b/web/app/dashboard/page.tsx
 index 565e7018..b269f719 100644
 --- a/web/app/dashboard/page.tsx
@@ -343,4 +347,4 @@ index 565e7018..b269f719 100644
        </main>
  
 
-# canonical-diff-sha256: 8550446d5e8ff85805644f59bb2865cf411a9622806751a25b64644471453b4f
+# canonical-diff-sha256: 7ee021650bfe1b747b80bc5b5884f7821bafe33d61b7f90e8f9815d1a16247e0
