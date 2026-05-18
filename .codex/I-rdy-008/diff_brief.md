@@ -1,4 +1,4 @@
-# Codex DIFF review — I-rdy-008 / GH #504 slice 6: migrate the contradictions tab to AuditIR
+# Codex DIFF review — I-rdy-008 / GH #504 slice 7a: v6 inspector evidence-span route
 
 HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
@@ -12,74 +12,73 @@ HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 
 ## 1. What you are reviewing
 
-The commit-1 diff for #504 **slice 6** — `git diff origin/polaris...HEAD`
+The commit-1 diff for #504 **slice 7a** — `git diff origin/polaris...HEAD`
 excluding `.codex/I-rdy-008/` and `outputs/audits/I-rdy-008/` (canonical diff
 in `.codex/I-rdy-008/codex_diff.patch`, sha256 trailer). Implements the
-Codex-APPROVE'd brief `.codex/I-rdy-008/brief.md` (brief APPROVE iter 1, all
-6 scope calls accepted). **1 file: `web/app/inspector/[runId]/page.tsx`.**
+Codex-APPROVE'd brief `.codex/I-rdy-008/brief.md` (brief APPROVE iter 1, 2 P2).
+**2 files: `src/polaris_v6/api/inspector.py` + `tests/v6/test_inspector_route.py`.**
 
-Slice 6 of ~12 for #504 (Option A). Migrates the inspector page
-**contradictions tab** (`ContradictionsTab`) off `getBundle()`/
-`EvidenceContract` onto the AuditIR `contradictions`. `SentencesTab` (s4) /
-`FramesTab` (s5) / `ChartsTab` / `PoolTab` / `EvidencePane` stay on
-`getBundle()` — slices 7+. Do NOT flag "the other tabs still use
-getBundle()" — deliberate.
+Slice 7a is the backend half of the slice-7 split your architecture consult
+decided (`.codex/I-rdy-008/slice7_arch_consult_verdict.txt`): a new
+evidence-span route so the slice-7b frontend can migrate `PoolTab`/
+`EvidencePane` off the golden-fixture-only `getBundle()`. Backend only — no
+`web/**` (that is 7b).
 
 ## 2. The change
 
-- `ContradictionsTab` — new props `{ ir, onSelect }` (was `{ bundle,
-  onSelect }`); maps `ir.contradictions` (`AuditIrContradictionCluster[]`):
-  per cluster a Card (key `cluster_id`) with a `severity` badge + diff
-  (`absolute_difference`/`relative_difference`), `subject` — `predicate`
-  title, `recommended_action` line, and an N-row `claims[]` list (per claim:
-  `value`/`unit`, `endpoint_phrase`, `arm`/`dose`/`source_tier`,
-  `context_snippet`, clickable `evidence_id`, `source_url` link).
-- New `contradictionSeverityClass(severity)` — heuristic color.
-- `contradictions` tab count `bundle.contradictions.length` →
-  `ir.contradictions.length`.
-- Call site `<ContradictionsTab bundle={bundle} … />` → `ir={ir}`.
+- `_resolve_completed_artifact_dir(run_id)` — extracted from
+  `get_inspector_run` (run_store lookup + 404/409/422 + artifact_dir checks);
+  `get_inspector_run` now calls it. **Behavior-preserving refactor.**
+- `_load_evidence_pool(artifact_dir, run_id)` — reads `evidence_pool.json`
+  (bare list OR `{"sources": […]}`; row id = `evidence_id` or `source_id`);
+  absent/malformed/not-a-list → 422.
+- `_evidence_body(row)` — `full_text`/`direct_quote`/`snippet` precedence.
+- `GET /api/inspector/runs/{run_id}/evidence` → `get_inspector_run_evidence`:
+  resolve dir → load pool → `load_audit_ir` → walk
+  `verified_report.sections[].sentences[].tokens[]`, de-dup by `(evidence_id,
+  start, end)` → `{run_id, spans:[{evidence_id, span_start, span_end,
+  span_text, tier, source_url, claim_ids}]}`.
+- `tests/v6/test_inspector_route.py` — `_write_artifact_dir_with_evidence` +
+  `_seed_completed` helpers + 10 evidence-route tests.
 
 ## 3. Verify
 
-1. **AuditIR field access faithful.** `AuditIrContradictionCluster`
-   (`cluster_id`, `subject`, `predicate`, `severity`, `absolute_difference`,
-   `relative_difference`, `recommended_action`, `claims`);
-   `AuditIrContradictionClaim` (`evidence_id`, `subject`, `predicate`,
-   `arm`, `dose`, `value`, `unit`, `source_tier`, `source_url`,
-   `context_snippet`, `endpoint_phrase`). Cross-check `web/lib/api.ts`
-   (slice 2) + `src/polaris_graph/audit_ir/loader.py` `_parse_contradictions`.
-2. **`source_url` guarded.** The `source` link renders only when
-   `claim.source_url` is non-empty (the loader defaults missing to `""`).
-3. **No fabrication.** `recommended_action` / `context_snippet` /
-   `endpoint_phrase` / `arm` / `dose` rendered only when non-empty;
-   `cluster_id` is the React key only (the loader assigns it from the list
-   index — stable per load).
-4. **`onSelect`** still routes a claim `evidence_id` to the bundle-backed
-   `EvidencePane` (dual-fetch transition); the `InspectorPage` closure +
-   `evidenceById` are untouched.
-5. **The other tabs + `EvidencePane`** byte-identical to `polaris` HEAD;
-   `SentencesTab`'s `bundle.contradictions[].section_id` badge is
-   independent of this change and untouched.
-6. **Scope** — only `web/app/inspector/[runId]/page.tsx`; no `web/lib/api.ts`,
-   no `web/components/ui/**`, no `src/`.
+1. **`span_text` is the exact slice.** `span_text == _evidence_body(row)
+   [start:end]`. `_evidence_body` returns the first non-empty of `full_text`/
+   `direct_quote`/`snippet`. No truncation, no transformation.
+2. **Fail-loud taxonomy.** 422 for: missing/malformed/non-list
+   `evidence_pool.json`; token `evidence_id` not in the pool; row with empty
+   body; `start<0` / `start>end` / `end>len(body)`. No clamping, no
+   `statement` fallback. Confirm 422 (not 404/500) is right for all, and that
+   the route fails loud rather than skipping the offending span.
+3. **Range-key de-dup.** Spans keyed by `(evidence_id, start, end)`;
+   `claim_ids` aggregates every citing sentence `claim_id`. Two sentences
+   citing one range → one span, two claim_ids.
+4. **Shared resolver is behavior-preserving.** `get_inspector_run`'s
+   404/409/422 outcomes + detail strings are unchanged by the extraction.
+5. **Zero-token run → 200 `{spans:[]}`** — not an error.
+6. **No coercion.** `tier` is the raw string; nothing narrows it to T1-T3.
+7. **Scope** — only the 2 named files; no `web/**`, no loader/serializer, no
+   `bundle.py`.
 
 ## 4. Files I have ALSO checked and they're clean
 
-- `web/lib/api.ts` — `AuditIrContradictionCluster`/`AuditIrContradictionClaim`
-  (slice 2); NOT modified.
-- `src/polaris_graph/audit_ir/loader.py` — `_parse_contradictions`
-  (`cluster_id=idx`; `claims` ≥2; `severity` default `"unknown"`); NOT
-  modified.
-- `SentencesTab` / `FramesTab` / `ChartsTab` / `PoolTab` / `EvidencePane` —
-  untouched.
+- `src/polaris_v6/api/artifact_to_slice_chain.py` — `_full_text_for_evidence_id`
+  (the `evidence_pool.json` shape precedent the resolver mirrors); NOT modified.
+- `src/polaris_graph/audit_ir/loader.py` — `EvidenceSpanToken` /
+  `ReportSentence` (the token walk relies on `token.evidence_id/start/end`
+  and `sentence.claim_id`); NOT modified.
+- `src/polaris_v6/api/app.py` — mounts `inspector_router`; the new route
+  rides the existing mount; NOT modified.
+- `src/polaris_v6/api/bundle.py` — the golden-fixture `getBundle()` route;
+  intentionally untouched (stays for legacy/F15).
 
 ## 5. Smoke state
 
-`web/`: `prettier --write app/inspector/[runId]/page.tsx` → applied;
-`npm run lint` → 0 errors (3 pre-existing warnings, count unchanged —
-`chartTypes` `exhaustive-deps` in `ExecutiveSummaryTab` is pre-existing);
-`npm run typecheck` → clean; `npm run build` → OK. The `lint + format +
-typecheck + build` CI job is in scope for this web/ PR.
+`ast.parse` — both files clean. `PYTHONPATH='src;.' pytest
+tests/v6/test_inspector_route.py` — **15 passed** (5 slice-1 regression + 10
+new). No web/ change → no web smoke. The `lint + format + typecheck + build`
+CI job is NOT in scope (no web/ change); the python test job covers this.
 
 ## 6. Required output schema (§8.3.9)
 

@@ -416,3 +416,12 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff alongside page.tsx — expected process metadata, same note as slices 1-5). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +77/-38 — ContradictionsTab on AuditIR N-claim clusters. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~82k tokens.
+
+## I-rdy-008 (#504) slice 7 — ARCH CONSULT (getBundle golden-only blocker)
+
+- Slice-7 grounding found getBundle()'s route is golden-fixture-only + AuditIR has no span text → inspector page works only for 7 golden runs, not live runs. Filed §6.2 Degradation Proposal; operator flagged that an architecture decision must go to Codex, not be escalated as USER APPROVAL REQUIRED (feedback_route_policy_questions_to_codex repeat-flag 2026-05-18). Routed to a Codex architecture consult (.codex/I-rdy-008/slice7_arch_consult{,_verdict}.txt). Codex verdict: live runs DO persist span text in evidence_pool.json; split slice 7 → 7a backend evidence route / 7b frontend migration / 7c test rebaseline; reject the lossy bibliography.statement fallback. §6.2 resolved; loop unblocked. ~xhigh-reasoning consult.
+
+## I-rdy-008 (#504) slice 7a — v6 inspector evidence-span route
+
+### Brief review
+- iter 1: APPROVE — 0 P0/P1, 2 non-blocking P2 (mirror the _full_text_for_evidence_id precedent fully — source_id id-alias + source_url||url fallback; expand test coverage for zero-token-200/malformed-pool/missing-body/{sources:[]}-container — all baked into commit 1). convergence accept_remaining. Slice 7a of #504 (backend half of the Codex-consult 7a/7b/7c split). New GET /api/inspector/runs/{run_id}/evidence in src/polaris_v6/api/inspector.py — reads evidence_pool.json, range-keyed verified spans (span_text=body[start:end]), fail-loud 422; +10 tests. Backend only, no web/. ~53k tokens.
