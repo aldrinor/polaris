@@ -1,4 +1,4 @@
-# Codex BRIEF review — I-rdy-008 / GH #504 slice 7a: v6 inspector evidence-span route
+# Codex BRIEF review — I-rdy-008 / GH #504 slice 7b: migrate the inspector page off getBundle() onto the live evidence route
 
 HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
@@ -14,184 +14,197 @@ HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 
 Pre-implementation **brief** review — reviewing the *plan*, NOT a diff. No code written yet.
 
-## 0.1 This is slice 7a of #504 — the architecture is already decided
+## 0.1 This is slice 7b of #504 — the architecture is settled
 
 #504 (I-rdy-008, Phase 3.5 — "wire live runs into the rich UI"). Slices 1-6
-merged (PR #590-#595). Slice-7 grounding hit a real blocker — the inspector
-page's `getBundle()` route is golden-fixture-only, AuditIR carries no
-evidence span text, so the page works only for 7 golden fixtures, not live
-runs. That blocker was routed to a **Codex architecture consult**
-(`.codex/I-rdy-008/slice7_arch_consult_verdict.txt`); its verdict split
-slice 7 into **7a (backend evidence-span route) / 7b (frontend migration) /
-7c (test+demo rebaseline)**. **This brief is slice 7a — a normal
-implementation brief; the architecture is settled. Review the plan, not the
-decomposition.**
++ 7a merged (PR #590-#596). Slice 7 was split by a Codex architecture
+consult (`.codex/I-rdy-008/slice7_arch_consult_verdict.txt`) into 7a backend
+/ 7b frontend / 7c tests. **7a shipped** the v6 route
+`GET /api/inspector/runs/{run_id}/evidence`. **This is slice 7b — the
+frontend migration; a normal implementation brief, architecture settled.**
 
-Codex's verdict (for reference): "live runs DO persist verified span text in
-`artifact_dir/evidence_pool.json` ... the displayed span is reconstructed as
-`source_text[start:end]` for each token in `verification_details.json`. No
-7a-pre generator persistence slice is needed for current HEAD; older
-artifacts missing `evidence_pool.json` must fail loud, not fall back to
-`bibliography.statement`."
+**Why 7b matters:** the inspector page currently dual-fetches `getAuditRun()`
++ `getBundle()` and gates its body on `{ir && bundle}`. `getBundle()` hits a
+**golden-fixture-only** route — it 404s for every live run. So the inspector
+page works ONLY for the 7 golden fixtures today; slices 3-6 migrated
+rendering but kept the `bundle` dependency. **7b removes that dependency so
+the page works for live runs.**
 
-## 1. Grounded state (against `polaris` HEAD `06fbf61a`)
+## 1. Grounded state (`polaris` HEAD `2e4ef83f`)
 
-- **`src/polaris_v6/api/inspector.py`** (slice 1) — `router = APIRouter(
-  prefix="/api/inspector")`; one route `GET /runs/{run_id}` →
-  `get_inspector_run`: `run_store.get_run(run_id)` (None→404), `lifecycle_status
-  != "completed"`→409, `pipeline_status` startswith `abort_`/`error_`→422,
-  absent/non-dir `artifact_dir`→404, `load_audit_ir(artifact_dir)` in
-  `try/except (FileNotFoundError, NotADirectoryError, ValueError, TypeError)`
-  →422, success→`to_json_dict(ir)`.
-- **`evidence_pool.json`** — in the run `artifact_dir`. Confirmed shape
-  (`outputs/carney_demo_rehearsal_smoke/clinical/clinical_tirzepatide_t2dm/`):
-  a **bare JSON list** of 18 rows, each
-  `{evidence_id, direct_quote, full_content_length, source, source_url,
-  statement, tier}`. `direct_quote` is the full fetched source text (e.g.
-  7226 chars); `tier` is the raw string (`T4`, …); no `source_text` key.
-- **Precedent — `artifact_to_slice_chain.py:_full_text_for_evidence_id`**:
-  `evidence_pool.json` is EITHER a bare list OR `{"sources": [...]}`; the
-  per-row text field precedence is `full_text` → `direct_quote` → `snippet`.
-  Slice 7a's resolver must mirror this (both container shapes, that field
-  precedence).
-- **AuditIR token shape** (`src/polaris_graph/audit_ir/loader.py`, slice-2/4
-  grounding) — `ir.verified_report.sections[].sentences[]` is
-  `ReportSentence{claim_id, section, text, tokens, is_verified,
-  failure_reasons}`; each `tokens[]` entry is `EvidenceSpanToken{evidence_id,
-  start, end}` — `start`/`end` are char offsets into the evidence body
-  (`direct_quote`). Real tokens seen: `{ev_004, 4800, 5300}` against a
-  `direct_quote` of 7226 chars — in-bounds.
-- **`tests/v6/test_inspector_route.py`** exists (slice-1 tests: 404/409/422/
-  200 + the `_write_minimal_artifact_dir` helper + a `client` fixture that
-  seeds `POLARIS_V6_RUN_DB`).
+### 1.1 `web/app/inspector/[runId]/page.tsx` (1095 lines)
 
-## 2. The plan — `src/polaris_v6/api/inspector.py` + `tests/v6/` (backend only)
+- `InspectorPage` — `useEffect` dual-fetches `getAuditRun()→ir` +
+  `getBundle()→bundle`; both `.catch`→`setError`. Body gated `{ir && bundle &&
+  …}`. State: `ir`, `bundle`, `error`, `selectedEvidence: SourceSpan|null`,
+  `activeTab`.
+- `evidenceById(id) = bundle?.evidence_pool.find(s => s.evidence_id===id)`
+  → `SourceSpan|null`. Every tab's `onSelect={(id) =>
+  setSelectedEvidence(evidenceById(id))}` (summary/sentences/contradictions/
+  pool/charts).
+- `tabs` array gated `ir && bundle`; the `pool` count is
+  `bundle.evidence_pool.length` (every other count already `ir.*`).
+- Header "Export bundle JSON" button → `downloadBundleAsJson(bundle)`.
+- `PoolTab({bundle, onSelect})` — maps `bundle.evidence_pool` (`SourceSpan[]`)
+  → buttons (`evidence_id · tier · span_text[:120]`).
+- `EvidencePane({span: SourceSpan|null, onClose})` — renders one `SourceSpan`
+  (`evidence_id · tier`, `source_url` link, `chars start–end`, `span_text`).
+- `SentencesTab` takes `bundle` ONLY for the contradiction-in-section badge
+  (`new Set(bundle.contradictions.map(c => c.section_id))`).
+- `ChartsTab` uses the separate `getChart()` route — NOT `getBundle()` —
+  unaffected.
 
-### 2.1 `src/polaris_v6/api/inspector.py`
+### 1.2 `web/lib/api.ts`
 
-**(a) Extract a shared resolver.** Factor the `get_inspector_run` resolution
-(run_store lookup + the 404/409/422 + artifact_dir checks) into a module
-helper `_resolve_completed_artifact_dir(run_id) -> Path` that raises the same
-`HTTPException`s. `get_inspector_run` calls it then `load_audit_ir`. **Pure
-refactor — identical behavior, identical status codes.** (§3.1)
+- `getBundle()` → `GET ${BACKEND_URL}/runs/{runId}/bundle` →
+  `EvidenceContract` (golden-fixture-only). `SourceSpan` =
+  `{evidence_id, source_url, source_tier: "T1"|"T2"|"T3", span_start,
+  span_end, span_text}`. `downloadBundleAsJson(bundle)`.
+- The slice-7a route `GET /api/inspector/runs/{run_id}/evidence` returns
+  `{run_id, spans: [{evidence_id, span_start, span_end, span_text,
+  tier (raw string), source_url, claim_ids}]}` — **range-keyed**: one
+  `evidence_id` can have multiple spans.
 
-**(b) New route `GET /api/inspector/runs/{run_id}/evidence`** →
-`get_inspector_run_evidence(run_id) -> dict[str, Any]`:
-1. `artifact_dir = _resolve_completed_artifact_dir(run_id)` (reuses (a)'s
-   404/409/422).
-2. Read `artifact_dir / "evidence_pool.json"`. **Absent → 422** (fail loud,
-   per the Codex verdict — older artifacts predating evidence_pool.json
-   persistence are not renderable; NO `bibliography.statement` fallback).
-   Malformed JSON → 422.
-3. Build `evidence_id -> body` from the pool — accept a bare list OR
-   `{"sources": [...]}`; per-row body = `full_text or direct_quote or
-   snippet`; also keep `tier` (raw string) and `source_url`.
-4. `ir = load_audit_ir(artifact_dir)` (same `try/except`→422 as
-   `get_inspector_run`).
-5. Walk `ir.verified_report.sections[].sentences[]`; for each sentence
-   collect `(sentence.claim_id, token)` for each `token` in `sentence.tokens`.
-6. De-duplicate by the range key `(evidence_id, start, end)`. For each unique
-   span:
-   - `evidence_id` not in the pool → **422** (token cites missing evidence).
-   - row body missing/empty → **422** (cannot reconstruct the span).
-   - `start`/`end` out of `range(0, len(body)+1)` or `start > end` → **422**
-     (out-of-range offsets — fail loud, do not clamp).
-   - else `span_text = body[start:end]`.
-   - `claim_ids` = sorted unique `claim_id`s of the sentences whose tokens
-     hit this exact range.
-7. Return `{"run_id": run_id, "spans": [ {evidence_id, span_start, span_end,
-   span_text, tier, source_url, claim_ids} … ]}` — `spans` ordered
-   deterministically (by `evidence_id`, then `span_start`, then `span_end`).
+## 2. The plan — `web/lib/api.ts` + `web/app/inspector/[runId]/page.tsx`
 
-### 2.2 `tests/v6/test_inspector_route.py` (extend)
+### 2.1 `web/lib/api.ts`
 
-New tests for the evidence route, reusing the existing `client` fixture +
-`_write_minimal_artifact_dir` helper (extend the helper to also write an
-`evidence_pool.json`): (1) 200 happy path — exact `direct_quote[start:end]`
-slice; (2) **multi-span same `evidence_id`** — two tokens, same ev, different
-ranges → two distinct `spans` entries; (3) **missing `evidence_pool.json`**
-→ 422; (4) **out-of-range offset** → 422; (5) **token `evidence_id` absent
-from the pool** → 422; (6) the 404/409/422 run-resolution cases still hold
-(shared helper regression — exercise via the evidence route).
+Add (alongside the slice-2 `AuditIr*` block):
+- `AuditIrEvidenceSpan` = `{evidence_id, span_start, span_end, span_text,
+  tier: string, source_url, claim_ids: string[]}`.
+- `AuditIrEvidenceResponse` = `{run_id, spans: AuditIrEvidenceSpan[]}`.
+- `getInspectorEvidence(runId): Promise<AuditIrEvidenceResponse>` →
+  `authFetch(\`${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}
+  /evidence\`)` → `asJsonOrThrow`.
+
+### 2.2 `web/app/inspector/[runId]/page.tsx`
+
+**The `onSelect(id: string)` signature is UNCHANGED** — the key
+simplification. `EvidencePane` is keyed by `evidence_id` but renders **every
+range** of that evidence (Codex consult risk: "do not key by evidence_id
+alone; live runs cite multiple ranges" — satisfied by showing all ranges,
+not by changing the click signature across 4 call sites).
+
+- **Fetch:** `useEffect` fetches `getAuditRun()→ir` + `getInspectorEvidence()
+  →evidence`. `getBundle()` is removed.
+- **State:** `bundle` → `evidence: AuditIrEvidenceResponse | null`;
+  `evidenceError: string | null` (separate from the page `error`);
+  `selectedEvidenceId: string | null` (was `selectedEvidence: SourceSpan`).
+- **Gate:** the body gate `{ir && bundle}` → `{ir &&}`. `ir` failing
+  (404/409/422) still shows the error panel. The **evidence fetch is
+  independent** — if it 422s (e.g. a run with no `evidence_pool.json`), the
+  page still renders shell + summary + sentences + frames + contradictions;
+  only `PoolTab`/`EvidencePane` show `evidenceError`. This is why the page
+  now works for live runs: the shell no longer hard-requires the
+  golden-fixture bundle.
+- **`evidenceById` → `spansForEvidenceId(id)`** = `evidence?.spans.filter(s
+  => s.evidence_id === id) ?? []`.
+- **`PoolTab({evidence, evidenceError, onSelect})`** — if `evidenceError`,
+  render it; else group `evidence.spans` by `evidence_id` and render one row
+  per evidence id (id · tier · span count · first span_text excerpt);
+  `onClick → onSelect(evidence_id)`.
+- **`EvidencePane({spans, evidenceId, onClose})`** — `spans` = the selected
+  id's spans; renders `evidence_id · tier`, `source_url` link, then EACH span
+  (`chars start–end` + `span_text` `<pre>`). Empty/no-selection → the "Click
+  a token to inspect" placeholder.
+- **`tabs`:** gate `ir &&` (drop `&& bundle`); `pool` count = the count of
+  distinct `evidence_id`s in `evidence.spans` (0 when evidence unloaded).
+- **`SentencesTab`:** drop the `bundle` prop and the contradiction-in-section
+  badge + `onJumpToContradictions` (Codex consult: AuditIR contradiction
+  clusters carry no section — remove the badge; §3.3).
+- **Export button:** removed (Codex consult: do not export `EvidenceContract`
+  as the live audit artifact; §3.4).
+- **Imports:** drop `getBundle`, `downloadBundleAsJson`, `EvidenceContract`,
+  `SourceSpan`; add `getInspectorEvidence`, `AuditIrEvidenceResponse`,
+  `AuditIrEvidenceSpan`.
 
 ## 3. Scope-boundary calls for Codex — please rule explicitly
 
-**3.1 — shared-resolver refactor of the slice-1 route.** Plan (a) extracts
-`_resolve_completed_artifact_dir` from `get_inspector_run` so both routes
-reuse the identical run-resolution. This edits the existing slice-1
-function, but as a pure behavior-preserving refactor. Rule: accept the
-refactor, or duplicate the ~30 resolution lines into the new route to leave
-`get_inspector_run` byte-untouched?
+**3.1 — `onSelect(id)` unchanged; EvidencePane shows ALL ranges of the
+clicked `evidence_id`.** The 7a route is range-keyed but the 4 click sources
+(`renderSentenceWithTokens`, `ContradictionsTab`, `ExecutiveSummaryTab`/
+`ChartsTab` chart data) pass only an `evidence_id`. Rather than thread
+`(id,start,end)` through all of them, `EvidencePane` is keyed by
+`evidence_id` and renders every cited range. Rule: accept (no lossy
+single-range pick; no 4-call-site signature churn), or require threading the
+exact range?
 
-**3.2 — `evidence_pool.json` body field + container.** Plan mirrors
-`_full_text_for_evidence_id`: container is a bare list OR `{"sources": […]}`;
-body precedence `full_text → direct_quote → snippet`. Rule: accept?
+**3.2 — evidence fetch is independent of the page gate.** The body gates on
+`ir` only; the evidence fetch's failure (422 for a run without
+`evidence_pool.json`) degrades ONLY `PoolTab`/`EvidencePane` (they show
+`evidenceError`), not the whole page. This is deliberate — it is what makes
+the page work for live runs whose evidence is fetched separately. Rule:
+accept?
 
-**3.3 — fail-loud taxonomy.** Plan returns **422** for: missing/malformed
-`evidence_pool.json`; a token whose `evidence_id` is not in the pool; a row
-with no body text; out-of-range/`start>end` offsets. No clamping, no
-`statement` fallback, no zero-fill (audit-grade, per the Codex verdict +
-LAW II). Rule: confirm 422 is the right code for all four (vs 404/500), and
-confirm fail-loud over skip-the-span.
+**3.3 — drop the SentencesTab contradiction-in-section badge.** It read
+`bundle.contradictions[].section_id`; AuditIR contradiction clusters carry no
+section. The Codex arch consult said "replace with an AuditIR-derived signal
+or remove it." Plan: remove the badge + the now-unused `onJumpToContradictions`
+prop. Rule: accept removal (no faithful AuditIR section linkage exists), or
+require a derived signal?
 
-**3.4 — span de-dup + `claim_ids`.** Plan keys spans by `(evidence_id, start,
-end)` and lists every citing `claim_id`. Two sentences citing the same range
-→ one span, two `claim_ids`. Rule: accept?
+**3.4 — remove the "Export bundle JSON" button.** It exported the
+golden-fixture `EvidenceContract`. The Codex consult said do not export
+`EvidenceContract` as the live audit artifact. Plan: remove the button (a
+later slice may add an AuditIR/audit-bundle export). Rule: accept removal?
 
-**3.5 — synthesis sentences / zero-token sentences.** A sentence with no
-`tokens` (e.g. a synthesis claim) contributes no spans — it is simply
-skipped. A run whose verified_report has zero tokens overall yields
-`{"spans": []}` with HTTP 200 (not an error — a real run can verify-then-
-drop everything). Rule: confirm 200 + empty `spans` for the zero-token case.
+**3.5 — one PR vs split.** This is one cohesive `web/lib/api.ts` +
+`web/app/inspector/[runId]/page.tsx` change (the `onSelect`-unchanged design
+in §3.1 bounds it — no signature churn). Estimated ~200-250 line churn.
+Rule: accept as one slice 7b PR, or split (e.g. 7b-1 evidence client +
+PoolTab/EvidencePane; 7b-2 gate-flip + getBundle removal + badge/Export)?
 
-**3.6 — scope.** Backend only: `src/polaris_v6/api/inspector.py` +
-`tests/v6/test_inspector_route.py`. No `web/**` (that is slice 7b), no other
-`src/`. Confirm.
+**3.6 — `ChartsTab` stays.** It uses `getChart()` (a separate route), not
+`getBundle()` — unaffected by 7b; its `onSelect` chart-click still resolves
+through the (now evidence-backed) `spansForEvidenceId`. Confirm no action.
 
 ## 4. Scope boundary
 
-- **IN:** `src/polaris_v6/api/inspector.py` (shared resolver + the new
-  `/runs/{run_id}/evidence` route); `tests/v6/test_inspector_route.py` (new
-  evidence-route tests + `evidence_pool.json` in the fixture helper).
-- **OUT:** `web/**` (slice 7b — `getInspectorEvidence()` client, `PoolTab`/
-  `EvidencePane` migration, `getBundle()` removal, `ir &&` gate); the AuditIR
-  loader / serializer (the route reads `evidence_pool.json` directly — no
-  loader change); `src/polaris_v6/api/bundle.py` (golden-fixture route stays
-  for legacy/F15); inspector e2e/demo fixture rebaseline (slice 7c).
+- **IN:** `web/lib/api.ts` (the evidence client + 2 types);
+  `web/app/inspector/[runId]/page.tsx` (fetch, gate, `PoolTab`,
+  `EvidencePane`, `SentencesTab` badge removal, Export removal, imports).
+- **OUT:** `web/app/runs/[runId]/page.tsx` (also uses `getBundle()` — a
+  separate page, not #504-inspector scope); `src/**` (7a shipped the route);
+  `src/polaris_v6/api/bundle.py` (the golden-fixture route stays for
+  legacy/F15); slice 7c (inspector e2e/demo fixture rebaseline).
 
 ## 5. Smoke test
 
-Backend Python change. Offline: `python -c "import ast; ast.parse(open(
-'src/polaris_v6/api/inspector.py').read())"`; `pytest tests/v6/test_inspector_route.py`
-(PYTHONPATH includes `src` — the test imports `polaris_v6`). All new +
-existing inspector-route tests green. Any pre-existing failure elsewhere in
-`tests/v6/` → verify identical on clean `polaris` HEAD via `git stash`
-before commit. No web/ smoke (no web/ change).
+Frontend change → the `lint + format + typecheck + build` CI job is IN
+SCOPE. Offline: `cd web && npx prettier --write` the 2 files
+`&& npm run format:check && npm run lint && npm run typecheck && npm run
+build` — all green. The 1 pre-existing inspector-page lint warning
+(`chartTypes` `exhaustive-deps`) must not increase. No new unit test (a
+data-source swap; consistent with slices 3-6 — slice 7c handles e2e/demo
+fixtures).
 
 ## 6. Files I have ALSO checked and they're clean
 
-- `src/polaris_v6/api/inspector.py` — slice-1 route; the new route is added
-  to the same `router`; the resolver refactor is behavior-preserving.
-- `src/polaris_v6/api/artifact_to_slice_chain.py` — `_full_text_for_evidence_id`
-  (the `evidence_pool.json` shape precedent the resolver mirrors); NOT
-  modified.
-- `src/polaris_graph/audit_ir/loader.py` — `EvidenceSpanToken` / `ReportSentence`
-  shapes the walk relies on; NOT modified.
-- `src/polaris_v6/api/app.py` — already mounts `inspector_router`; the new
-  route rides the existing mount; NOT modified.
-- `web/**` — untouched (slice 7b).
+- `src/polaris_v6/api/inspector.py` — the 7a `/evidence` route the client
+  targets; NOT modified.
+- `web/lib/api.ts` — `getAuditRun` + `AuditIr*` (slice 2); `getChart` (used
+  by `ChartsTab`, kept); `getBundle`/`EvidenceContract`/`SourceSpan`/
+  `downloadBundleAsJson` become unreferenced by the inspector page after 7b
+  but are NOT deleted from api.ts (`web/app/runs/[runId]/page.tsx` still
+  imports `getBundle`) — only the inspector page's imports drop them.
+- `web/app/runs/[runId]/page.tsx` — separate page; still uses `getBundle()`;
+  out of #504-inspector scope; NOT modified.
+- `ChartsTab` — `getChart()`-backed; NOT modified.
 
-## 7. Acceptance criteria for THIS PR (slice 7a)
+## 7. Acceptance criteria for THIS PR (slice 7b)
 
-1. `GET /api/inspector/runs/{run_id}/evidence` returns `{run_id, spans[]}`
-   with range-keyed `{evidence_id, span_start, span_end, span_text, tier,
-   source_url, claim_ids}`; `span_text` is the exact `body[start:end]` slice.
-2. Missing `evidence_pool.json` / missing evidence_id / OOB offsets / missing
-   body → 422 fail-loud; zero-token run → 200 `{"spans": []}`.
-3. The slice-1 `get_inspector_run` behavior is unchanged (shared resolver
-   refactor is behavior-preserving).
-4. `ast.parse` clean; `pytest tests/v6/test_inspector_route.py` all green.
-5. Backend only — no `web/**`, no other `src/` change.
+1. `web/lib/api.ts` gains `getInspectorEvidence()` + `AuditIrEvidenceSpan`/
+   `AuditIrEvidenceResponse`.
+2. The inspector page fetches `getAuditRun()` + `getInspectorEvidence()`,
+   gates the body on `ir` only, and no longer calls `getBundle()`.
+3. `PoolTab` + `EvidencePane` render the AuditIR evidence spans; a clicked
+   `evidence_id` shows all its ranges; an evidence-fetch failure degrades
+   only those two surfaces.
+4. The SentencesTab contradiction badge + the Export button are removed; the
+   `getBundle`/`EvidenceContract`/`SourceSpan`/`downloadBundleAsJson` imports
+   are dropped from the inspector page.
+5. `format:check` + `lint` + `typecheck` + `build` green; pre-existing
+   lint-warning count not increased; only the 2 named files changed.
 
 ## 8. Required output schema (§8.3.9)
 

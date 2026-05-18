@@ -14,16 +14,15 @@ import {
 import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
 import { VegaChart } from "@/components/ui/vega-chart";
 import {
-  downloadBundleAsJson,
   getAuditRun,
-  getBundle,
   getChart,
+  getInspectorEvidence,
   type ApiError,
   type AuditIrBibliographyEntry,
+  type AuditIrEvidenceResponse,
+  type AuditIrEvidenceSpan,
   type AuditIrRun,
   type ChartType,
-  type EvidenceContract,
-  type SourceSpan,
   type VegaLiteSpec,
 } from "@/lib/api";
 
@@ -81,20 +80,24 @@ function twoFamilyState(ir: AuditIrRun): {
 export default function InspectorPage({ params }: InspectorPageProps) {
   const { runId } = use(params);
   const [ir, setIr] = useState<AuditIrRun | null>(null);
-  const [bundle, setBundle] = useState<EvidenceContract | null>(null);
+  const [evidence, setEvidence] = useState<AuditIrEvidenceResponse | null>(
+    null,
+  );
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedEvidence, setSelectedEvidence] = useState<SourceSpan | null>(
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(
     null,
   );
   const [activeTab, setActiveTab] = useState<
     "summary" | "sentences" | "frames" | "contradictions" | "pool" | "charts"
   >("summary");
 
-  // I-rdy-008 (#504) slice 3 — dual-fetch transition state. The shell + the
-  // Executive-summary tab read the faithful AuditIR (`getAuditRun`); the other
-  // 5 tabs + EvidencePane still read the legacy bundle (`getBundle`). Slices
-  // 4-7 migrate the remaining tabs, after which the `getBundle` call is
-  // removed.
+  // I-rdy-008 (#504) slice 7b — the inspector page reads only the faithful
+  // AuditIR path: getAuditRun() for every rich surface + getInspectorEvidence()
+  // for the evidence-pool / EvidencePane spans. getBundle() (golden-fixture-
+  // only — 404 for every live run) is gone, so the page now works for live
+  // runs. The evidence fetch is INDEPENDENT of the page gate: its failure
+  // degrades only the Evidence-pool tab + EvidencePane, not the whole page.
   useEffect(() => {
     let cancelled = false;
     getAuditRun(runId)
@@ -105,59 +108,59 @@ export default function InspectorPage({ params }: InspectorPageProps) {
         if (!cancelled)
           setError(apiErrorMessage(err, "Run inspector load failed"));
       });
-    getBundle(runId)
-      .then((b) => {
-        if (!cancelled) setBundle(b);
+    getInspectorEvidence(runId)
+      .then((e) => {
+        if (!cancelled) setEvidence(e);
       })
       .catch((err) => {
         if (!cancelled)
-          setError(apiErrorMessage(err, "Evidence bundle load failed"));
+          setEvidenceError(apiErrorMessage(err, "Evidence load failed"));
       });
     return () => {
       cancelled = true;
     };
   }, [runId]);
 
-  const evidenceById = (id: string) =>
-    bundle?.evidence_pool.find((s) => s.evidence_id === id) ?? null;
+  const spansForEvidenceId = (id: string): AuditIrEvidenceSpan[] =>
+    evidence?.spans.filter((s) => s.evidence_id === id) ?? [];
 
-  const tabs: { id: typeof activeTab; label: string; count: number }[] =
-    ir && bundle
-      ? [
-          {
-            id: "summary",
-            label: "Executive summary",
-            count: 3,
-          },
-          {
-            id: "sentences",
-            label: "Verified sentences",
-            count:
-              ir.verified_report.sentences_verified +
-              ir.verified_report.sentences_dropped,
-          },
-          {
-            id: "frames",
-            label: "Frame coverage",
-            count: ir.frame_coverage.entries.length,
-          },
-          {
-            id: "contradictions",
-            label: "Contradictions",
-            count: ir.contradictions.length,
-          },
-          {
-            id: "pool",
-            label: "Evidence pool",
-            count: bundle.evidence_pool.length,
-          },
-          {
-            id: "charts",
-            label: "Charts",
-            count: 3,
-          },
-        ]
-      : [];
+  const tabs: { id: typeof activeTab; label: string; count: number }[] = ir
+    ? [
+        {
+          id: "summary",
+          label: "Executive summary",
+          count: 3,
+        },
+        {
+          id: "sentences",
+          label: "Verified sentences",
+          count:
+            ir.verified_report.sentences_verified +
+            ir.verified_report.sentences_dropped,
+        },
+        {
+          id: "frames",
+          label: "Frame coverage",
+          count: ir.frame_coverage.entries.length,
+        },
+        {
+          id: "contradictions",
+          label: "Contradictions",
+          count: ir.contradictions.length,
+        },
+        {
+          id: "pool",
+          label: "Evidence pool",
+          count: new Set((evidence?.spans ?? []).map((s) => s.evidence_id))
+            .size,
+        },
+        {
+          id: "charts",
+          label: "Charts",
+          count: 3,
+        },
+      ]
+    : [];
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -171,14 +174,6 @@ export default function InspectorPage({ params }: InspectorPageProps) {
               Run {runId}
             </span>
           </Link>
-          {bundle && (
-            <Button
-              variant="outline"
-              onClick={() => downloadBundleAsJson(bundle)}
-            >
-              Export bundle JSON
-            </Button>
-          )}
         </div>
       </header>
 
@@ -197,7 +192,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
           </section>
         )}
 
-        {ir && bundle && (
+        {ir && (
           <>
             <RunShell ir={ir} />
 
@@ -225,43 +220,46 @@ export default function InspectorPage({ params }: InspectorPageProps) {
                   <ExecutiveSummaryTab
                     runId={runId}
                     ir={ir}
-                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                    onSelect={(id) => setSelectedEvidenceId(id)}
                   />
                 )}
                 {activeTab === "sentences" && (
                   <SentencesTab
                     ir={ir}
-                    bundle={bundle}
-                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
-                    onJumpToContradictions={() =>
-                      setActiveTab("contradictions")
-                    }
+                    onSelect={(id) => setSelectedEvidenceId(id)}
                   />
                 )}
                 {activeTab === "frames" && <FramesTab ir={ir} />}
                 {activeTab === "contradictions" && (
                   <ContradictionsTab
                     ir={ir}
-                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                    onSelect={(id) => setSelectedEvidenceId(id)}
                   />
                 )}
                 {activeTab === "pool" && (
                   <PoolTab
-                    bundle={bundle}
-                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                    evidence={evidence}
+                    evidenceError={evidenceError}
+                    onSelect={(id) => setSelectedEvidenceId(id)}
                   />
                 )}
                 {activeTab === "charts" && (
                   <ChartsTab
                     runId={runId}
-                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                    onSelect={(id) => setSelectedEvidenceId(id)}
                   />
                 )}
               </div>
               <aside className="lg:col-span-1">
                 <EvidencePane
-                  span={selectedEvidence}
-                  onClose={() => setSelectedEvidence(null)}
+                  evidenceId={selectedEvidenceId}
+                  spans={
+                    selectedEvidenceId
+                      ? spansForEvidenceId(selectedEvidenceId)
+                      : []
+                  }
+                  evidenceError={evidenceError}
+                  onClose={() => setSelectedEvidenceId(null)}
                 />
               </aside>
             </div>
@@ -355,37 +353,17 @@ function RunShell({ ir }: { ir: AuditIrRun }) {
 }
 
 /**
- * Slug of a section title — mirrors the backend `_slugify` in
- * `src/polaris_v6/api/artifact_to_slice_chain.py`
- * (`re.sub(r"[^a-z0-9_]+", "_", text.lower()).strip("_")[:60]`) so an
- * AuditIR section title (`AuditIrSentence.section`, a display title) can be
- * matched against the legacy bundle's slugified `contradictions[].section_id`.
- */
-function slugifySection(text: string): string {
-  return (text || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 60);
-}
-
-/**
- * I-rdy-008 (#504) slice 4 — the verified-sentences tab reads the faithful
- * AuditIR `verified_report.sections[].sentences[]` (flattened) instead of the
- * legacy flat `bundle.verified_sentences`. The contradiction-in-section
- * cross-link stays bundle-backed (AuditIR contradiction clusters carry no
- * section field); the contradictions tab itself migrates in a later slice.
+ * I-rdy-008 (#504) slice 4/7b — the verified-sentences tab reads the faithful
+ * AuditIR `verified_report.sections[].sentences[]` (flattened). The legacy
+ * contradiction-in-section badge was dropped in slice 7b: AuditIR
+ * contradiction clusters carry no section field, and `getBundle()` is gone.
  */
 function SentencesTab({
   ir,
-  bundle,
   onSelect,
-  onJumpToContradictions,
 }: {
   ir: AuditIrRun;
-  bundle: EvidenceContract;
   onSelect: (id: string) => void;
-  onJumpToContradictions: () => void;
 }) {
   const sentences = ir.verified_report.sections.flatMap((sec) => sec.sentences);
   if (sentences.length === 0) {
@@ -396,9 +374,6 @@ function SentencesTab({
       </p>
     );
   }
-  const sectionsWithContradictions = new Set(
-    bundle.contradictions.map((c) => c.section_id),
-  );
   const bibById = (id: string): AuditIrBibliographyEntry | null =>
     ir.bibliography.find((b) => b.evidence_id === id) ?? null;
   return (
@@ -409,15 +384,6 @@ function SentencesTab({
             <CardHeader>
               <CardDescription className="text-xs tracking-widest uppercase">
                 {s.section} · {s.is_verified ? "verified✓" : "verified✗"}
-                {sectionsWithContradictions.has(slugifySection(s.section)) && (
-                  <button
-                    type="button"
-                    onClick={onJumpToContradictions}
-                    className="ml-2 inline-flex min-h-[24px] items-center rounded bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-900 normal-case hover:bg-yellow-200"
-                  >
-                    contradiction in section →
-                  </button>
-                )}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1008,28 +974,62 @@ function ChartsTab({
   );
 }
 
+/**
+ * I-rdy-008 (#504) slice 7b — the evidence-pool tab reads the AuditIR
+ * evidence route (`getInspectorEvidence`). Range-keyed spans are grouped by
+ * `evidence_id` (one row per source). An evidence-fetch failure (e.g. a run
+ * with no `evidence_pool.json`) degrades only this tab — fail loud, no
+ * silent fallback.
+ */
 function PoolTab({
-  bundle,
+  evidence,
+  evidenceError,
   onSelect,
 }: {
-  bundle: EvidenceContract;
+  evidence: AuditIrEvidenceResponse | null;
+  evidenceError: string | null;
   onSelect: (id: string) => void;
 }) {
+  if (evidenceError) {
+    return (
+      <p className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium">
+        Evidence unavailable: {evidenceError}
+      </p>
+    );
+  }
+  if (evidence === null) {
+    return <p className="text-muted-foreground text-sm">Loading evidence…</p>;
+  }
+  if (evidence.spans.length === 0) {
+    return (
+      <p className="text-muted-foreground text-sm">
+        No verified evidence spans for this run.
+      </p>
+    );
+  }
+  // Group the range-keyed spans by evidence_id — one row per source.
+  const byId = new Map<string, AuditIrEvidenceSpan[]>();
+  for (const span of evidence.spans) {
+    const list = byId.get(span.evidence_id);
+    if (list) list.push(span);
+    else byId.set(span.evidence_id, [span]);
+  }
   return (
     <ul className="flex flex-col gap-2">
-      {bundle.evidence_pool.map((s) => (
-        <li key={s.evidence_id}>
+      {[...byId.entries()].map(([evidenceId, spans]) => (
+        <li key={evidenceId}>
           <button
             type="button"
-            onClick={() => onSelect(s.evidence_id)}
+            onClick={() => onSelect(evidenceId)}
             className="border-border hover:border-foreground w-full rounded-md border p-3 text-left text-sm transition"
           >
             <p className="text-muted-foreground font-mono text-xs">
-              {s.evidence_id} · tier {s.source_tier}
+              {evidenceId} · tier {spans[0].tier} · {spans.length} span
+              {spans.length === 1 ? "" : "s"}
             </p>
             <p className="text-foreground mt-1">
-              {s.span_text.slice(0, 120)}
-              {s.span_text.length > 120 ? "…" : ""}
+              {spans[0].span_text.slice(0, 120)}
+              {spans[0].span_text.length > 120 ? "…" : ""}
             </p>
           </button>
         </li>
@@ -1038,14 +1038,23 @@ function PoolTab({
   );
 }
 
+/**
+ * I-rdy-008 (#504) slice 7b — the side pane renders every verified span of
+ * the clicked `evidence_id` (live runs cite multiple ranges per evidence id —
+ * the pane shows them all, it is not keyed to a single range).
+ */
 function EvidencePane({
-  span,
+  evidenceId,
+  spans,
+  evidenceError,
   onClose,
 }: {
-  span: SourceSpan | null;
+  evidenceId: string | null;
+  spans: AuditIrEvidenceSpan[];
+  evidenceError: string | null;
   onClose: () => void;
 }) {
-  if (!span) {
+  if (evidenceId === null) {
     return (
       <Card>
         <CardHeader>
@@ -1057,36 +1066,79 @@ function EvidencePane({
       </Card>
     );
   }
+  if (evidenceError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardDescription className="text-xs tracking-widest uppercase">
+            {evidenceId}
+          </CardDescription>
+          <CardTitle className="text-sm">Evidence unavailable</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="border-destructive/60 text-foreground rounded-md border p-3 text-xs font-medium">
+            {evidenceError}
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onClose}
+            className="mt-3"
+          >
+            Close
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (spans.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardDescription className="text-xs tracking-widest uppercase">
+            {evidenceId}
+          </CardDescription>
+          <CardTitle className="text-sm">
+            No verified span recorded for this evidence id
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
   return (
     <Card>
       <CardHeader>
         <CardDescription className="text-xs tracking-widest uppercase">
-          {span.evidence_id} · tier {span.source_tier}
+          {evidenceId} · tier {spans[0].tier}
         </CardDescription>
         <CardTitle className="text-sm break-all">
           <a
-            href={span.source_url}
+            href={spans[0].source_url}
             target="_blank"
             rel="noreferrer"
             className="underline-offset-4 hover:underline"
           >
-            {span.source_url}
+            {spans[0].source_url}
           </a>
         </CardTitle>
       </CardHeader>
-      <CardContent>
-        <p className="text-muted-foreground text-xs">
-          chars {span.span_start}–{span.span_end}
-        </p>
-        <pre className="bg-muted text-foreground mt-2 overflow-x-auto rounded-md p-3 text-xs whitespace-pre-wrap">
-          {span.span_text}
-        </pre>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={onClose}
-          className="mt-3"
-        >
+      <CardContent className="flex flex-col gap-3">
+        {spans.map((span, idx) => (
+          <div key={idx}>
+            <p className="text-muted-foreground text-xs">
+              chars {span.span_start}–{span.span_end}
+            </p>
+            <pre className="bg-muted text-foreground mt-1 overflow-x-auto rounded-md p-3 text-xs whitespace-pre-wrap">
+              {span.span_text}
+            </pre>
+          </div>
+        ))}
+        <Button type="button" variant="ghost" onClick={onClose}>
           Close
         </Button>
       </CardContent>
