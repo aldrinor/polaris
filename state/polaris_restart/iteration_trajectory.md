@@ -384,3 +384,8 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff — expected process metadata). convergence accept_remaining. web/lib/api.ts +240 — 17 AuditIr* TS interfaces + getAuditRun(). prettier/tsc/eslint(0 err)/build green. P1 trajectory 0.
+
+## I-rdy-008 (#504) slice 3 — migrate inspector shell + summary to the AuditIR client
+
+### Brief review
+- iter 1: APPROVE — 0 P0/P1, 3 non-blocking P2 (extract FastAPI detail from ApiError.body not err.message; neutral fallback for nullable ir.protocol; two-family PASS/FAIL only when both family strings non-empty + unequal — all 3 baked into commit 1). convergence accept_remaining. Slice 3 of ~12 for #504, Option A. web/app/inspector/[runId]/page.tsx only — migrate the shell (3 status cards + run-header) + Executive-summary tab off getBundle()/EvidenceContract onto getAuditRun()/AuditIrRun; 5 other tabs + EvidencePane intentionally untouched (slices 4-7). ~103k tokens.

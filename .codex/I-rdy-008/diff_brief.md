@@ -1,4 +1,4 @@
-# Codex DIFF review — I-rdy-008 / GH #504 slice 2: frontend AuditIR client + types
+# Codex DIFF review — I-rdy-008 / GH #504 slice 3: migrate inspector shell + summary to the AuditIR client
 
 HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
@@ -12,55 +12,76 @@ HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 
 ## 1. What you are reviewing
 
-The commit-1 diff for #504 **slice 2** — `git diff origin/polaris...HEAD`
+The commit-1 diff for #504 **slice 3** — `git diff origin/polaris...HEAD`
 excluding `.codex/I-rdy-008/` and `outputs/audits/I-rdy-008/` (canonical diff
 in `.codex/I-rdy-008/codex_diff.patch`, sha256 trailer). Implements the
-Codex-APPROVE'd brief `.codex/I-rdy-008/brief.md` (brief APPROVE iter 1).
-**1 file, +240 — `web/lib/api.ts`.**
+Codex-APPROVE'd brief `.codex/I-rdy-008/brief.md` (brief APPROVE iter 1, 3 P2).
+**1 file, +192 / -77 — `web/app/inspector/[runId]/page.tsx`** (805 → 920 lines).
 
-Slice 2 of ~12 for #504 (Option A). Frontend-lib only — adds the AuditIR
-types + `getAuditRun()` client. Do NOT flag "the UI still uses `getBundle()`"
-— the UI migration is slice 3.
+Slice 3 of ~12 for #504 (Option A). Migrates the inspector page **shell**
+(3 status cards + run-header) + **Executive-summary tab** off
+`getBundle()`/`EvidenceContract` onto `getAuditRun()`/`AuditIrRun`. The 5 other
+tabs (`SentencesTab`/`FramesTab`/`ContradictionsTab`/`ChartsTab`/`PoolTab`),
+`EvidencePane`, `renderSentenceWithTokens`, `evidenceById` are intentionally
+**unchanged** — they migrate in slices 4-7. Do NOT flag "the other tabs still
+use getBundle()" — that is the consult's deliberate split-by-surface plan.
 
 ## 2. The change
 
-`web/lib/api.ts` gains 17 `AuditIr*` interfaces mirroring the `to_json_dict()`
-projection of the `AuditIR` dataclass tree, and `getAuditRun(runId)` → the
-slice-1 route `GET /api/inspector/runs/{run_id}`.
+- `InspectorPage` dual-fetches `getAuditRun()` → `ir` + `getBundle()` →
+  `bundle` (one `useEffect`, single `cancelled` guard); body gates on
+  `ir && bundle`.
+- New `RunShell` renders pipeline-status / two-family / cost from
+  `ir.manifest` + `ir.model_provenance`; run-header from
+  `ir.manifest.{question,slug}` + `ir.protocol?.{scope_decision,created_at_iso}`.
+- New `twoFamilyState(ir)` derives the §9.1.1 invariant from the family
+  strings (`known` false when `model_provenance` null or a family string is
+  empty).
+- New `apiErrorMessage(err, fallback)` extracts the FastAPI `detail` from
+  `ApiError.body`.
+- `ExecutiveSummaryTab` takes `ir` instead of `bundle`; counts from
+  `ir.manifest`; tier mix from `ir.bibliography` (raw `tier`); new collapsible
+  `report_md` block; 3 `getChart()` charts unchanged.
 
 ## 3. Verify
 
-1. **Faithful 1:1 mirror of the loader shape.** Cross-check the `AuditIr*`
-   interfaces against `src/polaris_graph/audit_ir/loader.py` dataclasses —
-   field names + types. Especially: `AuditIrRun` top-level (`ir_schema_version`,
-   `run_id`, `artifact_dir`, `report_md`, `manifest`, `bibliography`,
-   `contradictions`, `frame_coverage`, `tier_mix`, `verified_report`,
-   `model_provenance`, `protocol`, `adequacy`, `corpus_approval`); the nullable
-   ones (`model_provenance`/`protocol`/`adequacy`/`corpus_approval` →
-   `| null`; `retrieval_stats`, `http_status`, `doi`, `pmid`,
-   `failure_reason`, `human_curated_provenance`, `semantics_warning` → `| null`).
-   `tier: string` (raw, NOT a T1|T2|T3 union — the Option-A faithfulness point).
-2. **No collision** with the existing `EvidenceContract`/`SourceSpan`/
-   `VerifiedSentence` block — every new symbol is `AuditIr*`-prefixed.
-3. **`getAuditRun` pattern-consistent** with `getRun`/`getBundle` —
-   `authFetch` + `asJsonOrThrow<AuditIrRun>`; `encodeURIComponent(runId)`;
-   path `${BACKEND_URL}/api/inspector/runs/...`.
-4. **No `web/app/**` or `src/` change** — slice 2 is the lib only.
+1. **AuditIR field access is faithful.** Cross-check every `ir.*` access in
+   `RunShell` / `twoFamilyState` / `ExecutiveSummaryTab` against the
+   `AuditIrRun` interface (`web/lib/api.ts:1309-1396`, slice 2) — field names
+   + nullability. `model_provenance`/`protocol` are `| null`.
+2. **The 3 brief P2s are implemented.** (P2-1) `apiErrorMessage` reads
+   `body.detail` not just `err.message`; (P2-2) `protocol` null → run-header
+   omits scope/created, no `undefined` render; (P2-3) two-family PASS/FAIL
+   only in the `known` branch (both families non-empty + unequal).
+3. **No fabricated state.** `model_provenance == null` → "Model provenance
+   not recorded", no PASS/FAIL, no border tint.
+4. **The 5 un-migrated tabs are byte-identical** to `polaris` HEAD —
+   `SentencesTab`/`renderSentenceWithTokens`/`FramesTab`/`ContradictionsTab`/
+   `ChartsTab`/`PoolTab`/`EvidencePane`. `evidenceById` + `tabs` stay
+   `bundle`-based.
+4b. **`cancelled` guard** covers both promises; both `.catch` set `error`.
+5. **Scope** — only `web/app/inspector/[runId]/page.tsx`; no `web/lib/api.ts`,
+   no `src/`, no other `web/app/**`.
 
 ## 4. Files I have ALSO checked and they're clean
 
-- `src/polaris_graph/audit_ir/loader.py` — the dataclass tree the TS mirrors;
-  NOT modified.
+- `web/lib/api.ts` — `getAuditRun()` + `AuditIrRun` (slice 2); `getBundle()`/
+  `EvidenceContract`/`getChart()`/`ApiError`/`downloadBundleAsJson` all still
+  present; NOT modified.
 - `src/polaris_v6/api/inspector.py` (slice 1) — the route `getAuditRun`
   targets; NOT modified.
-- `web/lib/api.ts` `EvidenceContract` block — left intact; NOT modified.
+- `web/app/runs/[runId]/page.tsx` — also uses `getBundle()`; a separate page,
+  not in #504 slice 3 scope; NOT modified.
 
 ## 5. Smoke state
 
-`web/`: `prettier --check lib/api.ts` clean; `tsc --noEmit` no errors;
-`eslint` 0 errors (3 pre-existing warnings elsewhere, not `lib/api.ts`);
-`npm run build` OK. The `lint + format + typecheck + build` CI job is in
-scope for this web/ PR and is expected green.
+`web/`: `prettier --write app/inspector/[runId]/page.tsx` → unchanged;
+`npm run lint` → 0 errors (1 pre-existing inspector-page warning preserved
+verbatim — `chartTypes` `exhaustive-deps` in `ExecutiveSummaryTab`, present in
+the original code; 2 unrelated pre-existing warnings); `npm run typecheck`
+→ clean; `npm run build` → OK. Repo-wide `format:check` 189-file debt is
+pre-existing (untouched files). The `lint + format + typecheck + build` CI job
+is in scope for this web/ PR.
 
 ## 6. Required output schema (§8.3.9)
 
