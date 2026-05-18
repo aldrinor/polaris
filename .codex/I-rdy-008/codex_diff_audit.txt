@@ -3,6 +3,6 @@ novel_p0: []
 continuing_p0: []
 p1: []
 p2:
-  - "Accepted residual: golden-run artifact_dirs may lack evidence_pool.json, so the Pool tab may render Evidence unavailable instead of grouped spans; this is demo-hardening follow-up, not a slice-7c execution blocker."
+  - "src/polaris_v6/charts/from_audit_ir.py:5-6 still mentions `from_bundle.chart_from_bundle` / `EvidenceContract` in the module docstring, so a literal no-reference grep fails. No runtime import, bundle construction, or `artifact_dir -> EvidenceContract` bridge exists."
 convergence_call: accept_remaining
 remaining_blockers_for_execution: []

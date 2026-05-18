@@ -1,0 +1,12 @@
+verdict: APPROVE
+chosen_option: A
+polaris_504_residual: "Charts only: the inspector Charts tab must work for live completed run IDs."
+slice_8_scope: "Migrate GET /runs/{id}/charts/{type} from _GOLDEN_RUN_INDEX to run_store artifact_dir resolution."
+close_504_after: "slice 8"
+charts_owner: "#504 slice 8"
+memory_verdict: "No memory work; it is workspace-scoped, live-operable, and not run_id/golden-bound."
+rationale: |
+  Inspector is done, while pin replay, follow-up UI, compare view, and bundle bridge are explicitly carved out or operator-excluded.
+  #504 should not remain an umbrella over #532/#542/#543/#544 because that would make closure depend on work it no longer owns.
+  Charts remains listed in #504, is still golden-bound in running code, and has no separate owner; therefore it is the only legitimate residual slice.
+remaining_blockers_for_execution: []

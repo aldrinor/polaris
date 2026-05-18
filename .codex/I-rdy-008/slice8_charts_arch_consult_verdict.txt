@@ -1,0 +1,14 @@
+verdict: APPROVE
+chosen_option: A
+slice_8_scope: "Migrate charts to live completed runs by resolving run_store artifact_dir, loading AuditIR, and deriving redesigned AuditIR-native Vega-Lite specs."
+chart_from_audit_ir_viable: yes
+close_504: "after slice 8"
+new_followup_issue: "none"
+rationale: |
+  AuditIR cannot honestly reproduce the EvidenceContract coverage_percent charts, so slice 8 must not pretend it can.
+  But AuditIR does contain real chartable quantities: section verification counts/rates, frame status counts, contradiction value spreads, source tiers, and report-order sentence series.
+  Therefore chart_from_audit_ir is viable only as an AuditIR-native redesign with explicit labels, no fabricated coverage_percent, and no pseudo-CI.
+  This keeps #544 out of scope while still closing #504's charts residual.
+remaining_blockers_for_execution:
+  - "Do not build artifact_dir -> EvidenceContract in slice 8."
+  - "Do not synthesize per-frame coverage_percent or confidence intervals from AuditIR status fields."

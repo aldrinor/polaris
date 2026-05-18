@@ -31,59 +31,9 @@ from fastapi import APIRouter, HTTPException
 
 from polaris_graph.audit_ir.loader import load_audit_ir
 from polaris_graph.audit_ir.serializer import to_json_dict
-from polaris_v6.queue import run_store
+from polaris_v6.api.run_resolver import resolve_completed_artifact_dir
 
 router = APIRouter(prefix="/api/inspector", tags=["inspector"])
-
-
-def _resolve_completed_artifact_dir(run_id: str) -> Path:
-    """Resolve a completed run to its on-disk artifact_dir, or raise.
-
-    The shared run-resolution for every inspector route (slice 7a extracted
-    this from `get_inspector_run` so the evidence route reuses identical
-    behavior — same status codes, same messages):
-
-    - unknown run -> 404
-    - run not completed -> 409
-    - abort_* / error_* run -> 422 (no AuditIR-loadable artifacts)
-    - missing / absent artifact_dir -> 404
-    """
-    record = run_store.get_run(run_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
-
-    if record.lifecycle_status != "completed":
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"run {run_id} is not completed "
-                f"(lifecycle_status={record.lifecycle_status!r})"
-            ),
-        )
-
-    status = record.pipeline_status or ""
-    if status.startswith("abort_") or status.startswith("error_"):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"run {run_id} produced no AuditIR-loadable artifacts "
-                f"(pipeline_status={status!r}); it is a pipeline-verdict "
-                f"artifact, not a renderable run"
-            ),
-        )
-
-    if not record.artifact_dir:
-        raise HTTPException(
-            status_code=404,
-            detail=f"run {run_id} has no artifact_dir recorded",
-        )
-    artifact_dir = Path(record.artifact_dir)
-    if not artifact_dir.is_dir():
-        raise HTTPException(
-            status_code=404,
-            detail=f"artifact_dir does not exist on disk: {artifact_dir}",
-        )
-    return artifact_dir
 
 
 def _load_evidence_pool(artifact_dir: Path, run_id: str) -> dict[str, dict[str, Any]]:
@@ -160,7 +110,7 @@ def get_inspector_run(run_id: str) -> dict[str, Any]:
     - artifact_dir present but unloadable -> 422 (fail loud, no zero-fill)
     - completed loadable run -> 200, full AuditIR JSON
     """
-    artifact_dir = _resolve_completed_artifact_dir(run_id)
+    artifact_dir = resolve_completed_artifact_dir(run_id)
 
     try:
         ir = load_audit_ir(artifact_dir)
@@ -199,7 +149,7 @@ def get_inspector_run_evidence(run_id: str) -> dict[str, Any]:
     artifact_dir 404 / unloadable AuditIR 422 / no evidence_pool.json 422 /
     completed + loadable + pooled -> 200.
     """
-    artifact_dir = _resolve_completed_artifact_dir(run_id)
+    artifact_dir = resolve_completed_artifact_dir(run_id)
     pool = _load_evidence_pool(artifact_dir, run_id)
 
     try:

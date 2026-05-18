@@ -1,70 +1,757 @@
+diff --git a/src/polaris_v6/api/charts.py b/src/polaris_v6/api/charts.py
+index a711ed3d..bf32b771 100644
+--- a/src/polaris_v6/api/charts.py
++++ b/src/polaris_v6/api/charts.py
+@@ -1,4 +1,13 @@
+-"""GET /runs/{run_id}/charts/{chart_type} — Vega-Lite spec endpoint."""
++"""GET /runs/{run_id}/charts/{chart_type} — Vega-Lite spec endpoint.
++
++I-rdy-008 (#504) slice 8 (Codex architecture consult
++`.codex/I-rdy-008/slice8_charts_arch_consult_verdict.txt`): the charts route
++resolves a completed run via `run_store -> artifact_dir -> load_audit_ir()`
++— the same path the inspector routes use — and derives the Vega-Lite spec
++from the run's AuditIR (`chart_from_audit_ir`). It no longer reads the
++golden-fixture `_GOLDEN_RUN_INDEX`; any completed run (golden or live) is
++charted.
++"""
+ 
+ from __future__ import annotations
+ 
+@@ -6,11 +15,9 @@ from typing import Literal
+ 
+ from fastapi import APIRouter, HTTPException
+ 
+-from polaris_v6.api.bundle import _GOLDEN_RUN_INDEX, _FIXTURE_DIR
+-from polaris_v6.charts.from_bundle import chart_from_bundle
+-import json
+-
+-from polaris_v6.schemas.evidence_contract import EvidenceContract
++from polaris_graph.audit_ir.loader import load_audit_ir
++from polaris_v6.api.run_resolver import resolve_completed_artifact_dir
++from polaris_v6.charts.from_audit_ir import chart_from_audit_ir
+ 
+ router = APIRouter(prefix="/runs", tags=["charts"])
+ 
+@@ -19,13 +26,19 @@ ChartType = Literal["forest_plot", "comparison_table", "timeline"]
+ 
+ @router.get("/{run_id}/charts/{chart_type}")
+ def get_chart(run_id: str, chart_type: ChartType) -> dict:
+-    fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
+-    if fixture_name is None:
++    """Return the Vega-Lite spec for one chart type of a completed run.
++
++    Resolution mirrors the inspector route: unknown run -> 404 /
++    not-completed -> 409 / abort_* / error_* -> 422 / missing artifact_dir
++    -> 404 / artifact_dir present but unloadable -> 422 (fail loud). An
++    unknown `chart_type` is rejected as 422 by the `ChartType` Literal.
++    """
++    artifact_dir = resolve_completed_artifact_dir(run_id)
++    try:
++        ir = load_audit_ir(artifact_dir)
++    except (FileNotFoundError, NotADirectoryError, ValueError, TypeError) as exc:
+         raise HTTPException(
+-            status_code=404,
+-            detail=f"Bundle for run {run_id!r} not found.",
+-        )
+-    raw = json.loads((_FIXTURE_DIR / fixture_name).read_text())
+-    bundle = EvidenceContract.model_validate(raw)
+-    spec = chart_from_bundle(bundle=bundle, chart_type=chart_type)
+-    return spec
++            status_code=422,
++            detail=f"run {run_id} artifact_dir failed AuditIR load: {exc}",
++        ) from exc
++    return chart_from_audit_ir(ir=ir, chart_type=chart_type)
+diff --git a/src/polaris_v6/api/inspector.py b/src/polaris_v6/api/inspector.py
+index 7f150597..5b2baa75 100644
+--- a/src/polaris_v6/api/inspector.py
++++ b/src/polaris_v6/api/inspector.py
+@@ -31,61 +31,11 @@ from fastapi import APIRouter, HTTPException
+ 
+ from polaris_graph.audit_ir.loader import load_audit_ir
+ from polaris_graph.audit_ir.serializer import to_json_dict
+-from polaris_v6.queue import run_store
++from polaris_v6.api.run_resolver import resolve_completed_artifact_dir
+ 
+ router = APIRouter(prefix="/api/inspector", tags=["inspector"])
+ 
+ 
+-def _resolve_completed_artifact_dir(run_id: str) -> Path:
+-    """Resolve a completed run to its on-disk artifact_dir, or raise.
+-
+-    The shared run-resolution for every inspector route (slice 7a extracted
+-    this from `get_inspector_run` so the evidence route reuses identical
+-    behavior — same status codes, same messages):
+-
+-    - unknown run -> 404
+-    - run not completed -> 409
+-    - abort_* / error_* run -> 422 (no AuditIR-loadable artifacts)
+-    - missing / absent artifact_dir -> 404
+-    """
+-    record = run_store.get_run(run_id)
+-    if record is None:
+-        raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
+-
+-    if record.lifecycle_status != "completed":
+-        raise HTTPException(
+-            status_code=409,
+-            detail=(
+-                f"run {run_id} is not completed "
+-                f"(lifecycle_status={record.lifecycle_status!r})"
+-            ),
+-        )
+-
+-    status = record.pipeline_status or ""
+-    if status.startswith("abort_") or status.startswith("error_"):
+-        raise HTTPException(
+-            status_code=422,
+-            detail=(
+-                f"run {run_id} produced no AuditIR-loadable artifacts "
+-                f"(pipeline_status={status!r}); it is a pipeline-verdict "
+-                f"artifact, not a renderable run"
+-            ),
+-        )
+-
+-    if not record.artifact_dir:
+-        raise HTTPException(
+-            status_code=404,
+-            detail=f"run {run_id} has no artifact_dir recorded",
+-        )
+-    artifact_dir = Path(record.artifact_dir)
+-    if not artifact_dir.is_dir():
+-        raise HTTPException(
+-            status_code=404,
+-            detail=f"artifact_dir does not exist on disk: {artifact_dir}",
+-        )
+-    return artifact_dir
+-
+-
+ def _load_evidence_pool(artifact_dir: Path, run_id: str) -> dict[str, dict[str, Any]]:
+     """Index `evidence_pool.json` by evidence id. Fail loud if absent/malformed.
+ 
+@@ -160,7 +110,7 @@ def get_inspector_run(run_id: str) -> dict[str, Any]:
+     - artifact_dir present but unloadable -> 422 (fail loud, no zero-fill)
+     - completed loadable run -> 200, full AuditIR JSON
+     """
+-    artifact_dir = _resolve_completed_artifact_dir(run_id)
++    artifact_dir = resolve_completed_artifact_dir(run_id)
+ 
+     try:
+         ir = load_audit_ir(artifact_dir)
+@@ -199,7 +149,7 @@ def get_inspector_run_evidence(run_id: str) -> dict[str, Any]:
+     artifact_dir 404 / unloadable AuditIR 422 / no evidence_pool.json 422 /
+     completed + loadable + pooled -> 200.
+     """
+-    artifact_dir = _resolve_completed_artifact_dir(run_id)
++    artifact_dir = resolve_completed_artifact_dir(run_id)
+     pool = _load_evidence_pool(artifact_dir, run_id)
+ 
+     try:
+diff --git a/src/polaris_v6/api/run_resolver.py b/src/polaris_v6/api/run_resolver.py
+new file mode 100644
+index 00000000..a735441d
+--- /dev/null
++++ b/src/polaris_v6/api/run_resolver.py
+@@ -0,0 +1,65 @@
++"""Shared completed-run resolver for the v6 rich-surface read routes.
++
++I-rdy-008 (#504) slice 8: `resolve_completed_artifact_dir` was first added
++in slice 7a inside `inspector.py` (as `_resolve_completed_artifact_dir`).
++The charts route (slice 8) needs the identical `run_store -> artifact_dir`
++resolution, so it is extracted here as the single shared implementation —
++behavior is unchanged: same status codes, same detail strings.
++"""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++from fastapi import HTTPException
++
++from polaris_v6.queue import run_store
++
++
++def resolve_completed_artifact_dir(run_id: str) -> Path:
++    """Resolve a completed run to its on-disk artifact_dir, or raise.
++
++    The shared run-resolution for every completed-run read route (inspector
++    slices 1 + 7a, charts slice 8):
++
++    - unknown run -> 404
++    - run not completed -> 409
++    - abort_* / error_* run -> 422 (no AuditIR-loadable artifacts)
++    - missing / absent artifact_dir -> 404
++    """
++    record = run_store.get_run(run_id)
++    if record is None:
++        raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
++
++    if record.lifecycle_status != "completed":
++        raise HTTPException(
++            status_code=409,
++            detail=(
++                f"run {run_id} is not completed "
++                f"(lifecycle_status={record.lifecycle_status!r})"
++            ),
++        )
++
++    status = record.pipeline_status or ""
++    if status.startswith("abort_") or status.startswith("error_"):
++        raise HTTPException(
++            status_code=422,
++            detail=(
++                f"run {run_id} produced no AuditIR-loadable artifacts "
++                f"(pipeline_status={status!r}); it is a pipeline-verdict "
++                f"artifact, not a renderable run"
++            ),
++        )
++
++    if not record.artifact_dir:
++        raise HTTPException(
++            status_code=404,
++            detail=f"run {run_id} has no artifact_dir recorded",
++        )
++    artifact_dir = Path(record.artifact_dir)
++    if not artifact_dir.is_dir():
++        raise HTTPException(
++            status_code=404,
++            detail=f"artifact_dir does not exist on disk: {artifact_dir}",
++        )
++    return artifact_dir
+diff --git a/src/polaris_v6/charts/from_audit_ir.py b/src/polaris_v6/charts/from_audit_ir.py
+new file mode 100644
+index 00000000..3588470f
+--- /dev/null
++++ b/src/polaris_v6/charts/from_audit_ir.py
+@@ -0,0 +1,196 @@
++"""Build chart specs from a faithful AuditIR.
++
++I-rdy-008 (#504) slice 8 (Codex architecture consult
++`.codex/I-rdy-008/slice8_charts_arch_consult_verdict.txt`, Option A). The
++golden-fixture charts (`from_bundle.chart_from_bundle`) derived the 3
++Vega-Lite chart types from an `EvidenceContract`; the live charts route
++resolves a completed run's `artifact_dir` and `load_audit_ir()`s it
++instead. AuditIR carries NO `coverage_percent`, so this is a redesign, not
++a port: every chart derives only from AuditIR-native quantities —
++
++- forest_plot   : contradiction value spreads (the real min/mean/max of the
++                  values disagreeing sources reported), or — when a run has
++                  no contradictions — per-section verification rate
++                  (`kept / total_in`, a genuine 0-1 rate).
++- comparison_table : the source-tier mix (count of bibliography entries per
++                  tier).
++- timeline      : the report-order series of cited verified sentences.
++
++No fabricated magnitudes and no pseudo confidence interval: the forest-plot
++`ci_low`/`ci_high` carry the actual min/max of reported values (the title
++says so), never an invented statistical band.
++"""
++
++from __future__ import annotations
++
++from collections import Counter
++from typing import Literal
++
++from polaris_graph.audit_ir.loader import AuditIR, ContradictionCluster
++from polaris_v6.charts.spec_builder import (
++    ComparisonRow,
++    ForestPlotPoint,
++    TimelinePoint,
++    build_comparison_table,
++    build_forest_plot,
++    build_timeline,
++)
++
++ChartType = Literal["forest_plot", "comparison_table", "timeline"]
++
++
++def _cluster_label(cluster: ContradictionCluster) -> str:
++    """A non-empty y-axis label — loader defaults `subject` to ''."""
++    return cluster.subject or cluster.predicate or f"cluster-{cluster.cluster_id}"
++
++
++def _forest_plot(ir: AuditIR) -> dict:
++    """Contradiction value spreads, else per-section verification rate.
++
++    A contradiction cluster's `claims[].value` are the real numbers the
++    disagreeing sources reported; the point is their mean and the bar is
++    their min–max (a true range, not a statistical CI — the title says so).
++    A run with no contradictions falls back to one point per section with a
++    genuine `kept / total_in` verification rate.
++    """
++    if ir.contradictions:
++        points = []
++        for cluster in ir.contradictions:
++            values = [claim.value for claim in cluster.claims]
++            points.append(
++                ForestPlotPoint(
++                    label=_cluster_label(cluster),
++                    estimate=sum(values) / len(values),
++                    ci_low=min(values),
++                    ci_high=max(values),
++                    evidence_id=cluster.claims[0].evidence_id,
++                )
++            )
++        return build_forest_plot(
++            title=(
++                "Contradictions — point = mean of reported values, "
++                "bar = min–max across disagreeing sources"
++            ),
++            points=points,
++            x_label="Reported value across disagreeing sources",
++        )
++
++    # No contradictions: per-section verification rate. Skip sections with
++    # total_in <= 0 — the loader defaults a missing total_in to 0, and
++    # kept_count / total_in would then ZeroDivisionError (Codex brief
++    # iter-1 P1-2); a section with no inbound count has no honest rate.
++    rate_points = [
++        ForestPlotPoint(
++            label=section.title or "(untitled section)",
++            estimate=section.kept_count / section.total_in,
++            ci_low=section.kept_count / section.total_in,
++            ci_high=section.kept_count / section.total_in,
++            evidence_id=f"section:{section.title}",
++        )
++        for section in ir.verified_report.sections
++        if section.total_in > 0
++    ]
++    if rate_points:
++        return build_forest_plot(
++            title="Section verification rate",
++            points=rate_points,
++            x_label="Section verification rate (verified / total)",
++        )
++
++    return build_forest_plot(
++        title="No contradictions or verifiable sections in this run",
++        points=[
++            ForestPlotPoint(
++                label="(no data)",
++                estimate=0.0,
++                ci_low=0.0,
++                ci_high=0.0,
++                evidence_id="placeholder",
++            )
++        ],
++    )
++
++
++def _comparison_table(ir: AuditIR) -> dict:
++    """The source-tier mix — count of bibliography entries per tier."""
++    if not ir.bibliography:
++        return build_comparison_table(
++            title="Source tier mix",
++            rows=[
++                ComparisonRow(
++                    entity="(no sources)",
++                    metric="source_count",
++                    value=0.0,
++                    evidence_id="placeholder",
++                )
++            ],
++        )
++    counts: Counter[str] = Counter(entry.tier for entry in ir.bibliography)
++    first_evidence_id: dict[str, str] = {}
++    for entry in ir.bibliography:
++        first_evidence_id.setdefault(entry.tier, entry.evidence_id)
++    rows = [
++        ComparisonRow(
++            entity=f"Tier {tier}",
++            metric="source_count",
++            value=float(counts[tier]),
++            evidence_id=first_evidence_id[tier],
++        )
++        for tier in sorted(counts)
++    ]
++    return build_comparison_table(title="Source tier mix", rows=rows)
++
++
++def _timeline(ir: AuditIR) -> dict:
++    """The report-order series of cited verified sentences.
++
++    Zero-token sentences are skipped (Codex brief iter-2 P2): a sentence
++    with no `[#ev:...]` token has no evidence to click through to, so
++    putting its `claim_id` in the `evidence_id` field would be misleading.
++    `value` is the 1-based report position — a real ordinal, not an
++    invented magnitude.
++    """
++    points = []
++    position = 0
++    for section in ir.verified_report.sections:
++        for sentence in section.sentences:
++            if not sentence.tokens:
++                continue
++            position += 1
++            points.append(
++                TimelinePoint(
++                    period=f"step-{position:02d}",
++                    value=float(position),
++                    series=section.title or "(untitled section)",
++                    evidence_id=sentence.tokens[0].evidence_id,
++                )
++            )
++    if not points:
++        return build_timeline(
++            title="Verified-sentence timeline (report order)",
++            points=[
++                TimelinePoint(
++                    period="step-01",
++                    value=0.0,
++                    series="(no cited sentences)",
++                    evidence_id="placeholder",
++                )
++            ],
++            period_kind="quarter",
++        )
++    return build_timeline(
++        title="Verified-sentence timeline (report order)",
++        points=points,
++        period_kind="quarter",
++    )
++
++
++def chart_from_audit_ir(*, ir: AuditIR, chart_type: ChartType) -> dict:
++    """Generate a Vega-Lite chart spec for `chart_type` from a run's AuditIR."""
++    if chart_type == "forest_plot":
++        return _forest_plot(ir)
++    if chart_type == "comparison_table":
++        return _comparison_table(ir)
++    if chart_type == "timeline":
++        return _timeline(ir)
++    raise ValueError(f"unknown chart_type: {chart_type}")
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 951885a5..1a18b486 100644
+index 1a18b486..c4430021 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -436,3 +436,12 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+@@ -445,3 +445,14 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
  
  ### Diff review
- - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (state/polaris_restart/iteration_trajectory.md is a 4th non-excluded file in the canonical diff alongside the 3 code/bug_log files — Codex: "process metadata only, no execution impact", same accepted-residual as slices 1-7a). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +190/-138 + web/lib/api.ts +39 + logs/bug_log.md +82. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~143k tokens.
+ - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (accepted residual — golden-run artifact_dirs may lack evidence_pool.json so the Pool tab can render "Evidence unavailable" rather than grouped spans; demo-hardening follow-up, not a slice-7c blocker — the terminal-state test passes either way). convergence accept_remaining. web/tests/e2e/inspector.spec.ts +26/-7 (one CI-run e2e spec — stale EvidenceContract header comment + Export-button test → terminal-state Pool-tab test). prettier/lint(0 err)/tsc/build green. ~33k tokens.
 +
-+## I-rdy-008 (#504) slice 7c — rebaseline the inspector e2e spec for the slice-7b data-path migration
++## I-rdy-008 (#504) slice 8 — migrate the charts route off golden fixtures onto run_store + chart_from_audit_ir
++
++Two Codex consults preceded slice 8: scope consult (Option A — #504 residual = charts) + charts arch consult (Option A — run_store/AuditIR + a new chart_from_audit_ir derivation; no artifact→EvidenceContract bridge, no fabricated coverage_percent/CIs). Slice 8 is #504's FINAL slice.
 +
 +### Brief review
-+- iter 1: REQUEST_CHANGES — 0 P0, 1 P1 (the planned Pool-tab test accepted the transient "Loading evidence…" state as a passing condition; PoolTab renders that whenever evidence===null, so the test could pass even if the evidence fetch never resolved — Codex: wait for a final state only). convergence continue. ~42k tokens.
-+- iter 2: APPROVE — 0 P0/P1, 1 non-blocking P2 (accept scope call 3.3 — adding golden-run evidence_pool.json is real follow-up/demo hardening, not required for the test rebaseline). convergence accept_remaining. Fix: the Pool-tab test now waits for one of the three TERMINAL PoolTab states (grouped rows / "No verified evidence spans" / "Evidence unavailable:") and asserts "Loading evidence…" count 0 — the transient state can no longer satisfy it. Slice 7c of #504 (test-rebaseline slice of the Codex-consult 7a/7b/7c split). web/tests/e2e/inspector.spec.ts only — fix the stale EvidenceContract header comment + replace the removed-Export-button test with the terminal-state Pool-tab test. ~69k tokens.
++- iter 1: REQUEST_CHANGES — 0 P0, 2 P1 (P1-1: test_api_charts.py assumed golden_* IDs resolve via run_store, but its client fixture uses the default DB with no golden rows → 404 after migration; must seed an isolated run_store like test_inspector_route.py. P1-2: the no-contradiction forest fallback computes kept_count/total_in, but loader.py defaults a missing total_in to 0 → ZeroDivisionError → 500; guard total_in<=0). convergence continue. ~106k tokens.
++- iter 2: APPROVE — 0 P0/P1, 3 non-blocking P2 (shared seed helpers in a tests/v6 helper module not a cross-test import; skip zero-token timeline sentences rather than using claim_id as evidence_id; forest label = subject or predicate or cluster-{id} to avoid blank y-axis labels — all 3 baked into commit 1). convergence accept_remaining. Fixes: test_api_charts.py rewritten onto a seeded isolated run_store; _forest_plot skips total_in<=0 sections. Slice 8 = charts.py run_store/AuditIR migration + new src/polaris_v6/charts/from_audit_ir.py + run_resolver.py extraction + tests/v6/_audit_ir_fixtures.py. ~76k tokens.
 +
 +### Diff review
-+- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (accepted residual — golden-run artifact_dirs may lack evidence_pool.json so the Pool tab can render "Evidence unavailable" rather than grouped spans; demo-hardening follow-up, not a slice-7c blocker — the terminal-state test passes either way). convergence accept_remaining. web/tests/e2e/inspector.spec.ts +26/-7 (one CI-run e2e spec — stale EvidenceContract header comment + Export-button test → terminal-state Pool-tab test). prettier/lint(0 err)/tsc/build green. ~33k tokens.
-diff --git a/web/tests/e2e/inspector.spec.ts b/web/tests/e2e/inspector.spec.ts
-index aed31eef..41fa2f51 100644
---- a/web/tests/e2e/inspector.spec.ts
-+++ b/web/tests/e2e/inspector.spec.ts
-@@ -3,9 +3,12 @@ import { expect, test } from "@playwright/test";
- /**
-  * Phase 2C.1 — cross-feature integration tests for the Inspector route.
-  *
-- * Each test exercises one user-visible flow against live golden bundles.
-- * No mocks — the backend serves real EvidenceContract JSON from
-- * `tests/v6/fixtures/evidence_contract_v1/*.json`.
-+ * Each test exercises one user-visible flow against a real
-+ * `polaris_v6.api.app` backend. No mocks — the inspector page reads the
-+ * faithful AuditIR via `GET /api/inspector/runs/{id}` and the verified
-+ * evidence spans via `GET /api/inspector/runs/{id}/evidence`. The
-+ * golden-fixture-only `getBundle()`/`EvidenceContract` dependency was
-+ * removed in I-rdy-008 (#504) slice 7b (PR #597).
-  */
++- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (from_audit_ir.py docstring lines 5-6 name from_bundle.chart_from_bundle / EvidenceContract as historical "what this replaces" context — Codex confirmed there is NO runtime import, bundle construction, or artifact_dir→EvidenceContract bridge; the prose mention is correct documentation, left as-is). convergence accept_remaining. 7 files: src/polaris_v6/api/{run_resolver.py(new),inspector.py,charts.py} + src/polaris_v6/charts/from_audit_ir.py(new) + tests/v6/{_audit_ir_fixtures.py(new),test_api_charts.py} + iteration_trajectory.md; ~635 LOC code (intrinsic — the arch consult mandated a new derivation module + seeded test rewrite; brief APPROVE'd at this scope). ast.parse clean; pytest tests/v6/test_api_charts.py + test_inspector_route.py 26/26 green. P1 trajectory 0. ~127k tokens.
+diff --git a/tests/v6/_audit_ir_fixtures.py b/tests/v6/_audit_ir_fixtures.py
+new file mode 100644
+index 00000000..137a89f0
+--- /dev/null
++++ b/tests/v6/_audit_ir_fixtures.py
+@@ -0,0 +1,77 @@
++"""Shared run_store + AuditIR-artifact_dir fixtures for tests/v6 route tests.
++
++I-rdy-008 (#504) slice 8 (Codex brief iter-2 P2 6.5): the seeded-run_store +
++`load_audit_ir()`-loadable artifact_dir helpers are factored here so the
++charts route tests build live completed runs without a brittle
++cross-test-module import. `write_audit_ir_artifact_dir` writes exactly the
++5 files `polaris_graph.audit_ir.loader.load_audit_ir()` requires; callers
++pass real `bibliography` / `contradictions` / `sections` rows to exercise
++the chart derivations.
++"""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from typing import Any
++
++from polaris_v6.queue import run_store
++
++QUESTION = "What does the latest evidence show on this topic?"
++
++
++def write_audit_ir_artifact_dir(
++    d: Path,
++    *,
++    bibliography: list[dict[str, Any]] | None = None,
++    contradictions: list[dict[str, Any]] | None = None,
++    sections: list[dict[str, Any]] | None = None,
++) -> Path:
++    """Write a complete `load_audit_ir()`-loadable artifact_dir under ``d``.
++
++    ``bibliography`` / ``contradictions`` / ``sections`` default to empty;
++    pass real rows to exercise the chart derivations. ``sections`` are
++    written verbatim into ``verification_details.json["sections"]`` — each
++    is ``{"title", "kept": [...], "dropped": [...], "total_in"?: int}``.
++    """
++    d.mkdir(parents=True, exist_ok=True)
++    (d / "manifest.json").write_text(
++        json.dumps(
++            {
++                "run_id": "manifest_run_1",
++                "slug": "charts_test_slug",
++                "status": "success",
++                "question": QUESTION,
++                "protocol_sha256": "0" * 64,
++                "completeness": {"covered_fraction": 1.0},
++                "evaluator_gate": {
++                    "gate_class": "release",
++                    "release_allowed": True,
++                },
++                "corpus": {"count": 1, "tier_fractions": {"T1": 1.0}},
++                "frame_coverage_report": {"entries": [], "by_status": {}},
++            }
++        ),
++        encoding="utf-8",
++    )
++    (d / "report.md").write_text(
++        "# Research report\n\nMinimal.\n", encoding="utf-8"
++    )
++    (d / "bibliography.json").write_text(
++        json.dumps(bibliography or []), encoding="utf-8"
++    )
++    (d / "contradictions.json").write_text(
++        json.dumps(contradictions or []), encoding="utf-8"
++    )
++    (d / "verification_details.json").write_text(
++        json.dumps({"sections": sections or [], "totals": {}}),
++        encoding="utf-8",
++    )
++    return d
++
++
++def seed_completed_run(run_id: str, artifact_dir: Path) -> None:
++    """Seed run_store with a completed run pointing at ``artifact_dir``."""
++    run_store.insert_run(run_id, "clinical", QUESTION)
++    run_store.set_pipeline_meta(run_id, artifact_dir=str(artifact_dir))
++    run_store.mark_completed(run_id, {}, pipeline_status="success")
+diff --git a/tests/v6/test_api_charts.py b/tests/v6/test_api_charts.py
+index 135d560b..a2c4c668 100644
+--- a/tests/v6/test_api_charts.py
++++ b/tests/v6/test_api_charts.py
+@@ -1,54 +1,202 @@
+-"""Tests for /runs/{run_id}/charts/{chart_type} endpoint."""
++"""Tests for GET /runs/{run_id}/charts/{chart_type}.
++
++I-rdy-008 (#504) slice 8: the charts route migrated off the golden-fixture
++`_GOLDEN_RUN_INDEX` onto `run_store -> artifact_dir -> load_audit_ir()` +
++`chart_from_audit_ir`. These tests seed an isolated run_store with
++completed runs pointing at `load_audit_ir()`-loadable artifact_dirs (the
++default DB has no `golden_*` rows — Codex brief iter-1 P1-1) and assert the
++3 AuditIR-native chart derivations.
++"""
  
- test.describe("Inspector — golden_clinical_001", () => {
-@@ -44,10 +47,26 @@ test.describe("Inspector — golden_clinical_001", () => {
-     await expect(page.getByText(/\[#ev:ev_clin_001:1200-1450\]/)).toBeVisible();
-   });
+ from __future__ import annotations
  
--  test("Export bundle JSON button is present", async ({ page }) => {
--    await expect(
--      page.getByRole("button", { name: /Export bundle JSON/ }),
--    ).toBeVisible();
-+  test("Evidence pool tab settles into a terminal PoolTab state", async ({
-+    page,
-+  }) => {
-+    // I-rdy-008 (#504) slice 7b migrated PoolTab off the golden-fixture-only
-+    // getBundle() onto GET /api/inspector/runs/{id}/evidence (the bundle
-+    // Export button was removed in the same slice). The tab resolves to one
-+    // of three terminal states: grouped evidence rows ("<id> · tier <T> ·
-+    // <N> span(s)"), "No verified evidence spans for this run.", or
-+    // "Evidence unavailable:". The transient "Loading evidence…"
-+    // (evidence === null) state is NOT terminal — a test that accepts it
-+    // would pass even if the evidence fetch never resolved.
-+    await page
-+      .getByRole("button", { name: /Evidence pool/ })
-+      .first()
-+      .click();
-+    const terminalState = page.getByText(
-+      /· tier .+ · \d+ span|No verified evidence spans for this run\.|Evidence unavailable:/,
-+    );
-+    await expect(terminalState.first()).toBeVisible({ timeout: 15_000 });
-+    await expect(page.getByText("Loading evidence…")).toHaveCount(0);
-   });
- });
+ import pytest
  
++from polaris_v6.queue import run_store
++from tests.v6._audit_ir_fixtures import (
++    QUESTION,
++    seed_completed_run,
++    write_audit_ir_artifact_dir,
++)
++
++# A contradiction cluster: two sources report different body-weight numbers.
++_CONTRADICTION = {
++    "subject": "tirzepatide",
++    "predicate": "body weight reduction (%)",
++    "severity": "high",
++    "claims": [
++        {"evidence_id": "ev_a", "predicate": "body weight reduction", "value": 15.2},
++        {"evidence_id": "ev_b", "predicate": "body weight reduction", "value": 9.8},
++    ],
++}
++_BIBLIOGRAPHY = [
++    {"num": 1, "evidence_id": "ev_a", "tier": "T1"},
++    {"num": 2, "evidence_id": "ev_b", "tier": "T1"},
++    {"num": 3, "evidence_id": "ev_c", "tier": "T2"},
++]
++# A section with tokened kept sentences (timeline) and a real total_in
++# (forest-plot section-rate fallback when there are no contradictions).
++_SECTION_WITH_TOKENS = {
++    "title": "Efficacy",
++    "total_in": 4,
++    "kept": [
++        {
++            "sentence": "Claim one [#ev:ev_a:0-5].",
++            "tokens": [{"evidence_id": "ev_a", "start": 0, "end": 5}],
++        },
++        {
++            "sentence": "Claim two [#ev:ev_b:0-5].",
++            "tokens": [{"evidence_id": "ev_b", "start": 0, "end": 5}],
++        },
++    ],
++    "dropped": [],
++}
++
+ 
+ @pytest.fixture
+-def client():
++def client(tmp_path, monkeypatch):
++    """TestClient on a fresh per-test run-store DB.
++
++    POLARIS_V6_RUN_DB is set BEFORE create_app() so both the seeding calls
++    and the route resolve to the same temp DB.
++    """
+     pytest.importorskip("fastapi")
+     from fastapi.testclient import TestClient
+     from polaris_v6.api.app import create_app
+ 
++    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(tmp_path / "runs.sqlite"))
++    run_store.init_db()
+     return TestClient(create_app())
+ 
+ 
++def test_unknown_run_returns_404(client):
++    response = client.get("/runs/does_not_exist/charts/forest_plot")
++    assert response.status_code == 404
++
++
++def test_unknown_chart_type_returns_422(client, tmp_path):
++    artifact_dir = write_audit_ir_artifact_dir(tmp_path / "artifacts" / "ct_run")
++    seed_completed_run("ct_run", artifact_dir)
++    response = client.get("/runs/ct_run/charts/pie_chart")
++    assert response.status_code == 422
++
++
++def test_abort_run_returns_422(client):
++    run_store.insert_run("abort_run", "policy", QUESTION)
++    run_store.mark_aborted(
++        "abort_run",
++        pipeline_status="abort_corpus_inadequate",
++        abort_reason="corpus fails T1 threshold",
++    )
++    response = client.get("/runs/abort_run/charts/forest_plot")
++    assert response.status_code == 422
++
++
+ @pytest.mark.parametrize(
+     "chart_type", ["forest_plot", "comparison_table", "timeline"]
+ )
+-def test_charts_for_clinical_golden(client, chart_type):
+-    response = client.get(f"/runs/golden_clinical_001/charts/{chart_type}")
+-    assert response.status_code == 200
++def test_chart_types_render_for_a_live_run(client, tmp_path, chart_type):
++    artifact_dir = write_audit_ir_artifact_dir(
++        tmp_path / "artifacts" / "full_run",
++        bibliography=_BIBLIOGRAPHY,
++        contradictions=[_CONTRADICTION],
++        sections=[_SECTION_WITH_TOKENS],
++    )
++    seed_completed_run("full_run", artifact_dir)
++
++    response = client.get(f"/runs/full_run/charts/{chart_type}")
++    assert response.status_code == 200, response.text
+     spec = response.json()
+-    assert spec["$schema"].startswith("https://vega.github.io/schema/vega-lite/v5")
++    assert spec["$schema"].startswith(
++        "https://vega.github.io/schema/vega-lite/v5"
++    )
+     assert spec["polaris_provenance"]["chart_type"] == chart_type
+     assert isinstance(spec["polaris_provenance"]["evidence_ids"], list)
+ 
+ 
+-def test_charts_404_for_unknown_run(client):
+-    response = client.get("/runs/does_not_exist/charts/forest_plot")
+-    assert response.status_code == 404
++def test_forest_plot_uses_contradiction_value_spread(client, tmp_path):
++    # The forest point's bar is the real min-max of the values disagreeing
++    # sources reported; the point is their mean.
++    artifact_dir = write_audit_ir_artifact_dir(
++        tmp_path / "artifacts" / "contra_run",
++        contradictions=[_CONTRADICTION],
++    )
++    seed_completed_run("contra_run", artifact_dir)
+ 
++    response = client.get("/runs/contra_run/charts/forest_plot")
++    assert response.status_code == 200, response.text
++    values = response.json()["data"]["values"]
++    assert len(values) == 1
++    point = values[0]
++    assert point["label"] == "tirzepatide"  # cluster.subject
++    assert point["ci_low"] == 9.8
++    assert point["ci_high"] == 15.2
++    assert point["estimate"] == pytest.approx(12.5)
+ 
+-def test_charts_422_for_unknown_chart_type(client):
+-    response = client.get("/runs/golden_clinical_001/charts/pie_chart")
+-    assert response.status_code == 422
+ 
++def test_comparison_table_is_source_tier_mix(client, tmp_path):
++    artifact_dir = write_audit_ir_artifact_dir(
++        tmp_path / "artifacts" / "bib_run",
++        bibliography=_BIBLIOGRAPHY,
++    )
++    seed_completed_run("bib_run", artifact_dir)
++
++    response = client.get("/runs/bib_run/charts/comparison_table")
++    assert response.status_code == 200, response.text
++    rows = {r["entity"]: r["value"] for r in response.json()["data"]["values"]}
++    assert rows == {"Tier T1": 2.0, "Tier T2": 1.0}
+ 
+-def test_contradiction_run_forest_plot_has_contradiction_label(client):
+-    response = client.get(
+-        "/runs/golden_housing_002/charts/forest_plot"
++
++def test_timeline_steps_over_cited_sentences(client, tmp_path):
++    artifact_dir = write_audit_ir_artifact_dir(
++        tmp_path / "artifacts" / "timeline_run",
++        sections=[_SECTION_WITH_TOKENS],
+     )
+-    assert response.status_code == 200
+-    spec = response.json()
+-    labels = [datum["label"] for datum in spec["data"]["values"]]
+-    assert any(l.startswith("c_") for l in labels)
++    seed_completed_run("timeline_run", artifact_dir)
+ 
++    response = client.get("/runs/timeline_run/charts/timeline")
++    assert response.status_code == 200, response.text
++    periods = [d["period"] for d in response.json()["data"]["values"]]
++    assert periods == ["step-01", "step-02"]
+ 
+-def test_climate_timeline_uses_verified_sentence_steps(client):
+-    response = client.get("/runs/golden_climate_005/charts/timeline")
+-    assert response.status_code == 200
+-    spec = response.json()
+-    periods = [datum["period"] for datum in spec["data"]["values"]]
+-    assert all(p.startswith("step-") for p in periods)
++
++def test_forest_plot_section_rate_fallback_when_no_contradictions(
++    client, tmp_path
++):
++    # No contradictions -> one point per section with a genuine kept/total_in
++    # verification rate.
++    artifact_dir = write_audit_ir_artifact_dir(
++        tmp_path / "artifacts" / "norate_run",
++        sections=[_SECTION_WITH_TOKENS],  # 2 kept, total_in 4 -> rate 0.5
++    )
++    seed_completed_run("rate_run", artifact_dir)
++
++    response = client.get("/runs/rate_run/charts/forest_plot")
++    assert response.status_code == 200, response.text
++    values = response.json()["data"]["values"]
++    assert len(values) == 1
++    assert values[0]["label"] == "Efficacy"
++    assert values[0]["estimate"] == pytest.approx(0.5)
++
++
++def test_forest_plot_zero_total_in_section_does_not_500(client, tmp_path):
++    # A section whose total_in is absent loads as total_in == 0; the
++    # section-rate fallback must skip it (no ZeroDivisionError -> no 500)
++    # and degrade to the placeholder point (Codex brief iter-1 P1-2).
++    artifact_dir = write_audit_ir_artifact_dir(
++        tmp_path / "artifacts" / "zerotot_run",
++        sections=[
++            {
++                "title": "No total_in section",
++                "kept": [{"sentence": "A kept sentence.", "tokens": []}],
++                "dropped": [],
++            }
++        ],
++    )
++    seed_completed_run("zerotot_run", artifact_dir)
++
++    response = client.get("/runs/zerotot_run/charts/forest_plot")
++    assert response.status_code == 200, response.text
++    values = response.json()["data"]["values"]
++    assert len(values) == 1
++    assert values[0]["label"] == "(no data)"
 
-# canonical-diff-sha256: c81e94d2196cb18d9a0a7df188db4ad5656a528da7d10eb1ae940c6a711c4e64
+# canonical-diff-sha256: e7a211dc5b70f3de88801d4a5c561e103c7185909784aa195085663749bffcb0
