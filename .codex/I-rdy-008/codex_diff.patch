@@ -119,7 +119,7 @@ index 00000000..93d73dd1
 +
 +    return to_json_dict(ir)
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 789e6d5a..6b09d96b 100644
+index 789e6d5a..a7893bda 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -367,3 +367,12 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -134,7 +134,7 @@ index 789e6d5a..6b09d96b 100644
 +- iter 2: APPROVE — 0 P0/P1, 1 non-blocking P2 (also catch plain ValueError/TypeError from the loader — folded in). convergence accept_remaining. P1 trajectory 1→0. Slice 1 of ~12 for #504, Option A (Codex arch-decision consult verdict A — migrate the rich UI onto run_id→artifact_dir→load_audit_ir()→AuditIR). New src/polaris_v6/api/inspector.py — GET /api/inspector/runs/{run_id}; demo-scoped v6 facade (does NOT wholesale-mount inspector_router.py per the consult stale-correction). Backend only.
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
++- iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected; no explicit malformed-artifact_dir test — impl handles it). convergence accept_remaining. ast.parse 3/3; pytest 11 passed (5 new + 6 health/runs regression-free). Backend slice — no frontend. P1 trajectory 0.
 diff --git a/tests/v6/test_inspector_route.py b/tests/v6/test_inspector_route.py
 new file mode 100644
 index 00000000..75e6f1ad
@@ -258,4 +258,4 @@ index 00000000..75e6f1ad
 +    assert "manifest" in body
 +    assert "bibliography" in body
 +    assert "verified_report" in body
-# canonical-diff-sha256: 4e57cb57e95a7b62d77ab75af24378516ab68015c39bce33bb9fd74b6af9ec4c
+# canonical-diff-sha256: b1a64d716ea2d704acaa85a6e80faef0c192531ff14fe4d083b6724ca0011463
