@@ -41,6 +41,10 @@ opentelemetry-instrumentation-httpx==0.62b1
 # (GHSA-7gcm-g887-7qv7) affects 6.30.0rc1..6.33.4. Pin to patched range.
 protobuf==6.33.6
 
+# --- Backup tooling (I-rdy-016 / #547): GPG detached-signature path in
+# scripts/v6/backup_orchestrator_state.py (optional, gated on POLARIS_GPG_KEY_ID) ---
+python-gnupg==0.5.6
+
 # --- Test ---
 pytest==8.4.1
 pytest-asyncio==1.3.0

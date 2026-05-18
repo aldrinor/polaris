@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Non-blocking hardening: the expected-key check should compare against both verified.fingerprint and verified.pubkey_fingerprint, or resolve POLARIS_GPG_KEY_ID through the keyring first. As planned, suffix-matching only verified.fingerprint can false-reject valid signatures when the env var is an email/user-id selector or a primary fingerprint while GPG signs with a subkey."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

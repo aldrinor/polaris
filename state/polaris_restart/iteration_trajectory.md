@@ -330,3 +330,13 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata; the code commit f6a03ddf is the 1 new test file only). convergence accept_remaining. Test-only; ast.parse OK; pytest 15 passed (3 new + 12 sibling). P1 trajectory 0.
+
+## I-rdy-547 (#547) — GPG-sign orchestrator backup archives + restore --verify-sig
+
+### Brief review
+- iter 1: REQUEST_CHANGES — 1 P1 (sign_file(output=) leaves .data empty on success → false-reject), 3 P2 (lazy gnupg import; no-key-test env leak; sign before "backup OK").
+- iter 2: REQUEST_CHANGES — 1 P1 (tests/v6/ CI installs only requirements-v6.txt, lacks python-gnupg → ImportError), 1 P2 (verify should check expected key, not any keyring key).
+- iter 3: APPROVE — 0 P0/P1, 1 non-blocking P2 (expected-key check also consider pubkey_fingerprint for subkeys — folded into impl). convergence accept_remaining. Code+test feature: env-gated detached sign on backup + restore --verify-sig; python-gnupg direct (script self-contained); requirements-v6.txt += python-gnupg==0.5.6; new tests/v6/test_backup_gpg_sign.py (6 tests).
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 P2 (canonical diff includes iteration_trajectory.md — expected process metadata). convergence accept_remaining. ast.parse 2/2; pytest test_backup_gpg_sign 2 passed + 4 skipped (key tests skip on Windows gpg-agent — run on CI Linux), test_backup_restore 6/6 regression-free. Production ~97 LOC, test ~283 LOC (mandatory acceptance test). P1 trajectory: 1→1→0.
