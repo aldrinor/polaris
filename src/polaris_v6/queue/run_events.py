@@ -183,7 +183,10 @@ async def _check_lifecycle_terminal(external_run_id: str) -> bool:
     """Async wrapper for the sync sqlite lookup."""
     import asyncio  # noqa: PLC0415
     status = await asyncio.to_thread(_get_lifecycle_status, external_run_id)
-    return status in ("completed", "failed")
+    # I-rdy-011 (#507): `cancelled` is terminal — a queued-cancel writes no
+    # Redis terminal event, so without this an SSE consumer would hang on
+    # keepalives until the run is forgotten.
+    return status in ("completed", "failed", "cancelled")
 
 
 def _is_connection_failure(exc: BaseException) -> bool:

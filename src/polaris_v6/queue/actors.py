@@ -84,7 +84,23 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
     if run_store.get_run(run_id) is None:
         return {"run_id": run_id, "status": "completed", "echo": request_payload}
 
+    # I-rdy-011 (#507): honor a cancel requested before pipeline start.
+    # Cancellation is detected ONLY via is_cancel_requested — never inferred
+    # from the mark_in_progress CAS return, which is also False for a retry /
+    # duplicate delivery of an already-terminal run (Codex diff-iter-1 P1: a
+    # retry must NOT rewrite a 'failed'/'completed' row to 'cancelled'). The
+    # CAS itself still guards against resurrecting a just-cancelled row.
+    if run_store.is_cancel_requested(run_id):
+        run_store.mark_cancelled(run_id)
+        logger.info("[actor] run_id=%s cancelled before pipeline start", run_id)
+        return {"run_id": run_id, "status": "cancelled"}
     run_store.mark_in_progress(run_id)
+    # A cancel may have landed in the window above; the CAS means
+    # mark_in_progress did not resurrect the row if so.
+    if run_store.is_cancel_requested(run_id):
+        run_store.mark_cancelled(run_id)
+        logger.info("[actor] run_id=%s cancelled at pipeline start", run_id)
+        return {"run_id": run_id, "status": "cancelled"}
     decision_id = str(uuid.uuid4())
     output_root = Path(os.environ.get("POLARIS_V6_OUTPUT_ROOT", "outputs/v6_runs"))
     artifact_dir_root = output_root / run_id
@@ -212,10 +228,24 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
 
     run_store.set_pipeline_meta(run_id, manifest_run_id=manifest_run_id)
 
+    # I-rdy-011 (#507) — Codex diff-iter-2 P1: a cancel requested at ANY point
+    # during run_one_query (including the late evaluator/judge stage, past the
+    # last cooperative checkpoint) must win over a success/partial/abort
+    # manifest. This actor-side backstop guarantees the cooperative-cancel
+    # contract regardless of which pipeline stage the cancel landed in.
+    if run_store.is_cancel_requested(run_id):
+        run_store.mark_cancelled(run_id)
+        logger.info("[actor] run_id=%s cancelled during pipeline run", run_id)
+        return summary
+
     if pipeline_status == "success" or pipeline_status.startswith("partial_"):
         run_store.mark_completed(
             run_id, summary, pipeline_status=pipeline_status, cost_usd=cost_usd_f
         )
+    elif pipeline_status == "cancelled":
+        # I-rdy-011 (#507): pipeline-A wrote a cooperative-cancel manifest
+        # after observing cancel_requested at a stage boundary.
+        run_store.mark_cancelled(run_id)
     elif pipeline_status.startswith("abort_"):
         run_store.mark_aborted(
             run_id,
