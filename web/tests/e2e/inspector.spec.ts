@@ -3,9 +3,12 @@ import { expect, test } from "@playwright/test";
 /**
  * Phase 2C.1 — cross-feature integration tests for the Inspector route.
  *
- * Each test exercises one user-visible flow against live golden bundles.
- * No mocks — the backend serves real EvidenceContract JSON from
- * `tests/v6/fixtures/evidence_contract_v1/*.json`.
+ * Each test exercises one user-visible flow against a real
+ * `polaris_v6.api.app` backend. No mocks — the inspector page reads the
+ * faithful AuditIR via `GET /api/inspector/runs/{id}` and the verified
+ * evidence spans via `GET /api/inspector/runs/{id}/evidence`. The
+ * golden-fixture-only `getBundle()`/`EvidenceContract` dependency was
+ * removed in I-rdy-008 (#504) slice 7b (PR #597).
  */
 
 test.describe("Inspector — golden_clinical_001", () => {
@@ -44,10 +47,26 @@ test.describe("Inspector — golden_clinical_001", () => {
     await expect(page.getByText(/\[#ev:ev_clin_001:1200-1450\]/)).toBeVisible();
   });
 
-  test("Export bundle JSON button is present", async ({ page }) => {
-    await expect(
-      page.getByRole("button", { name: /Export bundle JSON/ }),
-    ).toBeVisible();
+  test("Evidence pool tab settles into a terminal PoolTab state", async ({
+    page,
+  }) => {
+    // I-rdy-008 (#504) slice 7b migrated PoolTab off the golden-fixture-only
+    // getBundle() onto GET /api/inspector/runs/{id}/evidence (the bundle
+    // Export button was removed in the same slice). The tab resolves to one
+    // of three terminal states: grouped evidence rows ("<id> · tier <T> ·
+    // <N> span(s)"), "No verified evidence spans for this run.", or
+    // "Evidence unavailable:". The transient "Loading evidence…"
+    // (evidence === null) state is NOT terminal — a test that accepts it
+    // would pass even if the evidence fetch never resolved.
+    await page
+      .getByRole("button", { name: /Evidence pool/ })
+      .first()
+      .click();
+    const terminalState = page.getByText(
+      /· tier .+ · \d+ span|No verified evidence spans for this run\.|Evidence unavailable:/,
+    );
+    await expect(terminalState.first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Loading evidence…")).toHaveCount(0);
   });
 });
 

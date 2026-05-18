@@ -1,6 +1,6 @@
-# Codex BRIEF review — I-rdy-008 / GH #504 slice 7b: migrate the inspector page off getBundle() onto the live evidence route
+# Codex BRIEF review — I-rdy-008 / GH #504 slice 7c: rebaseline the inspector e2e spec for the slice-7b data-path migration
 
-HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
 - Same quality bar regardless of iteration count.
 - "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
@@ -14,199 +14,158 @@ HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 
 Pre-implementation **brief** review — reviewing the *plan*, NOT a diff. No code written yet.
 
-## 0.1 This is slice 7b of #504 — the architecture is settled
+## 0.1 This is slice 7c of #504 — the last slice of the slice-7 split
 
-#504 (I-rdy-008, Phase 3.5 — "wire live runs into the rich UI"). Slices 1-6
-+ 7a merged (PR #590-#596). Slice 7 was split by a Codex architecture
+#504 (I-rdy-008, Phase 3.5 — "wire live runs into the rich UI"). Slices 1-6 +
+7a + 7b merged (PR #590-#597). Slice 7 was split by a Codex architecture
 consult (`.codex/I-rdy-008/slice7_arch_consult_verdict.txt`) into 7a backend
-/ 7b frontend / 7c tests. **7a shipped** the v6 route
-`GET /api/inspector/runs/{run_id}/evidence`. **This is slice 7b — the
-frontend migration; a normal implementation brief, architecture settled.**
+evidence route / 7b frontend migration / **7c test rebaseline**. 7a (PR #596)
+shipped `GET /api/inspector/runs/{run_id}/evidence`; 7b (PR #597) migrated the
+inspector page off the golden-fixture-only `getBundle()` onto that route.
+Slice 7c is the test rebaseline. After 7c, #504 continues with slices 8-12.
 
-**Why 7b matters:** the inspector page currently dual-fetches `getAuditRun()`
-+ `getBundle()` and gates its body on `{ir && bundle}`. `getBundle()` hits a
-**golden-fixture-only** route — it 404s for every live run. So the inspector
-page works ONLY for the 7 golden fixtures today; slices 3-6 migrated
-rendering but kept the `bundle` dependency. **7b removes that dependency so
-the page works for live runs.**
+This is a NORMAL implementation brief (Codex reviews the plan). The slice-7
+architecture is settled.
 
-## 1. Grounded state (`polaris` HEAD `2e4ef83f`)
+## 1. What slice 7b changed (the thing 7c must rebaseline against)
 
-### 1.1 `web/app/inspector/[runId]/page.tsx` (1095 lines)
+PR #597 (`web/app/inspector/[runId]/page.tsx`):
+- Removed the **"Export bundle JSON" header button** + `downloadBundleAsJson`.
+- Migrated `PoolTab` + `EvidencePane` off `getBundle()`/`EvidenceContract`
+  onto `getInspectorEvidence()` → `GET /api/inspector/runs/{id}/evidence`.
+- The body gate `ir && bundle` → `ir`; the evidence fetch is now an
+  independent fetch — a 422/failure sets `evidenceError` and degrades ONLY
+  the Pool tab + `EvidencePane`, never the rest of the page.
 
-- `InspectorPage` — `useEffect` dual-fetches `getAuditRun()→ir` +
-  `getBundle()→bundle`; both `.catch`→`setError`. Body gated `{ir && bundle &&
-  …}`. State: `ir`, `bundle`, `error`, `selectedEvidence: SourceSpan|null`,
-  `activeTab`.
-- `evidenceById(id) = bundle?.evidence_pool.find(s => s.evidence_id===id)`
-  → `SourceSpan|null`. Every tab's `onSelect={(id) =>
-  setSelectedEvidence(evidenceById(id))}` (summary/sentences/contradictions/
-  pool/charts).
-- `tabs` array gated `ir && bundle`; the `pool` count is
-  `bundle.evidence_pool.length` (every other count already `ir.*`).
-- Header "Export bundle JSON" button → `downloadBundleAsJson(bundle)`.
-- `PoolTab({bundle, onSelect})` — maps `bundle.evidence_pool` (`SourceSpan[]`)
-  → buttons (`evidence_id · tier · span_text[:120]`).
-- `EvidencePane({span: SourceSpan|null, onClose})` — renders one `SourceSpan`
-  (`evidence_id · tier`, `source_url` link, `chars start–end`, `span_text`).
-- `SentencesTab` takes `bundle` ONLY for the contradiction-in-section badge
-  (`new Set(bundle.contradictions.map(c => c.section_id))`).
-- `ChartsTab` uses the separate `getChart()` route — NOT `getBundle()` —
-  unaffected.
+## 2. Grounding (done — Codex should VERIFY, not re-discover)
 
-### 1.2 `web/lib/api.ts`
+**The CI e2e job runs exactly 4 specs.** `.github/workflows/web_ci.yml` job
+`e2e_playwright` starts a real `uvicorn polaris_v6.api.app:app` backend +
+`next start`, then runs ONLY: `tests/e2e/inspector.spec.ts` (step
+`run_e2e_inspector`), `accessibility.spec.ts`, `performance.spec.ts`,
+`evidence_tooltip_perf.spec.ts`. The 16+ `sentence_inspector_*.spec.ts` files
+are **NOT CI-run**.
 
-- `getBundle()` → `GET ${BACKEND_URL}/runs/{runId}/bundle` →
-  `EvidenceContract` (golden-fixture-only). `SourceSpan` =
-  `{evidence_id, source_url, source_tier: "T1"|"T2"|"T3", span_start,
-  span_end, span_text}`. `downloadBundleAsJson(bundle)`.
-- The slice-7a route `GET /api/inspector/runs/{run_id}/evidence` returns
-  `{run_id, spans: [{evidence_id, span_start, span_end, span_text,
-  tier (raw string), source_url, claim_ids}]}` — **range-keyed**: one
-  `evidence_id` can have multiple spans.
+**Only `inspector.spec.ts` carries a slice-7b-broken assertion.** I grepped
+all 4 CI-run specs for `Export` / `bundle` / `getBundle` / `EvidenceContract`
+/ `downloadBundle` / `Pool` / `/evidence`:
+- `accessibility.spec.ts` — zero slice-7b-affected refs.
+- `performance.spec.ts` — zero slice-7b-affected refs.
+- `evidence_tooltip_perf.spec.ts` — zero slice-7b-affected refs (it exercises
+  the `EvidenceTooltip` hover-card on the Verified-sentences tab, which is
+  AuditIR-backed since slice 4 — untouched by 7b).
+- `inspector.spec.ts` — **one broken test**: `"Export bundle JSON button is
+  present"` (lines 47-51) asserts `getByRole("button", {name:/Export bundle
+  JSON/})` is visible; slice 7b removed that button. Also the file-header
+  comment (lines 3-9) is now stale: it says "the backend serves real
+  EvidenceContract JSON from `tests/v6/fixtures/evidence_contract_v1/*.json`"
+  — the inspector page now reads `GET /api/inspector/runs/{id}` (AuditIR) +
+  `GET /api/inspector/runs/{id}/evidence`.
 
-## 2. The plan — `web/lib/api.ts` + `web/app/inspector/[runId]/page.tsx`
+**No e2e spec currently clicks the Evidence-pool tab** — grep of
+`web/tests/e2e/*.spec.ts` for `Evidence pool` / `pool tab` / `Pool` returns
+nothing. The Pool tab — the surface 7b rewrote — has zero e2e coverage.
 
-### 2.1 `web/lib/api.ts`
+**Open question — golden-run `evidence_pool.json` (a scope-boundary call,
+see §3).** The CI backend resolves the golden runs (`golden_clinical_001`
+etc.) through `get_inspector_run` → `run_store` → `artifact_dir` →
+`load_audit_ir`. The slice-7a `/evidence` route additionally requires
+`artifact_dir/evidence_pool.json` and fails loud (422) if absent. I could
+not locate where/whether the golden-run artifact_dirs carry
+`evidence_pool.json` (no golden-run seeding found in `app.py`, no
+`inspector_seed` module; `golden_clinical_001` appears only in `bundle.py`'s
+`_GOLDEN_RUN_INDEX`). If the golden artifact_dirs lack `evidence_pool.json`,
+the Pool tab renders the honest "Evidence unavailable" state for golden runs
+— which is correct slice-7b fail-loud behavior, not a bug.
 
-Add (alongside the slice-2 `AuditIr*` block):
-- `AuditIrEvidenceSpan` = `{evidence_id, span_start, span_end, span_text,
-  tier: string, source_url, claim_ids: string[]}`.
-- `AuditIrEvidenceResponse` = `{run_id, spans: AuditIrEvidenceSpan[]}`.
-- `getInspectorEvidence(runId): Promise<AuditIrEvidenceResponse>` →
-  `authFetch(\`${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}
-  /evidence\`)` → `asJsonOrThrow`.
+## 3. Plan
 
-### 2.2 `web/app/inspector/[runId]/page.tsx`
+**One file: `web/tests/e2e/inspector.spec.ts`.** No production-code change,
+no fixture change, no backend change.
 
-**The `onSelect(id: string)` signature is UNCHANGED** — the key
-simplification. `EvidencePane` is keyed by `evidence_id` but renders **every
-range** of that evidence (Codex consult risk: "do not key by evidence_id
-alone; live runs cite multiple ranges" — satisfied by showing all ranges,
-not by changing the click signature across 4 call sites).
+1. **Fix the stale header comment** (lines 3-9) — describe the actual data
+   path: the inspector page reads `GET /api/inspector/runs/{id}` (the
+   faithful AuditIR) + `GET /api/inspector/runs/{id}/evidence` (the verified
+   evidence spans), served by a real `polaris_v6.api.app` backend.
+2. **Replace the `"Export bundle JSON button is present"` test** — the
+   button no longer exists. Replace it with an **Evidence-pool tab test that
+   waits for a FINAL `PoolTab` state**: navigate to `golden_clinical_001`,
+   click the "Evidence pool" tab, then assert the tab panel SETTLES into one
+   of the three terminal `PoolTab` states — the grouped evidence list (a row
+   per `evidence_id`), OR "No verified evidence spans for this run.", OR
+   "Evidence unavailable:". Use a Playwright web-first assertion that retries
+   until a final state is visible (e.g. `expect(locator).toBeVisible()` on a
+   locator that matches any of the three terminal states; or assert the
+   transient state has cleared first).
+   **The transient "Loading evidence…" state is explicitly NOT an accepted
+   pass condition** (Codex brief iter-1 P1): `PoolTab` renders "Loading
+   evidence…" whenever `evidence === null` (the pre-fetch state), so a test
+   that accepts it would pass even if the evidence request never resolves or
+   is mis-wired. The test must wait past "Loading evidence…" to a terminal
+   state; it MAY additionally assert "Loading evidence…" is transient (was
+   visible, then gone), but must never treat it as terminal. This assertion
+   does NOT depend on golden-fixture `evidence_pool.json` being present
+   (any of the three terminal states satisfies it), so it is robust to the
+   §2 open question — while still proving the evidence fetch actually
+   resolved. This gives the 7b-rewritten Pool tab its first e2e coverage.
+3. The other `inspector.spec.ts` tests (KPI cards, two-family invariant,
+   Executive-summary default tab, Verified-sentences provenance tokens,
+   Contradictions `noted_both`, Charts Vega-Lite, Dashboard scope) are NOT
+   slice-7b-affected and stay verbatim.
 
-- **Fetch:** `useEffect` fetches `getAuditRun()→ir` + `getInspectorEvidence()
-  →evidence`. `getBundle()` is removed.
-- **State:** `bundle` → `evidence: AuditIrEvidenceResponse | null`;
-  `evidenceError: string | null` (separate from the page `error`);
-  `selectedEvidenceId: string | null` (was `selectedEvidence: SourceSpan`).
-- **Gate:** the body gate `{ir && bundle}` → `{ir &&}`. `ir` failing
-  (404/409/422) still shows the error panel. The **evidence fetch is
-  independent** — if it 422s (e.g. a run with no `evidence_pool.json`), the
-  page still renders shell + summary + sentences + frames + contradictions;
-  only `PoolTab`/`EvidencePane` show `evidenceError`. This is why the page
-  now works for live runs: the shell no longer hard-requires the
-  golden-fixture bundle.
-- **`evidenceById` → `spansForEvidenceId(id)`** = `evidence?.spans.filter(s
-  => s.evidence_id === id) ?? []`.
-- **`PoolTab({evidence, evidenceError, onSelect})`** — if `evidenceError`,
-  render it; else group `evidence.spans` by `evidence_id` and render one row
-  per evidence id (id · tier · span count · first span_text excerpt);
-  `onClick → onSelect(evidence_id)`.
-- **`EvidencePane({spans, evidenceId, onClose})`** — `spans` = the selected
-  id's spans; renders `evidence_id · tier`, `source_url` link, then EACH span
-  (`chars start–end` + `span_text` `<pre>`). Empty/no-selection → the "Click
-  a token to inspect" placeholder.
-- **`tabs`:** gate `ir &&` (drop `&& bundle`); `pool` count = the count of
-  distinct `evidence_id`s in `evidence.spans` (0 when evidence unloaded).
-- **`SentencesTab`:** drop the `bundle` prop and the contradiction-in-section
-  badge + `onJumpToContradictions` (Codex consult: AuditIR contradiction
-  clusters carry no section — remove the badge; §3.3).
-- **Export button:** removed (Codex consult: do not export `EvidenceContract`
-  as the live audit artifact; §3.4).
-- **Imports:** drop `getBundle`, `downloadBundleAsJson`, `EvidenceContract`,
-  `SourceSpan`; add `getInspectorEvidence`, `AuditIrEvidenceResponse`,
-  `AuditIrEvidenceSpan`.
+## 4. Scope-boundary calls (Codex: rule accept / adjust)
 
-## 3. Scope-boundary calls for Codex — please rule explicitly
-
-**3.1 — `onSelect(id)` unchanged; EvidencePane shows ALL ranges of the
-clicked `evidence_id`.** The 7a route is range-keyed but the 4 click sources
-(`renderSentenceWithTokens`, `ContradictionsTab`, `ExecutiveSummaryTab`/
-`ChartsTab` chart data) pass only an `evidence_id`. Rather than thread
-`(id,start,end)` through all of them, `EvidencePane` is keyed by
-`evidence_id` and renders every cited range. Rule: accept (no lossy
-single-range pick; no 4-call-site signature churn), or require threading the
-exact range?
-
-**3.2 — evidence fetch is independent of the page gate.** The body gates on
-`ir` only; the evidence fetch's failure (422 for a run without
-`evidence_pool.json`) degrades ONLY `PoolTab`/`EvidencePane` (they show
-`evidenceError`), not the whole page. This is deliberate — it is what makes
-the page work for live runs whose evidence is fetched separately. Rule:
-accept?
-
-**3.3 — drop the SentencesTab contradiction-in-section badge.** It read
-`bundle.contradictions[].section_id`; AuditIR contradiction clusters carry no
-section. The Codex arch consult said "replace with an AuditIR-derived signal
-or remove it." Plan: remove the badge + the now-unused `onJumpToContradictions`
-prop. Rule: accept removal (no faithful AuditIR section linkage exists), or
-require a derived signal?
-
-**3.4 — remove the "Export bundle JSON" button.** It exported the
-golden-fixture `EvidenceContract`. The Codex consult said do not export
-`EvidenceContract` as the live audit artifact. Plan: remove the button (a
-later slice may add an AuditIR/audit-bundle export). Rule: accept removal?
-
-**3.5 — one PR vs split.** This is one cohesive `web/lib/api.ts` +
-`web/app/inspector/[runId]/page.tsx` change (the `onSelect`-unchanged design
-in §3.1 bounds it — no signature churn). Estimated ~200-250 line churn.
-Rule: accept as one slice 7b PR, or split (e.g. 7b-1 evidence client +
-PoolTab/EvidencePane; 7b-2 gate-flip + getBundle removal + badge/Export)?
-
-**3.6 — `ChartsTab` stays.** It uses `getChart()` (a separate route), not
-`getBundle()` — unaffected by 7b; its `onSelect` chart-click still resolves
-through the (now evidence-backed) `spansForEvidenceId`. Confirm no action.
-
-## 4. Scope boundary
-
-- **IN:** `web/lib/api.ts` (the evidence client + 2 types);
-  `web/app/inspector/[runId]/page.tsx` (fetch, gate, `PoolTab`,
-  `EvidencePane`, `SentencesTab` badge removal, Export removal, imports).
-- **OUT:** `web/app/runs/[runId]/page.tsx` (also uses `getBundle()` — a
-  separate page, not #504-inspector scope); `src/**` (7a shipped the route);
-  `src/polaris_v6/api/bundle.py` (the golden-fixture route stays for
-  legacy/F15); slice 7c (inspector e2e/demo fixture rebaseline).
+- **3.1 — `inspector.spec.ts` only.** Slice 7c rebaselines exactly the one
+  CI-run spec with a slice-7b-broken assertion. Recommend ACCEPT.
+- **3.2 — replace the Export test with a Pool-tab render test** (vs. just
+  delete it, vs. a negative "Export button absent" assertion). The Pool tab
+  is the surface 7b rewrote and currently has zero e2e coverage; a
+  positive render test is the higher-value choice and keeps the spec count
+  stable. Recommend ACCEPT the Pool-tab render test.
+- **3.3 — the Pool-tab test waits for any of the three TERMINAL states**
+  (grouped rows / "No verified evidence spans" / "Evidence unavailable") —
+  not specific span content, and explicitly not the transient "Loading
+  evidence…" state (Codex brief iter-1 P1, addressed in §3 step 2) — so it
+  does not require adding `evidence_pool.json` to the golden fixtures while
+  still proving the evidence fetch resolves. Adding golden-fixture
+  `evidence_pool.json` so the Pool tab shows real spans in the demo is a
+  REAL follow-up (it affects the demo experience for #504) but is fixture
+  work beyond a test rebaseline — recommend DEFER to a follow-up issue, not
+  slice 7c. Codex: rule whether the state-agnostic test is acceptable for
+  7c or whether the fixture work must land here.
+- **3.4 — the 16+ `sentence_inspector_*.spec.ts` are NOT CI-run** and are
+  out of scope for 7c. Recommend ACCEPT (out of scope; no CI gate depends
+  on them).
+- **3.5 — slice 7c does not attempt to fix pre-existing, non-slice-7b e2e
+  failures.** The `e2e_playwright` CI job has been red across slices (a
+  documented loop NON-halt). Slice 7c makes the `inspector.spec.ts`
+  assertions CORRECT for the post-7b page; it does not claim to turn the
+  whole e2e job green. Recommend ACCEPT.
 
 ## 5. Smoke test
 
-Frontend change → the `lint + format + typecheck + build` CI job is IN
-SCOPE. Offline: `cd web && npx prettier --write` the 2 files
-`&& npm run format:check && npm run lint && npm run typecheck && npm run
-build` — all green. The 1 pre-existing inspector-page lint warning
-(`chartTypes` `exhaustive-deps`) must not increase. No new unit test (a
-data-source swap; consistent with slices 3-6 — slice 7c handles e2e/demo
-fixtures).
+`cd web && npx prettier --write tests/e2e/inspector.spec.ts && npm run lint &&
+npm run typecheck && npm run build`. The changed file is a Playwright spec
+(not built into the Next bundle); lint + typecheck cover it. The e2e job
+itself runs only in CI (needs the live backend) — not part of the offline
+smoke.
 
 ## 6. Files I have ALSO checked and they're clean
 
-- `src/polaris_v6/api/inspector.py` — the 7a `/evidence` route the client
-  targets; NOT modified.
-- `web/lib/api.ts` — `getAuditRun` + `AuditIr*` (slice 2); `getChart` (used
-  by `ChartsTab`, kept); `getBundle`/`EvidenceContract`/`SourceSpan`/
-  `downloadBundleAsJson` become unreferenced by the inspector page after 7b
-  but are NOT deleted from api.ts (`web/app/runs/[runId]/page.tsx` still
-  imports `getBundle`) — only the inspector page's imports drop them.
-- `web/app/runs/[runId]/page.tsx` — separate page; still uses `getBundle()`;
-  out of #504-inspector scope; NOT modified.
-- `ChartsTab` — `getChart()`-backed; NOT modified.
+- `web/tests/e2e/accessibility.spec.ts`, `performance.spec.ts`,
+  `evidence_tooltip_perf.spec.ts` — the 3 other CI-run e2e specs; zero
+  slice-7b-affected assertions; NOT modified.
+- `.github/workflows/web_ci.yml` — confirms the `e2e_playwright` job runs
+  exactly those 4 specs against a live backend; NOT modified.
+- `web/app/inspector/[runId]/page.tsx` — the slice-7b page (the thing the
+  spec is rebaselined against); NOT modified (7b shipped it).
+- `web/components/ui/evidence-tooltip.tsx` — `EvidenceTooltip`, exercised by
+  `evidence_tooltip_perf.spec.ts`; AuditIR-backed since slice 4; NOT touched
+  by 7b or 7c.
+- `web/tests/e2e/sentence_inspector_*.spec.ts` (16+ files) — NOT CI-run, out
+  of scope, NOT modified.
 
-## 7. Acceptance criteria for THIS PR (slice 7b)
-
-1. `web/lib/api.ts` gains `getInspectorEvidence()` + `AuditIrEvidenceSpan`/
-   `AuditIrEvidenceResponse`.
-2. The inspector page fetches `getAuditRun()` + `getInspectorEvidence()`,
-   gates the body on `ir` only, and no longer calls `getBundle()`.
-3. `PoolTab` + `EvidencePane` render the AuditIR evidence spans; a clicked
-   `evidence_id` shows all its ranges; an evidence-fetch failure degrades
-   only those two surfaces.
-4. The SentencesTab contradiction badge + the Export button are removed; the
-   `getBundle`/`EvidenceContract`/`SourceSpan`/`downloadBundleAsJson` imports
-   are dropped from the inspector page.
-5. `format:check` + `lint` + `typecheck` + `build` green; pre-existing
-   lint-warning count not increased; only the 2 named files changed.
-
-## 8. Required output schema (§8.3.9)
+## 7. Output schema (§8.3.9)
 
 ```yaml
 verdict: APPROVE | REQUEST_CHANGES
