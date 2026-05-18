@@ -413,3 +413,6 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 
 ### Brief review
 - iter 1: APPROVE — 0 P0/P1, 1 P2 (render source_url link only when non-empty — loader defaults missing to "" — baked into commit 1; all 6 §3 scope-boundary calls ruled accept: N-claim cluster list replaces 2-sided A/B; cluster_id key-only header; recommended_action as the resolution successor; bundle-backed onSelect during dual-fetch; full claim detail; SentencesTab contradiction-in-section badge unaffected). convergence accept_remaining. Slice 6 of ~12 for #504, Option A. web/app/inspector/[runId]/page.tsx only — ContradictionsTab migrates off EvidenceContract onto AuditIR contradictions (AuditIrContradictionCluster → AuditIrContradictionClaim); ChartsTab/PoolTab/EvidencePane intentionally untouched (slices 7+). ~22k tokens.
+
+### Diff review
+- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff alongside page.tsx — expected process metadata, same note as slices 1-5). convergence accept_remaining. web/app/inspector/[runId]/page.tsx +77/-38 — ContradictionsTab on AuditIR N-claim clusters. prettier/lint(0 err)/tsc/build green. P1 trajectory 0. ~82k tokens.
