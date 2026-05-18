@@ -24,6 +24,7 @@ from polaris_v6.api.charts import router as charts_router
 from polaris_v6.api.compare import router as compare_router
 from polaris_v6.api.followup import router as followup_router
 from polaris_v6.api.health import router as health_router
+from polaris_v6.api.inspector import router as inspector_router
 from polaris_v6.api.memory import router as memory_router
 from polaris_v6.api.runs import router as runs_router
 from polaris_v6.api.scope import router as scope_router
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
     app.include_router(charts_router)
     app.include_router(followup_router)
     app.include_router(compare_router)
+    app.include_router(inspector_router)
     app.include_router(memory_router)
     app.include_router(templates_router)
     app.include_router(transparency_router)
