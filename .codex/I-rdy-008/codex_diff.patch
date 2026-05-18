@@ -1,261 +1,265 @@
-diff --git a/src/polaris_v6/api/app.py b/src/polaris_v6/api/app.py
-index 1f5c33aa..85833a26 100644
---- a/src/polaris_v6/api/app.py
-+++ b/src/polaris_v6/api/app.py
-@@ -24,6 +24,7 @@ from polaris_v6.api.charts import router as charts_router
- from polaris_v6.api.compare import router as compare_router
- from polaris_v6.api.followup import router as followup_router
- from polaris_v6.api.health import router as health_router
-+from polaris_v6.api.inspector import router as inspector_router
- from polaris_v6.api.memory import router as memory_router
- from polaris_v6.api.runs import router as runs_router
- from polaris_v6.api.scope import router as scope_router
-@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
-     app.include_router(charts_router)
-     app.include_router(followup_router)
-     app.include_router(compare_router)
-+    app.include_router(inspector_router)
-     app.include_router(memory_router)
-     app.include_router(templates_router)
-     app.include_router(transparency_router)
-diff --git a/src/polaris_v6/api/inspector.py b/src/polaris_v6/api/inspector.py
-new file mode 100644
-index 00000000..93d73dd1
---- /dev/null
-+++ b/src/polaris_v6/api/inspector.py
-@@ -0,0 +1,94 @@
-+"""GET /api/inspector/runs/{run_id} — v6 live-inspector AuditIR resolver.
-+
-+I-rdy-008 (#504) slice 1, Option A (Codex architecture-decision consult,
-+`.codex/I-rdy-008/arch_decision_verdict.txt`): the rich UI surfaces migrate
-+onto the canonical completed-run path
-+`run_id -> artifact_dir -> load_audit_ir() -> AuditIR`.
-+
-+This is the demo-scoped v6 facade route — it exposes ONE completed-run read.
-+It deliberately does NOT mount `polaris_graph.audit_ir.inspector_router`, which
-+in current HEAD also carries non-demo surfaces (jobs, workspaces, operator
-+dashboards, metrics) per the consult's stale-correction.
-+
-+Per `docs/live_run_artifact_contract.md` (#503) §2.3: `abort_*` / `error_*`
-+runs are pipeline-verdict artifacts, NOT AuditIR-loadable — rejected before
-+the loader is called.
-+"""
-+
-+from __future__ import annotations
-+
-+from pathlib import Path
-+from typing import Any
-+
-+from fastapi import APIRouter, HTTPException
-+
-+from polaris_graph.audit_ir.loader import load_audit_ir
-+from polaris_graph.audit_ir.serializer import to_json_dict
-+from polaris_v6.queue import run_store
-+
-+router = APIRouter(prefix="/api/inspector", tags=["inspector"])
-+
-+
-+@router.get("/runs/{run_id}")
-+def get_inspector_run(run_id: str) -> dict[str, Any]:
-+    """Return the full faithful AuditIR for a completed run as a JSON dict.
-+
-+    The canonical data source for the Evidence Inspector and every derivative
-+    rich surface (I-rdy-008 #504, Option A). Resolution:
-+
-+    - unknown run -> 404
-+    - run not completed -> 409
-+    - abort_* / error_* run -> 422 (no AuditIR-loadable artifacts)
-+    - missing / absent artifact_dir -> 404
-+    - artifact_dir present but unloadable -> 422 (fail loud, no zero-fill)
-+    - completed loadable run -> 200, full AuditIR JSON
-+    """
-+    record = run_store.get_run(run_id)
-+    if record is None:
-+        raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
-+
-+    if record.lifecycle_status != "completed":
-+        raise HTTPException(
-+            status_code=409,
-+            detail=(
-+                f"run {run_id} is not completed "
-+                f"(lifecycle_status={record.lifecycle_status!r})"
-+            ),
-+        )
-+
-+    status = record.pipeline_status or ""
-+    if status.startswith("abort_") or status.startswith("error_"):
-+        raise HTTPException(
-+            status_code=422,
-+            detail=(
-+                f"run {run_id} produced no AuditIR-loadable artifacts "
-+                f"(pipeline_status={status!r}); it is a pipeline-verdict "
-+                f"artifact, not a renderable run"
-+            ),
-+        )
-+
-+    if not record.artifact_dir:
-+        raise HTTPException(
-+            status_code=404,
-+            detail=f"run {run_id} has no artifact_dir recorded",
-+        )
-+    artifact_dir = Path(record.artifact_dir)
-+    if not artifact_dir.is_dir():
-+        raise HTTPException(
-+            status_code=404,
-+            detail=f"artifact_dir does not exist on disk: {artifact_dir}",
-+        )
-+
-+    try:
-+        ir = load_audit_ir(artifact_dir)
-+    except (FileNotFoundError, NotADirectoryError, ValueError, TypeError) as exc:
-+        # AuditIRSchemaError and json.JSONDecodeError are both ValueError
-+        # subclasses; plain ValueError / TypeError also catch malformed
-+        # numeric fields (Codex brief iter-2 P2). Fail loud per audit-grade
-+        # discipline — no silent zero-fill of canonical structures.
-+        raise HTTPException(
-+            status_code=422,
-+            detail=f"run {run_id} artifact_dir failed AuditIR load: {exc}",
-+        ) from exc
-+
-+    return to_json_dict(ir)
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 789e6d5a..a7893bda 100644
+index a7893bda..56d10e8c 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -367,3 +367,12 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
+@@ -376,3 +376,11 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
  
  ### Diff review
- - iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (doc §2.3 wording 'schema marks required only under non-abort' vs the schema's root required=[manifest] with no if/then conditional — accepted: the optional-at-root schema achieves the abort-dir effect; Codex 'prose contract otherwise correct'). convergence accept_remaining. Docs-only, no code; schema check_schema PASS + validates real success+abort artifacts. P1 trajectory 0.
+ - iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected; no explicit malformed-artifact_dir test — impl handles it). convergence accept_remaining. ast.parse 3/3; pytest 11 passed (5 new + 6 health/runs regression-free). Backend slice — no frontend. P1 trajectory 0.
 +
-+## I-rdy-008 (#504) slice 1 — v6 live-inspector AuditIR resolver route
++## I-rdy-008 (#504) slice 2 — frontend AuditIR client helper + types
 +
 +### Brief review
-+- iter 1: REQUEST_CHANGES — 1 P1 (loadable test depended on gitignored outputs/honest_sweep_r3 — not clean-checkout reproducible), 3 P2 (run_id should be str not UUID-typed; tests must seed POLARIS_V6_RUN_DB; map json.JSONDecodeError too).
-+- iter 2: APPROVE — 0 P0/P1, 1 non-blocking P2 (also catch plain ValueError/TypeError from the loader — folded in). convergence accept_remaining. P1 trajectory 1→0. Slice 1 of ~12 for #504, Option A (Codex arch-decision consult verdict A — migrate the rich UI onto run_id→artifact_dir→load_audit_ir()→AuditIR). New src/polaris_v6/api/inspector.py — GET /api/inspector/runs/{run_id}; demo-scoped v6 facade (does NOT wholesale-mount inspector_router.py per the consult stale-correction). Backend only.
++- iter 1: APPROVE — clean, 0 P0/P1/P2. convergence accept_remaining. Slice 2 of ~12 for #504, Option A. web/lib/api.ts only — 17 AuditIr* TS interfaces mirroring the AuditIR dataclass tree + getAuditRun() → the slice-1 route. Frontend-lib only, no web/app/** change. Web smoke: prettier/tsc/eslint(0 err)/build all green.
 +
 +### Diff review
-+- iter 1: APPROVE — 0 P0, 0 P1, 2 non-blocking P2 (trajectory file in canonical diff — expected; no explicit malformed-artifact_dir test — impl handles it). convergence accept_remaining. ast.parse 3/3; pytest 11 passed (5 new + 6 health/runs regression-free). Backend slice — no frontend. P1 trajectory 0.
-diff --git a/tests/v6/test_inspector_route.py b/tests/v6/test_inspector_route.py
-new file mode 100644
-index 00000000..75e6f1ad
---- /dev/null
-+++ b/tests/v6/test_inspector_route.py
-@@ -0,0 +1,117 @@
-+"""GET /api/inspector/runs/{run_id} — v6 live-inspector AuditIR route.
++- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff — expected process metadata). convergence accept_remaining. web/lib/api.ts +240 — 17 AuditIr* TS interfaces + getAuditRun(). prettier/tsc/eslint(0 err)/build green. P1 trajectory 0.
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index ca1f76fb..d02ef94f 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -1167,3 +1167,243 @@ export async function getRunGraph(runId: string): Promise<GraphPayload> {
+   }
+   return res.json() as Promise<GraphPayload>;
+ }
 +
-+I-rdy-008 (#504) slice 1. Covers the 5 resolution outcomes: unknown run,
-+not-completed run, abort run, completed-but-unloadable run, and a loadable
-+completed run. The loadable case builds a complete minimal artifact_dir under
-+tmp_path — clean-checkout reproducible, no dependency on the gitignored
-+outputs/ tree (Codex brief iter-1 P1).
-+"""
++// ---------------------------------------------------------------------------
++// I-rdy-008 (#504) slice 2 — live-run AuditIR client.
++// Mirrors the to_json_dict() projection of the AuditIR dataclass tree in
++// src/polaris_graph/audit_ir/loader.py. The canonical faithful shape for the
++// rich UI surfaces (Option A, Codex arch-decision consult): raw T1-T7 tiers,
++// range-keyed evidence-span tokens, no EvidenceContract coercion. The UI
++// migration off getBundle()/EvidenceContract is slice 3.
++// ---------------------------------------------------------------------------
 +
-+from __future__ import annotations
++export interface AuditIrEvidenceSpanToken {
++  evidence_id: string;
++  start: number;
++  end: number;
++}
 +
-+import json
-+from pathlib import Path
++export interface AuditIrBibliographyEntry {
++  num: number;
++  evidence_id: string;
++  statement: string;
++  tier: string;
++  url: string;
++}
 +
-+import pytest
++export interface AuditIrSentence {
++  claim_id: string;
++  section: string;
++  text: string;
++  tokens: AuditIrEvidenceSpanToken[];
++  is_verified: boolean;
++  failure_reasons: string[];
++}
 +
-+from polaris_v6.queue import run_store
++export interface AuditIrSection {
++  title: string;
++  kept_count: number;
++  dropped_count: number;
++  total_in: number;
++  dropped_due_to_failure: number;
++  sentences: AuditIrSentence[];
++}
 +
-+_QUESTION = "What does the latest evidence show on this topic?"
++export interface AuditIrVerifiedReport {
++  sections: AuditIrSection[];
++  sentences_verified: number;
++  sentences_dropped: number;
++  drop_reason_counts: Record<string, number>;
++}
 +
++export interface AuditIrContradictionClaim {
++  evidence_id: string;
++  subject: string;
++  predicate: string;
++  arm: string;
++  dose: string;
++  value: number;
++  unit: string;
++  source_tier: string;
++  source_url: string;
++  context_snippet: string;
++  endpoint_phrase: string;
++}
 +
-+def _write_minimal_artifact_dir(d: Path) -> Path:
-+    """A complete minimal artifact_dir that ``load_audit_ir()`` accepts.
++export interface AuditIrContradictionCluster {
++  cluster_id: number;
++  subject: string;
++  predicate: string;
++  severity: string;
++  absolute_difference: number;
++  relative_difference: number;
++  recommended_action: string;
++  claims: AuditIrContradictionClaim[];
++}
 +
-+    Writes exactly the 5 loader-required files with the keys
-+    ``src/polaris_graph/audit_ir/loader.py`` requires — no more.
-+    """
-+    d.mkdir(parents=True, exist_ok=True)
-+    (d / "manifest.json").write_text(
-+        json.dumps(
-+            {
-+                "run_id": "manifest_run_1",
-+                "slug": "inspector_test_slug",
-+                "status": "success",
-+                "question": _QUESTION,
-+                "protocol_sha256": "0" * 64,
-+                "completeness": {"covered_fraction": 1.0},
-+                "evaluator_gate": {"gate_class": "release", "release_allowed": True},
-+                "corpus": {"count": 1, "tier_fractions": {"T1": 1.0}},
-+                "frame_coverage_report": {"entries": [], "by_status": {}},
-+            }
-+        ),
-+        encoding="utf-8",
-+    )
-+    (d / "report.md").write_text("# Research report\n\nMinimal.\n", encoding="utf-8")
-+    (d / "bibliography.json").write_text("[]", encoding="utf-8")
-+    (d / "contradictions.json").write_text("[]", encoding="utf-8")
-+    (d / "verification_details.json").write_text(
-+        json.dumps({"sections": [], "totals": {}}), encoding="utf-8"
-+    )
-+    return d
++export interface AuditIrRetrievalAttempt {
++  attempt_index: number;
++  source: string;
++  url: string;
++  outcome: string;
++  http_status: number | null;
++}
 +
++export interface AuditIrFrameCoverageEntry {
++  entity_id: string;
++  entity_type: string;
++  section: string;
++  slot_id: string;
++  subsection_title: string;
++  status: string;
++  doi: string | null;
++  pmid: string | null;
++  failure_reason: string | null;
++  available_artifacts: string[];
++  required_fields: string[];
++  min_fields_for_completion: number;
++  provenance_class: string;
++  human_completion_eligible: boolean;
++  human_curated_provenance: string | null;
++  is_pipeline_fault: boolean;
++  retrieval_attempt_log: AuditIrRetrievalAttempt[];
++}
 +
-+@pytest.fixture
-+def client(tmp_path, monkeypatch):
-+    """TestClient on a fresh per-test run-store DB.
++export interface AuditIrFrameCoverageReport {
++  pass_count: number;
++  partial_count: number;
++  frame_gap_count: number;
++  pipeline_fault_count: number;
++  total_entities: number;
++  total_slots: number;
++  research_question: string;
++  schema_version: string;
++  semantics_warning: string | null;
++  entries: AuditIrFrameCoverageEntry[];
++}
 +
-+    POLARIS_V6_RUN_DB is set BEFORE create_app() so both the seeding calls and
-+    the route resolve to the same temp DB, never state/v6_runs.sqlite.
-+    """
-+    pytest.importorskip("fastapi")
-+    from fastapi.testclient import TestClient
-+    from polaris_v6.api.app import create_app
++export interface AuditIrTierMix {
++  fractions: Record<string, number>;
++  corpus_count: number;
++  approved: boolean;
++  material_deviation: boolean;
++}
 +
-+    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(tmp_path / "runs.sqlite"))
-+    run_store.init_db()
-+    return TestClient(create_app())
++export interface AuditIrEvaluatorGate {
++  gate_class: string;
++  release_allowed: boolean;
++  reasons: string[];
++  rule_blockers: string[];
++  judge_critical_axes: string[];
++  judge_parse_ok: boolean;
++}
 +
++export interface AuditIrRetrievalStats {
++  pre_filter: number;
++  fetched: number;
++  failed: number;
++  by_provider: Record<string, number>;
++  queries: string[];
++}
 +
-+def test_unknown_run_returns_404(client):
-+    response = client.get("/api/inspector/runs/no_such_run")
-+    assert response.status_code == 404
++export interface AuditIrManifest {
++  run_id: string;
++  slug: string;
++  status: string;
++  question: string;
++  protocol_sha256: string;
++  cost_usd: number;
++  budget_cap_usd: number;
++  word_count: number;
++  sentences_verified: number;
++  sentences_dropped: number;
++  contradictions_found: number;
++  completeness_percent: number;
++  evaluator_gate: AuditIrEvaluatorGate;
++  release_allowed: boolean;
++  v30_enabled: boolean;
++  v30_warnings: string[];
++  retrieval_stats: AuditIrRetrievalStats | null;
++}
 +
++export interface AuditIrRuleCheck {
++  item_id: string;
++  name: string;
++  passed: boolean;
++  details: string;
++}
 +
-+def test_not_completed_run_returns_409(client):
-+    run_store.insert_run("queued_run", "clinical", _QUESTION)
-+    response = client.get("/api/inspector/runs/queued_run")
-+    assert response.status_code == 409
++export interface AuditIrModelProvenance {
++  generator_family: string;
++  generator_model: string;
++  evaluator_family: string;
++  evaluator_model: string;
++  judge_model: string;
++  judge_parse_ok: boolean;
++  judge_input_tokens: number;
++  judge_output_tokens: number;
++  contradictions_disclosed: number;
++  contradictions_missing: string[];
++  rule_checks: AuditIrRuleCheck[];
++}
 +
++export interface AuditIrTierExpectation {
++  tier: string;
++  min_fraction: number;
++  max_fraction: number;
++  rationale: string;
++}
 +
-+def test_abort_run_returns_422(client):
-+    run_store.insert_run("abort_run", "policy", _QUESTION)
-+    run_store.mark_aborted(
-+        "abort_run",
-+        pipeline_status="abort_corpus_inadequate",
-+        abort_reason="corpus fails T1 threshold",
-+    )
-+    response = client.get("/api/inspector/runs/abort_run")
-+    assert response.status_code == 422
++export interface AuditIrProtocolMetadata {
++  research_question: string;
++  created_at_iso: string;
++  created_at_unix: number;
++  scope_decision: string;
++  expected_tier_distribution: AuditIrTierExpectation[];
++}
 +
++export interface AuditIrAdequacyGate {
++  decision: string;
++  findings_ok: number;
++  findings_total: number;
++  critical_count: number;
++}
 +
-+def test_completed_run_missing_artifact_dir_returns_404(client, tmp_path):
-+    run_store.insert_run("nodir_run", "clinical", _QUESTION)
-+    run_store.set_pipeline_meta(
-+        "nodir_run", artifact_dir=str(tmp_path / "artifacts" / "does_not_exist")
-+    )
-+    run_store.mark_completed("nodir_run", {}, pipeline_status="success")
-+    response = client.get("/api/inspector/runs/nodir_run")
-+    assert response.status_code == 404
++export interface AuditIrCorpusApprovalGate {
++  approved: boolean;
++  decision_at_iso: string;
++  user_note: string;
++  approved_count: number;
++  rejected_count: number;
++}
 +
++/** The full faithful AuditIR for one completed run — the canonical shape. */
++export interface AuditIrRun {
++  ir_schema_version: string;
++  run_id: string;
++  artifact_dir: string;
++  report_md: string;
++  manifest: AuditIrManifest;
++  bibliography: AuditIrBibliographyEntry[];
++  contradictions: AuditIrContradictionCluster[];
++  frame_coverage: AuditIrFrameCoverageReport;
++  tier_mix: AuditIrTierMix;
++  verified_report: AuditIrVerifiedReport;
++  model_provenance: AuditIrModelProvenance | null;
++  protocol: AuditIrProtocolMetadata | null;
++  adequacy: AuditIrAdequacyGate | null;
++  corpus_approval: AuditIrCorpusApprovalGate | null;
++}
 +
-+def test_loadable_completed_run_returns_200_audit_ir(client, tmp_path):
-+    artifact_dir = _write_minimal_artifact_dir(tmp_path / "artifacts" / "good_run")
-+    run_store.insert_run("good_run", "clinical", _QUESTION)
-+    run_store.set_pipeline_meta("good_run", artifact_dir=str(artifact_dir))
-+    run_store.mark_completed("good_run", {}, pipeline_status="success")
-+
-+    response = client.get("/api/inspector/runs/good_run")
-+    assert response.status_code == 200, response.text
-+    body = response.json()
-+    # Faithful AuditIR JSON — top-level run_id is the manifest run_id, plus the
-+    # canonical IR blocks the rich surfaces project from.
-+    assert body["run_id"] == "manifest_run_1"
-+    assert body["ir_schema_version"]
-+    assert "manifest" in body
-+    assert "bibliography" in body
-+    assert "verified_report" in body
-# canonical-diff-sha256: b1a64d716ea2d704acaa85a6e80faef0c192531ff14fe4d083b6724ca0011463
++/**
++ * Fetch the faithful AuditIR for a completed run from the v6 live-inspector
++ * route (I-rdy-008 slice 1, `GET /api/inspector/runs/{run_id}`). Throws an
++ * ApiError on 404 (unknown run), 409 (not completed), or 422 (abort/error run
++ * or unloadable artifact_dir).
++ */
++export async function getAuditRun(runId: string): Promise<AuditIrRun> {
++  const response = await authFetch(
++    `${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}`,
++  );
++  return asJsonOrThrow<AuditIrRun>(response);
++}
+# canonical-diff-sha256: 78ed69e1b497900d82f079804848178be9e7897ef987e65642dab9ae63516be6
