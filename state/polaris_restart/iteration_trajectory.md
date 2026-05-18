@@ -383,4 +383,4 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop, 
 - iter 1: APPROVE — clean, 0 P0/P1/P2. convergence accept_remaining. Slice 2 of ~12 for #504, Option A. web/lib/api.ts only — 17 AuditIr* TS interfaces mirroring the AuditIR dataclass tree + getAuditRun() → the slice-1 route. Frontend-lib only, no web/app/** change. Web smoke: prettier/tsc/eslint(0 err)/build all green.
 
 ### Diff review
-- (pending — Codex diff review iter 1)
+- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (trajectory file in canonical diff — expected process metadata). convergence accept_remaining. web/lib/api.ts +240 — 17 AuditIr* TS interfaces + getAuditRun(). prettier/tsc/eslint(0 err)/build green. P1 trajectory 0.
