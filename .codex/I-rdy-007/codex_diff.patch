@@ -429,7 +429,7 @@ index 00000000..a5f61239
 +  "additionalProperties": true
 +}
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index baf51e40..139aba6a 100644
+index baf51e40..789e6d5a 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
 @@ -358,3 +358,12 @@ I-gen-003 combined brief+diff iter1=REQ_CH (decision c: strip inert regen loop,
@@ -444,5 +444,5 @@ index baf51e40..139aba6a 100644
 +- iter 2: APPROVE — 0 P0/P1, 1 non-blocking P2 (status-condition the AuditIR requirement — abort/error dirs lack verification_details.json/evidence_pool.json). convergence accept_remaining. P1 trajectory 2→0. Phase 3.4 — 2 docs-only deliverables: docs/live_run_artifact_contract.md + docs/schemas/live_run_artifact_contract.schema.json. Grounded in run_status.py/loader.py; schema check_schema PASS + validates real success+abort artifacts. No src/web/config/test change.
 +
 +### Diff review
-+- (pending — Codex diff review iter 1)
-# canonical-diff-sha256: 1d46496398999d6c09c94315c2fe50b5b98ddd1d54a06ea840ba803d2a592685
++- iter 1: APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (doc §2.3 wording 'schema marks required only under non-abort' vs the schema's root required=[manifest] with no if/then conditional — accepted: the optional-at-root schema achieves the abort-dir effect; Codex 'prose contract otherwise correct'). convergence accept_remaining. Docs-only, no code; schema check_schema PASS + validates real success+abort artifacts. P1 trajectory 0.
+# canonical-diff-sha256: 1d19852e46d877acc01962f573fbeb16fb62cf3eff218d2483b8d4c675f42543
