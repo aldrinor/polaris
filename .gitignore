@@ -158,6 +158,33 @@ loopback/
 audit_*.txt
 loopback_inspect_pages.txt
 
+# --- Pytest / Codex review scratch dirs at repo root (I-hygiene-001 / #432) ---
+# Anchored to repo root (leading `/`); directory-only (trailing `/`). These
+# accumulate from pytest `tmp_path` basetemp leakage + `codex exec` review
+# sandboxes and are pure throwaway. Verified 2026-05-17 against polaris HEAD:
+# zero of these patterns shadow any git-tracked path.
+/codex_tmp*/
+/.codex_tmp*/
+/codex_probe*/
+/codex_gpg_probe*/
+/tmp*/
+/.tmp*/
+/.pytest_*/
+/pytest-cache-files-*/
+/pytest_run_*/
+/pytest_basetemp*/
+/py_pytest_*/
+/dashboard_probe_*/
+/manual_pytest_*/
+/manual_tmp_*/
+/m_int_*_manual_*/
+/m10v*/
+/m_live_4_r2_*/
+/md3_pytest_*/
+/python_mode_*_probe/
+/POLARIS.tmp*/
+/POLARIStmp*/
+
 # --- Codex loop ephemera ---
 .codex/round_*/stdout.log
 .codex/round_*/stderr.log
