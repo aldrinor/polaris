@@ -1,0 +1,680 @@
+diff --git a/src/polaris_v6/api/runs.py b/src/polaris_v6/api/runs.py
+index a1c8ad11..4a0d6c05 100644
+--- a/src/polaris_v6/api/runs.py
++++ b/src/polaris_v6/api/runs.py
+@@ -14,6 +14,11 @@ I-rdy-011 (#507): POST /runs/{id}/cancel — a queued run cancels instantly;
+ an in-progress run records the cancel request (the worker observes it at
+ the next pipeline stage boundary). Already-terminal runs are an idempotent
+ no-op.
++
++I-rdy-013 (#509): POST /runs enforces the 1-concurrent-session constraint
++via `run_store.insert_run_if_idle` — a 2nd concurrent request is cleanly
++rejected with HTTP 409 (never enqueued) and a structured detail the
++frontend renders as a link to the active run.
+ """
+ 
+ from __future__ import annotations
+@@ -81,7 +86,11 @@ def create_run(payload: RunRequest) -> RunStatusResponse:
+ 
+     run_id = uuid.uuid4().hex
+     try:
+-        run_store.insert_run(run_id, payload.template, payload.question)
++        # I-rdy-013: atomic 1-concurrent-session gate. Returns the blocking
++        # active run when rejected, None when this run was inserted.
++        active = run_store.insert_run_if_idle(
++            run_id, payload.template, payload.question
++        )
+     except sqlite3.IntegrityError as exc:
+         # uuid4 collision is theoretically impossible but defensive
+         raise HTTPException(status_code=409, detail=f"run {run_id!r} already exists") from exc
+@@ -89,11 +98,42 @@ def create_run(payload: RunRequest) -> RunStatusResponse:
+         # init_db permission-denied or similar
+         raise HTTPException(status_code=503, detail=str(exc)) from exc
+ 
++    if active is not None:
++        # I-rdy-013: 1-concurrent-session constraint — a research run is
++        # already queued or in progress. Reject cleanly; the rejected run is
++        # never enqueued (insert_run_if_idle rolled back — no row to clean
++        # up). The structured `detail` lets the frontend render a specific
++        # UX with a link to the active run.
++        raise HTTPException(
++            status_code=409,
++            detail={
++                "code": "concurrent_run_active",
++                "active_run_id": active.run_id,
++                "active_status": active.lifecycle_status,
++                "message": (
++                    "POLARIS runs one research session at a time. "
++                    f"Run {active.run_id[:8]} is currently {active.lifecycle_status}. "
++                    "Wait for it to finish before starting a new run."
++                ),
++            },
++        )
++
+     # The actor message carries the resolved upload content (the worker is
+     # a separate process — it cannot read the API process's upload table).
+     actor_payload = payload.model_dump()
+     actor_payload["uploaded_documents"] = uploaded_documents
+-    enqueue_research_run.send(run_id, actor_payload)
++    try:
++        enqueue_research_run.send(run_id, actor_payload)
++    except Exception as exc:
++        # I-rdy-013 (Codex diff P1-001): the queued row is already committed.
++        # If enqueue fails it would never run yet would permanently hold the
++        # single-session slot. Mark it failed (terminal → frees the slot),
++        # then surface 503.
++        run_store.mark_failed(run_id, f"enqueue failed: {exc}")
++        raise HTTPException(
++            status_code=503,
++            detail=f"failed to enqueue run {run_id!r}: {exc}",
++        ) from exc
+ 
+     record = run_store.get_run(run_id)
+     if record is None:  # pragma: no cover — insert just succeeded
+diff --git a/src/polaris_v6/queue/run_store.py b/src/polaris_v6/queue/run_store.py
+index 3e6679a9..4de9bc68 100644
+--- a/src/polaris_v6/queue/run_store.py
++++ b/src/polaris_v6/queue/run_store.py
+@@ -16,6 +16,12 @@ I-rdy-011 (2026-05-16): cancellation support.
+ - is_cancel_requested / mark_cancelled support the worker's cooperative
+   abort path.
+ 
++I-rdy-013 (2026-05-16): 1-concurrent-session enforcement.
++- get_active_run: read-side helper — the run currently holding the session.
++- insert_run_if_idle: atomic check-and-insert (BEGIN IMMEDIATE) used by
++  POST /runs so a 2nd concurrent request cannot start a parallel session.
++- init_db serialized by `_INIT_LOCK`; `_connect` sets `busy_timeout`.
++
+ Default DB path: state/v6_runs.sqlite (gitignored). Override via env
+ `POLARIS_V6_RUN_DB`. WAL mode enabled.
+ """
+@@ -25,6 +31,7 @@ from __future__ import annotations
+ import json
+ import os
+ import sqlite3
++import threading
+ from datetime import datetime, timezone
+ from typing import Any
+ 
+@@ -46,6 +53,16 @@ _RUN_COLUMNS = (
+     "cancel_requested"
+ )
+ 
++# I-rdy-013: lifecycle states that count as an active research session. A run
++# in one of these blocks a new POST /runs (1-concurrent-session constraint).
++# `completed`, `cancelled`, `failed` are terminal and free the session slot.
++_ACTIVE_STATUSES = ("queued", "in_progress")
++
++# I-rdy-013: serializes init_db across in-process threads so two concurrent
++# first requests cannot collide inside `PRAGMA journal_mode=WAL` or the schema
++# migration and raise sqlite3.OperationalError before the atomic gate runs.
++_INIT_LOCK = threading.Lock()
++
+ 
+ def _resolve_path(path: str | None) -> str:
+     if path is not None:
+@@ -64,6 +81,9 @@ def _connect(path: str | None = None) -> sqlite3.Connection:
+         os.makedirs(parent, exist_ok=True)
+     conn = sqlite3.connect(resolved)
+     conn.row_factory = sqlite3.Row
++    # I-rdy-013: a concurrent writer waits up to 5s for the write lock
++    # instead of raising SQLITE_BUSY immediately (the issue's "no crash").
++    conn.execute("PRAGMA busy_timeout=5000")
+     return conn
+ 
+ 
+@@ -113,27 +133,79 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
+ 
+ 
+ def init_db(path: str | None = None) -> None:
+-    """Create the runs table if absent, run migrations. Idempotent."""
++    """Create the runs table if absent, run migrations. Idempotent.
++
++    I-rdy-013: serialized by `_INIT_LOCK` so two concurrent first requests
++    (FastAPI worker threads, one process) cannot collide inside
++    `PRAGMA journal_mode=WAL` or the schema migration and raise
++    sqlite3.OperationalError before the atomic gate is reached.
++    """
++    with _INIT_LOCK:
++        conn = _connect(path)
++        try:
++            conn.execute("PRAGMA journal_mode=WAL")
++            _migrate_schema(conn)
++            conn.commit()
++        finally:
++            conn.close()
++
++
++def insert_run(run_id: str, template: str, question: str, *, path: str | None = None) -> None:
++    """Insert a new row with lifecycle_status='queued'. Raises IntegrityError on duplicate.
++
++    Unconditional primitive — does NOT enforce the 1-concurrent-session
++    constraint. POST /runs uses `insert_run_if_idle`; this remains for test
++    fixtures and any caller that deliberately wants an unconditional insert.
++    """
++    init_db(path)
+     conn = _connect(path)
+     try:
+-        conn.execute("PRAGMA journal_mode=WAL")
+-        _migrate_schema(conn)
++        conn.execute(
++            "INSERT INTO runs (run_id, template, question, lifecycle_status, queued_at) "
++            "VALUES (?, ?, ?, 'queued', ?)",
++            (run_id, template, question, _now_iso()),
++        )
+         conn.commit()
+     finally:
+         conn.close()
+ 
+ 
+-def insert_run(run_id: str, template: str, question: str, *, path: str | None = None) -> None:
+-    """Insert a new row with lifecycle_status='queued'. Raises IntegrityError on duplicate."""
++def insert_run_if_idle(
++    run_id: str, template: str, question: str, *, path: str | None = None
++) -> RunStatusResponse | None:
++    """Atomically insert a new queued run IFF no run is currently active.
++
++    I-rdy-013 (1-concurrent-session enforcement): the check-for-active and
++    the INSERT run inside one `BEGIN IMMEDIATE` transaction, so two
++    concurrent POST /runs cannot both pass the check. `BEGIN IMMEDIATE`
++    takes the write lock up-front; the 2nd writer blocks on it (up to the
++    `busy_timeout`) until the 1st commits, then sees the inserted row.
++
++    Returns None when the run was inserted; returns the blocking active
++    RunStatusResponse when rejected (caller raises HTTP 409).
++    """
+     init_db(path)
++    placeholders = ", ".join("?" for _ in _ACTIVE_STATUSES)
+     conn = _connect(path)
++    conn.isolation_level = None  # manual transaction control
+     try:
++        conn.execute("BEGIN IMMEDIATE")
++        row = conn.execute(
++            f"SELECT {_RUN_COLUMNS} FROM runs "
++            f"WHERE lifecycle_status IN ({placeholders}) "
++            "ORDER BY queued_at LIMIT 1",
++            _ACTIVE_STATUSES,
++        ).fetchone()
++        if row is not None:
++            conn.execute("ROLLBACK")
++            return _row_to_response(row)
+         conn.execute(
+             "INSERT INTO runs (run_id, template, question, lifecycle_status, queued_at) "
+             "VALUES (?, ?, ?, 'queued', ?)",
+             (run_id, template, question, _now_iso()),
+         )
+-        conn.commit()
++        conn.execute("COMMIT")
++        return None
+     finally:
+         conn.close()
+ 
+@@ -397,3 +469,39 @@ def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None
+     if row is None:
+         return None
+     return _row_to_response(row)
++
++
++def get_active_run(*, path: str | None = None) -> RunStatusResponse | None:
++    """Return the oldest run still queued or in_progress, else None.
++
++    I-rdy-013: read-side helper for the 1-concurrent-session constraint —
++    the run currently holding the session slot. At most one run is active
++    once `insert_run_if_idle` gates all inserts; the `ORDER BY queued_at`
++    is defensive (oldest first) for any pre-gate legacy rows.
++
++    Defensive against a missing/legacy table, mirroring `get_run`.
++    """
++    placeholders = ", ".join("?" for _ in _ACTIVE_STATUSES)
++    query = (
++        f"SELECT {_RUN_COLUMNS} FROM runs "
++        f"WHERE lifecycle_status IN ({placeholders}) "
++        "ORDER BY queued_at LIMIT 1"
++    )
++    conn = _connect(path)
++    try:
++        try:
++            row = conn.execute(query, _ACTIVE_STATUSES).fetchone()
++        except sqlite3.OperationalError as exc:
++            msg = str(exc).lower()
++            if "no such table" in msg:
++                return None
++            if "no such column" in msg:
++                conn.close()
++                init_db(path)
++                conn = _connect(path)
++                row = conn.execute(query, _ACTIVE_STATUSES).fetchone()
++            else:
++                raise
++    finally:
++        conn.close()
++    return None if row is None else _row_to_response(row)
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 3ff5cfb6..be821e11 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -498,3 +498,13 @@ Recut of PR #540 (`bot/I-rdy-012-durable-workspace-memory`): #540 earned Codex b
+ 
+ ### Diff review
+ - iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (sqlite_store.py `_migrate_schema` is idempotent for absent/full-schema DBs but not truly additive for a pre-existing memory_entries table missing later columns — Codex: "Non-blocking for this first SQLite memory rollout"; there is no pre-existing field DB with an older schema, the edge only bites once a future column is added — residual noted). convergence accept_remaining. Codex confirmed: durability (fresh store instance reads prior entries), workspace isolation (workspace_id normalized identically write+read, no cross-workspace leak path), cited recall (derived_from_run_ids round-trips), migration safety (HTTP contract unchanged), and the verbatim recut fidelity. 4 files + trajectory.md. ~82k tokens.
++
++## I-rdy-013 (#509) — 1-concurrent-session enforcement on POST /runs
++
++Recut of PR #541 (`bot/I-rdy-013-concurrent-session-limit`): #541 earned Codex brief APPROVE iter-3 + diff APPROVE iter-2 but became unmergeable — 44 commits stale AND its `.codex/I-rdy-013/` committed 1.2MB/2.4MB raw Codex transcripts as the verdict files (verdict-only-rule violation per CLAUDE.md §8.3 / #535). Recut onto a clean `bot/I-rdy-013` off polaris HEAD 7b504cc2; PR #541 closed. All 4 polaris-touched source files diverged because #505 (dashboard)/#506 (runs.py)/#507 (run_store.py, api.ts) merged this session — #509's concurrency deltas layered on. run_store.py: #507 already added `_RUN_COLUMNS` (16-col incl. cancel_requested) + `_row_to_response`; the recut applied ONLY #509's net-new pieces (`_ACTIVE_STATUSES`, `_INIT_LOCK`, `import threading`, `_connect` busy_timeout, `init_db` lock, `insert_run_if_idle`, `get_active_run`) and kept #507's 16-col versions. 2 test files re-applied verbatim. Codex-advisor consulted on the run_store.py 3-way merge — confirmed the plan + 3 precision points (create_run layering, conftest autouse blast radius → whole-dir smoke, capture web deltas first). Smoke: ast.parse 4/4, pytest tests/v6/ 499 passed/4 skipped/7 xfailed (whole dir — conftest autouse `_isolated_run_db` composes), web prettier/lint/tsc/build green.
++
++### Brief review
++- iter 1: APPROVE — 0 P0/P1/P2. convergence accept_remaining. Recut brief front-loaded #541's prior brief APPROVE iter-3 + diff APPROVE iter-2, the recut/staleness rationale, and the #509↔#505/#506/#507 layering (esp. the run_store.py overlap — keep #507's `_RUN_COLUMNS`/`_row_to_response`, add only #509's net-new). 6 files, +517/-32. ~114k tokens.
++
++### Diff review
++- iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (iteration_trajectory.md in the canonical/live diff alongside the 6 execution files — process metadata only, standard per-issue pattern). convergence accept_remaining. Codex confirmed: the atomic `BEGIN IMMEDIATE` 1-session gate, `busy_timeout` no-crash, the structured-409 + `ConcurrentRunError` + callout UX, the enqueue-failure `mark_failed` slot-free (the 409 branch does NOT mark_failed — no row inserted), the run_store.py #507-overlap handling (no duplicate `_RUN_COLUMNS`/`_row_to_response`), and the conftest autouse fixture composing. 6 source files + trajectory.md. ~129k tokens.
+diff --git a/tests/v6/conftest.py b/tests/v6/conftest.py
+index 581d6edd..3f049653 100644
+--- a/tests/v6/conftest.py
++++ b/tests/v6/conftest.py
+@@ -21,6 +21,8 @@ from __future__ import annotations
+ 
+ import os
+ 
++import pytest
++
+ # Force StubBroker BEFORE any other test module imports `dramatiq` —
+ # otherwise dramatiq's `get_broker()` auto-creates a default RedisBroker.
+ os.environ.setdefault("POLARIS_V6_QUEUE_USE_STUB", "1")
+@@ -40,3 +42,16 @@ try:
+ except ImportError:
+     # dramatiq isn't installed — let individual tests use pytest.importorskip
+     _SHARED_TEST_BROKER = None
++
++
++@pytest.fixture(autouse=True)
++def _isolated_run_db(tmp_path, monkeypatch):
++    """Isolate the v6 run DB per test (I-rdy-013).
++
++    `run_store` reads `POLARIS_V6_RUN_DB` on every connection, so pointing it
++    at a fresh temp file per test prevents cross-test state from leaking. The
++    1-concurrent-session gate makes this mandatory: a `queued` run left behind
++    by an earlier test would otherwise make a later test's `POST /runs` return
++    409. `monkeypatch` auto-restores the env var after each test.
++    """
++    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(tmp_path / "v6_runs.sqlite"))
+diff --git a/tests/v6/test_concurrency.py b/tests/v6/test_concurrency.py
+new file mode 100644
+index 00000000..16c8b2e8
+--- /dev/null
++++ b/tests/v6/test_concurrency.py
+@@ -0,0 +1,237 @@
++"""Tests for the 1-concurrent-session constraint (I-rdy-013).
++
++POST /runs admits at most one active (queued | in_progress) research run.
++A 2nd concurrent request is cleanly rejected with HTTP 409; completed,
++failed and aborted runs free the session slot.
++"""
++
++from __future__ import annotations
++
++import sqlite3
++import threading
++import uuid
++
++import pytest
++
++from polaris_v6.queue import run_store
++
++
++def _new_id() -> str:
++    return uuid.uuid4().hex
++
++
++# --- run_store.insert_run_if_idle / get_active_run -------------------------
++
++
++def test_insert_run_if_idle_inserts_when_idle(tmp_path):
++    db = str(tmp_path / "runs.sqlite")
++    result = run_store.insert_run_if_idle(
++        _new_id(), "clinical", "First idle question?", path=db
++    )
++    assert result is None
++    active = run_store.get_active_run(path=db)
++    assert active is not None
++    assert active.lifecycle_status == "queued"
++
++
++def test_insert_run_if_idle_rejects_when_queued_run_exists(tmp_path):
++    db = str(tmp_path / "runs.sqlite")
++    first = _new_id()
++    assert (
++        run_store.insert_run_if_idle(first, "clinical", "First question?", path=db)
++        is None
++    )
++    blocking = run_store.insert_run_if_idle(
++        _new_id(), "clinical", "Second question?", path=db
++    )
++    assert blocking is not None
++    assert blocking.run_id == first
++    assert blocking.lifecycle_status == "queued"
++
++
++def test_insert_run_if_idle_rejects_when_in_progress(tmp_path):
++    db = str(tmp_path / "runs.sqlite")
++    first = _new_id()
++    run_store.insert_run_if_idle(first, "clinical", "First question?", path=db)
++    run_store.mark_in_progress(first, path=db)
++    blocking = run_store.insert_run_if_idle(
++        _new_id(), "clinical", "Second question?", path=db
++    )
++    assert blocking is not None
++    assert blocking.run_id == first
++    assert blocking.lifecycle_status == "in_progress"
++
++
++def test_insert_run_if_idle_allows_after_completed(tmp_path):
++    db = str(tmp_path / "runs.sqlite")
++    first = _new_id()
++    run_store.insert_run_if_idle(first, "clinical", "First question?", path=db)
++    run_store.mark_completed(first, {"verdict": "success"}, path=db)
++    assert (
++        run_store.insert_run_if_idle(_new_id(), "clinical", "Next question?", path=db)
++        is None
++    )
++
++
++def test_insert_run_if_idle_allows_after_failed(tmp_path):
++    db = str(tmp_path / "runs.sqlite")
++    first = _new_id()
++    run_store.insert_run_if_idle(first, "clinical", "First question?", path=db)
++    run_store.mark_failed(first, "boom", path=db)
++    assert (
++        run_store.insert_run_if_idle(_new_id(), "clinical", "Next question?", path=db)
++        is None
++    )
++
++
++def test_insert_run_if_idle_allows_after_aborted(tmp_path):
++    db = str(tmp_path / "runs.sqlite")
++    first = _new_id()
++    run_store.insert_run_if_idle(first, "clinical", "First question?", path=db)
++    run_store.mark_aborted(
++        first,
++        pipeline_status="abort_corpus_inadequate",
++        abort_reason="thin corpus",
++        path=db,
++    )
++    assert (
++        run_store.insert_run_if_idle(_new_id(), "clinical", "Next question?", path=db)
++        is None
++    )
++
++
++def test_get_active_run_none_when_empty(tmp_path):
++    db = str(tmp_path / "fresh.sqlite")
++    assert run_store.get_active_run(path=db) is None
++
++
++def test_get_active_run_returns_the_active_run(tmp_path):
++    db = str(tmp_path / "runs.sqlite")
++    rid = _new_id()
++    run_store.insert_run_if_idle(rid, "policy", "Active question?", path=db)
++    active = run_store.get_active_run(path=db)
++    assert active is not None
++    assert active.run_id == rid
++
++
++def test_concurrent_inserts_race_is_serialized(tmp_path):
++    """Two threads insert against one fresh DB at the same instant.
++
++    Exercises both the `_INIT_LOCK` first-use safety and the
++    `BEGIN IMMEDIATE` gate that sequential tests cannot. Exactly one insert
++    must win; no thread may raise.
++    """
++    db = str(tmp_path / "race.sqlite")
++    barrier = threading.Barrier(2)
++    results: list[object] = []
++    errors: list[Exception] = []
++    lock = threading.Lock()
++
++    def worker() -> None:
++        try:
++            barrier.wait()
++            outcome = run_store.insert_run_if_idle(
++                _new_id(), "clinical", "Race question?", path=db
++            )
++        except Exception as exc:  # test must capture any raise under contention
++            with lock:
++                errors.append(exc)
++            return
++        with lock:
++            results.append(outcome)
++
++    threads = [threading.Thread(target=worker) for _ in range(2)]
++    for thread in threads:
++        thread.start()
++    for thread in threads:
++        thread.join(timeout=10)
++
++    assert errors == [], f"insert_run_if_idle raised under contention: {errors}"
++    assert len(results) == 2
++    inserted = [r for r in results if r is None]
++    rejected = [r for r in results if r is not None]
++    assert len(inserted) == 1, "exactly one insert should succeed"
++    assert len(rejected) == 1, "exactly one insert should be rejected"
++
++    conn = sqlite3.connect(db)
++    try:
++        count = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
++    finally:
++        conn.close()
++    assert count == 1, "exactly one run row should exist"
++
++
++# --- POST /runs API level --------------------------------------------------
++
++
++@pytest.fixture
++def client():
++    pytest.importorskip("fastapi")
++    from fastapi.testclient import TestClient
++
++    from polaris_v6.api.app import create_app
++
++    return TestClient(create_app())
++
++
++def test_second_concurrent_post_is_rejected_409(client):
++    first = client.post(
++        "/runs",
++        json={"template": "clinical", "question": "First concurrent question?"},
++    )
++    assert first.status_code == 202
++
++    second = client.post(
++        "/runs",
++        json={"template": "clinical", "question": "Second concurrent question?"},
++    )
++    assert second.status_code == 409
++    detail = second.json()["detail"]
++    assert detail["code"] == "concurrent_run_active"
++    assert detail["active_run_id"] == first.json()["run_id"]
++    assert detail["active_status"] == "queued"
++    assert "one research session at a time" in detail["message"]
++
++
++def test_post_allowed_after_active_run_completes(client):
++    first = client.post(
++        "/runs",
++        json={"template": "clinical", "question": "First then complete?"},
++    )
++    assert first.status_code == 202
++    run_store.mark_completed(first.json()["run_id"], {"verdict": "success"})
++
++    second = client.post(
++        "/runs",
++        json={"template": "clinical", "question": "Allowed after completion?"},
++    )
++    assert second.status_code == 202
++    assert second.json()["run_id"] != first.json()["run_id"]
++
++
++def test_post_frees_slot_when_enqueue_fails(client, monkeypatch):
++    """Codex diff P1-001: a committed queued row whose enqueue then fails
++    must NOT permanently hold the single-session slot."""
++    from polaris_v6.api import runs as runs_module
++
++    def _boom(*args, **kwargs):
++        raise RuntimeError("broker down")
++
++    monkeypatch.setattr(runs_module.enqueue_research_run, "send", _boom)
++    failed = client.post(
++        "/runs",
++        json={"template": "clinical", "question": "Enqueue failure question?"},
++    )
++    assert failed.status_code == 503
++    # The failed-to-enqueue run must not still hold the session slot.
++    assert run_store.get_active_run() is None
++
++    # And a fresh run can start once the slot is freed.
++    monkeypatch.setattr(
++        runs_module.enqueue_research_run, "send", lambda *a, **k: None
++    )
++    recovered = client.post(
++        "/runs",
++        json={"template": "clinical", "question": "Recovered question?"},
++    )
++    assert recovered.status_code == 202
+diff --git a/web/app/dashboard/page.tsx b/web/app/dashboard/page.tsx
+index b269f719..acc6a931 100644
+--- a/web/app/dashboard/page.tsx
++++ b/web/app/dashboard/page.tsx
+@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
+ import {
+   checkAmbiguity,
+   checkScope,
++  ConcurrentRunError,
+   createRun,
+   listTemplates,
+   uploadDocument,
+@@ -74,6 +75,13 @@ export default function DashboardPage() {
+   const [question, setQuestion] = useState("");
+   const [submitting, setSubmitting] = useState(false);
+   const [error, setError] = useState<string | null>(null);
++  // I-rdy-013 (#509): a 1-concurrent-session reject from POST /runs — shown
++  // as a dedicated callout with a link to the run holding the session.
++  const [concurrentRun, setConcurrentRun] = useState<{
++    runId: string;
++    status: string;
++    message: string;
++  } | null>(null);
+   const [scopeDecision, setScopeDecision] = useState<ScopeDecision | null>(
+     null,
+   );
+@@ -229,6 +237,7 @@ export default function DashboardPage() {
+       return;
+     }
+     setError(null);
++    setConcurrentRun(null);
+     setSubmitting(true);
+ 
+     // I-rdy-009 (#505): mandatory pre-run ambiguity preflight. createRun()
+@@ -291,6 +300,17 @@ export default function DashboardPage() {
+       });
+       router.push(`/runs/${run.run_id}`);
+     } catch (err) {
++      if (err instanceof ConcurrentRunError) {
++        // I-rdy-013: 1-concurrent-session reject — show a dedicated callout
++        // with a link to the run that currently holds the session.
++        setConcurrentRun({
++          runId: err.activeRunId,
++          status: err.activeStatus,
++          message: err.message,
++        });
++        setSubmitting(false);
++        return;
++      }
+       const message = err instanceof Error ? err.message : "Unknown error";
+       setError(message);
+       setSubmitting(false);
+@@ -583,6 +603,25 @@ export default function DashboardPage() {
+             </p>
+           )}
+ 
++          {concurrentRun && (
++            <div
++              role="alert"
++              className="border-destructive/60 flex flex-col gap-2 rounded-md border p-3 text-sm"
++            >
++              <p className="text-foreground font-medium">
++                {concurrentRun.message}
++              </p>
++              {concurrentRun.runId && (
++                <Link
++                  href={`/runs/${concurrentRun.runId}`}
++                  className="text-foreground font-semibold underline underline-offset-4"
++                >
++                  Open the active run →
++                </Link>
++              )}
++            </div>
++          )}
++
+           <div className="flex items-center justify-end gap-3">
+             <Button
+               variant="ghost"
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index cd560254..c4023029 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -111,6 +111,21 @@ async function asJsonOrThrow<T>(response: Response): Promise<T> {
+   return body as T;
+ }
+ 
++/**
++ * Thrown by createRun when POST /runs is rejected by the 1-concurrent-session
++ * constraint (I-rdy-013): a research run is already queued or in progress.
++ */
++export class ConcurrentRunError extends Error {
++  readonly activeRunId: string;
++  readonly activeStatus: string;
++  constructor(message: string, activeRunId: string, activeStatus: string) {
++    super(message);
++    this.name = "ConcurrentRunError";
++    this.activeRunId = activeRunId;
++    this.activeStatus = activeStatus;
++  }
++}
++
+ export async function createRun(
+   payload: RunRequest,
+ ): Promise<RunStatusResponse> {
+@@ -119,6 +134,31 @@ export async function createRun(
+     headers: { "content-type": "application/json" },
+     body: JSON.stringify(payload),
+   });
++  if (response.status === 409) {
++    // Read the body exactly once, then unwrap FastAPI's { detail: {...} }
++    // envelope. The 1-concurrent-session reject carries a structured detail;
++    // any other 409 falls through to a generic ApiError.
++    const body = (await response.json().catch(() => null)) as {
++      detail?: unknown;
++    } | null;
++    const detail = (body?.detail ?? body) as {
++      code?: string;
++      message?: string;
++      active_run_id?: string;
++      active_status?: string;
++    } | null;
++    if (detail && detail.code === "concurrent_run_active") {
++      throw new ConcurrentRunError(
++        detail.message ?? "A research run is already in progress.",
++        detail.active_run_id ?? "",
++        detail.active_status ?? "in_progress",
++      );
++    }
++    const error = new Error("POLARIS backend returned 409") as ApiError;
++    error.status = 409;
++    error.body = body;
++    throw error;
++  }
+   return asJsonOrThrow<RunStatusResponse>(response);
+ }
+ 
+
+# canonical-diff-sha256: 31279225c88aa51ce206bb77a42af681838e7b73a2475c3fecb59cc656680ac1
