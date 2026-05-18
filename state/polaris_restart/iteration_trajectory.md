@@ -488,3 +488,10 @@ Recut of PR #538 (`bot/I-rdy-011-cancellation-resume`): #538 earned Codex brief 
 
 ### Diff review
 - iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (run_honest_sweep_r3.py cooperative-cancel early returns skip the normal run_one_query tail cleanup that other abort paths do explicitly; cancelled manifest + SSE semantics work, not a blocker — harmonization is a follow-up tracked alongside #539 I-rdy-011-followup). convergence accept_remaining. Codex confirmed: cancel <5s (queued = one atomic UPDATE; in_progress flag immediate), the mark_in_progress CAS guards the queued-cancel race, false-cancel-on-retry guarded (cancellation via is_cancel_requested only, never the CAS return), the late-stage actor backstop, _abort_if_cancelled best-effort + v6-gated, `cancelled` terminal for SSE, and the recut fidelity / #506-overlap layering. 10 source files + trajectory.md. ~108k tokens.
+
+## I-rdy-012 (#508) — durable SQLite workspace memory with cited recall
+
+Recut of PR #540 (`bot/I-rdy-012-durable-workspace-memory`): #540 earned Codex brief APPROVE iter-1 + diff APPROVE but became unmergeable — 43 commits stale AND its `.codex/I-rdy-012/` committed 63KB/208KB raw Codex transcripts as the verdict files (verdict-only-rule violation per CLAUDE.md §8.3 / #535). Recut onto a clean `bot/I-rdy-012` off polaris HEAD 488d1fef; PR #540 closed. polaris's 43 commits touched NONE of the 4 source files — all re-applied verbatim, zero divergence (the cleanest recut yet). Smoke: ast.parse 4/4, pytest test_sqlite_workspace_memory.py 10/10 + test_api_memory.py 6/6 + 21 adjacent memory tests green (37 total).
+
+### Brief review
+- iter 1: APPROVE — 0 P0/P1/P2. convergence accept_remaining. Recut brief front-loaded #540's prior brief+diff APPROVE, the recut/staleness rationale, the zero-divergence verbatim re-application, and the #508-vs-deferred-semantic-recall scope boundary. 4 files, +436/-7. ~80k tokens.
