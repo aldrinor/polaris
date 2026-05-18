@@ -468,10 +468,10 @@ index 90ff9154..27f2d191 100644
      @computed_field  # serialized in JSON and readable as attr
      @property
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 23cfa38d..fb6ce221 100644
+index 23cfa38d..5326daf2 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -478,3 +478,10 @@ Recut of PR #536 (`bot/I-rdy-010-document-grounding`): #536 earned Codex brief A
+@@ -478,3 +478,13 @@ Recut of PR #536 (`bot/I-rdy-010-document-grounding`): #536 earned Codex brief A
  
  ### Diff review
  - iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (state/polaris_restart/iteration_trajectory.md is in the canonical/live diff alongside the 6 source files — process metadata only, no execution impact; this is the standard per-issue pattern, the CI codex-required gate's canonical-diff-sha256 covers it). convergence accept_remaining. Codex confirmed: sovereignty holds (only the partition_uploads_by_sovereignty allowed/PUBLIC_SYNTHETIC partition enters q["uploaded_documents"]; build_upload_evidence_rows re-raises on any forbidden doc — single enforcement point, no bypass path); fail-loud HTTP 400 on missing/unparsed uploads; cross-process correctness (resolved content rides in the actor message); no fabricated evidence; MAX_GROUNDING_CHUNKS=40 bounds the payload; recut fidelity intact. 6 source files + trajectory.md. ~162k tokens.
@@ -482,6 +482,9 @@ index 23cfa38d..fb6ce221 100644
 +
 +### Brief review
 +- iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (web/app/runs/[runId]/page.tsx is not byte-for-byte verbatim from the #538 branch — the only drift is prettier formatting of the cancel-error ternary, no behavioral divergence; Codex confirmed). convergence accept_remaining. Codex confirmed the recut fidelity, the #506-overlap layering, both #538 diff-iter P1 fixes preserved, and the #507-vs-#539 scope boundary. 10 files, +589/-35. ~193k tokens.
++
++### Diff review
++- iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (run_honest_sweep_r3.py cooperative-cancel early returns skip the normal run_one_query tail cleanup that other abort paths do explicitly; cancelled manifest + SSE semantics work, not a blocker — harmonization is a follow-up tracked alongside #539 I-rdy-011-followup). convergence accept_remaining. Codex confirmed: cancel <5s (queued = one atomic UPDATE; in_progress flag immediate), the mark_in_progress CAS guards the queued-cancel race, false-cancel-on-retry guarded (cancellation via is_cancel_requested only, never the CAS return), the late-stage actor backstop, _abort_if_cancelled best-effort + v6-gated, `cancelled` terminal for SSE, and the recut fidelity / #506-overlap layering. 10 source files + trajectory.md. ~108k tokens.
 diff --git a/tests/v6/acceptance/test_runs_db_integration.py b/tests/v6/acceptance/test_runs_db_integration.py
 index 214d8b10..2c46fe96 100644
 --- a/tests/v6/acceptance/test_runs_db_integration.py
@@ -888,4 +891,4 @@ index 5bd68583..cd560254 100644
    | "PUBLIC_SYNTHETIC"
    | "CAN_REAL"
 
-# canonical-diff-sha256: 0b80970219b75210e3585b03e8da49bb4407d76c101e84b845fabebcc10c5202
+# canonical-diff-sha256: ac709014ebfb78638940d23e64966a5ea0bf7c25092175b06550d1687a6a794d
