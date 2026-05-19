@@ -45,7 +45,11 @@ for s in api worker webui caddy; do
   docker image inspect "polaris-${s}:rollback-${UTC}" >/dev/null 2>&1 \
     && docker tag "polaris-${s}:rollback-${UTC}" "polaris-${s}:latest" || true
 done
-docker compose -p polaris -f docker-compose.v6.yml -f docker-compose.caddy.yml up -d --force-recreate
+# Only -f compose files that the restore actually produced (the box's old
+# stack may or may not have carried docker-compose.caddy.yml).
+cf="-f docker-compose.v6.yml"
+[[ -e docker-compose.caddy.yml ]] && cf="$cf -f docker-compose.caddy.yml"
+docker compose -p polaris $cf up -d --force-recreate
 RB
   log "ROLLBACK done — volume tarballs kept in ${BACKUP} (manual restore only)"
 }
@@ -114,16 +118,23 @@ log "Phase 2 done — box tracked tree at ${HEAD_SHA}"
 
 # --- Phase 3: reconcile box .env --------------------------------------------
 log "Phase 3: reconcile .env (POLARIS_DOMAIN / POLARIS_ACME_EMAIL / POLARIS_GIT_COMMIT)"
-rsh "DEPLOY_DIR='${DEPLOY_DIR}' DOMAIN='${DOMAIN}' ACME_EMAIL='${ACME_EMAIL}' HEAD_SHA='${HEAD_SHA}' bash -se" <<'R3'
+# ACME_EMAIL is operator-supplied — base64 it so a value containing shell-special
+# characters cannot break or inject into the remote command. DOMAIN/HEAD_SHA are
+# repo constants / hex and safe to interpolate directly.
+ACME_B64="$(printf %s "$ACME_EMAIL" | base64 | tr -d '\n')"
+rsh "DEPLOY_DIR='${DEPLOY_DIR}' DOMAIN='${DOMAIN}' ACME_B64='${ACME_B64}' HEAD_SHA='${HEAD_SHA}' bash -se" <<'R3'
 set -euo pipefail
 cd "$DEPLOY_DIR"
-grep -q '^POLARIS_DOMAIN='     .env || echo "POLARIS_DOMAIN=${DOMAIN}"          >> .env
-grep -q '^POLARIS_ACME_EMAIL=' .env || echo "POLARIS_ACME_EMAIL=${ACME_EMAIL}" >> .env
-if grep -q '^POLARIS_GIT_COMMIT=' .env; then
-  sed -i "s|^POLARIS_GIT_COMMIT=.*|POLARIS_GIT_COMMIT=${HEAD_SHA}|" .env
-else
-  echo "POLARIS_GIT_COMMIT=${HEAD_SHA}" >> .env
-fi
+acme_email="$(printf %s "$ACME_B64" | base64 -d)"
+# upsert: set-or-update — an existing stale value is corrected, not left in place.
+set_env() {
+  grep -v "^${1}=" .env > .env.redeploy_tmp || true
+  printf '%s=%s\n' "$1" "$2" >> .env.redeploy_tmp
+  mv .env.redeploy_tmp .env
+}
+set_env POLARIS_DOMAIN     "$DOMAIN"
+set_env POLARIS_ACME_EMAIL "$acme_email"
+set_env POLARIS_GIT_COMMIT "$HEAD_SHA"
 R3
 log "Phase 3 done"
 
