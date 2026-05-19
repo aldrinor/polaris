@@ -557,3 +557,14 @@ Diff review (`.codex/I-cd-002/`):
 First live run of `redeploy_v6.sh` failed at Phase 0 preflight (`Permission denied (publickey)`) — box untouched. Two shipped-script defects fixed: (1) `rsh()`/`scp` omitted `-i`, so the non-default-named box key was never offered; (2) the Phase-0 clean-tree `die` required an empty `git status --porcelain`, unsatisfiable in the loop working repo. Fix: `--ssh-key`/`$POLARIS_SSH_KEY` + `-i`/`IdentitiesOnly=yes`; clean-tree `die` → warning scoped to `git diff --quiet HEAD`.
 - Brief review: APPROVE iter 1 — 0 P0 / 0 P1; 1 P2 (pre-existing CLI-hygiene, non-blocking). tokens 4,567.
 - Diff review: APPROVE iter 1 — 0 P0 / 0 P1; 1 P2 (`--ssh-key` missing-value CLI hygiene, non-blocking). convergence accept_remaining. Both gates APPROVE iter 1 — converged in 1 each.
+
+## I-cd-002 live redeploy — 2026-05-19
+
+Re-ran `redeploy_v6.sh` post-followup-merge. Phase 0-5 OK; live = `d0a6fa72`; 4 healthchecked containers + caddy running + `https://polarisresearch.ca/` → 200. Box `.env` reconciled (`POLARIS_GIT_COMMIT=d0a6fa72`, `POLARIS_DOMAIN`, `POLARIS_ACME_EMAIL`); box-local `docker-compose.caddy.yml` retired; rollback snapshot retained at `/home/ubuntu/polaris-rollback-20260519T203148Z/`. #606 closed.
+
+## I-cd-003 (#622) — canonical-pin reconciliation (URGENT, #524) — 2026-05-19
+
+Pin recorded HEAD-blob SHAs of 10 canonical files (LF). 6 drifted, 4 matched. Reconciled by regenerating `canonical_pin.txt` deterministically from `git show HEAD:<f> | sha256sum`. Diff = 12 lines (-6/+6).
+- Brief review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining. tokens ~3k.
+
+Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
