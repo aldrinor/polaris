@@ -18,18 +18,24 @@ die() { echo "[redeploy] FATAL: $*" >&2; exit 1; }
 
 # --- args -------------------------------------------------------------------
 ACME_EMAIL="${POLARIS_ACME_EMAIL:-}"
+SSH_KEY="${POLARIS_SSH_KEY:-$HOME/.ssh/polaris_orchestrator_key}"
 TARGET=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --acme-email)   ACME_EMAIL="${2:-}"; shift 2 ;;
     --acme-email=*) ACME_EMAIL="${1#*=}"; shift ;;
+    --ssh-key)      SSH_KEY="${2:-}"; shift 2 ;;
+    --ssh-key=*)    SSH_KEY="${1#*=}"; shift ;;
     -*) die "unknown flag: $1" ;;
     *)  TARGET="$1"; shift ;;
   esac
 done
 TARGET="${TARGET:-ubuntu@51.79.90.35}"
 [[ -n "$ACME_EMAIL" ]] || die "ACME email required: pass --acme-email <addr> or set \$POLARIS_ACME_EMAIL (runbook example: orchunyin@gmail.com)"
-rsh() { ssh -o ConnectTimeout=20 "$TARGET" "$@"; }
+[[ -f "$SSH_KEY" ]] || die "SSH key not found: $SSH_KEY (pass --ssh-key <path> or set \$POLARIS_SSH_KEY)"
+# -i + IdentitiesOnly: the box key has a non-default name, so it must be named
+# explicitly and be the ONLY identity offered (else ssh fails publickey auth).
+rsh() { ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o ConnectTimeout=20 "$TARGET" "$@"; }
 
 # --- rollback (state-aware; armed only after Phase 2) -----------------------
 ARMED=0
@@ -63,7 +69,12 @@ trap on_exit EXIT
 # --- Phase 0: preflight -----------------------------------------------------
 log "Phase 0: preflight"
 [[ "$(git rev-parse --abbrev-ref HEAD)" == "polaris" ]] || die "not on local 'polaris' branch"
-[[ -z "$(git status --porcelain)" ]] || die "local tree dirty — commit/stash first"
+# Phase 2's `git archive polaris` deploys the committed `polaris` ref — untracked
+# files are never in the archive, and modified tracked files are not either, so a
+# dirty working tree is a heads-up, not a blocker. Warn; do not abort.
+if ! git diff --quiet HEAD; then
+  log "WARNING: $(git diff --name-only HEAD | wc -l | tr -d ' ') modified tracked file(s) are NOT in the deploy — it uses the committed 'polaris' ref"
+fi
 HEAD_SHA="$(git rev-parse HEAD)"
 rsh 'command -v docker >/dev/null' || die "docker missing on box"
 rsh "test -f ${DEPLOY_DIR}/.env" || die "${DEPLOY_DIR}/.env missing on box"
@@ -114,7 +125,7 @@ log "Phase 2: sync tracked tree to box"
 SHORT="${HEAD_SHA:0:12}"
 ARCHIVE="/tmp/polaris-head-${SHORT}.tgz"
 git archive --format=tar polaris | gzip > "$ARCHIVE"
-scp -q "$ARCHIVE" "${TARGET}:/tmp/"
+scp -i "$SSH_KEY" -o IdentitiesOnly=yes -q "$ARCHIVE" "${TARGET}:/tmp/"
 rm -f "$ARCHIVE"
 rsh "SHORT='${SHORT}' DEPLOY_DIR='${DEPLOY_DIR}' bash -se" <<'R2'
 set -euo pipefail

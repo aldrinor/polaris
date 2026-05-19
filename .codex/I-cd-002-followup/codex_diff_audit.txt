@@ -1,0 +1,11 @@
+# I-cd-002-followup diff review — slim verdict
+# Source: .codex/I-cd-002-followup/codex_diff_review_iter1.txt (raw transcript gitignored)
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "`--ssh-key` without a following value falls through to Bash shift 2 / empty-path behavior instead of a targeted die — non-blocking CLI hygiene, not an execution risk for the intended invocation."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
