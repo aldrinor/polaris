@@ -144,7 +144,7 @@ index 0c98ca6e..01df271a 100644
      </html>
 diff --git a/web/components/app_shell.tsx b/web/components/app_shell.tsx
 new file mode 100644
-index 00000000..88725d64
+index 00000000..73d00f62
 --- /dev/null
 +++ b/web/components/app_shell.tsx
 @@ -0,0 +1,56 @@
@@ -183,11 +183,11 @@ index 00000000..88725d64
 +export function AppShell({ children }: { children: React.ReactNode }) {
 +  return (
 +    <>
-+      <header className="sticky top-0 z-40 border-b border-border bg-background">
++      <header className="border-border bg-background sticky top-0 z-40 border-b">
 +        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
 +          <Link
 +            href="/"
-+            className="font-mono text-sm font-semibold tracking-tight text-foreground"
++            className="text-foreground font-mono text-sm font-semibold tracking-tight"
 +          >
 +            POLARIS · Canada
 +          </Link>
@@ -248,4 +248,4 @@ index 00000000..81e03397
 +  );
 +}
 
-# canonical-diff-sha256: 913572c3d89d843ece075aa47c55146e07d93e52c12ba686af2e91d8d1d731cf
+# canonical-diff-sha256: d1cb97d68afe487c70e036599776ebc86e7d8d433cdbb139d0bf7b7f289b7496
