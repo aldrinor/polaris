@@ -1,0 +1,14 @@
+# I-cd-006 brief review — slim verdict
+# Source: .codex/I-cd-006/codex_brief_review_iter{1,2}.txt (raw transcripts gitignored)
+# Trajectory: iter 1 RC (2 P1 — Llama 4 EU-no-grant + Hunyuan EU prohibition, plus 6 P2 license facts) → iter 2 APPROVE.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Hunyuan clearance phrased correctly: not just Canada-domicile + non-EU GPU; all licensed acts (use/reproduction/display/distribution/output) must stay outside the EU. Captured in §B Hunyuan row."
+  - "Llama 4/3.1 'no using Llama materials or outputs to improve non-Llama LLMs' clause noted; not a blocker for evaluator use (outputs are RAG-faithfulness verdicts surfaced in reports, not used for training/distillation/model-improvement). Captured in §A + §B."
+  - "'Built with Llama' attribution plan accepted in shape; must be visible+legible on related UI/pages; dependency BEFORE first public Llama-powered use. Captured in §D."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

@@ -580,4 +580,9 @@ Locked: `meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8` + community INT4 qua
 - Brief review: 4 iters. iter 1 RC (1 P1 — Qwen3.5-397B missing); iter 2 RC (1 P1 — 5 more MoE 400B candidates); iter 3 RC (1 P1 — ERNIE-4.5-VL-424B missing); iter 4 APPROVE (0 P0 / 0 P1; 5 P2 confirmations folded into the doc). Each iter-RC was Codex's web-search-driven candidate-set expansion; pick pivoted from Llama 3.1 405B (iter 1/2) to Llama 4 Maverick (iter 3/4). tokens 6,579 + 89,245 + 69,858 + 36,508 + 91,406 ≈ 290k across the full brief cycle.
 - Diff review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining.
 
+## I-cd-006 (#638) — 400B evaluator license sign-off — 2026-05-19
+
+Operator AskUserQuestion this session: "Auto-merge per Codex" — re-classifies operator-gated license-acceptance issues to auto-merge-per-Codex-APPROVE. Codex APPROVE on the brief + APPROVE on the diff IS the operator's legal acceptance. Locks `docs/models/evaluator_license_signoff.md`.
+- Brief review: 2 iters. iter 1 RC — 2 P1 (Llama 4 AUP §1(a) EU-no-grant to EU-domiciled licensees [does not apply, POLARIS Canada-domiciled]; Hunyuan-Large worldwide-EXCLUDING-EU [HARD blocker if Carney compute is EU GPU]) + 6 P2 license-fact verifications via Codex web search. iter 2 APPROVE — 3 P2 folded into the doc. tokens 109,232 + 10,079.
+
 Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
