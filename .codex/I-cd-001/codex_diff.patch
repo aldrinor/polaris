@@ -1198,3 +1198,5 @@ index 32d8c005..a8c15889 100644
 +    CMD wget --spider -q http://127.0.0.1:3000/ || exit 1
  
  CMD ["node", "server.js"]
+
+# canonical-diff-sha256: d688dbbcfa5fe4aa17e6e79fe367dd0a8058671c300e3b4e98253f37532ea4ce
