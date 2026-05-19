@@ -1,0 +1,15 @@
+# I-cd-004 brief review — slim verdict
+# Source: .codex/I-cd-004/codex_brief_review_iter1.txt (raw transcript gitignored)
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "/memory: KEEP-prod (campaign-memory is real substrate; cutting now = coordination risk)."
+  - "/generation, /retrieval, /sse: CUT-from-prod is correct. Do not keep these as operator diagnostics unless a later issue adds explicit auth/role gating and ownership."
+  - "/audit_live: ABSORB into /runs/[runId] is correct. Route-map docs must make clear the standalone route is RETIRED during I-A-08 (I-cd-025), not merely hidden from nav."
+  - "Shell shape acceptable: top nav with brand mark + primary routes is the right minimal default. Sidebar/command-K/user-menu stay out of I-cd-004."
+  - "Auth gating can be deferred. Unconditional shell/nav rendering is fine for this issue as long as protected page behavior remains owned by the auth rebuild (I-cd-014)."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
