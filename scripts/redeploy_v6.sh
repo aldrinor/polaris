@@ -36,7 +36,9 @@ ARMED=0
 rollback() {
   log "ROLLBACK: restoring the previous stack in place"
   rsh "BACKUP='${BACKUP}' DEPLOY_DIR='${DEPLOY_DIR}' UTC='${UTC}' bash -se" <<'RB' || true
-set -uo pipefail
+# fail-fast internally: a failed restore step must abort before `up`, not be
+# masked. The outer `|| true` still treats the whole rollback as best-effort.
+set -euo pipefail
 cd "$DEPLOY_DIR"
 # Restore the OLD compose files, Caddyfile, AND .env — Phase 3 mutated .env, so
 # leaving it would keep stale POLARIS_GIT_COMMIT / domain / ACME values.
@@ -79,6 +81,11 @@ mkdir -p "$BACKUP"
 # successful native-Caddy redeploy), so the script stays repeatable.
 CF="-f docker-compose.v6.yml"
 [[ -e docker-compose.caddy.yml ]] && CF="$CF -f docker-compose.caddy.yml"
+# Arm the restart trap BEFORE the stop — if `stop` itself fails or is interrupted
+# mid-way the trap still restarts the stack. `start` on already-running services
+# (a pre-stop failure) is a harmless no-op. The outer rollback is not armed
+# during Phase 1, so this trap is the box's only safety here.
+trap 'docker compose -p polaris $CF start worker api redis || true' EXIT
 for s in api worker webui caddy; do
   img="$(docker inspect --format '{{.Config.Image}}' "polaris-${s}-1" 2>/dev/null || true)"
   [[ -n "$img" ]] && docker tag "$img" "polaris-${s}:rollback-${UTC}" || true
@@ -89,9 +96,6 @@ done
 docker compose -p polaris $CF ps > "$BACKUP/pre_state.txt" 2>&1 || true
 # Quiesce ALL volume writers before the tar — a live redis keeps rewriting AOF/RDB.
 docker compose -p polaris $CF stop worker api redis
-# From here the live stack is partially stopped — restart it on ANY failure so
-# the box is never left down (the outer rollback is not yet armed in Phase 1).
-trap 'docker compose -p polaris $CF start worker api redis || true' EXIT
 # shared_state + redis_data are the rollback DATA artifacts — their snapshot
 # MUST succeed; only caddy_data is best-effort (caddy keeps /data open).
 for v in shared_state redis_data; do
@@ -142,6 +146,7 @@ acme_email="$(printf %s "$ACME_B64" | base64 -d)"
 set_env() {
   grep -v "^${1}=" .env > .env.redeploy_tmp || true
   printf '%s=%s\n' "$1" "$2" >> .env.redeploy_tmp
+  chmod --reference=.env .env.redeploy_tmp   # preserve .env's mode (it holds secrets)
   mv .env.redeploy_tmp .env
 }
 set_env POLARIS_DOMAIN     "$DOMAIN"
