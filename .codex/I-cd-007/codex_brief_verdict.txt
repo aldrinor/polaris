@@ -1,0 +1,14 @@
+# I-cd-007 brief review — slim verdict
+# Source: .codex/I-cd-007/codex_brief_review_iter{1,2}.txt (raw transcripts gitignored)
+# Trajectory: iter 1 RC (1 P1 — SGLang + Maverick + INT4 + 4xH100 not source-verified, recommendation pivoted vLLM-primary; 4 P2 corrections) → iter 2 APPROVE.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "§D decision tree: symmetric evaluator branch added — swap Box 2 to SGLang if I-cd-011 proves Maverick INT4 works there but not on vLLM; fall back to Llama 3.1 405B only if Maverick fails on every tested engine. Folded into doc."
+  - "§C/§D vLLM V4 Pro contingency tightened: vLLM has native FP4+FP8 on 8xH200 (800K context cap) per recipes.vllm.ai/deepseek-ai/DeepSeek-V4-Pro; the trigger for SGLang swap is benchmark failure/instability/unacceptable throughput, not 'lack of FP4 path.' Folded into doc."
+  - "TensorRT-LLM recorded as a direct backend candidate (not just a Dynamo wrapper consumer) if vLLM AND SGLang both miss I-cd-011 targets. Folded into doc."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
