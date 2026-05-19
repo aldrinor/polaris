@@ -67,10 +67,10 @@ index b1c618a6..eb599952 100644
  rsh "SHORT='${SHORT}' DEPLOY_DIR='${DEPLOY_DIR}' bash -se" <<'R2'
  set -euo pipefail
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index ce1d3859..eec22222 100644
+index ce1d3859..ae3cd9a6 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -551,3 +551,8 @@ Diff review (`.codex/I-cd-002/`):
+@@ -551,3 +551,9 @@ Diff review (`.codex/I-cd-002/`):
  - iter 3: REQUEST_CHANGES — 1 P1 (restart trap armed after the `stop`, not before) + 2 P2. tokens 16,456.
  - iter 4: APPROVE — 0 P0 / 0 P1 / 0 P2. convergence accept_remaining.
  - Trajectory P1: 1 → 2 → 1 → 0. Converged in 4 iters. Code change: 3 files (`scripts/redeploy_v6.sh` new ~190, `docs/deploy_runbook.md` +26, `iteration_trajectory.md` self-referential process log) — canonical diff ~250 lines; the >200 overage is entirely the mandatory runbook doc + trajectory log, code surface is the single ~190-line script.
@@ -79,5 +79,6 @@ index ce1d3859..eec22222 100644
 +
 +First live run of `redeploy_v6.sh` failed at Phase 0 preflight (`Permission denied (publickey)`) — box untouched. Two shipped-script defects fixed: (1) `rsh()`/`scp` omitted `-i`, so the non-default-named box key was never offered; (2) the Phase-0 clean-tree `die` required an empty `git status --porcelain`, unsatisfiable in the loop working repo. Fix: `--ssh-key`/`$POLARIS_SSH_KEY` + `-i`/`IdentitiesOnly=yes`; clean-tree `die` → warning scoped to `git diff --quiet HEAD`.
 +- Brief review: APPROVE iter 1 — 0 P0 / 0 P1; 1 P2 (pre-existing CLI-hygiene, non-blocking). tokens 4,567.
++- Diff review: APPROVE iter 1 — 0 P0 / 0 P1; 1 P2 (`--ssh-key` missing-value CLI hygiene, non-blocking). convergence accept_remaining. Both gates APPROVE iter 1 — converged in 1 each.
 
-# canonical-diff-sha256: 11195d3f50d1cb0f91e521dd2f7a5416523555492cdc8fd6467f1ec4e3f6eb02
+# canonical-diff-sha256: a3cfb36da659d5a9ed7abee168adfbdfaccaf259ba0e5d2644b96de5f7a09835
