@@ -33,11 +33,11 @@ const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-border bg-background">
+      <header className="border-border bg-background sticky top-0 z-40 border-b">
         <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
           <Link
             href="/"
-            className="font-mono text-sm font-semibold tracking-tight text-foreground"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
           >
             POLARIS · Canada
           </Link>
