@@ -20,10 +20,10 @@ index 7c2ce56e..e356a896 100644
 +2ec2f10bb4726ff658dc1e89cf72c7c86f392838a76f98811b031def2edefa4c  .codex/AUDIT_CYCLE_PROTOCOL.md
 +bf3809edab56fcefd6c574feebb5aeaff2fbf73c04534173081e6cc9b3a6b5cf  CLAUDE.md
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index ae3cd9a6..2ce8cc07 100644
+index ae3cd9a6..fe2d5f43 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -557,3 +557,14 @@ Diff review (`.codex/I-cd-002/`):
+@@ -557,3 +557,15 @@ Diff review (`.codex/I-cd-002/`):
  First live run of `redeploy_v6.sh` failed at Phase 0 preflight (`Permission denied (publickey)`) — box untouched. Two shipped-script defects fixed: (1) `rsh()`/`scp` omitted `-i`, so the non-default-named box key was never offered; (2) the Phase-0 clean-tree `die` required an empty `git status --porcelain`, unsatisfiable in the loop working repo. Fix: `--ssh-key`/`$POLARIS_SSH_KEY` + `-i`/`IdentitiesOnly=yes`; clean-tree `die` → warning scoped to `git diff --quiet HEAD`.
  - Brief review: APPROVE iter 1 — 0 P0 / 0 P1; 1 P2 (pre-existing CLI-hygiene, non-blocking). tokens 4,567.
  - Diff review: APPROVE iter 1 — 0 P0 / 0 P1; 1 P2 (`--ssh-key` missing-value CLI hygiene, non-blocking). convergence accept_remaining. Both gates APPROVE iter 1 — converged in 1 each.
@@ -36,7 +36,8 @@ index ae3cd9a6..2ce8cc07 100644
 +
 +Pin recorded HEAD-blob SHAs of 10 canonical files (LF). 6 drifted, 4 matched. Reconciled by regenerating `canonical_pin.txt` deterministically from `git show HEAD:<f> | sha256sum`. Diff = 12 lines (-6/+6).
 +- Brief review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining. tokens ~3k.
++- Diff review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining. Both gates APPROVE iter 1 — cleanest cycle yet.
 +
 +Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
 
-# canonical-diff-sha256: 29b64d882f47c896a12d67badd81609caafa47339363d386e5f8452a5da30c55
+# canonical-diff-sha256: 0728cb69cd9aea82d5b824c3cfca603a7ae9a15f14236c3f772f52d0369669da
