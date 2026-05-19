@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { AppShell } from "@/components/app_shell";
 import { Toaster } from "@/components/ui/sonner";
 
 import "./globals.css";
@@ -32,7 +33,7 @@ export default function RootLayout({
       className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
-        {children}
+        <AppShell>{children}</AppShell>
         <Toaster />
       </body>
     </html>
