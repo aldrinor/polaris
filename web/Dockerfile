@@ -40,6 +40,10 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+# I-B-04 / #494: Next.js standalone server.js binds to $HOSTNAME; the default
+# resolves to IPv6 ::1, but the healthcheck + Caddy reach it on IPv4. Force
+# 0.0.0.0 so 127.0.0.1 (healthcheck) and webui:3000 (Caddy) both connect.
+ENV HOSTNAME=0.0.0.0
 # Standalone output: contains a minimal server.js + only the deps needed
 # to run it. Requires output: 'standalone' in next.config.ts (P1-004).
 COPY --from=builder /app/.next/standalone ./
@@ -50,6 +54,6 @@ EXPOSE 3000
 
 # Healthcheck via wget --spider (busybox alpine built-in).
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD wget --spider -q http://localhost:3000/ || exit 1
+    CMD wget --spider -q http://127.0.0.1:3000/ || exit 1
 
 CMD ["node", "server.js"]

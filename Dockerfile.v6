@@ -44,11 +44,14 @@ WORKDIR /app
 # neither reachable from pipeline-A or v6 backend) AND its protobuf<5
 # constraint from the v6 image only. Pipeline-B's separate `Dockerfile`
 # is untouched and retains both deps.
-COPY requirements.txt requirements-v6.txt ./
-RUN sed -e '/^google-generativeai/d' \
-        -e '/^protobuf</d' \
-        requirements.txt > /tmp/requirements-v6-pipeline-a.txt && \
-    pip install --no-cache-dir -r /tmp/requirements-v6-pipeline-a.txt -r requirements-v6.txt
+COPY requirements.txt requirements-v6.txt requirements.lock ./
+# I-B-04 / #494: install from the deterministic uv-compiled lockfile — no
+# build-time resolver runaway. requirements.lock is compiled from the v6
+# surface: requirements.txt minus google-generativeai + protobuf< (pipeline-C
+# dead code; its protobuf<5 constraint conflicts with v6's protobuf==6.33.6)
+# plus requirements-v6.txt. requirements.txt + requirements-v6.txt stay COPY'd
+# as the lock's provenance / source of truth.
+RUN pip install --no-cache-dir -r requirements.lock
 
 # Copy application code.
 COPY src/ src/
