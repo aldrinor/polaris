@@ -1,0 +1,12 @@
+# I-cd-004 diff review — slim verdict
+# Source: .codex/I-cd-004/codex_diff_review_iter1.txt (raw transcript gitignored)
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "docs/web/route_map.md heading 'Prod routes (10 kept, ... 8 primary + 2 contextual)' undercounts — /sign-in (auth) is also a kept prod row, total 11. Doc precision nit, not an execution blocker; the locked decisions are correct."
+  - "web/components/app_shell.tsx header has no small-viewport overflow handling — brand + 8 nav links can overflow on mobile. Responsive treatment (flex-wrap / mobile menu) deferred — not a blocker for the approved shell wiring."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

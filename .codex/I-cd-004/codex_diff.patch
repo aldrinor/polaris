@@ -1,0 +1,251 @@
+diff --git a/docs/web/design_tokens.md b/docs/web/design_tokens.md
+new file mode 100644
+index 00000000..b4ddc32b
+--- /dev/null
++++ b/docs/web/design_tokens.md
+@@ -0,0 +1,52 @@
++# POLARIS web — canonical design tokens (I-cd-004, locked)
++
++The canonical token set IS the shadcn-ui default theme currently defined in
++`web/app/globals.css` (`@theme inline` block). I-cd-004 LOCKS this set: the
++I-cd-013..030 per-route rebuilds use ONLY these names. No new tokens are
++invented; no token in this list is renamed without a follow-up issue.
++
++`globals.css` itself is unchanged by I-cd-004.
++
++## Color tokens
++
++Base surface / text:
++- `--color-background`, `--color-foreground`
++- `--color-card`, `--color-card-foreground`
++- `--color-popover`, `--color-popover-foreground`
++
++Interaction palette (use exactly these for buttons, links, focus rings):
++- `--color-primary`, `--color-primary-foreground`
++- `--color-secondary`, `--color-secondary-foreground`
++- `--color-accent`, `--color-accent-foreground`
++- `--color-muted`, `--color-muted-foreground`
++- `--color-destructive`, `--color-destructive-foreground`
++
++Forms / chrome:
++- `--color-border`, `--color-input`, `--color-ring`
++
++Sidebar (reserved — used by future left-nav surfaces; not consumed by the
++I-cd-004 top-nav shell):
++- `--color-sidebar`, `--color-sidebar-foreground`
++- `--color-sidebar-primary`, `--color-sidebar-primary-foreground`
++- `--color-sidebar-accent`, `--color-sidebar-accent-foreground`
++- `--color-sidebar-border`, `--color-sidebar-ring`
++
++Charts (reserved for forest-plot / comparison-table / timeline surfaces):
++- `--color-chart-1` .. `--color-chart-5`
++
++## Radius scale
++
++- `--radius-sm`, `--radius-md`, `--radius-lg`, `--radius-xl`,
++  `--radius-2xl`, `--radius-3xl`, `--radius-4xl`
++
++## Font tokens
++
++- `--font-sans`, `--font-mono`, `--font-heading`
++
++## Usage rule
++
++Per-route rebuilds (I-cd-013..030) reference these via the existing Tailwind v4
++`@theme inline` mapping (e.g. `bg-background`, `text-foreground`,
++`border-border`, `text-accent-foreground`, `rounded-md`). Page-local
++component styles must NOT introduce ad-hoc color/radius/font tokens outside
++this list.
+diff --git a/docs/web/route_map.md b/docs/web/route_map.md
+new file mode 100644
+index 00000000..b95b03b5
+--- /dev/null
++++ b/docs/web/route_map.md
+@@ -0,0 +1,44 @@
++# POLARIS web — canonical route map (I-cd-004, locked)
++
++Codex-APPROVED brief `.codex/I-cd-004/brief.md` (iter 1, all P2s = confirmations).
++This is the locked prod route map the I-cd-013..030 rebuild series must respect.
++Test-harness prod-exclusion is owned separately by **I-cd-015**.
++
++## Prod routes (10 kept, surfaced in the AppShell nav as 8 primary + 2 contextual)
++
++| Route | In top nav? | Rebuild issue | Note |
++|---|---|---|---|
++| `/` | Home | I-cd-022 (I-A-05) | Landing |
++| `/intake` | Intake | I-cd-023 (I-A-06) | Research-question intake |
++| `/dashboard` | Dashboard | I-cd-024 (I-A-07) | Run overview; deep-links into `/runs/[runId]` and `/inspector/[runId]` |
++| `/upload` | Upload | I-cd-026 (I-A-09) | Document upload |
++| `/benchmark` | Benchmark | I-cd-027 (I-A-10) | BEAT-BOTH benchmark UI |
++| `/contracts` | Contracts | I-cd-028 (I-A-11) | Signed bundle / contracts |
++| `/pin_replay` | Pin Replay | I-cd-029 (I-A-12) | Replay a pinned run |
++| `/memory` | Memory | I-cd-030 (I-A-13) | Campaign memory. Codex iter-1 P2 confirmed KEEP-prod (campaign memory is real substrate; coordination risk to cut). |
++| `/inspector/[runId]` | (contextual, deep-link) | I-cd-013 (I-A-03) | Gold per-run inspector |
++| `/runs/[runId]` (+ `/graph` sub-route) | (contextual, deep-link) | I-cd-025 (I-A-08) | Run detail. **ABSORBS `/audit_live` (the standalone route is RETIRED at I-cd-025, not merely hidden from nav — per Codex P2).** |
++| `/sign-in` | (auth — not in nav) | I-cd-014 (I-A-04) | static_accounts auth |
++
++## CUT-from-prod (3)
++
++These routes don't appear in any I-A-NN rebuild row. They are in-progress dev
++test surfaces (SSE smoke, retrieval inspector, generator probe). Removed from
++the prod nav. Codex iter-1 P2: "Do not keep these as operator diagnostics
++unless a later issue adds explicit auth/role gating and ownership."
++
++- `/generation`
++- `/retrieval`
++- `/sse`
++
++Prod-build exclusion of these (alongside the 17 harness routes) is **I-cd-015**.
++
++## Test-harness routes (17, excluded from prod build by I-cd-015)
++
++| Group | Count |
++|---|---|
++| `(test_harness)/disambiguation_modal_preview` | 1 |
++| `charts_test/*` | 5 |
++| `sentence_hover_test/*` | 11 |
++
++Kept in dev for component testing; never reachable in prod.
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index fe2d5f43..5dfcfabd 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -568,4 +568,10 @@ Pin recorded HEAD-blob SHAs of 10 canonical files (LF). 6 drifted, 4 matched. Re
+ - Brief review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining. tokens ~3k.
+ - Diff review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining. Both gates APPROVE iter 1 — cleanest cycle yet.
+ 
++## I-cd-004 (#607) — Global app shell + design tokens + route map — 2026-05-19
++
++Ships `<AppShell>` server component + `<NavLink>` client component + the locked route map + the locked canonical token doc. Route map decisions: KEEP-prod 10 (with `/memory` confirmed kept), CUT-from-prod 3 (`/generation`, `/retrieval`, `/sse`), ABSORB 1 (`/audit_live` RETIRED at I-cd-025, not merely hidden — per Codex P2), HARNESS 17 (deferred to I-cd-015). Token set = the shadcn default theme already in `web/app/globals.css`, locked by `docs/web/design_tokens.md`. `globals.css` unchanged. Per-route rebuilds happen in I-cd-013..030.
++- Brief review: APPROVE iter 1 — 0 P0 / 0 P1; 5 P2s, all CONFIRMATIONS of `§G` open questions (no real findings). tokens 6,579. convergence accept_remaining.
++- Diff review: APPROVE iter 1 — 0 P0 / 0 P1; 2 P2s (route_map.md heading undercounts `/sign-in` → 11 prod rows not 10; AppShell header no mobile-overflow handling). Both non-blocking and noted. convergence accept_remaining. tokens 11,666.
++
+ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
+diff --git a/web/app/layout.tsx b/web/app/layout.tsx
+index 0c98ca6e..01df271a 100644
+--- a/web/app/layout.tsx
++++ b/web/app/layout.tsx
+@@ -1,6 +1,7 @@
+ import type { Metadata } from "next";
+ import { Geist, Geist_Mono } from "next/font/google";
+ 
++import { AppShell } from "@/components/app_shell";
+ import { Toaster } from "@/components/ui/sonner";
+ 
+ import "./globals.css";
+@@ -32,7 +33,7 @@ export default function RootLayout({
+       className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+     >
+       <body className="flex min-h-full flex-col">
+-        {children}
++        <AppShell>{children}</AppShell>
+         <Toaster />
+       </body>
+     </html>
+diff --git a/web/components/app_shell.tsx b/web/components/app_shell.tsx
+new file mode 100644
+index 00000000..73d00f62
+--- /dev/null
++++ b/web/components/app_shell.tsx
+@@ -0,0 +1,56 @@
++import Link from "next/link";
++
++import { NavLink } from "@/components/nav_link";
++
++/**
++ * I-cd-004: the global app shell. A server component that wraps every prod
++ * route with a single header + primary nav. The 8 primary nav entries are
++ * the Codex-APPROVED prod route map (see docs/web/route_map.md):
++ *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
++ *
++ * Out of scope for this issue (each its own later issue per the Seq-N order):
++ *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
++ *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
++ *    /dashboard rather than top-nav entries.
++ *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
++ *    retired at that point (not merely hidden — per Codex P2).
++ *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
++ *    I-cd-015.
++ *  - Auth gating of the nav itself is deferred to I-cd-014.
++ *  - Per-page rebuilds happen in the I-cd-013..030 series.
++ */
++const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
++  { href: "/", label: "Home" },
++  { href: "/intake", label: "Intake" },
++  { href: "/dashboard", label: "Dashboard" },
++  { href: "/upload", label: "Upload" },
++  { href: "/benchmark", label: "Benchmark" },
++  { href: "/contracts", label: "Contracts" },
++  { href: "/pin_replay", label: "Pin Replay" },
++  { href: "/memory", label: "Memory" },
++];
++
++export function AppShell({ children }: { children: React.ReactNode }) {
++  return (
++    <>
++      <header className="border-border bg-background sticky top-0 z-40 border-b">
++        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
++          <Link
++            href="/"
++            className="text-foreground font-mono text-sm font-semibold tracking-tight"
++          >
++            POLARIS · Canada
++          </Link>
++          <nav className="flex items-center gap-1" aria-label="Primary">
++            {PRIMARY_NAV.map((item) => (
++              <NavLink key={item.href} href={item.href}>
++                {item.label}
++              </NavLink>
++            ))}
++          </nav>
++        </div>
++      </header>
++      <main className="flex-1">{children}</main>
++    </>
++  );
++}
+diff --git a/web/components/nav_link.tsx b/web/components/nav_link.tsx
+new file mode 100644
+index 00000000..81e03397
+--- /dev/null
++++ b/web/components/nav_link.tsx
+@@ -0,0 +1,37 @@
++"use client";
++
++import Link from "next/link";
++import { usePathname } from "next/navigation";
++
++/**
++ * I-cd-004: client component for top-nav active-route highlight. Pure styling
++ * via the locked shadcn token set (accent / muted-foreground / foreground).
++ * Active when the pathname equals href, or starts with `${href}/` for nested
++ * routes (e.g. `/runs/abc` highlights "Dashboard" only if we want — by default
++ * an item is active for its own subtree).
++ */
++export function NavLink({
++  href,
++  children,
++}: {
++  href: string;
++  children: React.ReactNode;
++}) {
++  const pathname = usePathname();
++  const is_active =
++    pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
++  return (
++    <Link
++      href={href}
++      aria-current={is_active ? "page" : undefined}
++      className={
++        "rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
++        (is_active
++          ? "bg-accent text-accent-foreground"
++          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground")
++      }
++    >
++      {children}
++    </Link>
++  );
++}
+
+# canonical-diff-sha256: d1cb97d68afe487c70e036599776ebc86e7d8d433cdbb139d0bf7b7f289b7496

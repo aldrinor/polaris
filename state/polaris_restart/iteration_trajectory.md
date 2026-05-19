@@ -568,4 +568,10 @@ Pin recorded HEAD-blob SHAs of 10 canonical files (LF). 6 drifted, 4 matched. Re
 - Brief review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining. tokens ~3k.
 - Diff review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining. Both gates APPROVE iter 1 — cleanest cycle yet.
 
+## I-cd-004 (#607) — Global app shell + design tokens + route map — 2026-05-19
+
+Ships `<AppShell>` server component + `<NavLink>` client component + the locked route map + the locked canonical token doc. Route map decisions: KEEP-prod 10 (with `/memory` confirmed kept), CUT-from-prod 3 (`/generation`, `/retrieval`, `/sse`), ABSORB 1 (`/audit_live` RETIRED at I-cd-025, not merely hidden — per Codex P2), HARNESS 17 (deferred to I-cd-015). Token set = the shadcn default theme already in `web/app/globals.css`, locked by `docs/web/design_tokens.md`. `globals.css` unchanged. Per-route rebuilds happen in I-cd-013..030.
+- Brief review: APPROVE iter 1 — 0 P0 / 0 P1; 5 P2s, all CONFIRMATIONS of `§G` open questions (no real findings). tokens 6,579. convergence accept_remaining.
+- Diff review: APPROVE iter 1 — 0 P0 / 0 P1; 2 P2s (route_map.md heading undercounts `/sign-in` → 11 prod rows not 10; AppShell header no mobile-overflow handling). Both non-blocking and noted. convergence accept_remaining. tokens 11,666.
+
 Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
