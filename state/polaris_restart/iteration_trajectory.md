@@ -574,4 +574,9 @@ Ships `<AppShell>` server component + `<NavLink>` client component + the locked 
 - Brief review: APPROVE iter 1 — 0 P0 / 0 P1; 5 P2s, all CONFIRMATIONS of `§G` open questions (no real findings). tokens 6,579. convergence accept_remaining.
 - Diff review: APPROVE iter 1 — 0 P0 / 0 P1; 2 P2s (route_map.md heading undercounts `/sign-in` → 11 prod rows not 10; AppShell header no mobile-overflow handling). Both non-blocking and noted. convergence accept_remaining. tokens 11,666.
 
+## I-cd-005 (#637) — Evaluator bakeoff, pick ~400B non-DeepSeek model — 2026-05-19
+
+Locked: `meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8` + community INT4 quant for 4×H100. Hard fallback: `Llama-3.1-405B-Instruct` + AWQ/GPTQ-INT4. Six MoE alternatives documented for I-cd-011 revisit (MiniMax-M1 largest at 456B, ERNIE-4.5-VL-424B, Qwen3.5-397B-A17B, GLM-4.5, Arcee Trinity-Large, Hunyuan-Large).
+- Brief review: 4 iters. iter 1 RC (1 P1 — Qwen3.5-397B missing); iter 2 RC (1 P1 — 5 more MoE 400B candidates); iter 3 RC (1 P1 — ERNIE-4.5-VL-424B missing); iter 4 APPROVE (0 P0 / 0 P1; 5 P2 confirmations folded into the doc). Each iter-RC was Codex's web-search-driven candidate-set expansion; pick pivoted from Llama 3.1 405B (iter 1/2) to Llama 4 Maverick (iter 3/4). tokens 6,579 + 89,245 + 69,858 + 36,508 + 91,406 ≈ 290k across the full brief cycle.
+
 Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
