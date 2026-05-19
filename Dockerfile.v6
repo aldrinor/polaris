@@ -45,7 +45,7 @@ WORKDIR /app
 # constraint from the v6 image only. Pipeline-B's separate `Dockerfile`
 # is untouched and retains both deps.
 COPY requirements.txt requirements-v6.txt requirements.lock ./
-# I-B-04 / #494: install from the deterministic uv-compiled lockfile — no
+# I-cd-001 / #494: install from the deterministic uv-compiled lockfile — no
 # build-time resolver runaway. requirements.lock is compiled from the v6
 # surface: requirements.txt minus google-generativeai + protobuf< (pipeline-C
 # dead code; its protobuf<5 constraint conflicts with v6's protobuf==6.33.6)

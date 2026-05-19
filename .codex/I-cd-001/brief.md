@@ -5,7 +5,7 @@ HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 - If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd on remaining non-P0/P1 findings.
 - Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
 
-# Codex brief review — I-B-04 / GH#623: clean Docker build (#494)
+# Codex brief review — I-cd-001 / GH#623: clean Docker build (#494)
 
 Seq 1 of the Carney-demo breakdown (promoted from Seq 4 — I-A-01's Codex
 brief-review found I-A-01 "redeploy HEAD" is blocked on this: HEAD does not

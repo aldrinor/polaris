@@ -40,7 +40,7 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
-# I-B-04 / #494: Next.js standalone server.js binds to $HOSTNAME; the default
+# I-cd-001 / #494: Next.js standalone server.js binds to $HOSTNAME; the default
 # resolves to IPv6 ::1, but the healthcheck + Caddy reach it on IPv4. Force
 # 0.0.0.0 so 127.0.0.1 (healthcheck) and webui:3000 (Caddy) both connect.
 ENV HOSTNAME=0.0.0.0

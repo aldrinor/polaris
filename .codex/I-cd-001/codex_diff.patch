@@ -1,16 +1,26 @@
 diff --git a/.gitattributes b/.gitattributes
 new file mode 100644
-index 00000000..182b4851
+index 00000000..4b7bcd2e
 --- /dev/null
 +++ b/.gitattributes
 @@ -0,0 +1,5 @@
 +# Enforce LF on shell scripts + Dockerfiles. CRLF on these breaks the
 +# container ENTRYPOINT ("exec /entrypoint.sh: no such file or directory" —
-+# the kernel cannot find `/bin/bash\r`) and shebang resolution. I-B-04 / #494.
++# the kernel cannot find `/bin/bash\r`) and shebang resolution. I-cd-001 / #494.
 +*.sh text eol=lf
 +Dockerfile* text eol=lf
+diff --git a/.gitignore b/.gitignore
+index 0a91c974..3ee04ea4 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -235,3 +235,5 @@ outputs/codex_findings/round_*/last_message.txt
+ .codex/**/codex_brief_review*.txt
+ .codex/**/codex_brief_verdict_iter*.txt
+ .codex/**/codex_diff_audit_iter*.txt
++.codex/*/codex_*review*.txt
++.codex/*/codex_*_review_iter*.txt
 diff --git a/Dockerfile.v6 b/Dockerfile.v6
-index 5859720d..7eb1ac91 100644
+index 5859720d..18468807 100644
 --- a/Dockerfile.v6
 +++ b/Dockerfile.v6
 @@ -44,11 +44,14 @@ WORKDIR /app
@@ -23,7 +33,7 @@ index 5859720d..7eb1ac91 100644
 -        requirements.txt > /tmp/requirements-v6-pipeline-a.txt && \
 -    pip install --no-cache-dir -r /tmp/requirements-v6-pipeline-a.txt -r requirements-v6.txt
 +COPY requirements.txt requirements-v6.txt requirements.lock ./
-+# I-B-04 / #494: install from the deterministic uv-compiled lockfile — no
++# I-cd-001 / #494: install from the deterministic uv-compiled lockfile — no
 +# build-time resolver runaway. requirements.lock is compiled from the v6
 +# surface: requirements.txt minus google-generativeai + protobuf< (pipeline-C
 +# dead code; its protobuf<5 constraint conflicts with v6's protobuf==6.33.6)
@@ -34,14 +44,14 @@ index 5859720d..7eb1ac91 100644
  # Copy application code.
  COPY src/ src/
 diff --git a/docker-compose.v6.yml b/docker-compose.v6.yml
-index bbc73c8d..e9d0ff08 100644
+index bbc73c8d..216de18c 100644
 --- a/docker-compose.v6.yml
 +++ b/docker-compose.v6.yml
 @@ -100,6 +100,16 @@ services:
        context: .
        dockerfile: Dockerfile.v6
      command: worker
-+    # I-B-04 / #494: the worker is a Dramatiq consumer with no HTTP server.
++    # I-cd-001 / #494: the worker is a Dramatiq consumer with no HTTP server.
 +    # Override the api-oriented Dockerfile.v6 HEALTHCHECK (:8000/health) with a
 +    # redis-reachability check, else the worker reports "unhealthy" forever
 +    # despite running fine — and api/webui that depend on it can be held back.
@@ -55,7 +65,7 @@ index bbc73c8d..e9d0ff08 100644
        - .env
      environment:
 diff --git a/requirements-v6.txt b/requirements-v6.txt
-index ab6e923d..7f890efa 100644
+index ab6e923d..cba2b7f8 100644
 --- a/requirements-v6.txt
 +++ b/requirements-v6.txt
 @@ -9,7 +9,8 @@ chromadb==1.0.20
@@ -63,7 +73,7 @@ index ab6e923d..7f890efa 100644
  fastapi==0.136.1
  pydantic==2.11.7
 -pydantic-settings==2.6.1
-+# I-B-04 / #494: langchain-community needs pydantic-settings>=2.10.
++# I-cd-001 / #494: langchain-community needs pydantic-settings>=2.10.
 +pydantic-settings>=2.10.1,<3.0.0
  uvicorn[standard]==0.36.0
  python-multipart==0.0.20
@@ -72,7 +82,7 @@ index ab6e923d..7f890efa 100644
  
  # --- Auth (I-carney-004): static-accounts + bcrypt + HS256 JWT ---
  passlib[bcrypt]==1.7.4
-+# I-B-04 / #494: passlib 1.7.4 breaks on bcrypt 5.x
++# I-cd-001 / #494: passlib 1.7.4 breaks on bcrypt 5.x
 +# ("module 'bcrypt' has no attribute '__about__'"). Pin to the 4.x line.
 +bcrypt==4.0.1
  python-jose[cryptography]==3.3.0
@@ -1166,14 +1176,14 @@ index 728bf009..6e86c10b 100644
  # Graph Database (Knowledge Graph)
  neo4j>=5.0
 diff --git a/web/Dockerfile b/web/Dockerfile
-index 32d8c005..ec7d7729 100644
+index 32d8c005..a8c15889 100644
 --- a/web/Dockerfile
 +++ b/web/Dockerfile
 @@ -40,6 +40,10 @@ FROM node:20-alpine AS runner
  WORKDIR /app
  ENV NODE_ENV=production
  ENV PORT=3000
-+# I-B-04 / #494: Next.js standalone server.js binds to $HOSTNAME; the default
++# I-cd-001 / #494: Next.js standalone server.js binds to $HOSTNAME; the default
 +# resolves to IPv6 ::1, but the healthcheck + Caddy reach it on IPv4. Force
 +# 0.0.0.0 so 127.0.0.1 (healthcheck) and webui:3000 (Caddy) both connect.
 +ENV HOSTNAME=0.0.0.0

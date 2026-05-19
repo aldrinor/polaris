@@ -100,7 +100,7 @@ services:
       context: .
       dockerfile: Dockerfile.v6
     command: worker
-    # I-B-04 / #494: the worker is a Dramatiq consumer with no HTTP server.
+    # I-cd-001 / #494: the worker is a Dramatiq consumer with no HTTP server.
     # Override the api-oriented Dockerfile.v6 HEALTHCHECK (:8000/health) with a
     # redis-reachability check, else the worker reports "unhealthy" forever
     # despite running fine — and api/webui that depend on it can be held back.

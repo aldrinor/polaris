@@ -1,7 +1,7 @@
-# I-B-04 / GH#623 — Claude architect audit
+# I-cd-001 / GH#623 — Claude architect audit
 
 **Issue:** clean Docker build (#494) — Seq 1 of the Carney-demo breakdown.
-**Branch:** `bot/I-B-04-clean-docker-build`.
+**Branch:** `bot/I-cd-001-clean-docker-build`.
 
 ## What changed (7 files)
 
@@ -33,11 +33,11 @@
 Low. requirements.lock is large (1058 lines) but generated; the hand-authored
 change is ~30 lines. The build empirically passes. The lock is now the single
 install source — if a future requirement edit lands without regenerating the
-lock, the build uses the stale lock (mitigation: I-B-04 establishes the
+lock, the build uses the stale lock (mitigation: I-cd-001 establishes the
 regenerate-on-requirements-change convention; documented in the Dockerfile.v6
 comment).
 
 ## Verdict
 
-Diff matches the Codex-APPROVED brief (`.codex/I-B-04/brief.md`). Build-verified.
+Diff matches the Codex-APPROVED brief (`.codex/I-cd-001/brief.md`). Build-verified.
 Ready for Codex diff review.

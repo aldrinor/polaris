@@ -1,5 +1,5 @@
 # Enforce LF on shell scripts + Dockerfiles. CRLF on these breaks the
 # container ENTRYPOINT ("exec /entrypoint.sh: no such file or directory" —
-# the kernel cannot find `/bin/bash\r`) and shebang resolution. I-B-04 / #494.
+# the kernel cannot find `/bin/bash\r`) and shebang resolution. I-cd-001 / #494.
 *.sh text eol=lf
 Dockerfile* text eol=lf

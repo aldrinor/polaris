@@ -5,10 +5,10 @@ HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 - If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd on remaining non-P0/P1 findings.
 - Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
 
-# Codex diff review — I-B-04 / GH#623: clean Docker build (#494)
+# Codex diff review — I-cd-001 / GH#623: clean Docker build (#494)
 
 **DO NOT explore the repository. Review ONLY the diff embedded below.** The
-brief was Codex-APPROVED iter 1 (`.codex/I-B-04/brief.md`, 0 P0/0 P1). This
+brief was Codex-APPROVED iter 1 (`.codex/I-cd-001/brief.md`, 0 P0/0 P1). This
 reviews the diff against that brief.
 
 ## Empirical verification (already done)
@@ -33,7 +33,7 @@ do not line-audit all 1058 lines.
 diff --git a/.gitattributes b/.gitattributes
 new file mode 100644
 +# Enforce LF on shell scripts + Dockerfiles. CRLF on these breaks the
-+# container ENTRYPOINT ... I-B-04 / #494.
++# container ENTRYPOINT ... I-cd-001 / #494.
 +*.sh text eol=lf
 +Dockerfile* text eol=lf
 
@@ -45,13 +45,13 @@ diff --git a/Dockerfile.v6 b/Dockerfile.v6
 -        requirements.txt > /tmp/requirements-v6-pipeline-a.txt && \
 -    pip install --no-cache-dir -r /tmp/requirements-v6-pipeline-a.txt -r requirements-v6.txt
 +COPY requirements.txt requirements-v6.txt requirements.lock ./
-+# I-B-04 / #494: install from the deterministic uv-compiled lockfile ...
++# I-cd-001 / #494: install from the deterministic uv-compiled lockfile ...
 +RUN pip install --no-cache-dir -r requirements.lock
 
 diff --git a/docker-compose.v6.yml b/docker-compose.v6.yml
 @@ worker service @@
      command: worker
-+    # I-B-04 / #494: the worker is a Dramatiq consumer with no HTTP server ...
++    # I-cd-001 / #494: the worker is a Dramatiq consumer with no HTTP server ...
 +    healthcheck:
 +      test: ["CMD-SHELL", "python -c \"import socket; socket.create_connection(('redis', 6379), 3)\" || exit 1"]
 +      interval: 30s
@@ -62,11 +62,11 @@ diff --git a/docker-compose.v6.yml b/docker-compose.v6.yml
 
 diff --git a/requirements-v6.txt b/requirements-v6.txt
 -pydantic-settings==2.6.1
-+# I-B-04 / #494: langchain-community needs pydantic-settings>=2.10.
++# I-cd-001 / #494: langchain-community needs pydantic-settings>=2.10.
 +pydantic-settings>=2.10.1,<3.0.0
 @@ auth @@
  passlib[bcrypt]==1.7.4
-+# I-B-04 / #494: passlib 1.7.4 breaks on bcrypt 5.x. Pin to the 4.x line.
++# I-cd-001 / #494: passlib 1.7.4 breaks on bcrypt 5.x. Pin to the 4.x line.
 +bcrypt==4.0.1
 
 diff --git a/requirements.txt b/requirements.txt
@@ -86,7 +86,7 @@ diff --git a/requirements.txt b/requirements.txt
 diff --git a/web/Dockerfile b/web/Dockerfile
  ENV NODE_ENV=production
  ENV PORT=3000
-+# I-B-04 / #494: Next.js standalone server.js binds to $HOSTNAME ...
++# I-cd-001 / #494: Next.js standalone server.js binds to $HOSTNAME ...
 +ENV HOSTNAME=0.0.0.0
 @@ healthcheck @@
 -    CMD wget --spider -q http://localhost:3000/ || exit 1

@@ -1,6 +1,6 @@
 verdict: APPROVE
 iteration: 1
-document: .codex/I-B-04/brief.md
+document: .codex/I-cd-001/brief.md
 novel_p0: []
 continuing_p0: []
 p1: []
@@ -12,4 +12,4 @@ p2:
 convergence_call: accept_remaining
 remaining_blockers_for_execution: []
 # Codex brief review APPROVE iter 1, 0 P0 / 0 P1. Raw review:
-# .codex/I-B-04/codex_brief_review_iter1.txt
+# .codex/I-cd-001/codex_brief_review_iter1.txt
