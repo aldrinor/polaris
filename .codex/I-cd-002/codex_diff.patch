@@ -37,10 +37,10 @@ index 84ac662b..13f97de9 100644
  | Symptom | Likely cause | Fix |
 diff --git a/scripts/redeploy_v6.sh b/scripts/redeploy_v6.sh
 new file mode 100644
-index 00000000..deae3faa
+index 00000000..7b42bdc3
 --- /dev/null
 +++ b/scripts/redeploy_v6.sh
-@@ -0,0 +1,180 @@
+@@ -0,0 +1,192 @@
 +#!/usr/bin/env bash
 +# scripts/redeploy_v6.sh — I-cd-002 / GH#606
 +# Redeploy current `polaris` HEAD to the live OVH demo VM (polarisresearch.ca).
@@ -81,7 +81,9 @@ index 00000000..deae3faa
 +  rsh "BACKUP='${BACKUP}' DEPLOY_DIR='${DEPLOY_DIR}' UTC='${UTC}' bash -se" <<'RB' || true
 +set -uo pipefail
 +cd "$DEPLOY_DIR"
-+for f in docker-compose.v6.yml docker-compose.caddy.yml docker-compose.v6.yml.bak Caddyfile; do
++# Restore the OLD compose files, Caddyfile, AND .env — Phase 3 mutated .env, so
++# leaving it would keep stale POLARIS_GIT_COMMIT / domain / ACME values.
++for f in docker-compose.v6.yml docker-compose.caddy.yml docker-compose.v6.yml.bak Caddyfile .env; do
 +  [[ -e "$BACKUP/$f" ]] && cp -a "$BACKUP/$f" "./$f"
 +done
 +for s in api worker webui caddy; do
@@ -116,6 +118,10 @@ index 00000000..deae3faa
 +set -euo pipefail
 +cd "$DEPLOY_DIR"
 +mkdir -p "$BACKUP"
++# Compose file set — docker-compose.caddy.yml is optional (it is removed after a
++# successful native-Caddy redeploy), so the script stays repeatable.
++CF="-f docker-compose.v6.yml"
++[[ -e docker-compose.caddy.yml ]] && CF="$CF -f docker-compose.caddy.yml"
 +for s in api worker webui caddy; do
 +  img="$(docker inspect --format '{{.Config.Image}}' "polaris-${s}-1" 2>/dev/null || true)"
 +  [[ -n "$img" ]] && docker tag "$img" "polaris-${s}:rollback-${UTC}" || true
@@ -123,16 +129,22 @@ index 00000000..deae3faa
 +for f in docker-compose.v6.yml docker-compose.caddy.yml docker-compose.v6.yml.bak Caddyfile .env; do
 +  [[ -e "$f" ]] && cp -a "$f" "$BACKUP/" || true
 +done
-+docker compose -p polaris -f docker-compose.v6.yml -f docker-compose.caddy.yml ps \
-+  > "$BACKUP/pre_state.txt" 2>&1 || true
++docker compose -p polaris $CF ps > "$BACKUP/pre_state.txt" 2>&1 || true
 +# Quiesce ALL volume writers before the tar — a live redis keeps rewriting AOF/RDB.
-+docker compose -p polaris -f docker-compose.v6.yml -f docker-compose.caddy.yml stop worker api redis
-+for v in shared_state redis_data caddy_data; do
-+  docker run --rm -v "polaris_${v}:/v:ro" -v "$BACKUP:/b" alpine \
-+    tar czf "/b/${v}.tgz" -C /v . || echo "WARN: ${v} snapshot best-effort (caddy may keep /data open)"
++docker compose -p polaris $CF stop worker api redis
++# From here the live stack is partially stopped — restart it on ANY failure so
++# the box is never left down (the outer rollback is not yet armed in Phase 1).
++trap 'docker compose -p polaris $CF start worker api redis || true' EXIT
++# shared_state + redis_data are the rollback DATA artifacts — their snapshot
++# MUST succeed; only caddy_data is best-effort (caddy keeps /data open).
++for v in shared_state redis_data; do
++  docker run --rm -v "polaris_${v}:/v:ro" -v "$BACKUP:/b" alpine tar czf "/b/${v}.tgz" -C /v .
 +done
++docker run --rm -v "polaris_caddy_data:/v:ro" -v "$BACKUP:/b" alpine \
++  tar czf "/b/caddy_data.tgz" -C /v . || echo "WARN: caddy_data snapshot best-effort"
 +# Restart the old stack so it serves during the long Phase 4 build.
-+docker compose -p polaris -f docker-compose.v6.yml -f docker-compose.caddy.yml start worker api redis
++docker compose -p polaris $CF start worker api redis
++trap - EXIT
 +R1
 +log "Phase 1 done — volumes snapshotted, old stack serving"
 +
@@ -256,4 +268,4 @@ index 9ea6c334..29b77c31 100644
 +- iter 2: APPROVE — 0 P0 / 0 P1; 4 P2 non-blocking. tokens 15,050. convergence accept_remaining.
 +- Trajectory P1: 2 → 0. Converged in 2 iters. Deliverable: `scripts/redeploy_v6.sh` + `docs/deploy_runbook.md` redeploy section.
 
-# canonical-diff-sha256: 10cb8feca48447bab3146dcc4351c7d4d0e575b51f6409fb6de25bcd4b6aae34
+# canonical-diff-sha256: 1de2749f5b03fae97aecb1b8952f719476a938225998491f147580ff4dea2430

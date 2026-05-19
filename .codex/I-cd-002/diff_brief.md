@@ -1,4 +1,4 @@
-HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
 - Same quality bar regardless of iteration count.
 - "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
@@ -13,27 +13,27 @@ one file. The plan it implements was APPROVED by you at brief iter 2
 
 # Codex DIFF review iter 2 — I-cd-002 / GH#606: scripts/redeploy_v6.sh
 
-## §0 — Iter-2 revisions (responding to iter-1 REQUEST_CHANGES)
+## §0 — Iter-3 revisions (responding to iter-2 REQUEST_CHANGES)
 
-Iter 1 returned REQUEST_CHANGES: 1 P1 + 2 P2. All three are fixed in
-`codex_diff.patch` as it now stands:
+Iter 1 (1 P1 + 2 P2) and iter 2 (2 P1 + 2 P2) findings are ALL fixed in
+`codex_diff.patch` as it now stands. The iter-2 fixes:
 
-- **P1 (R3 remote-env injection)** — `ACME_EMAIL` (operator-supplied) is no
-  longer interpolated raw into the SSH command. It is now base64-encoded
-  locally (`ACME_B64="$(printf %s "$ACME_EMAIL" | base64 | tr -d '\n')"`) and
-  passed as `ACME_B64='...'`; base64 output is `[A-Za-z0-9+/=]` only, so a
-  value with a single quote or any shell metacharacter cannot break or inject.
-  R3 decodes it remotely: `acme_email="$(printf %s "$ACME_B64" | base64 -d)"`.
-  `DOMAIN` (repo constant) and `HEAD_SHA` (hex) are still interpolated directly
-  — they cannot contain shell-special characters.
-- **P2-1 (rollback assumed `docker-compose.caddy.yml` exists)** — `rollback()`
-  now builds the compose `-f` list from files that actually exist after the
-  restore: `cf="-f docker-compose.v6.yml"; [[ -e docker-compose.caddy.yml ]] &&
-  cf="$cf -f docker-compose.caddy.yml"`.
-- **P2-2 (R3 appended but did not update stale values)** — R3 now uses a
-  `set_env` upsert (grep-out the old line, append the new) for all three keys,
-  so an existing stale `POLARIS_DOMAIN` / `POLARIS_ACME_EMAIL` is corrected,
-  not left in place.
+- **P1 (Phase 1 could leave the box partially stopped)** — R1 now sets an EXIT
+  trap immediately after `stop worker api redis` that restarts those services
+  on ANY failure/interruption; the trap is cleared (`trap - EXIT`) only after
+  the successful final `start`. The live box is never left down.
+- **P1 (masked critical-snapshot failures)** — the `shared_state` and
+  `redis_data` tars now run WITHOUT `|| echo` — a failure aborts (via R1's
+  `set -e`, which fires the restart trap); only the `caddy_data` tar stays
+  best-effort (caddy holds `/data` open).
+- **P2 (not repeatable)** — Phase 1 now builds a dynamic `-f` compose list
+  (`CF`), so it runs whether or not `docker-compose.caddy.yml` is present (that
+  file is removed after a successful native-Caddy redeploy).
+- **P2 (rollback did not restore `.env`)** — `rollback()` now restores `.env`
+  from the backup too, so Phase-3 `.env` mutations are reverted.
+
+The iter-1 fixes (base64 ACME email; rollback dynamic `-f` list; R3 `set_env`
+upsert) remain in place.
 
 ## §A — What this is
 
@@ -41,13 +41,13 @@ This diff implements the Codex-APPROVED brief `.codex/I-cd-002/brief.md`. It
 adds a six-phase, workstation-driven redeploy script for the live OVH demo VM,
 plus a runbook section and the mandatory §8.3.5 iteration-trajectory log entry.
 
-Canonical diff = 3 files: `scripts/redeploy_v6.sh` (NEW, 177 lines — the
+Canonical diff = 3 files: `scripts/redeploy_v6.sh` (NEW, ~190 lines — the
 reviewable code surface), `docs/deploy_runbook.md` (+26), and
 `state/polaris_restart/iteration_trajectory.md` (+26, the mandatory CLAUDE.md
 §8.3.5 log).
 
-**LOC note:** the canonical diff totals ~229 added lines, over the 200 soft cap.
-The code is a single cohesive ~177-line deploy script — not meaningfully
+**LOC note:** the canonical diff totals ~242 added lines, over the 200 soft cap.
+The code is a single cohesive ~190-line deploy script — not meaningfully
 splittable; the overage is entirely the mandatory runbook doc + trajectory log.
 Flagging transparently — if you consider this a blocker say so; otherwise it is
 a documented exemption (code surface ~177 LOC, well within reviewer-fatigue
