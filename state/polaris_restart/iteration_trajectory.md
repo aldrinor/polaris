@@ -556,3 +556,4 @@ Diff review (`.codex/I-cd-002/`):
 
 First live run of `redeploy_v6.sh` failed at Phase 0 preflight (`Permission denied (publickey)`) — box untouched. Two shipped-script defects fixed: (1) `rsh()`/`scp` omitted `-i`, so the non-default-named box key was never offered; (2) the Phase-0 clean-tree `die` required an empty `git status --porcelain`, unsatisfiable in the loop working repo. Fix: `--ssh-key`/`$POLARIS_SSH_KEY` + `-i`/`IdentitiesOnly=yes`; clean-tree `die` → warning scoped to `git diff --quiet HEAD`.
 - Brief review: APPROVE iter 1 — 0 P0 / 0 P1; 1 P2 (pre-existing CLI-hygiene, non-blocking). tokens 4,567.
+- Diff review: APPROVE iter 1 — 0 P0 / 0 P1; 1 P2 (`--ssh-key` missing-value CLI hygiene, non-blocking). convergence accept_remaining. Both gates APPROVE iter 1 — converged in 1 each.
