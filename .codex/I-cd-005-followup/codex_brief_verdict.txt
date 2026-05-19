@@ -1,0 +1,19 @@
+# I-cd-005-followup brief review — slim verdict
+# Source: .codex/I-cd-005-followup/codex_brief_review_iter{1,2}.txt (raw transcripts gitignored)
+# Trajectory: iter 1 RC (1 P1 — operator-locked Gemma 4 400B unreleased, escalated to operator; 4 P2 verified facts) → operator decided "which is best as evaluator" → Claude judgment: Gemma 4 31B-it dense → iter 2 APPROVE.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "HF id confirmed: google/gemma-4-31B-it is released/public, Apache 2.0, no HF gating. (ai.google.dev/gemma/docs/core/model_card_4)"
+  - "No Google-published FP8/NVFP4/INT4 sibling repo. Relevant non-Google artifacts: nvidia/Gemma-4-31B-IT-NVFP4 (Blackwell-only) and ebircak/gemma-4-31B-it-4bit-W4A16-AWQ (the operational 4xH100 community quant)."
+  - "License operative: Apache 2.0. Attribution Apache-style only: retain notices, provide license on redistribution, mark modified files, NOTICE only if present; NO 'Built with Gemma' placement requirement."
+  - "Gemma Prohibited Use Policy overlay (ai.google.dev/gemma/prohibited_use_policy): rights-infringing, dangerous/illegal/malicious, misleading, harmful, sexually explicit prohibitions. NOT MAU/gating/branding. Recorded in license signoff §B.1."
+  - "Operational correction: load ebircak AWQ with `--quantization compressed-tensors`, NOT `--quantization awq`. Raw 4-bit weights ~16 GB; practical recommended VRAM higher due to overhead/KV; trivial on 4xH100. (HF model card.)"
+  - "vLLM support confirmed for official BF16 google/gemma-4-31B-it; vLLM recipe documents 31B dense on 2x A100/H100 TP=2 + Gemma4-specific parser support. (docs.vllm.ai/projects/recipes/.../Google/Gemma4.html)"
+  - "Two-family sanity check: openrouter_client maps deepseek/deepseek-v4-pro to 'deepseek' and google/gemma-4-31b-it to 'gemma'; check_family_segregation returns ('deepseek','gemma'). Distinct lineages, passes."
+  - "No Gemma-4-31B-specific LLM-as-judge weakness found that rises to P1. Residual quality caveat is the model card's generic limitations list (factual accuracy, task complexity, ambiguity/nuance, bias, misuse); I-cd-011 empirical evaluator validation remains appropriate."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
