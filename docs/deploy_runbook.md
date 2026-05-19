@@ -87,6 +87,32 @@ For a clean wipe (drops Redis AOF + sqlite v6_runs.sqlite — DATA LOSS):
 docker compose -f docker-compose.v6.yml down -v
 ```
 
+## Redeploying over a running stack (`scripts/redeploy_v6.sh`)
+
+Steps 1-4 bootstrap a *fresh* host. To push a new `polaris` HEAD to an
+already-running box (the live OVH demo VM), use `scripts/redeploy_v6.sh` — it
+snapshots first, builds while the old stack still serves, and auto-rolls-back
+on any failure. Run it from a workstation with this repo at `polaris` HEAD and
+the box SSH key:
+
+```
+POLARIS_ACME_EMAIL=orchunyin@gmail.com scripts/redeploy_v6.sh ubuntu@51.79.90.35
+```
+
+`POLARIS_ACME_EMAIL` (or `--acme-email <addr>`) is **required** — HEAD's
+`Caddyfile` reads the Let's Encrypt account email from `.env`, and the script
+fails loudly rather than guessing; `orchunyin@gmail.com` above is the example
+contact for this VM.
+
+The script snapshots volumes + images to `/home/ubuntu/polaris-rollback-<utc>/`,
+`git archive`+`rsync --delete`s HEAD onto the box (leaving `.env` and the
+`outputs/ logs/ data/ state/` runtime dirs untouched), reconciles `.env`, then
+builds and `up -d`s from `docker-compose.v6.yml` only — Caddy is native there,
+so the old box-local `docker-compose.caddy.yml` is retired. On any build or
+verify failure it restores the previous compose files + images and
+`up -d --force-recreate`s the old stack — never a forward `down`, never
+`down -v`. See `.codex/I-cd-002/brief.md` for the full vetted plan.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
