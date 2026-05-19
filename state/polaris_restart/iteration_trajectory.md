@@ -518,3 +518,29 @@ Loop selected #571 per the Codex next-action consult (`.codex/autonomous_overnig
 
 ### Diff review
 - iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (the brief-review row above records the *code change* as `2 files, +152/-4`; the canonical diff/hash also contains `iteration_trajectory.md` itself → 3 files — standard self-referential process-metadata pattern, no execution impact). convergence accept_remaining. Codex confirmed: `-followup` no longer collapses onto the parent id, carved `[a-z]` ids no longer rejected, `BASH_REMATCH[1]`-only (group renumber inert), additive/zero-regression on every pre-existing branch form, POSIX-ERE↔Python-`re` 1:1, the test extracts the live regex from the YAML (drift-proof), and downstream `.codex/${ISSUE_ID}/` + canonical-diff pathspecs consume the full id. 2 code files + trajectory.md. ~86k tokens.
+
+## Carney demo operational plan (plan v6) — 2026-05-19
+
+Planning consult (`.codex/operational_plan_review/`):
+- iter 1: REQUEST_CHANGES — 6 P1 (demo-day 25-min latency vs 5 live runs; FP4 weight-fit treated as serving-fit; no persistent-weight plan; Phase-1 first-FP4-proof too late; stale runbook; in-room fallback overstated) + 3 P2.
+- iter 2: REQUEST_CHANGES — 1 continuing P1 (demo-day GPU capacity not assured by destroy-and-re-acquire) + 2 P2.
+- iter 3: APPROVE — 0 P0 / 0 P1 (plan v4).
+- iter 4: REQUEST_CHANGES — 1 P1 (Workstream A "every page top-tier" not executable — needs a route matrix) + 3 P2.
+- iter 5: APPROVE — 0 P0 / 0 P1 (plan v6). convergence accept_remaining.
+
+## Carney demo issue breakdown — 2026-05-19
+
+Issue-list review (`.codex/issue_breakdown_review/`):
+- iter 1: REQUEST_CHANGES — 3 P1 (OVH capacity check sequenced too late; 400B evaluator license sign-off too late; no GPU spend-lifecycle gates) + 6 P2.
+- iter 2: APPROVE — 0 P0 / 0 P1 (breakdown v2); 2 P2 folded in. convergence accept_remaining. → 48 issues, GitHub #606-#653.
+
+## I-cd-001 (#623) — clean Docker build — 2026-05-19
+
+Brief review: APPROVE iter 2. Diff review: APPROVE. Merged PR #655 (squash 6eb79da0).
+
+## I-cd-002 (#606) — Redeploy polaris HEAD to the VM — 2026-05-19
+
+Brief review (`.codex/I-cd-002/`):
+- iter 1: REQUEST_CHANGES — 0 P0, 2 P1 (redis volume snapshotted while redis still running → inconsistent rollback artifact; Phase-6 rollback issues an unconditional forward-compose `down` that can tear down the still-serving old stack) + 3 P2. tokens 6,246. convergence continue.
+- iter 2: APPROVE — 0 P0 / 0 P1; 4 P2 non-blocking. tokens 15,050. convergence accept_remaining.
+- Trajectory P1: 2 → 0. Converged in 2 iters. Deliverable: `scripts/redeploy_v6.sh` + `docs/deploy_runbook.md` redeploy section.
