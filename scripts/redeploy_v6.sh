@@ -38,7 +38,9 @@ rollback() {
   rsh "BACKUP='${BACKUP}' DEPLOY_DIR='${DEPLOY_DIR}' UTC='${UTC}' bash -se" <<'RB' || true
 set -uo pipefail
 cd "$DEPLOY_DIR"
-for f in docker-compose.v6.yml docker-compose.caddy.yml docker-compose.v6.yml.bak Caddyfile; do
+# Restore the OLD compose files, Caddyfile, AND .env — Phase 3 mutated .env, so
+# leaving it would keep stale POLARIS_GIT_COMMIT / domain / ACME values.
+for f in docker-compose.v6.yml docker-compose.caddy.yml docker-compose.v6.yml.bak Caddyfile .env; do
   [[ -e "$BACKUP/$f" ]] && cp -a "$BACKUP/$f" "./$f"
 done
 for s in api worker webui caddy; do
@@ -73,6 +75,10 @@ rsh "UTC='${UTC}' BACKUP='${BACKUP}' DEPLOY_DIR='${DEPLOY_DIR}' bash -se" <<'R1'
 set -euo pipefail
 cd "$DEPLOY_DIR"
 mkdir -p "$BACKUP"
+# Compose file set — docker-compose.caddy.yml is optional (it is removed after a
+# successful native-Caddy redeploy), so the script stays repeatable.
+CF="-f docker-compose.v6.yml"
+[[ -e docker-compose.caddy.yml ]] && CF="$CF -f docker-compose.caddy.yml"
 for s in api worker webui caddy; do
   img="$(docker inspect --format '{{.Config.Image}}' "polaris-${s}-1" 2>/dev/null || true)"
   [[ -n "$img" ]] && docker tag "$img" "polaris-${s}:rollback-${UTC}" || true
@@ -80,16 +86,22 @@ done
 for f in docker-compose.v6.yml docker-compose.caddy.yml docker-compose.v6.yml.bak Caddyfile .env; do
   [[ -e "$f" ]] && cp -a "$f" "$BACKUP/" || true
 done
-docker compose -p polaris -f docker-compose.v6.yml -f docker-compose.caddy.yml ps \
-  > "$BACKUP/pre_state.txt" 2>&1 || true
+docker compose -p polaris $CF ps > "$BACKUP/pre_state.txt" 2>&1 || true
 # Quiesce ALL volume writers before the tar — a live redis keeps rewriting AOF/RDB.
-docker compose -p polaris -f docker-compose.v6.yml -f docker-compose.caddy.yml stop worker api redis
-for v in shared_state redis_data caddy_data; do
-  docker run --rm -v "polaris_${v}:/v:ro" -v "$BACKUP:/b" alpine \
-    tar czf "/b/${v}.tgz" -C /v . || echo "WARN: ${v} snapshot best-effort (caddy may keep /data open)"
+docker compose -p polaris $CF stop worker api redis
+# From here the live stack is partially stopped — restart it on ANY failure so
+# the box is never left down (the outer rollback is not yet armed in Phase 1).
+trap 'docker compose -p polaris $CF start worker api redis || true' EXIT
+# shared_state + redis_data are the rollback DATA artifacts — their snapshot
+# MUST succeed; only caddy_data is best-effort (caddy keeps /data open).
+for v in shared_state redis_data; do
+  docker run --rm -v "polaris_${v}:/v:ro" -v "$BACKUP:/b" alpine tar czf "/b/${v}.tgz" -C /v .
 done
+docker run --rm -v "polaris_caddy_data:/v:ro" -v "$BACKUP:/b" alpine \
+  tar czf "/b/caddy_data.tgz" -C /v . || echo "WARN: caddy_data snapshot best-effort"
 # Restart the old stack so it serves during the long Phase 4 build.
-docker compose -p polaris -f docker-compose.v6.yml -f docker-compose.caddy.yml start worker api redis
+docker compose -p polaris $CF start worker api redis
+trap - EXIT
 R1
 log "Phase 1 done — volumes snapshotted, old stack serving"
 
