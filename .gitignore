@@ -235,3 +235,5 @@ outputs/codex_findings/round_*/last_message.txt
 .codex/**/codex_brief_review*.txt
 .codex/**/codex_brief_verdict_iter*.txt
 .codex/**/codex_diff_audit_iter*.txt
+.codex/*/codex_*review*.txt
+.codex/*/codex_*_review_iter*.txt

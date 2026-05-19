@@ -1,0 +1,15 @@
+verdict: APPROVE
+iteration: 1
+document: .codex/I-cd-001/codex_diff.patch
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - lockfile-vs-requirements drift on future edits — treat requirements.lock as
+    authoritative or add a CI regenerate/compare step. Non-blocking; captured
+    as a follow-up.
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+build_verified: "docker build -f Dockerfile.v6 on the OVH VM -> BUILD_EXIT=0 (all 13 stages, incl. pip install -r requirements.lock)"
+# Codex diff review APPROVE iter 1, 0 P0 / 0 P1.
+# Raw transcript .codex/I-cd-001/codex_diff_review_iter1.txt is NOT committed (verdict-only rule).
