@@ -1,0 +1,83 @@
+diff --git a/docs/deploy_runbook.md b/docs/deploy_runbook.md
+index 13f97de9..87051a2b 100644
+--- a/docs/deploy_runbook.md
++++ b/docs/deploy_runbook.md
+@@ -102,7 +102,9 @@ POLARIS_ACME_EMAIL=orchunyin@gmail.com scripts/redeploy_v6.sh ubuntu@51.79.90.35
+ `POLARIS_ACME_EMAIL` (or `--acme-email <addr>`) is **required** — HEAD's
+ `Caddyfile` reads the Let's Encrypt account email from `.env`, and the script
+ fails loudly rather than guessing; `orchunyin@gmail.com` above is the example
+-contact for this VM.
++contact for this VM. The box SSH key defaults to
++`~/.ssh/polaris_orchestrator_key`; pass `--ssh-key <path>` (or `$POLARIS_SSH_KEY`)
++if it lives elsewhere.
+ 
+ The script snapshots volumes + images to `/home/ubuntu/polaris-rollback-<utc>/`,
+ `git archive`+`rsync --delete`s HEAD onto the box (leaving `.env` and the
+diff --git a/scripts/redeploy_v6.sh b/scripts/redeploy_v6.sh
+index b1c618a6..eb599952 100644
+--- a/scripts/redeploy_v6.sh
++++ b/scripts/redeploy_v6.sh
+@@ -18,18 +18,24 @@ die() { echo "[redeploy] FATAL: $*" >&2; exit 1; }
+ 
+ # --- args -------------------------------------------------------------------
+ ACME_EMAIL="${POLARIS_ACME_EMAIL:-}"
++SSH_KEY="${POLARIS_SSH_KEY:-$HOME/.ssh/polaris_orchestrator_key}"
+ TARGET=""
+ while [[ $# -gt 0 ]]; do
+   case "$1" in
+     --acme-email)   ACME_EMAIL="${2:-}"; shift 2 ;;
+     --acme-email=*) ACME_EMAIL="${1#*=}"; shift ;;
++    --ssh-key)      SSH_KEY="${2:-}"; shift 2 ;;
++    --ssh-key=*)    SSH_KEY="${1#*=}"; shift ;;
+     -*) die "unknown flag: $1" ;;
+     *)  TARGET="$1"; shift ;;
+   esac
+ done
+ TARGET="${TARGET:-ubuntu@51.79.90.35}"
+ [[ -n "$ACME_EMAIL" ]] || die "ACME email required: pass --acme-email <addr> or set \$POLARIS_ACME_EMAIL (runbook example: orchunyin@gmail.com)"
+-rsh() { ssh -o ConnectTimeout=20 "$TARGET" "$@"; }
++[[ -f "$SSH_KEY" ]] || die "SSH key not found: $SSH_KEY (pass --ssh-key <path> or set \$POLARIS_SSH_KEY)"
++# -i + IdentitiesOnly: the box key has a non-default name, so it must be named
++# explicitly and be the ONLY identity offered (else ssh fails publickey auth).
++rsh() { ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o ConnectTimeout=20 "$TARGET" "$@"; }
+ 
+ # --- rollback (state-aware; armed only after Phase 2) -----------------------
+ ARMED=0
+@@ -63,7 +69,12 @@ trap on_exit EXIT
+ # --- Phase 0: preflight -----------------------------------------------------
+ log "Phase 0: preflight"
+ [[ "$(git rev-parse --abbrev-ref HEAD)" == "polaris" ]] || die "not on local 'polaris' branch"
+-[[ -z "$(git status --porcelain)" ]] || die "local tree dirty — commit/stash first"
++# Phase 2's `git archive polaris` deploys the committed `polaris` ref — untracked
++# files are never in the archive, and modified tracked files are not either, so a
++# dirty working tree is a heads-up, not a blocker. Warn; do not abort.
++if ! git diff --quiet HEAD; then
++  log "WARNING: $(git diff --name-only HEAD | wc -l | tr -d ' ') modified tracked file(s) are NOT in the deploy — it uses the committed 'polaris' ref"
++fi
+ HEAD_SHA="$(git rev-parse HEAD)"
+ rsh 'command -v docker >/dev/null' || die "docker missing on box"
+ rsh "test -f ${DEPLOY_DIR}/.env" || die "${DEPLOY_DIR}/.env missing on box"
+@@ -114,7 +125,7 @@ log "Phase 2: sync tracked tree to box"
+ SHORT="${HEAD_SHA:0:12}"
+ ARCHIVE="/tmp/polaris-head-${SHORT}.tgz"
+ git archive --format=tar polaris | gzip > "$ARCHIVE"
+-scp -q "$ARCHIVE" "${TARGET}:/tmp/"
++scp -i "$SSH_KEY" -o IdentitiesOnly=yes -q "$ARCHIVE" "${TARGET}:/tmp/"
+ rm -f "$ARCHIVE"
+ rsh "SHORT='${SHORT}' DEPLOY_DIR='${DEPLOY_DIR}' bash -se" <<'R2'
+ set -euo pipefail
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index ce1d3859..eec22222 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -551,3 +551,8 @@ Diff review (`.codex/I-cd-002/`):
+ - iter 3: REQUEST_CHANGES — 1 P1 (restart trap armed after the `stop`, not before) + 2 P2. tokens 16,456.
+ - iter 4: APPROVE — 0 P0 / 0 P1 / 0 P2. convergence accept_remaining.
+ - Trajectory P1: 1 → 2 → 1 → 0. Converged in 4 iters. Code change: 3 files (`scripts/redeploy_v6.sh` new ~190, `docs/deploy_runbook.md` +26, `iteration_trajectory.md` self-referential process log) — canonical diff ~250 lines; the >200 overage is entirely the mandatory runbook doc + trajectory log, code surface is the single ~190-line script.
++
++## I-cd-002-followup (#606) — redeploy_v6.sh runnability fix — 2026-05-19
++
++First live run of `redeploy_v6.sh` failed at Phase 0 preflight (`Permission denied (publickey)`) — box untouched. Two shipped-script defects fixed: (1) `rsh()`/`scp` omitted `-i`, so the non-default-named box key was never offered; (2) the Phase-0 clean-tree `die` required an empty `git status --porcelain`, unsatisfiable in the loop working repo. Fix: `--ssh-key`/`$POLARIS_SSH_KEY` + `-i`/`IdentitiesOnly=yes`; clean-tree `die` → warning scoped to `git diff --quiet HEAD`.
++- Brief review: APPROVE iter 1 — 0 P0 / 0 P1; 1 P2 (pre-existing CLI-hygiene, non-blocking). tokens 4,567.
+
+# canonical-diff-sha256: 11195d3f50d1cb0f91e521dd2f7a5416523555492cdc8fd6467f1ec4e3f6eb02
