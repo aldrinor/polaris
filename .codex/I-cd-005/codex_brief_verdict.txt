@@ -1,0 +1,17 @@
+# I-cd-005 brief review — slim verdict
+# Source: .codex/I-cd-005/codex_brief_review_iter{1..4}.txt (raw transcripts gitignored)
+# Trajectory: iter 1 RC (1 P1 — Qwen3.5-397B missing) → iter 2 RC (1 P1 — 5 more MoE 400B candidates) → iter 3 RC (1 P1 — ERNIE-4.5-VL-424B missing) → iter 4 APPROVE.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "ERNIE clarification (folded into doc): -PT = PyTorch format, not Pre-Trained; the 424B repo is a Posttraining/Chat checkpoint usable as evaluator. No text-only 424B ERNIE; Baidu's text-only A47B line tops out at 300B (below class)."
+  - "'Largest/highest active' wording fixed in doc: MiniMax-M1 (456B) is the largest in the candidate set; Hunyuan-Large (52B active) has the highest active params."
+  - "§C.2 ranking caveat folded into doc: no candidate publishes comparable RAGTruth/FEVER/RAGAS numbers; the lock weights deployment + INT4-on-H100 quant maturity above vendor-reported proxy gains from newer Apache/MIT models (Qwen3.5/GLM-4.5/MiniMax-M1)."
+  - "VL caveat applied consistently in doc: Maverick and Qwen3.5 are also multimodal artifacts (the evaluator role is text-only; unused multimodal components add weight footprint but are inactive at inference)."
+  - "Hunyuan EU-territory clause noted in doc (license sign-off remains I-cd-006's job)."
+convergence_call: accept_remaining
+remaining_blockers_for_execution:
+  - "No I-cd-005 blocker. External: I-cd-011 must verify a concrete Maverick INT4/FP4 artifact on 4xH100; I-cd-006 completes license sign-off."

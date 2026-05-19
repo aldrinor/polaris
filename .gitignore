@@ -93,6 +93,9 @@ state/polaris_restart/*_verdict_iter_*.txt
 
 # --- ML models (multi-GB) ---
 models/
+# I-cd-005: docs/models/ holds model-pick / quant / serving docs (text only,
+# not weights). Negate the broad models/ rule for that specific docs subtree.
+!docs/models/
 
 # --- Archive (historical snapshots, 36 GB+) ---
 archive/
