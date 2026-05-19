@@ -590,5 +590,6 @@ Operator AskUserQuestion this session: "Auto-merge per Codex" — re-classifies 
 
 Locked: **vLLM for both boxes** (Box 1 generator DeepSeek V4 Pro on 8×H200; Box 2 evaluator Llama 4 Maverick INT4 on 4×H100). Per-role SGLang contingencies + TensorRT-LLM direct-backend fallback documented; I-cd-011 empirical-verification triggers explicit.
 - Brief review: 2 iters. iter 1 RC — 1 P1 (SGLang + Maverick + INT4 + 4×H100 not source-verified; iter-1's "SGLang for both" recommendation pivoted to vLLM-primary) + 4 P2 (DeepSeek V4 Pro now has explicit engine support; vLLM V1 has prefix caching and structured_outputs too — tempering SGLang's iter-1 "category" advantages; NVIDIA Dynamo runs vLLM/SGLang/TensorRT-LLM as a wrapper). iter 2 APPROVE — 3 P2 folded (symmetric SGLang-for-Box-2 branch, tightened vLLM V4 Pro contingency trigger, TensorRT-LLM as direct backend). tokens 113,418 + 28,771.
+- Diff review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining.
 
 Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
