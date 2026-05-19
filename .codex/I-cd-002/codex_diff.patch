@@ -239,10 +239,10 @@ index 00000000..b1c618a6
 +ARMED=0
 +log "REDEPLOY OK — live = ${HEAD_SHA}; rollback artifacts retained in ${BACKUP}"
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 9ea6c334..29b77c31 100644
+index 9ea6c334..ce1d3859 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -518,3 +518,29 @@ Loop selected #571 per the Codex next-action consult (`.codex/autonomous_overnig
+@@ -518,3 +518,36 @@ Loop selected #571 per the Codex next-action consult (`.codex/autonomous_overnig
  
  ### Diff review
  - iter 1: APPROVE — 0 P0/P1, 1 non-blocking P2 (the brief-review row above records the *code change* as `2 files, +152/-4`; the canonical diff/hash also contains `iteration_trajectory.md` itself → 3 files — standard self-referential process-metadata pattern, no execution impact). convergence accept_remaining. Codex confirmed: `-followup` no longer collapses onto the parent id, carved `[a-z]` ids no longer rejected, `BASH_REMATCH[1]`-only (group renumber inert), additive/zero-regression on every pre-existing branch form, POSIX-ERE↔Python-`re` 1:1, the test extracts the live regex from the YAML (drift-proof), and downstream `.codex/${ISSUE_ID}/` + canonical-diff pathspecs consume the full id. 2 code files + trajectory.md. ~86k tokens.
@@ -272,5 +272,12 @@ index 9ea6c334..29b77c31 100644
 +- iter 1: REQUEST_CHANGES — 0 P0, 2 P1 (redis volume snapshotted while redis still running → inconsistent rollback artifact; Phase-6 rollback issues an unconditional forward-compose `down` that can tear down the still-serving old stack) + 3 P2. tokens 6,246. convergence continue.
 +- iter 2: APPROVE — 0 P0 / 0 P1; 4 P2 non-blocking. tokens 15,050. convergence accept_remaining.
 +- Trajectory P1: 2 → 0. Converged in 2 iters. Deliverable: `scripts/redeploy_v6.sh` + `docs/deploy_runbook.md` redeploy section.
++
++Diff review (`.codex/I-cd-002/`):
++- iter 1: REQUEST_CHANGES — 1 P1 (R3 interpolated operator-supplied ACME_EMAIL into the SSH command — single-quote injection) + 2 P2. tokens 6,979.
++- iter 2: REQUEST_CHANGES — 2 P1 (R1 could leave the box partially stopped; shared_state/redis_data snapshot failures masked by `|| echo`) + 2 P2. tokens 17,591.
++- iter 3: REQUEST_CHANGES — 1 P1 (restart trap armed after the `stop`, not before) + 2 P2. tokens 16,456.
++- iter 4: APPROVE — 0 P0 / 0 P1 / 0 P2. convergence accept_remaining.
++- Trajectory P1: 1 → 2 → 1 → 0. Converged in 4 iters. Code change: 3 files (`scripts/redeploy_v6.sh` new ~190, `docs/deploy_runbook.md` +26, `iteration_trajectory.md` self-referential process log) — canonical diff ~250 lines; the >200 overage is entirely the mandatory runbook doc + trajectory log, code surface is the single ~190-line script.
 
-# canonical-diff-sha256: a6e9f6f52c64016dc120ad8617cc928c4f3cb680d1f58a186ec76b4e81f4902f
+# canonical-diff-sha256: 3e3f36f69d80d0df06998da8f55241f3042daf371f9c8e4d0a8b4a7e76b21dc7
