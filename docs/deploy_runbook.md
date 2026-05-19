@@ -102,7 +102,9 @@ POLARIS_ACME_EMAIL=orchunyin@gmail.com scripts/redeploy_v6.sh ubuntu@51.79.90.35
 `POLARIS_ACME_EMAIL` (or `--acme-email <addr>`) is **required** — HEAD's
 `Caddyfile` reads the Let's Encrypt account email from `.env`, and the script
 fails loudly rather than guessing; `orchunyin@gmail.com` above is the example
-contact for this VM.
+contact for this VM. The box SSH key defaults to
+`~/.ssh/polaris_orchestrator_key`; pass `--ssh-key <path>` (or `$POLARIS_SSH_KEY`)
+if it lives elsewhere.
 
 The script snapshots volumes + images to `/home/ubuntu/polaris-rollback-<utc>/`,
 `git archive`+`rsync --delete`s HEAD onto the box (leaving `.env` and the
