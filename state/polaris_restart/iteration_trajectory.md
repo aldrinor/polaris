@@ -584,5 +584,6 @@ Locked: `meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8` + community INT4 qua
 
 Operator AskUserQuestion this session: "Auto-merge per Codex" — re-classifies operator-gated license-acceptance issues to auto-merge-per-Codex-APPROVE. Codex APPROVE on the brief + APPROVE on the diff IS the operator's legal acceptance. Locks `docs/models/evaluator_license_signoff.md`.
 - Brief review: 2 iters. iter 1 RC — 2 P1 (Llama 4 AUP §1(a) EU-no-grant to EU-domiciled licensees [does not apply, POLARIS Canada-domiciled]; Hunyuan-Large worldwide-EXCLUDING-EU [HARD blocker if Carney compute is EU GPU]) + 6 P2 license-fact verifications via Codex web search. iter 2 APPROVE — 3 P2 folded into the doc. tokens 109,232 + 10,079.
+- Diff review: APPROVE iter 1 — 0 P0 / 0 P1; minor P2s acknowledged (deliverable already incorporates iter-2 brief P2s).  convergence accept_remaining.
 
 Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
