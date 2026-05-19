@@ -566,5 +566,6 @@ Re-ran `redeploy_v6.sh` post-followup-merge. Phase 0-5 OK; live = `d0a6fa72`; 4 
 
 Pin recorded HEAD-blob SHAs of 10 canonical files (LF). 6 drifted, 4 matched. Reconciled by regenerating `canonical_pin.txt` deterministically from `git show HEAD:<f> | sha256sum`. Diff = 12 lines (-6/+6).
 - Brief review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining. tokens ~3k.
+- Diff review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining. Both gates APPROVE iter 1 — cleanest cycle yet.
 
 Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
