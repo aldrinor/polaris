@@ -1,4 +1,4 @@
-HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+HARD ITERATION CAP: 5 per document. This is iter 4 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
 - Same quality bar regardless of iteration count.
 - "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
@@ -13,27 +13,27 @@ one file. The plan it implements was APPROVED by you at brief iter 2
 
 # Codex DIFF review iter 2 — I-cd-002 / GH#606: scripts/redeploy_v6.sh
 
-## §0 — Iter-3 revisions (responding to iter-2 REQUEST_CHANGES)
+## §0 — Iter-4 revisions (responding to iter-3 REQUEST_CHANGES)
 
-Iter 1 (1 P1 + 2 P2) and iter 2 (2 P1 + 2 P2) findings are ALL fixed in
-`codex_diff.patch` as it now stands. The iter-2 fixes:
+Iter 1 (1 P1 + 2 P2), iter 2 (2 P1 + 2 P2), and iter 3 (1 P1 + 2 P2) findings
+are ALL fixed in `codex_diff.patch` as it now stands. The iter-3 fixes:
 
-- **P1 (Phase 1 could leave the box partially stopped)** — R1 now sets an EXIT
-  trap immediately after `stop worker api redis` that restarts those services
-  on ANY failure/interruption; the trap is cleared (`trap - EXIT`) only after
-  the successful final `start`. The live box is never left down.
-- **P1 (masked critical-snapshot failures)** — the `shared_state` and
-  `redis_data` tars now run WITHOUT `|| echo` — a failure aborts (via R1's
-  `set -e`, which fires the restart trap); only the `caddy_data` tar stays
-  best-effort (caddy holds `/data` open).
-- **P2 (not repeatable)** — Phase 1 now builds a dynamic `-f` compose list
-  (`CF`), so it runs whether or not `docker-compose.caddy.yml` is present (that
-  file is removed after a successful native-Caddy redeploy).
-- **P2 (rollback did not restore `.env`)** — `rollback()` now restores `.env`
-  from the backup too, so Phase-3 `.env` mutations are reverted.
+- **P1 (restart trap armed after `stop`)** — the R1 restart EXIT trap is now
+  armed BEFORE `docker compose ... stop worker api redis`, so a `stop` that
+  fails or is interrupted mid-way is still covered. `start` on already-running
+  services (a pre-stop failure) is a harmless no-op; `trap - EXIT` clears it
+  only after the successful final `start`.
+- **P2 (`.env` permissions could widen)** — `set_env` now runs
+  `chmod --reference=.env .env.redeploy_tmp` before the `mv`, so the rewritten
+  `.env` keeps its original mode (it holds secrets).
+- **P2 (rollback heredoc lacked `set -e`)** — the `RB` rollback heredoc now
+  runs `set -euo pipefail`; a failed restore step aborts before `up` instead of
+  being masked. The outer `<<'RB' || true` still treats rollback as best-effort.
 
-The iter-1 fixes (base64 ACME email; rollback dynamic `-f` list; R3 `set_env`
-upsert) remain in place.
+Earlier fixes remain in place: iter-1 — base64 ACME email, rollback dynamic
+`-f` list, R3 `set_env` upsert; iter-2 — R1 restart trap, fail-hard
+`shared_state`/`redis_data` snapshots, Phase-1 dynamic `-f` list, rollback
+restores `.env`.
 
 ## §A — What this is
 
