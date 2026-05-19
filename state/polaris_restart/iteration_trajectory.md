@@ -544,3 +544,10 @@ Brief review (`.codex/I-cd-002/`):
 - iter 1: REQUEST_CHANGES — 0 P0, 2 P1 (redis volume snapshotted while redis still running → inconsistent rollback artifact; Phase-6 rollback issues an unconditional forward-compose `down` that can tear down the still-serving old stack) + 3 P2. tokens 6,246. convergence continue.
 - iter 2: APPROVE — 0 P0 / 0 P1; 4 P2 non-blocking. tokens 15,050. convergence accept_remaining.
 - Trajectory P1: 2 → 0. Converged in 2 iters. Deliverable: `scripts/redeploy_v6.sh` + `docs/deploy_runbook.md` redeploy section.
+
+Diff review (`.codex/I-cd-002/`):
+- iter 1: REQUEST_CHANGES — 1 P1 (R3 interpolated operator-supplied ACME_EMAIL into the SSH command — single-quote injection) + 2 P2. tokens 6,979.
+- iter 2: REQUEST_CHANGES — 2 P1 (R1 could leave the box partially stopped; shared_state/redis_data snapshot failures masked by `|| echo`) + 2 P2. tokens 17,591.
+- iter 3: REQUEST_CHANGES — 1 P1 (restart trap armed after the `stop`, not before) + 2 P2. tokens 16,456.
+- iter 4: APPROVE — 0 P0 / 0 P1 / 0 P2. convergence accept_remaining.
+- Trajectory P1: 1 → 2 → 1 → 0. Converged in 4 iters. Code change: 3 files (`scripts/redeploy_v6.sh` new ~190, `docs/deploy_runbook.md` +26, `iteration_trajectory.md` self-referential process log) — canonical diff ~250 lines; the >200 overage is entirely the mandatory runbook doc + trajectory log, code surface is the single ~190-line script.
