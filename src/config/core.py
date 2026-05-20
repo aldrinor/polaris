@@ -128,6 +128,15 @@ class Thresholds(BaseModel):
 # =============================================================================
 # MODEL CONFIGS
 # =============================================================================
+#
+# I-cd-010 / GH#625: pipeline-C frozen — Gemini TierConfig + LLMConfig
+# defaults below (gemini-2.5-flash / gemini-3-pro-preview / provider=gemini)
+# are intentional legacy per CLAUDE.md §5. The Carney demo runtime
+# (Pipeline-A) uses src/polaris_graph/* with OpenRouter DeepSeek V4 Pro +
+# Gemma 4 31B-it (I-cd-009 / GH#624 lock); these defaults govern the
+# frozen src/orchestration/ + scripts/full_cycle.py + agents stack only.
+#
+# =============================================================================
 
 class TierConfig(BaseModel):
     """Configuration for a model tier (simple/important)."""

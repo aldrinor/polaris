@@ -4682,6 +4682,8 @@ OUTPUT: Expanded prose paragraphs only. No preamble."""
                 from src.config import get_config
                 global_config = get_config()
                 use_streaming = max_tokens > 4096
+                # I-cd-010 / GH#625: pipeline-C frozen — KIMI K2.5 hardcoding intentional
+                # per CLAUDE.md §5 (Carney demo Pipeline-A uses src/polaris_graph/* + OpenRouter V4 Pro).
                 per_call_llm = ChatFireworks(
                     model="accounts/fireworks/models/kimi-k2p5",
                     api_key=global_config.env.fireworks_api_key,

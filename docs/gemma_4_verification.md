@@ -139,19 +139,22 @@ Note: Google labels the AIME benchmark "AIME 2026 no tools" on the card. Whether
 
 These figures are strong for an open-weights 31B model and are more than sufficient for the Global Verifier role per Plan v13 §F architecture: the verifier detects grounding failures, hedging gaps, and family-disagreement. Gemma 4 31B is selected for verifier specifically because it is a *different lineage* from DeepSeek V4 (preserves the two-family segregation invariant) — quality at this level is a bonus, not the selection criterion.
 
-### 4.2 Named fallback: Llama 4 Scout 109B (MoE)
+### 4.2 Named fallback (post-I-cd-010): FP16 `google/gemma-4-31B-it` at TP=4
 
-If Gemma 4 31B verification fails (e.g. discovered behavioral pathology, license-policy reinterpretation, or Phase 4 NVFP4 serving issues): **Llama 4 Scout 109B-MoE** is the canonical fallback per `docs/task_acceptance_matrix.yaml task_0_8.green_criteria`.
+If the AWQ W4A16 (`ebircak/gemma-4-31B-it-4bit-W4A16-AWQ`) serving recipe locked in I-cd-009 fails empirically at the I-cd-011 readiness spike (kernel incompatibility, throughput collapse, structured-output issues): **fall back to FP16 `google/gemma-4-31B-it` at `--tensor-parallel-size 4`** on the same 4×H100 evaluator box. This is the demo safety net.
 
-| Property | Llama 4 Scout 109B | Source |
+| Property | FP16 `google/gemma-4-31B-it` (TP=4) | Source |
 |---|---|---|
-| Architecture | 109B parameters Mixture-of-Experts | Meta model card |
-| Active parameters | ~17B (MoE routing) | Meta model card |
-| License | Llama 4 Community License | Meta |
-| Lineage | Meta (distinct from DeepSeek + Google) | preserves two-family invariant |
-| Serving | vLLM + SGLang both support Llama 4 MoE | published recipes |
+| Architecture | 30.7B parameters, Dense | Google model card |
+| License | Apache 2.0 + Gemma Use Policy | Google |
+| Lineage | Google (Gemma) — same lineage as the locked variant | preserves two-family invariant |
+| Weight residency | ~62GB FP16 across 4×H100 = 320GB HBM | vLLM `--tensor-parallel-size 4` |
+| Serving | `vllm serve google/gemma-4-31B-it --tensor-parallel-size 4` | docs.vllm.ai recipe (§3.1) |
+| Tradeoff vs AWQ | Trades context-window headroom (62GB weights vs 16GB) for the most-mature serving path | I-cd-009 audit |
 
-Triggering the fallback requires user-signed canonical reconciliation per Plan v13 §F (no SILENT fallback). The fallback path is documented here so that, if invoked, the substitute model has been pre-vetted at the same proof-level as Gemma 4 (license, benchmarks, lineage segregation).
+Triggering the fallback requires user-signed canonical reconciliation per Plan v13 §F (no SILENT fallback). The fallback path is documented here so that, if invoked at I-cd-011, the substitute serves the SAME evaluator model in a different quantization — preserving the two-family invariant and the Gemma 4 31B-it evaluator lock without re-running the licensing/benchmark vetting that produced the original Codex APPROVE.
+
+**Why the rewrite (post-I-cd-010 history note):** Earlier versions of this section named Llama 4 Scout 109B-MoE as the fallback. That predates I-cd-005-followup (PR #664) which locked the evaluator to Gemma 4 31B-it specifically. A cross-lineage Llama 4 fallback would force a re-run of the license sign-off + family-segregation invariant; the same-model FP16 fallback closes the safety-net loop without that cost.
 
 ### 4.3 vLLM/SGLang serving-recipe verification — Phase-4-deferred (explicit)
 

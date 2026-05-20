@@ -582,6 +582,8 @@ class AnalystAgent(BaseAgent):
 
         if fireworks_available:
             # FIX 53.2: Use KIMI K2.5 for Analyst (cost-effective with thinking mode)
+            # I-cd-010 / GH#625: pipeline-C frozen — KIMI K2.5 hardcoding intentional
+            # per CLAUDE.md §5 (Carney demo Pipeline-A uses src/polaris_graph/* + OpenRouter V4 Pro).
             model_name = "accounts/fireworks/models/kimi-k2p5"
             self._cost_callback = GeminiCostTrackingCallback(model_name=model_name)
 
@@ -599,7 +601,8 @@ class AnalystAgent(BaseAgent):
             )
             actual_model = model_name
         else:
-            # Fallback: Use Gemini Flash (still cheap, but not KIMI)
+            # Fallback: Use Gemini Flash (still cheap, but not KIMI).
+            # I-cd-010 / GH#625: pipeline-C frozen — Gemini fallback per CLAUDE.md §5.
             from langchain_google_genai import ChatGoogleGenerativeAI
 
             forced_model = "gemini-2.5-flash"

@@ -52,6 +52,8 @@ VLLM_API_KEY = os.getenv("VLLM_API_KEY", "EMPTY")
 
 # Ollama (local, lightweight)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+# I-cd-010 / GH#625: Ollama legacy fallback; not active under the Carney
+# demo vLLM lock (Gemma 4 31B-it via ebircak/...AWQ on the evaluator box).
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:70b")
 
 # Local embedding model (sovereign mode)

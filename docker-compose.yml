@@ -53,7 +53,11 @@ services:
     ports:
       - "${VLLM_PORT:-8200}:8000"
     environment:
-      - MODEL=${VLLM_MODEL:-meta-llama/Llama-3.1-70B-Instruct}
+      # I-cd-010 / GH#625: Carney demo evaluator artifact fallback (Gemma 4
+      # 31B-it INT4 AWQ W4A16). Full --quantization compressed-tensors +
+      # --tensor-parallel-size 4 + GPU resource block wiring deferred to
+      # I-cd-038 deployment. Active deployments set VLLM_MODEL explicitly.
+      - MODEL=${VLLM_MODEL:-ebircak/gemma-4-31B-it-4bit-W4A16-AWQ}
       - TENSOR_PARALLEL_SIZE=${VLLM_TENSOR_PARALLEL:-1}
       - MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-32768}
       - GPU_MEMORY_UTILIZATION=0.90

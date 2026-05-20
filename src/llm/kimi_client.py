@@ -5,11 +5,16 @@ POLARIS KIMI K2.5 Client
 OpenAI-compatible API client for KIMI K2.5 via Fireworks AI.
 Supports both Thinking Mode and Instant Mode.
 
+**Pipeline-C frozen** — KIMI K2.5 1T hardcoding is intentional legacy
+per CLAUDE.md §5. The Carney demo runtime (Pipeline-A) uses
+src/polaris_graph/* with OpenRouter DeepSeek V4 Pro generator + Gemma 4
+31B-it evaluator (I-cd-009 / GH#624 lock). This client is retained for
+the frozen src/orchestration/ + scripts/full_cycle.py + agents stack.
+
 KIMI K2.5 1T Features:
 - 256K context window (native)
 - Extended reasoning (thinking mode)
 - Fast inference via Fireworks
-- Cost-effective: $0.60/1M input, $3.00/1M output
 
 Usage:
     from src.llm.kimi_client import KimiClient, get_kimi_client

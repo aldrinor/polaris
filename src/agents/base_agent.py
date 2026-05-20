@@ -154,7 +154,9 @@ class BaseAgent(ABC):
         self._structured_llm = None  # FIX 92: Separate LLM for structured output (non-thinking mode)
 
         if FIREWORKS_AVAILABLE and global_config.env.fireworks_api_key:
-            # Use KIMI K2.5 as primary LLM
+            # Use KIMI K2.5 as primary LLM.
+            # I-cd-010 / GH#625: pipeline-C frozen — KIMI K2.5 hardcoding intentional
+            # per CLAUDE.md §5 (Carney demo Pipeline-A uses src/polaris_graph/* + OpenRouter V4 Pro).
             model_name = "accounts/fireworks/models/kimi-k2p5"
             self._cost_callback = GeminiCostTrackingCallback(model_name=model_name)
 
@@ -211,7 +213,8 @@ class BaseAgent(ABC):
 
             logger.info(f"Initialized agent: {self.name} with KIMI K2.5 via Fireworks (tier={tier}, thinking=1.0, structured=0.6)")
 
-            # Setup Gemini as fallback if available
+            # Setup Gemini as fallback if available.
+            # I-cd-010 / GH#625: pipeline-C frozen — Gemini fallback per CLAUDE.md §5.
             if GEMINI_AVAILABLE and global_config.env.gemini_api_key:
                 fallback_model = llm_config.fallback_model if llm_config.fallback_model else "gemini-2.5-flash"
                 self._fallback_model_name = fallback_model

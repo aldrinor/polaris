@@ -282,7 +282,9 @@ def create_default_llm_invoke() -> Optional[Callable[[str], str]]:
             logger.warning("[FIX-211] No FIREWORKS_API_KEY, skipping LLM post-filter in finalize")
             return None
 
-        # Use a cheap, fast model for classification (not the expensive thinking model)
+        # Use a cheap, fast model for classification (not the expensive thinking model).
+        # I-cd-010 / GH#625: pipeline-C COT classifier legacy; not under
+        # Carney demo lock per CLAUDE.md §5. Override via POLARIS_COT_FILTER_MODEL.
         model = os.environ.get("POLARIS_COT_FILTER_MODEL", "accounts/fireworks/models/llama-v3p3-70b-instruct")
         llm = ChatFireworks(
             model=model,
