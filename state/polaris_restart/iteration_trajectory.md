@@ -746,3 +746,9 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
 - verdict: APPROVE
 - iter trajectory: 1 RC (1 P1 NextResponse.next broken + 3 P2) -> 2 RC (smoke script cwd P1) -> 3 RC (CI conflict P1 + 2 P2) -> 4 APPROVE
 - scope: 4 files / +137 net LOC
+
+## I-cd-015 diff — iter 1 APPROVE — 2026-05-20
+
+- iter: 1 of 5 (clean APPROVE on first pass)
+- verdict: APPROVE
+- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 5 (non-blocking script polish + Next 16 middleware->proxy deprecation)
