@@ -1,0 +1,950 @@
+diff --git a/src/polaris_v6/api/app.py b/src/polaris_v6/api/app.py
+index 85833a26..83432b2f 100644
+--- a/src/polaris_v6/api/app.py
++++ b/src/polaris_v6/api/app.py
+@@ -26,6 +26,7 @@ from polaris_v6.api.followup import router as followup_router
+ from polaris_v6.api.health import router as health_router
+ from polaris_v6.api.inspector import router as inspector_router
+ from polaris_v6.api.memory import router as memory_router
++from polaris_v6.api.pins import router as pins_router
+ from polaris_v6.api.runs import router as runs_router
+ from polaris_v6.api.scope import router as scope_router
+ from polaris_v6.api.stream import router as stream_router
+@@ -95,6 +96,7 @@ def create_app() -> FastAPI:
+     app.include_router(stream_router)
+     app.include_router(ambiguity_router)
+     app.include_router(bundle_router)
++    app.include_router(pins_router)
+     app.include_router(scope_router)
+     app.include_router(upload_router)
+     app.include_router(charts_router)
+diff --git a/src/polaris_v6/api/pins.py b/src/polaris_v6/api/pins.py
+new file mode 100644
+index 00000000..7159d57a
+--- /dev/null
++++ b/src/polaris_v6/api/pins.py
+@@ -0,0 +1,175 @@
++"""Pin replay route — I-cd-017 (#627).
++
++GET /runs/{run_id}/pins → list of PinSnapshot synthesized from all
++completed runs sharing the same query_slug (chronological by finished_at).
++
++GET /runs/{run_id}/pins/{date} → single PinSnapshot for the exact
++(run_id, finished_at[:10]) pair.
++
++Synthesis sources (iter-2 P1 fixes):
++- Pipeline status: `RunStatusResponse.pipeline_status` from run_store
++  (NOT raw manifest field — actors.py:219 translates `manifest.status` →
++  `pipeline_status`).
++- Quality fields: `manifest.json` `generator` block. Handles BOTH shape
++  variants:
++    * success path → `sections_kept`, `sentences_dropped`,
++      `outline_sections`, `sentences_verified`.
++    * abort_no_verified_sections path → `sections_total`,
++      `sections_dropped`, `sentences_verified` (NO `sections_kept`, NO
++      `sentences_dropped` — confirmed at
++      scripts/run_honest_sweep_r3.py:2468-2473).
++
++Auth: protected via app-level `dependencies=[Depends(_require_auth)]`.
++"""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from typing import Final
++
++from fastapi import APIRouter, HTTPException
++
++from polaris_v6.queue import run_store
++from polaris_v6.schemas.pin_snapshot import PinSnapshot
++from polaris_v6.schemas.run_status import RunStatusResponse
++
++router = APIRouter(prefix="/runs", tags=["pins"])
++
++_QUALIFYING_STATUSES: Final[frozenset[str]] = frozenset(
++    {
++        "success",
++        "partial_outline_fallback",
++        # Codex diff iter-2 P1: partial_qwen_advisory is a real terminal
++        # PipelineStatus (run_status.py) — pipeline-A maps ok_qwen_advisory
++        # to it (scripts/run_honest_sweep_r3.py:198), and the actor stores
++        # the run as completed. Excluding it would 404 a real completed run.
++        "partial_qwen_advisory",
++        "partial_evaluator_advisory",
++        "partial_thin_corpus",
++        "partial_incomplete_corpus",
++        "partial_rule_check_warnings",
++        "abort_no_verified_sections",
++    }
++)
++
++
++def _collapsed_verdict(pipeline_status: str) -> str:
++    if pipeline_status == "abort_no_verified_sections":
++        return "abort_no_verified_sections"
++    return "success"
++
++
++def _synthesize_pin_from_manifest(
++    run: RunStatusResponse,
++    manifest: dict,
++) -> PinSnapshot:
++    """Build a PinSnapshot from a completed-run RunStatusResponse + manifest.
++
++    Defensive against the two generator-block shape variants (iter-2 P1.2):
++    success-path manifests carry `sections_kept` + `sentences_dropped`;
++    abort_no_verified_sections manifests carry `sections_total` +
++    `sections_dropped` and lack `sentences_dropped`.
++    """
++    generator = manifest.get("generator") or {}
++    sections_kept = generator.get("sections_kept")
++    sections_dropped_in_generator = generator.get("sections_dropped")
++    sections_total = generator.get("sections_total")
++    outline_len = len(generator.get("outline_sections") or [])
++
++    if sections_kept is None and sections_total is not None:
++        sections_kept = max(0, sections_total - (sections_dropped_in_generator or 0))
++    if sections_kept is None:
++        sections_kept = 0
++
++    if sections_dropped_in_generator is not None:
++        section_count_dropped = sections_dropped_in_generator
++    elif outline_len > 0:
++        section_count_dropped = max(0, outline_len - sections_kept)
++    else:
++        section_count_dropped = 0
++
++    verified = max(0, int(generator.get("sentences_verified") or 0))
++    dropped_sentences = max(0, int(generator.get("sentences_dropped") or 0))
++    denominator = verified + dropped_sentences
++    pass_rate = verified / denominator if denominator > 0 else 0.0
++    pass_rate = min(1.0, max(0.0, pass_rate))
++
++    finished_at = run.finished_at or ""
++    pin_date = finished_at[:10] if finished_at else "1970-01-01"
++
++    return PinSnapshot(
++        run_id=run.run_id,
++        pin_date=pin_date,
++        query=run.question,
++        verdict=_collapsed_verdict(run.pipeline_status or "error_unexpected"),
++        section_count_kept=max(0, sections_kept),
++        section_count_dropped=max(0, section_count_dropped),
++        verified_sentence_count=verified,
++        pass_rate=pass_rate,
++        retracted_source_ids=None,
++    )
++
++
++def _load_manifest(artifact_dir: str | None) -> dict | None:
++    if not artifact_dir:
++        return None
++    path = Path(artifact_dir) / "manifest.json"
++    if not path.is_file():
++        return None
++    try:
++        return json.loads(path.read_text(encoding="utf-8"))
++    except (OSError, json.JSONDecodeError):
++        return None
++
++
++def _qualifies(run: RunStatusResponse) -> bool:
++    if run.lifecycle_status != "completed":
++        return False
++    pipeline_status = run.pipeline_status or ""
++    return pipeline_status in _QUALIFYING_STATUSES
++
++
++@router.get("/{run_id}/pins", response_model=list[PinSnapshot])
++def list_pins(run_id: str) -> list[PinSnapshot]:
++    anchor = run_store.get_run(run_id)
++    if anchor is None:
++        raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found.")
++    query_slug = anchor.query_slug
++    if not query_slug:
++        raise HTTPException(
++            status_code=404,
++            detail=f"Run {run_id!r} has no query_slug (run not yet completed by pipeline).",
++        )
++    siblings = run_store.list_completed_runs_by_query_slug(query_slug)
++    snapshots: list[PinSnapshot] = []
++    for run in siblings:
++        if not _qualifies(run):
++            continue
++        manifest = _load_manifest(run.artifact_dir)
++        if manifest is None:
++            continue
++        snapshots.append(_synthesize_pin_from_manifest(run, manifest))
++    return snapshots
++
++
++@router.get("/{run_id}/pins/{date}", response_model=PinSnapshot)
++def get_pin_by_date(
++    run_id: str,
++    date: str,
++) -> PinSnapshot:
++    if len(date) != 10 or date[4] != "-" or date[7] != "-":
++        raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
++    run = run_store.get_run(run_id)
++    if run is None or not _qualifies(run):
++        raise HTTPException(status_code=404, detail=f"Run {run_id!r} not pin-eligible.")
++    finished_at = run.finished_at or ""
++    if finished_at[:10] != date:
++        raise HTTPException(
++            status_code=404,
++            detail=f"Run {run_id!r} finished on {finished_at[:10]!r}, not {date!r}.",
++        )
++    manifest = _load_manifest(run.artifact_dir)
++    if manifest is None:
++        raise HTTPException(status_code=404, detail=f"Manifest missing for run {run_id!r}.")
++    return _synthesize_pin_from_manifest(run, manifest)
+diff --git a/src/polaris_v6/queue/run_store.py b/src/polaris_v6/queue/run_store.py
+index 4de9bc68..4c8c605d 100644
+--- a/src/polaris_v6/queue/run_store.py
++++ b/src/polaris_v6/queue/run_store.py
+@@ -505,3 +505,40 @@ def get_active_run(*, path: str | None = None) -> RunStatusResponse | None:
+     finally:
+         conn.close()
+     return None if row is None else _row_to_response(row)
++
++
++def list_completed_runs_by_query_slug(
++    query_slug: str, *, path: str | None = None
++) -> list[RunStatusResponse]:
++    """List completed runs sharing a query_slug ordered by finished_at ASC.
++
++    I-cd-017 (#627): pin-replay timeseries source. Uses the existing
++    `idx_runs_query_slug` index. Returns `[]` (not None) when no rows
++    match — callers distinguish "anchor run exists but no completed
++    siblings" from "anchor run unknown" via get_run() before calling.
++
++    Defensive against missing-table / legacy-schema like get_run.
++    """
++    query = (
++        f"SELECT {_RUN_COLUMNS} FROM runs "
++        "WHERE query_slug=? AND lifecycle_status='completed' "
++        "ORDER BY finished_at ASC"
++    )
++    conn = _connect(path)
++    try:
++        try:
++            rows = conn.execute(query, (query_slug,)).fetchall()
++        except sqlite3.OperationalError as exc:
++            msg = str(exc).lower()
++            if "no such table" in msg:
++                return []
++            if "no such column" in msg:
++                conn.close()
++                init_db(path)
++                conn = _connect(path)
++                rows = conn.execute(query, (query_slug,)).fetchall()
++            else:
++                raise
++    finally:
++        conn.close()
++    return [_row_to_response(row) for row in rows]
+diff --git a/src/polaris_v6/schemas/pin_snapshot.py b/src/polaris_v6/schemas/pin_snapshot.py
+new file mode 100644
+index 00000000..d07e653b
+--- /dev/null
++++ b/src/polaris_v6/schemas/pin_snapshot.py
+@@ -0,0 +1,35 @@
++"""Pin snapshot schema — I-cd-017 (#627).
++
++Per-run synthesized quality snapshot keyed by completed_at ISO date.
++Synthesized from `manifest.json` + run_store fields; NO separate
++pin-write path in the v6 actor (Option B accepted by Codex
++scope-consult 2026-05-20 — full B writes a new actor path; iter-2 P1
++clarified manifest top-level uses `status` not `pipeline_status`).
++
++`PinSnapshot` is the contract consumed by `web/lib/pin_replay_client.ts`.
++`extra="forbid"` mirrors the BundleManifest v1.0 schema-freeze discipline
++landed in I-cd-012.
++"""
++
++from __future__ import annotations
++
++from pydantic import BaseModel, ConfigDict, Field
++
++
++class PinSnapshot(BaseModel):
++    """Per-run quality snapshot for pin-replay timeseries."""
++
++    model_config = ConfigDict(extra="forbid", frozen=True)
++
++    run_id: str = Field(..., description="Source run_id (multiple runs may share pin_date).")
++    pin_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$", description="ISO date of run completion.")
++    query: str = Field(..., description="Research question.")
++    verdict: str = Field(..., description="success | abort_no_verified_sections (partial_* collapsed to success).")
++    section_count_kept: int = Field(..., ge=0)
++    section_count_dropped: int = Field(..., ge=0)
++    verified_sentence_count: int = Field(..., ge=0)
++    pass_rate: float = Field(..., ge=0.0, le=1.0)
++    retracted_source_ids: list[str] | None = Field(
++        default=None,
++        description="Not captured today — placeholder for future source-retraction logging.",
++    )
+diff --git a/tests/v6/test_pins_route.py b/tests/v6/test_pins_route.py
+new file mode 100644
+index 00000000..9ada6322
+--- /dev/null
++++ b/tests/v6/test_pins_route.py
+@@ -0,0 +1,368 @@
++"""I-cd-017 (#627) — pin-replay backend route tests.
++
++Covers: GET /runs/{run_id}/pins (list) + GET /runs/{run_id}/pins/{date}
++(single) with synthesis from real manifest.json shape variants:
++
++* success-path generator block (sections_kept + sentences_dropped)
++* abort_no_verified_sections generator block (sections_total +
++  sections_dropped, no sentences_dropped — confirmed at
++  scripts/run_honest_sweep_r3.py:2468-2473).
++"""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from typing import Any
++
++import pytest
++
++
++@pytest.fixture
++def auth_disabled(monkeypatch):
++    monkeypatch.setenv("POLARIS_AUTH_DISABLED", "1")
++
++
++@pytest.fixture
++def db_path(tmp_path: Path, monkeypatch) -> Path:
++    from polaris_v6.queue import run_store
++
++    db = tmp_path / "runs.sqlite"
++    monkeypatch.setenv(run_store.ENV_DB_PATH, str(db))
++    run_store.init_db(str(db))
++    return db
++
++
++def _seed_run(
++    db_path: Path,
++    *,
++    run_id: str,
++    query: str,
++    query_slug: str,
++    finished_at: str,
++    pipeline_status: str = "success",
++    artifact_dir: str | None = None,
++    template: str = "clinical",
++    lifecycle_status: str = "completed",
++) -> None:
++    import sqlite3
++
++    conn = sqlite3.connect(str(db_path))
++    try:
++        conn.execute(
++            "INSERT INTO runs (run_id, template, question, lifecycle_status, "
++            "queued_at, started_at, finished_at, query_slug, artifact_dir, "
++            "pipeline_status, cancel_requested) VALUES (?,?,?,?,?,?,?,?,?,?,0)",
++            (
++                run_id,
++                template,
++                query,
++                lifecycle_status,
++                "2026-01-01T00:00:00Z",
++                "2026-01-01T00:00:00Z",
++                finished_at,
++                query_slug,
++                artifact_dir,
++                pipeline_status,
++            ),
++        )
++        conn.commit()
++    finally:
++        conn.close()
++
++
++def _write_manifest(artifact_dir: Path, generator: dict[str, Any], status: str = "success") -> None:
++    artifact_dir.mkdir(parents=True, exist_ok=True)
++    (artifact_dir / "manifest.json").write_text(
++        json.dumps({"status": status, "generator": generator}),
++        encoding="utf-8",
++    )
++
++
++@pytest.fixture
++def client(auth_disabled, db_path):
++    pytest.importorskip("fastapi")
++    from fastapi.testclient import TestClient
++
++    from polaris_v6.api.app import create_app
++
++    return TestClient(create_app())
++
++
++def test_list_pins_success_path(client, tmp_path: Path, db_path: Path):
++    """200 list response for completed run with success-path manifest."""
++    artifact_dir = tmp_path / "run_a"
++    _write_manifest(
++        artifact_dir,
++        generator={
++            "outline_sections": ["a", "b", "c", "d", "e"],
++            "sections_kept": 4,
++            "sentences_verified": 14,
++            "sentences_dropped": 45,
++        },
++    )
++    _seed_run(
++        db_path,
++        run_id="r_a",
++        query="tirzepatide vs semaglutide",
++        query_slug="clinical_tirzepatide",
++        finished_at="2026-05-01T12:30:00Z",
++        artifact_dir=str(artifact_dir),
++    )
++
++    response = client.get("/runs/r_a/pins")
++    assert response.status_code == 200
++    pins = response.json()
++    assert len(pins) == 1
++    assert pins[0]["run_id"] == "r_a"
++    assert pins[0]["pin_date"] == "2026-05-01"
++    assert pins[0]["verdict"] == "success"
++    assert pins[0]["section_count_kept"] == 4
++    assert pins[0]["section_count_dropped"] == 1
++    assert pins[0]["verified_sentence_count"] == 14
++    assert abs(pins[0]["pass_rate"] - (14 / 59)) < 0.001
++    assert pins[0]["retracted_source_ids"] is None
++
++
++def test_list_pins_abort_no_verified_shape_variant(client, tmp_path: Path, db_path: Path):
++    """Iter-2 P1.2: abort_no_verified_sections generator shape has
++    sections_total + sections_dropped, NO sections_kept / sentences_dropped.
++    """
++    artifact_dir = tmp_path / "run_abort"
++    _write_manifest(
++        artifact_dir,
++        generator={
++            "outline_sections": ["a", "b", "c"],
++            "sections_total": 3,
++            "sections_dropped": 3,
++            "sentences_verified": 0,
++        },
++        status="abort_no_verified_sections",
++    )
++    _seed_run(
++        db_path,
++        run_id="r_abort",
++        query="tirzepatide vs semaglutide",
++        query_slug="clinical_tirzepatide",
++        finished_at="2026-05-02T11:00:00Z",
++        pipeline_status="abort_no_verified_sections",
++        artifact_dir=str(artifact_dir),
++    )
++
++    response = client.get("/runs/r_abort/pins")
++    assert response.status_code == 200
++    pins = response.json()
++    assert len(pins) == 1
++    assert pins[0]["verdict"] == "abort_no_verified_sections"
++    assert pins[0]["section_count_kept"] == 0
++    assert pins[0]["section_count_dropped"] == 3
++    assert pins[0]["verified_sentence_count"] == 0
++    assert pins[0]["pass_rate"] == 0.0
++
++
++def test_list_pins_multi_run_chronological_ordering(client, tmp_path: Path, db_path: Path):
++    """Series of same query_slug runs returned in finished_at ASC order."""
++    for idx, (run_id, finished_at, kept, verified, dropped) in enumerate(
++        [
++            ("r_old", "2026-03-01T10:00:00Z", 3, 10, 30),
++            ("r_mid", "2026-04-15T10:00:00Z", 4, 15, 20),
++            ("r_new", "2026-05-15T10:00:00Z", 5, 22, 10),
++        ]
++    ):
++        artifact_dir = tmp_path / f"d_{idx}"
++        _write_manifest(
++            artifact_dir,
++            generator={
++                "outline_sections": ["a"] * 5,
++                "sections_kept": kept,
++                "sentences_verified": verified,
++                "sentences_dropped": dropped,
++            },
++        )
++        _seed_run(
++            db_path,
++            run_id=run_id,
++            query="Q",
++            query_slug="series_query",
++            finished_at=finished_at,
++            artifact_dir=str(artifact_dir),
++        )
++
++    response = client.get("/runs/r_mid/pins")
++    assert response.status_code == 200
++    pins = response.json()
++    assert [p["pin_date"] for p in pins] == ["2026-03-01", "2026-04-15", "2026-05-15"]
++
++
++def test_list_pins_unknown_run_returns_404(client, db_path: Path):
++    response = client.get("/runs/missing/pins")
++    assert response.status_code == 404
++
++
++def test_list_pins_excludes_in_progress_and_aborted_corpus(
++    client, tmp_path: Path, db_path: Path
++):
++    """Only completed × qualifying-pipeline-status runs are pin-eligible."""
++    artifact_dir = tmp_path / "anchor"
++    _write_manifest(
++        artifact_dir,
++        generator={
++            "outline_sections": ["a"],
++            "sections_kept": 1,
++            "sentences_verified": 5,
++            "sentences_dropped": 5,
++        },
++    )
++    _seed_run(
++        db_path,
++        run_id="r_anchor",
++        query="Q",
++        query_slug="q_slug",
++        finished_at="2026-05-10T00:00:00Z",
++        artifact_dir=str(artifact_dir),
++    )
++    _seed_run(
++        db_path,
++        run_id="r_in_progress",
++        query="Q",
++        query_slug="q_slug",
++        finished_at="2026-05-11T00:00:00Z",
++        lifecycle_status="in_progress",
++        pipeline_status=None,
++        artifact_dir=None,
++    )
++    _seed_run(
++        db_path,
++        run_id="r_corpus_abort",
++        query="Q",
++        query_slug="q_slug",
++        finished_at="2026-05-12T00:00:00Z",
++        pipeline_status="abort_corpus_inadequate",
++        artifact_dir=None,
++    )
++
++    response = client.get("/runs/r_anchor/pins")
++    assert response.status_code == 200
++    pins = response.json()
++    assert [p["run_id"] for p in pins] == ["r_anchor"]
++
++
++def test_get_pin_by_date_exact_match(client, tmp_path: Path, db_path: Path):
++    artifact_dir = tmp_path / "exact"
++    _write_manifest(
++        artifact_dir,
++        generator={
++            "outline_sections": ["a", "b"],
++            "sections_kept": 2,
++            "sentences_verified": 8,
++            "sentences_dropped": 2,
++        },
++    )
++    _seed_run(
++        db_path,
++        run_id="r_e",
++        query="Q",
++        query_slug="q",
++        finished_at="2026-05-20T15:00:00Z",
++        artifact_dir=str(artifact_dir),
++    )
++
++    response = client.get("/runs/r_e/pins/2026-05-20")
++    assert response.status_code == 200
++    assert response.json()["pin_date"] == "2026-05-20"
++
++
++def test_get_pin_by_date_wrong_date_returns_404(client, tmp_path: Path, db_path: Path):
++    artifact_dir = tmp_path / "wrong"
++    _write_manifest(
++        artifact_dir,
++        generator={
++            "outline_sections": ["a"],
++            "sections_kept": 1,
++            "sentences_verified": 5,
++            "sentences_dropped": 5,
++        },
++    )
++    _seed_run(
++        db_path,
++        run_id="r_w",
++        query="Q",
++        query_slug="q",
++        finished_at="2026-05-20T00:00:00Z",
++        artifact_dir=str(artifact_dir),
++    )
++
++    response = client.get("/runs/r_w/pins/2026-05-21")
++    assert response.status_code == 404
++
++
++def test_get_pin_by_date_malformed_returns_422(client, db_path: Path):
++    response = client.get("/runs/r_w/pins/not-a-date")
++    assert response.status_code == 422
++
++
++def test_list_pins_includes_partial_qwen_advisory(client, tmp_path: Path, db_path: Path):
++    """Codex diff iter-2 P1: partial_qwen_advisory MUST be pin-eligible.
++
++    pipeline-A maps ok_qwen_advisory → partial_qwen_advisory; the v6 actor
++    persists it as a completed run. Excluding it would 404 a real run.
++    """
++    artifact_dir = tmp_path / "qwen_advisory"
++    _write_manifest(
++        artifact_dir,
++        generator={
++            "outline_sections": ["a", "b", "c"],
++            "sections_kept": 2,
++            "sentences_verified": 10,
++            "sentences_dropped": 6,
++        },
++        status="partial_qwen_advisory",
++    )
++    _seed_run(
++        db_path,
++        run_id="r_qwen",
++        query="Q",
++        query_slug="q",
++        finished_at="2026-05-20T00:00:00Z",
++        pipeline_status="partial_qwen_advisory",
++        artifact_dir=str(artifact_dir),
++    )
++
++    response = client.get("/runs/r_qwen/pins")
++    assert response.status_code == 200
++    pins = response.json()
++    assert len(pins) == 1
++    # verdict is collapsed to "success" — only abort_no_verified_sections
++    # keeps its own verdict in the PinSnapshot frontend contract.
++    assert pins[0]["verdict"] == "success"
++
++    response = client.get("/runs/r_qwen/pins/2026-05-20")
++    assert response.status_code == 200
++
++
++def test_pass_rate_zero_denominator_returns_zero(client, tmp_path: Path, db_path: Path):
++    """sentences_verified=0 AND sentences_dropped=0 → pass_rate=0.0 not NaN."""
++    artifact_dir = tmp_path / "zero"
++    _write_manifest(
++        artifact_dir,
++        generator={
++            "outline_sections": ["a"],
++            "sections_total": 1,
++            "sections_dropped": 1,
++            "sentences_verified": 0,
++        },
++        status="abort_no_verified_sections",
++    )
++    _seed_run(
++        db_path,
++        run_id="r_z",
++        query="Q",
++        query_slug="q",
++        finished_at="2026-05-20T00:00:00Z",
++        pipeline_status="abort_no_verified_sections",
++        artifact_dir=str(artifact_dir),
++    )
++
++    response = client.get("/runs/r_z/pins/2026-05-20")
++    assert response.status_code == 200
++    assert response.json()["pass_rate"] == 0.0
+diff --git a/web/app/pin_replay/page.tsx b/web/app/pin_replay/page.tsx
+index 1bf1bfdc..3f9d8d93 100644
+--- a/web/app/pin_replay/page.tsx
++++ b/web/app/pin_replay/page.tsx
+@@ -72,12 +72,42 @@ function SnapshotCard({
+   );
+ }
+ 
++function EmptyPinReplay() {
++  return (
++    <main
++      data-testid="pin-replay-empty"
++      className="bg-background text-foreground min-h-screen"
++    >
++      <div className="mx-auto max-w-5xl px-6 py-8">
++        <h1 className="text-2xl font-semibold tracking-tight">
++          Pin replay — same query on different dates
++        </h1>
++        <p className="text-muted-foreground mt-4 text-sm">
++          No pin data available yet. The frontend client for{" "}
++          <code>/api/v6/runs/{"{run_id}"}/pins</code> ships at Seq 29 / I-A-12 /
++          #619 (full /pin_replay rebuild). The backend route is live in
++          I-cd-017 / #627.
++        </p>
++      </div>
++    </main>
++  );
++}
++
+ export default function PinReplayPage() {
+-  const [date_a, set_date_a] = useState(PIN_DATES[0]);
+-  // I-f13-004: pin default-B so adding a later registry date doesn't shift the
+-  // initial state and break existing tests.
+-  const [date_b, set_date_b] = useState("2026-04-30");
++  // I-cd-017 (#627): DEMO_PIN_REGISTRY removed — page falls back to empty
++  // state until Seq 29 / I-A-12 / #619 wires the live route client. The
++  // guard runs BEFORE detectRegressions / delta math (Codex iter-2 P2.2)
++  // so undefined snapshot dereferences cannot crash the empty-state path.
++  const [date_a, set_date_a] = useState(PIN_DATES[0] ?? "");
++  const [date_b, set_date_b] = useState(
++    PIN_DATES.includes("2026-04-30") ? "2026-04-30" : (PIN_DATES[0] ?? ""),
++  );
+   const [diff_open, set_diff_open] = useState(false);
++
++  if (PIN_DATES.length === 0) {
++    return <EmptyPinReplay />;
++  }
++
+   const snap_a = DEMO_PIN_REGISTRY[date_a];
+   const snap_b = DEMO_PIN_REGISTRY[date_b];
+   const all_snapshots = Object.values(DEMO_PIN_REGISTRY);
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index c4023029..e7c87318 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -178,6 +178,37 @@ export async function cancelRun(runId: string): Promise<RunStatusResponse> {
+   return asJsonOrThrow<RunStatusResponse>(response);
+ }
+ 
++// I-cd-017 (#627): pin-replay snapshot consumed by /pin_replay timeseries.
++// Mirrors PinSnapshot schema in src/polaris_v6/schemas/pin_snapshot.py.
++export interface PinSnapshot {
++  run_id: string;
++  pin_date: string;
++  query: string;
++  verdict: "success" | "abort_no_verified_sections";
++  section_count_kept: number;
++  section_count_dropped: number;
++  verified_sentence_count: number;
++  pass_rate: number;
++  retracted_source_ids?: string[] | null;
++}
++
++export async function fetchPinList(runId: string): Promise<PinSnapshot[]> {
++  const response = await authFetch(
++    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/pins`,
++  );
++  return asJsonOrThrow<PinSnapshot[]>(response);
++}
++
++export async function fetchPin(
++  runId: string,
++  date: string,
++): Promise<PinSnapshot> {
++  const response = await authFetch(
++    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/pins/${encodeURIComponent(date)}`,
++  );
++  return asJsonOrThrow<PinSnapshot>(response);
++}
++
+ export type DataClassification =
+   | "PUBLIC_SYNTHETIC"
+   | "CAN_REAL"
+diff --git a/web/lib/pin_replay_client.ts b/web/lib/pin_replay_client.ts
+new file mode 100644
+index 00000000..8cc44a85
+--- /dev/null
++++ b/web/lib/pin_replay_client.ts
+@@ -0,0 +1,11 @@
++/**
++ * I-cd-017 (#627): Pin-replay HTTP client.
++ *
++ * Thin re-export of the live route in `web/lib/api.ts` so consumers in
++ * `web/app/pin_replay/` import from a stable module name. Backend route
++ * synthesizes PinSnapshot from manifest.json + run_store (no separate
++ * pin-write path). Full /pin_replay UX rebuild lands at Seq 29 / #619.
++ */
++
++export { fetchPin, fetchPinList } from "@/lib/api";
++export type { PinSnapshot } from "@/lib/api";
+diff --git a/web/lib/pin_replay_demo.ts b/web/lib/pin_replay_demo.ts
+index fdf04da6..f56bbaa9 100644
+--- a/web/lib/pin_replay_demo.ts
++++ b/web/lib/pin_replay_demo.ts
+@@ -1,59 +1,13 @@
+ /**
+- * I-f13-001: Pin replay demo registry. In production this would fetch from
+- * `/runs/{run_id}/pins/{date}` per M-INT-0b post-Carney; today the registry
+- * is hand-authored frontend demo data.
+- *
+- * I-f13-004: added `retracted_source_ids` for source-retraction adversarial.
++ * I-cd-017 (#627): DEMO_PIN_REGISTRY removed; data now sourced from the
++ * live backend route `/api/v6/runs/{run_id}/pins[/{date}]` via
++ * `@/lib/pin_replay_client`. This file keeps a back-compat type re-export
++ * + an empty registry so existing imports continue to resolve while the
++ * full /pin_replay rebuild ships in Seq 29 / I-A-12 / #619.
+  */
+ 
+-export interface PinSnapshot {
+-  pin_date: string;
+-  query: string;
+-  verdict: "success" | "abort_no_verified_sections";
+-  section_count_kept: number;
+-  section_count_dropped: number;
+-  verified_sentence_count: number;
+-  pass_rate: number;
+-  retracted_source_ids?: string[];
+-}
++import type { PinSnapshot } from "@/lib/pin_replay_client";
+ 
+-export const DEMO_PIN_REGISTRY: Record<string, PinSnapshot> = {
+-  "2026-01-15": {
+-    pin_date: "2026-01-15",
+-    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
+-    verdict: "success",
+-    section_count_kept: 4,
+-    section_count_dropped: 1,
+-    verified_sentence_count: 18,
+-    pass_rate: 0.72,
+-  },
+-  "2026-03-01": {
+-    pin_date: "2026-03-01",
+-    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
+-    verdict: "success",
+-    section_count_kept: 5,
+-    section_count_dropped: 0,
+-    verified_sentence_count: 21,
+-    pass_rate: 0.79,
+-  },
+-  "2026-04-30": {
+-    pin_date: "2026-04-30",
+-    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
+-    verdict: "success",
+-    section_count_kept: 5,
+-    section_count_dropped: 0,
+-    verified_sentence_count: 23,
+-    pass_rate: 0.85,
+-    retracted_source_ids: ["demo-clin-002"],
+-  },
+-  "2026-05-15": {
+-    pin_date: "2026-05-15",
+-    query: "Tirzepatide vs semaglutide cardiovascular outcomes",
+-    verdict: "success",
+-    section_count_kept: 4,
+-    section_count_dropped: 1,
+-    verified_sentence_count: 17,
+-    pass_rate: 0.83,
+-    retracted_source_ids: ["demo-clin-002", "demo-clin-005"],
+-  },
+-};
++export type { PinSnapshot };
++
++export const DEMO_PIN_REGISTRY: Record<string, PinSnapshot> = {};
+diff --git a/web/tests/e2e/perf_core_web_vitals.spec.ts b/web/tests/e2e/perf_core_web_vitals.spec.ts
+index 08415335..295adc31 100644
+--- a/web/tests/e2e/perf_core_web_vitals.spec.ts
++++ b/web/tests/e2e/perf_core_web_vitals.spec.ts
+@@ -62,7 +62,8 @@ test("Hover render avg under 100ms via /sentence_hover_test/perf harness", async
+   expect(avg).toBeLessThan(100);
+ });
+ 
+-test("INP on /pin_replay show-diff click under 200ms", async ({
++// I-cd-017 (#627): demo-data dependency; live-route wiring at Seq 29 / #619.
++test.skip("INP on /pin_replay show-diff click under 200ms", async ({
+   page,
+ }, info) => {
+   chromium_only(info);
+diff --git a/web/tests/e2e/pin_regression_alert.spec.ts b/web/tests/e2e/pin_regression_alert.spec.ts
+index d2a28333..74ea9198 100644
+--- a/web/tests/e2e/pin_regression_alert.spec.ts
++++ b/web/tests/e2e/pin_regression_alert.spec.ts
+@@ -1,5 +1,7 @@
+ import { expect, test } from "@playwright/test";
+ 
++// I-cd-017 (#627): demo-data dependency; live-route wiring at Seq 29 / #619.
++test.describe.skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
+ test("Regression alert fires when comparing later-A to earlier-B (metric drop)", async ({
+   page,
+ }) => {
+@@ -26,3 +28,4 @@ test("Regression alert fires when comparing later-A to earlier-B (metric drop)",
+   await page.getByTestId("pin-snapshot-b-date").selectOption("2026-04-30");
+   await expect(page.getByTestId("regression-alert")).toHaveCount(0);
+ });
++});
+diff --git a/web/tests/e2e/pin_replay.spec.ts b/web/tests/e2e/pin_replay.spec.ts
+index e3bc059d..ff1d1694 100644
+--- a/web/tests/e2e/pin_replay.spec.ts
++++ b/web/tests/e2e/pin_replay.spec.ts
+@@ -1,5 +1,9 @@
+ import { expect, test } from "@playwright/test";
+ 
++// I-cd-017 (#627): DEMO_PIN_REGISTRY removed; live client wiring lands at
++// Seq 29 / I-A-12 / #619 (full /pin_replay rebuild). Re-enable this spec
++// after the rebuild fetches from `/api/v6/runs/{run_id}/pins`.
++test.describe.skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
+ test("Pin replay route renders 2 snapshot cards + delta; switching dates updates", async ({
+   page,
+ }) => {
+@@ -38,3 +42,4 @@ test("Pin replay route renders 2 snapshot cards + delta; switching dates updates
+     "0",
+   );
+ });
++});
+diff --git a/web/tests/e2e/pin_replay_diff.spec.ts b/web/tests/e2e/pin_replay_diff.spec.ts
+index 45c7e5a8..5f5b2758 100644
+--- a/web/tests/e2e/pin_replay_diff.spec.ts
++++ b/web/tests/e2e/pin_replay_diff.spec.ts
+@@ -1,5 +1,7 @@
+ import { expect, test } from "@playwright/test";
+ 
++// I-cd-017 (#627): demo-data dependency; live-route wiring at Seq 29 / #619.
++test.describe.skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
+ test("Pin replay renders timeseries charts and diff side-panel on demand", async ({
+   page,
+ }) => {
+@@ -39,3 +41,4 @@ test("Pin replay renders timeseries charts and diff side-panel on demand", async
+ 
+   await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+ });
++});
+diff --git a/web/tests/e2e/pin_retraction_handled.spec.ts b/web/tests/e2e/pin_retraction_handled.spec.ts
+index 3d0d3d89..cd60bfd9 100644
+--- a/web/tests/e2e/pin_retraction_handled.spec.ts
++++ b/web/tests/e2e/pin_retraction_handled.spec.ts
+@@ -1,5 +1,7 @@
+ import { expect, test } from "@playwright/test";
+ 
++// I-cd-017 (#627): demo-data dependency; live-route wiring at Seq 29 / #619.
++test.describe.skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
+ test("Pin replay attributes sentence-count regression to newly retracted sources", async ({
+   page,
+ }) => {
+@@ -27,3 +29,4 @@ test("Pin replay attributes sentence-count regression to newly retracted sources
+   // demo-clin-002 was already retracted in A, so it must NOT be attributed.
+   await expect(attribution).not.toContainText("demo-clin-002");
+ });
++});
+diff --git a/web/tests/e2e/visual_60_baselines.spec.ts b/web/tests/e2e/visual_60_baselines.spec.ts
+index 1e610c3b..7eabfa75 100644
+--- a/web/tests/e2e/visual_60_baselines.spec.ts
++++ b/web/tests/e2e/visual_60_baselines.spec.ts
+@@ -76,12 +76,9 @@ const PAGES: PageEntry[] = [
+     path: "/sentence_hover_test/perf",
+     testid: "perf-trigger",
+   },
+-  {
+-    feature: "F13",
+-    path: "/pin_replay",
+-    testid: "pin-snapshot-a",
+-    wait_svg_count: 2,
+-  },
++  // I-cd-017 (#627): F13 demo-data removed; visual baseline re-captured
++  // after Seq 29 / I-A-12 / #619 (full /pin_replay rebuild) wires the live
++  // route. Row deliberately omitted; restore with the post-rebuild path.
+   {
+     feature: "F14",
+     path: "/memory",
+
+# canonical-diff-sha256: ad616358aa7cfea628beec6f20a6ba028fb187f68a2789d53e92ae731d721064
