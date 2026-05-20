@@ -1,0 +1,1148 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e46a0-4097-7df2-ae3a-9a4788f64a8a
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings in iter 1.
+- "Don't pick bone from egg" — P1 only for real execution risks.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# Codex brief review — I-cd-021 (#631) — Inspector offline fallback
+
+## §A Scope
+
+Acceptance: "Offline fallback: Inspector renders a signed bundle in-browser, no GPU/no backend."
+
+This is the **disconnected-reviewer** path. A reviewer (or Carney's office) receives a `.tar.gz` audit bundle as an email attachment / USB drop, opens a static deployment of the Inspector, drops the tar.gz, and sees the full bundle rendered (manifest + verified report + reasoning trace + sources + metadata + signature presence).
+
+Companion to I-cd-020 (which confirmed the I-A-02b frozen schema is **BundleManifest v1.0**, served by `/bundle.tar.gz` for real runs and also as a static .tar.gz produced by `tar -czf` against a v1.0 bundle directory).
+
+### Implementation plan
+
+1. **Add browser-tar dependencies** to `web/package.json`:
+   - `pako` (≈45KB minified, mature, browser-tested gzip) — same lib used by GitHub's own tarball viewer.
+   - `tar-stream` browser build OR a lighter alternative like `js-untar` (≈10KB). Decision: pick `js-untar` for size; pako handles gunzip then js-untar reads tar.
+2. **NEW `web/lib/inspector_bundle_client_loader.ts`** — `loadBundleFromTarGz(file: File): Promise<LoadedBundle>`:
+   - `pako.inflate(arrayBuffer)` → tar bytes
+   - Iterate tar entries via `js-untar` (or `tar-mini`); collect `{name, content}` map
+   - Parse `manifest.yaml` via existing `parseManifest()` from `web/lib/signed_bundle.ts`
+   - Use the same `LoadedBundle` interface shape as `inspector_bundle_loader.ts` (server-side loader) — components don't care which loader produced the data
+   - Run 12-layer conformance check (or a browser-safe subset — signature verify uses GPG which is browser-incompatible; mark `signaturePresent = bundle contains manifest.yaml.asc with content`)
+3. **NEW `web/app/inspector/offline/page.tsx`** — client component:
+   - Drag-drop OR file-picker for .tar.gz
+   - On drop: call `loadBundleFromTarGz`, render the SAME components used by `/inspector/[runId]/page.tsx` (`<BundleHeader>`, `<FamilySegregationBadge>`, `<ScopeDecisionCard>`, etc.)
+   - Error state: malformed tar / missing manifest.yaml / schema violation → user-visible error card
+4. **NEW `web/components/inspector/metadata_panel.tsx`** + add a "Metadata" tab to `web/app/inspector/[runId]/inspector_view.tsx` (Codex diff iter-1 P1.2 fix). Currently `LoadedBundle.metadata` is parsed but never rendered. Acceptance for both /inspector/[runId] AND the new offline route requires the metadata panel to display:
+   - run_id, query, queued_at, finished_at, pipeline_status
+   - generator_model, evaluator_model, family_segregation
+   - cost_usd, latency_ms
+5. **NEW Playwright test** `web/tests/e2e/inspector_offline_fallback.spec.ts`:
+   - Build a tar.gz from `tests/fixtures/signed_bundle/v1_canonical_success/` at test setup
+   - Set the file input → expect rendering
+   - Assert verified-report section count + family-segregation badge + signature-presence indicator
+6. **Frontend tests** with vitest (if not present, use Playwright unit-test mode) for the loader function shape.
+7. Playwright e2e ALSO asserts metadata panel visibility (Codex iter-1 P1.2 fix).
+
+Estimated canonical diff: **~250-300 LOC** + ~80KB of new node_modules (pako + js-untar).
+
+## §B Acceptance check
+
+| Criterion | Met by |
+|---|---|
+| Inspector renders a v1.0 bundle without any backend running | offline/page.tsx + inspector_bundle_client_loader.ts |
+| Same UI components reused (no duplicate renderer) | imports from `web/components/inspector/` |
+| `LoadedBundle` shape identical to server-side loader | same interface in inspector_bundle_loader.ts |
+| Signature presence surfaced (manifest.yaml.asc detected; cryptographic verify is browser-incompatible) | `signaturePresent: boolean` |
+| Conformance check runs in-browser | port of `check_bundle_conformance` (Python) to TS — OR re-use the SAME validation logic via `parseManifest` + per-content-type required-file lookup |
+| Playwright e2e: drop a real tar.gz, assert rendered content | inspector_offline_fallback.spec.ts |
+| No GPU, no backend, no API call | offline route is a pure client component |
+| WCAG: file-drop accessible via keyboard (label + role=button + aria) | offline/page.tsx |
+
+## §C Codex Red-Team checklist
+
+1. **Library choice**: pako (gzip) is the established browser-safe gzip implementation. js-untar is well-known but unmaintained — alternatives: `tar-mini` (TS, maintained), `it-tar` (streaming). RECOMMEND `pako` + `tar-mini`. Pin specific versions in package.json.
+2. **GPG signature verify**: explicitly NOT in scope. The bundle's `.asc` file's existence is checked, but cryptographic verification requires a CLI tool. Document this in the offline page.
+3. **Conformance check parity**: server has 12-layer `check_bundle_conformance`. Browser MUST do at least: manifest parse, version=1.0, required ContentTypes present, SHA256 of each file matches manifest (browser crypto.subtle.digest is available).
+4. **SHA256 verification**: browser `crypto.subtle.digest("SHA-256", arrayBuffer)` available without polyfill in all modern browsers. MUST verify file SHAs match manifest hashes — that's the audit-integrity contract.
+5. **Memory**: bundles are typically small (<5MB) so in-memory tar extraction is fine. Reject files >50MB to avoid OOM.
+6. **CORS / SSR**: the offline page MUST be `"use client"` since it uses File API + crypto.subtle.
+7. **Reuse**: existing `parseManifest`, `parseReasoningTraceJsonl` from `web/lib/signed_bundle.ts` are isomorphic — usable in client and server.
+8. **404 / no-backend hint**: the offline page must work even when /api/v6 is unreachable (Inspector frontend dev server alone, no FastAPI).
+
+## §D Files I have ALSO checked and they're clean
+
+- `web/lib/inspector_bundle_loader.ts:1-13` — explicit comment "Real-bundle backend wiring lands at I-B-08 (Seq 20); offline fallback (in-browser bundle render) at I-B-09 (Seq 21). This module is the swappable seam."
+- `web/lib/signed_bundle.ts` — `parseManifest()` + `parseReasoningTraceJsonl()` are isomorphic; client-safe.
+- `web/components/inspector/` — 9 components consuming `LoadedBundle`; usable from offline page.
+- `web/package.json` — no existing tar/gzip dep; new deps need to be added.
+- `tests/fixtures/signed_bundle/v1_canonical_success/` — 9 files; tar.gz builds cleanly via `tar -czf v1_canonical_success.tar.gz -C tests/fixtures/signed_bundle/v1_canonical_success .`.
+- `web/app/inspector/[runId]/page.tsx` — server component; unchanged.
+- `src/polaris_graph/audit_bundle/conformance.py` — 12-layer check (I-cd-012); browser port covers manifest + version + required-types + SHA256 verify (~6 layers); the other 6 (signature crypto, JSONL line validity, typed-JSON-schema) handled separately.
+
+## §E Smoke test
+
+```bash
+cd web
+npm install
+npx playwright test inspector_offline_fallback --reporter=line
+npx tsc --noEmit
+```
+
+## §F Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll review the current workspace against the offline-fallback acceptance criteria, focusing only on execution blockers and concrete regressions for the requested verdict schema.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web | rg "(inspector_bundle|offline|metadata_panel|inspector_offline|package.json|signed_bundle|inspector_view)"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+ succeeded in 873ms:
+web\package.json
+web\lib\inspector_bundle_loader.ts
+web\lib\signed_bundle.ts
+web\app\api\inspector_bundle\[runId]\route.ts
+web\app\inspector\[runId]\inspector_view.tsx
+
+ succeeded in 1005ms:
+ M .claude/settings.json
+ M docs/todo_list.md
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+ M tests/fixtures/signed_bundle/v1_canonical/metadata.json
+ M tests/fixtures/signed_bundle/v1_canonical/scope_decision.json
+ M tests/fixtures/signed_bundle/v1_canonical/verified_report.json
+?? .claude/hooks/__pycache__/
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-021/
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+ succeeded in 1043ms:
+ .claude/settings.json                              |  33 +-
+ docs/todo_list.md                                  |  41 +-
+ logs/session_log.md                                |  12 +
+ .../clinical_tirzepatide_t2dm/bibliography.json    |  43 +-
+ .../clinical_tirzepatide_t2dm/contradictions.json  | 120 +--
+ .../clinical_tirzepatide_t2dm/corpus_approval.json |  77 +-
+ .../evaluator_rule_checks.json                     |  10 +-
+ .../live_corpus_dump.json                          | 153 ++--
+ .../clinical_tirzepatide_t2dm/manifest.json        | 886 ++++++++++++++++++--
+ .../clinical_tirzepatide_t2dm/protocol.json        |   6 +-
+ .../qwen_judge_output.json                         |  24 +-
+ .../clinical/clinical_tirzepatide_t2dm/report.md   | 106 ++-
+ .../clinical/clinical_tirzepatide_t2dm/run_log.txt |  56 +-
+ outputs/honest_sweep_r3/sweep_summary.json         | 897 +++++++++++++++++++--
+ outputs/honest_sweep_r3/sweep_summary.md           |   8 +-
+ state/restart_instructions.md                      | 130 +--
+ .../signed_bundle/v1_canonical/evidence_pool.json  |   4 +-
+ .../signed_bundle/v1_canonical/manifest.yaml.asc   |   2 +-
+ 18 files changed, 2024 insertions(+), 584 deletions(-)
+warning: in the working copy of '.claude/settings.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/todo_list.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'state/restart_instructions.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/signed_bundle/v1_canonical/metadata.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/signed_bundle/v1_canonical/scope_decision.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/signed_bundle/v1_canonical/verified_report.json', LF will be replaced by CRLF the next time Git touches it
+
+codex
+The visible working tree does not show the offline route or client loader under `web/`, so I’m checking the supplied I-cd-021 review artifacts next to make sure I’m reviewing the actual candidate diff rather than unrelated workspace noise.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Force .codex\\I-cd-021" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"inspector_bundle_client_loader|inspector/offline|offline fallback|metadata_panel|tar-mini|pako|js-untar|signaturePresent|LoadedBundle\" .codex\\I-cd-021 web tests -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git branch --show-current; git log --oneline -5' in C:\POLARIS
+ succeeded in 799ms:
+
+    Directory: C:\POLARIS\.codex\I-cd-021
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m[32;1m         Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+-a---          2026-05-20 11:22 AM         142165 brief_iter1_output.txt
+-a---          2026-05-20 11:22 AM              0 brief_iter2_output.txt
+-a---          2026-05-20 11:22 AM           7372 brief.md
+
+
+ succeeded in 872ms:
+.codex\I-cd-021\brief.md:6:# Codex brief review — I-cd-021 (#631) — Inspector offline fallback
+.codex\I-cd-021\brief.md:19:   - `pako` (≈45KB minified, mature, browser-tested gzip) — same lib used by GitHub's own tarball viewer.
+.codex\I-cd-021\brief.md:20:   - `tar-stream` browser build OR a lighter alternative like `js-untar` (≈10KB). Decision: pick `js-untar` for size; pako handles gunzip then js-untar reads tar.
+.codex\I-cd-021\brief.md:21:2. **NEW `web/lib/inspector_bundle_client_loader.ts`** — `loadBundleFromTarGz(file: File): Promise<LoadedBundle>`:
+.codex\I-cd-021\brief.md:22:   - `pako.inflate(arrayBuffer)` → tar bytes
+.codex\I-cd-021\brief.md:23:   - Iterate tar entries via `js-untar` (or `tar-mini`); collect `{name, content}` map
+.codex\I-cd-021\brief.md:25:   - Use the same `LoadedBundle` interface shape as `inspector_bundle_loader.ts` (server-side loader) — components don't care which loader produced the data
+.codex\I-cd-021\brief.md:26:   - Run 12-layer conformance check (or a browser-safe subset — signature verify uses GPG which is browser-incompatible; mark `signaturePresent = bundle contains manifest.yaml.asc with content`)
+.codex\I-cd-021\brief.md:27:3. **NEW `web/app/inspector/offline/page.tsx`** — client component:
+.codex\I-cd-021\brief.md:31:4. **NEW `web/components/inspector/metadata_panel.tsx`** + add a "Metadata" tab to `web/app/inspector/[runId]/inspector_view.tsx` (Codex diff iter-1 P1.2 fix). Currently `LoadedBundle.metadata` is parsed but never rendered. Acceptance for both /inspector/[runId] AND the new offline route requires the metadata panel to display:
+.codex\I-cd-021\brief.md:42:Estimated canonical diff: **~250-300 LOC** + ~80KB of new node_modules (pako + js-untar).
+.codex\I-cd-021\brief.md:48:| Inspector renders a v1.0 bundle without any backend running | offline/page.tsx + inspector_bundle_client_loader.ts |
+.codex\I-cd-021\brief.md:50:| `LoadedBundle` shape identical to server-side loader | same interface in inspector_bundle_loader.ts |
+.codex\I-cd-021\brief.md:51:| Signature presence surfaced (manifest.yaml.asc detected; cryptographic verify is browser-incompatible) | `signaturePresent: boolean` |
+.codex\I-cd-021\brief.md:59:1. **Library choice**: pako (gzip) is the established browser-safe gzip implementation. js-untar is well-known but unmaintained — alternatives: `tar-mini` (TS, maintained), `it-tar` (streaming). RECOMMEND `pako` + `tar-mini`. Pin specific versions in package.json.
+.codex\I-cd-021\brief.md:70:- `web/lib/inspector_bundle_loader.ts:1-13` — explicit comment "Real-bundle backend wiring lands at I-B-08 (Seq 20); offline fallback (in-browser bundle render) at I-B-09 (Seq 21). This module is the swappable seam."
+.codex\I-cd-021\brief.md:72:- `web/components/inspector/` — 9 components consuming `LoadedBundle`; usable from offline page.
+.codex\I-cd-021\brief_iter2_output.txt:18:# Codex brief review — I-cd-021 (#631) — Inspector offline fallback
+.codex\I-cd-021\brief_iter2_output.txt:31:   - `pako` (≈45KB minified, mature, browser-tested gzip) — same lib used by GitHub's own tarball viewer.
+.codex\I-cd-021\brief_iter2_output.txt:32:   - `tar-stream` browser build OR a lighter alternative like `js-untar` (≈10KB). Decision: pick `js-untar` for size; pako handles gunzip then js-untar reads tar.
+.codex\I-cd-021\brief_iter2_output.txt:33:2. **NEW `web/lib/inspector_bundle_client_loader.ts`** — `loadBundleFromTarGz(file: File): Promise<LoadedBundle>`:
+.codex\I-cd-021\brief_iter2_output.txt:34:   - `pako.inflate(arrayBuffer)` → tar bytes
+.codex\I-cd-021\brief_iter2_output.txt:35:   - Iterate tar entries via `js-untar` (or `tar-mini`); collect `{name, content}` map
+.codex\I-cd-021\brief_iter2_output.txt:37:   - Use the same `LoadedBundle` interface shape as `inspector_bundle_loader.ts` (server-side loader) — components don't care which loader produced the data
+.codex\I-cd-021\brief_iter2_output.txt:38:   - Run 12-layer conformance check (or a browser-safe subset — signature verify uses GPG which is browser-incompatible; mark `signaturePresent = bundle contains manifest.yaml.asc with content`)
+.codex\I-cd-021\brief_iter2_output.txt:39:3. **NEW `web/app/inspector/offline/page.tsx`** — client component:
+.codex\I-cd-021\brief_iter2_output.txt:43:4. **NEW `web/components/inspector/metadata_panel.tsx`** + add a "Metadata" tab to `web/app/inspector/[runId]/inspector_view.tsx` (Codex diff iter-1 P1.2 fix). Currently `LoadedBundle.metadata` is parsed but never rendered. Acceptance for both /inspector/[runId] AND the new offline route requires the metadata panel to display:
+.codex\I-cd-021\brief_iter2_output.txt:54:Estimated canonical diff: **~250-300 LOC** + ~80KB of new node_modules (pako + js-untar).
+.codex\I-cd-021\brief_iter2_output.txt:60:| Inspector renders a v1.0 bundle without any backend running | offline/page.tsx + inspector_bundle_client_loader.ts |
+.codex\I-cd-021\brief_iter2_output.txt:62:| `LoadedBundle` shape identical to server-side loader | same interface in inspector_bundle_loader.ts |
+.codex\I-cd-021\brief_iter2_output.txt:63:| Signature presence surfaced (manifest.yaml.asc detected; cryptographic verify is browser-incompatible) | `signaturePresent: boolean` |
+.codex\I-cd-021\brief_iter2_output.txt:71:1. **Library choice**: pako (gzip) is the established browser-safe gzip implementation. js-untar is well-known but unmaintained — alternatives: `tar-mini` (TS, maintained), `it-tar` (streaming). RECOMMEND `pako` + `tar-mini`. Pin specific versions in package.json.
+.codex\I-cd-021\brief_iter2_output.txt:82:- `web/lib/inspector_bundle_loader.ts:1-13` — explicit comment "Real-bundle backend wiring lands at I-B-08 (Seq 20); offline fallback (in-browser bundle render) at I-B-09 (Seq 21). This module is the swappable seam."
+.codex\I-cd-021\brief_iter2_output.txt:84:- `web/components/inspector/` — 9 components consuming `LoadedBundle`; usable from offline page.
+.codex\I-cd-021\brief_iter2_output.txt:116:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web | rg "(inspector_bundle|offline|metadata_panel|inspector_offline|package.json|signed_bundle|inspector_view)"' in C:\POLARIS
+.codex\I-cd-021\brief_iter2_output.txt:653:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"inspector_bundle_client_loader|inspector/offline|offline fallback|metadata_panel|tar-mini|pako|js-untar|signaturePresent|LoadedBundle\" .codex\\I-cd-021 web tests -S" in C:\POLARIS
+.codex\I-cd-021\brief_iter1_output.txt:18:# Codex brief review — I-cd-021 (#631) — Inspector offline fallback
+.codex\I-cd-021\brief_iter1_output.txt:31:   - `pako` (≈45KB minified, mature, browser-tested gzip) — same lib used by GitHub's own tarball viewer.
+.codex\I-cd-021\brief_iter1_output.txt:32:   - `tar-stream` browser build OR a lighter alternative like `js-untar` (≈10KB). Decision: pick `js-untar` for size; pako handles gunzip then js-untar reads tar.
+.codex\I-cd-021\brief_iter1_output.txt:33:2. **NEW `web/lib/inspector_bundle_client_loader.ts`** — `loadBundleFromTarGz(file: File): Promise<LoadedBundle>`:
+.codex\I-cd-021\brief_iter1_output.txt:34:   - `pako.inflate(arrayBuffer)` → tar bytes
+.codex\I-cd-021\brief_iter1_output.txt:35:   - Iterate tar entries via `js-untar` (or `tar-mini`); collect `{name, content}` map
+.codex\I-cd-021\brief_iter1_output.txt:37:   - Use the same `LoadedBundle` interface shape as `inspector_bundle_loader.ts` (server-side loader) — components don't care which loader produced the data
+.codex\I-cd-021\brief_iter1_output.txt:38:   - Run 12-layer conformance check (or a browser-safe subset — signature verify uses GPG which is browser-incompatible; mark `signaturePresent = bundle contains manifest.yaml.asc with content`)
+.codex\I-cd-021\brief_iter1_output.txt:39:3. **NEW `web/app/inspector/offline/page.tsx`** — client component:
+.codex\I-cd-021\brief_iter1_output.txt:49:Estimated canonical diff: **~250-300 LOC** + ~80KB of new node_modules (pako + js-untar).
+.codex\I-cd-021\brief_iter1_output.txt:55:| Inspector renders a v1.0 bundle without any backend running | offline/page.tsx + inspector_bundle_client_loader.ts |
+.codex\I-cd-021\brief_iter1_output.txt:57:| `LoadedBundle` shape identical to server-side loader | same interface in inspector_bundle_loader.ts |
+.codex\I-cd-021\brief_iter1_output.txt:58:| Signature presence surfaced (manifest.yaml.asc detected; cryptographic verify is browser-incompatible) | `signaturePresent: boolean` |
+.codex\I-cd-021\brief_iter1_output.txt:66:1. **Library choice**: pako (gzip) is the established browser-safe gzip implementation. js-untar is well-known but unmaintained — alternatives: `tar-mini` (TS, maintained), `it-tar` (streaming). RECOMMEND `pako` + `tar-mini`. Pin specific versions in package.json.
+.codex\I-cd-021\brief_iter1_output.txt:77:- `web/lib/inspector_bundle_loader.ts:1-13` — explicit comment "Real-bundle backend wiring lands at I-B-08 (Seq 20); offline fallback (in-browser bundle render) at I-B-09 (Seq 21). This module is the swappable seam."
+.codex\I-cd-021\brief_iter1_output.txt:79:- `web/components/inspector/` — 9 components consuming `LoadedBundle`; usable from offline page.
+.codex\I-cd-021\brief_iter1_output.txt:113:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web | rg "(inspector_bundle_client_loader|inspector/offline|inspector_offline_fallback|package.json|signed_bundle|inspector_bundle_loader)"' in C:\POLARIS
+.codex\I-cd-021\brief_iter1_output.txt:708:# Codex brief review — I-cd-021 (#631) — Inspector offline fallback
+.codex\I-cd-021\brief_iter1_output.txt:721:   - `pako` (≈45KB minified, mature, browser-tested gzip) — same lib used by GitHub's own tarball viewer.
+.codex\I-cd-021\brief_iter1_output.txt:722:   - `tar-stream` browser build OR a lighter alternative like `js-untar` (≈10KB). Decision: pick `js-untar` for size; pako handles gunzip then js-untar reads tar.
+.codex\I-cd-021\brief_iter1_output.txt:723:2. **NEW `web/lib/inspector_bundle_client_loader.ts`** — `loadBundleFromTarGz(file: File): Promise<LoadedBundle>`:
+.codex\I-cd-021\brief_iter1_output.txt:724:   - `pako.inflate(arrayBuffer)` → tar bytes
+.codex\I-cd-021\brief_iter1_output.txt:725:   - Iterate tar entries via `js-untar` (or `tar-mini`); collect `{name, content}` map
+.codex\I-cd-021\brief_iter1_output.txt:727:   - Use the same `LoadedBundle` interface shape as `inspector_bundle_loader.ts` (server-side loader) — components don't care which loader produced the data
+.codex\I-cd-021\brief_iter1_output.txt:728:   - Run 12-layer conformance check (or a browser-safe subset — signature verify uses GPG which is browser-incompatible; mark `signaturePresent = bundle contains manifest.yaml.asc with content`)
+.codex\I-cd-021\brief_iter1_output.txt:729:3. **NEW `web/app/inspector/offline/page.tsx`** — client component:
+.codex\I-cd-021\brief_iter1_output.txt:739:Estimated canonical diff: **~250-300 LOC** + ~80KB of new node_modules (pako + js-untar).
+.codex\I-cd-021\brief_iter1_output.txt:745:| Inspector renders a v1.0 bundle without any backend running | offline/page.tsx + inspector_bundle_client_loader.ts |
+.codex\I-cd-021\brief_iter1_output.txt:747:| `LoadedBundle` shape identical to server-side loader | same interface in inspector_bundle_loader.ts |
+.codex\I-cd-021\brief_iter1_output.txt:748:| Signature presence surfaced (manifest.yaml.asc detected; cryptographic verify is browser-incompatible) | `signaturePresent: boolean` |
+.codex\I-cd-021\brief_iter1_output.txt:756:1. **Library choice**: pako (gzip) is the established browser-safe gzip implementation. js-untar is well-known but unmaintained — alternatives: `tar-mini` (TS, maintained), `it-tar` (streaming). RECOMMEND `pako` + `tar-mini`. Pin specific versions in package.json.
+.codex\I-cd-021\brief_iter1_output.txt:767:- `web/lib/inspector_bundle_loader.ts:1-13` — explicit comment "Real-bundle backend wiring lands at I-B-08 (Seq 20); offline fallback (in-browser bundle render) at I-B-09 (Seq 21). This module is the swappable seam."
+.codex\I-cd-021\brief_iter1_output.txt:769:- `web/components/inspector/` — 9 components consuming `LoadedBundle`; usable from offline page.
+.codex\I-cd-021\brief_iter1_output.txt:814:# Codex brief review — I-cd-021 (#631) — Inspector offline fallback
+.codex\I-cd-021\brief_iter1_output.txt:827:   - `pako` (≈45KB minified, mature, browser-tested gzip) — same lib used by GitHub's own tarball viewer.
+.codex\I-cd-021\brief_iter1_output.txt:828:   - `tar-stream` browser build OR a lighter alternative like `js-untar` (≈10KB). Decision: pick `js-untar` for size; pako handles gunzip then js-untar reads tar.
+.codex\I-cd-021\brief_iter1_output.txt:829:2. **NEW `web/lib/inspector_bundle_client_loader.ts`** — `loadBundleFromTarGz(file: File): Promise<LoadedBundle>`:
+.codex\I-cd-021\brief_iter1_output.txt:830:   - `pako.inflate(arrayBuffer)` → tar bytes
+.codex\I-cd-021\brief_iter1_output.txt:831:   - Iterate tar entries via `js-untar` (or `tar-mini`); collect `{name, content}` map
+.codex\I-cd-021\brief_iter1_output.txt:833:   - Use the same `LoadedBundle` interface shape as `inspector_bundle_loader.ts` (server-side loader) — components don't care which loader produced the data
+.codex\I-cd-021\brief_iter1_output.txt:834:   - Run 12-layer conformance check (or a browser-safe subset — signature verify uses GPG which is browser-incompatible; mark `signaturePresent = bundle contains manifest.yaml.asc with content`)
+.codex\I-cd-021\brief_iter1_output.txt:835:3. **NEW `web/app/inspector/offline/page.tsx`** — client component:
+.codex\I-cd-021\brief_iter1_output.txt:845:Estimated canonical diff: **~250-300 LOC** + ~80KB of new node_modules (pako + js-untar).
+.codex\I-cd-021\brief_iter1_output.txt:851:| Inspector renders a v1.0 bundle without any backend running | offline/page.tsx + inspector_bundle_client_loader.ts |
+.codex\I-cd-021\brief_iter1_output.txt:853:| `LoadedBundle` shape identical to server-side loader | same interface in inspector_bundle_loader.ts |
+.codex\I-cd-021\brief_iter1_output.txt:854:| Signature presence surfaced (manifest.yaml.asc detected; cryptographic verify is browser-incompatible) | `signaturePresent: boolean` |
+.codex\I-cd-021\brief_iter1_output.txt:862:1. **Library choice**: pako (gzip) is the established browser-safe gzip implementation. js-untar is well-known but unmaintained — alternatives: `tar-mini` (TS, maintained), `it-tar` (streaming). RECOMMEND `pako` + `tar-mini`. Pin specific versions in package.json.
+.codex\I-cd-021\brief_iter1_output.txt:873:- `web/lib/inspector_bundle_loader.ts:1-13` — explicit comment "Real-bundle backend wiring lands at I-B-08 (Seq 20); offline fallback (in-browser bundle render) at I-B-09 (Seq 21). This module is the swappable seam."
+.codex\I-cd-021\brief_iter1_output.txt:875:- `web/components/inspector/` — 9 components consuming `LoadedBundle`; usable from offline page.
+.codex\I-cd-021\brief_iter1_output.txt:909:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web | rg "(inspector_bundle_client_loader|inspector/offline|inspector_offline_fallback|package.json|signed_bundle|inspector_bundle_loader)"' in C:\POLARIS
+.codex\I-cd-021\brief_iter1_output.txt:1504:# Codex brief review — I-cd-021 (#631) — Inspector offline fallback
+.codex\I-cd-021\brief_iter1_output.txt:1517:   - `pako` (≈45KB minified, mature, browser-tested gzip) — same lib used by GitHub's own tarball viewer.
+.codex\I-cd-021\brief_iter1_output.txt:1518:   - `tar-stream` browser build OR a lighter alternative like `js-untar` (≈10KB). Decision: pick `js-untar` for size; pako handles gunzip then js-untar reads tar.
+.codex\I-cd-021\brief_iter1_output.txt:1519:2. **NEW `web/lib/inspector_bundle_client_loader.ts`** — `loadBundleFromTarGz(file: File): Promise<LoadedBundle>`:
+.codex\I-cd-021\brief_iter1_output.txt:1520:   - `pako.inflate(arrayBuffer)` → tar bytes
+.codex\I-cd-021\brief_iter1_output.txt:1521:   - Iterate tar entries via `js-untar` (or `tar-mini`); collect `{name, content}` map
+.codex\I-cd-021\brief_iter1_output.txt:1523:   - Use the same `LoadedBundle` interface shape as `inspector_bundle_loader.ts` (server-side loader) — components don't care which loader produced the data
+.codex\I-cd-021\brief_iter1_output.txt:1524:   - Run 12-layer conformance check (or a browser-safe subset — signature verify uses GPG which is browser-incompatible; mark `signaturePresent = bundle contains manifest.yaml.asc with content`)
+.codex\I-cd-021\brief_iter1_output.txt:1525:3. **NEW `web/app/inspector/offline/page.tsx`** — client component:
+.codex\I-cd-021\brief_iter1_output.txt:1535:Estimated canonical diff: **~250-300 LOC** + ~80KB of new node_modules (pako + js-untar).
+.codex\I-cd-021\brief_iter1_output.txt:1541:| Inspector renders a v1.0 bundle without any backend running | offline/page.tsx + inspector_bundle_client_loader.ts |
+.codex\I-cd-021\brief_iter1_output.txt:1543:| `LoadedBundle` shape identical to server-side loader | same interface in inspector_bundle_loader.ts |
+.codex\I-cd-021\brief_iter1_output.txt:1544:| Signature presence surfaced (manifest.yaml.asc detected; cryptographic verify is browser-incompatible) | `signaturePresent: boolean` |
+.codex\I-cd-021\brief_iter1_output.txt:1552:1. **Library choice**: pako (gzip) is the established browser-safe gzip implementation. js-untar is well-known but unmaintained — alternatives: `tar-mini` (TS, maintained), `it-tar` (streaming). RECOMMEND `pako` + `tar-mini`. Pin specific versions in package.json.
+.codex\I-cd-021\brief_iter1_output.txt:1563:- `web/lib/inspector_bundle_loader.ts:1-13` — explicit comment "Real-bundle backend wiring lands at I-B-08 (Seq 20); offline fallback (in-browser bundle render) at I-B-09 (Seq 21). This module is the swappable seam."
+.codex\I-cd-021\brief_iter1_output.txt:1565:- `web/components/inspector/` — 9 components consuming `LoadedBundle`; usable from offline page.
+.codex\I-cd-021\brief_iter1_output.txt:1652:The review artifact is the same brief, not a patch. I’m going to verify the existing `LoadedBundle` contract and component expectations so the verdict is grounded in what this plan would have to satisfy.
+.codex\I-cd-021\brief_iter1_output.txt:1688:export interface LoadedBundle {
+.codex\I-cd-021\brief_iter1_output.txt:1699:  signaturePresent: boolean;
+.codex\I-cd-021\brief_iter1_output.txt:1739:export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+.codex\I-cd-021\brief_iter1_output.txt:1795:  let signaturePresent = false;
+.codex\I-cd-021\brief_iter1_output.txt:1798:    signaturePresent = stat.isFile() && stat.size > 0;
+.codex\I-cd-021\brief_iter1_output.txt:1800:    signaturePresent = false;
+.codex\I-cd-021\brief_iter1_output.txt:1812:    signaturePresent,
+.codex\I-cd-021\brief_iter1_output.txt:2067:import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+.codex\I-cd-021\brief_iter1_output.txt:2070:  bundle: LoadedBundle;
+.codex\I-cd-021\brief_iter1_output.txt:2071:  signaturePresent: boolean;
+.codex\I-cd-021\brief_iter1_output.txt:2076:  signaturePresent,
+.codex\I-cd-021\brief_iter1_output.txt:2086:        signaturePresent={signaturePresent}
+.codex\I-cd-021\brief_iter1_output.txt:2132:// Real-bundle backend wiring lands at I-B-08 (Seq 20); offline fallback
+.codex\I-cd-021\brief_iter1_output.txt:2159:    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
+.codex\I-cd-021\brief_iter1_output.txt:2170:  signaturePresent: boolean;
+.codex\I-cd-021\brief_iter1_output.txt:2175:  signaturePresent,
+.codex\I-cd-021\brief_iter1_output.txt:2200:          <SignatureBadge present={signaturePresent} />
+.codex\I-cd-021\brief_iter1_output.txt:2776:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n '\"pako\"|\"tar-mini\"|\"js-untar\"|\"tar-stream\"' web/package.json web/package-lock.json" in C:\POLARIS
+.codex\I-cd-021\brief_iter1_output.txt:2778:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Test-Path -LiteralPath 'web/app/inspector/offline/page.tsx'; Test-Path -LiteralPath 'web/lib/inspector_bundle_client_loader.ts'; Test-Path -LiteralPath 'web/tests/e2e/inspector_offline_fallback.spec.ts'" in C:\POLARIS
+.codex\I-cd-021\brief_iter1_output.txt:2827:  - "Offline fallback is not implemented in the reviewed tree: `web/app/inspector/offline/page.tsx`, `web/lib/inspector_bundle_client_loader.ts`, and `web/tests/e2e/inspector_offline_fallback.spec.ts` are absent, and `web/package.json` has no `pako`/tar parser dependency. The disconnected reviewer cannot load or render a `.tar.gz` bundle."
+.codex\I-cd-021\brief_iter1_output.txt:2828:  - "Metadata is still not rendered by the reusable Inspector UI. `LoadedBundle` has `metadata` at `web/lib/inspector_bundle_loader.ts:33`, but `InspectorView` only exposes Report/Scope/Evidence/Reasoning/Sources/Hash chain tabs at `web/app/inspector/[runId]/inspector_view.tsx:40`; no component receives or displays `bundle.metadata`, missing the explicit acceptance requirement."
+.codex\I-cd-021\brief_iter1_output.txt:2841:  - "Offline fallback is not implemented in the reviewed tree: `web/app/inspector/offline/page.tsx`, `web/lib/inspector_bundle_client_loader.ts`, and `web/tests/e2e/inspector_offline_fallback.spec.ts` are absent, and `web/package.json` has no `pako`/tar parser dependency. The disconnected reviewer cannot load or render a `.tar.gz` bundle."
+.codex\I-cd-021\brief_iter1_output.txt:2842:  - "Metadata is still not rendered by the reusable Inspector UI. `LoadedBundle` has `metadata` at `web/lib/inspector_bundle_loader.ts:33`, but `InspectorView` only exposes Report/Scope/Evidence/Reasoning/Sources/Hash chain tabs at `web/app/inspector/[runId]/inspector_view.tsx:40`; no component receives or displays `bundle.metadata`, missing the explicit acceptance requirement."
+web\lib\inspector_bundle_loader.ts:27:export interface LoadedBundle {
+web\lib\inspector_bundle_loader.ts:38:  signaturePresent: boolean;
+web\lib\inspector_bundle_loader.ts:78:export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+web\lib\inspector_bundle_loader.ts:134:  let signaturePresent = false;
+web\lib\inspector_bundle_loader.ts:137:    signaturePresent = stat.isFile() && stat.size > 0;
+web\lib\inspector_bundle_loader.ts:139:    signaturePresent = false;
+web\lib\inspector_bundle_loader.ts:151:    signaturePresent,
+web\app\inspector\[runId]\page.tsx:8:// Real-bundle backend wiring lands at I-B-08 (Seq 20); offline fallback
+web\app\inspector\[runId]\page.tsx:35:    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
+web\app\inspector\[runId]\inspector_view.tsx:13:import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+web\app\inspector\[runId]\inspector_view.tsx:16:  bundle: LoadedBundle;
+web\app\inspector\[runId]\inspector_view.tsx:17:  signaturePresent: boolean;
+web\app\inspector\[runId]\inspector_view.tsx:22:  signaturePresent,
+web\app\inspector\[runId]\inspector_view.tsx:32:        signaturePresent={signaturePresent}
+web\components\inspector\bundle_header.tsx:7:  signaturePresent: boolean;
+web\components\inspector\bundle_header.tsx:12:  signaturePresent,
+web\components\inspector\bundle_header.tsx:37:          <SignatureBadge present={signaturePresent} />
+
+ succeeded in 919ms:
+bot/I-cd-021-inspector-offline-fallback
+4d12dae9 I-cd-020 (GH#630): real-run bundle bridge — Option D (Codex-picked) (#681)
+50c13fc7 I-cd-018 (GH#628): document-grounding follow-up (P2-2 cap + P2-3 error-path counts) (#679)
+2b92f7f1 I-cd-017 (GH#627): pin-replay backend route + frontend client (#678)
+ccb57759 I-cd-016a (under #626): live-run journey harness only (does NOT close #626) (#677)
+0241ed41 I-cd-015 (GH#611): 404 test-harness routes in production via middleware (#673)
+
+codex
+So far this is converging as a continuing blocker rather than a new subtle issue: the I-cd-021 files are absent in the branch I’m on. I’m checking the exact line references for the metadata gap and dependency absence before issuing the schema verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath '"'web\\lib\\inspector_bundle_loader.ts' | ForEach-Object { "'$i++; if ($i -ge 20 -and $i -le 45) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath '"'web\\app\\inspector\\[runId]\\inspector_view.tsx' | ForEach-Object { "'$i++; if ($i -ge 1 -and $i -le 90) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Test-Path -LiteralPath 'web\\app\\inspector\\offline\\page.tsx'; Test-Path -LiteralPath 'web\\lib\\inspector_bundle_client_loader.ts'; Test-Path -LiteralPath 'web\\components\\inspector\\metadata_panel.tsx'; Test-Path -LiteralPath 'web\\tests\\e2e\\inspector_offline_fallback.spec.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n '\"pako\"|\"tar-mini\"|\"js-untar\"|\"tar-stream\"' web\\package.json web\\package-lock.json" in C:\POLARIS
+ succeeded in 950ms:
+   1: // I-cd-013a (GH#609) — Inspector view (client component, Tabs structure).
+   2: "use client";
+   3: 
+   4: import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+   5: import { BundleHeader } from "@/components/inspector/bundle_header";
+   6: import { EvidencePoolTable } from "@/components/inspector/evidence_pool_table";
+   7: import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
+   8: import { HashChainPanel } from "@/components/inspector/hash_chain_panel";
+   9: import { ReasoningTraceTimeline } from "@/components/inspector/reasoning_trace_timeline";
+  10: import { ScopeDecisionCard } from "@/components/inspector/scope_decision_card";
+  11: import { SourcesPanel } from "@/components/inspector/sources_panel";
+  12: import { VerifiedReportSections } from "@/components/inspector/verified_report_sections";
+  13: import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+  14: 
+  15: interface InspectorViewProps {
+  16:   bundle: LoadedBundle;
+  17:   signaturePresent: boolean;
+  18: }
+  19: 
+  20: export function InspectorView({
+  21:   bundle,
+  22:   signaturePresent,
+  23: }: InspectorViewProps) {
+  24:   return (
+  25:     <main
+  26:       className="mx-auto flex max-w-6xl flex-col gap-6 p-6"
+  27:       data-testid="inspector-view"
+  28:       data-run-id={bundle.runId}
+  29:     >
+  30:       <BundleHeader
+  31:         manifest={bundle.manifest}
+  32:         signaturePresent={signaturePresent}
+  33:       />
+  34:       <FamilySegregationBadge
+  35:         manifest={bundle.manifest}
+  36:         verifiedReport={bundle.verifiedReport}
+  37:       />
+  38:       <Tabs defaultValue="report">
+  39:         <TabsList>
+  40:           <TabsTrigger value="report">Report</TabsTrigger>
+  41:           <TabsTrigger value="scope">Scope</TabsTrigger>
+  42:           <TabsTrigger value="evidence">Evidence</TabsTrigger>
+  43:           <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
+  44:           <TabsTrigger value="sources">Sources</TabsTrigger>
+  45:           <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
+  46:         </TabsList>
+  47:         <TabsContent value="report" tabId="report">
+  48:           <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
+  49:         </TabsContent>
+  50:         <TabsContent value="scope" tabId="scope">
+  51:           <ScopeDecisionCard value={bundle.scopeDecision} />
+  52:         </TabsContent>
+  53:         <TabsContent value="evidence" tabId="evidence">
+  54:           <EvidencePoolTable value={bundle.evidencePool} />
+  55:         </TabsContent>
+  56:         <TabsContent value="reasoning" tabId="reasoning">
+  57:           <ReasoningTraceTimeline records={bundle.reasoningTrace} />
+  58:         </TabsContent>
+  59:         <TabsContent value="sources" tabId="sources">
+  60:           <SourcesPanel sources={bundle.sources} />
+  61:         </TabsContent>
+  62:         <TabsContent value="hashchain" tabId="hashchain">
+  63:           <HashChainPanel manifest={bundle.manifest} />
+  64:         </TabsContent>
+  65:       </Tabs>
+  66:     </main>
+  67:   );
+  68: }
+
+ succeeded in 980ms:
+  20:   type ReasoningTraceRecord,
+  21:   parseManifest,
+  22:   parseReasoningTraceJsonl,
+  23: } from "@/lib/signed_bundle";
+  24: 
+  25: const REPO_ROOT = path.resolve(process.cwd(), "..");
+  26: 
+  27: export interface LoadedBundle {
+  28:   runId: string;
+  29:   manifest: BundleManifest;
+  30:   scopeDecision: unknown;
+  31:   evidencePool: unknown;
+  32:   verifiedReport: VerifiedReportShape;
+  33:   metadata: BundleMetadata;
+  34:   reasoningTrace: ReasoningTraceRecord[];
+  35:   sources: Record<string, string>;
+  36:   /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
+  37:    * Derived during load — NOT a manifest field. Codex diff iter-1 P2. */
+  38:   signaturePresent: boolean;
+  39: }
+  40: 
+  41: export interface VerifiedReportShape {
+  42:   report_id: string;
+  43:   pool_id: string;
+  44:   decision_id: string;
+  45:   sections: VerifiedReportSectionShape[];
+
+ succeeded in 1017ms:
+False
+False
+False
+False
+
+2026-05-20T18:23:22.041840Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+
+ exited 1 in 1114ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\package.json' -TotalCount 80" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath '.codex\\I-cd-021\\brief_iter1_output.txt' -Tail 80" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\app\\inspector\\[runId]\\page.tsx' -TotalCount 80" in C:\POLARIS
+ succeeded in 800ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 843ms:
+});
+
+codex
+The existing Inspector renderer has no metadata view, which matters because the acceptance text calls metadata out separately from the manifest. I’m pulling exact line references now and then I’ll return the requested YAML.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"TabsTrigger|BundleHeader|VerifiedReportSections|ReasoningTraceTimeline|SourcesPanel|HashChainPanel|metadata\" 'web/app/inspector/[runId]/inspector_view.tsx' web/components/inspector/bundle_header.tsx web/lib/inspector_bundle_loader.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n '\"pako\"|\"tar-mini\"|\"js-untar\"|\"tar-stream\"' web/package.json web/package-lock.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Test-Path -LiteralPath 'web/app/inspector/offline/page.tsx'; Test-Path -LiteralPath 'web/lib/inspector_bundle_client_loader.ts'; Test-Path -LiteralPath 'web/tests/e2e/inspector_offline_fallback.spec.ts'" in C:\POLARIS
+ succeeded in 855ms:
+web/app/inspector/[runId]/inspector_view.tsx:4:import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+web/app/inspector/[runId]/inspector_view.tsx:5:import { BundleHeader } from "@/components/inspector/bundle_header";
+web/app/inspector/[runId]/inspector_view.tsx:8:import { HashChainPanel } from "@/components/inspector/hash_chain_panel";
+web/app/inspector/[runId]/inspector_view.tsx:9:import { ReasoningTraceTimeline } from "@/components/inspector/reasoning_trace_timeline";
+web/app/inspector/[runId]/inspector_view.tsx:11:import { SourcesPanel } from "@/components/inspector/sources_panel";
+web/app/inspector/[runId]/inspector_view.tsx:12:import { VerifiedReportSections } from "@/components/inspector/verified_report_sections";
+web/app/inspector/[runId]/inspector_view.tsx:30:      <BundleHeader
+web/app/inspector/[runId]/inspector_view.tsx:40:          <TabsTrigger value="report">Report</TabsTrigger>
+web/app/inspector/[runId]/inspector_view.tsx:41:          <TabsTrigger value="scope">Scope</TabsTrigger>
+web/app/inspector/[runId]/inspector_view.tsx:42:          <TabsTrigger value="evidence">Evidence</TabsTrigger>
+web/app/inspector/[runId]/inspector_view.tsx:43:          <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
+web/app/inspector/[runId]/inspector_view.tsx:44:          <TabsTrigger value="sources">Sources</TabsTrigger>
+web/app/inspector/[runId]/inspector_view.tsx:45:          <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
+web/app/inspector/[runId]/inspector_view.tsx:48:          <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
+web/app/inspector/[runId]/inspector_view.tsx:57:          <ReasoningTraceTimeline records={bundle.reasoningTrace} />
+web/app/inspector/[runId]/inspector_view.tsx:60:          <SourcesPanel sources={bundle.sources} />
+web/app/inspector/[runId]/inspector_view.tsx:63:          <HashChainPanel manifest={bundle.manifest} />
+web/lib/inspector_bundle_loader.ts:33:  metadata: BundleMetadata;
+web/lib/inspector_bundle_loader.ts:97:  // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
+web/lib/inspector_bundle_loader.ts:98:  // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
+web/lib/inspector_bundle_loader.ts:99:  // also flagged metadata in the active producer).
+web/lib/inspector_bundle_loader.ts:100:  const metadataEntry = manifest.files.find(
+web/lib/inspector_bundle_loader.ts:101:    (f) => f.content_type === "metadata" && f.path === "metadata.json",
+web/lib/inspector_bundle_loader.ts:103:  if (!metadataEntry) {
+web/lib/inspector_bundle_loader.ts:105:      `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
+web/lib/inspector_bundle_loader.ts:108:  const metadata = JSON.parse(
+web/lib/inspector_bundle_loader.ts:109:    await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
+web/lib/inspector_bundle_loader.ts:148:    metadata,
+web/components/inspector/bundle_header.tsx:5:interface BundleHeaderProps {
+web/components/inspector/bundle_header.tsx:10:export function BundleHeader({
+web/components/inspector/bundle_header.tsx:13:}: BundleHeaderProps) {
+
+2026-05-20T18:22:06.666693Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.8 seconds
+Output:
+
+ exited 1 in 821ms:
+ succeeded in 878ms:
+False
+False
+False
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Offline fallback is not implemented in the reviewed tree: `web/app/inspector/offline/page.tsx`, `web/lib/inspector_bundle_client_loader.ts`, and `web/tests/e2e/inspector_offline_fallback.spec.ts` are absent, and `web/package.json` has no `pako`/tar parser dependency. The disconnected reviewer cannot load or render a `.tar.gz` bundle."
+  - "Metadata is still not rendered by the reusable Inspector UI. `LoadedBundle` has `metadata` at `web/lib/inspector_bundle_loader.ts:33`, but `InspectorView` only exposes Report/Scope/Evidence/Reasoning/Sources/Hash chain tabs at `web/app/inspector/[runId]/inspector_view.tsx:40`; no component receives or displays `bundle.metadata`, missing the explicit acceptance requirement."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Add the offline client route, browser `.tar.gz` loader, dependency/lockfile updates, SHA256/size/content checks, and e2e/loader coverage."
+  - "Add a metadata panel or header section and assert metadata visibility in the offline e2e."
+
+tokens used
+85,508
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Offline fallback is not implemented in the reviewed tree: `web/app/inspector/offline/page.tsx`, `web/lib/inspector_bundle_client_loader.ts`, and `web/tests/e2e/inspector_offline_fallback.spec.ts` are absent, and `web/package.json` has no `pako`/tar parser dependency. The disconnected reviewer cannot load or render a `.tar.gz` bundle."
+  - "Metadata is still not rendered by the reusable Inspector UI. `LoadedBundle` has `metadata` at `web/lib/inspector_bundle_loader.ts:33`, but `InspectorView` only exposes Report/Scope/Evidence/Reasoning/Sources/Hash chain tabs at `web/app/inspector/[runId]/inspector_view.tsx:40`; no component receives or displays `bundle.metadata`, missing the explicit acceptance requirement."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Add the offline client route, browser `.tar.gz` loader, dependency/lockfile updates, SHA256/size/content checks, and e2e/loader coverage."
+  - "Add a metadata panel or header section and assert metadata visibility in the offline e2e."
+
+
+ succeeded in 848ms:
+// I-cd-013a (GH#609) — gold route: /inspector/[runId].
+//
+// Server component that loads a signed audit bundle (v1.0 schema per
+// src/polaris_graph/audit_bundle/bundle_schema.py) and renders it via
+// `InspectorView`. Unknown runIds get the bundle-pending CTA (the page
+// does NOT attempt to render an unrelated fixture — see iter-1 P1).
+//
+// Real-bundle backend wiring lands at I-B-08 (Seq 20); offline fallback
+// at I-B-09 (Seq 21). For now `loadBundle` returns the canonical fixtures
+// for runId "v1-canonical" and "v1-canonical-success".
+
+import { BundlePendingCta } from "@/components/inspector/bundle_pending_cta";
+import { loadBundle } from "@/lib/inspector_bundle_loader";
+import { filesByContentType } from "@/lib/signed_bundle";
+
+import { InspectorView } from "./inspector_view";
+
+interface InspectorPageProps {
+  params: Promise<{ runId: string }>;
+}
+
+export default async function InspectorPage({ params }: InspectorPageProps) {
+  const { runId } = await params;
+  const bundle = await loadBundle(runId);
+
+  if (bundle === null) {
+    return <BundlePendingCta runId={runId} />;
+  }
+
+  // Signature presence is derived from disk in the loader (Codex diff
+  // iter-1 P2 — the page no longer hardcodes true). Cryptographic
+  // verification belongs to operator-side `gpg --verify` tooling.
+  void filesByContentType; // re-exported helper available to consumers
+  return (
+    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
+  );
+}
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Continuing: offline fallback is still not implemented. `web/app/inspector/offline/page.tsx`, `web/lib/inspector_bundle_client_loader.ts`, `web/components/inspector/metadata_panel.tsx`, and `web/tests/e2e/inspector_offline_fallback.spec.ts` are absent; `web/package.json` also has no `pako` or tar parser dependency. The disconnected reviewer cannot load or render a `.tar.gz` bundle."
+  - "Continuing: metadata is still parsed but not rendered. `LoadedBundle.metadata` exists at `web/lib/inspector_bundle_loader.ts:33`, while `web/app/inspector/[runId]/inspector_view.tsx:38` only exposes Report/Scope/Evidence/Reasoning/Sources/Hash chain tabs and never passes `bundle.metadata` to UI."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Add the offline client route, browser `.tar.gz` loader, dependency and lockfile updates, SHA256/file-size/content validation, and loader/e2e coverage."
+  - "Add metadata rendering for both `/inspector/[runId]` and `/inspector/offline`, with e2e assertion coverage."
+tokens used
+28,466
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Continuing: offline fallback is still not implemented. `web/app/inspector/offline/page.tsx`, `web/lib/inspector_bundle_client_loader.ts`, `web/components/inspector/metadata_panel.tsx`, and `web/tests/e2e/inspector_offline_fallback.spec.ts` are absent; `web/package.json` also has no `pako` or tar parser dependency. The disconnected reviewer cannot load or render a `.tar.gz` bundle."
+  - "Continuing: metadata is still parsed but not rendered. `LoadedBundle.metadata` exists at `web/lib/inspector_bundle_loader.ts:33`, while `web/app/inspector/[runId]/inspector_view.tsx:38` only exposes Report/Scope/Evidence/Reasoning/Sources/Hash chain tabs and never passes `bundle.metadata` to UI."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Add the offline client route, browser `.tar.gz` loader, dependency and lockfile updates, SHA256/file-size/content validation, and loader/e2e coverage."
+  - "Add metadata rendering for both `/inspector/[runId]` and `/inspector/offline`, with e2e assertion coverage."

@@ -1,0 +1,1010 @@
+diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
+index 3e993329..5a3b9d2e 100644
+--- a/.github/workflows/web_ci.yml
++++ b/.github/workflows/web_ci.yml
+@@ -153,6 +153,15 @@ jobs:
+           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+         run: npx playwright test --project=chromium tests/e2e/evidence_tooltip_perf.spec.ts
+ 
++      # I-cd-021 (#631): offline Inspector — renders a v1.0 signed bundle
++      # tar.gz entirely in-browser. Codex diff iter-1 P2.1 fix: wire the
++      # new spec into the CI workflow.
++      - name: run_e2e_inspector_offline_fallback
++        env:
++          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
++          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
++        run: npx playwright test --project=chromium tests/e2e/inspector_offline_fallback.spec.ts
++
+       # Visual baselines are *-chromium-win32.png (locally captured on Win).
+       # On Linux CI the snapshot file resolves to a different name and will
+       # be missing; skip visual.spec until Linux baselines are added.
+diff --git a/tests/fixtures/signed_bundle/.gitattributes b/tests/fixtures/signed_bundle/.gitattributes
+new file mode 100644
+index 00000000..024d6f4d
+--- /dev/null
++++ b/tests/fixtures/signed_bundle/.gitattributes
+@@ -0,0 +1 @@
++tests/fixtures/signed_bundle/** -text
+diff --git a/web/app/inspector/[runId]/inspector_view.tsx b/web/app/inspector/[runId]/inspector_view.tsx
+index af99985a..0d950bf3 100644
+--- a/web/app/inspector/[runId]/inspector_view.tsx
++++ b/web/app/inspector/[runId]/inspector_view.tsx
+@@ -6,6 +6,7 @@ import { BundleHeader } from "@/components/inspector/bundle_header";
+ import { EvidencePoolTable } from "@/components/inspector/evidence_pool_table";
+ import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
+ import { HashChainPanel } from "@/components/inspector/hash_chain_panel";
++import { MetadataPanel } from "@/components/inspector/metadata_panel";
+ import { ReasoningTraceTimeline } from "@/components/inspector/reasoning_trace_timeline";
+ import { ScopeDecisionCard } from "@/components/inspector/scope_decision_card";
+ import { SourcesPanel } from "@/components/inspector/sources_panel";
+@@ -43,6 +44,7 @@ export function InspectorView({
+           <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
+           <TabsTrigger value="sources">Sources</TabsTrigger>
+           <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
++          <TabsTrigger value="metadata">Metadata</TabsTrigger>
+         </TabsList>
+         <TabsContent value="report" tabId="report">
+           <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
+@@ -62,6 +64,9 @@ export function InspectorView({
+         <TabsContent value="hashchain" tabId="hashchain">
+           <HashChainPanel manifest={bundle.manifest} />
+         </TabsContent>
++        <TabsContent value="metadata" tabId="metadata">
++          <MetadataPanel metadata={bundle.metadata} />
++        </TabsContent>
+       </Tabs>
+     </main>
+   );
+diff --git a/web/app/inspector/offline/page.tsx b/web/app/inspector/offline/page.tsx
+new file mode 100644
+index 00000000..e7b67225
+--- /dev/null
++++ b/web/app/inspector/offline/page.tsx
+@@ -0,0 +1,129 @@
++// I-cd-021 (#631) — Offline Inspector page. Renders a v1.0 signed bundle
++// in-browser from a `.tar.gz` file dropped by a disconnected reviewer.
++// No GPU, no backend, no API call.
++"use client";
++
++import { useState } from "react";
++
++import { InspectorView } from "@/app/inspector/[runId]/inspector_view";
++import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++import {
++  BundleClientLoaderError,
++  loadBundleFromTarGz,
++} from "@/lib/inspector_bundle_client_loader";
++import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
++
++export default function InspectorOfflinePage() {
++  const [bundle, setBundle] = useState<LoadedBundle | null>(null);
++  const [error, setError] = useState<string | null>(null);
++  const [loading, setLoading] = useState(false);
++  const [dragOver, setDragOver] = useState(false);
++
++  async function handleFile(file: File) {
++    setLoading(true);
++    setError(null);
++    setBundle(null);
++    try {
++      const loaded = await loadBundleFromTarGz(file);
++      setBundle(loaded);
++    } catch (exc) {
++      const message =
++        exc instanceof BundleClientLoaderError
++          ? `${exc.code}: ${exc.message}`
++          : (exc as Error).message;
++      setError(message);
++    } finally {
++      setLoading(false);
++    }
++  }
++
++  function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
++    const file = e.target.files?.[0];
++    if (file) handleFile(file);
++  }
++
++  function onDrop(e: React.DragEvent<HTMLDivElement>) {
++    e.preventDefault();
++    setDragOver(false);
++    const file = e.dataTransfer.files?.[0];
++    if (file) handleFile(file);
++  }
++
++  if (bundle) {
++    return (
++      <InspectorView
++        bundle={bundle}
++        signaturePresent={bundle.signaturePresent}
++      />
++    );
++  }
++
++  return (
++    <main
++      className="mx-auto flex max-w-3xl flex-col gap-6 p-6"
++      data-testid="inspector-offline"
++    >
++      <Card>
++        <CardHeader>
++          <CardTitle className="text-lg">Offline Inspector</CardTitle>
++        </CardHeader>
++        <CardContent className="space-y-4 text-sm">
++          <p className="text-muted-foreground">
++            Drop or pick a signed POLARIS audit bundle (<code>.tar.gz</code>).
++            The bundle is verified and rendered entirely in your browser — no
++            backend or GPU required. SHA-256 of every file is checked against
++            the manifest. GPG cryptographic verify is out of scope (the
++            bundle&apos;s <code>.asc</code> presence is detected, but full
++            key-trust verification needs a CLI).
++          </p>
++          <div
++            data-testid="inspector-offline-dropzone"
++            role="button"
++            tabIndex={0}
++            aria-label="Drop bundle tar.gz or click to pick a file"
++            onDrop={onDrop}
++            onDragOver={(e) => {
++              e.preventDefault();
++              setDragOver(true);
++            }}
++            onDragLeave={() => setDragOver(false)}
++            onKeyDown={(e) => {
++              if (e.key === "Enter" || e.key === " ") {
++                e.preventDefault();
++                document.getElementById("inspector-offline-input")?.click();
++              }
++            }}
++            onClick={() =>
++              document.getElementById("inspector-offline-input")?.click()
++            }
++            className={`border-border focus-visible:ring-ring flex min-h-32 cursor-pointer items-center justify-center rounded border-2 border-dashed px-6 py-8 text-center text-sm focus-visible:ring-2 focus-visible:outline-none ${
++              dragOver ? "bg-muted/60" : "bg-muted/20"
++            }`}
++          >
++            {loading
++              ? "Loading bundle…"
++              : "Drop bundle.tar.gz here or press Enter to pick a file"}
++          </div>
++          <input
++            id="inspector-offline-input"
++            data-testid="inspector-offline-file-input"
++            type="file"
++            accept=".tar.gz,.tgz,application/gzip,application/x-gzip"
++            className="sr-only"
++            onChange={onInputChange}
++          />
++          {error ? (
++            <div
++              data-testid="inspector-offline-error"
++              role="alert"
++              className="rounded border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-700 dark:text-rose-300"
++            >
++              <strong className="block">Bundle could not be loaded</strong>
++              <code className="mt-1 block text-xs">{error}</code>
++            </div>
++          ) : null}
++        </CardContent>
++      </Card>
++    </main>
++  );
++}
+diff --git a/web/components/inspector/metadata_panel.tsx b/web/components/inspector/metadata_panel.tsx
+new file mode 100644
+index 00000000..7119267d
+--- /dev/null
++++ b/web/components/inspector/metadata_panel.tsx
+@@ -0,0 +1,59 @@
++// I-cd-021 (#631): metadata panel — Codex iter-1 P1.2 finding was that
++// `LoadedBundle.metadata` was parsed but never rendered. Adds explicit
++// surfacing for both /inspector/[runId] and /inspector/offline.
++
++import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++import type { BundleMetadata } from "@/lib/signed_bundle";
++
++interface MetadataPanelProps {
++  metadata: BundleMetadata;
++}
++
++export function MetadataPanel({ metadata }: MetadataPanelProps) {
++  return (
++    <Card data-testid="metadata-panel">
++      <CardHeader>
++        <CardTitle className="text-base">Bundle metadata</CardTitle>
++      </CardHeader>
++      <CardContent className="text-sm">
++        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 md:grid-cols-[max-content,1fr]">
++          <dt className="text-muted-foreground">POLARIS version</dt>
++          <dd
++            className="text-foreground font-mono"
++            data-testid="metadata-polaris-version"
++          >
++            {metadata.polaris_version}
++          </dd>
++          <dt className="text-muted-foreground">Generator model</dt>
++          <dd
++            className="text-foreground font-mono"
++            data-testid="metadata-generator-model"
++          >
++            {metadata.generator_model}
++          </dd>
++          <dt className="text-muted-foreground">Evaluator model</dt>
++          <dd
++            className="text-foreground font-mono"
++            data-testid="metadata-evaluator-model"
++          >
++            {metadata.evaluator_model}
++          </dd>
++          <dt className="text-muted-foreground">Bundle created at (UTC)</dt>
++          <dd
++            className="text-foreground font-mono"
++            data-testid="metadata-created-at"
++          >
++            {metadata.bundle_created_at_utc}
++          </dd>
++          <dt className="text-muted-foreground">Schema version</dt>
++          <dd
++            className="text-foreground font-mono"
++            data-testid="metadata-schema-version"
++          >
++            {metadata.schema_version}
++          </dd>
++        </dl>
++      </CardContent>
++    </Card>
++  );
++}
+diff --git a/web/lib/inspector_bundle_client_loader.ts b/web/lib/inspector_bundle_client_loader.ts
+new file mode 100644
+index 00000000..648741fd
+--- /dev/null
++++ b/web/lib/inspector_bundle_client_loader.ts
+@@ -0,0 +1,339 @@
++/**
++ * I-cd-021 (#631) — Browser-side bundle loader.
++ *
++ * Parses a v1.0 BundleManifest tar.gz uploaded by a disconnected
++ * reviewer (no backend, no GPU). Same `LoadedBundle` shape as the
++ * server-side `inspector_bundle_loader.ts` so all Inspector components
++ * accept either source.
++ *
++ * Conformance (browser-safe subset of the 12-layer Python check):
++ *   - tar.gz size ≤ 50MB
++ *   - inflate via pako
++ *   - extract files with tar-stream (browser build)
++ *   - manifest.yaml parses cleanly (existing parseManifest)
++ *   - bundle_version == "1.0"
++ *   - all 6 required ContentTypes present in manifest.files
++ *   - each declared file is present in the tar
++ *   - SHA-256 of each file matches manifest hash (browser crypto.subtle)
++ *   - byte size matches manifest size
++ *   - signaturePresent: derived from manifest.yaml.asc existence + non-empty
++ *
++ * GPG cryptographic verify is out of scope (requires CLI / pgp.js + key
++ * trust UX, both browser-impractical for Carney handover).
++ */
++
++import pako from "pako";
++import { extract as tarExtract } from "tar-stream";
++
++import {
++  type BundleManifest,
++  type BundleMetadata,
++  type ReasoningTraceRecord,
++  parseManifest,
++  parseReasoningTraceJsonl,
++} from "@/lib/signed_bundle";
++
++import type {
++  LoadedBundle,
++  VerifiedReportShape,
++} from "@/lib/inspector_bundle_loader";
++
++const MAX_TAR_GZ_BYTES = 50 * 1024 * 1024;
++// Codex iter-1 P1.1 fix: cap DECOMPRESSED tar bytes to prevent gzip-bomb OOM.
++// A 50MB gzip can inflate to 50GB+ of zeros. 200MB is generous for legitimate
++// bundles (the largest v1.0 fixture is ~80KB; real runs may approach a few MB).
++const MAX_DECOMPRESSED_BYTES = 200 * 1024 * 1024;
++
++export class BundleClientLoaderError extends Error {
++  readonly code: string;
++  constructor(code: string, message: string) {
++    super(message);
++    this.code = code;
++    this.name = "BundleClientLoaderError";
++  }
++}
++
++interface ExtractedFile {
++  name: string;
++  bytes: Uint8Array;
++}
++
++async function _extractTarBytes(
++  tarBytes: Uint8Array,
++): Promise<ExtractedFile[]> {
++  return new Promise((resolve, reject) => {
++    const files: ExtractedFile[] = [];
++    const extractor = tarExtract();
++    extractor.on(
++      "entry",
++      (
++        header: { name: string; type?: string },
++        stream: NodeJS.ReadableStream,
++        next: () => void,
++      ) => {
++        const chunks: Uint8Array[] = [];
++        stream.on("data", (c: Uint8Array) => chunks.push(c));
++        stream.on("end", () => {
++          if (header.type === "file") {
++            // Concat chunks into one Uint8Array.
++            const total = chunks.reduce((s, c) => s + c.length, 0);
++            const merged = new Uint8Array(total);
++            let off = 0;
++            for (const c of chunks) {
++              merged.set(c, off);
++              off += c.length;
++            }
++            files.push({
++              name: header.name.replace(/^\.\//, ""),
++              bytes: merged,
++            });
++          }
++          next();
++        });
++        stream.resume();
++      },
++    );
++    extractor.on("finish", () => resolve(files));
++    extractor.on("error", reject);
++    extractor.end(tarBytes);
++  });
++}
++
++class _GzipBombAbort extends Error {
++  readonly cap: number;
++  constructor(cap: number) {
++    super(`Decompressed bytes exceeded ${cap} cap (gzip-bomb guard).`);
++    this.cap = cap;
++  }
++}
++
++function _streamingUngzip(
++  compressed: Uint8Array,
++): Uint8Array | BundleClientLoaderError {
++  // pako.Inflate emits chunks via an onData callback; we accumulate up to
++  // MAX_DECOMPRESSED_BYTES then ABORT (Codex iter-3 P1 fix: previously
++  // onData just stopped collecting but inflator.push continued processing
++  // the rest of the stream — bomb could still hang the thread).
++  // Throwing from onData propagates out of inflator.push so we stop pako
++  // from continuing to decompress. The throw is caught locally.
++  const inflator = new pako.Inflate({ raw: false });
++  let total = 0;
++  const chunks: Uint8Array[] = [];
++
++  inflator.onData = (chunk: Uint8Array): void => {
++    total += chunk.length;
++    if (total > MAX_DECOMPRESSED_BYTES) {
++      throw new _GzipBombAbort(MAX_DECOMPRESSED_BYTES);
++    }
++    chunks.push(chunk);
++  };
++  inflator.onEnd = (_status: number): void => {
++    /* status handled via err/msg fields below */
++  };
++
++  try {
++    inflator.push(compressed, true);
++  } catch (exc) {
++    if (exc instanceof _GzipBombAbort) {
++      return new BundleClientLoaderError("decompressed_too_large", exc.message);
++    }
++    return new BundleClientLoaderError(
++      "ungzip_failed",
++      `Failed to gunzip bundle: ${(exc as Error).message}`,
++    );
++  }
++
++  if (inflator.err) {
++    return new BundleClientLoaderError(
++      "ungzip_failed",
++      `Failed to gunzip bundle: ${inflator.msg || "pako error " + inflator.err}`,
++    );
++  }
++
++  // Concatenate chunks into one Uint8Array.
++  const out = new Uint8Array(total);
++  let off = 0;
++  for (const c of chunks) {
++    out.set(c, off);
++    off += c.length;
++  }
++  return out;
++}
++
++async function _sha256Hex(bytes: Uint8Array): Promise<string> {
++  // Slice into a fresh ArrayBuffer (not SharedArrayBuffer) for browser-safe
++  // BufferSource typing on crypto.subtle.digest.
++  const buf = await crypto.subtle.digest(
++    "SHA-256",
++    bytes.buffer.slice(
++      bytes.byteOffset,
++      bytes.byteOffset + bytes.byteLength,
++    ) as ArrayBuffer,
++  );
++  const arr = Array.from(new Uint8Array(buf));
++  return arr.map((b) => b.toString(16).padStart(2, "0")).join("");
++}
++
++function _findFile(
++  files: ExtractedFile[],
++  pathInManifest: string,
++): ExtractedFile | undefined {
++  // tar entries may be prefixed with bundle-dir name (e.g. "v1_canonical/").
++  // Match suffix to keep loader robust against `tar -czf bundle.tar.gz <dir>`
++  // vs `tar -czf bundle.tar.gz -C <dir> .`.
++  return files.find(
++    (f) => f.name === pathInManifest || f.name.endsWith("/" + pathInManifest),
++  );
++}
++
++function _decode(bytes: Uint8Array): string {
++  return new TextDecoder("utf-8").decode(bytes);
++}
++
++// Codex iter-1 P1.2 fix: v1.0 conformance per
++// src/polaris_graph/audit_bundle/conformance.py:_REQUIRED_CONTENT_TYPES
++// requires ALL SIX content types (including source_snapshot).
++const REQUIRED_CONTENT_TYPES = [
++  "scope_decision",
++  "evidence_pool",
++  "verified_report",
++  "metadata",
++  "source_snapshot",
++  "reasoning_trace",
++] as const;
++
++export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
++  if (file.size > MAX_TAR_GZ_BYTES) {
++    throw new BundleClientLoaderError(
++      "tar_gz_too_large",
++      `Bundle file is ${file.size} bytes, exceeds ${MAX_TAR_GZ_BYTES} byte limit.`,
++    );
++  }
++  const arrayBuffer = await file.arrayBuffer();
++  // Codex iter-2 P1.1 fix: streaming inflate via pako.Inflate, aborting as
++  // soon as cumulative decompressed bytes exceed MAX_DECOMPRESSED_BYTES.
++  // The previous one-shot pako.ungzip() materialized the full bomb before
++  // the size guard ran.
++  const tarBytes = _streamingUngzip(new Uint8Array(arrayBuffer));
++  if (tarBytes instanceof BundleClientLoaderError) {
++    throw tarBytes;
++  }
++  const files = await _extractTarBytes(tarBytes);
++  const manifestFile = _findFile(files, "manifest.yaml");
++  if (!manifestFile) {
++    throw new BundleClientLoaderError(
++      "manifest_missing",
++      "Bundle is missing manifest.yaml.",
++    );
++  }
++  let manifest: BundleManifest;
++  try {
++    manifest = parseManifest(_decode(manifestFile.bytes));
++  } catch (exc) {
++    throw new BundleClientLoaderError(
++      "manifest_parse_failed",
++      `manifest.yaml parse failed: ${(exc as Error).message}`,
++    );
++  }
++  if (manifest.bundle_version !== "1.0") {
++    throw new BundleClientLoaderError(
++      "version_mismatch",
++      `Bundle version ${JSON.stringify(manifest.bundle_version)} != frozen v1.0.`,
++    );
++  }
++  for (const required of REQUIRED_CONTENT_TYPES) {
++    if (!manifest.files.some((f) => f.content_type === required)) {
++      throw new BundleClientLoaderError(
++        "required_content_type_missing",
++        `Manifest missing required content_type ${JSON.stringify(required)}.`,
++      );
++    }
++  }
++
++  // SHA-256 + size verify every manifest entry.
++  for (const entry of manifest.files) {
++    const candidate = _findFile(files, entry.path);
++    if (!candidate) {
++      throw new BundleClientLoaderError(
++        "manifest_file_missing",
++        `Manifest declares ${JSON.stringify(entry.path)} but bundle does not contain it.`,
++      );
++    }
++    if (candidate.bytes.length !== entry.size_bytes) {
++      throw new BundleClientLoaderError(
++        "size_mismatch",
++        `${JSON.stringify(entry.path)}: manifest size=${entry.size_bytes}, actual=${candidate.bytes.length}.`,
++      );
++    }
++    const actualSha = await _sha256Hex(candidate.bytes);
++    if (actualSha !== entry.sha256) {
++      throw new BundleClientLoaderError(
++        "sha256_mismatch",
++        `${JSON.stringify(entry.path)}: manifest sha256=${JSON.stringify(entry.sha256)}, actual=${JSON.stringify(actualSha)}.`,
++      );
++    }
++  }
++
++  // metadata.json by explicit path (v1.0 spec).
++  const metadataEntry = manifest.files.find(
++    (f) => f.content_type === "metadata" && f.path === "metadata.json",
++  );
++  if (!metadataEntry) {
++    throw new BundleClientLoaderError(
++      "metadata_entry_missing",
++      "Manifest must have a metadata entry with path=metadata.json.",
++    );
++  }
++  const metadataFile = _findFile(files, "metadata.json")!;
++  const metadata = JSON.parse(_decode(metadataFile.bytes)) as BundleMetadata;
++
++  const scopeDecisionFile = _findFile(files, "scope_decision.json")!;
++  const scopeDecision = JSON.parse(_decode(scopeDecisionFile.bytes));
++
++  const evidencePoolFile = _findFile(files, "evidence_pool.json")!;
++  const evidencePool = JSON.parse(_decode(evidencePoolFile.bytes));
++
++  const verifiedReportFile = _findFile(files, "verified_report.json")!;
++  const verifiedReport = JSON.parse(
++    _decode(verifiedReportFile.bytes),
++  ) as VerifiedReportShape;
++
++  const reasoningEntry = manifest.files.find(
++    (f) => f.content_type === "reasoning_trace",
++  );
++  const reasoningTrace: ReasoningTraceRecord[] = reasoningEntry
++    ? parseReasoningTraceJsonl(
++        _decode(_findFile(files, reasoningEntry.path)!.bytes),
++      )
++    : [];
++
++  const sources: Record<string, string> = {};
++  for (const entry of manifest.files) {
++    if (entry.content_type !== "source_snapshot") continue;
++    const sourceFile = _findFile(files, entry.path);
++    if (sourceFile) {
++      sources[entry.path] = _decode(sourceFile.bytes);
++    }
++  }
++
++  const signatureFile = _findFile(files, "manifest.yaml.asc");
++  const signaturePresent = !!signatureFile && signatureFile.bytes.length > 0;
++
++  // runId for offline mode: derive from filename (BundleMetadata doesn't
++  // carry run_id; it's a session-level field outside the v1.0 freeze).
++  const runId =
++    file.name.replace(/\.tar\.gz$/, "").replace(/\.tgz$/, "") ||
++    "offline-bundle";
++
++  return {
++    runId,
++    manifest,
++    scopeDecision,
++    evidencePool,
++    verifiedReport,
++    metadata,
++    reasoningTrace,
++    sources,
++    signaturePresent,
++  };
++}
+diff --git a/web/package-lock.json b/web/package-lock.json
+index c0bfda23..4c05f285 100644
+--- a/web/package-lock.json
++++ b/web/package-lock.json
+@@ -17,6 +17,7 @@
+         "lucide-react": "^1.14.0",
+         "next": "16.2.4",
+         "next-themes": "^0.4.6",
++        "pako": "^2.1.0",
+         "react": "19.2.4",
+         "react-cytoscapejs": "^2.0.0",
+         "react-dom": "19.2.4",
+@@ -24,6 +25,7 @@
+         "shadcn": "^4.6.0",
+         "sonner": "^2.0.7",
+         "tailwind-merge": "^3.5.0",
++        "tar-stream": "^3.2.0",
+         "tw-animate-css": "^1.4.0",
+         "vega-embed": "^7.1.0"
+       },
+@@ -35,9 +37,11 @@
+         "@types/cytoscape-fcose": "^2.2.5",
+         "@types/js-yaml": "^4.0.9",
+         "@types/node": "^20",
++        "@types/pako": "^2.0.4",
+         "@types/react": "^19",
+         "@types/react-cytoscapejs": "^1.2.6",
+         "@types/react-dom": "^19",
++        "@types/tar-stream": "^3.1.4",
+         "eslint": "^9",
+         "eslint-config-next": "16.2.4",
+         "eslint-config-prettier": "^10.1.8",
+@@ -2446,6 +2450,13 @@
+         "undici-types": "~6.21.0"
+       }
+     },
++    "node_modules/@types/pako": {
++      "version": "2.0.4",
++      "resolved": "https://registry.npmjs.org/@types/pako/-/pako-2.0.4.tgz",
++      "integrity": "sha512-VWDCbrLeVXJM9fihYodcLiIv0ku+AlOa/TQ1SvYOaBuyrSKgEcro95LJyIsJ4vSo6BXIxOKxiJAat04CmST9Fw==",
++      "dev": true,
++      "license": "MIT"
++    },
+     "node_modules/@types/react": {
+       "version": "19.2.14",
+       "resolved": "https://registry.npmjs.org/@types/react/-/react-19.2.14.tgz",
+@@ -2492,6 +2503,16 @@
+       "integrity": "sha512-xMAgYwceFhRA2zY+XbEA7mxYbA093wdiW8Vu6gZPGWy9cmOyU9XesH1tNcEWsKFd5Vzrqx5T3D38PWx1FIIXkA==",
+       "license": "MIT"
+     },
++    "node_modules/@types/tar-stream": {
++      "version": "3.1.4",
++      "resolved": "https://registry.npmjs.org/@types/tar-stream/-/tar-stream-3.1.4.tgz",
++      "integrity": "sha512-921gW0+g29mCJX0fRvqeHzBlE/XclDaAG0Ousy1LCghsOhvaKacDeRGEVzQP9IPfKn8Vysy7FEXAIxycpc/CMg==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@types/node": "*"
++      }
++    },
+     "node_modules/@types/validate-npm-package-name": {
+       "version": "4.0.2",
+       "resolved": "https://registry.npmjs.org/@types/validate-npm-package-name/-/validate-npm-package-name-4.0.2.tgz",
+@@ -3431,6 +3452,20 @@
+         "node": ">= 0.4"
+       }
+     },
++    "node_modules/b4a": {
++      "version": "1.8.1",
++      "resolved": "https://registry.npmjs.org/b4a/-/b4a-1.8.1.tgz",
++      "integrity": "sha512-aiqre1Nr0B/6DgE2N5vwTc+2/oQZ4Wh1t4NznYY4E00y8LCt6NqdRv81so00oo27D8MVKTpUa/MwUUtBLXCoDw==",
++      "license": "Apache-2.0",
++      "peerDependencies": {
++        "react-native-b4a": "*"
++      },
++      "peerDependenciesMeta": {
++        "react-native-b4a": {
++          "optional": true
++        }
++      }
++    },
+     "node_modules/balanced-match": {
+       "version": "1.0.2",
+       "resolved": "https://registry.npmjs.org/balanced-match/-/balanced-match-1.0.2.tgz",
+@@ -3438,6 +3473,97 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/bare-events": {
++      "version": "2.8.3",
++      "resolved": "https://registry.npmjs.org/bare-events/-/bare-events-2.8.3.tgz",
++      "integrity": "sha512-HdUm8EMQBLaJvGUdidNNbqpA1kYkwNcb+MYxkxCLAPJGQzlv9J0C24h8V65Z4c5GLd/JEALDvpFCQgpLJqc0zw==",
++      "license": "Apache-2.0",
++      "peerDependencies": {
++        "bare-abort-controller": "*"
++      },
++      "peerDependenciesMeta": {
++        "bare-abort-controller": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/bare-fs": {
++      "version": "4.7.1",
++      "resolved": "https://registry.npmjs.org/bare-fs/-/bare-fs-4.7.1.tgz",
++      "integrity": "sha512-WDRsyVN52eAx/lBamKD6uyw8H4228h/x0sGGGegOamM2cd7Pag88GfMQalobXI+HaEUxpCkbKQUDOQqt9wawRw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "bare-events": "^2.5.4",
++        "bare-path": "^3.0.0",
++        "bare-stream": "^2.6.4",
++        "bare-url": "^2.2.2",
++        "fast-fifo": "^1.3.2"
++      },
++      "engines": {
++        "bare": ">=1.16.0"
++      },
++      "peerDependencies": {
++        "bare-buffer": "*"
++      },
++      "peerDependenciesMeta": {
++        "bare-buffer": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/bare-os": {
++      "version": "3.9.1",
++      "resolved": "https://registry.npmjs.org/bare-os/-/bare-os-3.9.1.tgz",
++      "integrity": "sha512-6M5XjcnsygQNPMCMPXSK379xrJFiZ/AEMNBmFEmQW8d/789VQATvriyi5r0HYTL9TkQ26rn3kgdTG3aisbrXkQ==",
++      "license": "Apache-2.0",
++      "engines": {
++        "bare": ">=1.14.0"
++      }
++    },
++    "node_modules/bare-path": {
++      "version": "3.0.0",
++      "resolved": "https://registry.npmjs.org/bare-path/-/bare-path-3.0.0.tgz",
++      "integrity": "sha512-tyfW2cQcB5NN8Saijrhqn0Zh7AnFNsnczRcuWODH0eYAXBsJ5gVxAUuNr7tsHSC6IZ77cA0SitzT+s47kot8Mw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "bare-os": "^3.0.1"
++      }
++    },
++    "node_modules/bare-stream": {
++      "version": "2.13.1",
++      "resolved": "https://registry.npmjs.org/bare-stream/-/bare-stream-2.13.1.tgz",
++      "integrity": "sha512-Vp0cnjYyrEC4whYTymQ+YZi6pBpfiICZO3cfRG8sy67ZNWe951urv1x4eW1BKNngw3U+3fPYb5JQvHbCtxH7Ow==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "streamx": "^2.25.0",
++        "teex": "^1.0.1"
++      },
++      "peerDependencies": {
++        "bare-abort-controller": "*",
++        "bare-buffer": "*",
++        "bare-events": "*"
++      },
++      "peerDependenciesMeta": {
++        "bare-abort-controller": {
++          "optional": true
++        },
++        "bare-buffer": {
++          "optional": true
++        },
++        "bare-events": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/bare-url": {
++      "version": "2.4.3",
++      "resolved": "https://registry.npmjs.org/bare-url/-/bare-url-2.4.3.tgz",
++      "integrity": "sha512-Kccpc7ACfXaxfeInfqKcZtW4pT5YBn1mesc4sCsun6sRwtbJ4h+sNOaksUpYEJUKfN65YWC6Bw2OJEFiKxq8nQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "bare-path": "^3.0.0"
++      }
++    },
+     "node_modules/baseline-browser-mapping": {
+       "version": "2.10.24",
+       "resolved": "https://registry.npmjs.org/baseline-browser-mapping/-/baseline-browser-mapping-2.10.24.tgz",
+@@ -5239,6 +5365,15 @@
+         "node": ">= 0.6"
+       }
+     },
++    "node_modules/events-universal": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/events-universal/-/events-universal-1.0.1.tgz",
++      "integrity": "sha512-LUd5euvbMLpwOF8m6ivPCbhQeSiYVNb8Vs0fQ8QjXo0JTkEHpz8pxdQf0gStltaPpw0Cca8b39KxvK9cfKRiAw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "bare-events": "^2.7.0"
++      }
++    },
+     "node_modules/eventsource": {
+       "version": "3.0.7",
+       "resolved": "https://registry.npmjs.org/eventsource/-/eventsource-3.0.7.tgz",
+@@ -5353,6 +5488,12 @@
+       "integrity": "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==",
+       "license": "MIT"
+     },
++    "node_modules/fast-fifo": {
++      "version": "1.3.2",
++      "resolved": "https://registry.npmjs.org/fast-fifo/-/fast-fifo-1.3.2.tgz",
++      "integrity": "sha512-/d9sfos4yxzpwkDkuN7k2SqFKtYNmCTzgfEpz82x34IM9/zc8KGxQoXg1liNC/izpRM/MBdt44Nmx41ZWqk+FQ==",
++      "license": "MIT"
++    },
+     "node_modules/fast-glob": {
+       "version": "3.3.1",
+       "resolved": "https://registry.npmjs.org/fast-glob/-/fast-glob-3.3.1.tgz",
+@@ -8055,6 +8196,12 @@
+         "url": "https://github.com/sponsors/sindresorhus"
+       }
+     },
++    "node_modules/pako": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/pako/-/pako-2.1.0.tgz",
++      "integrity": "sha512-w+eufiZ1WuJYgPXbV/PO3NCMEc3xqylkKHzp8bxp1uW4qaSNQUkwmLLEc3kKsfz8lpV1F8Ht3U1Cm+9Srog2ug==",
++      "license": "(MIT AND Zlib)"
++    },
+     "node_modules/parent-module": {
+       "version": "1.0.1",
+       "resolved": "https://registry.npmjs.org/parent-module/-/parent-module-1.0.1.tgz",
+@@ -9302,6 +9449,17 @@
+         "node": ">= 0.4"
+       }
+     },
++    "node_modules/streamx": {
++      "version": "2.25.0",
++      "resolved": "https://registry.npmjs.org/streamx/-/streamx-2.25.0.tgz",
++      "integrity": "sha512-0nQuG6jf1w+wddNEEXCF4nTg3LtufWINB5eFEN+5TNZW7KWJp6x87+JFL43vaAUPyCfH1wID+mNVyW6OHtFamg==",
++      "license": "MIT",
++      "dependencies": {
++        "events-universal": "^1.0.0",
++        "fast-fifo": "^1.3.2",
++        "text-decoder": "^1.1.0"
++      }
++    },
+     "node_modules/strict-event-emitter": {
+       "version": "0.5.1",
+       "resolved": "https://registry.npmjs.org/strict-event-emitter/-/strict-event-emitter-0.5.1.tgz",
+@@ -9602,6 +9760,36 @@
+         "url": "https://opencollective.com/webpack"
+       }
+     },
++    "node_modules/tar-stream": {
++      "version": "3.2.0",
++      "resolved": "https://registry.npmjs.org/tar-stream/-/tar-stream-3.2.0.tgz",
++      "integrity": "sha512-ojzvCvVaNp6aOTFmG7jaRD0meowIAuPc3cMMhSgKiVWws1GyHbGd/xvnyuRKcKlMpt3qvxx6r0hreCNITP9hIg==",
++      "license": "MIT",
++      "dependencies": {
++        "b4a": "^1.6.4",
++        "bare-fs": "^4.5.5",
++        "fast-fifo": "^1.2.0",
++        "streamx": "^2.15.0"
++      }
++    },
++    "node_modules/teex": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/teex/-/teex-1.0.1.tgz",
++      "integrity": "sha512-eYE6iEI62Ni1H8oIa7KlDU6uQBtqr4Eajni3wX7rpfXD8ysFx8z0+dri+KWEPWpBsxXfxu58x/0jvTVT1ekOSg==",
++      "license": "MIT",
++      "dependencies": {
++        "streamx": "^2.12.5"
++      }
++    },
++    "node_modules/text-decoder": {
++      "version": "1.2.7",
++      "resolved": "https://registry.npmjs.org/text-decoder/-/text-decoder-1.2.7.tgz",
++      "integrity": "sha512-vlLytXkeP4xvEq2otHeJfSQIRyWxo/oZGEbXrtEEF9Hnmrdly59sUbzZ/QgyWuLYHctCHxFF4tRQZNQ9k60ExQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "b4a": "^1.6.4"
++      }
++    },
+     "node_modules/tiny-invariant": {
+       "version": "1.3.3",
+       "resolved": "https://registry.npmjs.org/tiny-invariant/-/tiny-invariant-1.3.3.tgz",
+diff --git a/web/package.json b/web/package.json
+index c32f47df..b656d45b 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -24,6 +24,7 @@
+     "lucide-react": "^1.14.0",
+     "next": "16.2.4",
+     "next-themes": "^0.4.6",
++    "pako": "^2.1.0",
+     "react": "19.2.4",
+     "react-cytoscapejs": "^2.0.0",
+     "react-dom": "19.2.4",
+@@ -31,6 +32,7 @@
+     "shadcn": "^4.6.0",
+     "sonner": "^2.0.7",
+     "tailwind-merge": "^3.5.0",
++    "tar-stream": "^3.2.0",
+     "tw-animate-css": "^1.4.0",
+     "vega-embed": "^7.1.0"
+   },
+@@ -42,9 +44,11 @@
+     "@types/cytoscape-fcose": "^2.2.5",
+     "@types/js-yaml": "^4.0.9",
+     "@types/node": "^20",
++    "@types/pako": "^2.0.4",
+     "@types/react": "^19",
+     "@types/react-cytoscapejs": "^1.2.6",
+     "@types/react-dom": "^19",
++    "@types/tar-stream": "^3.1.4",
+     "eslint": "^9",
+     "eslint-config-next": "16.2.4",
+     "eslint-config-prettier": "^10.1.8",
+diff --git a/web/tests/e2e/inspector_offline_fallback.spec.ts b/web/tests/e2e/inspector_offline_fallback.spec.ts
+new file mode 100644
+index 00000000..6c4401d5
+--- /dev/null
++++ b/web/tests/e2e/inspector_offline_fallback.spec.ts
+@@ -0,0 +1,91 @@
++// I-cd-021 (#631) — Disconnected reviewer drops a v1.0 .tar.gz on the
++// offline Inspector route. No backend running.
++//
++// Builds a tar.gz from tests/fixtures/signed_bundle/v1_canonical_success/
++// at test-setup time and feeds it to the file input.
++
++import { execSync } from "node:child_process";
++import { existsSync, mkdirSync, writeFileSync } from "node:fs";
++import path from "node:path";
++
++import { expect, test } from "@playwright/test";
++
++const FIXTURE_DIR = path.resolve(
++  process.cwd(),
++  "..",
++  "tests/fixtures/signed_bundle/v1_canonical_success",
++);
++const OUT_DIR = path.resolve(
++  process.cwd(),
++  "..",
++  ".codex-tmp",
++  "i-cd-021-bundles",
++);
++const TAR_GZ_PATH = path.join(OUT_DIR, "v1_canonical_success.tar.gz");
++
++test.beforeAll(() => {
++  if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });
++  if (!existsSync(TAR_GZ_PATH)) {
++    execSync(`tar -czf "${TAR_GZ_PATH}" -C "${FIXTURE_DIR}" .`, {
++      stdio: "inherit",
++    });
++  }
++});
++
++test("Offline Inspector parses + renders a v1.0 tar.gz bundle in-browser", async ({
++  page,
++}) => {
++  await page.goto("/inspector/offline");
++  await expect(page.getByTestId("inspector-offline-dropzone")).toBeVisible();
++
++  await page
++    .getByTestId("inspector-offline-file-input")
++    .setInputFiles(TAR_GZ_PATH);
++
++  // Wait for InspectorView to mount in place of the dropzone.
++  await expect(page.getByTestId("inspector-view")).toBeVisible({
++    timeout: 15_000,
++  });
++
++  // Bundle header + verified report visible.
++  await expect(page.getByTestId("inspector-view")).toContainText(
++    /POLARIS|bundle|run/i,
++  );
++
++  // Metadata panel surfaces all 5 fields (Codex iter-1 P1.2 fix).
++  await page.getByRole("tab", { name: "Metadata" }).click();
++  await expect(page.getByTestId("metadata-panel")).toBeVisible();
++  await expect(page.getByTestId("metadata-polaris-version")).not.toBeEmpty();
++  await expect(page.getByTestId("metadata-generator-model")).not.toBeEmpty();
++  await expect(page.getByTestId("metadata-evaluator-model")).not.toBeEmpty();
++  await expect(page.getByTestId("metadata-created-at")).not.toBeEmpty();
++  await expect(page.getByTestId("metadata-schema-version")).toContainText(
++    "1.0",
++  );
++
++  // No error card.
++  await expect(page.getByTestId("inspector-offline-error")).toHaveCount(0);
++});
++
++test("Offline Inspector rejects a malformed file with a visible error", async ({
++  page,
++}) => {
++  await page.goto("/inspector/offline");
++
++  // Build a junk file in temp; setInputFiles accepts a path AND a payload.
++  const junkPath = path.join(OUT_DIR, "garbage.tar.gz");
++  if (!existsSync(junkPath)) {
++    writeFileSync(junkPath, "not gzip");
++  }
++
++  await page
++    .getByTestId("inspector-offline-file-input")
++    .setInputFiles(junkPath);
++
++  await expect(page.getByTestId("inspector-offline-error")).toBeVisible({
++    timeout: 5_000,
++  });
++  await expect(page.getByTestId("inspector-offline-error")).toContainText(
++    /ungzip_failed|manifest|gzip/i,
++  );
++});
