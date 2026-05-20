@@ -64,6 +64,31 @@ function TraceRecordCard({ record }: { record: ReasoningTraceRecord }) {
           </span>
         </div>
       </div>
+      <dl
+        className="text-muted-foreground mt-2 grid grid-cols-1 gap-x-3 gap-y-1 text-xs sm:grid-cols-3"
+        data-testid="reasoning-record-meta"
+      >
+        <span data-field="model">
+          <dt className="inline font-medium">model:</dt>{" "}
+          <dd className="inline font-mono">{record.model}</dd>
+        </span>
+        <span data-field="attempt_n">
+          <dt className="inline font-medium">attempt:</dt>{" "}
+          <dd className="inline font-mono">{record.attempt_n}</dd>
+        </span>
+        <span data-field="timestamp">
+          <dt className="inline font-medium">timestamp:</dt>{" "}
+          <dd className="inline font-mono">{record.timestamp}</dd>
+        </span>
+        <span data-field="parent_call_id">
+          <dt className="inline font-medium">parent:</dt>{" "}
+          <dd className="inline font-mono">{record.parent_call_id ?? "—"}</dd>
+        </span>
+        <span data-field="regen_reason">
+          <dt className="inline font-medium">regen:</dt>{" "}
+          <dd className="inline font-mono">{record.regen_reason ?? "—"}</dd>
+        </span>
+      </dl>
       <div className="text-muted-foreground mt-2 grid grid-cols-3 gap-2 text-xs">
         <span>input: {record.input_tokens}</span>
         <span>output: {record.output_tokens}</span>

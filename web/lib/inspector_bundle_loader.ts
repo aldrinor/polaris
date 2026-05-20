@@ -33,6 +33,9 @@ export interface LoadedBundle {
   metadata: BundleMetadata;
   reasoningTrace: ReasoningTraceRecord[];
   sources: Record<string, string>;
+  /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
+   * Derived during load — NOT a manifest field. Codex diff iter-1 P2. */
+  signaturePresent: boolean;
 }
 
 export interface VerifiedReportShape {
@@ -124,6 +127,18 @@ export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
     );
   }
 
+  // Signature presence check (Codex diff iter-1 P2): mirror the conformance
+  // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
+  // bundle. The UI surfaces this boolean transparently; cryptographic
+  // verification belongs to operator-side `gpg --verify` tooling.
+  let signaturePresent = false;
+  try {
+    const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
+    signaturePresent = stat.isFile() && stat.size > 0;
+  } catch {
+    signaturePresent = false;
+  }
+
   return {
     runId,
     manifest,
@@ -133,6 +148,7 @@ export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
     metadata,
     reasoningTrace,
     sources,
+    signaturePresent,
   };
 }
 

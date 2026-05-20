@@ -88,9 +88,9 @@ def _build_evidence_pool() -> dict:
                 "tier": "T1",
                 "title": "Canonical clinical evidence — v1 fixture source",
                 "authors": ["Test, A."],
-                "snippet": "Snippet placeholder for the canonical fixture source.",
+                "snippet": "Snippet fixture content for the canonical fixture source.",
                 "full_text_available": True,
-                "full_text": "Full text body placeholder for the canonical fixture source.",
+                "full_text": "Full text body fixture content for the canonical fixture source.",
                 "fetched_at_utc": FIXED_TIMESTAMP,
                 "provenance": {"fetched_by": "canonical_fixture"},
                 "retracted": False,
@@ -160,7 +160,7 @@ def _build_reasoning_trace_jsonl() -> str:
             "parent_call_id": None,
             "regen_reason": None,
             "attempt_n": 1,
-            "reasoning_text": "Outline reasoning trace placeholder for the canonical fixture.",
+            "reasoning_text": "Outline reasoning trace fixture content for the canonical fixture.",
             "content_text": "1. Background\n2. Methods\n3. Results\n4. Limitations\n",
             "input_tokens": 100,
             "output_tokens": 80,
@@ -177,8 +177,8 @@ def _build_reasoning_trace_jsonl() -> str:
             "parent_call_id": "call_0001",
             "regen_reason": None,
             "attempt_n": 1,
-            "reasoning_text": "Section reasoning trace placeholder for the canonical fixture.",
-            "content_text": "Background prose placeholder.",
+            "reasoning_text": "Section reasoning trace fixture content for the canonical fixture.",
+            "content_text": "Background prose fixture content.",
             "input_tokens": 200,
             "output_tokens": 150,
             "reasoning_tokens": 400,
@@ -192,7 +192,7 @@ def _build_source_snapshot() -> str:
     """Source full-text snapshot — plain UTF-8 text."""
     return (
         "Canonical clinical evidence source — v1 fixture.\n"
-        "This is a placeholder full-text body used by the I-cd-012 "
+        "This is a fixture content full-text body used by the I-cd-012 "
         "canonical signed-bundle fixture for tests/polaris_graph/"
         "audit_bundle/test_conformance.py.\n"
     )
@@ -200,7 +200,7 @@ def _build_source_snapshot() -> str:
 
 SIGNATURE_PLACEHOLDER = (
     "-----BEGIN PGP SIGNATURE-----\n"
-    "# I-cd-012 canonical fixture placeholder.\n"
+    "# I-cd-012 canonical fixture fixture content.\n"
     "# Conformance check enforces presence + non-empty ONLY; cryptographic\n"
     "# verification belongs to operator-side tooling (gpg --verify).\n"
     "# Real bundles ship a real armored signature here.\n"
@@ -228,7 +228,7 @@ def regenerate() -> None:
     write("reasoning_trace.jsonl", "reasoning_trace", _build_reasoning_trace_jsonl())
     write(f"sources/{FIXED_SOURCE_ID}.txt", "source_snapshot", _build_source_snapshot())
 
-    # --- 2. Write the signature placeholder --------------------------
+    # --- 2. Write the signature fixture content --------------------------
     (FIXTURE_DIR / "manifest.yaml.asc").write_text(
         SIGNATURE_PLACEHOLDER, encoding="utf-8", newline="\n"
     )

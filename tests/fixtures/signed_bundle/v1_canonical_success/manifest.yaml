@@ -9,8 +9,8 @@ files:
   size_bytes: 332
 - content_type: evidence_pool
   path: evidence_pool.json
-  sha256: c0e317747bc777778acbac03b5222ecfa79ae89b195f29cb600d0892c607994d
-  size_bytes: 1130
+  sha256: f8249c902925aefa03a2ef0e3f86a82f160f21aa0eaf11875f30bd4a9c8557b5
+  size_bytes: 1138
 - content_type: verified_report
   path: verified_report.json
   sha256: 813970c56041eeab246cb697fb49b75ccab905d76f8ee0c5610576e35f183111
@@ -25,12 +25,12 @@ files:
   size_bytes: 336
 - content_type: reasoning_trace
   path: reasoning_trace.jsonl
-  sha256: 6f4fd0efd23dbbb4072008ec094059dc064c1068da71fd206da95f8ac47ae613
-  size_bytes: 949
+  sha256: 815069307891201bc1a06324e961fda0cdf81143a210939975f007705afba2d0
+  size_bytes: 961
 - content_type: source_snapshot
   path: sources/src_v1_canonical_0001.txt
-  sha256: 8d308259726e2dd27ebfc09e9122a9042b3c159b8180d4de42839991d29d2d23
-  size_bytes: 199
+  sha256: 0d42df092fd4032c76267df6548d270ab1f31d2c8dad9c3cfda7265cf3769aa1
+  size_bytes: 203
 generator_model: deepseek/deepseek-v4-pro
 polaris_version: 1.0.0
 pool_id: pool_v1_canonical_0001

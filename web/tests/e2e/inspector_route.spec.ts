@@ -59,8 +59,18 @@ test.describe("Inspector route — canonical-success fixture", () => {
     page,
   }) => {
     await page.goto("/inspector/v1-canonical-success");
+    // Map data-tab id -> rendered tab label (the latter contains spaces
+    // and may not literal-match the kebab-cased id; see inspector_view.tsx).
+    const tabLabels: Record<(typeof TAB_IDS)[number], RegExp> = {
+      report: /^report$/i,
+      scope: /^scope$/i,
+      evidence: /^evidence$/i,
+      reasoning: /^reasoning$/i,
+      sources: /^sources$/i,
+      hashchain: /^hash chain$/i,
+    };
     for (const tabId of TAB_IDS) {
-      await page.getByRole("tab", { name: new RegExp(tabId, "i") }).click();
+      await page.getByRole("tab", { name: tabLabels[tabId] }).click();
       const panel = page.locator(`[data-tab="${tabId}"]`);
       await expect(panel).toBeVisible();
       // The other tabs' panels must be hidden when this tab is active.

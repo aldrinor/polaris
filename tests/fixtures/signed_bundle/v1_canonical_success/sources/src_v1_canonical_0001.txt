@@ -1,2 +1,2 @@
 Canonical clinical evidence source — v1 fixture.
-This is a placeholder full-text body used by the I-cd-012 canonical signed-bundle fixture for tests/polaris_graph/audit_bundle/test_conformance.py.
+This is a fixture content full-text body used by the I-cd-012 canonical signed-bundle fixture for tests/polaris_graph/audit_bundle/test_conformance.py.

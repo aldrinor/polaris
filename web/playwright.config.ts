@@ -20,13 +20,12 @@ export default defineConfig({
   // to *-chromium-linux.png and is missing → Playwright would auto-write
   // a new baseline (silent regression). Skip visual.spec.ts on Linux until
   // Linux baselines are generated.
-  // I-cd-013a (GH#609): inspector_route.spec.ts visual baselines are
-  // authored for chromium-win32 only; Linux baselines are deferred per the
-  // existing visual.spec.ts convention.
-  testIgnore:
-    process.platform === "linux"
-      ? ["**/visual.spec.ts", "**/inspector_route.spec.ts"]
-      : undefined,
+  // I-cd-013a (GH#609): inspector_route.spec.ts currently contains no
+  // toHaveScreenshot() assertions, so it runs on Linux too. When visual
+  // baselines land at I-cd-013b, the testIgnore list will be extended to
+  // include inspector_route.spec.ts on Linux per the visual.spec.ts
+  // convention.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
   timeout: 30_000,
   fullyParallel: false, // single browser instance to keep memory bounded on dev
   retries: 0,

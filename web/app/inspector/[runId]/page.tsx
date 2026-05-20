@@ -27,15 +27,14 @@ export default async function InspectorPage({ params }: InspectorPageProps) {
     return <BundlePendingCta runId={runId} />;
   }
 
-  // Signature presence: the loader only resolves bundles that contain
-  // manifest.yaml.asc per the v1.0 conformance check. This boolean is
-  // surfaced for transparency; cryptographic verification belongs to
-  // operator-side `gpg --verify` tooling, NOT this UI.
-  const signaturePresent = true;
-  // (kept as a const so the prop wiring is explicit at the call site —
-  // the offline fallback at I-B-09 may flip this to false when rendering
-  // a tampered/test bundle.)
-
+  // Signature presence is derived from disk in the loader (Codex diff
+  // iter-1 P2 — the page no longer hardcodes true). Cryptographic
+  // verification belongs to operator-side `gpg --verify` tooling.
   void filesByContentType; // re-exported helper available to consumers
-  return <InspectorView bundle={bundle} signaturePresent={signaturePresent} />;
+  return (
+    <InspectorView
+      bundle={bundle}
+      signaturePresent={bundle.signaturePresent}
+    />
+  );
 }

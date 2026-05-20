@@ -208,7 +208,8 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => 
     }
   });
 
-  test("Inspector golden_clinical_001 — all clickable targets ≥24x24", async ({
+  // I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+  test.skip("Inspector golden_clinical_001 — all clickable targets ≥24x24", async ({
     page,
   }) => {
     await page.goto("/inspector/golden_clinical_001", {
@@ -278,7 +279,8 @@ test.describe("WCAG 2.1.1 keyboard sweep — template radiogroup operable", () =
   });
 });
 
-test.describe("WCAG-AA — Inspector error states", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("WCAG-AA — Inspector error states", () => {
   test("Inspector destructive error banner (invalid runId) is WCAG-AA clean", async ({
     page,
   }) => {
