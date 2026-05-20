@@ -85,8 +85,8 @@ function EmptyPinReplay() {
         <p className="text-muted-foreground mt-4 text-sm">
           No pin data available yet. The frontend client for{" "}
           <code>/api/v6/runs/{"{run_id}"}/pins</code> ships at Seq 29 / I-A-12 /
-          #619 (full /pin_replay rebuild). The backend route is live in
-          I-cd-017 / #627.
+          #619 (full /pin_replay rebuild). The backend route is live in I-cd-017
+          / #627.
         </p>
       </div>
     </main>
