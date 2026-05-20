@@ -6,6 +6,7 @@ import { BundleHeader } from "@/components/inspector/bundle_header";
 import { EvidencePoolTable } from "@/components/inspector/evidence_pool_table";
 import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
 import { HashChainPanel } from "@/components/inspector/hash_chain_panel";
+import { MetadataPanel } from "@/components/inspector/metadata_panel";
 import { ReasoningTraceTimeline } from "@/components/inspector/reasoning_trace_timeline";
 import { ScopeDecisionCard } from "@/components/inspector/scope_decision_card";
 import { SourcesPanel } from "@/components/inspector/sources_panel";
@@ -43,6 +44,7 @@ export function InspectorView({
           <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
           <TabsTrigger value="sources">Sources</TabsTrigger>
           <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
+          <TabsTrigger value="metadata">Metadata</TabsTrigger>
         </TabsList>
         <TabsContent value="report" tabId="report">
           <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
@@ -61,6 +63,9 @@ export function InspectorView({
         </TabsContent>
         <TabsContent value="hashchain" tabId="hashchain">
           <HashChainPanel manifest={bundle.manifest} />
+        </TabsContent>
+        <TabsContent value="metadata" tabId="metadata">
+          <MetadataPanel metadata={bundle.metadata} />
         </TabsContent>
       </Tabs>
     </main>
