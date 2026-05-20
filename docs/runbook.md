@@ -364,7 +364,7 @@ the resulting audit bundle. Costs real OpenRouter spend per invocation
 | Env var | Purpose |
 |---|---|
 | `POLARIS_JWT_SECRET` | ≥32 chars; HS256 signing for /auth/login tokens (I-cd-014). |
-| `POLARIS_STATIC_ACCOUNTS_PATH` | Path to operator-provisioned static_accounts.yaml (default `/etc/polaris/static_accounts.yaml`; I-cd-014). |
+| `POLARIS_STATIC_ACCOUNTS_PATH` | Path to operator-provisioned static_accounts.yaml. Backend default is `/app/config/static_accounts.yaml` (per `src/polaris_v6/api/auth.py:44`); the deploy runbook mounts the operator secret at `/etc/polaris/static_accounts.yaml` and sets this env var explicitly (I-cd-014). |
 | `POLARIS_GPG_KEY_ID` | GPG fingerprint for bundle signing (FastAPI signer override + secret-key in keyring). |
 | `OPENROUTER_API_KEY` | OpenRouter gateway auth — used by pipeline-A generator + evaluator. |
 | `PG_MAX_COST_PER_RUN` | Hard per-run cost cap (BudgetExceededError); enforces spend ceiling. |

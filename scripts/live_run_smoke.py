@@ -122,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
         r = client.post(
             f"{backend}/runs",
             headers=headers,
-            json={"question": args.question, "template_id": args.template, "document_ids": []},
+            json={"question": args.question, "template": args.template, "document_ids": []},
         )
         r.raise_for_status()
         run_id = (r.json() or {}).get("run_id", "")
@@ -136,27 +136,49 @@ def main(argv: list[str] | None = None) -> int:
         return 12
 
     # --- 4. SSE /stream/{run_id} → wait for run_complete (wallclock-capped) ---
+    # Codex diff iter-1 P1: SSE can emit DEGRADED terminal statuses
+    # (`stream_unavailable`, `stream_lost`) per run_events.py:249,268.
+    # Treat those as failure, NOT pass.
+    DEGRADED_STATUSES = {"stream_unavailable", "stream_lost"}
     sse_deadline = time.monotonic() + timeout_s
     run_complete_seen = False
+    run_complete_status = ""
+    current_event_type = ""
     try:
         with client.stream("GET", f"{backend}/stream/{run_id}", headers=headers) as resp:
             resp.raise_for_status()
             for raw_line in resp.iter_lines():
                 if time.monotonic() > sse_deadline:
                     break
-                if not raw_line:
-                    continue
                 line = raw_line if isinstance(raw_line, str) else raw_line.decode("utf-8", "replace")
-                # SSE "event:" lines convey type; "data:" lines convey payload.
-                # The v6 protocol terminator is `event: run_complete`.
-                if line.startswith("event:") and line.split(":", 1)[1].strip() == "run_complete":
-                    run_complete_seen = True
-                    break
-                if line.startswith("data:") and '"event": "run_complete"' in line:
-                    run_complete_seen = True
-                    break
+                if not line:
+                    current_event_type = ""
+                    continue
+                if line.startswith("event:"):
+                    current_event_type = line.split(":", 1)[1].strip()
+                    continue
+                if line.startswith("data:"):
+                    payload_str = line.split(":", 1)[1].strip()
+                    try:
+                        payload = json.loads(payload_str)
+                    except (ValueError, json.JSONDecodeError):
+                        payload = {}
+                    is_terminal = (
+                        current_event_type in ("run_complete", "run.completed")
+                        or payload.get("event") == "run_complete"
+                        or payload.get("event_type") == "run.completed"
+                    )
+                    if is_terminal:
+                        run_complete_status = (payload.get("status") or "").strip()
+                        run_complete_seen = True
+                        break
     except httpx.HTTPError as exc:
-        print(f"FAIL: SSE /stream error: {exc}", file=sys.stderr)
+        # Codex diff iter-1 P2: cancel before exit on SSE HTTP error too.
+        try:
+            client.post(f"{backend}/runs/{run_id}/cancel", headers=headers, timeout=10.0)
+        except httpx.HTTPError:
+            pass
+        print(f"FAIL: SSE /stream error: {exc}; sent /runs/{run_id}/cancel", file=sys.stderr)
         print("RESULT: FAIL")
         return 13
 
@@ -167,6 +189,16 @@ def main(argv: list[str] | None = None) -> int:
         except httpx.HTTPError:
             pass
         print(f"FAIL: SSE wallclock cap ({timeout_s:.0f}s) reached; sent /runs/{run_id}/cancel", file=sys.stderr)
+        print("RESULT: FAIL")
+        return 13
+
+    # Codex diff iter-1 P1: degraded SSE terminal statuses are NOT pass.
+    if run_complete_status in DEGRADED_STATUSES:
+        try:
+            client.post(f"{backend}/runs/{run_id}/cancel", headers=headers, timeout=10.0)
+        except httpx.HTTPError:
+            pass
+        print(f"FAIL: SSE run_complete with degraded status={run_complete_status!r}; sent /runs/{run_id}/cancel", file=sys.stderr)
         print("RESULT: FAIL")
         return 13
 
@@ -209,15 +241,30 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix="polaris_smoke_") as tmpdir:
         extracted = Path(tmpdir) / "bundle"
         extracted.mkdir(parents=True, exist_ok=True)
+        # Codex diff iter-1 P2: reject absolute / `..` / backslash paths
+        # AFTER stripping exactly one top-level directory. Path-traversal
+        # hardening; only regular files and directories accepted.
         with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:gz") as tar:
             for member in tar.getmembers():
-                # Strip any leading bundle_id/ directory so manifest.yaml is at extracted root.
+                if not (member.isfile() or member.isdir()):
+                    print(f"FAIL: bundle contains non-file/dir member {member.name!r}", file=sys.stderr)
+                    print("RESULT: FAIL")
+                    return 16
                 rel = member.name.lstrip("/")
+                if "\\" in rel or (len(rel) >= 2 and rel[1] == ":") or rel.startswith("//"):
+                    print(f"FAIL: bundle contains unsafe path {member.name!r}", file=sys.stderr)
+                    print("RESULT: FAIL")
+                    return 16
                 parts = rel.split("/", 1)
                 if len(parts) == 2 and parts[1]:
-                    member.name = parts[1]
+                    rel = parts[1]
                 else:
-                    member.name = parts[0]
+                    rel = parts[0]
+                if not rel or rel.startswith("/") or ".." in rel.split("/"):
+                    print(f"FAIL: bundle contains unsafe path after strip {rel!r}", file=sys.stderr)
+                    print("RESULT: FAIL")
+                    return 16
+                member.name = rel
                 tar.extract(member, path=extracted)
 
         result = check_bundle_conformance(extracted)
