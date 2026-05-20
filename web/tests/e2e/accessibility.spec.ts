@@ -97,7 +97,8 @@ test.describe.skip("WCAG-AA — Inspector golden_clinical_001", () => {
 });
 
 // I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
-test.describe.skip("WCAG-AA — Inspector golden_housing_002 (contradictions)", () => {
+test.describe
+  .skip("WCAG-AA — Inspector golden_housing_002 (contradictions)", () => {
   test("Contradictions tab is WCAG-AA clean", async ({ page }) => {
     await page.goto("/inspector/golden_housing_002", {
       waitUntil: "networkidle",
@@ -142,7 +143,8 @@ test.describe("WCAG-AA — dashboard upload list with files", () => {
 });
 
 // I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
-test.describe.skip("WCAG-AA — Inspector verified-sentence with drop_reason", () => {
+test.describe
+  .skip("WCAG-AA — Inspector verified-sentence with drop_reason", () => {
   test("Verified sentences tab with a Dropped sentence is WCAG-AA clean", async ({
     page,
   }) => {

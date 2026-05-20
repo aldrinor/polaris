@@ -32,9 +32,6 @@ export default async function InspectorPage({ params }: InspectorPageProps) {
   // verification belongs to operator-side `gpg --verify` tooling.
   void filesByContentType; // re-exported helper available to consumers
   return (
-    <InspectorView
-      bundle={bundle}
-      signaturePresent={bundle.signaturePresent}
-    />
+    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
   );
 }
