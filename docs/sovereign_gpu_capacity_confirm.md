@@ -1,0 +1,134 @@
+# Sovereign GPU capacity confirm/hold — operator runbook
+
+**Issue:** I-cd-037 (#642) — Final OVH capacity hold/confirmation for **both demo boxes** (generator box + evaluator box).
+**Acceptance:** Written availability/hold confirmed for BOTH boxes immediately before provisioning.
+**Sent immediately before:** Seq 38 (#643) provisioning order.
+
+## §0. The two demo boxes (per I-cd-008 GPU topology)
+
+Both must land in the same datacenter (or two datacenters connected by a private link < 5ms RTT) so the orchestrator can reach the evaluator over private network without crossing the public internet.
+
+| Box | GPU shape | Hosts | RAM | Storage |
+|---|---|---|---|---|
+| **Generator** | 8× NVIDIA H200 SXM 141GB (single chassis HGX/DGX), or 8× H100 SXM 80GB acceptable fallback | DeepSeek V4 Pro via vLLM/SGLang | ≥ 1 TB DDR5 ECC | ≥ 4 TB NVMe |
+| **Evaluator** | 4× NVIDIA H100 SXM 80GB, or 4× H100 NVL acceptable fallback | Gemma 4 31B-it via vLLM | ≥ 512 GB DDR5 ECC | ≥ 2 TB NVMe |
+
+Capacity confirm acceptance requires WRITTEN in-stock confirm for **both** SKUs at the same vendor (or split across two vendors if private link is feasible).
+
+---
+
+## §1. Scope (revised per operator directive 2026-05-18)
+
+The original sovereignty constraint required **Canada-only** GPU hosting (`docs/ovh_h200_procurement_spec.md`). Per operator directive 2026-05-18:
+
+> "Canada GPU procurement was too hard/expensive/slow; EU GPU allowed at demo stage. Sovereignty still non-US-OK; OVH France/Scaleway/Hetzner back in scope; Carney 'Canadian-hosted' framing + transparency.md must be reconciled."
+
+So the capacity confirm now polls **4 vendor paths in parallel** (OVH Canada and OVH France are the same corporate parent OVHcloud but go through different regional sales contacts), pick whichever returns the fastest "yes, hold confirmed for BOTH boxes":
+
+| Vendor path | Region | Generator SKU | Evaluator SKU | Sovereignty story |
+|---|---|---|---|---|
+| **(1) OVH Canada sales** (preferred for "Canadian-hosted" narrative) | Beauharnois, QC (BHS) | 8×H200 bare-metal HGX, or 8×H100 SXM fallback | 4×H100 SXM dedicated, or 4×H100 NVL Public Cloud | Canada-resident; OVH Canada is the controller |
+| **(2) OVH France sales** | Gravelines (GRA9/GRA11) or Roubaix (RBX) | 8×H200 PCIe Public Cloud or HGX bare-metal | 4×H100 NVL Public Cloud | Non-US (French jurisdiction); EU GDPR |
+| **(3) Scaleway** | Paris (PAR1/PAR2) or Amsterdam (AMS1) | H100-PCIE-80 ×8 cluster or NVL ×4 ×2 | H100 NVL ×4 | Non-US; French jurisdiction; GDPR |
+| **(4) Hetzner** | Falkenstein (FSN1) or Helsinki (HEL1) | GEX44/GEX130 H100 dedicated ×N | GEX H100 ×N | Non-US (German/Finnish jurisdiction); GDPR |
+
+The Carney narration must explicitly disclose if the GPU lands in EU rather than Canada — `docs/transparency.md` reconciliation pattern is **not yet authored** (Codex iter-1 P2 — pending follow-up): the disclosure-text update is deferred to I-D-05 / #651 (final accuracy refresh) and tracked there.
+
+---
+
+## §2. Demo window dates (revised 2026-05-20)
+
+- **Demo target window:** 2026-08-31 to 2026-09-06 (per `docs/carney_delivery_plan_v6_2.md` Phase 5).
+- **GPU online by:** 2026-08-24 (T-7 before demo).
+- **Capacity confirm sent:** 2026-08-22 (T-2 before provisioning).
+- **Provisioning order placed (Seq 38 / #643):** 2026-08-22 immediately after capacity-confirm reply.
+
+Earlier-stage spike (Seq 11 / #641 FP4 readiness on ~$400 spot GPU) is independent and can happen anytime in May-July to de-risk the vLLM/SGLang serving stack before demo provisioning.
+
+---
+
+## §3. Capacity-confirm email template (for each of the 4 vendor paths in parallel)
+
+Send to all 4 on the same day (2026-08-22 ±1). Pick the first vendor that returns written-yes for **BOTH** boxes (generator + evaluator).
+
+```
+Subject: Capacity hold for two GPU servers (8x H200 + 4x H100) — provision in 48 hours,
+         demo window starts 2026-08-31
+
+To: <vendor sales contact>
+
+Hi,
+
+Following up on the earlier procurement spec sent <date of original RFQ>.
+
+We need a WRITTEN capacity confirmation for TWO GPU servers, both in the same
+datacenter (or two datacenters connected by a sub-5ms private link):
+
+GENERATOR BOX:
+- 8x NVIDIA H200 SXM 141GB (preferred), or 8x H100 SXM 80GB (acceptable fallback)
+- Single chassis (HGX H200 / DGX H100 form factor preferred)
+- >= 1 TB DDR5 ECC RAM
+- >= 4 TB NVMe SSD
+
+EVALUATOR BOX:
+- 4x NVIDIA H100 SXM 80GB (preferred), or 4x H100 NVL (acceptable fallback)
+- >= 512 GB DDR5 ECC RAM
+- >= 2 TB NVMe SSD
+
+BOTH BOXES:
+- Region: <BHS / GRA / PAR / FSN — pick per vendor>
+- Ubuntu 24.04 LTS image
+- Provisioned by: 2026-08-24
+- Used during: 2026-08-31 to 2026-09-06 (Carney demo)
+- Term: month-to-month, no long-term commit
+- Private network between the two boxes (sub-5ms RTT)
+
+Please reply with — for EACH box separately:
+(a) Confirmed in-stock + provisioning ETA <= 48h from order
+(b) Quoted monthly price (CAD or EUR; we are not price-sensitive)
+(c) Order link / invoice contact for immediate purchase
+
+Compliance asks (please confirm in writing for both boxes):
+1. Both servers physically located in <region> datacenter (not US, not Asia)
+2. No data replication outside <jurisdiction> under default config
+3. <Vendor> is the data controller for any operator metadata held
+4. GDPR (EU) or PIPEDA (Canada) compliant
+5. SLA on availability during demo window 2026-08-31 to 2026-09-06
+6. Private network / VPC between the two boxes meets sub-5ms RTT
+
+This is the immediately-pre-provisioning confirm. The order goes in within 48h
+of your written reply IF both boxes are confirmed in-stock at the same vendor.
+A single-box confirm is insufficient — we need both.
+
+— <operator name>
+```
+
+---
+
+## §4. Operator action checklist
+
+1. [ ] Customize the 4 emails (vendor-specific SKU + region per §1 table).
+2. [ ] Send all 4 on 2026-08-22 (T-9 before demo).
+3. [ ] Track replies in `state/sovereign_gpu_capacity_replies/<vendor>_<date>.md`.
+4. [ ] Acceptance for I-cd-037 (#642) met when ANY single vendor returns written in-stock confirm for **BOTH** boxes (generator + evaluator) with (a) provisioning ETA <= 48h, (b) quoted price, (c) order link/invoice contact, (d) private-network attestation.
+5. [ ] Promote winning vendor reply to "approved" → trigger Seq 38 (#643) provisioning order placement for both boxes.
+6. [ ] If ALL 4 vendors return "out of stock" for the generator (8×H200/H100 SXM is the supply-constrained side): escalate path: (a) try AWS Capacity Blocks (US — falls sovereignty, acceptable for "demo dry-run" only), (b) try Lambda Labs / RunPod EU regions, (c) push demo window 1 week later as last resort.
+7. [ ] Split-vendor fallback (if no single vendor has both): pick the generator winner from one vendor + the evaluator winner from another, IF and ONLY IF the two vendors can be bridged by site-to-site VPN with sub-5ms RTT (test before committing).
+
+---
+
+## §5. Why this matters
+
+Per Seq 38 (#643) acceptance "operator-authorized provisioning order placed", we CANNOT order without written capacity confirm. The GPU spend is significant ($1-3k for the demo window) and an "ordered but provisioning delayed by 2 weeks" outcome would miss the demo. The capacity-confirm step is the explicit gate that protects against this.
+
+The 4-vendor-path parallel polling is a hedge: each vendor's "in stock" status fluctuates daily, especially H200 which remains supply-constrained globally as of 2026-Q2. Sending one and waiting wastes 1-2 days of demo-window slack.
+
+---
+
+## §6. References
+
+- `docs/ovh_h200_procurement_spec.md` — original RFQ template (Canada-only scope; superseded by §3 above for EU-relax)
+- `docs/carney_demo_runbook.md` — demo runbook (production deploy state)
+- `docs/transparency.md` — sovereignty disclosure pattern (Canadian vs EU framing)
+- `project_polaris_already_deployed` memory — current OVH BHS5 orchestrator state
+- `project_gpu_procurement_2026_05_15` memory — EU-relax operator directive
