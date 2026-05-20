@@ -1,0 +1,37 @@
+bundle_created_at_utc: '2026-05-19T00:00:00Z'
+bundle_id: bundle_v1_canonical_0001_success
+bundle_version: '1.0'
+decision_id: decision_v1_canonical_0001
+files:
+- content_type: scope_decision
+  path: scope_decision.json
+  sha256: 37e8a54e7536e02788cf8e1aaca546714c18549878aec92e8b6458fa59e813f5
+  size_bytes: 332
+- content_type: evidence_pool
+  path: evidence_pool.json
+  sha256: c0e317747bc777778acbac03b5222ecfa79ae89b195f29cb600d0892c607994d
+  size_bytes: 1130
+- content_type: verified_report
+  path: verified_report.json
+  sha256: 813970c56041eeab246cb697fb49b75ccab905d76f8ee0c5610576e35f183111
+  size_bytes: 2458
+- content_type: metadata
+  path: metadata.json
+  sha256: 69b94105be13490815dbd18d8c3dc02485c2e8c68b123f12f95f13001f7f3fde
+  size_bytes: 211
+- content_type: metadata
+  path: REVIEWER_README.md
+  sha256: f440f60cda8861400cfa4b572c7784def6832987756e2066cf24158df96825ee
+  size_bytes: 336
+- content_type: reasoning_trace
+  path: reasoning_trace.jsonl
+  sha256: 6f4fd0efd23dbbb4072008ec094059dc064c1068da71fd206da95f8ac47ae613
+  size_bytes: 949
+- content_type: source_snapshot
+  path: sources/src_v1_canonical_0001.txt
+  sha256: 8d308259726e2dd27ebfc09e9122a9042b3c159b8180d4de42839991d29d2d23
+  size_bytes: 199
+generator_model: deepseek/deepseek-v4-pro
+polaris_version: 1.0.0
+pool_id: pool_v1_canonical_0001
+report_id: report_v1_canonical_0001_success

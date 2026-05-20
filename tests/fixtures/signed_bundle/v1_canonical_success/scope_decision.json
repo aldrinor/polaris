@@ -1,0 +1,13 @@
+{
+  "ambiguity_axes": [],
+  "clarifications_needed": [],
+  "decided_at_utc": "2026-05-19T00:00:00+00:00",
+  "decision_id": "decision_v1_canonical_0001",
+  "latency_ms": 12,
+  "provenance": {
+    "ambiguity_detector_layer": "regex",
+    "classifier_layer": "regex"
+  },
+  "scope_class": "clinical_efficacy",
+  "status": "in_scope"
+}

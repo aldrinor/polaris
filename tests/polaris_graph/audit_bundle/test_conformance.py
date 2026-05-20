@@ -26,6 +26,7 @@ from polaris_graph.audit_bundle.conformance import (
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CANONICAL_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "signed_bundle" / "v1_canonical"
+SUCCESS_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "signed_bundle" / "v1_canonical_success"
 
 
 # --------------------------------------------------------------------------
@@ -35,6 +36,18 @@ CANONICAL_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "signed_bundle" / "v1_can
 def test_canonical_fixture_conforms() -> None:
     """The v1_canonical fixture round-trips clean (`valid=True`)."""
     result = check_bundle_conformance(CANONICAL_FIXTURE)
+    assert result.valid, [
+        f"{e.code}: {e.message}" for e in result.errors
+    ]
+    assert result.errors == []
+
+
+def test_v1_canonical_success_fixture_conforms() -> None:
+    """The v1_canonical_success fixture (pipeline_verdict=success + 2 populated
+    Sections + REVIEWER_README.md as a second content_type=metadata entry)
+    must also round-trip clean. This exercises the metadata-by-explicit-path
+    Inspector selection logic (Codex iter-2 P2 of I-cd-013a brief)."""
+    result = check_bundle_conformance(SUCCESS_FIXTURE)
     assert result.valid, [
         f"{e.code}: {e.message}" for e in result.errors
     ]

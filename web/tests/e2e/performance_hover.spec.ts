@@ -23,7 +23,8 @@ import { expect, test } from "@playwright/test";
  * inside the Verified-sentences tab on golden_clinical_001.
  */
 
-test.describe("Performance — hover-to-tooltip end-to-end latency", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("Performance — hover-to-tooltip end-to-end latency", () => {
   // The popup unique signature is the `<p>` containing `<evidenceId> · tier <T>`
   // text rendered first inside Tooltip.Popup (see EvidenceTooltip component).
   // base-ui doesn't put role="tooltip" on Popup so we content-select instead.

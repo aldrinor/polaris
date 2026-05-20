@@ -63,7 +63,8 @@ test.describe("WCAG-AA — research dashboard", () => {
   });
 });
 
-test.describe("WCAG-AA — Inspector golden_clinical_001", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("WCAG-AA — Inspector golden_clinical_001", () => {
   test("Executive summary tab (default) is WCAG-AA clean", async ({ page }) => {
     await page.goto("/inspector/golden_clinical_001", {
       waitUntil: "networkidle",
@@ -95,7 +96,8 @@ test.describe("WCAG-AA — Inspector golden_clinical_001", () => {
   });
 });
 
-test.describe("WCAG-AA — Inspector golden_housing_002 (contradictions)", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("WCAG-AA — Inspector golden_housing_002 (contradictions)", () => {
   test("Contradictions tab is WCAG-AA clean", async ({ page }) => {
     await page.goto("/inspector/golden_housing_002", {
       waitUntil: "networkidle",
@@ -139,7 +141,8 @@ test.describe("WCAG-AA — dashboard upload list with files", () => {
   });
 });
 
-test.describe("WCAG-AA — Inspector verified-sentence with drop_reason", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("WCAG-AA — Inspector verified-sentence with drop_reason", () => {
   test("Verified sentences tab with a Dropped sentence is WCAG-AA clean", async ({
     page,
   }) => {

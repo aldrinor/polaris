@@ -26,7 +26,8 @@ async function measureLoadMs(page: Page, url: string): Promise<number> {
   return Date.now() - start;
 }
 
-test.describe("Performance — Inspector cold load", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("Performance — Inspector cold load", () => {
   test("DOMContentLoaded < 1000ms on golden_clinical_001", async ({ page }) => {
     const loadMs = await measureLoadMs(page, "/inspector/golden_clinical_001");
     expect(loadMs).toBeLessThan(1000);
@@ -38,7 +39,8 @@ test.describe("Performance — Inspector cold load", () => {
   });
 });
 
-test.describe("Performance — Inspector tab switch latency", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("Performance — Inspector tab switch latency", () => {
   test("Verified sentences tab switch < 250ms", async ({ page }) => {
     await page.goto("/inspector/golden_clinical_001", {
       waitUntil: "networkidle",
@@ -83,7 +85,8 @@ test.describe("Performance — Inspector tab switch latency", () => {
   });
 });
 
-test.describe("Performance — Charts tab first SVG", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("Performance — Charts tab first SVG", () => {
   test("Charts tab Vega-Lite SVG appears < 2000ms", async ({ page }) => {
     await page.goto("/inspector/golden_climate_005", {
       waitUntil: "networkidle",
@@ -98,7 +101,8 @@ test.describe("Performance — Charts tab first SVG", () => {
   });
 });
 
-test.describe("Performance — page-load Web Vitals", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("Performance — page-load Web Vitals", () => {
   test("Inspector first contentful paint < 800ms after navigation", async ({
     page,
   }) => {
