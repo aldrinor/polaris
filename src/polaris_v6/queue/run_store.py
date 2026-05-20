@@ -505,3 +505,40 @@ def get_active_run(*, path: str | None = None) -> RunStatusResponse | None:
     finally:
         conn.close()
     return None if row is None else _row_to_response(row)
+
+
+def list_completed_runs_by_query_slug(
+    query_slug: str, *, path: str | None = None
+) -> list[RunStatusResponse]:
+    """List completed runs sharing a query_slug ordered by finished_at ASC.
+
+    I-cd-017 (#627): pin-replay timeseries source. Uses the existing
+    `idx_runs_query_slug` index. Returns `[]` (not None) when no rows
+    match — callers distinguish "anchor run exists but no completed
+    siblings" from "anchor run unknown" via get_run() before calling.
+
+    Defensive against missing-table / legacy-schema like get_run.
+    """
+    query = (
+        f"SELECT {_RUN_COLUMNS} FROM runs "
+        "WHERE query_slug=? AND lifecycle_status='completed' "
+        "ORDER BY finished_at ASC"
+    )
+    conn = _connect(path)
+    try:
+        try:
+            rows = conn.execute(query, (query_slug,)).fetchall()
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "no such table" in msg:
+                return []
+            if "no such column" in msg:
+                conn.close()
+                init_db(path)
+                conn = _connect(path)
+                rows = conn.execute(query, (query_slug,)).fetchall()
+            else:
+                raise
+    finally:
+        conn.close()
+    return [_row_to_response(row) for row in rows]

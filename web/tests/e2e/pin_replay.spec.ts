@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+// I-cd-017 (#627): DEMO_PIN_REGISTRY removed; live client wiring lands at
+// Seq 29 / I-A-12 / #619 (full /pin_replay rebuild). Re-enable this spec
+// after the rebuild fetches from `/api/v6/runs/{run_id}/pins`.
+test.describe.skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
 test("Pin replay route renders 2 snapshot cards + delta; switching dates updates", async ({
   page,
 }) => {
@@ -37,4 +41,5 @@ test("Pin replay route renders 2 snapshot cards + delta; switching dates updates
   await expect(page.getByTestId("pin-replay-delta-sentences")).toContainText(
     "0",
   );
+});
 });

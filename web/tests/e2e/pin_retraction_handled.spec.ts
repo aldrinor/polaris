@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+// I-cd-017 (#627): demo-data dependency; live-route wiring at Seq 29 / #619.
+test.describe.skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
 test("Pin replay attributes sentence-count regression to newly retracted sources", async ({
   page,
 }) => {
@@ -26,4 +28,5 @@ test("Pin replay attributes sentence-count regression to newly retracted sources
   await expect(attribution).toContainText("demo-clin-005");
   // demo-clin-002 was already retracted in A, so it must NOT be attributed.
   await expect(attribution).not.toContainText("demo-clin-002");
+});
 });

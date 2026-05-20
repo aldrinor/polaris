@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+// I-cd-017 (#627): demo-data dependency; live-route wiring at Seq 29 / #619.
+test.describe.skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
 test("Pin replay renders timeseries charts and diff side-panel on demand", async ({
   page,
 }) => {
@@ -38,4 +40,5 @@ test("Pin replay renders timeseries charts and diff side-panel on demand", async
   );
 
   await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+});
 });

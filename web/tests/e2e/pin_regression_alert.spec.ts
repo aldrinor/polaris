@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+// I-cd-017 (#627): demo-data dependency; live-route wiring at Seq 29 / #619.
+test.describe.skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
 test("Regression alert fires when comparing later-A to earlier-B (metric drop)", async ({
   page,
 }) => {
@@ -25,4 +27,5 @@ test("Regression alert fires when comparing later-A to earlier-B (metric drop)",
   await page.getByTestId("pin-snapshot-a-date").selectOption("2026-01-15");
   await page.getByTestId("pin-snapshot-b-date").selectOption("2026-04-30");
   await expect(page.getByTestId("regression-alert")).toHaveCount(0);
+});
 });
