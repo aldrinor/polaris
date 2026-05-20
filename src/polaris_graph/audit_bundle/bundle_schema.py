@@ -2,6 +2,22 @@
 
 Per `.codex/slices/slice_004/architecture_proposal.md`.
 
+**FROZEN at v1.0 per I-cd-012 (GH#608) 2026-05-19.** Field additions,
+removals, type changes, or new ContentType enum members require:
+1. Bumping ``BUNDLE_VERSION`` AND the ``bundle_version`` Literal type.
+2. Updating ``src/polaris_graph/audit_bundle/conformance.py`` checks.
+3. Regenerating the canonical fixture at
+   ``tests/fixtures/signed_bundle/v1_canonical/`` under a new versioned
+   directory.
+4. Updating ``src/polaris_graph/audit_bundle/manifest_builder.py``
+   (manifest assembly) + ``bundle_builder.py`` (tarball pipeline).
+5. Updating active producers/consumers: ``src/polaris_graph/api/
+   audit_bundle_route.py`` (FastAPI route) + ``src/polaris_v6/api/
+   bundle.py`` (F15 GET endpoint).
+6. Updating the Inspector route (I-A-03) + I-B-08 emitter that wraps
+   real-run bundle assembly + ``web/lib/signed_bundle.ts`` frontend
+   mirror.
+
 Pure-types module. The BundleManifest is the audit anchor: an external
 verifier extracts the .tar.gz, computes SHA256 of every content file,
 checks against `files[*].sha256`, then verifies the GPG signature on the
@@ -15,7 +31,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +57,11 @@ BUNDLE_VERSION = "1.0"
 
 class FileEntry(BaseModel):
     """One file in the bundle, with hash anchor."""
+
+    # I-cd-012 (GH#608) v1.0 freeze: forbid unknown fields so additive
+    # changes (which would be SemVer-breaking) hit the parse rather than
+    # passing silently. Codex diff iter-1 P1.
+    model_config = ConfigDict(extra="forbid")
 
     path: str = Field(
         min_length=1,
@@ -71,10 +92,39 @@ class FileEntry(BaseModel):
     @field_validator("path")
     @classmethod
     def _path_no_traversal(cls, v: str) -> str:
+        # I-cd-012 (GH#608) v1.0 freeze hardening: reject Windows-style
+        # backslashes, drive-qualified (e.g. C:\), UNC (\\server\share),
+        # and any rooted indicator. The new conformance check resolves
+        # extracted_dir / entry.path on the bundle-receiver filesystem;
+        # without this guard a malicious or malformed manifest can read
+        # files outside the extracted bundle (esp. on Windows where
+        # backslash is the path separator).
         v = v.strip()
-        if v.startswith("/") or ".." in v.split("/"):
+        if not v:
+            raise ValueError("path must not be empty")
+        if "\\" in v:
             raise ValueError(
-                "path must be relative and must not contain '..' segments"
+                "path must not contain backslashes (Windows path separator); "
+                "use forward slashes only"
+            )
+        if len(v) >= 2 and v[1] == ":":
+            raise ValueError(
+                "path must not be drive-qualified (e.g. 'C:'); use a "
+                "relative POSIX path"
+            )
+        if v.startswith("//") or v.startswith("\\\\"):
+            raise ValueError(
+                "path must not be UNC (\\\\server\\share); use a relative "
+                "POSIX path"
+            )
+        if v.startswith("/"):
+            raise ValueError(
+                "path must be relative (no leading '/'); use a relative "
+                "POSIX path inside the extracted bundle"
+            )
+        if ".." in v.split("/"):
+            raise ValueError(
+                "path must not contain '..' segments"
             )
         return v
 
@@ -88,7 +138,15 @@ class BundleManifest(BaseModel):
 
     The signature in `manifest.yaml.asc` is over the YAML-serialized form
     of this manifest. External verifiers re-serialize and re-verify.
+
+    **FROZEN v1.0 per I-cd-012 (GH#608).** Field changes require the full
+    bump cascade documented in this module's top-level docstring.
     """
+
+    # I-cd-012 (GH#608) v1.0 freeze: forbid unknown fields so additive
+    # changes (which would be SemVer-breaking) hit the parse rather than
+    # passing silently. Codex diff iter-1 P1.
+    model_config = ConfigDict(extra="forbid")
 
     bundle_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     bundle_version: Literal["1.0"] = BUNDLE_VERSION

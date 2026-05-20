@@ -1,0 +1,12 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/audit_bundle/conformance.py:284 and web/lib/signed_bundle.ts:152 only verify/cast reasoning_trace.jsonl lines as JSON objects; they do not enforce the 15-field ReasoningTraceRecord shape now documented. Non-blocking; tighter validation can land at I-B-08 emitter or a follow-up."
+  - "scripts/regen_signed_bundle_canonical_fixture.py and web/lib/signed_bundle.ts define metadata.json as schema_version/bundle_created_at_utc/evaluator_model; active manifest_builder.py:196 emits bundle_version/created_at_utc/decision_id/pool_id/report_id/source_snapshot_count. Non-blocking; if metadata rendering is later treated as mirrored content, reconcile then."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+# Codex diff review iter 2/5 — APPROVE after iter-1 fold-in.
+# Iter 1 caught 3 real P1 + 1 P2 (extra=forbid + reasoning_trace filename + 15-field record shape + read errors); all folded.
+# Iter 2 P2 are documented gaps for I-B-08 emitter scope; non-blocking.

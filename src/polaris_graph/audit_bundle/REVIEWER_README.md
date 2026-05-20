@@ -55,3 +55,23 @@ The file is included in this bundle and SHA256-anchored in `manifest.yaml` under
 ## Sovereignty note
 
 POLARIS classifies every source by data-sovereignty tier. Bundles for runs whose corpus contained CLIENT / CAN_REAL / PRIVATE / UNKNOWN classifications were processed only on Canadian-sovereign infrastructure (no external LLM API calls).
+
+---
+
+## Schema freeze (I-cd-012 / GH#608, 2026-05-19)
+
+This bundle schema is **FROZEN at v1.0**. The `BundleManifest` Pydantic
+model in `src/polaris_graph/audit_bundle/bundle_schema.py` is the
+single source of truth.
+
+Any field addition, removal, type change, or new `ContentType` enum
+member requires the full bump cascade:
+
+1. `src/polaris_graph/audit_bundle/bundle_schema.py` — bump `BUNDLE_VERSION` AND `bundle_version` Literal type.
+2. `src/polaris_graph/audit_bundle/conformance.py` — update required-content-type checks + JSON-content schema validation.
+3. `tests/fixtures/signed_bundle/v1_canonical/` — author a fresh `v{N}_canonical/` directory.
+4. `src/polaris_graph/audit_bundle/manifest_builder.py` — manifest assembly.
+5. `src/polaris_graph/audit_bundle/bundle_builder.py` — tarball pipeline.
+6. `src/polaris_graph/api/audit_bundle_route.py` — FastAPI route.
+7. `src/polaris_v6/api/bundle.py` — F15 GET endpoint.
+8. Inspector route (I-A-03) + I-B-08 emitter + `web/lib/signed_bundle.ts` frontend mirror.

@@ -1,0 +1,1572 @@
+diff --git a/.gitignore b/.gitignore
+index e4240ca8..2b07c242 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -240,3 +240,7 @@ outputs/codex_findings/round_*/last_message.txt
+ .codex/**/codex_diff_audit_iter*.txt
+ .codex/*/codex_*review*.txt
+ .codex/*/codex_*_review_iter*.txt
++
++# I-cd-012 (GH#608): canonical signed-bundle fixture content MUST be tracked
++!tests/fixtures/signed_bundle/
++!tests/fixtures/signed_bundle/**
+diff --git a/scripts/regen_signed_bundle_canonical_fixture.py b/scripts/regen_signed_bundle_canonical_fixture.py
+new file mode 100644
+index 00000000..2ac8ece6
+--- /dev/null
++++ b/scripts/regen_signed_bundle_canonical_fixture.py
+@@ -0,0 +1,274 @@
++"""Deterministic regenerator for tests/fixtures/signed_bundle/v1_canonical/.
++
++I-cd-012 (GH#608). Run after any schema-compatible change to the canonical
++fixture data; the script rebuilds every file + recomputes SHA256s and
++rewrites manifest.yaml so the conformance check still passes.
++
++USAGE:
++    python scripts/regen_signed_bundle_canonical_fixture.py
++
++The script is DETERMINISTIC — every run produces byte-identical files
++(no clocks, no random UUIDs).
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++import sys
++from datetime import datetime, timezone
++from pathlib import Path
++
++import yaml
++
++# Add src/ to path so polaris_graph imports resolve when run from repo root.
++ROOT = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(ROOT))
++sys.path.insert(0, str(ROOT / "src"))
++
++from polaris_graph.audit_bundle.bundle_schema import (  # noqa: E402
++    BUNDLE_VERSION,
++    BundleManifest,
++    FileEntry,
++)
++
++
++FIXTURE_DIR = ROOT / "tests" / "fixtures" / "signed_bundle" / "v1_canonical"
++SOURCES_SUBDIR = FIXTURE_DIR / "sources"
++
++# Deterministic seed values — frozen across regenerations.
++FIXED_DECISION_ID = "decision_v1_canonical_0001"
++FIXED_POOL_ID = "pool_v1_canonical_0001"
++FIXED_REPORT_ID = "report_v1_canonical_0001"
++FIXED_BUNDLE_ID = "bundle_v1_canonical_0001"
++FIXED_SOURCE_ID = "src_v1_canonical_0001"
++FIXED_TIMESTAMP = "2026-05-19T00:00:00+00:00"
++
++POLARIS_VERSION = "1.0.0"
++GENERATOR_MODEL = "deepseek/deepseek-v4-pro"
++EVALUATOR_MODEL = "google/gemma-4-31b-it"
++
++
++def _canonical_json_dump(payload: dict) -> str:
++    """Deterministic JSON: sorted keys + 2-space indent + LF newlines."""
++    return json.dumps(payload, sort_keys=True, indent=2) + "\n"
++
++
++def _sha256_hex(data: bytes) -> str:
++    return hashlib.sha256(data).hexdigest()
++
++
++def _build_scope_decision() -> dict:
++    """Minimal valid ScopeDecision payload — see scope/scope_decision.py."""
++    return {
++        "status": "in_scope",
++        "scope_class": "clinical_efficacy",
++        "ambiguity_axes": [],
++        "clarifications_needed": [],
++        "provenance": {
++            "classifier_layer": "regex",
++            "ambiguity_detector_layer": "regex",
++        },
++        "decision_id": FIXED_DECISION_ID,
++        "decided_at_utc": FIXED_TIMESTAMP,
++        "latency_ms": 12,
++    }
++
++
++def _build_evidence_pool() -> dict:
++    """Minimal valid EvidencePool — see clinical_retrieval/evidence_pool.py."""
++    return {
++        "pool_id": FIXED_POOL_ID,
++        "decision_id": FIXED_DECISION_ID,
++        "sources": [
++            {
++                "source_id": FIXED_SOURCE_ID,
++                "url": "https://example.org/clinical/canonical_v1.html",
++                "domain": "example.org",
++                "tier": "T1",
++                "title": "Canonical clinical evidence — v1 fixture source",
++                "authors": ["Test, A."],
++                "snippet": "Snippet placeholder for the canonical fixture source.",
++                "full_text_available": True,
++                "full_text": "Full text body placeholder for the canonical fixture source.",
++                "fetched_at_utc": FIXED_TIMESTAMP,
++                "provenance": {"fetched_by": "canonical_fixture"},
++                "retracted": False,
++            }
++        ],
++        "adequacy": {
++            "is_adequate": True,
++            "sources_per_tier": {"T1": 1},
++            "min_required_per_tier": {"T1": 1},
++            "failure_reason": None,
++        },
++        "queries_executed": ["canonical fixture query"],
++        "retrieval_started_at_utc": FIXED_TIMESTAMP,
++        "retrieval_finished_at_utc": FIXED_TIMESTAMP,
++        "latency_ms": 100,
++        "cost_usd": 0.0,
++    }
++
++
++def _build_verified_report() -> dict:
++    """Minimal valid VerifiedReport — see clinical_generator/verified_report.py."""
++    return {
++        "report_id": FIXED_REPORT_ID,
++        "pool_id": FIXED_POOL_ID,
++        "decision_id": FIXED_DECISION_ID,
++        "sections": [],
++        "overall_verify_pass_rate": 0.0,
++        "verifier_pass_threshold": 0.4,
++        "pipeline_verdict": "abort_no_verified_sections",
++        "generator_model": GENERATOR_MODEL,
++        "evaluator_model": EVALUATOR_MODEL,
++        "family_segregation_passed": True,
++        "started_at_utc": FIXED_TIMESTAMP,
++        "finished_at_utc": FIXED_TIMESTAMP,
++        "latency_ms": 1500,
++        "cost_usd": 0.0,
++    }
++
++
++def _build_metadata() -> dict:
++    """Bundle-level metadata (NOT the manifest — metadata.json content)."""
++    return {
++        "polaris_version": POLARIS_VERSION,
++        "generator_model": GENERATOR_MODEL,
++        "evaluator_model": EVALUATOR_MODEL,
++        "bundle_created_at_utc": FIXED_TIMESTAMP,
++        "schema_version": BUNDLE_VERSION,
++    }
++
++
++def _build_reasoning_trace_jsonl() -> str:
++    """JSONL: 2 records, one per generator LLM call.
++
++    Schema mirrors `src/polaris_graph/generator/reasoning_trace.py:67
++    ReasoningTraceRecord` (the active producer dataclass). Codex diff
++    iter-1 P1: align with real producer; previous 5-field invented shape
++    diverged from the 15-field production record.
++    """
++    records = [
++        {
++            "call_id": "call_0001",
++            "section": "outline",
++            "call_type": "outline",
++            "model": GENERATOR_MODEL,
++            "status": "ok",
++            "content_source": "direct",
++            "parent_call_id": None,
++            "regen_reason": None,
++            "attempt_n": 1,
++            "reasoning_text": "Outline reasoning trace placeholder for the canonical fixture.",
++            "content_text": "1. Background\n2. Methods\n3. Results\n4. Limitations\n",
++            "input_tokens": 100,
++            "output_tokens": 80,
++            "reasoning_tokens": 200,
++            "timestamp": FIXED_TIMESTAMP,
++        },
++        {
++            "call_id": "call_0002",
++            "section": "Background",
++            "call_type": "section",
++            "model": GENERATOR_MODEL,
++            "status": "ok",
++            "content_source": "direct",
++            "parent_call_id": "call_0001",
++            "regen_reason": None,
++            "attempt_n": 1,
++            "reasoning_text": "Section reasoning trace placeholder for the canonical fixture.",
++            "content_text": "Background prose placeholder.",
++            "input_tokens": 200,
++            "output_tokens": 150,
++            "reasoning_tokens": 400,
++            "timestamp": FIXED_TIMESTAMP,
++        },
++    ]
++    return "".join(json.dumps(rec, sort_keys=True) + "\n" for rec in records)
++
++
++def _build_source_snapshot() -> str:
++    """Source full-text snapshot — plain UTF-8 text."""
++    return (
++        "Canonical clinical evidence source — v1 fixture.\n"
++        "This is a placeholder full-text body used by the I-cd-012 "
++        "canonical signed-bundle fixture for tests/polaris_graph/"
++        "audit_bundle/test_conformance.py.\n"
++    )
++
++
++SIGNATURE_PLACEHOLDER = (
++    "-----BEGIN PGP SIGNATURE-----\n"
++    "# I-cd-012 canonical fixture placeholder.\n"
++    "# Conformance check enforces presence + non-empty ONLY; cryptographic\n"
++    "# verification belongs to operator-side tooling (gpg --verify).\n"
++    "# Real bundles ship a real armored signature here.\n"
++    "-----END PGP SIGNATURE-----\n"
++)
++
++
++def regenerate() -> None:
++    FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
++    SOURCES_SUBDIR.mkdir(parents=True, exist_ok=True)
++
++    # --- 1. Write each content file deterministically ----------------
++    files_on_disk: list[tuple[str, str, str]] = []  # (rel_path, content_type, bytes)
++
++    def write(rel_path: str, content_type: str, body: str) -> None:
++        abs_path = FIXTURE_DIR / rel_path
++        abs_path.parent.mkdir(parents=True, exist_ok=True)
++        abs_path.write_text(body, encoding="utf-8", newline="\n")
++        files_on_disk.append((rel_path, content_type, body))
++
++    write("scope_decision.json", "scope_decision", _canonical_json_dump(_build_scope_decision()))
++    write("evidence_pool.json", "evidence_pool", _canonical_json_dump(_build_evidence_pool()))
++    write("verified_report.json", "verified_report", _canonical_json_dump(_build_verified_report()))
++    write("metadata.json", "metadata", _canonical_json_dump(_build_metadata()))
++    write("reasoning_trace.jsonl", "reasoning_trace", _build_reasoning_trace_jsonl())
++    write(f"sources/{FIXED_SOURCE_ID}.txt", "source_snapshot", _build_source_snapshot())
++
++    # --- 2. Write the signature placeholder --------------------------
++    (FIXTURE_DIR / "manifest.yaml.asc").write_text(
++        SIGNATURE_PLACEHOLDER, encoding="utf-8", newline="\n"
++    )
++
++    # --- 3. Build the manifest referencing the on-disk files ---------
++    entries: list[FileEntry] = []
++    for rel_path, content_type, body in files_on_disk:
++        body_bytes = body.encode("utf-8")
++        entries.append(
++            FileEntry(
++                path=rel_path,
++                sha256=_sha256_hex(body_bytes),
++                size_bytes=len(body_bytes),
++                content_type=content_type,  # type: ignore[arg-type]
++            )
++        )
++
++    manifest = BundleManifest(
++        bundle_id=FIXED_BUNDLE_ID,
++        bundle_version=BUNDLE_VERSION,
++        decision_id=FIXED_DECISION_ID,
++        pool_id=FIXED_POOL_ID,
++        report_id=FIXED_REPORT_ID,
++        generator_model=GENERATOR_MODEL,
++        polaris_version=POLARIS_VERSION,
++        files=entries,
++        bundle_created_at_utc=datetime.fromisoformat(FIXED_TIMESTAMP),
++    )
++
++    # Deterministic YAML: sorted keys.
++    manifest_dump = yaml.safe_dump(
++        json.loads(manifest.model_dump_json()),
++        sort_keys=True,
++        default_flow_style=False,
++    )
++    (FIXTURE_DIR / "manifest.yaml").write_text(manifest_dump, encoding="utf-8", newline="\n")
++
++    print(f"regenerated fixture at {FIXTURE_DIR}")
++    print(f"  {len(entries)} content files + manifest.yaml + manifest.yaml.asc")
++    print(f"  bundle_version = {BUNDLE_VERSION}")
++
++
++if __name__ == "__main__":
++    regenerate()
+diff --git a/src/polaris_graph/audit_bundle/REVIEWER_README.md b/src/polaris_graph/audit_bundle/REVIEWER_README.md
+index 83ffd8aa..da990006 100644
+--- a/src/polaris_graph/audit_bundle/REVIEWER_README.md
++++ b/src/polaris_graph/audit_bundle/REVIEWER_README.md
+@@ -55,3 +55,23 @@ The file is included in this bundle and SHA256-anchored in `manifest.yaml` under
+ ## Sovereignty note
+ 
+ POLARIS classifies every source by data-sovereignty tier. Bundles for runs whose corpus contained CLIENT / CAN_REAL / PRIVATE / UNKNOWN classifications were processed only on Canadian-sovereign infrastructure (no external LLM API calls).
++
++---
++
++## Schema freeze (I-cd-012 / GH#608, 2026-05-19)
++
++This bundle schema is **FROZEN at v1.0**. The `BundleManifest` Pydantic
++model in `src/polaris_graph/audit_bundle/bundle_schema.py` is the
++single source of truth.
++
++Any field addition, removal, type change, or new `ContentType` enum
++member requires the full bump cascade:
++
++1. `src/polaris_graph/audit_bundle/bundle_schema.py` — bump `BUNDLE_VERSION` AND `bundle_version` Literal type.
++2. `src/polaris_graph/audit_bundle/conformance.py` — update required-content-type checks + JSON-content schema validation.
++3. `tests/fixtures/signed_bundle/v1_canonical/` — author a fresh `v{N}_canonical/` directory.
++4. `src/polaris_graph/audit_bundle/manifest_builder.py` — manifest assembly.
++5. `src/polaris_graph/audit_bundle/bundle_builder.py` — tarball pipeline.
++6. `src/polaris_graph/api/audit_bundle_route.py` — FastAPI route.
++7. `src/polaris_v6/api/bundle.py` — F15 GET endpoint.
++8. Inspector route (I-A-03) + I-B-08 emitter + `web/lib/signed_bundle.ts` frontend mirror.
+diff --git a/src/polaris_graph/audit_bundle/bundle_schema.py b/src/polaris_graph/audit_bundle/bundle_schema.py
+index dc879182..b6b0ee57 100644
+--- a/src/polaris_graph/audit_bundle/bundle_schema.py
++++ b/src/polaris_graph/audit_bundle/bundle_schema.py
+@@ -2,6 +2,22 @@
+ 
+ Per `.codex/slices/slice_004/architecture_proposal.md`.
+ 
++**FROZEN at v1.0 per I-cd-012 (GH#608) 2026-05-19.** Field additions,
++removals, type changes, or new ContentType enum members require:
++1. Bumping ``BUNDLE_VERSION`` AND the ``bundle_version`` Literal type.
++2. Updating ``src/polaris_graph/audit_bundle/conformance.py`` checks.
++3. Regenerating the canonical fixture at
++   ``tests/fixtures/signed_bundle/v1_canonical/`` under a new versioned
++   directory.
++4. Updating ``src/polaris_graph/audit_bundle/manifest_builder.py``
++   (manifest assembly) + ``bundle_builder.py`` (tarball pipeline).
++5. Updating active producers/consumers: ``src/polaris_graph/api/
++   audit_bundle_route.py`` (FastAPI route) + ``src/polaris_v6/api/
++   bundle.py`` (F15 GET endpoint).
++6. Updating the Inspector route (I-A-03) + I-B-08 emitter that wraps
++   real-run bundle assembly + ``web/lib/signed_bundle.ts`` frontend
++   mirror.
++
+ Pure-types module. The BundleManifest is the audit anchor: an external
+ verifier extracts the .tar.gz, computes SHA256 of every content file,
+ checks against `files[*].sha256`, then verifies the GPG signature on the
+@@ -15,7 +31,7 @@ import uuid
+ from datetime import datetime, timezone
+ from typing import Literal
+ 
+-from pydantic import BaseModel, Field, field_validator
++from pydantic import BaseModel, ConfigDict, Field, field_validator
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -42,6 +58,11 @@ BUNDLE_VERSION = "1.0"
+ class FileEntry(BaseModel):
+     """One file in the bundle, with hash anchor."""
+ 
++    # I-cd-012 (GH#608) v1.0 freeze: forbid unknown fields so additive
++    # changes (which would be SemVer-breaking) hit the parse rather than
++    # passing silently. Codex diff iter-1 P1.
++    model_config = ConfigDict(extra="forbid")
++
+     path: str = Field(
+         min_length=1,
+         max_length=500,
+@@ -71,10 +92,39 @@ class FileEntry(BaseModel):
+     @field_validator("path")
+     @classmethod
+     def _path_no_traversal(cls, v: str) -> str:
++        # I-cd-012 (GH#608) v1.0 freeze hardening: reject Windows-style
++        # backslashes, drive-qualified (e.g. C:\), UNC (\\server\share),
++        # and any rooted indicator. The new conformance check resolves
++        # extracted_dir / entry.path on the bundle-receiver filesystem;
++        # without this guard a malicious or malformed manifest can read
++        # files outside the extracted bundle (esp. on Windows where
++        # backslash is the path separator).
+         v = v.strip()
+-        if v.startswith("/") or ".." in v.split("/"):
++        if not v:
++            raise ValueError("path must not be empty")
++        if "\\" in v:
++            raise ValueError(
++                "path must not contain backslashes (Windows path separator); "
++                "use forward slashes only"
++            )
++        if len(v) >= 2 and v[1] == ":":
++            raise ValueError(
++                "path must not be drive-qualified (e.g. 'C:'); use a "
++                "relative POSIX path"
++            )
++        if v.startswith("//") or v.startswith("\\\\"):
+             raise ValueError(
+-                "path must be relative and must not contain '..' segments"
++                "path must not be UNC (\\\\server\\share); use a relative "
++                "POSIX path"
++            )
++        if v.startswith("/"):
++            raise ValueError(
++                "path must be relative (no leading '/'); use a relative "
++                "POSIX path inside the extracted bundle"
++            )
++        if ".." in v.split("/"):
++            raise ValueError(
++                "path must not contain '..' segments"
+             )
+         return v
+ 
+@@ -88,8 +138,16 @@ class BundleManifest(BaseModel):
+ 
+     The signature in `manifest.yaml.asc` is over the YAML-serialized form
+     of this manifest. External verifiers re-serialize and re-verify.
++
++    **FROZEN v1.0 per I-cd-012 (GH#608).** Field changes require the full
++    bump cascade documented in this module's top-level docstring.
+     """
+ 
++    # I-cd-012 (GH#608) v1.0 freeze: forbid unknown fields so additive
++    # changes (which would be SemVer-breaking) hit the parse rather than
++    # passing silently. Codex diff iter-1 P1.
++    model_config = ConfigDict(extra="forbid")
++
+     bundle_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+     bundle_version: Literal["1.0"] = BUNDLE_VERSION
+ 
+diff --git a/src/polaris_graph/audit_bundle/conformance.py b/src/polaris_graph/audit_bundle/conformance.py
+new file mode 100644
+index 00000000..7c94fa53
+--- /dev/null
++++ b/src/polaris_graph/audit_bundle/conformance.py
+@@ -0,0 +1,327 @@
++"""Audit-bundle conformance check (I-cd-012 / GH#608).
++
++Validates an extracted audit-bundle directory against the frozen v1.0
++BundleManifest schema (`bundle_schema.py`). Public API consumed by:
++
++- I-B-08 (#630) — real-run bundle / EvidenceContract bridge: confirms
++  every emitted bundle conforms before the GPG signing step.
++- Future reviewer/operator tooling that wants a fast pre-verification
++  check before the more expensive `gpg --verify` step.
++
++This module is PURE-FUNCTION (no I/O at import time, no global state).
++
++What it checks (all 11 layers must pass for `valid=True`):
++ 1. `manifest.yaml` parses to a valid `BundleManifest` (Pydantic).
++ 2. `bundle_version` literal equals `BUNDLE_VERSION` ("1.0").
++ 3. `manifest.yaml.asc` exists and is non-empty (PRESENCE only —
++    cryptographic verification belongs to a separate operator tool).
++ 4. All 6 required content types are present in `manifest.files`
++    (>= 1 FileEntry each: scope_decision, evidence_pool, verified_report,
++    metadata, source_snapshot, reasoning_trace).
++ 5. Every `files[*].path` resolves under `extracted_dir` (path-traversal
++    belt-and-suspenders even though `bundle_schema._path_no_traversal`
++    rejects unsafe paths at Pydantic parse).
++ 6. Every `files[*].path` exists on disk.
++ 7. Every actual SHA256 matches `files[*].sha256`.
++ 8. Every actual size matches `files[*].size_bytes`.
++ 9. `scope_decision.json` parses to `ScopeDecision`.
++10. `evidence_pool.json` parses to `EvidencePool`.
++11. `verified_report.json` parses to `VerifiedReport`.
++12. `reasoning_trace.jsonl` parses as JSONL (every non-empty line is a
++    valid JSON object).
++
++What it does NOT check (out of scope):
++- `gpg --verify manifest.yaml.asc manifest.yaml` — cryptographic
++  verification belongs to operator/reviewer side tooling, not the
++  pre-sign emitter check.
++- Sovereignty filtering on source full-texts (separate concern,
++  `sovereignty_guard.py`).
++- Pipeline-level invariants of the wrapped content (two-family
++  segregation, strict-verify pass rate floor) — those are upstream
++  pipeline contracts; conformance only checks the BUNDLE shape.
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++from dataclasses import dataclass, field
++from pathlib import Path
++from typing import Any
++
++import yaml
++
++from polaris_graph.audit_bundle.bundle_schema import (
++    BUNDLE_VERSION,
++    BundleManifest,
++    ContentType,
++)
++from polaris_graph.clinical_generator.verified_report import VerifiedReport
++from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
++from polaris_graph.scope.scope_decision import ScopeDecision
++
++
++MANIFEST_FILENAME = "manifest.yaml"
++SIGNATURE_FILENAME = "manifest.yaml.asc"
++# Mirrors `src/polaris_graph/generator/reasoning_trace.py:34
++# REASONING_TRACE_FILENAME` — the active producer constant. A
++# bundle that renames this file must bump BUNDLE_VERSION.
++REASONING_TRACE_FILENAME = "reasoning_trace.jsonl"
++
++# All ContentType members required for a v1.0 bundle.
++_REQUIRED_CONTENT_TYPES: tuple[ContentType, ...] = (
++    "scope_decision",
++    "evidence_pool",
++    "verified_report",
++    "metadata",
++    "source_snapshot",
++    "reasoning_trace",
++)
++
++
++@dataclass(frozen=True)
++class ConformanceError:
++    """Structured conformance failure record (public API for I-B-08)."""
++
++    code: str
++    message: str
++    path: str | None = None
++
++
++@dataclass
++class ConformanceResult:
++    """Public API return shape — consumed by I-B-08 emitter."""
++
++    valid: bool
++    errors: list[ConformanceError] = field(default_factory=list)
++
++    def add(self, code: str, message: str, path: str | None = None) -> None:
++        self.errors.append(ConformanceError(code=code, message=message, path=path))
++
++
++def check_bundle_conformance(extracted_dir: Path) -> ConformanceResult:
++    """Validate an extracted audit-bundle directory.
++
++    Args:
++        extracted_dir: Directory containing the extracted .tar.gz contents
++            (manifest.yaml + manifest.yaml.asc + content files).
++
++    Returns:
++        ConformanceResult with `valid=True` iff all 12 checks pass.
++    """
++    result = ConformanceResult(valid=True)
++    extracted_dir = extracted_dir.resolve()
++
++    # --- 1. manifest.yaml parses to BundleManifest --------------------
++    manifest_path = extracted_dir / MANIFEST_FILENAME
++    if not manifest_path.exists():
++        result.add("MISSING_MANIFEST", f"manifest.yaml not found in {extracted_dir}")
++        result.valid = False
++        return result
++
++    try:
++        manifest_raw = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
++    except yaml.YAMLError as exc:
++        result.add("MANIFEST_YAML_PARSE_ERROR", f"manifest.yaml is not valid YAML: {exc}")
++        result.valid = False
++        return result
++
++    try:
++        manifest = BundleManifest(**(manifest_raw or {}))
++    except Exception as exc:  # noqa: BLE001 — Pydantic raises various
++        result.add("MANIFEST_SCHEMA_INVALID", f"manifest.yaml does not parse to BundleManifest: {exc}")
++        result.valid = False
++        return result
++
++    # --- 2. bundle_version literal == BUNDLE_VERSION ------------------
++    if manifest.bundle_version != BUNDLE_VERSION:
++        result.add(
++            "WRONG_BUNDLE_VERSION",
++            f"bundle_version={manifest.bundle_version!r} != frozen {BUNDLE_VERSION!r}",
++        )
++        result.valid = False
++
++    # --- 3. manifest.yaml.asc presence + non-empty --------------------
++    signature_path = extracted_dir / SIGNATURE_FILENAME
++    if not signature_path.exists():
++        result.add(
++            "MISSING_SIGNATURE",
++            f"{SIGNATURE_FILENAME} not found in {extracted_dir} (bundle is unsigned)",
++            path=SIGNATURE_FILENAME,
++        )
++        result.valid = False
++    elif signature_path.stat().st_size == 0:
++        result.add(
++            "EMPTY_SIGNATURE",
++            f"{SIGNATURE_FILENAME} is empty (bundle signature is missing)",
++            path=SIGNATURE_FILENAME,
++        )
++        result.valid = False
++
++    # --- 4. All 6 required content types present ----------------------
++    present_types: set[ContentType] = {entry.content_type for entry in manifest.files}
++    for required in _REQUIRED_CONTENT_TYPES:
++        if required not in present_types:
++            result.add(
++                "MISSING_REQUIRED_CONTENT_TYPE",
++                f"v1.0 bundle requires at least one file of content_type={required!r}",
++            )
++            result.valid = False
++
++    # --- 4b. Reasoning-trace path MUST equal the canonical filename --
++    # Codex diff iter-1 P1: without this, a bundle can rename
++    # reasoning_trace.jsonl to trace.jsonl, update the manifest path,
++    # and still pass valid=True, diverging from the active producer
++    # constant in generator/reasoning_trace.py:34.
++    for entry in manifest.files:
++        if entry.content_type == "reasoning_trace" and entry.path != REASONING_TRACE_FILENAME:
++            result.add(
++                "REASONING_TRACE_FILENAME_MISMATCH",
++                f"reasoning_trace path {entry.path!r} != canonical "
++                f"{REASONING_TRACE_FILENAME!r} (see "
++                f"src/polaris_graph/generator/reasoning_trace.py:34)",
++                path=entry.path,
++            )
++            result.valid = False
++
++    # --- 5-8. Per-file path resolution + existence + hash + size -----
++    by_content_type: dict[ContentType, list[Path]] = {}
++    for entry in manifest.files:
++        # Layer 5: belt-and-suspenders path resolution check.
++        try:
++            resolved = (extracted_dir / entry.path).resolve()
++        except (OSError, ValueError) as exc:
++            result.add(
++                "PATH_RESOLVE_ERROR",
++                f"path {entry.path!r} cannot be resolved: {exc}",
++                path=entry.path,
++            )
++            result.valid = False
++            continue
++        if not _is_under(resolved, extracted_dir):
++            result.add(
++                "PATH_OUTSIDE_BUNDLE",
++                f"path {entry.path!r} resolves outside the extracted bundle "
++                f"({resolved} not under {extracted_dir})",
++                path=entry.path,
++            )
++            result.valid = False
++            continue
++
++        # Layer 6: file exists.
++        if not resolved.exists():
++            result.add(
++                "MISSING_FILE",
++                f"path {entry.path!r} listed in manifest but not present on disk",
++                path=entry.path,
++            )
++            result.valid = False
++            continue
++
++        # Layer 7: SHA256 matches. Wrap read_bytes/stat so a directory
++        # path or read error surfaces as a structured ConformanceError
++        # rather than raising out of the check (Codex diff iter-1 P2).
++        try:
++            file_bytes = resolved.read_bytes()
++            actual_size = resolved.stat().st_size
++        except OSError as exc:
++            result.add(
++                "FILE_READ_ERROR",
++                f"path {entry.path!r} could not be read: {exc}",
++                path=entry.path,
++            )
++            result.valid = False
++            continue
++        actual_sha = hashlib.sha256(file_bytes).hexdigest()
++        if actual_sha != entry.sha256:
++            result.add(
++                "SHA256_MISMATCH",
++                f"path {entry.path!r}: manifest claims {entry.sha256}, actual {actual_sha}",
++                path=entry.path,
++            )
++            result.valid = False
++            continue
++
++        # Layer 8: size matches.
++        if actual_size != entry.size_bytes:
++            result.add(
++                "SIZE_MISMATCH",
++                f"path {entry.path!r}: manifest claims {entry.size_bytes} bytes, actual {actual_size}",
++                path=entry.path,
++            )
++            result.valid = False
++            continue
++
++        by_content_type.setdefault(entry.content_type, []).append(resolved)
++
++    # --- 9-11. Typed-JSON content validation --------------------------
++    for typed_check in (
++        ("scope_decision", ScopeDecision),
++        ("evidence_pool", EvidencePool),
++        ("verified_report", VerifiedReport),
++    ):
++        content_type, schema_cls = typed_check
++        for path in by_content_type.get(content_type, []):  # type: ignore[arg-type]
++            try:
++                payload = json.loads(path.read_text(encoding="utf-8"))
++            except json.JSONDecodeError as exc:
++                result.add(
++                    "CONTENT_JSON_INVALID",
++                    f"{path.name} is not valid JSON: {exc}",
++                    path=str(path.relative_to(extracted_dir)),
++                )
++                result.valid = False
++                continue
++            try:
++                schema_cls(**payload)
++            except Exception as exc:  # noqa: BLE001 — Pydantic raises various
++                result.add(
++                    "CONTENT_SCHEMA_INVALID",
++                    f"{path.name} does not parse to {schema_cls.__name__}: {exc}",
++                    path=str(path.relative_to(extracted_dir)),
++                )
++                result.valid = False
++
++    # --- 12. reasoning_trace.jsonl parses as JSONL --------------------
++    for path in by_content_type.get("reasoning_trace", []):
++        try:
++            for line_no, line in enumerate(
++                path.read_text(encoding="utf-8").splitlines(), start=1
++            ):
++                if not line.strip():
++                    continue
++                try:
++                    parsed: Any = json.loads(line)
++                except json.JSONDecodeError as exc:
++                    result.add(
++                        "REASONING_TRACE_JSONL_INVALID",
++                        f"{path.name} line {line_no} is not valid JSON: {exc}",
++                        path=str(path.relative_to(extracted_dir)),
++                    )
++                    result.valid = False
++                    break
++                if not isinstance(parsed, dict):
++                    result.add(
++                        "REASONING_TRACE_JSONL_INVALID",
++                        f"{path.name} line {line_no} is not a JSON object",
++                        path=str(path.relative_to(extracted_dir)),
++                    )
++                    result.valid = False
++                    break
++        except OSError as exc:
++            result.add(
++                "REASONING_TRACE_READ_ERROR",
++                f"{path.name} cannot be read: {exc}",
++                path=str(path.relative_to(extracted_dir)),
++            )
++            result.valid = False
++
++    return result
++
++
++def _is_under(candidate: Path, parent: Path) -> bool:
++    """Cross-version `Path.is_relative_to` (3.9+) — Windows-safe."""
++    try:
++        candidate.relative_to(parent)
++        return True
++    except ValueError:
++        return False
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 9cd03090..8801f266 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -658,3 +658,27 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
+ - convergence_call: accept_remaining
+ - 13 files / +78 / -20 / +58 net LOC; well under 200-LOC PR cap.
+ - next: push as sotaleung-wec, gh pr create --base polaris, auto-merge.
++
++## I-cd-012 brief — iter 3 APPROVE — 2026-05-19
++
++- doc: `.codex/I-cd-012/brief.md`
++- gate: brief review
++- iter: 3 of 5 (clean convergence)
++- verdict: APPROVE
++- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 0
++- convergence_call: accept_remaining
++- iter trajectory: 1 RC (3 P1 + 2 P2: manifest.yaml.asc + required-content-type + reasoning_trace.jsonl filename + TS handling + cross-ref) -> 2 RC (1 NEW P1 + 2 P2: Windows path safety + js-yaml dep + bump cascade) -> 3 APPROVE
++- final scope: 16 files / +1216 / -2 LOC (17 deliverables; conformance + fixture + tests + TS mirror + path validator hardening + freeze docstrings + npm deps)
++- next: write audit + diff brief; run diff Codex.
++
++## I-cd-012 diff — iter 2 APPROVE — 2026-05-19
++
++- doc: `.codex/I-cd-012/codex_diff.patch` (sha256 7f859d01...0dd2d25f8a)
++- gate: diff review
++- iter: 2 of 5 (iter 1 caught 3 real P1, iter 2 APPROVE'd after fold-in)
++- verdict: APPROVE
++- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 2 (non-blocking)
++- convergence_call: accept_remaining
++- iter-1 catches: extra="forbid" for v1.0 freeze, reasoning_trace.jsonl filename enforcement, ReasoningTraceRecord 15-field shape alignment, FILE_READ_ERROR structured handling
++- 20/20 conformance tests pass (was 17 + 3 new for the iter-1 fixes)
++- next: push as sotaleung-wec, gh pr create, auto-merge.
+diff --git a/tests/fixtures/signed_bundle/README.md b/tests/fixtures/signed_bundle/README.md
+new file mode 100644
+index 00000000..96a9d611
+--- /dev/null
++++ b/tests/fixtures/signed_bundle/README.md
+@@ -0,0 +1,50 @@
++# `tests/fixtures/signed_bundle/` — canonical signed-bundle fixtures
++
++Fixtures used by:
++- `tests/polaris_graph/audit_bundle/test_conformance.py` (I-cd-012 conformance check)
++- I-B-08 (#630) real-run bundle emitter conformance tests
++- Future Inspector route (I-A-03, #609) offline-fallback rendering tests
++
++## `v1_canonical/`
++
++Schema version **v1.0** per `src/polaris_graph/audit_bundle/bundle_schema.py:BUNDLE_VERSION`.
++
++| File | Content type | Purpose |
++|---|---|---|
++| `manifest.yaml` | (the manifest itself) | Top-level `BundleManifest` referencing every other file with SHA256 anchors |
++| `manifest.yaml.asc` | (the signature) | GPG armored signature **placeholder** — presence-only test fixture, not a real key signature. See note below. |
++| `scope_decision.json` | `scope_decision` | One `ScopeDecision` (slice 001 output) |
++| `evidence_pool.json` | `evidence_pool` | One `EvidencePool` (slice 002 output) with one Source |
++| `verified_report.json` | `verified_report` | One `VerifiedReport` (slice 003 output) — minimal sections |
++| `metadata.json` | `metadata` | Bundle-level metadata (polaris_version, generator_model, evaluator_model, timestamps) |
++| `reasoning_trace.jsonl` | `reasoning_trace` | I-gen-004 raw model reasoning channel; JSONL, one record per generator LLM call |
++| `sources/<sha-id>.txt` | `source_snapshot` | One source full-text snapshot |
++
++## How to regenerate (deterministic)
++
++The fixture content + SHA256s are produced by:
++
++```
++python scripts/regen_signed_bundle_canonical_fixture.py
++```
++
++The script:
++1. Constructs `ScopeDecision`, `EvidencePool`, `VerifiedReport` Pydantic objects with deterministic seed values (no clocks, no uuid4 — the IDs are hard-coded).
++2. Serializes each to JSON using `model_dump(mode="json")` + `json.dumps(..., sort_keys=True, indent=2)`.
++3. Writes each content file.
++4. Computes SHA256 + size of each file.
++5. Constructs `BundleManifest` referencing the files.
++6. Writes `manifest.yaml` using `yaml.safe_dump(..., sort_keys=True)`.
++
++The placeholder `manifest.yaml.asc` is a fixed GPG-armored stub authored
++once and reused. Real signatures require an operator key; conformance
++checks presence + non-empty only (cryptographic verification belongs to
++operator/reviewer-side tooling, NOT the I-B-08 emitter's pre-sign
++conformance check).
++
++## When to bump
++
++When `bundle_schema.BUNDLE_VERSION` changes from `"1.0"`, author a fresh
++`v{N}_canonical/` directory; preserve `v1_canonical/` verbatim as the
++historical anchor. Every bump triggers the full cascade documented in
++`src/polaris_graph/audit_bundle/bundle_schema.py` module docstring.
+diff --git a/tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json b/tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+new file mode 100644
+index 00000000..3be51e54
+--- /dev/null
++++ b/tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+@@ -0,0 +1,41 @@
++{
++  "adequacy": {
++    "failure_reason": null,
++    "is_adequate": true,
++    "min_required_per_tier": {
++      "T1": 1
++    },
++    "sources_per_tier": {
++      "T1": 1
++    }
++  },
++  "cost_usd": 0.0,
++  "decision_id": "decision_v1_canonical_0001",
++  "latency_ms": 100,
++  "pool_id": "pool_v1_canonical_0001",
++  "queries_executed": [
++    "canonical fixture query"
++  ],
++  "retrieval_finished_at_utc": "2026-05-19T00:00:00+00:00",
++  "retrieval_started_at_utc": "2026-05-19T00:00:00+00:00",
++  "sources": [
++    {
++      "authors": [
++        "Test, A."
++      ],
++      "domain": "example.org",
++      "fetched_at_utc": "2026-05-19T00:00:00+00:00",
++      "full_text": "Full text body placeholder for the canonical fixture source.",
++      "full_text_available": true,
++      "provenance": {
++        "fetched_by": "canonical_fixture"
++      },
++      "retracted": false,
++      "snippet": "Snippet placeholder for the canonical fixture source.",
++      "source_id": "src_v1_canonical_0001",
++      "tier": "T1",
++      "title": "Canonical clinical evidence \u2014 v1 fixture source",
++      "url": "https://example.org/clinical/canonical_v1.html"
++    }
++  ]
++}
+diff --git a/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml b/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml
+new file mode 100644
+index 00000000..11f24f65
+--- /dev/null
++++ b/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml
+@@ -0,0 +1,33 @@
++bundle_created_at_utc: '2026-05-19T00:00:00Z'
++bundle_id: bundle_v1_canonical_0001
++bundle_version: '1.0'
++decision_id: decision_v1_canonical_0001
++files:
++- content_type: scope_decision
++  path: scope_decision.json
++  sha256: 37e8a54e7536e02788cf8e1aaca546714c18549878aec92e8b6458fa59e813f5
++  size_bytes: 332
++- content_type: evidence_pool
++  path: evidence_pool.json
++  sha256: c0e317747bc777778acbac03b5222ecfa79ae89b195f29cb600d0892c607994d
++  size_bytes: 1130
++- content_type: verified_report
++  path: verified_report.json
++  sha256: 89d9545e6c642c422a6d469faf24670c1fd4745ec5dc553de4f6c3fb1a0110d4
++  size_bytes: 543
++- content_type: metadata
++  path: metadata.json
++  sha256: 69b94105be13490815dbd18d8c3dc02485c2e8c68b123f12f95f13001f7f3fde
++  size_bytes: 211
++- content_type: reasoning_trace
++  path: reasoning_trace.jsonl
++  sha256: 6f4fd0efd23dbbb4072008ec094059dc064c1068da71fd206da95f8ac47ae613
++  size_bytes: 949
++- content_type: source_snapshot
++  path: sources/src_v1_canonical_0001.txt
++  sha256: 8d308259726e2dd27ebfc09e9122a9042b3c159b8180d4de42839991d29d2d23
++  size_bytes: 199
++generator_model: deepseek/deepseek-v4-pro
++polaris_version: 1.0.0
++pool_id: pool_v1_canonical_0001
++report_id: report_v1_canonical_0001
+diff --git a/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc b/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+new file mode 100644
+index 00000000..91f1c62f
+--- /dev/null
++++ b/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+@@ -0,0 +1,6 @@
++-----BEGIN PGP SIGNATURE-----
++# I-cd-012 canonical fixture placeholder.
++# Conformance check enforces presence + non-empty ONLY; cryptographic
++# verification belongs to operator-side tooling (gpg --verify).
++# Real bundles ship a real armored signature here.
++-----END PGP SIGNATURE-----
+diff --git a/tests/fixtures/signed_bundle/v1_canonical/metadata.json b/tests/fixtures/signed_bundle/v1_canonical/metadata.json
+new file mode 100644
+index 00000000..b06c9a2e
+--- /dev/null
++++ b/tests/fixtures/signed_bundle/v1_canonical/metadata.json
+@@ -0,0 +1,7 @@
++{
++  "bundle_created_at_utc": "2026-05-19T00:00:00+00:00",
++  "evaluator_model": "google/gemma-4-31b-it",
++  "generator_model": "deepseek/deepseek-v4-pro",
++  "polaris_version": "1.0.0",
++  "schema_version": "1.0"
++}
+diff --git a/tests/fixtures/signed_bundle/v1_canonical/reasoning_trace.jsonl b/tests/fixtures/signed_bundle/v1_canonical/reasoning_trace.jsonl
+new file mode 100644
+index 00000000..8538e015
+--- /dev/null
++++ b/tests/fixtures/signed_bundle/v1_canonical/reasoning_trace.jsonl
+@@ -0,0 +1,2 @@
++{"attempt_n": 1, "call_id": "call_0001", "call_type": "outline", "content_source": "direct", "content_text": "1. Background\n2. Methods\n3. Results\n4. Limitations\n", "input_tokens": 100, "model": "deepseek/deepseek-v4-pro", "output_tokens": 80, "parent_call_id": null, "reasoning_text": "Outline reasoning trace placeholder for the canonical fixture.", "reasoning_tokens": 200, "regen_reason": null, "section": "outline", "status": "ok", "timestamp": "2026-05-19T00:00:00+00:00"}
++{"attempt_n": 1, "call_id": "call_0002", "call_type": "section", "content_source": "direct", "content_text": "Background prose placeholder.", "input_tokens": 200, "model": "deepseek/deepseek-v4-pro", "output_tokens": 150, "parent_call_id": "call_0001", "reasoning_text": "Section reasoning trace placeholder for the canonical fixture.", "reasoning_tokens": 400, "regen_reason": null, "section": "Background", "status": "ok", "timestamp": "2026-05-19T00:00:00+00:00"}
+diff --git a/tests/fixtures/signed_bundle/v1_canonical/scope_decision.json b/tests/fixtures/signed_bundle/v1_canonical/scope_decision.json
+new file mode 100644
+index 00000000..70ddf333
+--- /dev/null
++++ b/tests/fixtures/signed_bundle/v1_canonical/scope_decision.json
+@@ -0,0 +1,13 @@
++{
++  "ambiguity_axes": [],
++  "clarifications_needed": [],
++  "decided_at_utc": "2026-05-19T00:00:00+00:00",
++  "decision_id": "decision_v1_canonical_0001",
++  "latency_ms": 12,
++  "provenance": {
++    "ambiguity_detector_layer": "regex",
++    "classifier_layer": "regex"
++  },
++  "scope_class": "clinical_efficacy",
++  "status": "in_scope"
++}
+diff --git a/tests/fixtures/signed_bundle/v1_canonical/sources/src_v1_canonical_0001.txt b/tests/fixtures/signed_bundle/v1_canonical/sources/src_v1_canonical_0001.txt
+new file mode 100644
+index 00000000..4f2a1ff1
+--- /dev/null
++++ b/tests/fixtures/signed_bundle/v1_canonical/sources/src_v1_canonical_0001.txt
+@@ -0,0 +1,2 @@
++Canonical clinical evidence source — v1 fixture.
++This is a placeholder full-text body used by the I-cd-012 canonical signed-bundle fixture for tests/polaris_graph/audit_bundle/test_conformance.py.
+diff --git a/tests/fixtures/signed_bundle/v1_canonical/verified_report.json b/tests/fixtures/signed_bundle/v1_canonical/verified_report.json
+new file mode 100644
+index 00000000..95d751ca
+--- /dev/null
++++ b/tests/fixtures/signed_bundle/v1_canonical/verified_report.json
+@@ -0,0 +1,16 @@
++{
++  "cost_usd": 0.0,
++  "decision_id": "decision_v1_canonical_0001",
++  "evaluator_model": "google/gemma-4-31b-it",
++  "family_segregation_passed": true,
++  "finished_at_utc": "2026-05-19T00:00:00+00:00",
++  "generator_model": "deepseek/deepseek-v4-pro",
++  "latency_ms": 1500,
++  "overall_verify_pass_rate": 0.0,
++  "pipeline_verdict": "abort_no_verified_sections",
++  "pool_id": "pool_v1_canonical_0001",
++  "report_id": "report_v1_canonical_0001",
++  "sections": [],
++  "started_at_utc": "2026-05-19T00:00:00+00:00",
++  "verifier_pass_threshold": 0.4
++}
+diff --git a/tests/polaris_graph/audit_bundle/test_conformance.py b/tests/polaris_graph/audit_bundle/test_conformance.py
+new file mode 100644
+index 00000000..584e234c
+--- /dev/null
++++ b/tests/polaris_graph/audit_bundle/test_conformance.py
+@@ -0,0 +1,302 @@
++"""Unit tests for `check_bundle_conformance` (I-cd-012 / GH#608).
++
++Covers the 12 conformance layers + 4 path-safety negative cases per the
++Codex iter-3 APPROVE'd brief.
++"""
++from __future__ import annotations
++
++import shutil
++from pathlib import Path
++
++import pytest
++import yaml
++from pydantic import ValidationError
++
++from polaris_graph.audit_bundle.bundle_schema import (
++    BUNDLE_VERSION,
++    BundleManifest,
++    FileEntry,
++)
++from polaris_graph.audit_bundle.conformance import (
++    MANIFEST_FILENAME,
++    SIGNATURE_FILENAME,
++    check_bundle_conformance,
++)
++
++
++REPO_ROOT = Path(__file__).resolve().parents[3]
++CANONICAL_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "signed_bundle" / "v1_canonical"
++
++
++# --------------------------------------------------------------------------
++# Layer 0 — canonical fixture conforms
++# --------------------------------------------------------------------------
++
++def test_canonical_fixture_conforms() -> None:
++    """The v1_canonical fixture round-trips clean (`valid=True`)."""
++    result = check_bundle_conformance(CANONICAL_FIXTURE)
++    assert result.valid, [
++        f"{e.code}: {e.message}" for e in result.errors
++    ]
++    assert result.errors == []
++
++
++# --------------------------------------------------------------------------
++# Layer 1 — missing manifest
++# --------------------------------------------------------------------------
++
++def test_missing_manifest_yaml(tmp_path: Path) -> None:
++    """Bundle dir without manifest.yaml → MISSING_MANIFEST."""
++    (tmp_path / SIGNATURE_FILENAME).write_text("placeholder", encoding="utf-8")
++    result = check_bundle_conformance(tmp_path)
++    assert not result.valid
++    assert any(e.code == "MISSING_MANIFEST" for e in result.errors)
++
++
++# --------------------------------------------------------------------------
++# Layer 3 — missing / empty signature
++# --------------------------------------------------------------------------
++
++def test_missing_signature(tmp_path: Path) -> None:
++    """Bundle without manifest.yaml.asc → MISSING_SIGNATURE."""
++    _copy_canonical_to(tmp_path)
++    (tmp_path / SIGNATURE_FILENAME).unlink()
++    result = check_bundle_conformance(tmp_path)
++    assert not result.valid
++    assert any(e.code == "MISSING_SIGNATURE" for e in result.errors)
++
++
++def test_empty_signature(tmp_path: Path) -> None:
++    """manifest.yaml.asc present but empty → EMPTY_SIGNATURE."""
++    _copy_canonical_to(tmp_path)
++    (tmp_path / SIGNATURE_FILENAME).write_text("", encoding="utf-8")
++    result = check_bundle_conformance(tmp_path)
++    assert not result.valid
++    assert any(e.code == "EMPTY_SIGNATURE" for e in result.errors)
++
++
++# --------------------------------------------------------------------------
++# Layer 4 — missing required content type
++# --------------------------------------------------------------------------
++
++def test_missing_required_content_type_scope_decision(tmp_path: Path) -> None:
++    """Manifest without a scope_decision entry → MISSING_REQUIRED_CONTENT_TYPE."""
++    _copy_canonical_to(tmp_path)
++    manifest_path = tmp_path / MANIFEST_FILENAME
++    data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
++    data["files"] = [
++        f for f in data["files"] if f["content_type"] != "scope_decision"
++    ]
++    manifest_path.write_text(yaml.safe_dump(data, sort_keys=True), encoding="utf-8")
++    result = check_bundle_conformance(tmp_path)
++    assert not result.valid
++    assert any(
++        e.code == "MISSING_REQUIRED_CONTENT_TYPE" and "scope_decision" in e.message
++        for e in result.errors
++    )
++
++
++def test_empty_files_list(tmp_path: Path) -> None:
++    """Manifest with `files: []` → all 6 MISSING_REQUIRED_CONTENT_TYPE failures."""
++    _copy_canonical_to(tmp_path)
++    manifest_path = tmp_path / MANIFEST_FILENAME
++    data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
++    data["files"] = []
++    manifest_path.write_text(yaml.safe_dump(data, sort_keys=True), encoding="utf-8")
++    result = check_bundle_conformance(tmp_path)
++    assert not result.valid
++    missing_codes = [e for e in result.errors if e.code == "MISSING_REQUIRED_CONTENT_TYPE"]
++    assert len(missing_codes) == 6
++
++
++# --------------------------------------------------------------------------
++# Layers 7-8 — SHA256 mismatch / size mismatch
++# --------------------------------------------------------------------------
++
++def test_sha256_mismatch(tmp_path: Path) -> None:
++    """Tampered content (hash doesn't match manifest) → SHA256_MISMATCH."""
++    _copy_canonical_to(tmp_path)
++    metadata_path = tmp_path / "metadata.json"
++    metadata_path.write_text("{\"tampered\": true}\n", encoding="utf-8")
++    result = check_bundle_conformance(tmp_path)
++    assert not result.valid
++    assert any(e.code == "SHA256_MISMATCH" for e in result.errors)
++
++
++# --------------------------------------------------------------------------
++# Layer 2 — wrong bundle_version
++# --------------------------------------------------------------------------
++
++def test_wrong_bundle_version_rejected_by_pydantic(tmp_path: Path) -> None:
++    """A manifest with bundle_version != "1.0" fails at Pydantic parse
++    (because BundleManifest.bundle_version is a Literal["1.0"]).
++    The conformance check surfaces this as MANIFEST_SCHEMA_INVALID."""
++    _copy_canonical_to(tmp_path)
++    manifest_path = tmp_path / MANIFEST_FILENAME
++    data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
++    data["bundle_version"] = "2.0"
++    manifest_path.write_text(yaml.safe_dump(data, sort_keys=True), encoding="utf-8")
++    result = check_bundle_conformance(tmp_path)
++    assert not result.valid
++    assert any(e.code == "MANIFEST_SCHEMA_INVALID" for e in result.errors)
++
++
++# --------------------------------------------------------------------------
++# Layer 12 — malformed reasoning_trace.jsonl
++# --------------------------------------------------------------------------
++
++def test_malformed_reasoning_trace_jsonl(tmp_path: Path) -> None:
++    """Reasoning trace with non-JSON line → REASONING_TRACE_JSONL_INVALID.
++
++    Requires regenerating the SHA256 in the manifest so we hit the JSONL
++    check, not the hash check.
++    """
++    import hashlib
++
++    _copy_canonical_to(tmp_path)
++    trace_path = tmp_path / "reasoning_trace.jsonl"
++    body = "this is not valid JSON\n"
++    trace_path.write_text(body, encoding="utf-8", newline="")
++
++    manifest_path = tmp_path / MANIFEST_FILENAME
++    data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
++    body_bytes = body.encode("utf-8")
++    new_sha = hashlib.sha256(body_bytes).hexdigest()
++    for entry in data["files"]:
++        if entry["content_type"] == "reasoning_trace":
++            entry["sha256"] = new_sha
++            entry["size_bytes"] = len(body_bytes)
++    manifest_path.write_text(yaml.safe_dump(data, sort_keys=True), encoding="utf-8")
++
++    result = check_bundle_conformance(tmp_path)
++    assert not result.valid
++    assert any(e.code == "REASONING_TRACE_JSONL_INVALID" for e in result.errors)
++
++
++# --------------------------------------------------------------------------
++# Layer 9 — malformed scope_decision.json (typed JSON)
++# --------------------------------------------------------------------------
++
++def test_malformed_scope_decision_json(tmp_path: Path) -> None:
++    """scope_decision.json with wrong shape → CONTENT_SCHEMA_INVALID."""
++    import hashlib
++
++    _copy_canonical_to(tmp_path)
++    sd_path = tmp_path / "scope_decision.json"
++    body = "{\"status\": \"NOT_A_REAL_STATUS\"}\n"
++    sd_path.write_text(body, encoding="utf-8", newline="")
++
++    # Update manifest SHA256 so we hit Pydantic-schema check, not hash check.
++    manifest_path = tmp_path / MANIFEST_FILENAME
++    data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
++    body_bytes = body.encode("utf-8")
++    new_sha = hashlib.sha256(body_bytes).hexdigest()
++    for entry in data["files"]:
++        if entry["content_type"] == "scope_decision":
++            entry["sha256"] = new_sha
++            entry["size_bytes"] = len(body_bytes)
++    manifest_path.write_text(yaml.safe_dump(data, sort_keys=True), encoding="utf-8")
++
++    result = check_bundle_conformance(tmp_path)
++    assert not result.valid
++    assert any(e.code == "CONTENT_SCHEMA_INVALID" for e in result.errors)
++
++
++# --------------------------------------------------------------------------
++# Iter-2 P1 — path-safety negative cases (Pydantic validator)
++# --------------------------------------------------------------------------
++
++@pytest.mark.parametrize("bad_path", [
++    "..\\evil.txt",
++    "sources\\..\\evil.txt",
++    "C:\\POLARIS\\evil.txt",
++    "\\\\server\\share\\evil.txt",
++    "/etc/passwd",
++    "../../etc/passwd",
++])
++def test_path_validator_rejects_unsafe(bad_path: str) -> None:
++    """FileEntry path validator rejects backslash + drive + UNC + rooted."""
++    with pytest.raises(ValidationError):
++        FileEntry(
++            path=bad_path,
++            sha256="0" * 64,
++            size_bytes=1,
++            content_type="metadata",
++        )
++
++
++def test_path_validator_accepts_valid_relative() -> None:
++    """FileEntry path validator accepts POSIX-relative paths."""
++    entry = FileEntry(
++        path="sources/abc123.txt",
++        sha256="0" * 64,
++        size_bytes=1,
++        content_type="source_snapshot",
++    )
++    assert entry.path == "sources/abc123.txt"
++
++
++# --------------------------------------------------------------------------
++# Helpers
++# --------------------------------------------------------------------------
++
++def _copy_canonical_to(dest: Path) -> None:
++    """Copy the canonical fixture into a tmp directory for mutation."""
++    if dest.exists():
++        shutil.rmtree(dest)
++    shutil.copytree(CANONICAL_FIXTURE, dest)
++
++
++# --------------------------------------------------------------------------
++# Codex diff iter-1 P1 — extra="forbid" + reasoning_trace filename enforcement
++# --------------------------------------------------------------------------
++
++def test_bundle_manifest_rejects_unknown_field() -> None:
++    """BundleManifest with `extra="forbid"` rejects unknown top-level field."""
++    minimal = {
++        "decision_id": "d1",
++        "pool_id": "p1",
++        "report_id": "r1",
++        "generator_model": "deepseek/deepseek-v4-pro",
++        "polaris_version": "1.0.0",
++        "files": [],
++    }
++    BundleManifest(**minimal)  # baseline passes
++    with pytest.raises(ValidationError):
++        BundleManifest(**minimal, future_field="boom")
++
++
++def test_file_entry_rejects_unknown_field() -> None:
++    """FileEntry with `extra="forbid"` rejects unknown field."""
++    FileEntry(path="a.txt", sha256="0" * 64, size_bytes=1, content_type="metadata")
++    with pytest.raises(ValidationError):
++        FileEntry(
++            path="a.txt",
++            sha256="0" * 64,
++            size_bytes=1,
++            content_type="metadata",
++            extra_field="boom",
++        )
++
++
++def test_reasoning_trace_filename_mismatch(tmp_path: Path) -> None:
++    """Renaming reasoning_trace.jsonl in the manifest → REASONING_TRACE_FILENAME_MISMATCH.
++
++    Belt-and-suspenders: even if the file content + SHA are correct, the
++    canonical filename must match `manifest_builder.py:55`.
++    """
++    import hashlib
++
++    _copy_canonical_to(tmp_path)
++    # Move the file + rename the manifest entry's path.
++    (tmp_path / "reasoning_trace.jsonl").rename(tmp_path / "trace.jsonl")
++    manifest_path = tmp_path / MANIFEST_FILENAME
++    data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
++    for entry in data["files"]:
++        if entry["content_type"] == "reasoning_trace":
++            entry["path"] = "trace.jsonl"
++    manifest_path.write_text(yaml.safe_dump(data, sort_keys=True), encoding="utf-8")
++
++    result = check_bundle_conformance(tmp_path)
++    assert not result.valid
++    assert any(e.code == "REASONING_TRACE_FILENAME_MISMATCH" for e in result.errors)
+diff --git a/web/lib/signed_bundle.ts b/web/lib/signed_bundle.ts
+new file mode 100644
+index 00000000..c9c675cf
+--- /dev/null
++++ b/web/lib/signed_bundle.ts
+@@ -0,0 +1,186 @@
++// I-cd-012 (GH#608) — frontend mirror of
++// src/polaris_graph/audit_bundle/bundle_schema.py:BundleManifest (FROZEN v1.0).
++//
++// FROZEN v1.0: Field additions, removals, type changes, or new ContentType
++// enum members require the full bump cascade documented in the Python module.
++//
++// Active consumers:
++//   - Future Inspector route (I-A-03, #609)
++//   - Offline fallback Inspector that renders a signed bundle in-browser
++//     with no GPU/no backend (I-B-09, #631)
++//
++// Active producers (mirror this contract):
++//   - src/polaris_graph/audit_bundle/manifest_builder.py
++//   - src/polaris_graph/audit_bundle/bundle_builder.py
++//   - src/polaris_graph/api/audit_bundle_route.py
++//   - src/polaris_v6/api/bundle.py
++
++import yaml from "js-yaml";
++
++// ---------------------------------------------------------------------------
++// Type literals — must match
++// src/polaris_graph/audit_bundle/bundle_schema.py:ContentType
++// ---------------------------------------------------------------------------
++
++export type ContentType =
++  | "scope_decision"
++  | "evidence_pool"
++  | "verified_report"
++  | "source_snapshot"
++  | "metadata"
++  | "reasoning_trace";
++
++export const CONTENT_TYPES: ContentType[] = [
++  "scope_decision",
++  "evidence_pool",
++  "verified_report",
++  "source_snapshot",
++  "metadata",
++  "reasoning_trace",
++];
++
++export const BUNDLE_VERSION = "1.0" as const;
++
++// ---------------------------------------------------------------------------
++// FileEntry — mirrors bundle_schema.py:FileEntry
++// ---------------------------------------------------------------------------
++
++export interface FileEntry {
++  path: string; // relative POSIX path inside the extracted bundle
++  sha256: string; // lowercase hex SHA256
++  size_bytes: number;
++  content_type: ContentType;
++}
++
++// ---------------------------------------------------------------------------
++// BundleManifest — mirrors bundle_schema.py:BundleManifest
++// ---------------------------------------------------------------------------
++
++export interface BundleManifest {
++  bundle_id: string;
++  bundle_version: typeof BUNDLE_VERSION;
++  decision_id: string;
++  pool_id: string;
++  report_id: string;
++  generator_model: string;
++  polaris_version: string;
++  files: FileEntry[];
++  bundle_created_at_utc: string; // ISO-8601 UTC
++}
++
++// ---------------------------------------------------------------------------
++// Reasoning trace — JSONL (one record per generator LLM call)
++// ---------------------------------------------------------------------------
++
++// Mirrors src/polaris_graph/generator/reasoning_trace.py:67
++// ReasoningTraceRecord (the active producer dataclass). 15 fields.
++// Codex diff iter-1 P1: previous 5-field shape diverged from real producer.
++export interface ReasoningTraceRecord {
++  call_id: string;
++  section: string;
++  call_type: string;
++  model: string;
++  status: string; // see reasoning_trace.py STATUSES
++  content_source: string; // see reasoning_trace.py CONTENT_SOURCES
++  parent_call_id: string | null;
++  regen_reason: string | null;
++  attempt_n: number;
++  reasoning_text: string;
++  content_text: string;
++  input_tokens: number;
++  output_tokens: number;
++  reasoning_tokens: number;
++  timestamp: string; // ISO-8601 UTC
++}
++
++// ---------------------------------------------------------------------------
++// Bundle metadata — content of metadata.json
++// ---------------------------------------------------------------------------
++
++export interface BundleMetadata {
++  polaris_version: string;
++  generator_model: string;
++  evaluator_model: string;
++  bundle_created_at_utc: string;
++  schema_version: typeof BUNDLE_VERSION;
++}
++
++// ---------------------------------------------------------------------------
++// Parsers
++// ---------------------------------------------------------------------------
++
++/** Parse a `manifest.yaml` text into a typed `BundleManifest`.
++ *
++ * Validation is structural (presence of required fields + bundle_version
++ * literal); deeper conformance (path traversal, SHA256 matching, content
++ * schema validity) lives in the Python `check_bundle_conformance`. */
++export function parseManifest(yamlText: string): BundleManifest {
++  const parsed = yaml.load(yamlText);
++  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
++    throw new Error("manifest.yaml does not parse to a YAML mapping");
++  }
++  const m = parsed as Partial<BundleManifest>;
++  if (m.bundle_version !== BUNDLE_VERSION) {
++    throw new Error(
++      `bundle_version ${m.bundle_version} != frozen ${BUNDLE_VERSION}`,
++    );
++  }
++  for (const required of [
++    "bundle_id",
++    "decision_id",
++    "pool_id",
++    "report_id",
++    "generator_model",
++    "polaris_version",
++    "files",
++    "bundle_created_at_utc",
++  ] as const) {
++    if (m[required] === undefined || m[required] === null) {
++      throw new Error(`manifest.yaml missing required field: ${required}`);
++    }
++  }
++  if (!Array.isArray(m.files)) {
++    throw new Error("manifest.yaml `files` must be an array");
++  }
++  return m as BundleManifest;
++}
++
++/** Parse a `reasoning_trace.jsonl` text body into a list of records.
++ *
++ * One JSON object per non-empty line; blank lines are skipped. Malformed
++ * lines throw to surface bundle corruption at the source. */
++export function parseReasoningTraceJsonl(text: string): ReasoningTraceRecord[] {
++  const out: ReasoningTraceRecord[] = [];
++  const lines = text.split(/\r?\n/);
++  for (let i = 0; i < lines.length; i += 1) {
++    const line = lines[i];
++    if (line.trim() === "") continue;
++    let record: unknown;
++    try {
++      record = JSON.parse(line);
++    } catch (err) {
++      throw new Error(
++        `reasoning_trace.jsonl line ${i + 1} is not valid JSON: ${(err as Error).message}`,
++      );
++    }
++    if (
++      typeof record !== "object" ||
++      record === null ||
++      Array.isArray(record)
++    ) {
++      throw new Error(
++        `reasoning_trace.jsonl line ${i + 1} is not a JSON object`,
++      );
++    }
++    out.push(record as ReasoningTraceRecord);
++  }
++  return out;
++}
++
++/** Helper: filter `BundleManifest.files` by ContentType. */
++export function filesByContentType(
++  manifest: BundleManifest,
++  contentType: ContentType,
++): FileEntry[] {
++  return manifest.files.filter((f) => f.content_type === contentType);
++}
+diff --git a/web/package-lock.json b/web/package-lock.json
+index d82396e4..c0bfda23 100644
+--- a/web/package-lock.json
++++ b/web/package-lock.json
+@@ -13,6 +13,7 @@
+         "clsx": "^2.1.1",
+         "cytoscape": "^3.30.4",
+         "cytoscape-fcose": "^2.2.0",
++        "js-yaml": "^4.1.0",
+         "lucide-react": "^1.14.0",
+         "next": "16.2.4",
+         "next-themes": "^0.4.6",
+@@ -32,6 +33,7 @@
+         "@tailwindcss/postcss": "^4",
+         "@types/cytoscape": "^3.21.9",
+         "@types/cytoscape-fcose": "^2.2.5",
++        "@types/js-yaml": "^4.0.9",
+         "@types/node": "^20",
+         "@types/react": "^19",
+         "@types/react-cytoscapejs": "^1.2.6",
+@@ -2414,6 +2416,13 @@
+       "license": "MIT",
+       "peer": true
+     },
++    "node_modules/@types/js-yaml": {
++      "version": "4.0.9",
++      "resolved": "https://registry.npmjs.org/@types/js-yaml/-/js-yaml-4.0.9.tgz",
++      "integrity": "sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==",
++      "dev": true,
++      "license": "MIT"
++    },
+     "node_modules/@types/json-schema": {
+       "version": "7.0.15",
+       "resolved": "https://registry.npmjs.org/@types/json-schema/-/json-schema-7.0.15.tgz",
+diff --git a/web/package.json b/web/package.json
+index 1f7365bb..c32f47df 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -20,6 +20,7 @@
+     "clsx": "^2.1.1",
+     "cytoscape": "^3.30.4",
+     "cytoscape-fcose": "^2.2.0",
++    "js-yaml": "^4.1.0",
+     "lucide-react": "^1.14.0",
+     "next": "16.2.4",
+     "next-themes": "^0.4.6",
+@@ -39,6 +40,7 @@
+     "@tailwindcss/postcss": "^4",
+     "@types/cytoscape": "^3.21.9",
+     "@types/cytoscape-fcose": "^2.2.5",
++    "@types/js-yaml": "^4.0.9",
+     "@types/node": "^20",
+     "@types/react": "^19",
+     "@types/react-cytoscapejs": "^1.2.6",
+
+# canonical-diff-sha256: 970c072244cc1fdaee60a729dcb76fed04eeaa4227a4a1b66a8e702e3f002fc6
