@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Trivial sequential rebuild pattern. Diff review is the real gate.
