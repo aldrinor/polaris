@@ -739,3 +739,10 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
 - novel_p0: 0, continuing_p0: 0, p1: 0, p2: 2 (non-blocking)
 - iter trajectory: 1 RC (2 P1: provision.sh path mismatch + useSearchParams Suspense; 2 P2: AuthRedirect flash + fragment-only) -> 2 APPROVE
 - scope: 12 files / +259 + 75 net
+
+## I-cd-015 brief — iter 4 APPROVE — 2026-05-20
+
+- iter: 4 of 5
+- verdict: APPROVE
+- iter trajectory: 1 RC (1 P1 NextResponse.next broken + 3 P2) -> 2 RC (smoke script cwd P1) -> 3 RC (CI conflict P1 + 2 P2) -> 4 APPROVE
+- scope: 4 files / +137 net LOC
