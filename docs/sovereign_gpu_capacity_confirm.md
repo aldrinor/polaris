@@ -121,7 +121,7 @@ A single-box confirm is insufficient — we need both.
 
 Per Seq 38 (#643) acceptance "operator-authorized provisioning order placed", we CANNOT order without written capacity confirm. The GPU spend is significant ($1-3k for the demo window) and an "ordered but provisioning delayed by 2 weeks" outcome would miss the demo. The capacity-confirm step is the explicit gate that protects against this.
 
-The 3-vendor parallel polling is a hedge: each vendor's "in stock" status fluctuates daily, especially H200 which remains supply-constrained globally as of 2026-Q2. Sending one and waiting wastes 1-2 days of demo-window slack.
+The 4-vendor-path parallel polling is a hedge: each vendor's "in stock" status fluctuates daily, especially H200 which remains supply-constrained globally as of 2026-Q2. Sending one and waiting wastes 1-2 days of demo-window slack.
 
 ---
 
