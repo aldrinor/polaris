@@ -1,0 +1,12 @@
+# I-cd-008 diff review — slim verdict
+# Source: .codex/I-cd-008/codex_diff_review_iter{1,2}.txt (raw transcripts gitignored)
+# Trajectory: iter 1 RC (1 P1 verdict-derivation, 1 P2 uncaught-API) → iter 2 APPROVE.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution:
+  - "External/operator: OVH support ticket for h200-1920 project-flavor allowlist + h100-1520 per-region quota increase (GRA9/GRA11)."

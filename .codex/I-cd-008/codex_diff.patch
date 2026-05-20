@@ -1,0 +1,423 @@
+diff --git a/docs/models/gpu_topology.md b/docs/models/gpu_topology.md
+new file mode 100644
+index 00000000..fa7c0c02
+--- /dev/null
++++ b/docs/models/gpu_topology.md
+@@ -0,0 +1,132 @@
++# POLARIS GPU topology — confirm + early OVH capacity probe (I-cd-008, GH#640)
++
++**Topology (operator-locked, designed):**
++- **Box 1 — Generator:** 8×H200 (OVH SKU `h200-1920`) for DeepSeek V4 Pro
++  1.6T at FP4 (~800 GB FP4 weights fit 1128 GB HBM3e on 8×H200).
++- **Box 2 — Evaluator:** 4×H100 (OVH SKU `h100-1520`) for
++  `google/gemma-4-31B-it` + community AWQ INT4 quant (locked in
++  I-cd-005-followup, merged `37310ddc`). INT4 ≈ 16 GB → 4×80GB = 320 GB =
++  massive headroom (P3 rightsizing note in §C).
++
++**Capacity verification (this PR's deliverable):** **NOT OBTAINABLE NOW
++from the current OVH project.** Operator-action required — see §B.
++
++## §A — Probe + result (this-session live OVH API)
++
++Probe: `scripts/ovh_gpu_topology_probe.py` (committed for reproducibility
++per the operator's `feedback_verify_primary_sources_before_relying_2026_05_15`
++directive — "Commit verification script"). Output JSON:
++`outputs/audits/I-cd-008/probe_result.json`.
++
++Cross-checked four+ ways per the same memory:
++
++1. **Catalog at CA subsidiary** (`GET /order/catalog/public/cloud?ovhSubsidiary=CA`):
++   75 GPU plan rows visible (the catalog DOES list `h200-1920` and
++   `h100-1520` at Canada-subsidiary billing).
++2. **Catalog at FR subsidiary**: rejected by the `ovh-ca` endpoint
++   (`BadParametersError: invalid ovhSubsidiary`) — the `ovh-ca` endpoint
++   only accepts `ovhSubsidiary=CA`. A standalone FR-subsidiary API key
++   would be needed for an independent FR-billing cross-check; out of
++   scope here.
++3. **Project flavor list (UNFILTERED, per Codex iter-2 P2 fix)** —
++   `GET /cloud/project/{projectId}/flavor`, filter in code by name +
++   region:
++   - `h100-1520` @ GRA9: `available=False`, `quota=0`.
++   - `h100-1520` @ GRA11: `available=False`, `quota=0`.
++   - `h200-1920`: **ABSENT FROM THE PROJECT FLAVOR LIST IN ANY REGION**.
++4. **Per-region quota** (`GET /cloud/project/{projectId}/region/{region}/quota`):
++   probed across all 15 candidate non-US regions in the project (BHS,
++   BHS5, DE, DE1, GRA, GRA9, RBX, RBX-A, RBX-ARCHIVE, SBG, SBG5, UK, UK1,
++   WAW, WAW1). Per-region quota state recorded in the JSON artifact.
++5. **`/cloud/order/rule/availability`** for each target SKU: returned
++   `null` (no order-rule entry exposed for the unprivileged read).
++
++**Project regions enumerated** (from `GET /cloud/project/{projectId}/region`):
++`BHS, BHS5, CA-EAST-TOR, DE, DE1, EU-SOUTH-MIL, EU-WEST-PAR, GRA, GRA9,
++RBX, RBX-A, RBX-ARCHIVE, SBG, SBG5, UK, UK1, WAW, WAW1`. No US regions
++appear in the project — sovereignty rule
++(`feedback_sovereignty_threat_model_2026_05_13`) is structurally enforced
++at the project level. The 2026-05-18 EU GPU relaxation
++(`project_gpu_procurement_2026_05_15`) is consistent with the project's
++existing EU region access.
++
++## §B — Operator-action required (the literal acceptance deliverable)
++
++**The locked topology is NOT deployable today.** Open an OVH support
++ticket against the OVH Canada account (`ovh-ca`, project
++`446fccde73604cfbb0758c6012dad6d1`) requesting:
++
++1. **Add `h200-1920` to the project's flavor allowlist for at least one
++   non-US region** (preferred: GRA9 or GRA11 France). The SKU is in the
++   public catalog but not surfaced to this project's flavor list at all.
++2. **Increase per-region quota for `h100-1520` in GRA9 and GRA11** from
++   the current `0` to `>= 1` (one 4×H100 instance suffices for the
++   evaluator role).
++
++Per OVH support documentation (referenced in Codex's iter-1 P2): quota-
++increase requests are "manual and processing times vary." Do not invent
++an SLA — file the ticket as soon as practical so the fulfillment window
++is known before I-cd-037 (#642, final hold/confirm) and I-cd-038 (#643,
++provisioning order).
++
++This probe is intentionally a NON-HOLDING check (I-cd-037 is the final
++hold). The Carney breakdown sequenced this issue at Seq 8 specifically
++so this gap surfaces NOW, weeks before the demo, with time for the
++operator to negotiate quota via OVH support.
++
++## §C — Side findings (P3, non-blocking)
++
++- **Box 2 is overprovisioned for the locked evaluator model.** Gemma 4
++  31B-it at INT4 ≈ 16 GB; 4×80GB H100 = 320 GB. One H100 (`h100-380`, 1×H100
++  80GB) or one L40S (`l40s-90`, 1×L40S 48GB) would fit the evaluator role
++  with abundant headroom. **Locked spec STAYS 4×H100 per the breakdown** —
++  this issue does not rightsize. Side-note for the operator's I-cd-037
++  rightsizing decision if Carney delivery considerations make smaller
++  evaluator hardware preferable.
++- **Memory contradiction reconciled.** Prior
++  `feedback_verify_primary_sources_before_relying_2026_05_15` claimed
++  `h200-1920` doesn't exist as a public SKU; the 2026-05-19 catalog
++  probe (signal 1) found it at the CA-subsidiary billing level; this
++  probe (signal 3) finds it absent from THIS PROJECT'S flavor list.
++  Reconciliation: SKU exists in the catalog; per-project regional
++  flavor exposure is a separate gate, controlled by quota allowlist.
++  Three distinct signals; the project-level allowlist is the binding
++  constraint for I-cd-038 ordering.
++
++## §D — Provisioning gotchas for I-cd-037 + I-cd-038 (from Codex iter-1+2 P2)
++
++- **Billing mode locks at create**: monthly billing CANNOT be switched
++  back to hourly after instance creation. I-cd-038 must choose mode
++  BEFORE creating instances. (No cost figures recorded here per
++  `feedback_no_cost_mentions`; this is an operational flag only.)
++- **Per-region quota is the authoritative gate**, not catalog presence.
++  I-cd-037 re-runs `scripts/ovh_gpu_topology_probe.py` immediately
++  before I-cd-038 to confirm quota >= 1 for both SKUs in the chosen
++  region.
++- **Public web pages are NOT SKU-region authoritative** — only the
++  project-level API is. Don't infer availability from public datacenter
++  pages or pricing pages.
++
++## §E — What's NOT in this issue
++
++- Final capacity hold/confirm — **I-cd-037 (#642)**, right before order.
++- GPU provisioning order — **I-cd-038 (#643)**, operator-authorized
++  [GL gate].
++- Engine wiring (vLLM with the new model id) — **I-cd-009 (#624)**.
++- FP4 readiness hardware spike — **I-cd-011 (#641, ~$400 GPU)**.
++
++## §F — Verdict
++
++| Item | State |
++|---|---|
++| Topology designed (8×H200 generator + 4×H100 evaluator) | ✅ LOCKED |
++| Sovereignty (non-US compute) | ✅ STRUCTURAL (no US regions in the project) |
++| OVH catalog presence (h200-1920, h100-1520) | ✅ confirmed at CA subsidiary |
++| OVH project-region availability for the target SKUs | ❌ **NOT AVAILABLE NOW** (operator-action required) |
++| `h100-1520` in GRA9 / GRA11 | ❌ `available=False`, `quota=0` |
++| `h200-1920` in any project region | ❌ absent from project flavor list |
++| I-cd-038 unblocked | ❌ blocked on quota-increase / SKU-allowlist support ticket |
++
++The non-confirmation IS the deliverable — surfaced NOW with the
++operator-action path named, exactly as the Seq-8 early-probe was
++designed to do.
+diff --git a/scripts/ovh_gpu_topology_probe.py b/scripts/ovh_gpu_topology_probe.py
+new file mode 100644
+index 00000000..df2968bc
+--- /dev/null
++++ b/scripts/ovh_gpu_topology_probe.py
+@@ -0,0 +1,262 @@
++"""OVH GPU topology + capacity probe (I-cd-008, GH#640).
++
++Read-only verification of OVH catalog + project-region capacity for the
++locked Carney topology: 8xH200 (h200-1920) generator box + 4xH100
++(h100-1520) evaluator box, in a non-US region (Canada BHS or France
++GRA/SBG/RBX).
++
++Per operator memory `feedback_verify_primary_sources_before_relying_2026_05_15`:
++- Cross-check via 4+ independent signals (catalog @ CA + catalog @ FR +
++  project flavor list + per-region quota state).
++- Per-region availability, not billing-currency. Catalog presence at a
++  subsidiary is NOT the same as project-region availability or quota.
++
++Per Codex iter-2 brief P2:
++- Use unfiltered `GET /cloud/project/{serviceName}/flavor` + client-side
++  filter (region-filtered probes 404 on aggregate codes).
++- Quota endpoint: `GET /cloud/project/{serviceName}/region/{regionName}/quota/allowed`
++  (note the `/region/{regionName}/` prefix; NOT a project-wide path).
++- `GET /cloud/project/{serviceName}/region` to derive real region names
++  before per-region calls.
++- `/cloud/order/rule/availability` as an additional catalog/order-rule
++  signal (not cart/expressOrder dry-runs).
++
++Reads `OVH_*` from .env. NEVER ECHOES SECRET VALUES. Writes a JSON
++audit artifact to `outputs/audits/I-cd-008/probe_result.json`.
++"""
++from __future__ import annotations
++
++import json
++import sys
++from datetime import datetime, timezone
++from pathlib import Path
++
++import ovh
++
++REPO_ROOT = Path(__file__).resolve().parents[1]
++ENV_PATH = REPO_ROOT / ".env"
++OUT_PATH = REPO_ROOT / "outputs" / "audits" / "I-cd-008" / "probe_result.json"
++
++# Locked Carney topology — operator-locked, do not negotiate.
++TARGET_SKUS = ("h200-1920", "h100-1520")
++GPU_SUBSTRINGS = ("h100", "h200", "l40", "l4-", "a100", "a10-", "gpu")
++NON_US_REGION_PREFIXES = ("BHS", "GRA", "SBG", "RBX", "WAW", "ERI", "UK", "DE")
++
++
++def _read_env(path: Path) -> dict[str, str]:
++    env: dict[str, str] = {}
++    if not path.exists():
++        sys.exit(f"FATAL: .env not found at {path}")
++    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
++        s = line.strip()
++        if not s or s.startswith("#") or "=" not in s:
++            continue
++        k, v = s.split("=", 1)
++        env[k.strip()] = v.strip()
++    for k in ("OVH_ENDPOINT", "OVH_APPLICATION_KEY", "OVH_APPLICATION_SECRET", "OVH_CONSUMER_KEY"):
++        if k not in env:
++            sys.exit(f"FATAL: {k} missing from .env")
++    return env
++
++
++def _client(env: dict[str, str]) -> ovh.Client:
++    return ovh.Client(
++        endpoint=env["OVH_ENDPOINT"],
++        application_key=env["OVH_APPLICATION_KEY"],
++        application_secret=env["OVH_APPLICATION_SECRET"],
++        consumer_key=env["OVH_CONSUMER_KEY"],
++    )
++
++
++def _catalog_skus(client: ovh.Client, subsidiary: str) -> list[dict] | dict:
++    """Catalog presence at a billing subsidiary. Returns list of GPU plan rows,
++    or a dict with `error` key if the endpoint rejects this subsidiary
++    (e.g., querying `ovhSubsidiary=FR` against the `ovh-ca` endpoint)."""
++    try:
++        cat = client.get("/order/catalog/public/cloud", ovhSubsidiary=subsidiary)
++    except ovh.exceptions.APIError as exc:
++        return {"error": f"{type(exc).__name__}: {exc}", "subsidiary": subsidiary}
++    rows: list[dict] = []
++    for addon in cat.get("addons", []):
++        pc = (addon.get("planCode") or "").lower()
++        if not any(k in pc for k in GPU_SUBSTRINGS):
++            continue
++        rows.append(
++            {
++                "planCode": addon.get("planCode"),
++                "invoiceName": addon.get("invoiceName"),
++                "blobs_tags": (addon.get("blobs") or {}).get("tags", []),
++                "pricings_count": len(addon.get("pricings") or []),
++            }
++        )
++    return rows
++
++
++def _project_regions(client: ovh.Client, project_id: str) -> list[str]:
++    """Real region codes enabled for the project (e.g., BHS5, GRA9, GRA11)."""
++    return client.get(f"/cloud/project/{project_id}/region")
++
++
++def _project_flavors(client: ovh.Client, project_id: str) -> list[dict]:
++    """UNFILTERED project-wide flavor list (per Codex iter-2 P2)."""
++    return client.get(f"/cloud/project/{project_id}/flavor")
++
++
++def _region_quota(client: ovh.Client, project_id: str, region: str) -> dict:
++    """Per-region quota state."""
++    return client.get(f"/cloud/project/{project_id}/region/{region}/quota")
++
++
++def _region_quota_allowed(client: ovh.Client, project_id: str, region: str) -> dict:
++    """Per-region allowed-quota (what increases the project can request)."""
++    return client.get(f"/cloud/project/{project_id}/region/{region}/quota/allowed")
++
++
++def _order_rule_availability(client: ovh.Client, sku: str) -> dict | None:
++    """Catalog/order-rule availability signal (per Codex iter-2 P2)."""
++    try:
++        return client.get("/cloud/order/rule/availability", planCode=sku)
++    except ovh.exceptions.APIError:
++        return None
++
++
++def probe(env: dict[str, str], project_id: str) -> dict:
++    """Run the full 4+ signal probe; return structured result."""
++    client = _client(env)
++    result: dict = {
++        "probe_utc": datetime.now(timezone.utc).isoformat(),
++        "project_id": project_id,
++        "endpoint": env["OVH_ENDPOINT"],
++        "target_skus": list(TARGET_SKUS),
++    }
++
++    # Signal 1+2: catalog at CA and FR subsidiaries.
++    result["signal_1_catalog_CA"] = _catalog_skus(client, "CA")
++    result["signal_2_catalog_FR"] = _catalog_skus(client, "FR")
++
++    # Signal 3: project flavors (unfiltered, then client-side filter).
++    # Both wrapped in try/except so a single failure doesn't abort the whole
++    # probe (per Codex diff iter-1 P2).
++    try:
++        regions = _project_regions(client, project_id)
++        result["project_regions"] = regions
++    except ovh.exceptions.APIError as exc:
++        result["project_regions"] = []
++        result["project_regions_error"] = str(exc)
++        regions = []
++    try:
++        all_flavors = _project_flavors(client, project_id)
++    except ovh.exceptions.APIError as exc:
++        all_flavors = []
++        result["project_flavors_error"] = str(exc)
++    target_rows = [
++        {
++            "name": f.get("name"),
++            "region": f.get("region"),
++            "available": f.get("available"),
++            "quota": f.get("quota"),
++            "ram": f.get("ram"),
++            "vcpus": f.get("vcpus"),
++        }
++        for f in all_flavors
++        if (f.get("name") in TARGET_SKUS)
++    ]
++    result["signal_3_project_flavors_target"] = target_rows
++    result["project_flavor_total_rows"] = len(all_flavors)
++
++    # Signal 4: per-region quota + allowed-quota for candidate non-US regions.
++    candidate_regions = [r for r in regions if any(r.startswith(p) for p in NON_US_REGION_PREFIXES)]
++    result["candidate_non_us_regions"] = candidate_regions
++    quota_state: dict = {}
++    for region in candidate_regions:
++        entry: dict = {}
++        try:
++            entry["quota"] = _region_quota(client, project_id, region)
++        except ovh.exceptions.APIError as exc:
++            entry["quota_error"] = str(exc)
++        try:
++            entry["allowed"] = _region_quota_allowed(client, project_id, region)
++        except ovh.exceptions.APIError as exc:
++            entry["allowed_error"] = str(exc)
++        quota_state[region] = entry
++    result["signal_4_region_quota"] = quota_state
++
++    # Extra signal: order-rule availability per SKU.
++    result["signal_5_order_rule_availability"] = {
++        sku: _order_rule_availability(client, sku) for sku in TARGET_SKUS
++    }
++
++    # Topology verdict — derive from the actual target-SKU state, not hardcoded.
++    # BOTH target SKUs must have at least one project-flavor row with
++    # available=True AND quota>=1 for the topology to be obtainable.
++    has_h200 = any(
++        r.get("name") == "h200-1920" and r.get("available") and (r.get("quota") or 0) >= 1
++        for r in target_rows
++    )
++    has_h100 = any(
++        r.get("name") == "h100-1520" and r.get("available") and (r.get("quota") or 0) >= 1
++        for r in target_rows
++    )
++    verdict: dict = {
++        "target_skus_obtainable_now": bool(has_h200 and has_h100),
++        "h200_1920_obtainable": has_h200,
++        "h100_1520_obtainable": has_h100,
++        "blockers": [],
++    }
++    if not has_h200:
++        if not any(f.get("name") == "h200-1920" for f in all_flavors):
++            verdict["blockers"].append(
++                "h200-1920 absent from project flavor list entirely — operator must request "
++                "OVH support add this SKU to the project allowlist for a non-US region "
++                "(preferred: GRA9 or GRA11)."
++            )
++        else:
++            verdict["blockers"].append(
++                "h200-1920 present in project flavor list but no row has available=True AND "
++                "quota>=1 — operator must request an OVH quota increase."
++            )
++    if not has_h100:
++        if not any(f.get("name") == "h100-1520" for f in all_flavors):
++            verdict["blockers"].append(
++                "h100-1520 absent from project flavor list entirely — operator must request "
++                "OVH support add this SKU to the project allowlist."
++            )
++        else:
++            verdict["blockers"].append(
++                "h100-1520 present in project flavor list but no row has available=True AND "
++                "quota>=1 in any project region — operator must request an OVH quota "
++                "increase (GRA9/GRA11 candidates)."
++            )
++    result["verdict"] = verdict
++    return result
++
++
++def main() -> int:
++    env = _read_env(ENV_PATH)
++    project_id = "446fccde73604cfbb0758c6012dad6d1"  # state/ovh_infra.md
++    result = probe(env, project_id)
++    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
++    OUT_PATH.write_text(json.dumps(result, indent=2, default=str), encoding="utf-8")
++    summary_lines = [
++        f"probe_utc: {result['probe_utc']}",
++        f"endpoint: {result['endpoint']}",
++        f"project_regions: {', '.join(result['project_regions'])}",
++        f"candidate_non_us_regions: {', '.join(result['candidate_non_us_regions'])}",
++        f"signal_1 catalog@CA: {len(result['signal_1_catalog_CA']) if isinstance(result['signal_1_catalog_CA'], list) else result['signal_1_catalog_CA']}",
++        f"signal_2 catalog@FR: {len(result['signal_2_catalog_FR']) if isinstance(result['signal_2_catalog_FR'], list) else result['signal_2_catalog_FR']}",
++        f"signal_3 project flavors hitting target SKUs:",
++    ]
++    for row in result["signal_3_project_flavors_target"]:
++        summary_lines.append(
++            f"   {row['name']:>16} @ {row['region']:>8} available={row['available']} quota={row['quota']}"
++        )
++    summary_lines.append(f"verdict.target_skus_obtainable_now = {result['verdict']['target_skus_obtainable_now']}")
++    for b in result["verdict"]["blockers"]:
++        summary_lines.append(f"BLOCKER: {b}")
++    print("\n".join(summary_lines))
++    print(f"\nfull JSON: {OUT_PATH}")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 459715f5..617a9cc8 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -600,4 +600,10 @@ Supersedes I-cd-005 (PR #661 — Llama 4 Maverick) AND I-cd-006 sign-off (PR #66
+ Locked: `google/gemma-4-31B-it` (Apache 2.0 + Gemma PUP overlay) + community AWQ `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` for vLLM `--quantization compressed-tensors` on 4×H100. Hard fallback retained: Llama 3.1 405B + AWQ/GPTQ-INT4. Two-family vs DeepSeek V4 Pro: passes (`('deepseek', 'gemma')`). I-cd-008 (GPU topology) paused on `bot/I-cd-008` until this merges.
+ - Diff review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining.
+ 
++## I-cd-008 (#640) — GPU topology confirm + early OVH capacity probe — 2026-05-20
++
++This-session live OVH API probe (endpoint `ovh-ca`, project `446fccde...`): topology designed (8×H200 generator + 4×H100 evaluator on non-US OVH regions), capacity **NOT OBTAINABLE NOW** with named blockers. Operator-action required = OVH support ticket for h200-1920 project allowlist + h100-1520 quota increase in GRA9/GRA11. The non-confirmation IS the deliverable — Seq-8 early-probe surfacing the gap weeks before I-cd-037 hold / I-cd-038 order, exactly as designed.
++- Brief review: iter 1 RC — 1 P1 (Codex own live OVH probe found quota=0 + h200-1920 absent; the Seq-8 gap surfaced; deliverable framing pivoted from "GREEN verified" to "RED with named gap + operator-action escalation") + 5 P2 endpoint + framing corrections (quota-allowed endpoint path correction, region-codes-via-/region, no invented SLA, /cloud/order/rule/availability signal, billing-mode-locks-at-create gotcha). iter 2 APPROVE — 0 P0 / 0 P1, 5 P2 acknowledgments folded into the deliverable doc. tokens 293,531 + ~5k.
++- Diff review: iter 1 RC — 1 P1 (`verdict.target_skus_obtainable_now` hardcoded False, would block future remediation reruns) + 1 P2 (`_project_regions` / `_project_flavors` uncaught-API, single failure aborts before JSON write). Both fixed: verdict now derives per-SKU obtainability (`has_h200 AND has_h100`), uncaught calls wrapped in try/except. iter 2 APPROVE — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining.
++
+ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
+
+# canonical-diff-sha256: 3626ef27bde919dae68ae1791b9af670ab06519244a295e8ccec39754fa723e2
