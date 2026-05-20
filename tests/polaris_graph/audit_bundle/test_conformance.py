@@ -245,3 +245,58 @@ def _copy_canonical_to(dest: Path) -> None:
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(CANONICAL_FIXTURE, dest)
+
+
+# --------------------------------------------------------------------------
+# Codex diff iter-1 P1 — extra="forbid" + reasoning_trace filename enforcement
+# --------------------------------------------------------------------------
+
+def test_bundle_manifest_rejects_unknown_field() -> None:
+    """BundleManifest with `extra="forbid"` rejects unknown top-level field."""
+    minimal = {
+        "decision_id": "d1",
+        "pool_id": "p1",
+        "report_id": "r1",
+        "generator_model": "deepseek/deepseek-v4-pro",
+        "polaris_version": "1.0.0",
+        "files": [],
+    }
+    BundleManifest(**minimal)  # baseline passes
+    with pytest.raises(ValidationError):
+        BundleManifest(**minimal, future_field="boom")
+
+
+def test_file_entry_rejects_unknown_field() -> None:
+    """FileEntry with `extra="forbid"` rejects unknown field."""
+    FileEntry(path="a.txt", sha256="0" * 64, size_bytes=1, content_type="metadata")
+    with pytest.raises(ValidationError):
+        FileEntry(
+            path="a.txt",
+            sha256="0" * 64,
+            size_bytes=1,
+            content_type="metadata",
+            extra_field="boom",
+        )
+
+
+def test_reasoning_trace_filename_mismatch(tmp_path: Path) -> None:
+    """Renaming reasoning_trace.jsonl in the manifest → REASONING_TRACE_FILENAME_MISMATCH.
+
+    Belt-and-suspenders: even if the file content + SHA are correct, the
+    canonical filename must match `manifest_builder.py:55`.
+    """
+    import hashlib
+
+    _copy_canonical_to(tmp_path)
+    # Move the file + rename the manifest entry's path.
+    (tmp_path / "reasoning_trace.jsonl").rename(tmp_path / "trace.jsonl")
+    manifest_path = tmp_path / MANIFEST_FILENAME
+    data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    for entry in data["files"]:
+        if entry["content_type"] == "reasoning_trace":
+            entry["path"] = "trace.jsonl"
+    manifest_path.write_text(yaml.safe_dump(data, sort_keys=True), encoding="utf-8")
+
+    result = check_bundle_conformance(tmp_path)
+    assert not result.valid
+    assert any(e.code == "REASONING_TRACE_FILENAME_MISMATCH" for e in result.errors)

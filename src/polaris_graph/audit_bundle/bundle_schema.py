@@ -31,7 +31,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +57,11 @@ BUNDLE_VERSION = "1.0"
 
 class FileEntry(BaseModel):
     """One file in the bundle, with hash anchor."""
+
+    # I-cd-012 (GH#608) v1.0 freeze: forbid unknown fields so additive
+    # changes (which would be SemVer-breaking) hit the parse rather than
+    # passing silently. Codex diff iter-1 P1.
+    model_config = ConfigDict(extra="forbid")
 
     path: str = Field(
         min_length=1,
@@ -137,6 +142,11 @@ class BundleManifest(BaseModel):
     **FROZEN v1.0 per I-cd-012 (GH#608).** Field changes require the full
     bump cascade documented in this module's top-level docstring.
     """
+
+    # I-cd-012 (GH#608) v1.0 freeze: forbid unknown fields so additive
+    # changes (which would be SemVer-breaking) hit the parse rather than
+    # passing silently. Codex diff iter-1 P1.
+    model_config = ConfigDict(extra="forbid")
 
     bundle_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     bundle_version: Literal["1.0"] = BUNDLE_VERSION

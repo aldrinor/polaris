@@ -141,21 +141,47 @@ def _build_metadata() -> dict:
 
 
 def _build_reasoning_trace_jsonl() -> str:
-    """JSONL: 2 records, one per generator LLM call."""
+    """JSONL: 2 records, one per generator LLM call.
+
+    Schema mirrors `src/polaris_graph/generator/reasoning_trace.py:67
+    ReasoningTraceRecord` (the active producer dataclass). Codex diff
+    iter-1 P1: align with real producer; previous 5-field invented shape
+    diverged from the 15-field production record.
+    """
     records = [
         {
-            "ts_utc": FIXED_TIMESTAMP,
             "call_id": "call_0001",
+            "section": "outline",
+            "call_type": "outline",
             "model": GENERATOR_MODEL,
-            "reasoning_chars": 256,
-            "completion_chars": 128,
+            "status": "ok",
+            "content_source": "direct",
+            "parent_call_id": None,
+            "regen_reason": None,
+            "attempt_n": 1,
+            "reasoning_text": "Outline reasoning trace placeholder for the canonical fixture.",
+            "content_text": "1. Background\n2. Methods\n3. Results\n4. Limitations\n",
+            "input_tokens": 100,
+            "output_tokens": 80,
+            "reasoning_tokens": 200,
+            "timestamp": FIXED_TIMESTAMP,
         },
         {
-            "ts_utc": FIXED_TIMESTAMP,
             "call_id": "call_0002",
+            "section": "Background",
+            "call_type": "section",
             "model": GENERATOR_MODEL,
-            "reasoning_chars": 512,
-            "completion_chars": 200,
+            "status": "ok",
+            "content_source": "direct",
+            "parent_call_id": "call_0001",
+            "regen_reason": None,
+            "attempt_n": 1,
+            "reasoning_text": "Section reasoning trace placeholder for the canonical fixture.",
+            "content_text": "Background prose placeholder.",
+            "input_tokens": 200,
+            "output_tokens": 150,
+            "reasoning_tokens": 400,
+            "timestamp": FIXED_TIMESTAMP,
         },
     ]
     return "".join(json.dumps(rec, sort_keys=True) + "\n" for rec in records)

@@ -21,8 +21,8 @@ files:
   size_bytes: 211
 - content_type: reasoning_trace
   path: reasoning_trace.jsonl
-  sha256: 0c63cfc741cd6c42713e6bd56cd6a4544575dd96778fd047ce056d982a6d5cc5
-  size_bytes: 300
+  sha256: 6f4fd0efd23dbbb4072008ec094059dc064c1068da71fd206da95f8ac47ae613
+  size_bytes: 949
 - content_type: source_snapshot
   path: sources/src_v1_canonical_0001.txt
   sha256: 8d308259726e2dd27ebfc09e9122a9042b3c159b8180d4de42839991d29d2d23

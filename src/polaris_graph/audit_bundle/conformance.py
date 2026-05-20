@@ -62,6 +62,9 @@ from polaris_graph.scope.scope_decision import ScopeDecision
 
 MANIFEST_FILENAME = "manifest.yaml"
 SIGNATURE_FILENAME = "manifest.yaml.asc"
+# Mirrors `src/polaris_graph/generator/reasoning_trace.py:34
+# REASONING_TRACE_FILENAME` — the active producer constant. A
+# bundle that renames this file must bump BUNDLE_VERSION.
 REASONING_TRACE_FILENAME = "reasoning_trace.jsonl"
 
 # All ContentType members required for a v1.0 bundle.
@@ -164,6 +167,22 @@ def check_bundle_conformance(extracted_dir: Path) -> ConformanceResult:
             )
             result.valid = False
 
+    # --- 4b. Reasoning-trace path MUST equal the canonical filename --
+    # Codex diff iter-1 P1: without this, a bundle can rename
+    # reasoning_trace.jsonl to trace.jsonl, update the manifest path,
+    # and still pass valid=True, diverging from the active producer
+    # constant in generator/reasoning_trace.py:34.
+    for entry in manifest.files:
+        if entry.content_type == "reasoning_trace" and entry.path != REASONING_TRACE_FILENAME:
+            result.add(
+                "REASONING_TRACE_FILENAME_MISMATCH",
+                f"reasoning_trace path {entry.path!r} != canonical "
+                f"{REASONING_TRACE_FILENAME!r} (see "
+                f"src/polaris_graph/generator/reasoning_trace.py:34)",
+                path=entry.path,
+            )
+            result.valid = False
+
     # --- 5-8. Per-file path resolution + existence + hash + size -----
     by_content_type: dict[ContentType, list[Path]] = {}
     for entry in manifest.files:
@@ -198,8 +217,21 @@ def check_bundle_conformance(extracted_dir: Path) -> ConformanceResult:
             result.valid = False
             continue
 
-        # Layer 7: SHA256 matches.
-        actual_sha = hashlib.sha256(resolved.read_bytes()).hexdigest()
+        # Layer 7: SHA256 matches. Wrap read_bytes/stat so a directory
+        # path or read error surfaces as a structured ConformanceError
+        # rather than raising out of the check (Codex diff iter-1 P2).
+        try:
+            file_bytes = resolved.read_bytes()
+            actual_size = resolved.stat().st_size
+        except OSError as exc:
+            result.add(
+                "FILE_READ_ERROR",
+                f"path {entry.path!r} could not be read: {exc}",
+                path=entry.path,
+            )
+            result.valid = False
+            continue
+        actual_sha = hashlib.sha256(file_bytes).hexdigest()
         if actual_sha != entry.sha256:
             result.add(
                 "SHA256_MISMATCH",
@@ -210,7 +242,6 @@ def check_bundle_conformance(extracted_dir: Path) -> ConformanceResult:
             continue
 
         # Layer 8: size matches.
-        actual_size = resolved.stat().st_size
         if actual_size != entry.size_bytes:
             result.add(
                 "SIZE_MISMATCH",

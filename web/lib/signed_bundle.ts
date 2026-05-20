@@ -72,15 +72,25 @@ export interface BundleManifest {
 // Reasoning trace — JSONL (one record per generator LLM call)
 // ---------------------------------------------------------------------------
 
+// Mirrors src/polaris_graph/generator/reasoning_trace.py:67
+// ReasoningTraceRecord (the active producer dataclass). 15 fields.
+// Codex diff iter-1 P1: previous 5-field shape diverged from real producer.
 export interface ReasoningTraceRecord {
-  ts_utc: string;
   call_id: string;
+  section: string;
+  call_type: string;
   model: string;
-  reasoning_chars: number;
-  completion_chars: number;
-  // Producers may add additional opaque keys; consumers should not
-  // reject unknown keys.
-  [extra: string]: unknown;
+  status: string; // see reasoning_trace.py STATUSES
+  content_source: string; // see reasoning_trace.py CONTENT_SOURCES
+  parent_call_id: string | null;
+  regen_reason: string | null;
+  attempt_n: number;
+  reasoning_text: string;
+  content_text: string;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  timestamp: string; // ISO-8601 UTC
 }
 
 // ---------------------------------------------------------------------------
