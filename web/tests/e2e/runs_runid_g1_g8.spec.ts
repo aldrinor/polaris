@@ -7,6 +7,9 @@ const BANNED_DEV_LANGUAGE = [
   /\bscaffold\b/i,
   /\bplaceholder\b/i,
   /\bphase 0\b/i,
+  /\bphase 1\b/i, // Codex iter-2 P1: guard against reintroduction.
+  /\bphase 2[a-z]?\b/i, // Phase 2A / Phase 2B
+  /\bF4 plan\b/i,
   /\bpost[- ]carney\b/i,
   /\bi-cd-/i,
 ];
@@ -54,7 +57,10 @@ test("G8: /runs/[runId] renders with zero console errors", async ({ page }) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
   await page.goto(`/runs/${TEST_RUN_ID}`);
-  await page.waitForLoadState("networkidle");
+  // Use domcontentloaded; networkidle would hang on the live SSE
+  // EventSource subscription this page opens (Codex iter-2 P1 fix).
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForTimeout(1500); // surface async post-mount errors
   expect(errors).toEqual([]);
 });
 
