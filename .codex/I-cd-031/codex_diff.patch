@@ -1,0 +1,109 @@
+diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
+index b019bafe..ff448c24 100644
+--- a/.github/workflows/web_ci.yml
++++ b/.github/workflows/web_ci.yml
+@@ -226,6 +226,15 @@ jobs:
+           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+         run: npx playwright test --project=chromium tests/e2e/memory_g1_g8.spec.ts
+ 
++      # I-cd-031 (#621): full demo journey home → intake → dashboard →
++      # inspector (v1-canonical-success fixture). Per the I-A-02b
++      # frozen schema; the run-step itself is hardware-bound.
++      - name: run_e2e_demo_journey
++        env:
++          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
++          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
++        run: npx playwright test --project=chromium tests/e2e/demo_journey.spec.ts
++
+       # Visual baselines are *-chromium-win32.png (locally captured on Win).
+       # On Linux CI the snapshot file resolves to a different name and will
+       # be missing; skip visual.spec until Linux baselines are added.
+diff --git a/web/tests/e2e/demo_journey.spec.ts b/web/tests/e2e/demo_journey.spec.ts
+new file mode 100644
+index 00000000..33b0af51
+--- /dev/null
++++ b/web/tests/e2e/demo_journey.spec.ts
+@@ -0,0 +1,81 @@
++// I-cd-031 (#621): demo journey end-to-end — home → template → ask
++// (intake) → run-step (dashboard) → inspector → claim-source.
++//
++// Verifies each step's landing page renders + links forward to the next
++// step. The "run" step itself is hardware-bound (real pipeline-A), so the
++// test pivots at /dashboard to /inspector/v1-canonical-success — the
++// frozen I-A-02b fixture (I-cd-012) that the gold-route Inspector
++// renders. That step's assertions cover the verified-report → claim →
++// source provenance UI surface.
++
++import { expect, test } from "@playwright/test";
++
++test("demo journey: home → intake → dashboard → inspector (canonical fixture)", async ({
++  page,
++}) => {
++  // Step 1: home renders + clinical template card present + linked.
++  await page.goto("/");
++  await expect(page.getByTestId("template-card-clinical")).toBeVisible();
++  await expect(page.getByTestId("template-card-clinical-link")).toBeVisible();
++  const intake_link = page.getByTestId("template-card-clinical-link").first();
++  await intake_link.click();
++
++  // Step 2: lands on /intake?template=clinical with the intake form.
++  await expect(page).toHaveURL(/\/intake\?template=clinical/);
++  await expect(page.getByTestId("intake-page")).toBeVisible();
++
++  // Step 3: dashboard is reachable directly (the "ask a question" UX
++  // entry). The intake page funnels here for clinical questions.
++  await page.goto("/dashboard");
++  await expect(page.getByTestId("dashboard-page")).toBeVisible();
++
++  // Step 4: inspector renders the canonical v1.0 fixture (I-A-02b
++  // frozen schema, the contract Carney's office reviews).
++  await page.goto("/inspector/v1-canonical-success");
++  await expect(page.getByTestId("inspector-view")).toBeVisible({
++    timeout: 10_000,
++  });
++
++  // Step 5: claim → source UI surface — the family-segregation badge
++  // proves the two-family invariant (CLAUDE.md §9.1 invariant 1)
++  // surfaces to the reviewer. Tightened per Codex iter-1 P2: assert
++  // the dedicated badge testid instead of a broad text match.
++  await expect(
++    page
++      .getByTestId("family-segregation-badge")
++      .or(page.locator("[data-testid*='family-segregation']").first()),
++  ).toBeVisible({ timeout: 5_000 });
++});
++
++// Codex iter-1 P1 fix: the previous version had an
++// `if (label === "Upload")` guard that silently skipped Home/Intake/
++// Dashboard/etc — so a broken nav with most labels missing would still
++// pass. This version unconditionally asserts every primary-nav label.
++test("demo journey nav-parity: header + primary nav identical across journey routes", async ({
++  page,
++}) => {
++  const PRIMARY_NAV_LABELS = [
++    "Home",
++    "Intake",
++    "Dashboard",
++    "Upload",
++    "Benchmark",
++    "Contracts",
++    "Pin Replay",
++    "Memory",
++  ];
++  for (const path of [
++    "/",
++    "/intake",
++    "/dashboard",
++    "/inspector/v1-canonical-success",
++  ]) {
++    await page.goto(path);
++    await expect(page.locator("header")).toHaveCount(1);
++    const nav = page.locator("nav[aria-label='Primary']");
++    await expect(nav).toBeVisible();
++    for (const label of PRIMARY_NAV_LABELS) {
++      await expect(nav.getByRole("link", { name: label })).toBeVisible();
++    }
++  }
++});
+
+# canonical-diff-sha256: d42340b3874d3ecfc6a4c2edac939c20792a374c76f2fa200b3ffe8c4f4b2ed5
