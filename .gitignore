@@ -240,3 +240,7 @@ outputs/codex_findings/round_*/last_message.txt
 .codex/**/codex_diff_audit_iter*.txt
 .codex/*/codex_*review*.txt
 .codex/*/codex_*_review_iter*.txt
+
+# I-cd-012 (GH#608): canonical signed-bundle fixture content MUST be tracked
+!tests/fixtures/signed_bundle/
+!tests/fixtures/signed_bundle/**

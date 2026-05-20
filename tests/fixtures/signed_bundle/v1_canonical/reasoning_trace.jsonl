@@ -1,0 +1,2 @@
+{"call_id": "call_0001", "completion_chars": 128, "model": "deepseek/deepseek-v4-pro", "reasoning_chars": 256, "ts_utc": "2026-05-19T00:00:00+00:00"}
+{"call_id": "call_0002", "completion_chars": 200, "model": "deepseek/deepseek-v4-pro", "reasoning_chars": 512, "ts_utc": "2026-05-19T00:00:00+00:00"}
