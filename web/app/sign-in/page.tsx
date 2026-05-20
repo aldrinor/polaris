@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 import { login } from "@/lib/auth";
@@ -16,8 +16,66 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
+/**
+ * I-cd-014 (GH#610): same-origin validation for `?next=` redirect.
+ *
+ * Rejects:
+ *   - non-string / empty values
+ *   - URL parse failures
+ *   - URLs that, when parsed against `window.location.origin`, resolve to
+ *     a different origin (protocol-relative `//evil.com`, absolute
+ *     `http://...`, backslash-as-separator `/\evil.com` — all caught by
+ *     the URL parser).
+ *   - fragment-only / hash-only navigation (e.g. `#frag`) — these are
+ *     same-origin but offer no real navigation, so we fall back to `/`.
+ *
+ * Returns the validated `pathname + search + hash` or `"/"`.
+ */
+function safeNextPath(next: string | null): string {
+  if (!next) return "/";
+  if (typeof window === "undefined") return "/";
+  try {
+    const parsed = new URL(next, window.location.origin);
+    if (parsed.origin !== window.location.origin) return "/";
+    // Reject fragment-only / hash-only / empty pathname — they leave the
+    // user on the sign-in route with just a fragment appended.
+    if (!parsed.pathname || parsed.pathname === "/sign-in") return "/";
+    return parsed.pathname + parsed.search + parsed.hash;
+  } catch {
+    return "/";
+  }
+}
+
+/**
+ * I-cd-014 (GH#610): Next.js App Router requires `useSearchParams()` users
+ * to be wrapped in a Suspense boundary (or the route opts into dynamic
+ * rendering). Wrapping the form here is the lighter-weight choice and
+ * matches the existing repo convention.
+ */
 export default function SignInPage() {
+  return (
+    <Suspense fallback={<SignInPageFallback />}>
+      <SignInPageContent />
+    </Suspense>
+  );
+}
+
+function SignInPageFallback() {
+  return (
+    <div className="bg-muted/40 flex min-h-screen flex-col items-center justify-center px-6 py-12">
+      <div
+        className="text-muted-foreground text-sm"
+        data-testid="sign-in-loading"
+      >
+        Loading sign-in…
+      </div>
+    </div>
+  );
+}
+
+function SignInPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +88,8 @@ export default function SignInPage() {
     const result = await login(username.trim(), password);
     setPending(false);
     if (result.ok) {
-      router.push("/");
+      const next = safeNextPath(searchParams.get("next"));
+      router.push(next);
       router.refresh();
     } else {
       setError(result.error ?? "Sign-in failed.");
@@ -50,7 +109,7 @@ export default function SignInPage() {
         </div>
 
         <Card>
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} data-testid="sign-in-form">
             <CardHeader>
               <CardTitle>Sign in</CardTitle>
               <CardDescription>
@@ -97,6 +156,7 @@ export default function SignInPage() {
               {error ? (
                 <p
                   role="alert"
+                  data-testid="sign-in-error"
                   className="text-destructive text-sm font-medium"
                 >
                   {error}
@@ -106,6 +166,7 @@ export default function SignInPage() {
             <CardFooter className="flex flex-col gap-3">
               <Button
                 type="submit"
+                data-testid="sign-in-submit"
                 className="w-full"
                 disabled={pending || !username || !password}
               >
@@ -118,15 +179,11 @@ export default function SignInPage() {
                 nativeButton={false}
                 render={<Link href="/" />}
               >
-                Back to dashboard
+                Back to home
               </Button>
             </CardFooter>
           </form>
         </Card>
-
-        <p className="text-muted-foreground text-center text-xs">
-          POLARIS v6.2 — sovereign Canadian deep research
-        </p>
       </div>
     </div>
   );

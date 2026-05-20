@@ -19,7 +19,7 @@ The active Carney demo deploy path. Replaces `infra/aws.archived/` (US-owned, fa
 4. GPG demo signing key generated on operator workstation: `bash scripts/bootstrap_gpg_demo_key.sh`. Produces `outputs/polaris_demo_pubkey.asc` and a fingerprint in `state/polaris_gpg_keyid.txt`. ALSO export the secret: `gpg --homedir ~/.gnupg-polaris --armor --export-secret-key "POLARIS Carney Demo" > polaris_demo_secret.asc`.
 5. Serper API key from https://serper.dev/ — the web search backend. US-based, disclosed exception per operator directive 2026-05-13 (search queries non-confidential; reports stay sovereign). REQUIRED.
 6. OVH H200 server provisioned in BHS — see `docs/ovh_h200_procurement_spec.md`. Note its private IP; default vLLM endpoint is `http://10.0.0.42:8000/v1`.
-7. bcrypt-hashed `static_accounts.yaml` prepared locally (template at `config/static_accounts.example.yaml`).
+7. bcrypt-hashed `static_accounts.yaml` prepared locally **outside the repo** (e.g., `/tmp/polaris_secrets/static_accounts.yaml`); template structure at `config/static_accounts.example.yaml`. I-cd-014 (GH#610): the real file MUST NEVER be staged inside `config/` — it is gitignored AND dockerignored to prevent accidental check-in or Docker-image inclusion.
 
 ## Deploy (single command)
 
@@ -28,7 +28,11 @@ The active Carney demo deploy path. Replaces `infra/aws.archived/` (US-owned, fa
 scp infra/vexxhost/.env.example root@polaris.<domain>:/root/.env  # edit first
 scp outputs/polaris_demo_pubkey.asc root@polaris.<domain>:/root/
 scp ~/polaris_demo_secret.asc       root@polaris.<domain>:/root/
-scp config/static_accounts.yaml     root@polaris.<domain>:/root/  # filled-in version
+# I-cd-014: NEVER scp from inside the repo. Operator-local source path is
+# /tmp/polaris_secrets/static_accounts.yaml (outside repo); destination is
+# /root/static_accounts.yaml on the VM — `infra/vexxhost/provision.sh:102-107`
+# then copies it to /etc/polaris/static_accounts.yaml.
+scp /tmp/polaris_secrets/static_accounts.yaml root@polaris.<domain>:/root/static_accounts.yaml
 scp infra/vexxhost/provision.sh     root@polaris.<domain>:/root/
 
 # 2. Run provisioning.

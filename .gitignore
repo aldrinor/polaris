@@ -84,6 +84,12 @@ state/polaris_restart/cleanup_manifest_sidecars/*
 state/polaris_restart/codex_verdict_*.txt
 state/polaris_restart/*_verdict_iter_*.txt
 
+# I-cd-014 (GH#610): real static_accounts.yaml MUST NOT be in repo.
+# Operator provisions at /etc/polaris/static_accounts.yaml in deployment
+# (see docs/carney_demo_runbook.md "Auth setup"). The .example file
+# stays tracked as a template.
+config/static_accounts.yaml
+
 # --- Large trace files ---
 *.jsonl
 # Plan v13 §I exception: track durable audit logs + verdict trails.

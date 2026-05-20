@@ -1,0 +1,30 @@
+# I-cd-014 (GH#610): Playwright e2e fixture — test-only static accounts.
+#
+# *** TEST-ONLY CREDENTIALS — DO NOT REUSE IN PRODUCTION ***
+#
+# These bcrypt hashes are committed to the repo. They are intended ONLY
+# for `web/tests/e2e/sign_in.spec.ts` driving the live backend with a
+# known-good account/password pair. Production accounts MUST never use
+# these passwords. Production credentials live OUTSIDE the repo at
+# `/etc/polaris/static_accounts.yaml` per docs/carney_demo_runbook.md.
+#
+# Test passwords (known plaintext for the e2e to type):
+#   carney_office: "carney-test-password"
+#   ops:           "ops-test-password"
+#
+# Bcrypt cost: 12 rounds (matches production passlib config).
+#
+# Regenerate with:
+#   python -c "from passlib.hash import bcrypt; print(bcrypt.using(rounds=12).hash('carney-test-password'))"
+#   python -c "from passlib.hash import bcrypt; print(bcrypt.using(rounds=12).hash('ops-test-password'))"
+
+accounts:
+  - username: carney_office
+    # bcrypt of "carney-test-password" (rounds=12)
+    password_bcrypt: "$2b$12$G.n6O59Ek.SAkiMMSrfPVu1WwMXcXqN..m39tW8S3Mx7EswB9NBv2"
+    role: reviewer
+
+  - username: ops
+    # bcrypt of "ops-test-password" (rounds=12)
+    password_bcrypt: "$2b$12$5OpYIrbE95lzw3UAWNtKwe5U/68AGg.TZwokcBH3MtzOexS229vGG"
+    role: admin
