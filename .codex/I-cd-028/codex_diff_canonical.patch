@@ -1,0 +1,133 @@
+diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
+index 90cf1080..d65e35b6 100644
+--- a/.github/workflows/web_ci.yml
++++ b/.github/workflows/web_ci.yml
+@@ -205,6 +205,13 @@ jobs:
+           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+         run: npx playwright test --project=chromium tests/e2e/benchmark_g1_g8.spec.ts
+ 
++      # I-cd-028 (#618): /contracts route G1-G8 acceptance gates.
++      - name: run_e2e_contracts_g1_g8
++        env:
++          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
++          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
++        run: npx playwright test --project=chromium tests/e2e/contracts_g1_g8.spec.ts
++
+       # Visual baselines are *-chromium-win32.png (locally captured on Win).
+       # On Linux CI the snapshot file resolves to a different name and will
+       # be missing; skip visual.spec until Linux baselines are added.
+diff --git a/web/app/contracts/page.tsx b/web/app/contracts/page.tsx
+index 8b1b68ea..1228a377 100644
+--- a/web/app/contracts/page.tsx
++++ b/web/app/contracts/page.tsx
+@@ -6,16 +6,22 @@ export const metadata = {
+     "Declare expected entities, claims, jurisdictions, and source coverage before generation runs.",
+ };
+ 
++// I-cd-028 (#618): /contracts rebuild — G1+G6 fix. Page uses
++// AppShell's <main> via the wrapper <section data-testid="contracts-page">.
++// G2: removed Issue id + env-var name from user-visible copy.
+ export default function ContractsPage() {
+   return (
+-    <div className="mx-auto max-w-3xl px-6 py-8">
++    <section
++      data-testid="contracts-page"
++      className="mx-auto max-w-3xl px-6 py-8"
++    >
+       <h1 className="mb-2 text-2xl font-semibold">Evidence Contract editor</h1>
+       <p className="text-muted-foreground mb-6 text-sm">
+-        Define what the report MUST address before generation runs. The Evidence
+-        Contract Gate (I-ecg-002) will refuse generation if the contract is
+-        missing or unsatisfied (when POLARIS_REQUIRE_CONTRACT=1).
++        Define what the report must address before generation runs. The Evidence
++        Contract Gate refuses generation when the contract is missing or
++        unsatisfied (configurable per deployment).
+       </p>
+       <ContractEditor />
+-    </div>
++    </section>
+   );
+ }
+diff --git a/web/tests/e2e/contracts_g1_g8.spec.ts b/web/tests/e2e/contracts_g1_g8.spec.ts
+new file mode 100644
+index 00000000..2a699543
+--- /dev/null
++++ b/web/tests/e2e/contracts_g1_g8.spec.ts
+@@ -0,0 +1,77 @@
++// I-cd-028 (#618): /contracts route G1-G8 acceptance gates.
++
++import { expect, test } from "@playwright/test";
++
++const BANNED_DEV_LANGUAGE = [
++  /\bslice\b/i,
++  /\bscaffold\b/i,
++  /\bplaceholder\b/i,
++  /\bphase 0\b/i,
++  /\bphase 1\b/i,
++  /\bphase 2[a-z]?\b/i,
++  /\bF4 plan\b/i,
++  /\bpost[- ]carney\b/i,
++  /\bi-cd-/i,
++  /\bi-ecg-/i,
++  /POLARIS_REQUIRE_CONTRACT/i,
++];
++
++test("G1 + G6: /contracts has exactly one header + one main", async ({
++  page,
++}) => {
++  await page.goto("/contracts");
++  await expect(page.locator("header")).toHaveCount(1);
++  await expect(page.locator("main")).toHaveCount(1);
++});
++
++test("G2: /contracts contains no banned dev-language strings (body + titles + aria-labels)", async ({
++  page,
++}) => {
++  await page.goto("/contracts");
++  const body_text = (await page.locator("body").textContent()) || "";
++  const title_text =
++    (await page
++      .locator("[title]")
++      .evaluateAll((els: Element[]) =>
++        els.map((el) => el.getAttribute("title") || "").join(" · "),
++      )) || "";
++  const aria_text =
++    (await page
++      .locator("[aria-label]")
++      .evaluateAll((els: Element[]) =>
++        els.map((el) => el.getAttribute("aria-label") || "").join(" · "),
++      )) || "";
++  const all_text = `${body_text} · ${title_text} · ${aria_text}`;
++  for (const banned of BANNED_DEV_LANGUAGE) {
++    expect(all_text).not.toMatch(banned);
++  }
++});
++
++test("G1 nav parity: primary nav visible on /contracts", async ({ page }) => {
++  await page.goto("/contracts");
++  const nav = page.locator("nav[aria-label='Primary']");
++  await expect(nav).toBeVisible();
++  for (const label of [
++    "Home",
++    "Intake",
++    "Dashboard",
++    "Upload",
++    "Benchmark",
++    "Contracts",
++    "Pin Replay",
++    "Memory",
++  ]) {
++    await expect(nav.getByRole("link", { name: label })).toBeVisible();
++  }
++});
++
++test("G8: /contracts renders with zero console errors", async ({ page }) => {
++  const errors: string[] = [];
++  page.on("console", (msg) => {
++    if (msg.type() === "error") errors.push(msg.text());
++  });
++  await page.goto("/contracts");
++  await page.waitForLoadState("domcontentloaded");
++  await page.waitForTimeout(1500);
++  expect(errors).toEqual([]);
++});
