@@ -170,6 +170,13 @@ jobs:
           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
         run: npx playwright test --project=chromium tests/e2e/home_g1_g8.spec.ts
 
+      # I-cd-023 (#613): /intake route G1-G8 acceptance gates.
+      - name: run_e2e_intake_g1_g8
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/intake_g1_g8.spec.ts
+
       # Visual baselines are *-chromium-win32.png (locally captured on Win).
       # On Linux CI the snapshot file resolves to a different name and will
       # be missing; skip visual.spec until Linux baselines are added.
