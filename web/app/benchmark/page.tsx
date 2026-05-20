@@ -24,13 +24,8 @@ export default function BenchmarkPage() {
             </span>
           </div>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              nativeButton={false}
-              render={<Link href="/generation" />}
-            >
-              Generation
-            </Button>
+            {/* I-cd-015 (GH#611): /generation is a dev-only harness route;
+                the prod middleware 404s it. Removed the dead link button. */}
             <Button
               variant="outline"
               nativeButton={false}

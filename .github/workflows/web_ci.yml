@@ -102,6 +102,13 @@ jobs:
           exit 1
 
       - name: build_and_start_next
+        # I-cd-015 (GH#611): POLARIS_TEST_HARNESS_ENABLED=1 lets the prod
+        # build serve harness routes for tests that depend on them
+        # (evidence_tooltip_perf etc.). Real production leaves this UNSET
+        # and the middleware 404s /charts_test/*, /sentence_hover_test/*,
+        # /disambiguation_modal_preview/*, /generation/*, /retrieval/*, /sse/*.
+        env:
+          POLARIS_TEST_HARNESS_ENABLED: "1"
         run: |
           npm run build
           nohup npx next start -p 3738 > /tmp/next.log 2>&1 &
@@ -136,6 +143,10 @@ jobs:
         run: npx playwright test --project=chromium tests/e2e/performance.spec.ts
 
       # I-f6-005: 100x tooltip mount-cycle render budget locked at <100ms.
+      # I-cd-015: this spec hits /sentence_hover_test/perf (a harness
+      # route). The next start step above sets POLARIS_TEST_HARNESS_ENABLED=1
+      # so the middleware passes through; real production leaves it UNSET
+      # and 404s the harness paths.
       - name: run_e2e_evidence_tooltip_perf
         env:
           SCREENSHOT_BASE_URL: http://127.0.0.1:3738
