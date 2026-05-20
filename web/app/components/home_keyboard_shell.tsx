@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { NavLink } from "@/components/nav_link";
 import { Button } from "@/components/ui/button";
 
 import { CommandPalette } from "./command_palette";
@@ -17,6 +18,21 @@ type Template = {
 };
 
 type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+
+// I-cd-022 (#612): primary nav now lives in the home header too, so /
+// matches the global app-shell nav (G1: "global header/sidebar nav is
+// present and identical"). When AppShell is suppressed on `/` via
+// AppShellGate, the home page's <header> is THE app shell for this route.
+const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+  { href: "/", label: "Home" },
+  { href: "/intake", label: "Intake" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/upload", label: "Upload" },
+  { href: "/benchmark", label: "Benchmark" },
+  { href: "/contracts", label: "Contracts" },
+  { href: "/pin_replay", label: "Pin Replay" },
+  { href: "/memory", label: "Memory" },
+];
 
 export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
   const [palette_open, set_palette_open] = useState(false);
@@ -37,17 +53,22 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
   return (
     <>
       <header className="border-border bg-background border-b">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex flex-col">
-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
-              POLARIS Canada
-            </span>
-            <span className="text-foreground text-base font-semibold">
-              Sovereign Deep Research
-            </span>
-          </div>
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <nav className="flex items-center gap-1" aria-label="Primary">
+            {PRIMARY_NAV.map((item) => (
+              <NavLink key={item.href} href={item.href}>
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
           <Button
-            variant="default"
+            variant="outline"
             nativeButton={false}
             render={
               <Link

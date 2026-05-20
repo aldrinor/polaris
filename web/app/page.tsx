@@ -133,7 +133,7 @@ export default function HomePage() {
                 Research templates
               </h2>
               <span className="text-muted-foreground text-xs tracking-widest uppercase">
-                1 active · 7 to-build
+                1 active · 7 in development
               </span>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -211,8 +211,8 @@ export default function HomePage() {
 
         <footer className="border-border bg-background border-t">
           <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
-            <span>POLARIS v6.2 — slices 1-5 shipped</span>
-            <span>Sovereign Canadian deep research</span>
+            <span>POLARIS · Sovereign Canadian deep research</span>
+            <span>Two-family verified evidence</span>
           </div>
         </footer>
       </HomeKeyboardShell>
