@@ -778,6 +778,19 @@ evidence, PREFER the primary trial paper for claims about that
 specific trial. Use the review only for cross-trial integration or
 as a secondary citation.
 
+PRIMARY-SOURCE-OVER-DERIVATIVE RULE (I-cd-033 / #586 / I-bug-117):
+When TWO OR MORE evidence pieces contain the SAME numeric value
+(e.g., the same percentage, count, or dollar amount), cite the
+PRIMARY SOURCE (the originator that first published the number) and
+NOT a derivative source that quotes it. Concrete pattern surfaced in
+the workforce-domain audit: gen-AI occupational-exposure decimals
+"75.5% / 68.4% / 62.6%" were published by PWBM (Penn Wharton Budget
+Model, 2025) — a Goldman Sachs 2023 report that re-cites them is a
+derivative. Tier signal: PWBM is a primary research institute [T1/T3]
+while Goldman Sachs derivative commentary is policy-institute [T6].
+For any claim involving a specific decimal that appears in BOTH a
+primary research source AND a derivative source, cite the primary.
+
 Scope discipline: the question is about a specific population (see FOCUS above). When evidence is from a DIFFERENT population (e.g., obesity-without-diabetes evidence in a T2D question), flag it: "in a related obesity trial without diabetes [ev_XXX]" — do NOT present it as direct evidence for the scoped population.
 
 Hedging: adjust claim strength to evidence strength. A single indirect-treatment-comparison is weaker than a direct head-to-head RCT; a post-hoc subgroup analysis is weaker than the primary pre-specified endpoint. Use "one analysis reports" / "a post-hoc subgroup analysis found" / "an indirect comparison estimated" rather than a bare declarative.
