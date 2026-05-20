@@ -1,0 +1,315 @@
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 8e314b80..19ce630b 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -53,7 +53,11 @@ services:
+     ports:
+       - "${VLLM_PORT:-8200}:8000"
+     environment:
+-      - MODEL=${VLLM_MODEL:-meta-llama/Llama-3.1-70B-Instruct}
++      # I-cd-010 / GH#625: Carney demo evaluator artifact fallback (Gemma 4
++      # 31B-it INT4 AWQ W4A16). Full --quantization compressed-tensors +
++      # --tensor-parallel-size 4 + GPU resource block wiring deferred to
++      # I-cd-038 deployment. Active deployments set VLLM_MODEL explicitly.
++      - MODEL=${VLLM_MODEL:-ebircak/gemma-4-31B-it-4bit-W4A16-AWQ}
+       - TENSOR_PARALLEL_SIZE=${VLLM_TENSOR_PARALLEL:-1}
+       - MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-32768}
+       - GPU_MEMORY_UTILIZATION=0.90
+diff --git a/docs/gemma_4_verification.md b/docs/gemma_4_verification.md
+index 42d30914..289f0251 100644
+--- a/docs/gemma_4_verification.md
++++ b/docs/gemma_4_verification.md
+@@ -139,19 +139,22 @@ Note: Google labels the AIME benchmark "AIME 2026 no tools" on the card. Whether
+ 
+ These figures are strong for an open-weights 31B model and are more than sufficient for the Global Verifier role per Plan v13 §F architecture: the verifier detects grounding failures, hedging gaps, and family-disagreement. Gemma 4 31B is selected for verifier specifically because it is a *different lineage* from DeepSeek V4 (preserves the two-family segregation invariant) — quality at this level is a bonus, not the selection criterion.
+ 
+-### 4.2 Named fallback: Llama 4 Scout 109B (MoE)
++### 4.2 Named fallback (post-I-cd-010): FP16 `google/gemma-4-31B-it` at TP=4
+ 
+-If Gemma 4 31B verification fails (e.g. discovered behavioral pathology, license-policy reinterpretation, or Phase 4 NVFP4 serving issues): **Llama 4 Scout 109B-MoE** is the canonical fallback per `docs/task_acceptance_matrix.yaml task_0_8.green_criteria`.
++If the AWQ W4A16 (`ebircak/gemma-4-31B-it-4bit-W4A16-AWQ`) serving recipe locked in I-cd-009 fails empirically at the I-cd-011 readiness spike (kernel incompatibility, throughput collapse, structured-output issues): **fall back to FP16 `google/gemma-4-31B-it` at `--tensor-parallel-size 4`** on the same 4×H100 evaluator box. This is the demo safety net.
+ 
+-| Property | Llama 4 Scout 109B | Source |
++| Property | FP16 `google/gemma-4-31B-it` (TP=4) | Source |
+ |---|---|---|
+-| Architecture | 109B parameters Mixture-of-Experts | Meta model card |
+-| Active parameters | ~17B (MoE routing) | Meta model card |
+-| License | Llama 4 Community License | Meta |
+-| Lineage | Meta (distinct from DeepSeek + Google) | preserves two-family invariant |
+-| Serving | vLLM + SGLang both support Llama 4 MoE | published recipes |
++| Architecture | 30.7B parameters, Dense | Google model card |
++| License | Apache 2.0 + Gemma Use Policy | Google |
++| Lineage | Google (Gemma) — same lineage as the locked variant | preserves two-family invariant |
++| Weight residency | ~62GB FP16 across 4×H100 = 320GB HBM | vLLM `--tensor-parallel-size 4` |
++| Serving | `vllm serve google/gemma-4-31B-it --tensor-parallel-size 4` | docs.vllm.ai recipe (§3.1) |
++| Tradeoff vs AWQ | Trades context-window headroom (62GB weights vs 16GB) for the most-mature serving path | I-cd-009 audit |
+ 
+-Triggering the fallback requires user-signed canonical reconciliation per Plan v13 §F (no SILENT fallback). The fallback path is documented here so that, if invoked, the substitute model has been pre-vetted at the same proof-level as Gemma 4 (license, benchmarks, lineage segregation).
++Triggering the fallback requires user-signed canonical reconciliation per Plan v13 §F (no SILENT fallback). The fallback path is documented here so that, if invoked at I-cd-011, the substitute serves the SAME evaluator model in a different quantization — preserving the two-family invariant and the Gemma 4 31B-it evaluator lock without re-running the licensing/benchmark vetting that produced the original Codex APPROVE.
++
++**Why the rewrite (post-I-cd-010 history note):** Earlier versions of this section named Llama 4 Scout 109B-MoE as the fallback. That predates I-cd-005-followup (PR #664) which locked the evaluator to Gemma 4 31B-it specifically. A cross-lineage Llama 4 fallback would force a re-run of the license sign-off + family-segregation invariant; the same-model FP16 fallback closes the safety-net loop without that cost.
+ 
+ ### 4.3 vLLM/SGLang serving-recipe verification — Phase-4-deferred (explicit)
+ 
+diff --git a/docs/task_acceptance_matrix.yaml b/docs/task_acceptance_matrix.yaml
+index 5f4329ab..6cf92af3 100644
+--- a/docs/task_acceptance_matrix.yaml
++++ b/docs/task_acceptance_matrix.yaml
+@@ -202,6 +202,13 @@ phase_0:
+       - "Apache 2.0 license text on file"
+       - "Benchmark table from Google confirming GPQA Diamond / AIME 2026 scores"
+       - "vLLM/SGLang serving recipe verified"
++      # HISTORICAL (post-I-cd-010): the named fallback in
++      # docs/gemma_4_verification.md §4.2 was rewritten to FP16
++      # google/gemma-4-31B-it at TP=4 on the same 4×H100 box (same-model
++      # variant, different quantization). The original Llama 4 Scout
++      # fallback predated the I-cd-005-followup evaluator lock to Gemma 4
++      # 31B-it specifically. This line is preserved verbatim as the
++      # historical task-acceptance-criterion record.
+       - "If Gemma 4 31B fails verification: Llama 4 Scout (109B MoE) is named fallback with same proof level"
+     required_artifacts:
+       - "docs/gemma_4_verification.md"
+diff --git a/src/agents/analyst_agent.py b/src/agents/analyst_agent.py
+index 213a77fb..4afc964f 100644
+--- a/src/agents/analyst_agent.py
++++ b/src/agents/analyst_agent.py
+@@ -582,6 +582,8 @@ class AnalystAgent(BaseAgent):
+ 
+         if fireworks_available:
+             # FIX 53.2: Use KIMI K2.5 for Analyst (cost-effective with thinking mode)
++            # I-cd-010 / GH#625: pipeline-C frozen — KIMI K2.5 hardcoding intentional
++            # per CLAUDE.md §5 (Carney demo Pipeline-A uses src/polaris_graph/* + OpenRouter V4 Pro).
+             model_name = "accounts/fireworks/models/kimi-k2p5"
+             self._cost_callback = GeminiCostTrackingCallback(model_name=model_name)
+ 
+@@ -599,7 +601,8 @@ class AnalystAgent(BaseAgent):
+             )
+             actual_model = model_name
+         else:
+-            # Fallback: Use Gemini Flash (still cheap, but not KIMI)
++            # Fallback: Use Gemini Flash (still cheap, but not KIMI).
++            # I-cd-010 / GH#625: pipeline-C frozen — Gemini fallback per CLAUDE.md §5.
+             from langchain_google_genai import ChatGoogleGenerativeAI
+ 
+             forced_model = "gemini-2.5-flash"
+diff --git a/src/agents/base_agent.py b/src/agents/base_agent.py
+index c56ba090..99b93280 100644
+--- a/src/agents/base_agent.py
++++ b/src/agents/base_agent.py
+@@ -154,7 +154,9 @@ class BaseAgent(ABC):
+         self._structured_llm = None  # FIX 92: Separate LLM for structured output (non-thinking mode)
+ 
+         if FIREWORKS_AVAILABLE and global_config.env.fireworks_api_key:
+-            # Use KIMI K2.5 as primary LLM
++            # Use KIMI K2.5 as primary LLM.
++            # I-cd-010 / GH#625: pipeline-C frozen — KIMI K2.5 hardcoding intentional
++            # per CLAUDE.md §5 (Carney demo Pipeline-A uses src/polaris_graph/* + OpenRouter V4 Pro).
+             model_name = "accounts/fireworks/models/kimi-k2p5"
+             self._cost_callback = GeminiCostTrackingCallback(model_name=model_name)
+ 
+@@ -211,7 +213,8 @@ class BaseAgent(ABC):
+ 
+             logger.info(f"Initialized agent: {self.name} with KIMI K2.5 via Fireworks (tier={tier}, thinking=1.0, structured=0.6)")
+ 
+-            # Setup Gemini as fallback if available
++            # Setup Gemini as fallback if available.
++            # I-cd-010 / GH#625: pipeline-C frozen — Gemini fallback per CLAUDE.md §5.
+             if GEMINI_AVAILABLE and global_config.env.gemini_api_key:
+                 fallback_model = llm_config.fallback_model if llm_config.fallback_model else "gemini-2.5-flash"
+                 self._fallback_model_name = fallback_model
+diff --git a/src/agents/citefirst_synthesizer.py b/src/agents/citefirst_synthesizer.py
+index 9740756c..7c3e7d8d 100644
+--- a/src/agents/citefirst_synthesizer.py
++++ b/src/agents/citefirst_synthesizer.py
+@@ -4682,6 +4682,8 @@ OUTPUT: Expanded prose paragraphs only. No preamble."""
+                 from src.config import get_config
+                 global_config = get_config()
+                 use_streaming = max_tokens > 4096
++                # I-cd-010 / GH#625: pipeline-C frozen — KIMI K2.5 hardcoding intentional
++                # per CLAUDE.md §5 (Carney demo Pipeline-A uses src/polaris_graph/* + OpenRouter V4 Pro).
+                 per_call_llm = ChatFireworks(
+                     model="accounts/fireworks/models/kimi-k2p5",
+                     api_key=global_config.env.fireworks_api_key,
+diff --git a/src/config/core.py b/src/config/core.py
+index d6b337b5..7e3beb8a 100644
+--- a/src/config/core.py
++++ b/src/config/core.py
+@@ -128,6 +128,15 @@ class Thresholds(BaseModel):
+ # =============================================================================
+ # MODEL CONFIGS
+ # =============================================================================
++#
++# I-cd-010 / GH#625: pipeline-C frozen — Gemini TierConfig + LLMConfig
++# defaults below (gemini-2.5-flash / gemini-3-pro-preview / provider=gemini)
++# are intentional legacy per CLAUDE.md §5. The Carney demo runtime
++# (Pipeline-A) uses src/polaris_graph/* with OpenRouter DeepSeek V4 Pro +
++# Gemma 4 31B-it (I-cd-009 / GH#624 lock); these defaults govern the
++# frozen src/orchestration/ + scripts/full_cycle.py + agents stack only.
++#
++# =============================================================================
+ 
+ class TierConfig(BaseModel):
+     """Configuration for a model tier (simple/important)."""
+diff --git a/src/llm/kimi_client.py b/src/llm/kimi_client.py
+index 28dd76ff..536eed62 100644
+--- a/src/llm/kimi_client.py
++++ b/src/llm/kimi_client.py
+@@ -5,11 +5,16 @@ POLARIS KIMI K2.5 Client
+ OpenAI-compatible API client for KIMI K2.5 via Fireworks AI.
+ Supports both Thinking Mode and Instant Mode.
+ 
++**Pipeline-C frozen** — KIMI K2.5 1T hardcoding is intentional legacy
++per CLAUDE.md §5. The Carney demo runtime (Pipeline-A) uses
++src/polaris_graph/* with OpenRouter DeepSeek V4 Pro generator + Gemma 4
++31B-it evaluator (I-cd-009 / GH#624 lock). This client is retained for
++the frozen src/orchestration/ + scripts/full_cycle.py + agents stack.
++
+ KIMI K2.5 1T Features:
+ - 256K context window (native)
+ - Extended reasoning (thinking mode)
+ - Fast inference via Fireworks
+-- Cost-effective: $0.60/1M input, $3.00/1M output
+ 
+ Usage:
+     from src.llm.kimi_client import KimiClient, get_kimi_client
+diff --git a/src/polaris_graph/__init__.py b/src/polaris_graph/__init__.py
+index 3535538e..95779c85 100644
+--- a/src/polaris_graph/__init__.py
++++ b/src/polaris_graph/__init__.py
+@@ -1,8 +1,10 @@
+ """
+ polaris graph — clean-room research pipeline.
+ 
+-Uses Qwen 3.5 Plus via OpenRouter for all LLM calls.
+-Reuses battle-tested search/fetch infrastructure from src/tools/.
++Uses DeepSeek V4 Pro generator + Gemma 4 31B-it evaluator via OpenRouter
++(Carney demo lock per I-cd-009 / GH#624). Two-family segregation enforced
++by `openrouter_client.check_family_segregation` returning ('deepseek',
++'gemma'). Reuses battle-tested search/fetch infrastructure from src/tools/.
+ """
+ 
+ __all__ = [
+diff --git a/src/polaris_graph/llm/__init__.py b/src/polaris_graph/llm/__init__.py
+index 6e53a5a0..4833f0e8 100644
+--- a/src/polaris_graph/llm/__init__.py
++++ b/src/polaris_graph/llm/__init__.py
+@@ -1,4 +1,8 @@
+-"""LLM client for polaris graph — OpenRouter gateway to Qwen 3.5 Plus."""
++"""LLM client for polaris graph — OpenRouter gateway.
++
++Default model = OPENROUTER_DEFAULT_MODEL (default deepseek/deepseek-v4-pro
++per I-cd-009 / GH#624 Carney demo lock).
++"""
+ 
+ from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+ 
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index 5117e6af..b14ed3bc 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -1,7 +1,9 @@
+ """
+ OpenRouter LLM Client for polaris graph.
+ 
+-Single gateway to Qwen 3.5 Plus via OpenRouter. Two call modes:
++Single gateway via OpenRouter. Default model = OPENROUTER_DEFAULT_MODEL
++(default deepseek/deepseek-v4-pro per I-cd-009 / GH#624 Carney demo lock).
++Two call modes:
+ - reason(): reasoning ON, returned separately in reasoning_details
+ - generate(): reasoning OFF, clean prose output only
+ 
+@@ -248,6 +250,10 @@ _PRICE_TABLE_USD_PER_M: dict[str, tuple[float, float]] = {
+     # model prefix  :  (input $/M, output $/M)
+     # IMPORTANT: longer/more-specific prefixes first. Dict insertion order
+     # = iteration order = first-match-wins per _impute_cost_from_tokens.
++    # I-cd-010 / GH#625: qwen/qwen3-8b + z-ai/glm-5.1 entries are
++    # INTENTIONAL pricing-table coverage for env-overridden models (set
++    # PG_GENERATOR_MODEL / OPENROUTER_DEFAULT_MODEL); not the active
++    # Carney demo lock defaults.
+     "deepseek/deepseek-v4-pro":   (0.435, 0.87),
+     "deepseek/deepseek-v4-flash": (0.14, 0.28),
+     "deepseek/":       (0.27, 0.38),
+@@ -507,6 +513,11 @@ def check_family_segregation(
+ # empty). The previous COT-1/COT-2 fallback recovery logic worked but
+ # wasted tokens via retries. Adding to this set makes the handling
+ # direct instead of fallback-based.
++#
++# I-cd-010 / GH#625: this is INTENTIONAL reasoning-first registry for
++# response-shape-centric recovery (per memory architectural_response_
++# shape_centric_recovery). Do not remove the GLM-5.1 entry on the basis
++# of "stale model ref" — it's needed for the reasoning-first branch.
+ _ALWAYS_REASON_MODELS = frozenset({
+     "z-ai/glm-5", "z-ai/glm-5-turbo", "z-ai/glm-4.7", "z-ai/glm-5.1",
+ })
+@@ -927,7 +938,8 @@ class OpenRouterClient:
+     """
+     Single LLM gateway for polaris graph.
+ 
+-    All calls go through Qwen 3.5 Plus via OpenRouter (configurable via OPENROUTER_DEFAULT_MODEL).
++    All calls go through OPENROUTER_DEFAULT_MODEL via OpenRouter (default
++    deepseek/deepseek-v4-pro per I-cd-009 / GH#624 Carney demo lock).
+     Two modes:
+     - reason(): Extended reasoning ON. CoT returned in reasoning field, not content.
+     - generate(): Reasoning OFF. Clean output only. For prose generation.
+diff --git a/src/providers/llm_provider.py b/src/providers/llm_provider.py
+index 0c04842d..aaf384ab 100644
+--- a/src/providers/llm_provider.py
++++ b/src/providers/llm_provider.py
+@@ -52,6 +52,8 @@ VLLM_API_KEY = os.getenv("VLLM_API_KEY", "EMPTY")
+ 
+ # Ollama (local, lightweight)
+ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
++# I-cd-010 / GH#625: Ollama legacy fallback; not active under the Carney
++# demo vLLM lock (Gemma 4 31B-it via ebircak/...AWQ on the evaluator box).
+ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:70b")
+ 
+ # Local embedding model (sovereign mode)
+diff --git a/src/utils/cot_post_filter.py b/src/utils/cot_post_filter.py
+index 6d8c6f69..9e4e7b56 100644
+--- a/src/utils/cot_post_filter.py
++++ b/src/utils/cot_post_filter.py
+@@ -282,7 +282,9 @@ def create_default_llm_invoke() -> Optional[Callable[[str], str]]:
+             logger.warning("[FIX-211] No FIREWORKS_API_KEY, skipping LLM post-filter in finalize")
+             return None
+ 
+-        # Use a cheap, fast model for classification (not the expensive thinking model)
++        # Use a cheap, fast model for classification (not the expensive thinking model).
++        # I-cd-010 / GH#625: pipeline-C COT classifier legacy; not under
++        # Carney demo lock per CLAUDE.md §5. Override via POLARIS_COT_FILTER_MODEL.
+         model = os.environ.get("POLARIS_COT_FILTER_MODEL", "accounts/fireworks/models/llama-v3p3-70b-instruct")
+         llm = ChatFireworks(
+             model=model,
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 2edb740b..9cd03090 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -634,3 +634,27 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
+ - Smoke: pytest test_real_completion.py 26 passed; test_cj_001 5 passed;
+   py_compile + bash -n + yaml.safe_load all clean.
+ - next: push as sotaleung-wec, gh pr create --base polaris, auto-merge.
++
++## I-cd-010 brief — iter 3 APPROVE — 2026-05-19
++
++- doc: `.codex/I-cd-010/brief.md`
++- gate: brief review
++- iter: 3 of 5
++- verdict: APPROVE
++- novel_p0: 0, continuing_p0: 0, p1: 0
++- p2: 2 (gemini_client.py docstrings + live_deepseek_generator.py V3.2 comments — both non-blocking pipeline-C)
++- convergence_call: accept_remaining
++- iter trajectory: 1 RC (1 P1 docker-compose + 3 P2) -> 2 RC (1 NEW P1 cot_post_filter + 2 P2) -> 3 APPROVE
++- final scope: 13 files / +78 / -20 / +58 net LOC
++- next: implement (already done) + diff Codex review.
++
++## I-cd-010 diff — iter 1 APPROVE — 2026-05-19
++
++- doc: `.codex/I-cd-010/codex_diff.patch` (sha256 1aa6a1cd...0815bd0615)
++- gate: diff review
++- iter: 1 of 5 (clean APPROVE on first pass)
++- verdict: APPROVE
++- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 2 (non-blocking)
++- convergence_call: accept_remaining
++- 13 files / +78 / -20 / +58 net LOC; well under 200-LOC PR cap.
++- next: push as sotaleung-wec, gh pr create --base polaris, auto-merge.
+
+# canonical-diff-sha256: ab37a8496962f37eda55a320abb400257883bb1f369b752f4ee0ae1a1d13af96

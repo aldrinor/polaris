@@ -202,6 +202,13 @@ phase_0:
       - "Apache 2.0 license text on file"
       - "Benchmark table from Google confirming GPQA Diamond / AIME 2026 scores"
       - "vLLM/SGLang serving recipe verified"
+      # HISTORICAL (post-I-cd-010): the named fallback in
+      # docs/gemma_4_verification.md §4.2 was rewritten to FP16
+      # google/gemma-4-31B-it at TP=4 on the same 4×H100 box (same-model
+      # variant, different quantization). The original Llama 4 Scout
+      # fallback predated the I-cd-005-followup evaluator lock to Gemma 4
+      # 31B-it specifically. This line is preserved verbatim as the
+      # historical task-acceptance-criterion record.
       - "If Gemma 4 31B fails verification: Llama 4 Scout (109B MoE) is named fallback with same proof level"
     required_artifacts:
       - "docs/gemma_4_verification.md"

@@ -634,3 +634,27 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
 - Smoke: pytest test_real_completion.py 26 passed; test_cj_001 5 passed;
   py_compile + bash -n + yaml.safe_load all clean.
 - next: push as sotaleung-wec, gh pr create --base polaris, auto-merge.
+
+## I-cd-010 brief — iter 3 APPROVE — 2026-05-19
+
+- doc: `.codex/I-cd-010/brief.md`
+- gate: brief review
+- iter: 3 of 5
+- verdict: APPROVE
+- novel_p0: 0, continuing_p0: 0, p1: 0
+- p2: 2 (gemini_client.py docstrings + live_deepseek_generator.py V3.2 comments — both non-blocking pipeline-C)
+- convergence_call: accept_remaining
+- iter trajectory: 1 RC (1 P1 docker-compose + 3 P2) -> 2 RC (1 NEW P1 cot_post_filter + 2 P2) -> 3 APPROVE
+- final scope: 13 files / +78 / -20 / +58 net LOC
+- next: implement (already done) + diff Codex review.
+
+## I-cd-010 diff — iter 1 APPROVE — 2026-05-19
+
+- doc: `.codex/I-cd-010/codex_diff.patch` (sha256 1aa6a1cd...0815bd0615)
+- gate: diff review
+- iter: 1 of 5 (clean APPROVE on first pass)
+- verdict: APPROVE
+- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 2 (non-blocking)
+- convergence_call: accept_remaining
+- 13 files / +78 / -20 / +58 net LOC; well under 200-LOC PR cap.
+- next: push as sotaleung-wec, gh pr create --base polaris, auto-merge.

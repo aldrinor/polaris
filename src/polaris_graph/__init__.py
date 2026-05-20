@@ -1,8 +1,10 @@
 """
 polaris graph — clean-room research pipeline.
 
-Uses Qwen 3.5 Plus via OpenRouter for all LLM calls.
-Reuses battle-tested search/fetch infrastructure from src/tools/.
+Uses DeepSeek V4 Pro generator + Gemma 4 31B-it evaluator via OpenRouter
+(Carney demo lock per I-cd-009 / GH#624). Two-family segregation enforced
+by `openrouter_client.check_family_segregation` returning ('deepseek',
+'gemma'). Reuses battle-tested search/fetch infrastructure from src/tools/.
 """
 
 __all__ = [

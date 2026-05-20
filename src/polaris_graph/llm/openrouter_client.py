@@ -1,7 +1,9 @@
 """
 OpenRouter LLM Client for polaris graph.
 
-Single gateway to Qwen 3.5 Plus via OpenRouter. Two call modes:
+Single gateway via OpenRouter. Default model = OPENROUTER_DEFAULT_MODEL
+(default deepseek/deepseek-v4-pro per I-cd-009 / GH#624 Carney demo lock).
+Two call modes:
 - reason(): reasoning ON, returned separately in reasoning_details
 - generate(): reasoning OFF, clean prose output only
 
@@ -248,6 +250,10 @@ _PRICE_TABLE_USD_PER_M: dict[str, tuple[float, float]] = {
     # model prefix  :  (input $/M, output $/M)
     # IMPORTANT: longer/more-specific prefixes first. Dict insertion order
     # = iteration order = first-match-wins per _impute_cost_from_tokens.
+    # I-cd-010 / GH#625: qwen/qwen3-8b + z-ai/glm-5.1 entries are
+    # INTENTIONAL pricing-table coverage for env-overridden models (set
+    # PG_GENERATOR_MODEL / OPENROUTER_DEFAULT_MODEL); not the active
+    # Carney demo lock defaults.
     "deepseek/deepseek-v4-pro":   (0.435, 0.87),
     "deepseek/deepseek-v4-flash": (0.14, 0.28),
     "deepseek/":       (0.27, 0.38),
@@ -507,6 +513,11 @@ def check_family_segregation(
 # empty). The previous COT-1/COT-2 fallback recovery logic worked but
 # wasted tokens via retries. Adding to this set makes the handling
 # direct instead of fallback-based.
+#
+# I-cd-010 / GH#625: this is INTENTIONAL reasoning-first registry for
+# response-shape-centric recovery (per memory architectural_response_
+# shape_centric_recovery). Do not remove the GLM-5.1 entry on the basis
+# of "stale model ref" — it's needed for the reasoning-first branch.
 _ALWAYS_REASON_MODELS = frozenset({
     "z-ai/glm-5", "z-ai/glm-5-turbo", "z-ai/glm-4.7", "z-ai/glm-5.1",
 })
@@ -927,7 +938,8 @@ class OpenRouterClient:
     """
     Single LLM gateway for polaris graph.
 
-    All calls go through Qwen 3.5 Plus via OpenRouter (configurable via OPENROUTER_DEFAULT_MODEL).
+    All calls go through OPENROUTER_DEFAULT_MODEL via OpenRouter (default
+    deepseek/deepseek-v4-pro per I-cd-009 / GH#624 Carney demo lock).
     Two modes:
     - reason(): Extended reasoning ON. CoT returned in reasoning field, not content.
     - generate(): Reasoning OFF. Clean output only. For prose generation.
