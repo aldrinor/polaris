@@ -57,28 +57,35 @@ from typing import Any
 # Each row carries: id, name, llm_bound (does this row need real LLM spend),
 # journey_stages it touches, and a default skip_reason if llm_bound and the
 # operator has not flagged --include-llm.
+# Codex iter-1 P1-001 fix: ASCII-only row names so Windows operator host
+# print() does not raise UnicodeEncodeError on the default cp1252 stdout.
+# Codex iter-1 P1-002 fix: llm_bound flags now align with the documented
+# 5-row spend subset (R03, R05, R07, R09, R11). Other "live-system" rows
+# (R04, R08, R10, R12, R17, R21) are marked llm_bound=False because they
+# verify deployed-system behavior — the operator records them via the
+# live OVH product, not via a separate OpenRouter spend.
 _MATRIX_ROWS: list[dict[str, Any]] = [
     {"id": "R01", "name": "Sign-in (static_accounts auth)", "llm_bound": False, "stages": ["J1"]},
     {"id": "R02", "name": "App-shell + nav presence (G1-G8)", "llm_bound": False, "stages": ["J1", "J2", "J3", "J6", "J7", "J8", "J9", "J10", "J11"]},
     {"id": "R03", "name": "Artifact-contract schema (BundleManifest v1.0)", "llm_bound": True, "stages": ["J7", "J8"]},
-    {"id": "R04", "name": "Run lifecycle (queued→in_progress→completed)", "llm_bound": True, "stages": ["J6", "J7"]},
+    {"id": "R04", "name": "Run lifecycle (queued -> in_progress -> completed)", "llm_bound": False, "stages": ["J6", "J7"]},
     {"id": "R05", "name": "Per-claim provenance + source span", "llm_bound": True, "stages": ["J8"]},
     {"id": "R06", "name": "Family segregation (two-family)", "llm_bound": False, "stages": ["J7", "J8"]},
     {"id": "R07", "name": "Scope intake gate", "llm_bound": True, "stages": ["J3"]},
-    {"id": "R08", "name": "Refusal-bait detection", "llm_bound": True, "stages": ["J3"]},
+    {"id": "R08", "name": "Refusal-bait detection", "llm_bound": False, "stages": ["J3"]},
     {"id": "R09", "name": "Ambiguity detection + disambiguation modal", "llm_bound": True, "stages": ["J3"]},
-    {"id": "R10", "name": "Retrieval + corpus adequacy", "llm_bound": True, "stages": ["J4"]},
+    {"id": "R10", "name": "Retrieval + corpus adequacy", "llm_bound": False, "stages": ["J4"]},
     {"id": "R11", "name": "Generation BEAT-BOTH (vs ChatGPT/Gemini)", "llm_bound": True, "stages": ["J5", "J11"]},
-    {"id": "R12", "name": "Live SSE stream (run events)", "llm_bound": True, "stages": ["J6"]},
+    {"id": "R12", "name": "Live SSE stream (run events)", "llm_bound": False, "stages": ["J6"]},
     {"id": "R13", "name": "Bundle export + signature verify", "llm_bound": False, "stages": ["J7"]},
-    {"id": "R14", "name": "Inspector — claim → source navigation", "llm_bound": False, "stages": ["J8"]},
+    {"id": "R14", "name": "Inspector - claim -> source navigation", "llm_bound": False, "stages": ["J8"]},
     {"id": "R15", "name": "Inspector offline (tar.gz drop)", "llm_bound": False, "stages": ["J8"]},
     {"id": "R16", "name": "Document upload + grounding", "llm_bound": False, "stages": ["J9"]},
-    {"id": "R17", "name": "Dashboard run creation", "llm_bound": True, "stages": ["J10"]},
+    {"id": "R17", "name": "Dashboard run creation", "llm_bound": False, "stages": ["J10"]},
     {"id": "R18", "name": "Evidence Contract editor", "llm_bound": False, "stages": ["J11"]},
     {"id": "R19", "name": "Workspace memory (save/forget)", "llm_bound": False, "stages": ["J11"]},
     {"id": "R20", "name": "Pin replay timeseries", "llm_bound": False, "stages": ["J11"]},
-    {"id": "R21", "name": "Cancel + cooperative-abort", "llm_bound": True, "stages": ["J6"]},
+    {"id": "R21", "name": "Cancel + cooperative-abort", "llm_bound": False, "stages": ["J6"]},
     {"id": "R22", "name": "Codex code review (process gate)", "llm_bound": False, "stages": []},
     {"id": "R23", "name": "WCAG-AA accessibility sweep", "llm_bound": False, "stages": ["J1", "J2", "J3", "J7", "J8", "J9", "J10", "J11"]},
     {"id": "R24", "name": "Fixture governance (schema-freeze)", "llm_bound": False, "stages": []},
@@ -201,9 +208,24 @@ def main() -> int:
     else:
         selected_ids = set(args.rows.split(","))
 
+    # Codex iter-1 P2-001 fix: parse + apply --journey selection.
+    if "-" in args.journey and "," not in args.journey:
+        j_start, j_end = args.journey.split("-")
+        j_start_n = int(j_start.lstrip("J"))
+        j_end_n = int(j_end.lstrip("J"))
+        selected_stages = {f"J{n}" for n in range(j_start_n, j_end_n + 1)}
+    else:
+        selected_stages = set(args.journey.split(","))
+
     results: list[RowResult] = []
     for row in _MATRIX_ROWS:
         if row["id"] not in selected_ids:
+            continue
+        # Skip rows whose declared stages do not intersect the selected
+        # journey window. Rows with empty stages (R22 process gate,
+        # R24 fixture governance) always run because they are not
+        # journey-bound.
+        if row["stages"] and not (set(row["stages"]) & selected_stages):
             continue
         result = _run_row(row, args.include_llm, base_url)
         results.append(result)
@@ -213,7 +235,10 @@ def main() -> int:
         )
 
     utc = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    out_path = Path(__file__).resolve().parent.parent / "outputs" / "audits" / "I-cd-034" / f"matrix_results_{utc}.yaml.json"
+    # Codex iter-1 P2-002 fix: align extension with docstring (.json
+    # since the content is JSON, not strict YAML; the file name is
+    # explicit so reviewers know what to open with).
+    out_path = Path(__file__).resolve().parent.parent / "outputs" / "audits" / "I-cd-034" / f"matrix_results_{utc}.json"
     _emit_results(results, out_path)
     print(f"\nResults written to: {out_path}")
 
@@ -226,4 +251,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Codex iter-1 P2-002 fix: docstring promised exit 99 on uncaught
+    # exceptions; this wrapper actually delivers it.
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except BaseException as exc:  # noqa: BLE001 — diagnostic top-level
+        print(f"UNCAUGHT: {type(exc).__name__}: {exc}", file=sys.stderr)
+        sys.exit(99)
