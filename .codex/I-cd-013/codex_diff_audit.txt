@@ -1,0 +1,13 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/tests/e2e/inspector_route.spec.ts: G6/G7 are claimed in comments but not actually covered: no axe assertion and no toHaveScreenshot coverage for the rebuilt Inspector route. Non-blocking; axe + visual gold land at I-cd-013b."
+  - "web/lib/inspector_bundle_loader.ts: REPO_ROOT uses process.cwd()/.., which triggers a Next/Turbopack broad file-tracing warning during production build. Not blocking for this fixture route; tightens at I-B-08."
+  - "web/components/inspector/verified_report_sections.tsx: provenance interaction is a reveal toggle, not an actual provenance-token/source click-through. Non-blocking; click-through requires span_indexer follow-up."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+# Codex diff review iter 2/5 — APPROVE after iter-1 P1+P2 fold-in.
+# Iter 1 caught 3 real P1 (legacy a11y tests + tab regex + 15-field render) + 3 P2 (signature derive + Linux ignore + placeholder text); all folded.
+# Iter 2 P2 are documented gaps for I-cd-013b (axe + visual) + I-B-08 (REPO_ROOT) + span_indexer (click-through); accept_remaining per Codex.

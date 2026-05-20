@@ -696,3 +696,14 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
 - final scope: 14 new files + 1 page rewrite + 2 fixture sets + 1 e2e + 3 visual goldens + 5 surgical legacy-test quarantines
 - implementation-time refinement: surgical-not-full-file skip on inspector.spec.ts; conformance test count is 21 (20 + 1 success fixture)
 - next: implement; substantive ~1000 LOC PR.
+
+## I-cd-013a diff — iter 2 APPROVE — 2026-05-20
+
+- doc: `.codex/I-cd-013/codex_diff.patch` (sha256 9f188521...8b35bb02f0)
+- gate: diff review
+- iter: 2 of 5 (iter 1 caught 3 P1, iter 2 APPROVE'd after fold-in)
+- verdict: APPROVE
+- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 3 (non-blocking)
+- convergence_call: accept_remaining
+- iter-1 catches: 2 more legacy /inspector tests in accessibility.spec.ts; tab-label regex mismatch (Hash chain); 5 missing reasoning-trace fields; signaturePresent hardcoded; Linux testIgnore too broad; placeholder text in fixtures.
+- next: push as sotaleung-wec, gh pr create, auto-merge.
