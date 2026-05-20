@@ -47,8 +47,12 @@ export default function MemoryPage() {
   );
   const recent_runs = sorted.filter((e) => e.kind === "prior_run_summary");
 
+  // I-cd-030 (#620): /memory rebuild — G1+G6 fix. Page no longer renders
+  // its own <main>; AppShell (via AppShellGate from I-cd-022) is the
+  // single landmark provider. G2 fix: remove Issue-id breadcrumb
+  // ("I-f14-002b") from user-visible copy.
   return (
-    <main className="bg-background text-foreground mx-auto max-w-3xl px-6 py-8">
+    <section data-testid="memory-page" className="mx-auto max-w-3xl px-6 py-8">
       <h1 className="text-2xl font-semibold tracking-tight">
         Workspace memory
       </h1>
@@ -56,8 +60,8 @@ export default function MemoryPage() {
         data-testid="memory-banner"
         className="text-muted-foreground mt-2 text-sm"
       >
-        Demo workspace <code>{WS}</code>. Save + forget shipped here; pin
-        controls land in I-f14-002b once the localStorage pattern is reviewed.
+        Demo workspace <code>{WS}</code>. Save and forget actions are live;
+        additional pin controls land in a follow-up release.
       </p>
       {recent_runs.length > 0 ? (
         <section
@@ -134,6 +138,6 @@ export default function MemoryPage() {
           </li>
         ))}
       </ul>
-    </main>
+    </section>
   );
 }
