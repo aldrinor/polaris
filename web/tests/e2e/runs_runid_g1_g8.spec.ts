@@ -24,17 +24,43 @@ test("G1 + G6: /runs/[runId] has exactly one header + one main", async ({
   await expect(page.locator("main")).toHaveCount(1);
 });
 
-test("G2: /runs/[runId] contains no banned dev-language strings", async ({
+test("G2: /runs/[runId] contains no banned dev-language strings (body + titles + aria-labels)", async ({
   page,
 }) => {
   await page.goto(`/runs/${TEST_RUN_ID}`);
   const body_text = (await page.locator("body").textContent()) || "";
+  // Also inspect title attributes + aria-labels (Codex iter-1 P1 fix).
+  const title_text =
+    (await page
+      .locator("[title]")
+      .evaluateAll((els: Element[]) =>
+        els.map((el) => el.getAttribute("title") || "").join(" · "),
+      )) || "";
+  const aria_text =
+    (await page
+      .locator("[aria-label]")
+      .evaluateAll((els: Element[]) =>
+        els.map((el) => el.getAttribute("aria-label") || "").join(" · "),
+      )) || "";
+  const all_text = `${body_text} · ${title_text} · ${aria_text}`;
   for (const banned of BANNED_DEV_LANGUAGE) {
-    expect(body_text).not.toMatch(banned);
+    expect(all_text).not.toMatch(banned);
   }
 });
 
-test("G1 nav parity: primary nav visible on /runs/[runId]", async ({ page }) => {
+test("G8: /runs/[runId] renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto(`/runs/${TEST_RUN_ID}`);
+  await page.waitForLoadState("networkidle");
+  expect(errors).toEqual([]);
+});
+
+test("G1 nav parity: primary nav visible on /runs/[runId]", async ({
+  page,
+}) => {
   await page.goto(`/runs/${TEST_RUN_ID}`);
   const nav = page.locator("nav[aria-label='Primary']");
   await expect(nav).toBeVisible();

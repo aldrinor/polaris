@@ -44,7 +44,12 @@ export default function RunDetailPage({ params }: RunPageProps) {
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Unknown error");
+          // G4 (Codex iter-1 P0): map raw API errors to friendly copy.
+          const raw = err instanceof Error ? err.message : String(err);
+          const friendly = raw.toLowerCase().includes("404")
+            ? "This run was not found. Check the URL or start a new run."
+            : "We couldn't load this run right now. Please retry shortly.";
+          setError(friendly);
         }
       });
 
@@ -159,7 +164,7 @@ export default function RunDetailPage({ params }: RunPageProps) {
           Affordances during this run
         </h2>
         <p className="text-muted-foreground text-xs">
-          5 things you can do while POLARIS works (F4 plan):
+          Actions you can take while POLARIS works:
         </p>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -209,7 +214,7 @@ export default function RunDetailPage({ params }: RunPageProps) {
             type="button"
             variant="outline"
             disabled
-            title="Phase 1: ask a follow-up scoped to this run's evidence"
+            title="Ask a follow-up scoped to this run's evidence (coming soon)"
           >
             Ask follow-up
           </Button>
@@ -217,7 +222,7 @@ export default function RunDetailPage({ params }: RunPageProps) {
             type="button"
             variant="outline"
             disabled
-            title="Phase 2B: pin this run for later replay"
+            title="Pin this run for later replay (coming soon)"
           >
             Pin for replay
           </Button>
