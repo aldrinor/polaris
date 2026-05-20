@@ -28,10 +28,10 @@ index a3c3573e..3e993329 100644
          env:
            SCREENSHOT_BASE_URL: http://127.0.0.1:3738
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 305b680a..57aa2ccb 100644
+index 305b680a..0d1a8b53 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -739,3 +739,10 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
+@@ -739,3 +739,16 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
  - novel_p0: 0, continuing_p0: 0, p1: 0, p2: 2 (non-blocking)
  - iter trajectory: 1 RC (2 P1: provision.sh path mismatch + useSearchParams Suspense; 2 P2: AuthRedirect flash + fragment-only) -> 2 APPROVE
  - scope: 12 files / +259 + 75 net
@@ -42,6 +42,12 @@ index 305b680a..57aa2ccb 100644
 +- verdict: APPROVE
 +- iter trajectory: 1 RC (1 P1 NextResponse.next broken + 3 P2) -> 2 RC (smoke script cwd P1) -> 3 RC (CI conflict P1 + 2 P2) -> 4 APPROVE
 +- scope: 4 files / +137 net LOC
++
++## I-cd-015 diff — iter 1 APPROVE — 2026-05-20
++
++- iter: 1 of 5 (clean APPROVE on first pass)
++- verdict: APPROVE
++- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 5 (non-blocking script polish + Next 16 middleware->proxy deprecation)
 diff --git a/web/app/benchmark/page.tsx b/web/app/benchmark/page.tsx
 index 2f36bef7..effabf8c 100644
 --- a/web/app/benchmark/page.tsx
@@ -206,4 +212,4 @@ index 00000000..14599158
 +fi
 +echo "harness 404 verification PASSED"
 
-# canonical-diff-sha256: 7a8851614690d714c50b8f2a81c7a374c275e6f76b95aef98cfe379461276bdc
+# canonical-diff-sha256: 2f40f78a32b60a1cd7f76ed597def2cb279681b9e3cd92afadd756541a0b40f6
