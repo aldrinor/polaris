@@ -1,0 +1,565 @@
+diff --git a/.env.example b/.env.example
+index 4fa7c5d6..c3d32e87 100644
+--- a/.env.example
++++ b/.env.example
+@@ -54,20 +54,21 @@ CROSSREF_EMAIL=your.email@example.com
+ # MODEL PAIR (two-family constraint enforced at construction)
+ # ─────────────────────────────────────────────────────────────────
+ 
+-# Current pair (re-pinned 2026-05-09 per I-bug-091; reverted from V4 Pro
+-# generator after live BEAT-BOTH showed CoT-style output incompatible
+-# with strict_verify provenance-token requirement). See openrouter_client.py
+-# for verified HHEM benchmarks, two-family justification, and revert
+-# rationale. Switch back to V4 Pro via PG_GENERATOR_MODEL env var.
+-PG_GENERATOR_MODEL=deepseek/deepseek-v3.2-exp
++# Current pair (re-pinned 2026-05-19 per I-cd-009 / GH#624; Carney
++# demo lock). Generator DeepSeek V4 Pro 1.6T (49B active MoE) + evaluator
++# Gemma 4 31B-it (Google lineage, two-family segregation). See
++# openrouter_client.py for HHEM benchmarks and two-family justification;
++# see docs/models/evaluator_pick.md + docs/models/serving_engine_pick.md
++# for the Codex-APPROVE'd pick history.
++PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro
+ PG_EVALUATOR_MODEL=google/gemma-4-31b-it
+ 
+ # Escape hatch for fine-tunes; use only if you know the family
+ # classification is wrong
+ # PG_GENERATOR_FAMILY_OVERRIDE=deepseek
+-# PG_EVALUATOR_FAMILY_OVERRIDE=qwen
++# PG_EVALUATOR_FAMILY_OVERRIDE=gemma
+ 
+-OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v3.2-exp
++OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v4-pro
+ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+ 
+ # ─────────────────────────────────────────────────────────────────
+@@ -142,7 +143,8 @@ POLARIS_ACME_EMAIL=
+ # SEARXNG_PORT=8888
+ # VLLM_API_KEY=...
+ # VLLM_BASE_URL=http://localhost:8200/v1
+-# VLLM_MODEL=meta-llama/Llama-3.1-70B-Instruct
++# VLLM_MODEL=ebircak/gemma-4-31B-it-4bit-W4A16-AWQ
++# Load with --quantization compressed-tensors server-side (NOT --quantization awq)
+ # OLLAMA_BASE_URL=http://localhost:11434
+ # OLLAMA_MODEL=...
+ 
+diff --git a/architecture.md b/architecture.md
+index 1102c2e4..8ed1a42a 100644
+--- a/architecture.md
++++ b/architecture.md
+@@ -170,10 +170,10 @@ generator and evaluator **must** be from different training lineages.
+ This prevents the self-bias pathology (Play Favorites arXiv:2508.06709,
+ DeepHalluBench arXiv:2601.22984).
+ 
+-Current default pair (as of 2026-04-17):
++Current default pair (re-pinned 2026-05-19 per I-cd-009 / GH#624 Carney demo lock):
+ 
+-- **Generator**: `deepseek/deepseek-v3.2-exp` (family: `deepseek`)
+-- **Evaluator**: `qwen/qwen3-8b` (family: `qwen`)
++- **Generator**: `deepseek/deepseek-v4-pro` (family: `deepseek`; 1.6T total / 49B active MoE)
++- **Evaluator**: `google/gemma-4-31b-it` (family: `gemma`)
+ 
+ Attempting to set both to the same family raises `RuntimeError` at
+ client construction. Hyphenated org prefixes (`deepseek-ai/...`) are
+@@ -334,9 +334,9 @@ Both outputs are written to the manifest.
+ | Var | Default | Purpose |
+ |---|---|---|
+ | `OPENROUTER_API_KEY` | (required) | OpenRouter gateway auth |
+-| `OPENROUTER_DEFAULT_MODEL` | `deepseek/deepseek-v3.2-exp` | Generator model |
++| `OPENROUTER_DEFAULT_MODEL` | `deepseek/deepseek-v4-pro` | Generator model |
+ | `PG_GENERATOR_MODEL` | inherits from default | Generator for strict_verify pipeline |
+-| `PG_EVALUATOR_MODEL` | `qwen/qwen3-8b` | Evaluator model (must be different family) |
++| `PG_EVALUATOR_MODEL` | `google/gemma-4-31b-it` | Evaluator model (must be different family) |
+ | `PG_MAX_COST_PER_RUN` | `5.00` | Budget cap per sweep |
+ | `PG_PROVENANCE_MIN_CONTENT_OVERLAP` | `2` | B-1 invariant threshold |
+ | `PG_LIVE_MAX_EV_TO_GEN` | `20` | Max evidence slices passed to generator |
+diff --git a/docs/carney_handover/5min_video_script.md b/docs/carney_handover/5min_video_script.md
+index 017480a7..6ec08562 100644
+--- a/docs/carney_handover/5min_video_script.md
++++ b/docs/carney_handover/5min_video_script.md
+@@ -38,7 +38,7 @@ Here's the run. Three things to notice.
+ 
+ > [Point at the top KPI cards.]
+ 
+-First, the two-family invariant. The generator was DeepSeek V4 Flash. The verifier was Gemma 4 31B. They are from different lineages, so neither can certify its own output. If they shared a lineage, POLARIS aborts the run before any token is billed.
++First, the two-family invariant. The generator was DeepSeek V4 Pro. The verifier was Gemma 4 31B. They are from different lineages, so neither can certify its own output. If they shared a lineage, POLARIS aborts the run before any token is billed.
+ 
+ > [Click the Verified Sentences tab. Hover over a provenance token.]
+ 
+diff --git a/docs/carney_handover/runbook.md b/docs/carney_handover/runbook.md
+index 2d9024f1..f2cad521 100644
+--- a/docs/carney_handover/runbook.md
++++ b/docs/carney_handover/runbook.md
+@@ -14,7 +14,7 @@
+ | Frontend (Next.js 16) | (TBD CDN) | Canada-East POP | static + SSE proxy to backend |
+ | Backend (FastAPI 0.136) | OVH BHS | Canada (sovereign) | uvicorn, exposes /health /runs /stream /ambiguity /scope/check /upload /runs/{id}/bundle |
+ | Queue (Dramatiq + Redis 7.4) | OVH BHS | Canada (sovereign) | StubBroker in dev; RedisBroker in prod |
+-| LLM serving (vLLM or SGLang per Phase 0.7 bakeoff) | OVH BHS H200 (8×) | Canada (sovereign, Beauharnois) | DeepSeek V4 Flash generator (Path C LOCKED per Plan v13 §F + blockers.md §3) + Gemma 4 31B verifier (different lineage; `openrouter_client.check_family_segregation` invariant) |
++| LLM serving (vLLM, locked I-cd-007) | OVH BHS H200 (8×) + OVH H100 (4×) | non-US (sovereign) | DeepSeek V4 Pro 1.6T generator on 8× H200 + Gemma 4 31B-it evaluator on 4× H100 (different lineage; `openrouter_client.check_family_segregation` invariant). Carney demo lock per I-cd-009 (GH#624). |
+ | ChromaDB (workspace memory) | OVH BHS | Canada (sovereign) | Phase 2B substrate |
+ | Observability (OTEL) | (TBD US dashboards) | US (brainless) | trace IDs only; CAN_REAL data redacted |
+ 
+@@ -44,8 +44,8 @@ docker compose -f docker-compose.sovereign.yml down
+ 
+ Generator + verifier MUST come from different lineages (CLAUDE.md §9.1 invariant 1). The `openrouter_client.check_family_segregation` raises `RuntimeError` at construction if violated.
+ 
+-Active pairing (LOCKED per Plan v13 §F):
+-- **DeepSeek V4 Flash (DeepSeek lineage) + Gemma 4 31B (Google lineage)** — Path C, sovereign cluster
++Active pairing (LOCKED per I-cd-009 / GH#624 Carney demo):
++- **DeepSeek V4 Pro 1.6T (DeepSeek lineage) + Gemma 4 31B-it (Google lineage)** — sovereign cluster
+ 
+ Per Plan v13 §F "no SILENT fallback" semantics — alternate pairings below are NOT auto-fallbacks. They are halt-and-decide options if the active pairing becomes unavailable (e.g., model deprecation, license revocation). When that happens, the orchestrator emits a halt marker; user explicitly authorizes one of:
+ 
+diff --git a/docs/gemma_4_verification.md b/docs/gemma_4_verification.md
+index ab732713..42d30914 100644
+--- a/docs/gemma_4_verification.md
++++ b/docs/gemma_4_verification.md
+@@ -60,7 +60,7 @@ The Prohibited Use Policy excludes:
+ | Sliding window | 1024 tokens | HF model card |
+ | Pre-trained variant | `google/gemma-4-31B` | HF |
+ | Instruction-tuned | `google/gemma-4-31B-it` | HF |
+-| NVIDIA NVFP4 quantized | `nvidia/Gemma-4-31B-IT-NVFP4` | HF |
++| Community INT4 AWQ (W4A16) | `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` | HF — Carney demo evaluator artifact (I-cd-009) |
+ 
+ ---
+ 
+@@ -68,7 +68,7 @@ The Prohibited Use Policy excludes:
+ 
+ Per official [vLLM Gemma 4 recipe](https://docs.vllm.ai/projects/recipes/en/latest/Google/Gemma4.html):
+ 
+-### 3.1 Build-phase (Vast.ai US 4× H100, FP16)
++### 3.1 Build-phase (4× H100, FP16)
+ 
+ ```bash
+ vllm serve google/gemma-4-31B-it \
+@@ -77,18 +77,25 @@ vllm serve google/gemma-4-31B-it \
+   --gpu-memory-utilization 0.90
+ ```
+ 
+-Memory footprint: ~62GB FP16 weights + KV cache headroom on 2× H100 = workable. Use 2 of 4 H100s for verifier; remaining 2 for DeepSeek V4 Flash generator (per Path C default).
++Memory footprint: ~62GB FP16 weights + KV cache headroom on 2× H100 = workable.
+ 
+-### 3.2 Phase 4 sovereign (OVH Canada BHS H200, NVFP4 quantized)
++### 3.2 Carney demo evaluator box (4× H100, community AWQ INT4)
+ 
+ ```bash
+-vllm serve nvidia/Gemma-4-31B-IT-NVFP4 \
+-  --tensor-parallel-size 2 \
++vllm serve ebircak/gemma-4-31B-it-4bit-W4A16-AWQ \
++  --tensor-parallel-size 4 \
+   --max-model-len 65536 \
+-  --gpu-memory-utilization 0.85
++  --gpu-memory-utilization 0.85 \
++  --quantization compressed-tensors
+ ```
+ 
+-NVFP4 reduces weights to ~16GB; doubles effective context-window headroom on H200.
++INT4 AWQ (W4A16) drops weight residency to ~16GB; massive headroom on
++4× H100 = 320GB HBM for KV cache. Locked per I-cd-009 (GH#624) Carney demo.
++Generator on the V4 Pro box (8× H200) is DeepSeek V4 Pro 1.6T per the
++two-family invariant.
++
++NOTE: `--quantization compressed-tensors` (NOT `--quantization awq`) — the
++ebircak weights ship in W4A16 compressed-tensors format.
+ 
+ ### 3.3 Two-family segregation invariant cross-check
+ 
+@@ -162,7 +169,7 @@ Per `docs/task_acceptance_matrix.yaml` task_0_8:
+ - [x] License scan completed with material correction surfaced (Apache 2.0 + Gemma policies)
+ - [x] Use-policy compatibility assessed: LOW severity for Carney delivery
+ - [x] Two-family segregation cross-check: PASSES (Google vs DeepSeek lineages)
+-- [x] vLLM serving recipe locked for build-phase (FP16) + sovereign (NVFP4)
++- [x] vLLM serving recipe locked for build-phase (FP16) + Carney demo evaluator (AWQ W4A16 via `--quantization compressed-tensors`)
+ - [ ] Smoke test on Vast.ai cluster (deferred to Task 0.3 + 0.7 once cluster live)
+ - [ ] Legal opinion added to docs/blockers.md §5 re: research synthesis ≠ practice of medicine
+ 
+@@ -177,4 +184,4 @@ Per `docs/task_acceptance_matrix.yaml` task_0_8:
+ - [Gemma 4 license](https://ai.google.dev/gemma/docs/gemma_4_license)
+ - [Gemma Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy)
+ - [vLLM Gemma 4 recipe](https://docs.vllm.ai/projects/recipes/en/latest/Google/Gemma4.html)
+-- [NVIDIA Gemma-4-31B-IT-NVFP4 quantized weights](https://huggingface.co/nvidia/Gemma-4-31B-IT-NVFP4)
++- [Community AWQ W4A16 weights — `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ`](https://huggingface.co/ebircak/gemma-4-31B-it-4bit-W4A16-AWQ) (Carney demo evaluator artifact)
+diff --git a/docs/models/serving_engine_pick.md b/docs/models/serving_engine_pick.md
+index bc83ea13..ade108ab 100644
+--- a/docs/models/serving_engine_pick.md
++++ b/docs/models/serving_engine_pick.md
+@@ -1,15 +1,23 @@
+ # POLARIS serving engine — locked pick (I-cd-007, GH#639)
+ 
+ **Decision:** **vLLM** is the locked serving engine for both boxes — generator
+-(DeepSeek V4 Pro on Box 1 = 8×H200) and evaluator (Llama 4 Maverick INT4 on
+-Box 2 = 4×H100). Per-role SGLang contingencies + TensorRT-LLM as a direct
+-backend fallback are documented below, with empirical triggers resolved at
+-I-cd-011 (FP4 hardware spike).
++(DeepSeek V4 Pro on Box 1 = 8×H200) and evaluator (Gemma 4 31B-it INT4 AWQ
++W4A16, weights artifact `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ`, on
++Box 2 = 4×H100). Loaded server-side with `--quantization compressed-tensors`
++(NOT `--quantization awq`). Per-role SGLang contingencies + TensorRT-LLM
++as a direct backend fallback are documented below, with empirical triggers
++resolved at I-cd-011 (FP4 hardware spike).
++
++Evaluator pick re-locked at I-cd-005-followup (PR #664): Gemma 4 31B-it,
++NOT Llama 4 Maverick — operator-locked per
++`feedback_operator_locked_decisions_not_codex_consultable_2026_05_15` and
++the "Llama 4 is famous for garbage" pushback. See
++`docs/models/evaluator_pick.md` for the full pick history.
+ 
+ Codex brief review: iter 1 RC → **iter 2 APPROVE**. iter 1's "SGLang for
+-both" was overconfident — no 2026 source confirmed SGLang + Maverick + INT4
+-+ exactly 4×H100, while vLLM V1 has automatic prefix caching and
+-`structured_outputs` with xgrammar/guidance, tempering SGLang's iter-1
++both" was overconfident — no 2026 source confirmed SGLang for community
++INT4 quants on exactly 4×H100, while vLLM V1 has automatic prefix caching
++and `structured_outputs` with xgrammar/guidance, tempering SGLang's iter-1
+ "category" advantages.
+ 
+ ## Why vLLM (primary)
+@@ -34,14 +42,15 @@ both" was overconfident — no 2026 source confirmed SGLang + Maverick + INT4
+ 
+ ## The unverified runtime risk (resolved at I-cd-011)
+ 
+-**Neither vLLM nor SGLang has a source-confirmed Llama 4 Maverick + INT4 +
+-exactly 4×H100 recipe in 2026 public docs.** vLLM/Red Hat validates Maverick
+-**FP8** (~400GB, doesn't fit 4×H100=320GB); SGLang docs target Maverick on
+-8×H100/H200. Both engines need empirical verification of a community AWQ /
+-GPTQ-INT4 quant of Maverick on exactly 4×H100. I-cd-011 (#641, FP4 readiness
+-spike, ~$400 GPU) does this verification.
++**vLLM has community AWQ W4A16 support for Gemma 4 31B-it via the
++`compressed-tensors` quant kernel.** Weight residency drops to ~16GB on
++4×H100 = 320GB HBM (massive headroom). The unverified piece is the
++end-to-end serving smoke under demo-realistic concurrency + context
++length; I-cd-011 (#641, FP4 readiness spike, ~$400 GPU) does this
++verification.
+ 
+-If I-cd-011 confirms vLLM Maverick INT4 on 4×H100 works, the lock holds.
++If I-cd-011 confirms vLLM ebircak-AWQ Gemma 4 31B-it on 4×H100 works, the
++lock holds.
+ 
+ ## I-cd-011 contingency branches (per-role swaps if empirical fails)
+ 
+@@ -53,16 +62,17 @@ If I-cd-011 confirms vLLM Maverick INT4 on 4×H100 works, the lock holds.
+ - In that case: SGLang on Box 1 (V4 Pro FP4 documented), vLLM stays on
+   Box 2 (per-role split).
+ 
+-**Box 2 (Evaluator, Llama 4 Maverick INT4, 4×H100) — swap to SGLang if:**
+-- vLLM Maverick INT4 on 4×H100 cannot be made to work at I-cd-011, AND
+-  SGLang Maverick INT4 on 4×H100 CAN be made to work (per Codex iter-2 P2's
+-  symmetric branch).
++**Box 2 (Evaluator, Gemma 4 31B-it AWQ W4A16, 4×H100) — swap to SGLang if:**
++- vLLM ebircak-AWQ Gemma 4 31B-it on 4×H100 cannot be made to work at
++  I-cd-011, AND SGLang AWQ-Gemma-4-31B-it on 4×H100 CAN be made to work
++  (per Codex iter-2 P2's symmetric branch).
+ - In that case: SGLang on Box 2, vLLM stays on Box 1.
+ 
+-**Model-side hard fallback (already locked at I-cd-005):** if Maverick INT4
+-cannot be made to fit on 4×H100 via ANY tested engine, fall back to
+-`meta-llama/Llama-3.1-405B-Instruct` + AWQ/GPTQ-INT4 on vLLM — the
+-most-mature path in the industry. This is the safety net.
++**Model-side hard fallback:** if ebircak AWQ W4A16 weights cannot be made
++to serve on 4×H100 via ANY tested engine, fall back to FP16
++`google/gemma-4-31B-it` at `--tensor-parallel-size 4` — ~62GB weights fits
++comfortably, just trades context-window headroom for safety. This is the
++demo safety net.
+ 
+ **Direct-backend fallback (Codex iter-2 P2):** NVIDIA TensorRT-LLM is a
+ real direct-backend candidate if vLLM AND SGLang both miss I-cd-011 targets
+@@ -79,7 +89,7 @@ not in scope for this lock.
+ | Prefix caching | vLLM V1 automatic prefix caching | RadixAttention (shared-prefix edge for batched scoring) |
+ | Structured outputs | `structured_outputs` with xgrammar/guidance | First-class DSL + xgrammar |
+ | DeepSeek V4 Pro | 0.20.0+: 8×H200, native FP4+FP8, 800K context | 8×H200 FP4 OR 16×H200 FP8 |
+-| Llama 4 Maverick | Red Hat validates FP8 (doesn't fit 4×H100); INT4 path = I-cd-011 empirical | Documented on 8×H100/H200; INT4 on 4×H100 = I-cd-011 empirical |
++| Gemma 4 31B-it AWQ W4A16 | `compressed-tensors` quant kernel; INT4 on 4×H100 = ~16GB residency; I-cd-011 end-to-end smoke | AWQ supported; I-cd-011 end-to-end smoke |
+ | INT4 (AWQ/GPTQ) on H100 | Mature, multi-year | Supported, newer |
+ | OpenAI-compatible API | Yes | Yes |
+ 
+diff --git a/docs/runbook.md b/docs/runbook.md
+index 6bbc0a82..8265cb08 100644
+--- a/docs/runbook.md
++++ b/docs/runbook.md
+@@ -148,28 +148,28 @@ repair / leave decision tree.
+ Pipeline A enforces a two-family constraint: generator and evaluator
+ must be from different training lineages.
+ 
+-### Default pair (verified 2026-04-17)
++### Default pair (re-pinned 2026-05-19 per I-cd-009 / GH#624 Carney demo lock)
+ 
+-- Generator: `deepseek/deepseek-v3.2-exp`
+-- Evaluator: `qwen/qwen3-8b`
++- Generator: `deepseek/deepseek-v4-pro` (DeepSeek lineage; 1.6T total, 49B active MoE)
++- Evaluator: `google/gemma-4-31b-it` (Gemma lineage)
+ 
+ ### Override via environment
+ 
+ ```
+-PG_GENERATOR_MODEL=deepseek/deepseek-v3.2-exp
+-PG_EVALUATOR_MODEL=qwen/qwen3-8b
++PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro
++PG_EVALUATOR_MODEL=google/gemma-4-31b-it
+ ```
+ 
+ ### Invalid pairs raise at construction
+ 
+ ```python
+-# This will raise RuntimeError
++# This will raise RuntimeError (both in DeepSeek family)
+ from src.polaris_graph.llm.openrouter_client import check_family_segregation
+-check_family_segregation("deepseek/deepseek-v3.2-exp", "deepseek/deepseek-v2-base")
++check_family_segregation("deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-flash")
+ ```
+ 
+-The check handles case variants (`DeepSeek/DeepSeek-V3.2-Exp`) and
+-hyphenated org prefixes (`deepseek-ai/DeepSeek-V3.2-Exp`).
++The check handles case variants (`DeepSeek/DeepSeek-V4-Pro`) and
++hyphenated org prefixes (`deepseek-ai/DeepSeek-V4-Pro`).
+ 
+ ---
+ 
+diff --git a/docs/task_acceptance_matrix.yaml b/docs/task_acceptance_matrix.yaml
+index 437083c9..5f4329ab 100644
+--- a/docs/task_acceptance_matrix.yaml
++++ b/docs/task_acceptance_matrix.yaml
+@@ -956,7 +956,7 @@ phase_4:
+       - id: "4_2_prep_serving_runbook"
+         title: "Sovereign serving runbook (vLLM/SGLang + DeepSeek V4 + Gemma 4 deployment recipe)"
+         green_criteria:
+-          - "docs/sovereign_serving_runbook.md — step-by-step deployment recipe: (a) cluster precondition checks; (b) vLLM/SGLang install commands with version pins; (c) DeepSeek V4 Flash weights loading per docs/hardware_decision.md §2.3 + Path C; (d) Gemma 4 31B evaluator loading per docs/gemma_4_verification.md §3.2 NVFP4 recipe; (e) two-family segregation invariant verification; (f) smoke test queries; (g) rollback procedure"
++          - "docs/sovereign_serving_runbook.md — step-by-step deployment recipe: (a) cluster precondition checks; (b) vLLM install commands with version pins (engine locked to vLLM per I-cd-007); (c) DeepSeek V4 Pro 1.6T weights loading per docs/hardware_decision.md §2.3 + Carney demo lock (I-cd-009); (d) Gemma 4 31B-it evaluator loading per docs/gemma_4_verification.md §3.2 AWQ W4A16 recipe with `--quantization compressed-tensors`; (e) two-family segregation invariant verification; (f) smoke test queries; (g) rollback procedure"
+           - "References hardware_decision.md + gemma_4_verification.md by canonical pin SHA"
+           - "outputs/audits/manifests/4_2_prep_serving_runbook.json — Phase-4-PARTIAL-honest manifest"
+         changed_files_glob:
+diff --git a/docs/transparency.md b/docs/transparency.md
+index bb9fb698..05268d67 100644
+--- a/docs/transparency.md
++++ b/docs/transparency.md
+@@ -26,7 +26,7 @@ Pipeline-A uses a **two-family evaluator**: generator and verifier are from diff
+ 
+ Current models in production (from `/transparency`):
+ - **Generator:** `${PG_GENERATOR_MODEL}` (default `deepseek/deepseek-v4-pro`)
+-- **Evaluator:** `${PG_EVALUATOR_MODEL}` (default `qwen/qwen-2.5-72b-instruct`)
++- **Evaluator:** `${PG_EVALUATOR_MODEL}` (default `google/gemma-4-31b-it`)
+ 
+ `openrouter_client.check_family_segregation` raises `RuntimeError` at construction if the configured models are not from different families.
+ 
+diff --git a/helm/polaris/values.yaml b/helm/polaris/values.yaml
+index 68371fa7..65675307 100644
+--- a/helm/polaris/values.yaml
++++ b/helm/polaris/values.yaml
+@@ -66,7 +66,10 @@ vllm:
+   image:
+     repository: vllm/vllm-openai
+     tag: latest
+-  model: "meta-llama/Llama-3.1-70B-Instruct"
++  # Carney demo evaluator artifact (Gemma 4 31B-it INT4 AWQ).
++  # Not wired into active templates; full launch wiring at I-cd-038.
++  # Load server-side with --quantization compressed-tensors (NOT --quantization awq).
++  model: "ebircak/gemma-4-31B-it-4bit-W4A16-AWQ"
+   gpu:
+     count: 1
+     type: nvidia.com/gpu
+diff --git a/scripts/deploy.sh b/scripts/deploy.sh
+index 779c75b1..9a1eda11 100644
+--- a/scripts/deploy.sh
++++ b/scripts/deploy.sh
+@@ -659,7 +659,7 @@ _generate_env_template() {
+ # --- LLM Gateway (REQUIRED) ---
+ OPENROUTER_API_KEY=your_openrouter_api_key_here
+ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+-OPENROUTER_DEFAULT_MODEL=moonshotai/kimi-k2.5
++OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v4-pro
+ OPENROUTER_BUDGET_USD=50.0
+ OPENROUTER_PROVIDER_ORDER=Chutes,DeepInfra,Fireworks
+ OPENROUTER_ALLOW_FALLBACKS=true
+diff --git a/scripts/regate_v23.py b/scripts/regate_v23.py
+index bdf1a0c0..e7045e78 100644
+--- a/scripts/regate_v23.py
++++ b/scripts/regate_v23.py
+@@ -110,10 +110,10 @@ def regate_run(run_dir: Path) -> dict[str, Any]:
+ 
+     generator_model = manifest_prev.get("generator", {}).get(
+         "model",
+-        rule_checks_prev.get("generator_model", "deepseek/deepseek-v3.2-exp"),
++        rule_checks_prev.get("generator_model", "deepseek/deepseek-v4-pro"),
+     )
+     evaluator_model = rule_checks_prev.get(
+-        "evaluator_model", "qwen/qwen3-8b"
++        "evaluator_model", "google/gemma-4-31b-it"
+     )
+ 
+     # Reconstruct tier_distribution_report from manifest.corpus.tier_fractions.
+diff --git a/src/polaris_graph/api/disambiguation_route.py b/src/polaris_graph/api/disambiguation_route.py
+index 67a0969f..9b9ac411 100644
+--- a/src/polaris_graph/api/disambiguation_route.py
++++ b/src/polaris_graph/api/disambiguation_route.py
+@@ -65,7 +65,7 @@ def _make_openrouter_label_client() -> ClusterLabelClient | None:
+     key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+     if not key:
+         return None
+-    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "z-ai/glm-5.1"
++    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "deepseek/deepseek-v4-pro"
+     return _OpenRouterLabelClient(api_key=key, model=model)
+ 
+ 
+diff --git a/src/polaris_graph/audit_ir/model_pin.py b/src/polaris_graph/audit_ir/model_pin.py
+index bbff6a2e..d99b57ba 100644
+--- a/src/polaris_graph/audit_ir/model_pin.py
++++ b/src/polaris_graph/audit_ir/model_pin.py
+@@ -22,8 +22,8 @@ ModelPin captures:
+   - run_id: the run this pin was captured from
+   - captured_at: unix timestamp
+   - pin_schema_version: "v4" (explicit forward-compat marker)
+-  - llm_models: {role: model_id} — e.g. {"generator": "z-ai/glm-5.1",
+-    "evaluator": "qwen/qwen3.5-plus", "judge": "...", "inductor": "..."}.
++  - llm_models: {role: model_id} — e.g. {"generator": "deepseek/deepseek-v4-pro",
++    "evaluator": "google/gemma-4-31b-it", "judge": "...", "inductor": "..."}.
+     The current honest_pipeline + audit_ir loader carry distinct
+     generator/evaluator/judge models; phase 2 needs all of them
+     to rehydrate.
+diff --git a/src/polaris_graph/clinical_generator/real_completion.py b/src/polaris_graph/clinical_generator/real_completion.py
+index b799e280..7280ef8d 100644
+--- a/src/polaris_graph/clinical_generator/real_completion.py
++++ b/src/polaris_graph/clinical_generator/real_completion.py
+@@ -4,7 +4,7 @@ Per `.codex/slices/slice_003/architecture_proposal.md` PR 7 row.
+ 
+ Implements GeneratorCompletionFn protocol with an OpenRouter chat-completion
+ backend. Default model from OPENROUTER_DEFAULT_MODEL env var (e.g.
+-'z-ai/glm-5.1'). Prompt template instructs the LLM to:
++'deepseek/deepseek-v4-pro'). Prompt template instructs the LLM to:
+ 
+   - write 4-8 sentences for the requested section
+   - cite EVERY claim with a [#ev:<source_id>:<start>-<end>] token
+@@ -77,7 +77,7 @@ def load_config_from_env() -> RealCompletionConfig:
+             "CLAUDE.md LAW II, this MUST fail loudly rather than silently "
+             "skipping the generator."
+         )
+-    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "z-ai/glm-5.1"
++    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "deepseek/deepseek-v4-pro"
+     return RealCompletionConfig(api_key=key, model=model)
+ 
+ 
+diff --git a/src/polaris_graph/generator/analyst_synthesis.py b/src/polaris_graph/generator/analyst_synthesis.py
+index 0b6bc0d2..d42a21b7 100644
+--- a/src/polaris_graph/generator/analyst_synthesis.py
++++ b/src/polaris_graph/generator/analyst_synthesis.py
+@@ -307,15 +307,15 @@ async def generate_analyst_synthesis(
+     bibliography: list[dict[str, Any]],
+     evidence_rows: list[dict[str, Any]],
+     research_question: str,
+-    model: str = "deepseek/deepseek-v3.2-exp",
++    model: str = "deepseek/deepseek-v4-pro",
+     max_tokens: int = 4000,
+     temperature: float = 0.3,
+ ) -> tuple[str, int, int]:
+     """Generate the Analyst Synthesis section.
+ 
+-    Per Codex iter-1 brief verdict: DeepSeek V3.2-Exp is the writer
+-    (consistent with verified prose voice; Gemma stays in the
+-    judge/evaluator role).
++    Per I-cd-009 (GH#624) Carney demo lock: DeepSeek V4 Pro 1.6T (49B
++    active MoE) is the writer (consistent with verified prose voice;
++    Gemma 4 31B-it stays in the judge/evaluator role).
+ 
+     Returns (text, input_tokens, output_tokens). Returns ("", 0, 0)
+     on failure — caller MUST treat empty text as "omit synthesis
+diff --git a/src/polaris_graph/generator/sentence_repair.py b/src/polaris_graph/generator/sentence_repair.py
+index 566beeac..1863c7db 100644
+--- a/src/polaris_graph/generator/sentence_repair.py
++++ b/src/polaris_graph/generator/sentence_repair.py
+@@ -145,7 +145,7 @@ async def repair_sentence(
+     *,
+     dropped: SentenceVerification,
+     evidence_pool: dict[str, dict[str, Any]],
+-    model: str = "deepseek/deepseek-v3.2-exp",
++    model: str = "deepseek/deepseek-v4-pro",
+     max_tokens: int = 400,
+     temperature: float = 0.2,
+ ) -> tuple[str, str | None, int, int]:
+@@ -256,7 +256,7 @@ async def repair_dropped_section_sentences(
+     kept: list[SentenceVerification],
+     dropped: list[SentenceVerification],
+     evidence_pool: dict[str, dict[str, Any]],
+-    model: str = "deepseek/deepseek-v3.2-exp",
++    model: str = "deepseek/deepseek-v4-pro",
+     max_tokens: int = 400,
+     temperature: float = 0.2,
+ ) -> tuple[list[SentenceVerification], list[SentenceVerification], RepairTelemetry]:
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index 105d39bf..5117e6af 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -43,7 +43,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+ OPENROUTER_BASE_URL = os.getenv(
+     "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+ )
+-OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "qwen/qwen3.5-plus-02-15")
++OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "deepseek/deepseek-v4-pro")
+ OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
+ 
+ # R-2 (readiness gate): hard per-run cost cap — a RUNAWAY-LOOP GUARD,
+diff --git a/src/polaris_v6/api/transparency.py b/src/polaris_v6/api/transparency.py
+index 6203c741..4566d774 100644
+--- a/src/polaris_v6/api/transparency.py
++++ b/src/polaris_v6/api/transparency.py
+@@ -215,7 +215,7 @@ def transparency() -> TransparencyResponse:
+         sovereignty_filter=_sovereignty_policy(),
+         evaluator_models={
+             "generator": os.environ.get("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro"),
+-            "evaluator": os.environ.get("PG_EVALUATOR_MODEL", "qwen/qwen-2.5-72b-instruct"),
++            "evaluator": os.environ.get("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it"),
+         },
+         egress_allowlist=_load_egress_allowlist(),
+         build_time_hosts_pruned=pruned_flag.exists(),
+diff --git a/src/providers/llm_provider.py b/src/providers/llm_provider.py
+index a0982d54..0c04842d 100644
+--- a/src/providers/llm_provider.py
++++ b/src/providers/llm_provider.py
+@@ -43,11 +43,11 @@ PG_SOVEREIGN_MODE = os.getenv("PG_SOVEREIGN_MODE", "0") == "1"
+ # OpenRouter (cloud)
+ OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "moonshotai/kimi-k2-0711")
++OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4-pro")
+ 
+ # vLLM (local GPU server)
+ VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8200/v1")
+-VLLM_MODEL = os.getenv("VLLM_MODEL", "meta-llama/Llama-3.1-70B-Instruct")
++VLLM_MODEL = os.getenv("VLLM_MODEL", "ebircak/gemma-4-31B-it-4bit-W4A16-AWQ")
+ VLLM_API_KEY = os.getenv("VLLM_API_KEY", "EMPTY")
+ 
+ # Ollama (local, lightweight)
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 617a9cc8..998b0b0c 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -607,3 +607,17 @@ This-session live OVH API probe (endpoint `ovh-ca`, project `446fccde...`): topo
+ - Diff review: iter 1 RC — 1 P1 (`verdict.target_skus_obtainable_now` hardcoded False, would block future remediation reruns) + 1 P2 (`_project_regions` / `_project_flavors` uncaught-API, single failure aborts before JSON write). Both fixed: verdict now derives per-SKU obtainability (`has_h200 AND has_h100`), uncaught calls wrapped in try/except. iter 2 APPROVE — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining.
+ 
+ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
++
++## I-cd-009 brief — iter 5 (cap) APPROVE — 2026-05-19
++
++- doc: `.codex/I-cd-009/brief.md`
++- gate: brief review
++- iter: 5 of 5 (cap reached cleanly with APPROVE)
++- verdict: APPROVE
++- novel_p0: 0, continuing_p0: 0, p1: 0
++- p2: 2 (module docstrings + standalone script log-strings — deferred to I-cd-010 per breakdown)
++- convergence_call: accept_remaining
++- final scope: 24 changes across 14 files (23 active + 1 test fix + 3 handover docs)
++- key iter-4 fold-in: `tests/polaris_graph/clinical_generator/test_real_completion.py:46-51` (NEW P1)
++- dropped from scope: `docker-compose.yml:56` (deferred to I-cd-038 — needs full vLLM `command:` wiring)
++- next: implement all 24 changes + smoke + diff review.
+diff --git a/tests/polaris_graph/clinical_generator/test_real_completion.py b/tests/polaris_graph/clinical_generator/test_real_completion.py
+index 0afd41b9..b28ae71b 100644
+--- a/tests/polaris_graph/clinical_generator/test_real_completion.py
++++ b/tests/polaris_graph/clinical_generator/test_real_completion.py
+@@ -48,7 +48,8 @@ def test_load_config_default_model(monkeypatch: pytest.MonkeyPatch):
+     monkeypatch.delenv("OPENROUTER_DEFAULT_MODEL", raising=False)
+     cfg = load_config_from_env()
+     assert cfg.api_key == "test-key"
+-    assert cfg.model == "z-ai/glm-5.1"
++    # I-cd-009 (GH#624) Carney demo lock: default fallback is V4 Pro.
++    assert cfg.model == "deepseek/deepseek-v4-pro"
+ 
+ 
+ def test_load_config_custom_model(monkeypatch: pytest.MonkeyPatch):
+
+# canonical-diff-sha256: b0fa76d0eed97f26c534301635f20f87cae062be611c36876034e29c74fac066
