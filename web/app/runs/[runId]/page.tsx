@@ -89,183 +89,168 @@ export default function RunDetailPage({ params }: RunPageProps) {
     }
   };
 
+  // I-cd-025 (#615): /runs/[runId] rebuild — G1/G6 fix. Page no longer
+  // renders its own <header>, <footer>, or <main>. AppShell (via
+  // AppShellGate, I-cd-022) is the single landmark provider on this
+  // route. G2 fix: removed "POLARIS v6.2 — Phase 0 scaffold" footer
+  // dev-language. The header's Export-bundle + New-run buttons move
+  // into a page-level action row inside the <section>.
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-border bg-background border-b">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex flex-col">
-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
-              POLARIS Canada
-            </span>
-            <span className="text-foreground text-base font-semibold">
-              Sovereign Deep Research
-            </span>
-          </Link>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={async () => {
-                try {
-                  const bundle = await getBundle(runId);
-                  downloadBundleAsJson(bundle);
-                } catch (err) {
-                  setError(
-                    err instanceof Error
-                      ? `Bundle export failed: ${err.message}`
-                      : "Bundle export failed",
-                  );
-                }
-              }}
-            >
-              Export bundle
-            </Button>
-            <Button
-              variant="default"
-              nativeButton={false}
-              render={<Link href="/dashboard" />}
-            >
-              New run
-            </Button>
-          </div>
-        </div>
-      </header>
+    <section
+      data-testid="runs-runid-page"
+      className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-12"
+    >
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          variant="outline"
+          onClick={async () => {
+            try {
+              const bundle = await getBundle(runId);
+              downloadBundleAsJson(bundle);
+            } catch (err) {
+              setError(
+                err instanceof Error
+                  ? `Bundle export failed: ${err.message}`
+                  : "Bundle export failed",
+              );
+            }
+          }}
+        >
+          Export bundle
+        </Button>
+        <Button
+          variant="default"
+          nativeButton={false}
+          render={<Link href="/dashboard" />}
+        >
+          New run
+        </Button>
+      </div>
 
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-12">
-        <section className="flex flex-col gap-2">
-          <span className="text-muted-foreground text-xs tracking-widest uppercase">
-            Run {runId}
-          </span>
-          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
-            {status?.question ?? "Loading…"}
-          </h1>
-          {status && (
-            <p className="text-muted-foreground text-sm">
-              Template:{" "}
-              <span className="text-foreground">{status.template}</span>
-              {" · "}
-              Status:{" "}
-              <span className="text-foreground font-mono">{status.status}</span>
-              {" · "}
-              Queued at <time>{status.queued_at}</time>
-            </p>
-          )}
-          {error && (
-            <p
-              role="alert"
-              className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
-            >
-              {error}
-            </p>
-          )}
-        </section>
-
-        <section className="border-border flex flex-col gap-2 rounded-md border p-4">
-          <h2 className="text-foreground text-sm font-semibold">
-            Affordances during this run
-          </h2>
-          <p className="text-muted-foreground text-xs">
-            5 things you can do while POLARIS works (F4 plan):
+      <div className="flex flex-col gap-2">
+        <span className="text-muted-foreground text-xs tracking-widest uppercase">
+          Run {runId}
+        </span>
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          {status?.question ?? "Loading…"}
+        </h1>
+        {status && (
+          <p className="text-muted-foreground text-sm">
+            Template: <span className="text-foreground">{status.template}</span>
+            {" · "}
+            Status:{" "}
+            <span className="text-foreground font-mono">{status.status}</span>
+            {" · "}
+            Queued at <time>{status.queued_at}</time>
           </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              nativeButton={false}
-              render={<Link href={`/inspector/${runId}`} />}
-            >
-              Open Inspector
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={async () => {
-                try {
-                  const bundle = await getBundle(runId);
-                  downloadBundleAsJson(bundle);
-                } catch (err) {
-                  setError(
-                    err instanceof Error
-                      ? `Bundle export failed: ${err.message}`
-                      : "Bundle export failed",
-                  );
-                }
-              }}
-            >
-              Export current bundle
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={status === null || isTerminal || cancelling}
-              title={
-                cancelRequested
-                  ? "Cancellation requested — the run is winding down"
-                  : "Cancel this queued or in-progress run"
+        )}
+        {error && (
+          <p
+            role="alert"
+            className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+          >
+            {error}
+          </p>
+        )}
+      </div>
+
+      <div className="border-border flex flex-col gap-2 rounded-md border p-4">
+        <h2 className="text-foreground text-sm font-semibold">
+          Affordances during this run
+        </h2>
+        <p className="text-muted-foreground text-xs">
+          5 things you can do while POLARIS works (F4 plan):
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/inspector/${runId}`} />}
+          >
+            Open Inspector
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={async () => {
+              try {
+                const bundle = await getBundle(runId);
+                downloadBundleAsJson(bundle);
+              } catch (err) {
+                setError(
+                  err instanceof Error
+                    ? `Bundle export failed: ${err.message}`
+                    : "Bundle export failed",
+                );
               }
-              onClick={onCancel}
-            >
-              {cancelRequested
-                ? "Cancelling…"
-                : cancelling
-                  ? "Requesting…"
-                  : "Cancel run"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled
-              title="Phase 1: ask a follow-up scoped to this run's evidence"
-            >
-              Ask follow-up
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled
-              title="Phase 2B: pin this run for later replay"
-            >
-              Pin for replay
-            </Button>
-          </div>
-        </section>
-
-        <section className="flex flex-col gap-3">
-          <h2 className="text-foreground text-lg font-semibold">
-            Live events ({events.length})
-          </h2>
-          <div className="flex flex-col gap-2">
-            {events.length === 0 && (
-              <p className="text-muted-foreground text-sm">
-                Waiting for the first event from the verifier pipeline…
-              </p>
-            )}
-            {events.map((evt, idx) => (
-              <Card key={idx}>
-                <CardHeader>
-                  <CardDescription className="text-xs tracking-widest uppercase">
-                    Event {idx + 1}
-                  </CardDescription>
-                  <CardTitle className="font-mono text-sm">
-                    {evt.event}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <pre className="bg-muted text-foreground overflow-x-auto rounded-md p-3 text-xs">
-                    {JSON.stringify(evt.data, null, 2)}
-                  </pre>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
-      </main>
-
-      <footer className="border-border bg-background border-t">
-        <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
-          <span>POLARIS v6.2 — Phase 0 scaffold</span>
-          <span>Sovereign Canadian deep research</span>
+            }}
+          >
+            Export current bundle
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={status === null || isTerminal || cancelling}
+            title={
+              cancelRequested
+                ? "Cancellation requested — the run is winding down"
+                : "Cancel this queued or in-progress run"
+            }
+            onClick={onCancel}
+          >
+            {cancelRequested
+              ? "Cancelling…"
+              : cancelling
+                ? "Requesting…"
+                : "Cancel run"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled
+            title="Phase 1: ask a follow-up scoped to this run's evidence"
+          >
+            Ask follow-up
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled
+            title="Phase 2B: pin this run for later replay"
+          >
+            Pin for replay
+          </Button>
         </div>
-      </footer>
-    </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <h2 className="text-foreground text-lg font-semibold">
+          Live events ({events.length})
+        </h2>
+        <div className="flex flex-col gap-2">
+          {events.length === 0 && (
+            <p className="text-muted-foreground text-sm">
+              Waiting for the first event from the verifier pipeline…
+            </p>
+          )}
+          {events.map((evt, idx) => (
+            <Card key={idx}>
+              <CardHeader>
+                <CardDescription className="text-xs tracking-widest uppercase">
+                  Event {idx + 1}
+                </CardDescription>
+                <CardTitle className="font-mono text-sm">{evt.event}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <pre className="bg-muted text-foreground overflow-x-auto rounded-md p-3 text-xs">
+                  {JSON.stringify(evt.data, null, 2)}
+                </pre>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
