@@ -1,0 +1,3113 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e46d1-5d84-7131-ab29-4a1905c77db7
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1.
+- "Don't pick bone from egg" — P1 only for real execution risks.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# Codex diff review — I-cd-023 (#613) — /intake rebuild
+
+Brief APPROVE'd (force-APPROVE on plan after iter-1 RC findings were all "implementation pending" — addressed in this diff). Canonical-diff-sha256: `782ae85909c1956221cc40b42d6e6794bb61807ebd03e46914fc301c3d2d7e24`. 3 files / +59/-54 LOC + 1 CI step.
+
+## §A Canonical diff summary
+
+- `web/app/intake/page.tsx` — drop page-level `<header>` + `<footer>` + `min-h-screen` wrapper. Page now renders `<section data-testid="intake-page">` directly. AppShell provides the single header + main. Section-title is now a `<div>` (not `<header>`) so the page locator-count for `<header>` is exactly 1.
+- `web/tests/e2e/intake_g1_g8.spec.ts` NEW — G1 (1 header), G6 (1 main), G2 (no dev language), G8 (no console errors), G1 nav-parity (primary nav links visible).
+- `.github/workflows/web_ci.yml` — `run_e2e_intake_g1_g8` step wires the spec as a binding CI gate.
+
+## §B Acceptance check
+
+| Gate | Met by |
+|---|---|
+| G1 — single header (AppShell-only) | page header dropped; spec asserts `toHaveCount(1)` on `<header>` |
+| G2 — no dev language | "POLARIS Canada — Slice 001" + "POLARIS v6.2 — Slice 001 (scope + intake)" removed via header/footer drop; spec regex-asserts |
+| G3 — interactive states | existing shadcn Button + IntakeForm components preserved |
+| G4 — async states | IntakeForm already has loading/error states |
+| G5 — responsive | existing `max-w-4xl` + grid |
+| G6 — single main (AppShell-only) | page `<main>` swapped for `<section>`; spec asserts `toHaveCount(1)` on `<main>` |
+| G7 — design tokens | preserved |
+| G8 — console clean | spec asserts via `page.on("console", ...)` |
+| `intake-page` testid preserved (4 existing intake specs) | line 19 of new page.tsx |
+| CI binding gate | web_ci.yml new step |
+
+## §C Red-team checklist
+
+1. **`intake-page` testid** — moved from `<main>` to `<section>`; existing specs assert visibility/role-agnostic, so this is non-breaking.
+2. **IntakeForm + PdfDropBanner** — sub-components unchanged.
+3. **Page metadata** (title, description) preserved.
+4. **Drop section-level `<header>`** for G1 single-header strictness; replaced with `<div>` containing h1 + paragraph.
+5. **No new dependencies** — pure structural edit.
+6. **TypeScript clean** confirmed via `npx tsc --noEmit`.
+
+## §D Files I have ALSO checked and they're clean
+
+- `web/components/app_shell_gate.tsx` (I-cd-022) — falls through to AppShell on `/intake`, providing the global header + main.
+- `web/tests/e2e/intake*.spec.ts` (4 files) — assert on form testids inside IntakeForm, not on the dropped header/footer.
+- `web/app/intake/components/intake_form.tsx` — sub-component unchanged.
+
+## §E Smoke test
+
+```bash
+cd web && npx tsc --noEmit
+# rc=0
+```
+
+## §F Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll review the diff against the stated gates and focus on real execution risks only. I’ll inspect the changed files plus the shell wrapper and existing intake specs enough to verify whether the new assumptions hold.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- .github/workflows/web_ci.yml' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/tests/e2e/intake_g1_g8.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/app/intake/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+ succeeded in 1332ms:
+ succeeded in 1410ms:
+ succeeded in 1578ms:
+ M .claude/settings.json
+ M docs/todo_list.md
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+ M tests/fixtures/signed_bundle/v1_canonical/metadata.json
+ M tests/fixtures/signed_bundle/v1_canonical/scope_decision.json
+ M tests/fixtures/signed_bundle/v1_canonical/verified_report.json
+?? .claude/hooks/__pycache__/
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-023/codex_diff.patch
+?? .codex/I-cd-023/codex_diff_canonical.patch
+?? .codex/I-cd-023/diff_brief.md
+?? .codex/I-cd-023/diff_iter1_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+ succeeded in 1653ms:
+codex
+The working tree has a lot of unrelated dirty state, and the three target files are not showing as modified directly. I’m switching to the provided `.codex/I-cd-023` patch artifacts so the review stays scoped to this diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .codex\\I-cd-023\\codex_diff_canonical.patch" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .codex\\I-cd-023\\diff_brief.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\app_shell_gate.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path web\\app\\intake, web\\tests\\e2e, .github\\workflows -Force" in C:\POLARIS
+ succeeded in 1302ms:
+diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
+index e2380417..6fd65409 100644
+--- a/.github/workflows/web_ci.yml
++++ b/.github/workflows/web_ci.yml
+@@ -170,6 +170,13 @@ jobs:
+           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+         run: npx playwright test --project=chromium tests/e2e/home_g1_g8.spec.ts
+ 
++      # I-cd-023 (#613): /intake route G1-G8 acceptance gates.
++      - name: run_e2e_intake_g1_g8
++        env:
++          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
++          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
++        run: npx playwright test --project=chromium tests/e2e/intake_g1_g8.spec.ts
++
+       # Visual baselines are *-chromium-win32.png (locally captured on Win).
+       # On Linux CI the snapshot file resolves to a different name and will
+       # be missing; skip visual.spec until Linux baselines are added.
+diff --git a/web/app/intake/page.tsx b/web/app/intake/page.tsx
+index 05eb00e0..8622060b 100644
+--- a/web/app/intake/page.tsx
++++ b/web/app/intake/page.tsx
+@@ -1,7 +1,3 @@
+-import Link from "next/link";
+-
+-import { Button } from "@/components/ui/button";
+-
+ import { IntakeForm } from "./components/intake_form";
+ import { PdfDropBanner } from "./components/pdf_drop_banner";
+ 
+@@ -11,57 +7,33 @@ export const metadata = {
+     "Submit a clinical research question. POLARIS classifies scope and detects PICO ambiguity before any retrieval is run.",
+ };
+ 
++// I-cd-023 (#613): /intake rebuild — G1/G6 fix. Page no longer renders
++// its own <header> or <main>; AppShell (via AppShellGate, I-cd-022) is
++// the single landmark provider for this route. G2 fix: removed
++// "POLARIS Canada — Slice 001" + "POLARIS v6.2 — Slice 001 (scope + intake)"
++// dev-language strings.
+ export default function IntakePage() {
+   return (
+-    <div className="flex min-h-screen flex-col">
+-      <header className="border-border bg-background border-b">
+-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4">
+-          <div className="flex flex-col">
+-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+-              POLARIS Canada — Slice 001
+-            </span>
+-            <span className="text-foreground text-base font-semibold">
+-              Clinical scope discovery
+-            </span>
+-          </div>
+-          <Button
+-            variant="outline"
+-            nativeButton={false}
+-            render={<Link href="/" />}
+-          >
+-            Home
+-          </Button>
+-        </div>
+-      </header>
+-
+-      <main
+-        data-testid="intake-page"
+-        className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-10"
+-      >
+-        <section className="flex flex-col gap-2">
+-          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+-            Clinical scope discovery
+-          </h1>
+-          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+-            Type a clinical research question and POLARIS will run it through
+-            the scope + intake: refusal-bait detection, scope classification
+-            (efficacy / safety / diagnosis / prognosis), and PICO axis ambiguity
+-            detection. No retrieval is run yet — this is the gate that decides
+-            if a question is researchable as written.
+-          </p>
+-        </section>
+-
+-        <PdfDropBanner />
+-
+-        <IntakeForm />
+-      </main>
+-
+-      <footer className="border-border bg-background border-t">
+-        <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+-          <span>POLARIS v6.2 — Slice 001 (scope + intake)</span>
+-          <span>Sovereign Canadian deep research</span>
+-        </div>
+-      </footer>
+-    </div>
++    <section
++      data-testid="intake-page"
++      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
++    >
++      <div className="flex flex-col gap-2">
++        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
++          Clinical scope discovery
++        </h1>
++        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
++          Type a clinical research question and POLARIS will run it through the
++          scope + intake: refusal-bait detection, scope classification (efficacy
++          / safety / diagnosis / prognosis), and PICO axis ambiguity detection.
++          No retrieval is run yet — this is the gate that decides if a question
++          is researchable as written.
++        </p>
++      </div>
++
++      <PdfDropBanner />
++
++      <IntakeForm />
++    </section>
+   );
+ }
+diff --git a/web/tests/e2e/intake_g1_g8.spec.ts b/web/tests/e2e/intake_g1_g8.spec.ts
+new file mode 100644
+index 00000000..069512f8
+--- /dev/null
++++ b/web/tests/e2e/intake_g1_g8.spec.ts
+@@ -0,0 +1,59 @@
++// I-cd-023 (#613): /intake route G1-G8 acceptance gates per
++// state/polaris_ui_rebuild_matrix.md §2. Pattern mirrors home_g1_g8.spec.ts.
++
++import { expect, test } from "@playwright/test";
++
++const BANNED_DEV_LANGUAGE = [
++  /\bslice\b/i,
++  /\bscaffold\b/i,
++  /\bplaceholder\b/i,
++  /\bphase 0\b/i,
++  /\bpost[- ]carney\b/i,
++  /\bi-cd-/i,
++];
++
++test("G1 + G6: /intake has exactly one header + one main (AppShell-provided)", async ({
++  page,
++}) => {
++  await page.goto("/intake");
++  await expect(page.locator("header")).toHaveCount(1);
++  await expect(page.locator("main")).toHaveCount(1);
++});
++
++test("G2: /intake contains no banned dev-language strings", async ({
++  page,
++}) => {
++  await page.goto("/intake");
++  const body_text = (await page.locator("body").textContent()) || "";
++  for (const banned of BANNED_DEV_LANGUAGE) {
++    expect(body_text).not.toMatch(banned);
++  }
++});
++
++test("G8: /intake renders with zero console errors", async ({ page }) => {
++  const errors: string[] = [];
++  page.on("console", (msg) => {
++    if (msg.type() === "error") errors.push(msg.text());
++  });
++  await page.goto("/intake");
++  await page.waitForLoadState("networkidle");
++  // Existing intake form sub-component may surface known harmless warnings;
++  // we only fail on errors per state/polaris_ui_rebuild_matrix.md G8.
++  expect(errors).toEqual([]);
++});
++
++test("G1 nav parity: primary nav is visible on /intake", async ({ page }) => {
++  await page.goto("/intake");
++  const nav = page.locator("nav[aria-label='Primary']");
++  await expect(nav).toBeVisible();
++  for (const label of [
++    "Home",
++    "Intake",
++    "Dashboard",
++    "Upload",
++    "Benchmark",
++    "Contracts",
++  ]) {
++    await expect(nav.getByRole("link", { name: label })).toBeVisible();
++  }
++});
+
+ succeeded in 1399ms:
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1.
+- "Don't pick bone from egg" — P1 only for real execution risks.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# Codex diff review — I-cd-023 (#613) — /intake rebuild
+
+Brief APPROVE'd (force-APPROVE on plan after iter-1 RC findings were all "implementation pending" — addressed in this diff). Canonical-diff-sha256: `782ae85909c1956221cc40b42d6e6794bb61807ebd03e46914fc301c3d2d7e24`. 3 files / +59/-54 LOC + 1 CI step.
+
+## §A Canonical diff summary
+
+- `web/app/intake/page.tsx` — drop page-level `<header>` + `<footer>` + `min-h-screen` wrapper. Page now renders `<section data-testid="intake-page">` directly. AppShell provides the single header + main. Section-title is now a `<div>` (not `<header>`) so the page locator-count for `<header>` is exactly 1.
+- `web/tests/e2e/intake_g1_g8.spec.ts` NEW — G1 (1 header), G6 (1 main), G2 (no dev language), G8 (no console errors), G1 nav-parity (primary nav links visible).
+- `.github/workflows/web_ci.yml` — `run_e2e_intake_g1_g8` step wires the spec as a binding CI gate.
+
+## §B Acceptance check
+
+| Gate | Met by |
+|---|---|
+| G1 — single header (AppShell-only) | page header dropped; spec asserts `toHaveCount(1)` on `<header>` |
+| G2 — no dev language | "POLARIS Canada — Slice 001" + "POLARIS v6.2 — Slice 001 (scope + intake)" removed via header/footer drop; spec regex-asserts |
+| G3 — interactive states | existing shadcn Button + IntakeForm components preserved |
+| G4 — async states | IntakeForm already has loading/error states |
+| G5 — responsive | existing `max-w-4xl` + grid |
+| G6 — single main (AppShell-only) | page `<main>` swapped for `<section>`; spec asserts `toHaveCount(1)` on `<main>` |
+| G7 — design tokens | preserved |
+| G8 — console clean | spec asserts via `page.on("console", ...)` |
+| `intake-page` testid preserved (4 existing intake specs) | line 19 of new page.tsx |
+| CI binding gate | web_ci.yml new step |
+
+## §C Red-team checklist
+
+1. **`intake-page` testid** — moved from `<main>` to `<section>`; existing specs assert visibility/role-agnostic, so this is non-breaking.
+2. **IntakeForm + PdfDropBanner** — sub-components unchanged.
+3. **Page metadata** (title, description) preserved.
+4. **Drop section-level `<header>`** for G1 single-header strictness; replaced with `<div>` containing h1 + paragraph.
+5. **No new dependencies** — pure structural edit.
+6. **TypeScript clean** confirmed via `npx tsc --noEmit`.
+
+## §D Files I have ALSO checked and they're clean
+
+- `web/components/app_shell_gate.tsx` (I-cd-022) — falls through to AppShell on `/intake`, providing the global header + main.
+- `web/tests/e2e/intake*.spec.ts` (4 files) — assert on form testids inside IntakeForm, not on the dropped header/footer.
+- `web/app/intake/components/intake_form.tsx` — sub-component unchanged.
+
+## §E Smoke test
+
+```bash
+cd web && npx tsc --noEmit
+# rc=0
+```
+
+## §F Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+ succeeded in 1516ms:
+// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+// the AppShell header AND its <main> wrapper so the home route can
+// provide its own header (with the same primary nav) + its own <main>.
+// This avoids G1 (double header) + G6 (nested main) landmark violations.
+//
+// Tiny "use client" boundary so the otherwise server-rendered AppShell
+// can still wrap every non-home route on the server.
+"use client";
+
+import { usePathname } from "next/navigation";
+
+import { AppShell } from "@/components/app_shell";
+
+interface AppShellGateProps {
+  children: React.ReactNode;
+}
+
+export function AppShellGate({ children }: AppShellGateProps) {
+  const pathname = usePathname();
+  // Home owns its own header + main; render children bare on `/`.
+  if (pathname === "/") {
+    return <>{children}</>;
+  }
+  return <AppShell>{children}</AppShell>;
+}
+
+ succeeded in 1653ms:
+
+    Directory: C:\POLARIS\web\app\intake
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m [32;1;3m        Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+d----          2026-05-07 10:31 PM                [44;1mcomponents[0m
+-a---          2026-05-20 12:15 PM           1535 page.tsx
+
+    Directory: C:\POLARIS\web\tests\e2e
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m [32;1;3m        Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+d----          2026-05-08  1:17 AM                [44;1mvisual_60_baselines.spec.ts-snapshots[0m
+d----          2026-05-20  2:13 AM                [44;1mvisual.spec.ts-snapshots[0m
+-a---          2026-05-20  2:13 AM          11928 accessibility.spec.ts
+-a---          2026-05-07 10:31 PM           3112 audit_bundle.spec.ts
+-a---          2026-05-07 10:31 PM           2832 audit_live_adversarial.spec.ts
+-a---          2026-05-07 10:31 PM           1308 audit_live_multitab.spec.ts
+-a---          2026-05-07 10:31 PM            781 audit_live.spec.ts
+-a---          2026-05-07 10:31 PM           1621 benchmark.spec.ts
+-a---          2026-05-07 10:31 PM           4140 bundle_preview.spec.ts
+-a---          2026-05-07 10:31 PM           1367 chart_click_through.spec.ts
+-a---          2026-05-07 11:56 PM           1130 cited_recall_badge.spec.ts
+-a---          2026-05-15 11:14 PM           3039 command_palette_adversarial.spec.ts
+-a---          2026-05-16  1:55 PM           3074 command_palette_suggest.spec.ts
+-a---          2026-05-16  1:55 PM           2482 command_palette.spec.ts
+-a---          2026-05-07 10:31 PM           1034 comparison_table_chart.spec.ts
+-a---          2026-05-07 10:31 PM            839 contract_editor.spec.ts
+-a---          2026-05-08  1:28 AM           1882 cross_browser_smoke.spec.ts
+-a---          2026-05-07 11:20 PM           2107 cross_session_surface.spec.ts
+-a---          2026-05-16  1:55 PM           2701 demo_walkthrough.spec.ts
+-a---          2026-05-07 10:31 PM           1221 disambiguation_modal.spec.ts
+-a---          2026-05-07 10:31 PM           1547 evidence_tooltip_edges.spec.ts
+-a---          2026-05-07 10:31 PM           1214 evidence_tooltip_mobile.spec.ts
+-a---          2026-05-07 10:31 PM            854 evidence_tooltip_perf.spec.ts
+-a---          2026-05-07 10:31 PM           1288 evidence_tooltip.spec.ts
+-a---          2026-05-07 10:31 PM           1839 f1_a11y.spec.ts
+-a---          2026-05-15 11:14 PM           4164 f1_multi_tab.spec.ts
+-a---          2026-05-07 10:31 PM           8770 f2_walkthrough.spec.ts
+-a---          2026-05-08  2:27 AM            482 follow_up_append.spec.ts
+-a---          2026-05-07 10:31 PM           1831 forest_plot_chart.spec.ts
+-a---          2026-05-07 10:31 PM           1768 frame_coverage_adversarial.spec.ts
+-a---          2026-05-07 10:31 PM           2965 frame_coverage_panel.spec.ts
+-a---          2026-05-07 10:31 PM           3592 generation.spec.ts
+-a---          2026-05-15 10:54 AM           2524 graph_page_smoke.spec.ts
+-a---          2026-05-20 12:11 PM           3012 home_g1_g8.spec.ts
+-a---          2026-05-20 11:53 AM           3028 inspector_offline_fallback.spec.ts
+-a---          2026-05-20  2:13 AM           7514 inspector_route.spec.ts
+-a---          2026-05-20  2:13 AM           1545 inspector.spec.ts
+-a---          2026-05-07 10:31 PM           3161 intake_disambiguation_negative.spec.ts
+-a---          2026-05-07 10:31 PM           2759 intake_disambiguation.spec.ts
+-a---          2026-05-07 10:31 PM           1521 intake_edge.spec.ts
+-a---          2026-05-20 12:15 PM           1732 intake_g1_g8.spec.ts
+-a---          2026-05-07 10:31 PM           3987 intake.spec.ts
+-a---          2026-05-16  1:55 PM           3207 landing_template_grid.spec.ts
+-a---          2026-05-07 11:04 PM           2673 memory_page_controls.spec.ts
+-a---          2026-05-07 10:31 PM           1330 multi_source_panel.spec.ts
+-a---          2026-05-08 12:22 AM           1760 p2c_001_chain.spec.ts
+-a---          2026-05-08  2:07 AM           1793 p2c_005_mobile.spec.ts
+-a---          2026-05-20  9:40 AM           4036 perf_core_web_vitals.spec.ts
+-a---          2026-05-20  2:02 AM           5138 performance.spec.ts
+-a---          2026-05-20  9:40 AM           1486 pin_regression_alert.spec.ts
+-a---          2026-05-20  9:40 AM           1785 pin_replay_diff.spec.ts
+-a---          2026-05-20  9:40 AM           1794 pin_replay.spec.ts
+-a---          2026-05-20  9:40 AM           1562 pin_retraction_handled.spec.ts
+-a---          2026-05-07 10:31 PM           3873 retrieval.spec.ts
+-a---          2026-05-07 10:31 PM            634 sentence_hover.spec.ts
+-a---          2026-05-07 10:31 PM           1792 sentence_inspector_adversarial.spec.ts
+-a---          2026-05-07 10:31 PM           1497 sentence_inspector_agreement.spec.ts
+-a---          2026-05-07 10:31 PM           3566 sentence_inspector_ai_agent.spec.ts
+-a---          2026-05-07 10:31 PM           4881 sentence_inspector_contradiction.spec.ts
+-a---          2026-05-07 10:31 PM           1532 sentence_inspector_evaluator_edge.spec.ts
+-a---          2026-05-07 10:31 PM           1710 sentence_inspector_evaluator_flag.spec.ts
+-a---          2026-05-07 10:31 PM           1749 sentence_inspector_latency.spec.ts
+-a---          2026-05-07 10:31 PM           1771 sentence_inspector_multispan.spec.ts
+-a---          2026-05-07 10:31 PM           1299 sentence_inspector_retracted_stale.spec.ts
+-a---          2026-05-07 10:31 PM           1345 sentence_inspector_source.spec.ts
+-a---          2026-05-07 10:31 PM           1167 sentence_inspector_surfaces.spec.ts
+-a---          2026-05-07 10:31 PM            859 sentence_inspector_synthesis.spec.ts
+-a---          2026-05-07 10:31 PM            666 sentence_inspector.spec.ts
+-a---          2026-05-20  2:54 AM           5740 sign_in.spec.ts
+-a---          2026-05-08 12:31 PM           2564 split_screen.spec.ts
+-a---          2026-05-07 10:31 PM           1160 sse_client.spec.ts
+-a---          2026-05-07 10:31 PM            846 timeline_chart.spec.ts
+-a---          2026-05-08 11:32 AM           1920 two_run_picker.spec.ts
+-a---          2026-05-07 10:31 PM           2740 upload_doc_preview.spec.ts
+-a---          2026-05-07 10:31 PM           2921 upload_dropzone.spec.ts
+-a---          2026-05-07 10:31 PM           2276 upload_evidence_toggle.spec.ts
+-a---          2026-05-07 10:31 PM           2249 upload_parse_status.spec.ts
+-a---          2026-05-07 10:31 PM            871 vega_lite_chart.spec.ts
+-a---          2026-05-20  9:40 AM           4292 visual_60_baselines.spec.ts
+-a---          2026-05-20  2:13 AM           1474 visual.spec.ts
+
+    Directory: C:\POLARIS\.github\workflows
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m [32;1;3m        Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+-a---          2026-05-08  6:08 PM            625 anti_sycophancy.yml
+-a---          2026-05-07 10:31 PM           4699 cleanup_pr_ancestry_check.yml
+-a---          2026-05-17 12:40 PM           2173 codex_artifact_gate.yml
+-a---          2026-05-07 10:31 PM          16736 codex_verdict_check.yml
+-a---          2026-05-18  4:00 PM          15034 codex-required.yml
+-a---          2026-05-07 10:31 PM           4092 legacy_protection.yml
+-a---          2026-05-06 10:09 AM           1400 m_live_4_regression_gate.yml.pending_workflow_scope
+-a---          2026-05-07 10:31 PM           6336 protection_drift_check.yml
+-a---          2026-05-07 10:31 PM            529 sovereignty.yml.pending_workflow_scope
+-a---          2026-05-20 12:15 PM           9185 web_ci.yml
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\intake\\page.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\intake_g1_g8.spec.ts" in C:\POLARIS
+ succeeded in 1067ms:
+// I-cd-023 (#613): /intake route G1-G8 acceptance gates per
+// state/polaris_ui_rebuild_matrix.md §2. Pattern mirrors home_g1_g8.spec.ts.
+
+import { expect, test } from "@playwright/test";
+
+const BANNED_DEV_LANGUAGE = [
+  /\bslice\b/i,
+  /\bscaffold\b/i,
+  /\bplaceholder\b/i,
+  /\bphase 0\b/i,
+  /\bpost[- ]carney\b/i,
+  /\bi-cd-/i,
+];
+
+test("G1 + G6: /intake has exactly one header + one main (AppShell-provided)", async ({
+  page,
+}) => {
+  await page.goto("/intake");
+  await expect(page.locator("header")).toHaveCount(1);
+  await expect(page.locator("main")).toHaveCount(1);
+});
+
+test("G2: /intake contains no banned dev-language strings", async ({
+  page,
+}) => {
+  await page.goto("/intake");
+  const body_text = (await page.locator("body").textContent()) || "";
+  for (const banned of BANNED_DEV_LANGUAGE) {
+    expect(body_text).not.toMatch(banned);
+  }
+});
+
+test("G8: /intake renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto("/intake");
+  await page.waitForLoadState("networkidle");
+  // Existing intake form sub-component may surface known harmless warnings;
+  // we only fail on errors per state/polaris_ui_rebuild_matrix.md G8.
+  expect(errors).toEqual([]);
+});
+
+test("G1 nav parity: primary nav is visible on /intake", async ({ page }) => {
+  await page.goto("/intake");
+  const nav = page.locator("nav[aria-label='Primary']");
+  await expect(nav).toBeVisible();
+  for (const label of [
+    "Home",
+    "Intake",
+    "Dashboard",
+    "Upload",
+    "Benchmark",
+    "Contracts",
+  ]) {
+    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+  }
+});
+
+ succeeded in 1174ms:
+import { IntakeForm } from "./components/intake_form";
+import { PdfDropBanner } from "./components/pdf_drop_banner";
+
+export const metadata = {
+  title: "Intake — POLARIS Canada",
+  description:
+    "Submit a clinical research question. POLARIS classifies scope and detects PICO ambiguity before any retrieval is run.",
+};
+
+// I-cd-023 (#613): /intake rebuild — G1/G6 fix. Page no longer renders
+// its own <header> or <main>; AppShell (via AppShellGate, I-cd-022) is
+// the single landmark provider for this route. G2 fix: removed
+// "POLARIS Canada — Slice 001" + "POLARIS v6.2 — Slice 001 (scope + intake)"
+// dev-language strings.
+export default function IntakePage() {
+  return (
+    <section
+      data-testid="intake-page"
+      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+    >
+      <div className="flex flex-col gap-2">
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          Clinical scope discovery
+        </h1>
+        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+          Type a clinical research question and POLARIS will run it through the
+          scope + intake: refusal-bait detection, scope classification (efficacy
+          / safety / diagnosis / prognosis), and PICO axis ambiguity detection.
+          No retrieval is run yet — this is the gate that decides if a question
+          is researchable as written.
+        </p>
+      </div>
+
+      <PdfDropBanner />
+
+      <IntakeForm />
+    </section>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\app_shell.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\home_g1_g8.spec.ts" in C:\POLARIS
+ succeeded in 1139ms:
+// I-cd-022 (#612): home route G1-G8 acceptance gates per
+// state/polaris_ui_rebuild_matrix.md §2. Mechanical assertions only —
+// no subjective polish judgments.
+
+import { expect, test } from "@playwright/test";
+
+const BANNED_DEV_LANGUAGE = [
+  /\bslice\b/i,
+  /\bscaffold\b/i,
+  /\bplaceholder\b/i,
+  /\bphase 0\b/i,
+  /\bpost[- ]carney\b/i,
+  /\bi-cd-/i,
+];
+
+test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  // G1: exactly one <header> element (no duplicate from a forgotten AppShell).
+  const headers = page.locator("header");
+  await expect(headers).toHaveCount(1);
+
+  // Primary nav present + identical to other routes (Home/Intake/Dashboard/
+  // Upload/Benchmark/Contracts/Pin Replay/Memory).
+  const nav = page.locator("nav[aria-label='Primary']");
+  await expect(nav).toBeVisible();
+  for (const label of [
+    "Home",
+    "Intake",
+    "Dashboard",
+    "Upload",
+    "Benchmark",
+    "Contracts",
+    "Pin Replay",
+    "Memory",
+  ]) {
+    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+  }
+
+  // G6 (single main landmark — Codex iter-2 P1 fix).
+  const mains = page.locator("main");
+  await expect(mains).toHaveCount(1);
+});
+
+test("G2: home contains no banned dev-language strings", async ({ page }) => {
+  await page.goto("/");
+  const body_text = (await page.locator("body").textContent()) || "";
+  for (const banned of BANNED_DEV_LANGUAGE) {
+    expect(body_text).not.toMatch(banned);
+  }
+});
+
+test("G3: active template card link has focus-visible + hover styling", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const link = page.getByTestId("template-card-clinical-link");
+  await expect(link).toBeVisible();
+  const className = (await link.getAttribute("class")) || "";
+  // shadcn/ui Button injects focus-visible:ring + hover utilities. Codex
+  // iter-1 P2 fix: assert on the LINK, not the card (cards are not
+  // interactive — links/buttons are).
+  expect(className).toMatch(/focus-visible/);
+});
+
+test("G6: tab key reaches the active template card link", async ({ page }) => {
+  await page.goto("/");
+  // Tab repeatedly until the focused element is the active template link.
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press("Tab");
+    const focused = await page.evaluate(
+      () => document.activeElement?.getAttribute("data-testid") ?? null,
+    );
+    if (focused === "template-card-clinical-link") return;
+  }
+  throw new Error("active template card link never received focus via Tab");
+});
+
+test("G8: home renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto("/");
+  // Idle long enough for hydration + any async errors to surface.
+  await page.waitForLoadState("networkidle");
+  expect(errors).toEqual([]);
+});
+
+ succeeded in 1208ms:
+import Link from "next/link";
+
+import { NavLink } from "@/components/nav_link";
+
+/**
+ * I-cd-004: the global app shell. A server component that wraps every prod
+ * route with a single header + primary nav. The 8 primary nav entries are
+ * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+ *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+ *
+ * Out of scope for this issue (each its own later issue per the Seq-N order):
+ *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+ *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+ *    /dashboard rather than top-nav entries.
+ *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+ *    retired at that point (not merely hidden — per Codex P2).
+ *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+ *    I-cd-015.
+ *  - Auth gating of the nav itself is deferred to I-cd-014.
+ *  - Per-page rebuilds happen in the I-cd-013..030 series.
+ */
+const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+  { href: "/", label: "Home" },
+  { href: "/intake", label: "Intake" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/upload", label: "Upload" },
+  { href: "/benchmark", label: "Benchmark" },
+  { href: "/contracts", label: "Contracts" },
+  { href: "/pin_replay", label: "Pin Replay" },
+  { href: "/memory", label: "Memory" },
+];
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <header className="border-border bg-background sticky top-0 z-40 border-b">
+        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <nav className="flex items-center gap-1" aria-label="Primary">
+            {PRIMARY_NAV.map((item) => (
+              <NavLink key={item.href} href={item.href}>
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+        </div>
+      </header>
+      <main className="flex-1">{children}</main>
+    </>
+  );
+}
+
+codex
+The runtime structure matches the intended AppShell path for `/intake`: `AppShellGate` wraps non-home routes, and `AppShell` contributes the single `<header>` and `<main>`. I’m checking the surrounding layout and CI command context now, because that’s where this kind of structural diff can still fail despite the page markup looking right.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\layout.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\playwright.config.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\package.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .github\\workflows\\web_ci.yml" in C:\POLARIS
+ succeeded in 1057ms:
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+
+import { AppShellGate } from "@/components/app_shell_gate";
+import { Toaster } from "@/components/ui/sonner";
+
+import "./globals.css";
+
+const geist_sans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geist_mono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "POLARIS Canada — Sovereign Deep Research",
+  description:
+    "Two-family verified evidence pipelines for Government of Canada policy work.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+    >
+      <body className="flex min-h-full flex-col">
+        <AppShellGate>{children}</AppShellGate>
+        <Toaster />
+      </body>
+    </html>
+  );
+}
+
+ succeeded in 1121ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  // I-cd-013b (GH#669): inspector_route.spec.ts visual baselines are
+  // `test.fixme()` (deferred until baselines captured by --update-snapshots
+  // run); non-visual cases run on all platforms. Linux ignore only
+  // applies to visual.spec.ts.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+ succeeded in 1230ms:
+name: web_ci
+
+on:
+  push:
+    paths:
+      - "web/**"
+      - "src/polaris_v6/**"
+      - "tests/v6/**"
+      - "requirements*.txt"
+      - ".github/workflows/web_ci.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - "src/polaris_v6/**"
+      - "tests/v6/**"
+      - "requirements*.txt"
+      - ".github/workflows/web_ci.yml"
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  lint_format_typecheck_build:
+    name: lint + format + typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: install_dependencies
+        run: npm ci
+
+      - name: lint
+        run: npm run lint
+
+      - name: format_check
+        run: npm run format:check
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: build
+        run: npm run build
+
+  e2e_playwright:
+    name: e2e + a11y + perf (Playwright on Chromium)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: install_python_dependencies
+        working-directory: ${{ github.workspace }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: install_npm_dependencies
+        run: npm ci
+
+      - name: install_playwright_chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: start_fastapi_backend
+        working-directory: ${{ github.workspace }}
+        run: |
+          PYTHONPATH=src nohup python -m uvicorn polaris_v6.api.app:app \
+            --host 127.0.0.1 --port 8000 \
+            > /tmp/fastapi.log 2>&1 &
+          # Wait for /health to respond.
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:8000/health > /dev/null; then
+              echo "backend ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "backend failed to start"
+          cat /tmp/fastapi.log
+          exit 1
+
+      - name: build_and_start_next
+        # I-cd-015 (GH#611): POLARIS_TEST_HARNESS_ENABLED=1 lets the prod
+        # build serve harness routes for tests that depend on them
+        # (evidence_tooltip_perf etc.). Real production leaves this UNSET
+        # and the middleware 404s /charts_test/*, /sentence_hover_test/*,
+        # /disambiguation_modal_preview/*, /generation/*, /retrieval/*, /sse/*.
+        env:
+          POLARIS_TEST_HARNESS_ENABLED: "1"
+        run: |
+          npm run build
+          nohup npx next start -p 3738 > /tmp/next.log 2>&1 &
+          # Wait for /dashboard to respond.
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:3738/dashboard > /dev/null; then
+              echo "frontend ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "frontend failed to start"
+          cat /tmp/next.log
+          exit 1
+
+      - name: run_e2e_inspector
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/inspector.spec.ts
+
+      - name: run_e2e_accessibility
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/accessibility.spec.ts
+
+      - name: run_e2e_performance
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/performance.spec.ts
+
+      # I-f6-005: 100x tooltip mount-cycle render budget locked at <100ms.
+      # I-cd-015: this spec hits /sentence_hover_test/perf (a harness
+      # route). The next start step above sets POLARIS_TEST_HARNESS_ENABLED=1
+      # so the middleware passes through; real production leaves it UNSET
+      # and 404s the harness paths.
+      - name: run_e2e_evidence_tooltip_perf
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/evidence_tooltip_perf.spec.ts
+
+      # I-cd-021 (#631): offline Inspector — renders a v1.0 signed bundle
+      # tar.gz entirely in-browser. Codex diff iter-1 P2.1 fix: wire the
+      # new spec into the CI workflow.
+      - name: run_e2e_inspector_offline_fallback
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/inspector_offline_fallback.spec.ts
+
+      # I-cd-022 (#612): home route G1-G8 acceptance gates per
+      # state/polaris_ui_rebuild_matrix.md §2.
+      - name: run_e2e_home_g1_g8
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/home_g1_g8.spec.ts
+
+      # I-cd-023 (#613): /intake route G1-G8 acceptance gates.
+      - name: run_e2e_intake_g1_g8
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/intake_g1_g8.spec.ts
+
+      # Visual baselines are *-chromium-win32.png (locally captured on Win).
+      # On Linux CI the snapshot file resolves to a different name and will
+      # be missing; skip visual.spec until Linux baselines are added.
+      # See `.codex/continuous/2057fac_2c2_visual_regression.md` P0.
+
+      - name: upload_playwright_traces_on_failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: web/test-results/**/trace.zip
+          retention-days: 7
+
+  verify_pip_resolution:
+    # F-22 (cycle-7 P1.1 prevention): catches pip dependency conflicts
+    # before they reach pytest_v6_backend or the production Dockerfile.
+    # Cycle-7 caught F-17's protobuf>=6.33.5 pin breaking against
+    # google-generativeai's transitive protobuf<5.0.0 constraint.
+    name: pip install --dry-run (catch ResolutionImpossible early)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: pip_dry_run_legacy_requirements
+        # If this fails, requirements.txt has a conflict; production
+        # Dockerfile build would fail in the same way.
+        run: pip install --dry-run -r requirements.txt
+
+      - name: pip_dry_run_v6_requirements
+        # Verify the v6 backend's pinned set also resolves cleanly.
+        run: pip install --dry-run -r requirements-v6.txt
+
+  pytest_v6_backend:
+    name: pytest tests/v6/ (Phase 0 backend coverage)
+    runs-on: ubuntu-latest
+    needs: [lint_format_typecheck_build, verify_pip_resolution]
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      # Cycle-3 audit P2.3 (outputs/audits/continuous/bb60495_audit.md):
+      # tests/v6/test_*_middleware.py + test_actors.py + test_broker.py +
+      # test_otel_init.py use pytest.importorskip against dramatiq +
+      # opentelemetry deps. Without -v6.txt installed they SILENTLY SKIP
+      # (LAW II violation). This job uses requirements-v6.txt as the
+      # canonical pin source for v6 backend code.
+      - name: install_v6_dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-v6.txt
+
+      - name: run_pytest_v6
+        env:
+          PYTHONPATH: src
+        # `-q` keeps output tight; `--strict-markers` fails on undefined
+        # markers; `--no-header` removes pytest banner from CI logs.
+        # Acceptance suite (tests/v6/acceptance/) is excluded — it requires
+        # a live broker; covered by tests/v6/acceptance/test_dramatiq_acceptance.py
+        # which runs in its own integration job once Vast.ai cluster is live.
+        run: |
+          pytest tests/v6/ \
+            --ignore=tests/v6/acceptance \
+            -q --strict-markers --no-header
+
+ succeeded in 1264ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+codex
+The workflow context is consistent: CI runs from `web`, starts Next on port 3738, and the new step inherits that setup. I’m going to run focused static checks on the changed files so any review finding is grounded in something reproducible.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx tsc --noEmit' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx eslint app/intake/page.tsx tests/e2e/intake_g1_g8.spec.ts' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx prettier --check app/intake/page.tsx tests/e2e/intake_g1_g8.spec.ts ../.github/workflows/web_ci.yml' in C:\POLARIS\web
+2026-05-20T19:17:22.259249Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.6 seconds
+Output:
+Checking formatting...
+[[33mwarn[39m] ../.github/workflows/web_ci.yml
+[[33mwarn[39m] Code style issues found in the above file. Run Prettier with --write to fix.
+
+ exited 1 in 2557ms:
+Checking formatting...
+[[33mwarn[39m] ../.github/workflows/web_ci.yml
+[[33mwarn[39m] Code style issues found in the above file. Run Prettier with --write to fix.
+
+ succeeded in 4740ms:
+ succeeded in 4782ms:
+codex
+TypeScript and ESLint are clean for the changed web files. A direct Prettier check on the workflow file reports existing YAML formatting differences, but the repository’s `web` format check only covers the `web` tree, so I’m separating that from actual CI risk.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run format:check -- app/intake/page.tsx tests/e2e/intake_g1_g8.spec.ts' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"export function NavLink|function NavLink|NavLink\" web\\components\\nav_link.tsx web\\components" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"testid=\\\"intake-page\\\"|getByTestId\\(\\\"intake-page\\\"|locator\\(.*intake-page|role.*main|locator\\(\\\"main|locator\\('main|<header|<main|data-testid=\\\"intake-page\\\"\" web\\tests\\e2e web\\app\\intake web\\components" in C:\POLARIS
+ succeeded in 901ms:
+web\components\nav_link.tsx:13:export function NavLink({
+web\components\nav_link.tsx:13:export function NavLink({
+web\components\app_shell.tsx:3:import { NavLink } from "@/components/nav_link";
+web\components\app_shell.tsx:46:              <NavLink key={item.href} href={item.href}>
+web\components\app_shell.tsx:48:              </NavLink>
+
+2026-05-20T19:17:35.973361Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+
+ exited 1 in 991ms:
+2026-05-20T19:17:38.771957Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.9 seconds
+Output:
+
+> web@0.1.0 format:check
+> prettier --check . app/intake/page.tsx tests/e2e/intake_g1_g8.spec.ts
+
+Checking formatting...
+[[33mwarn[39m] .prettierrc.json
+[[33mwarn[39m] AGENTS.md
+[[33mwarn[39m] app/(test_harness)/disambiguation_modal_preview/_client.tsx
+[[33mwarn[39m] app/(test_harness)/disambiguation_modal_preview/page.tsx
+[[33mwarn[39m] app/api/inspector_bundle/[runId]/route.ts
+[[33mwarn[39m] app/audit_live/_panels.tsx
+[[33mwarn[39m] app/audit_live/page.tsx
+[[33mwarn[39m] app/benchmark/components/benchmark_board.tsx
+[[33mwarn[39m] app/benchmark/page.tsx
+[[33mwarn[39m] app/charts_test/click_through/page.tsx
+[[33mwarn[39m] app/charts_test/comparison_table/page.tsx
+[[33mwarn[39m] app/charts_test/components/chart_source_inspector.tsx
+[[33mwarn[39m] app/charts_test/forest_plot/page.tsx
+[[33mwarn[39m] app/charts_test/page.tsx
+[[33mwarn[39m] app/charts_test/timeline/page.tsx
+[[33mwarn[39m] app/components/command_palette.tsx
+[[33mwarn[39m] app/components/home_keyboard_shell.tsx
+[[33mwarn[39m] app/contracts/_editor.tsx
+[[33mwarn[39m] app/contracts/page.tsx
+[[33mwarn[39m] app/dashboard/page.tsx
+[[33mwarn[39m] app/generation/components/BundlePreview.tsx
+[[33mwarn[39m] app/generation/components/contradiction_pane.tsx
+[[33mwarn[39m] app/generation/components/evaluator_pane.tsx
+[[33mwarn[39m] app/generation/components/follow_up_append_view.tsx
+[[33mwarn[39m] app/generation/components/frame_coverage_panel.tsx
+[[33mwarn[39m] app/generation/components/generation_runner.tsx
+[[33mwarn[39m] app/generation/components/multi_source_panel.tsx
+[[33mwarn[39m] app/generation/components/sentence_inspector.tsx
+[[33mwarn[39m] app/generation/components/split_screen.tsx
+[[33mwarn[39m] app/generation/components/two_run_picker.tsx
+[[33mwarn[39m] app/generation/components/verified_report_view.tsx
+[[33mwarn[39m] app/generation/page.tsx
+[[33mwarn[39m] app/globals.css
+[[33mwarn[39m] app/inspector/[runId]/inspector_view.tsx
+[[33mwarn[39m] app/inspector/[runId]/page.tsx
+[[33mwarn[39m] app/inspector/offline/page.tsx
+[[33mwarn[39m] app/intake/components/ambiguity_modal.tsx
+[[33mwarn[39m] app/intake/components/disambiguation_modal.tsx
+[[33mwarn[39m] app/intake/components/intake_form.tsx
+[[33mwarn[39m] app/intake/components/pdf_drop_banner.tsx
+[[33mwarn[39m] app/intake/components/scope_decision_view.tsx
+[[33mwarn[39m] app/layout.tsx
+[[33mwarn[39m] app/memory/page.tsx
+[[33mwarn[39m] app/page.tsx
+[[33mwarn[39m] app/pin_replay/components/diff_side_panel.tsx
+[[33mwarn[39m] app/pin_replay/components/pin_timeseries.tsx
+[[33mwarn[39m] app/pin_replay/page.tsx
+[[33mwarn[39m] app/retrieval/components/corpus_brief.tsx
+[[33mwarn[39m] app/retrieval/components/retrieval_runner.tsx
+[[33mwarn[39m] app/retrieval/page.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/accessible_graph_list.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/claim_graph.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/graph_export_buttons.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/graph_export.ts
+[[33mwarn[39m] app/runs/[runId]/graph/components/graph_styles.ts
+[[33mwarn[39m] app/runs/[runId]/graph/components/snowball.ts
+[[33mwarn[39m] app/runs/[runId]/graph/components/use_graph_state.ts
+[[33mwarn[39m] app/runs/[runId]/graph/page.tsx
+[[33mwarn[39m] app/runs/[runId]/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_coverage.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_evaluator_edge.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_evidence_tooltip.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_perf.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_stress.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo.tsx
+[[33mwarn[39m] app/sentence_hover_test/evaluator_edge/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/evidence_tooltip_edges/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/evidence_tooltip/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/follow_up_append/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/memory_cite/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/perf/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/split_screen/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/stress/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/two_run_picker/page.tsx
+[[33mwarn[39m] app/sign-in/page.tsx
+[[33mwarn[39m] app/sse/_harness.tsx
+[[33mwarn[39m] app/sse/page.tsx
+[[33mwarn[39m] app/upload/components/document_preview.tsx
+[[33mwarn[39m] app/upload/components/selected_docs_indicator.tsx
+[[33mwarn[39m] app/upload/components/upload_drop_zone.tsx
+[[33mwarn[39m] app/upload/components/upload_workspace.tsx
+[[33mwarn[39m] app/upload/page.tsx
+[[33mwarn[39m] CLAUDE.md
+[[33mwarn[39m] components.json
+[[33mwarn[39m] components/app_shell_gate.tsx
+[[33mwarn[39m] components/app_shell.tsx
+[[33mwarn[39m] components/auth_redirect.tsx
+[[33mwarn[39m] components/inspector/bundle_header.tsx
+[[33mwarn[39m] components/inspector/bundle_pending_cta.tsx
+[[33mwarn[39m] components/inspector/evidence_pool_table.tsx
+[[33mwarn[39m] components/inspector/family_segregation_badge.tsx
+[[33mwarn[39m] components/inspector/hash_chain_panel.tsx
+[[33mwarn[39m] components/inspector/metadata_panel.tsx
+[[33mwarn[39m] components/inspector/reasoning_trace_timeline.tsx
+[[33mwarn[39m] components/inspector/scope_decision_card.tsx
+[[33mwarn[39m] components/inspector/sources_panel.tsx
+[[33mwarn[39m] components/inspector/verified_report_sections.tsx
+[[33mwarn[39m] components/nav_link.tsx
+[[33mwarn[39m] components/ui/button.tsx
+[[33mwarn[39m] components/ui/card.tsx
+[[33mwarn[39m] components/ui/evidence-tooltip.tsx
+[[33mwarn[39m] components/ui/input.tsx
+[[33mwarn[39m] components/ui/sheet.tsx
+[[33mwarn[39m] components/ui/sonner.tsx
+[[33mwarn[39m] components/ui/tabs.tsx
+[[33mwarn[39m] components/ui/vega-chart.tsx
+[[33mwarn[39m] eslint.config.mjs
+[[33mwarn[39m] lib/api.ts
+[[33mwarn[39m] lib/auth.ts
+[[33mwarn[39m] lib/comparison_table_spec.ts
+[[33mwarn[39m] lib/contracts.ts
+[[33mwarn[39m] lib/forest_plot_spec.ts
+[[33mwarn[39m] lib/inspector_bundle_client_loader.ts
+[[33mwarn[39m] lib/inspector_bundle_loader.ts
+[[33mwarn[39m] lib/pin_regression.ts
+[[33mwarn[39m] lib/pin_replay_client.ts
+[[33mwarn[39m] lib/pin_replay_demo.ts
+[[33mwarn[39m] lib/provenance_tokens.ts
+[[33mwarn[39m] lib/relative_time.ts
+[[33mwarn[39m] lib/run_broadcast.ts
+[[33mwarn[39m] lib/sentence_highlight.ts
+[[33mwarn[39m] lib/signed_bundle.ts
+[[33mwarn[39m] lib/sse_client.ts
+[[33mwarn[39m] lib/sse_events.ts
+[[33mwarn[39m] lib/timeline_spec.ts
+[[33mwarn[39m] lib/utils.ts
+[[33mwarn[39m] middleware.ts
+[[33mwarn[39m] next.config.ts
+[[33mwarn[39m] package.json
+[[33mwarn[39m] playwright.config.ts
+[[33mwarn[39m] postcss.config.mjs
+[[33mwarn[39m] README.md
+[[33mwarn[39m] scripts/capture_screenshots.mjs
+[[33mwarn[39m] tests/e2e/accessibility.spec.ts
+[[33mwarn[39m] tests/e2e/audit_bundle.spec.ts
+[[33mwarn[39m] tests/e2e/audit_live_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/audit_live_multitab.spec.ts
+[[33mwarn[39m] tests/e2e/audit_live.spec.ts
+[[33mwarn[39m] tests/e2e/benchmark.spec.ts
+[[33mwarn[39m] tests/e2e/bundle_preview.spec.ts
+[[33mwarn[39m] tests/e2e/chart_click_through.spec.ts
+[[33mwarn[39m] tests/e2e/cited_recall_badge.spec.ts
+[[33mwarn[39m] tests/e2e/command_palette_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/command_palette_suggest.spec.ts
+[[33mwarn[39m] tests/e2e/command_palette.spec.ts
+[[33mwarn[39m] tests/e2e/comparison_table_chart.spec.ts
+[[33mwarn[39m] tests/e2e/contract_editor.spec.ts
+[[33mwarn[39m] tests/e2e/cross_browser_smoke.spec.ts
+[[33mwarn[39m] tests/e2e/cross_session_surface.spec.ts
+[[33mwarn[39m] tests/e2e/demo_walkthrough.spec.ts
+[[33mwarn[39m] tests/e2e/disambiguation_modal.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip_edges.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip_mobile.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip_perf.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip.spec.ts
+[[33mwarn[39m] tests/e2e/f1_a11y.spec.ts
+[[33mwarn[39m] tests/e2e/f1_multi_tab.spec.ts
+[[33mwarn[39m] tests/e2e/f2_walkthrough.spec.ts
+[[33mwarn[39m] tests/e2e/follow_up_append.spec.ts
+[[33mwarn[39m] tests/e2e/forest_plot_chart.spec.ts
+[[33mwarn[39m] tests/e2e/frame_coverage_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/frame_coverage_panel.spec.ts
+[[33mwarn[39m] tests/e2e/generation.spec.ts
+[[33mwarn[39m] tests/e2e/graph_page_smoke.spec.ts
+[[33mwarn[39m] tests/e2e/home_g1_g8.spec.ts
+[[33mwarn[39m] tests/e2e/inspector_offline_fallback.spec.ts
+[[33mwarn[39m] tests/e2e/inspector_route.spec.ts
+[[33mwarn[39m] tests/e2e/inspector.spec.ts
+[[33mwarn[39m] tests/e2e/intake_disambiguation_negative.spec.ts
+[[33mwarn[39m] tests/e2e/intake_disambiguation.spec.ts
+[[33mwarn[39m] tests/e2e/intake_edge.spec.ts
+[[33mwarn[39m] tests/e2e/intake.spec.ts
+[[33mwarn[39m] tests/e2e/landing_template_grid.spec.ts
+[[33mwarn[39m] tests/e2e/memory_page_controls.spec.ts
+[[33mwarn[39m] tests/e2e/multi_source_panel.spec.ts
+[[33mwarn[39m] tests/e2e/p2c_001_chain.spec.ts
+[[33mwarn[39m] tests/e2e/p2c_005_mobile.spec.ts
+[[33mwarn[39m] tests/e2e/perf_core_web_vitals.spec.ts
+[[33mwarn[39m] tests/e2e/pin_regression_alert.spec.ts
+[[33mwarn[39m] tests/e2e/pin_replay_diff.spec.ts
+[[33mwarn[39m] tests/e2e/pin_replay.spec.ts
+[[33mwarn[39m] tests/e2e/pin_retraction_handled.spec.ts
+[[33mwarn[39m] tests/e2e/retrieval.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_hover.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_agreement.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_ai_agent.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_contradiction.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_evaluator_edge.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_evaluator_flag.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_latency.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_multispan.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_retracted_stale.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_source.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_surfaces.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_synthesis.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector.spec.ts
+[[33mwarn[39m] tests/e2e/sign_in.spec.ts
+[[33mwarn[39m] tests/e2e/split_screen.spec.ts
+[[33mwarn[39m] tests/e2e/sse_client.spec.ts
+[[33mwarn[39m] tests/e2e/timeline_chart.spec.ts
+[[33mwarn[39m] tests/e2e/two_run_picker.spec.ts
+[[33mwarn[39m] tests/e2e/upload_doc_preview.spec.ts
+[[33mwarn[39m] tests/e2e/upload_dropzone.spec.ts
+[[33mwarn[39m] tests/e2e/upload_evidence_toggle.spec.ts
+[[33mwarn[39m] tests/e2e/upload_parse_status.spec.ts
+[[33mwarn[39m] tests/e2e/vega_lite_chart.spec.ts
+[[33mwarn[39m] tests/e2e/visual_60_baselines.spec.ts
+[[33mwarn[39m] tests/e2e/visual.spec.ts
+[[33mwarn[39m] tests/fixtures/graph_payload.json
+[[33mwarn[39m] THIRD_PARTY_LICENSES.md
+[[33mwarn[39m] tsconfig.json
+[[33mwarn[39m] Code style issues found in 214 files. Run Prettier with --write to fix.
+
+ exited 1 in 3860ms:
+
+> web@0.1.0 format:check
+> prettier --check . app/intake/page.tsx tests/e2e/intake_g1_g8.spec.ts
+
+Checking formatting...
+[[33mwarn[39m] .prettierrc.json
+[[33mwarn[39m] AGENTS.md
+[[33mwarn[39m] app/(test_harness)/disambiguation_modal_preview/_client.tsx
+[[33mwarn[39m] app/(test_harness)/disambiguation_modal_preview/page.tsx
+[[33mwarn[39m] app/api/inspector_bundle/[runId]/route.ts
+[[33mwarn[39m] app/audit_live/_panels.tsx
+[[33mwarn[39m] app/audit_live/page.tsx
+[[33mwarn[39m] app/benchmark/components/benchmark_board.tsx
+[[33mwarn[39m] app/benchmark/page.tsx
+[[33mwarn[39m] app/charts_test/click_through/page.tsx
+[[33mwarn[39m] app/charts_test/comparison_table/page.tsx
+[[33mwarn[39m] app/charts_test/components/chart_source_inspector.tsx
+[[33mwarn[39m] app/charts_test/forest_plot/page.tsx
+[[33mwarn[39m] app/charts_test/page.tsx
+[[33mwarn[39m] app/charts_test/timeline/page.tsx
+[[33mwarn[39m] app/components/command_palette.tsx
+[[33mwarn[39m] app/components/home_keyboard_shell.tsx
+[[33mwarn[39m] app/contracts/_editor.tsx
+[[33mwarn[39m] app/contracts/page.tsx
+[[33mwarn[39m] app/dashboard/page.tsx
+[[33mwarn[39m] app/generation/components/BundlePreview.tsx
+[[33mwarn[39m] app/generation/components/contradiction_pane.tsx
+[[33mwarn[39m] app/generation/components/evaluator_pane.tsx
+[[33mwarn[39m] app/generation/components/follow_up_append_view.tsx
+[[33mwarn[39m] app/generation/components/frame_coverage_panel.tsx
+[[33mwarn[39m] app/generation/components/generation_runner.tsx
+[[33mwarn[39m] app/generation/components/multi_source_panel.tsx
+[[33mwarn[39m] app/generation/components/sentence_inspector.tsx
+[[33mwarn[39m] app/generation/components/split_screen.tsx
+[[33mwarn[39m] app/generation/components/two_run_picker.tsx
+[[33mwarn[39m] app/generation/components/verified_report_view.tsx
+[[33mwarn[39m] app/generation/page.tsx
+[[33mwarn[39m] app/globals.css
+[[33mwarn[39m] app/inspector/[runId]/inspector_view.tsx
+[[33mwarn[39m] app/inspector/[runId]/page.tsx
+[[33mwarn[39m] app/inspector/offline/page.tsx
+[[33mwarn[39m] app/intake/components/ambiguity_modal.tsx
+[[33mwarn[39m] app/intake/components/disambiguation_modal.tsx
+[[33mwarn[39m] app/intake/components/intake_form.tsx
+[[33mwarn[39m] app/intake/components/pdf_drop_banner.tsx
+[[33mwarn[39m] app/intake/components/scope_decision_view.tsx
+[[33mwarn[39m] app/layout.tsx
+[[33mwarn[39m] app/memory/page.tsx
+[[33mwarn[39m] app/page.tsx
+[[33mwarn[39m] app/pin_replay/components/diff_side_panel.tsx
+[[33mwarn[39m] app/pin_replay/components/pin_timeseries.tsx
+[[33mwarn[39m] app/pin_replay/page.tsx
+[[33mwarn[39m] app/retrieval/components/corpus_brief.tsx
+[[33mwarn[39m] app/retrieval/components/retrieval_runner.tsx
+[[33mwarn[39m] app/retrieval/page.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/accessible_graph_list.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/claim_graph.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/graph_export_buttons.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/graph_export.ts
+[[33mwarn[39m] app/runs/[runId]/graph/components/graph_styles.ts
+[[33mwarn[39m] app/runs/[runId]/graph/components/snowball.ts
+[[33mwarn[39m] app/runs/[runId]/graph/components/use_graph_state.ts
+[[33mwarn[39m] app/runs/[runId]/graph/page.tsx
+[[33mwarn[39m] app/runs/[runId]/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_coverage.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_evaluator_edge.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_evidence_tooltip.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_perf.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_stress.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo.tsx
+[[33mwarn[39m] app/sentence_hover_test/evaluator_edge/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/evidence_tooltip_edges/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/evidence_tooltip/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/follow_up_append/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/memory_cite/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/perf/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/split_screen/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/stress/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/two_run_picker/page.tsx
+[[33mwarn[39m] app/sign-in/page.tsx
+[[33mwarn[39m] app/sse/_harness.tsx
+[[33mwarn[39m] app/sse/page.tsx
+[[33mwarn[39m] app/upload/components/document_preview.tsx
+[[33mwarn[39m] app/upload/components/selected_docs_indicator.tsx
+[[33mwarn[39m] app/upload/components/upload_drop_zone.tsx
+[[33mwarn[39m] app/upload/components/upload_workspace.tsx
+[[33mwarn[39m] app/upload/page.tsx
+[[33mwarn[39m] CLAUDE.md
+[[33mwarn[39m] components.json
+[[33mwarn[39m] components/app_shell_gate.tsx
+[[33mwarn[39m] components/app_shell.tsx
+[[33mwarn[39m] components/auth_redirect.tsx
+[[33mwarn[39m] components/inspector/bundle_header.tsx
+[[33mwarn[39m] components/inspector/bundle_pending_cta.tsx
+[[33mwarn[39m] components/inspector/evidence_pool_table.tsx
+[[33mwarn[39m] components/inspector/family_segregation_badge.tsx
+[[33mwarn[39m] components/inspector/hash_chain_panel.tsx
+[[33mwarn[39m] components/inspector/metadata_panel.tsx
+[[33mwarn[39m] components/inspector/reasoning_trace_timeline.tsx
+[[33mwarn[39m] components/inspector/scope_decision_card.tsx
+[[33mwarn[39m] components/inspector/sources_panel.tsx
+[[33mwarn[39m] components/inspector/verified_report_sections.tsx
+[[33mwarn[39m] components/nav_link.tsx
+[[33mwarn[39m] components/ui/button.tsx
+[[33mwarn[39m] components/ui/card.tsx
+[[33mwarn[39m] components/ui/evidence-tooltip.tsx
+[[33mwarn[39m] components/ui/input.tsx
+[[33mwarn[39m] components/ui/sheet.tsx
+[[33mwarn[39m] components/ui/sonner.tsx
+[[33mwarn[39m] components/ui/tabs.tsx
+[[33mwarn[39m] components/ui/vega-chart.tsx
+[[33mwarn[39m] eslint.config.mjs
+[[33mwarn[39m] lib/api.ts
+[[33mwarn[39m] lib/auth.ts
+[[33mwarn[39m] lib/comparison_table_spec.ts
+[[33mwarn[39m] lib/contracts.ts
+[[33mwarn[39m] lib/forest_plot_spec.ts
+[[33mwarn[39m] lib/inspector_bundle_client_loader.ts
+[[33mwarn[39m] lib/inspector_bundle_loader.ts
+[[33mwarn[39m] lib/pin_regression.ts
+[[33mwarn[39m] lib/pin_replay_client.ts
+[[33mwarn[39m] lib/pin_replay_demo.ts
+[[33mwarn[39m] lib/provenance_tokens.ts
+[[33mwarn[39m] lib/relative_time.ts
+[[33mwarn[39m] lib/run_broadcast.ts
+[[33mwarn[39m] lib/sentence_highlight.ts
+[[33mwarn[39m] lib/signed_bundle.ts
+[[33mwarn[39m] lib/sse_client.ts
+[[33mwarn[39m] lib/sse_events.ts
+[[33mwarn[39m] lib/timeline_spec.ts
+[[33mwarn[39m] lib/utils.ts
+[[33mwarn[39m] middleware.ts
+[[33mwarn[39m] next.config.ts
+[[33mwarn[39m] package.json
+[[33mwarn[39m] playwright.config.ts
+[[33mwarn[39m] postcss.config.mjs
+[[33mwarn[39m] README.md
+[[33mwarn[39m] scripts/capture_screenshots.mjs
+[[33mwarn[39m] tests/e2e/accessibility.spec.ts
+[[33mwarn[39m] tests/e2e/audit_bundle.spec.ts
+[[33mwarn[39m] tests/e2e/audit_live_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/audit_live_multitab.spec.ts
+[[33mwarn[39m] tests/e2e/audit_live.spec.ts
+[[33mwarn[39m] tests/e2e/benchmark.spec.ts
+[[33mwarn[39m] tests/e2e/bundle_preview.spec.ts
+[[33mwarn[39m] tests/e2e/chart_click_through.spec.ts
+[[33mwarn[39m] tests/e2e/cited_recall_badge.spec.ts
+[[33mwarn[39m] tests/e2e/command_palette_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/command_palette_suggest.spec.ts
+[[33mwarn[39m] tests/e2e/command_palette.spec.ts
+[[33mwarn[39m] tests/e2e/comparison_table_chart.spec.ts
+[[33mwarn[39m] tests/e2e/contract_editor.spec.ts
+[[33mwarn[39m] tests/e2e/cross_browser_smoke.spec.ts
+[[33mwarn[39m] tests/e2e/cross_session_surface.spec.ts
+[[33mwarn[39m] tests/e2e/demo_walkthrough.spec.ts
+[[33mwarn[39m] tests/e2e/disambiguation_modal.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip_edges.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip_mobile.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip_perf.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip.spec.ts
+[[33mwarn[39m] tests/e2e/f1_a11y.spec.ts
+[[33mwarn[39m] tests/e2e/f1_multi_tab.spec.ts
+[[33mwarn[39m] tests/e2e/f2_walkthrough.spec.ts
+[[33mwarn[39m] tests/e2e/follow_up_append.spec.ts
+[[33mwarn[39m] tests/e2e/forest_plot_chart.spec.ts
+[[33mwarn[39m] tests/e2e/frame_coverage_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/frame_coverage_panel.spec.ts
+[[33mwarn[39m] tests/e2e/generation.spec.ts
+[[33mwarn[39m] tests/e2e/graph_page_smoke.spec.ts
+[[33mwarn[39m] tests/e2e/home_g1_g8.spec.ts
+[[33mwarn[39m] tests/e2e/inspector_offline_fallback.spec.ts
+[[33mwarn[39m] tests/e2e/inspector_route.spec.ts
+[[33mwarn[39m] tests/e2e/inspector.spec.ts
+[[33mwarn[39m] tests/e2e/intake_disambiguation_negative.spec.ts
+[[33mwarn[39m] tests/e2e/intake_disambiguation.spec.ts
+[[33mwarn[39m] tests/e2e/intake_edge.spec.ts
+[[33mwarn[39m] tests/e2e/intake.spec.ts
+[[33mwarn[39m] tests/e2e/landing_template_grid.spec.ts
+[[33mwarn[39m] tests/e2e/memory_page_controls.spec.ts
+[[33mwarn[39m] tests/e2e/multi_source_panel.spec.ts
+[[33mwarn[39m] tests/e2e/p2c_001_chain.spec.ts
+[[33mwarn[39m] tests/e2e/p2c_005_mobile.spec.ts
+[[33mwarn[39m] tests/e2e/perf_core_web_vitals.spec.ts
+[[33mwarn[39m] tests/e2e/pin_regression_alert.spec.ts
+[[33mwarn[39m] tests/e2e/pin_replay_diff.spec.ts
+[[33mwarn[39m] tests/e2e/pin_replay.spec.ts
+[[33mwarn[39m] tests/e2e/pin_retraction_handled.spec.ts
+[[33mwarn[39m] tests/e2e/retrieval.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_hover.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_agreement.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_ai_agent.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_contradiction.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_evaluator_edge.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_evaluator_flag.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_latency.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_multispan.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_retracted_stale.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_source.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_surfaces.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_synthesis.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector.spec.ts
+[[33mwarn[39m] tests/e2e/sign_in.spec.ts
+[[33mwarn[39m] tests/e2e/split_screen.spec.ts
+[[33mwarn[39m] tests/e2e/sse_client.spec.ts
+[[33mwarn[39m] tests/e2e/timeline_chart.spec.ts
+[[33mwarn[39m] tests/e2e/two_run_picker.spec.ts
+[[33mwarn[39m] tests/e2e/upload_doc_preview.spec.ts
+[[33mwarn[39m] tests/e2e/upload_dropzone.spec.ts
+[[33mwarn[39m] tests/e2e/upload_evidence_toggle.spec.ts
+[[33mwarn[39m] tests/e2e/upload_parse_status.spec.ts
+[[33mwarn[39m] tests/e2e/vega_lite_chart.spec.ts
+[[33mwarn[39m] tests/e2e/visual_60_baselines.spec.ts
+[[33mwarn[39m] tests/e2e/visual.spec.ts
+[[33mwarn[39m] tests/fixtures/graph_payload.json
+[[33mwarn[39m] THIRD_PARTY_LICENSES.md
+[[33mwarn[39m] tsconfig.json
+[[33mwarn[39m] Code style issues found in 214 files. Run Prettier with --write to fix.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"intake-page|getByTestId\\(|locator\\(\\\"main|locator\\('main|role:.*main|<header|<main|data-testid=\\\"intake-page\\\"\" web\\tests\\e2e web\\app\\intake web\\components" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\nav_link.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx prettier --check app/intake/page.tsx tests/e2e/intake_g1_g8.spec.ts' in C:\POLARIS\web
+ succeeded in 859ms:
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+/**
+ * I-cd-004: client component for top-nav active-route highlight. Pure styling
+ * via the locked shadcn token set (accent / muted-foreground / foreground).
+ * Active when the pathname equals href, or starts with `${href}/` for nested
+ * routes (e.g. `/runs/abc` highlights "Dashboard" only if we want — by default
+ * an item is active for its own subtree).
+ */
+export function NavLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  const pathname = usePathname();
+  const is_active =
+    pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
+  return (
+    <Link
+      href={href}
+      aria-current={is_active ? "page" : undefined}
+      className={
+        "rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
+        (is_active
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground")
+      }
+    >
+      {children}
+    </Link>
+  );
+}
+
+2026-05-20T19:17:45.769127Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+
+ exited 1 in 956ms:
+ succeeded in 2108ms:
+Checking formatting...
+All matched files use Prettier code style!
+
+codex
+The changed TypeScript files pass focused Prettier, TypeScript, and ESLint. The broad repo format script is already failing on many existing web files, so I’m not treating that as introduced by this diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'intake-page' web\\tests\\e2e web\\app\\intake web\\components" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'Pin Replay|Memory|Contracts|Benchmark|Dashboard|Upload|Intake|Home' web\\tests\\e2e\\intake_g1_g8.spec.ts web\\tests\\e2e\\home_g1_g8.spec.ts web\\components\\app_shell.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n '<header|<main|locator\\(\"header\"\\)|locator\\(\"main\"\\)|aria-label=.Primary.' web\\tests\\e2e web\\app\\intake web\\components" in C:\POLARIS
+ succeeded in 879ms:
+web\app\intake\page.tsx:18:      data-testid="intake-page"
+web\tests\e2e\demo_walkthrough.spec.ts:32:    await expect(page.getByTestId("intake-page")).toBeVisible();
+web\tests\e2e\f1_a11y.spec.ts:41:    await expect(page.getByTestId("intake-page")).toBeVisible();
+web\tests\e2e\intake.spec.ts:20:    await expect(page.getByTestId("intake-page")).toBeVisible();
+
+ succeeded in 860ms:
+web\components\app_shell.tsx:9: *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+web\components\app_shell.tsx:23:  { href: "/", label: "Home" },
+web\components\app_shell.tsx:24:  { href: "/intake", label: "Intake" },
+web\components\app_shell.tsx:25:  { href: "/dashboard", label: "Dashboard" },
+web\components\app_shell.tsx:26:  { href: "/upload", label: "Upload" },
+web\components\app_shell.tsx:27:  { href: "/benchmark", label: "Benchmark" },
+web\components\app_shell.tsx:28:  { href: "/contracts", label: "Contracts" },
+web\components\app_shell.tsx:29:  { href: "/pin_replay", label: "Pin Replay" },
+web\components\app_shell.tsx:30:  { href: "/memory", label: "Memory" },
+web\tests\e2e\home_g1_g8.spec.ts:25:  // Primary nav present + identical to other routes (Home/Intake/Dashboard/
+web\tests\e2e\home_g1_g8.spec.ts:26:  // Upload/Benchmark/Contracts/Pin Replay/Memory).
+web\tests\e2e\home_g1_g8.spec.ts:30:    "Home",
+web\tests\e2e\home_g1_g8.spec.ts:31:    "Intake",
+web\tests\e2e\home_g1_g8.spec.ts:32:    "Dashboard",
+web\tests\e2e\home_g1_g8.spec.ts:33:    "Upload",
+web\tests\e2e\home_g1_g8.spec.ts:34:    "Benchmark",
+web\tests\e2e\home_g1_g8.spec.ts:35:    "Contracts",
+web\tests\e2e\home_g1_g8.spec.ts:36:    "Pin Replay",
+web\tests\e2e\home_g1_g8.spec.ts:37:    "Memory",
+web\tests\e2e\intake_g1_g8.spec.ts:50:    "Home",
+web\tests\e2e\intake_g1_g8.spec.ts:51:    "Intake",
+web\tests\e2e\intake_g1_g8.spec.ts:52:    "Dashboard",
+web\tests\e2e\intake_g1_g8.spec.ts:53:    "Upload",
+web\tests\e2e\intake_g1_g8.spec.ts:54:    "Benchmark",
+web\tests\e2e\intake_g1_g8.spec.ts:55:    "Contracts",
+
+ succeeded in 953ms:
+web\app\intake\page.tsx:11:// its own <header> or <main>; AppShell (via AppShellGate, I-cd-022) is
+web\components\app_shell_gate.tsx:2:// the AppShell header AND its <main> wrapper so the home route can
+web\components\app_shell_gate.tsx:3:// provide its own header (with the same primary nav) + its own <main>.
+web\components\app_shell.tsx:36:      <header className="border-border bg-background sticky top-0 z-40 border-b">
+web\components\app_shell.tsx:44:          <nav className="flex items-center gap-1" aria-label="Primary">
+web\components\app_shell.tsx:53:      <main className="flex-1">{children}</main>
+web\components\inspector\bundle_pending_cta.tsx:21:    <main
+web\tests\e2e\home_g1_g8.spec.ts:16:test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
+web\tests\e2e\home_g1_g8.spec.ts:21:  // G1: exactly one <header> element (no duplicate from a forgotten AppShell).
+web\tests\e2e\home_g1_g8.spec.ts:22:  const headers = page.locator("header");
+web\tests\e2e\home_g1_g8.spec.ts:27:  const nav = page.locator("nav[aria-label='Primary']");
+web\tests\e2e\home_g1_g8.spec.ts:43:  const mains = page.locator("main");
+web\tests\e2e\intake_g1_g8.spec.ts:19:  await expect(page.locator("header")).toHaveCount(1);
+web\tests\e2e\intake_g1_g8.spec.ts:20:  await expect(page.locator("main")).toHaveCount(1);
+web\tests\e2e\intake_g1_g8.spec.ts:47:  const nav = page.locator("nav[aria-label='Primary']");
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"G1|G2|G3|G4|G5|G6|G7|G8|dev-language|Primary|nav\" state\\polaris_ui_rebuild_matrix.md docs\\web\\route_map.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path state\\polaris_ui_rebuild_matrix.md -TotalCount 220" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path docs\\web\\route_map.md" in C:\POLARIS
+ succeeded in 883ms:
+state\polaris_ui_rebuild_matrix.md:24:- **G1 — App shell:** the global header/sidebar nav is present and identical.
+state\polaris_ui_rebuild_matrix.md:25:- **G2 — No dev language:** zero "SLICE 00x", issue IDs, "scaffold",
+state\polaris_ui_rebuild_matrix.md:27:- **G3 — Interactive states:** every button / tab / link / control has
+state\polaris_ui_rebuild_matrix.md:29:- **G4 — Async states:** every data surface has loading + empty + error states;
+state\polaris_ui_rebuild_matrix.md:31:- **G5 — Responsive:** correct at 1440px (demo laptop) and 1024px (tablet).
+state\polaris_ui_rebuild_matrix.md:32:- **G6 — Accessibility:** keyboard-navigable, visible focus ring, WCAG-AA
+state\polaris_ui_rebuild_matrix.md:34:- **G7 — Design system:** uses the token set only; matches the gold route.
+state\polaris_ui_rebuild_matrix.md:35:- **G8 — Clean:** no console errors/warnings on load or interaction.
+state\polaris_ui_rebuild_matrix.md:37:**Objective "ships" bar (what Codex checks per route diff):** G1-G8 each
+state\polaris_ui_rebuild_matrix.md:43:| # | Route | Current | Disposition | Per-route acceptance (on top of G1-G8) |
+state\polaris_ui_rebuild_matrix.md:66:- **Issue A1** — global app shell + nav + token set + **finalize the route map**
+state\polaris_ui_rebuild_matrix.md:71:  G1-G8 evidence + screenshot; Codex reviews against the gold route.
+state\polaris_ui_rebuild_matrix.md:73:- Cross-cutting: A2 (strip dev language) folds into every route issue's G2;
+state\polaris_ui_rebuild_matrix.md:74:  A5 (states) folds into every route issue's G3+G4.
+state\polaris_ui_rebuild_matrix.md:79:  design + implementation; Codex gates every route against G1-G8.
+state\polaris_ui_rebuild_matrix.md:83:  across weeks 2-12; all 14 routes pass G1-G8 by **mid-August** (≈3 weeks before
+state\polaris_ui_rebuild_matrix.md:85:  the demo nav — not shipped half-done.
+docs\web\route_map.md:7:## Prod routes (10 kept, surfaced in the AppShell nav as 8 primary + 2 contextual)
+docs\web\route_map.md:9:| Route | In top nav? | Rebuild issue | Note |
+docs\web\route_map.md:20:| `/runs/[runId]` (+ `/graph` sub-route) | (contextual, deep-link) | I-cd-025 (I-A-08) | Run detail. **ABSORBS `/audit_live` (the standalone route is RETIRED at I-cd-025, not merely hidden from nav — per Codex P2).** |
+docs\web\route_map.md:21:| `/sign-in` | (auth — not in nav) | I-cd-014 (I-A-04) | static_accounts auth |
+docs\web\route_map.md:27:the prod nav. Codex iter-1 P2: "Do not keep these as operator diagnostics
+
+ succeeded in 944ms:
+# POLARIS UI rebuild — auditable route backlog (v1, 2026-05-19)
+
+Built per Codex iter-4 P1: "every page top-tier" needs an executable
+route-by-route matrix with objective acceptance, a design system, and
+responsive/a11y gates. Source audit: `outputs/audit_2026_05_18/ui_audit.md`.
+
+## 1. Design system — the decision
+
+- **Component library:** shadcn/ui (MIT) + Tailwind v4 + Next.js 16 — already in
+  `web/`. Keep. No new framework.
+- **Token set:** one canonical set — colour, spacing scale, type scale, radius,
+  shadow, z-index — defined once in `web/app/globals.css` + Tailwind theme;
+  every route consumes tokens, zero ad-hoc values.
+- **Visual reference standard:** a serious analytical / research instrument —
+  the polish bar is Linear / Vercel-dashboard / a government-grade analytics
+  console: data-dense, restrained palette, purposeful whitespace, strong
+  typographic hierarchy. NOT a marketing site, NOT a thin prototype.
+- **Owner of visual direction:** the `ui-designer` agent sets the system + a
+  reference mock for one "gold" route (the Evidence Inspector); `frontend-developer`
+  implements; every route is screenshot-reviewed against the gold route.
+
+## 2. Standing acceptance gates — EVERY shipped route must pass ALL 8
+
+- **G1 — App shell:** the global header/sidebar nav is present and identical.
+- **G2 — No dev language:** zero "SLICE 00x", issue IDs, "scaffold",
+  "placeholder", "post-Carney", "Phase 0" in any user-visible string.
+- **G3 — Interactive states:** every button / tab / link / control has
+  hover + focus + active + disabled states.
+- **G4 — Async states:** every data surface has loading + empty + error states;
+  no raw status strings ("backend returned 401"), no stuck "Loading…".
+- **G5 — Responsive:** correct at 1440px (demo laptop) and 1024px (tablet).
+- **G6 — Accessibility:** keyboard-navigable, visible focus ring, WCAG-AA
+  contrast, semantic landmarks + ARIA labels.
+- **G7 — Design system:** uses the token set only; matches the gold route.
+- **G8 — Clean:** no console errors/warnings on load or interaction.
+
+**Objective "ships" bar (what Codex checks per route diff):** G1-G8 each
+pass + a full-page screenshot attached + the route matches the gold-route
+polish. Subjective "looks nice" is not the bar — the 8 gates are.
+
+## 3. The 14 product routes — disposition + per-route acceptance
+
+| # | Route | Current | Disposition | Per-route acceptance (on top of G1-G8) |
+|---|---|---|---|---|
+| 1 | `/` home | plain | **Rebuild** | template grid is the demo entry; each active template card → intake; clear value statement |
+| 2 | `/sign-in` | placeholder | **Rebuild** (gated on A3) | real login against static_accounts; or removed if A3=no-auth |
+| 3 | `/intake` | plain | **Rebuild** | scope-discovery step; ambiguity modal; clean result state |
+| 4 | `/dashboard` | plain | **Rebuild** | "start a run" step; resolve overlap w/ intake in route-map consult |
+| 5 | `/retrieval` | plain | **Consolidate** | fold into the run flow as an internal phase view, not a standalone page |
+| 6 | `/generation` | plain | **Consolidate** | fold into the run flow |
+| 7 | `/upload` | no header | **Rebuild** | document grounding; per-file parse status; in app shell |
+| 8 | `/memory` | no header | **Keep-or-cut** | decide in route-map consult; if kept, rebuild in app shell |
+| 9 | `/benchmark` | 401 | **Rebuild** | BEAT-BOTH 7-dimension proof; fix auth; real chart/table |
+| 10 | `/audit_live` | no header | **Consolidate** | fold into `/runs/[runId]` live view |
+| 11 | `/contracts` | no header | **Rebuild** | Evidence Contract editor; in app shell; real form UX |
+| 12 | `/pin_replay` | no header | **Rebuild** | reproducibility view (richest already); in app shell |
+| 13 | `/inspector/[runId]` | 401 | **Rebuild — GOLD ROUTE** | the centrepiece; claim → primary source; fix auth; sets the polish bar |
+| 14 | `/runs/[runId]` | 401 | **Rebuild** | live run + SSE events; absorbs audit_live; fix auth |
+
+Test-harness routes (`/charts_test/*`, `/sentence_hover_test/*`,
+`(test_harness)/*`) → **excluded from the production build** (A7), not merely
+unlinked: direct access returns 404 in production.
+
+## 4. Decomposition into Codex-gated issues
+
+- **Issue A1** — global app shell + nav + token set + **finalize the route map**
+  (the Consolidate/Keep-or-cut calls = a Codex architecture consult). Week 1.
+- **Issue A-gold** — rebuild `/inspector/[runId]` as the gold route (sets the
+  polish bar all others are screenshot-reviewed against).
+- **One issue per remaining kept route** (≈10 issues) — each diff carries
+  G1-G8 evidence + screenshot; Codex reviews against the gold route.
+- **Issue A7** — production exclusion of harness routes.
+- Cross-cutting: A2 (strip dev language) folds into every route issue's G2;
+  A5 (states) folds into every route issue's G3+G4.
+
+## 5. Ownership + timeline
+
+- **Owner:** Claude writes diffs; `ui-designer` + `frontend-developer` agents do
+  design + implementation; Codex gates every route against G1-G8.
+- **A3 auth decision owner:** operator — needed by end of week 1 (it gates
+  routes 2, 9, 13, 14).
+- **Timeline:** A1 + route map in week 1; gold route week 2; ~10 route issues
+  across weeks 2-12; all 14 routes pass G1-G8 by **mid-August** (≈3 weeks before
+  the 2026-09-06 demo). If a route can't reach the bar in time, it is cut from
+  the demo nav — not shipped half-done.
+
+ succeeded in 969ms:
+# POLARIS web — canonical route map (I-cd-004, locked)
+
+Codex-APPROVED brief `.codex/I-cd-004/brief.md` (iter 1, all P2s = confirmations).
+This is the locked prod route map the I-cd-013..030 rebuild series must respect.
+Test-harness prod-exclusion is owned separately by **I-cd-015**.
+
+## Prod routes (10 kept, surfaced in the AppShell nav as 8 primary + 2 contextual)
+
+| Route | In top nav? | Rebuild issue | Note |
+|---|---|---|---|
+| `/` | Home | I-cd-022 (I-A-05) | Landing |
+| `/intake` | Intake | I-cd-023 (I-A-06) | Research-question intake |
+| `/dashboard` | Dashboard | I-cd-024 (I-A-07) | Run overview; deep-links into `/runs/[runId]` and `/inspector/[runId]` |
+| `/upload` | Upload | I-cd-026 (I-A-09) | Document upload |
+| `/benchmark` | Benchmark | I-cd-027 (I-A-10) | BEAT-BOTH benchmark UI |
+| `/contracts` | Contracts | I-cd-028 (I-A-11) | Signed bundle / contracts |
+| `/pin_replay` | Pin Replay | I-cd-029 (I-A-12) | Replay a pinned run |
+| `/memory` | Memory | I-cd-030 (I-A-13) | Campaign memory. Codex iter-1 P2 confirmed KEEP-prod (campaign memory is real substrate; coordination risk to cut). |
+| `/inspector/[runId]` | (contextual, deep-link) | I-cd-013 (I-A-03) | Gold per-run inspector |
+| `/runs/[runId]` (+ `/graph` sub-route) | (contextual, deep-link) | I-cd-025 (I-A-08) | Run detail. **ABSORBS `/audit_live` (the standalone route is RETIRED at I-cd-025, not merely hidden from nav — per Codex P2).** |
+| `/sign-in` | (auth — not in nav) | I-cd-014 (I-A-04) | static_accounts auth |
+
+## CUT-from-prod (3)
+
+These routes don't appear in any I-A-NN rebuild row. They are in-progress dev
+test surfaces (SSE smoke, retrieval inspector, generator probe). Removed from
+the prod nav. Codex iter-1 P2: "Do not keep these as operator diagnostics
+unless a later issue adds explicit auth/role gating and ownership."
+
+- `/generation`
+- `/retrieval`
+- `/sse`
+
+Prod-build exclusion of these (alongside the 17 harness routes) is **I-cd-015**.
+
+## Test-harness routes (17, excluded from prod build by I-cd-015)
+
+| Group | Count |
+|---|---|
+| `(test_harness)/disambiguation_modal_preview` | 1 |
+| `charts_test/*` | 5 |
+| `sentence_hover_test/*` | 11 |
+
+Kept in dev for component testing; never reachable in prod.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\intake\\components\\intake_form.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\intake\\components\\pdf_drop_banner.tsx" in C:\POLARIS
+ succeeded in 762ms:
+"use client";
+
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  IntakeBadRequestError,
+  runDisambiguation,
+  runIntake,
+  type DisambiguationCluster,
+  type IntakeScopeDecision,
+} from "@/lib/api";
+
+import { AmbiguityModal } from "./ambiguity_modal";
+import { DisambiguationModal } from "./disambiguation_modal";
+import { ScopeDecisionView } from "./scope_decision_view";
+
+type IntakeState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ok"; decision: IntakeScopeDecision }
+  | { kind: "error"; message: string };
+
+const SAMPLE_QUESTIONS = [
+  "Does aspirin reduce headaches in adults?",
+  "What are the safety risks of metformin in older adults?",
+  "Is physical therapy effective for chronic back pain in adults?",
+];
+
+const FRENCH_STOPWORD_RE =
+  /\b(le|la|les|de|des|du|que|qui|et|est|un|une|sont|pour|avec|sans|dans)\b/gi;
+const FRENCH_ACCENTED_RE = /[éèêëàâäçîïôöùûüÿñ]/i;
+
+function looksNonEnglish(s: string): boolean {
+  if (FRENCH_ACCENTED_RE.test(s)) return true;
+  const matches = s.match(FRENCH_STOPWORD_RE);
+  return (matches?.length ?? 0) >= 3;
+}
+
+export function IntakeForm() {
+  const [question, setQuestion] = useState("");
+  const [state, setState] = useState<IntakeState>({ kind: "idle" });
+  const [modalOpen, setModalOpen] = useState(false);
+  const [disambigClusters, setDisambigClusters] = useState<
+    DisambiguationCluster[]
+  >([]);
+  const [disambigOpen, setDisambigOpen] = useState(false);
+  const [pickedClusterLabel, setPickedClusterLabel] = useState<string | null>(
+    null,
+  );
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const trimmed = question.trim();
+    if (trimmed.length < 3) {
+      setState({
+        kind: "error",
+        message: "Please enter a question with at least 3 characters.",
+      });
+      return;
+    }
+    if (looksNonEnglish(trimmed)) {
+      setState({
+        kind: "error",
+        message: "POLARIS currently supports English questions only.",
+      });
+      return;
+    }
+
+    setState({ kind: "loading" });
+    try {
+      const result = await runIntake(trimmed);
+      setState({ kind: "ok", decision: result.decision });
+      if (result.decision.status === "ambiguous_needs_clarification") {
+        setModalOpen(true);
+      }
+      if (
+        result.decision.needs_disambiguation &&
+        result.decision.candidate_snippets &&
+        result.decision.candidate_snippets.length > 0
+      ) {
+        const dis = await runDisambiguation(result.decision.candidate_snippets);
+        if (dis.is_ambiguous && dis.clusters.length > 1) {
+          setDisambigClusters(dis.clusters);
+          setDisambigOpen(true);
+        }
+      }
+    } catch (err) {
+      if (err instanceof IntakeBadRequestError) {
+        setState({ kind: "error", message: err.message });
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Unknown error.";
+      setState({ kind: "error", message });
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-xl">
+            Ask POLARIS a clinical research question
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={submit}
+            className="flex flex-col gap-3"
+            data-testid="intake-form"
+          >
+            <label
+              htmlFor="intake-question"
+              className="text-foreground text-sm font-medium"
+            >
+              Your question
+            </label>
+            <Input
+              id="intake-question"
+              data-testid="intake-question-input"
+              placeholder="e.g. Does aspirin reduce headaches in adults?"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              maxLength={2000}
+              disabled={state.kind === "loading"}
+              autoComplete="off"
+            />
+            <p className="text-muted-foreground text-xs">
+              POLARIS only researches clinical evidence questions (efficacy,
+              safety, diagnosis, prognosis). Other domains will be marked out of
+              scope.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="submit"
+                variant="default"
+                disabled={state.kind === "loading"}
+                data-testid="intake-submit"
+              >
+                {state.kind === "loading" ? "Checking…" : "Check scope"}
+              </Button>
+              <span className="text-muted-foreground text-xs">or try:</span>
+              {SAMPLE_QUESTIONS.map((sample) => (
+                <button
+                  key={sample}
+                  type="button"
+                  onClick={() => setQuestion(sample)}
+                  className="text-muted-foreground hover:text-foreground border-border rounded-full border px-2 py-1 text-xs transition-colors"
+                >
+                  {sample}
+                </button>
+              ))}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {state.kind === "error" ? (
+        <Card
+          data-testid="intake-error"
+          className="border-rose-500/40 bg-rose-500/5"
+        >
+          <CardContent className="text-rose-700 dark:text-rose-300">
+            {state.message}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {state.kind === "ok" ? (
+        <ScopeDecisionView decision={state.decision} />
+      ) : null}
+
+      <AmbiguityModal
+        open={modalOpen}
+        decision={state.kind === "ok" ? state.decision : null}
+        onContinue={() => setModalOpen(false)}
+        onCancel={() => setModalOpen(false)}
+      />
+
+      <DisambiguationModal
+        open={disambigOpen}
+        clusters={disambigClusters}
+        onSelectCluster={(cid) => {
+          const found = disambigClusters.find((c) => c.cluster_id === cid);
+          setPickedClusterLabel(found?.label ?? null);
+          setDisambigOpen(false);
+        }}
+        onCancel={() => setDisambigOpen(false)}
+      />
+
+      <output data-testid="disambig-picked-label" className="sr-only">
+        {pickedClusterLabel ?? ""}
+      </output>
+    </div>
+  );
+}
+
+ succeeded in 834ms:
+"use client";
+
+import { useEffect, useState } from "react";
+
+function isPdf(file: File): boolean {
+  return (
+    file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
+  );
+}
+
+export function PdfDropBanner() {
+  const [shown, setShown] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => e.preventDefault();
+    const handleDrop = (e: DragEvent) => {
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+      let pdfFound = false;
+      for (let i = 0; i < files.length; i++) {
+        const f = files.item(i);
+        if (f && isPdf(f)) {
+          pdfFound = true;
+          break;
+        }
+      }
+      if (pdfFound) {
+        e.preventDefault();
+        setShown(true);
+      }
+    };
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("drop", handleDrop);
+    queueMicrotask(() => setReady(true));
+    return () => {
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("drop", handleDrop);
+    };
+  }, []);
+
+  if (!shown)
+    return (
+      <span
+        data-testid="pdf-drop-ready"
+        data-ready={ready ? "1" : "0"}
+        className="sr-only"
+      />
+    );
+
+  return (
+    <div
+      data-testid="pdf-drop-banner"
+      className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200"
+    >
+      <span>PDFs go through the upload flow (coming soon).</span>
+      <button
+        type="button"
+        data-testid="pdf-drop-dismiss"
+        onClick={() => setShown(false)}
+        className="text-xs font-medium underline-offset-2 hover:underline"
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
+codex
+I also checked the matrix text directly. The two gaps I see are test-strength gaps, not current runtime breakage: the route itself gets the AppShell nav, but the new spec does not assert the full eight-link nav, and its G8 test ignores warnings even though the matrix says warnings are part of G8.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run build' in C:\POLARIS\web
+2026-05-20T19:19:17.471731Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 9.1 seconds
+Output:
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.2.4 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 6.4s
+  Running TypeScript ...
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+Turbopack build encountered 1 warnings:
+./next.config.ts
+Encountered unexpected file in NFT list
+A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
+- filesystem operations (like path.join, path.resolve or fs.readFile), or
+- very dynamic requires (like require('./' + foo)).
+To resolve this, you can
+- remove them if possible, or
+- only use them in development, or
+- make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+- add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+
+Import trace:
+  App Route:
+    ./next.config.ts
+    ./lib/inspector_bundle_loader.ts
+    ./app/api/inspector_bundle/[runId]/route.ts
+
+
+
+> Build error occurred
+Error: spawn EPERM
+    at ignore-listed frames {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+ exited 1 in 9061ms:
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.2.4 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 6.4s
+  Running TypeScript ...
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+Turbopack build encountered 1 warnings:
+./next.config.ts
+Encountered unexpected file in NFT list
+A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
+- filesystem operations (like path.join, path.resolve or fs.readFile), or
+- very dynamic requires (like require('./' + foo)).
+To resolve this, you can
+- remove them if possible, or
+- only use them in development, or
+- make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+- add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+
+Import trace:
+  App Route:
+    ./next.config.ts
+    ./lib/inspector_bundle_loader.ts
+    ./app/api/inspector_bundle/[runId]/route.ts
+
+
+
+> Build error occurred
+Error: spawn EPERM
+    at ignore-listed frames {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+codex
+A production build compiles the web bundle, then fails in this local Windows environment with `spawn EPERM` after unrelated Next/Turbopack warnings. I’m not treating that as introduced by this patch, but I’ll avoid claiming a clean build from this machine.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$port=3741; $out='"'C:\\tmp\\polaris-next-intake-out.log'; "'$err='"'C:\\tmp\\polaris-next-intake-err.log'; Remove-Item -LiteralPath "'$out,$err -ErrorAction SilentlyContinue; $p=Start-Process -FilePath '"'npx.cmd' -ArgumentList @('next','dev','-p',\""'$port") -WorkingDirectory '"'C:\\POLARIS\\web' -RedirectStandardOutput "'$out -RedirectStandardError $err -PassThru -WindowStyle Hidden; try { $ready=$false; for ($i=0; $i -lt 45; $i++) { try { $r=Invoke-WebRequest -Uri "http://127.0.0.1:$port/intake" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 500) { $ready=$true; break } } catch { Start-Sleep -Seconds 1 } }; if (-not $ready) { Write-Output '"'NEXT_NOT_READY'; Get-Content -Path "'$out -ErrorAction SilentlyContinue; Get-Content -Path $err -ErrorAction SilentlyContinue; exit 1 }; $env:SCREENSHOT_BASE_URL="http://127.0.0.1:$port"; npx playwright test --project=chromium tests/e2e/intake_g1_g8.spec.ts } finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "next.*dev.*$port" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }' in C:\POLARIS\web
+2026-05-20T19:21:51.610599Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 137 seconds
+Output:
+NEXT_NOT_READY
+[31;1mStart-Process: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … ontinue; $p=[36;1mStart-Process -FilePath 'npx.cmd' -ArgumentList @('next',[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAccess to the path 'C:\tmp\polaris-next-intake-out.log' is denied.[0m
+[31;1mStop-Process: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … s/e2e/intake_g1_g8.spec.ts } finally { Stop-Process -Id [36;1m$p.Id[0m -Force  …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                                           ~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot bind argument to parameter 'Id' because it is null.[0m
+[31;1mGet-CimInstance: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m …  -ErrorAction SilentlyContinue; [36;1mGet-CimInstance Win32_Process[0m | Where …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAccess denied [0m
+
+ exited 1 in 137011ms:
+NEXT_NOT_READY
+[31;1mStart-Process: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … ontinue; $p=[36;1mStart-Process -FilePath 'npx.cmd' -ArgumentList @('next',[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAccess to the path 'C:\tmp\polaris-next-intake-out.log' is denied.[0m
+[31;1mStop-Process: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … s/e2e/intake_g1_g8.spec.ts } finally { Stop-Process -Id [36;1m$p.Id[0m -Force  …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                                           ~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot bind argument to parameter 'Id' because it is null.[0m
+[31;1mGet-CimInstance: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m …  -ErrorAction SilentlyContinue; [36;1mGet-CimInstance Win32_Process[0m | Where …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAccess denied [0m
+
+codex
+The attempted local Playwright run didn’t start because this sandbox denied the requested `C:\tmp` log redirection and process inspection. I have enough static evidence for the review, so I’m not going to chase environment-specific runner issues further.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path web'"\\app\\intake\\components\\pdf_drop_banner.tsx | ForEach-Object { "'$i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path web'"\\tests\\e2e\\intake_g1_g8.spec.ts | ForEach-Object { "'$i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path web'"\\components\\app_shell.tsx | ForEach-Object { "'$i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+ succeeded in 1148ms:
+   1: // I-cd-023 (#613): /intake route G1-G8 acceptance gates per
+   2: // state/polaris_ui_rebuild_matrix.md §2. Pattern mirrors home_g1_g8.spec.ts.
+   3: 
+   4: import { expect, test } from "@playwright/test";
+   5: 
+   6: const BANNED_DEV_LANGUAGE = [
+   7:   /\bslice\b/i,
+   8:   /\bscaffold\b/i,
+   9:   /\bplaceholder\b/i,
+  10:   /\bphase 0\b/i,
+  11:   /\bpost[- ]carney\b/i,
+  12:   /\bi-cd-/i,
+  13: ];
+  14: 
+  15: test("G1 + G6: /intake has exactly one header + one main (AppShell-provided)", async ({
+  16:   page,
+  17: }) => {
+  18:   await page.goto("/intake");
+  19:   await expect(page.locator("header")).toHaveCount(1);
+  20:   await expect(page.locator("main")).toHaveCount(1);
+  21: });
+  22: 
+  23: test("G2: /intake contains no banned dev-language strings", async ({
+  24:   page,
+  25: }) => {
+  26:   await page.goto("/intake");
+  27:   const body_text = (await page.locator("body").textContent()) || "";
+  28:   for (const banned of BANNED_DEV_LANGUAGE) {
+  29:     expect(body_text).not.toMatch(banned);
+  30:   }
+  31: });
+  32: 
+  33: test("G8: /intake renders with zero console errors", async ({ page }) => {
+  34:   const errors: string[] = [];
+  35:   page.on("console", (msg) => {
+  36:     if (msg.type() === "error") errors.push(msg.text());
+  37:   });
+  38:   await page.goto("/intake");
+  39:   await page.waitForLoadState("networkidle");
+  40:   // Existing intake form sub-component may surface known harmless warnings;
+  41:   // we only fail on errors per state/polaris_ui_rebuild_matrix.md G8.
+  42:   expect(errors).toEqual([]);
+  43: });
+  44: 
+  45: test("G1 nav parity: primary nav is visible on /intake", async ({ page }) => {
+  46:   await page.goto("/intake");
+  47:   const nav = page.locator("nav[aria-label='Primary']");
+  48:   await expect(nav).toBeVisible();
+  49:   for (const label of [
+  50:     "Home",
+  51:     "Intake",
+  52:     "Dashboard",
+  53:     "Upload",
+  54:     "Benchmark",
+  55:     "Contracts",
+  56:   ]) {
+  57:     await expect(nav.getByRole("link", { name: label })).toBeVisible();
+  58:   }
+  59: });
+
+ succeeded in 1204ms:
+   1: "use client";
+   2: 
+   3: import { useEffect, useState } from "react";
+   4: 
+   5: function isPdf(file: File): boolean {
+   6:   return (
+   7:     file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
+   8:   );
+   9: }
+  10: 
+  11: export function PdfDropBanner() {
+  12:   const [shown, setShown] = useState(false);
+  13:   const [ready, setReady] = useState(false);
+  14: 
+  15:   useEffect(() => {
+  16:     const handleDragOver = (e: DragEvent) => e.preventDefault();
+  17:     const handleDrop = (e: DragEvent) => {
+  18:       const files = e.dataTransfer?.files;
+  19:       if (!files || files.length === 0) return;
+  20:       let pdfFound = false;
+  21:       for (let i = 0; i < files.length; i++) {
+  22:         const f = files.item(i);
+  23:         if (f && isPdf(f)) {
+  24:           pdfFound = true;
+  25:           break;
+  26:         }
+  27:       }
+  28:       if (pdfFound) {
+  29:         e.preventDefault();
+  30:         setShown(true);
+  31:       }
+  32:     };
+  33:     window.addEventListener("dragover", handleDragOver);
+  34:     window.addEventListener("drop", handleDrop);
+  35:     queueMicrotask(() => setReady(true));
+  36:     return () => {
+  37:       window.removeEventListener("dragover", handleDragOver);
+  38:       window.removeEventListener("drop", handleDrop);
+  39:     };
+  40:   }, []);
+  41: 
+  42:   if (!shown)
+  43:     return (
+  44:       <span
+  45:         data-testid="pdf-drop-ready"
+  46:         data-ready={ready ? "1" : "0"}
+  47:         className="sr-only"
+  48:       />
+  49:     );
+  50: 
+  51:   return (
+  52:     <div
+  53:       data-testid="pdf-drop-banner"
+  54:       className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200"
+  55:     >
+  56:       <span>PDFs go through the upload flow (coming soon).</span>
+  57:       <button
+  58:         type="button"
+  59:         data-testid="pdf-drop-dismiss"
+  60:         onClick={() => setShown(false)}
+  61:         className="text-xs font-medium underline-offset-2 hover:underline"
+  62:       >
+  63:         Dismiss
+  64:       </button>
+  65:     </div>
+  66:   );
+  67: }
+
+ succeeded in 1263ms:
+   1: import Link from "next/link";
+   2: 
+   3: import { NavLink } from "@/components/nav_link";
+   4: 
+   5: /**
+   6:  * I-cd-004: the global app shell. A server component that wraps every prod
+   7:  * route with a single header + primary nav. The 8 primary nav entries are
+   8:  * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+   9:  *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+  10:  *
+  11:  * Out of scope for this issue (each its own later issue per the Seq-N order):
+  12:  *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+  13:  *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+  14:  *    /dashboard rather than top-nav entries.
+  15:  *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+  16:  *    retired at that point (not merely hidden — per Codex P2).
+  17:  *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+  18:  *    I-cd-015.
+  19:  *  - Auth gating of the nav itself is deferred to I-cd-014.
+  20:  *  - Per-page rebuilds happen in the I-cd-013..030 series.
+  21:  */
+  22: const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+  23:   { href: "/", label: "Home" },
+  24:   { href: "/intake", label: "Intake" },
+  25:   { href: "/dashboard", label: "Dashboard" },
+  26:   { href: "/upload", label: "Upload" },
+  27:   { href: "/benchmark", label: "Benchmark" },
+  28:   { href: "/contracts", label: "Contracts" },
+  29:   { href: "/pin_replay", label: "Pin Replay" },
+  30:   { href: "/memory", label: "Memory" },
+  31: ];
+  32: 
+  33: export function AppShell({ children }: { children: React.ReactNode }) {
+  34:   return (
+  35:     <>
+  36:       <header className="border-border bg-background sticky top-0 z-40 border-b">
+  37:         <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+  38:           <Link
+  39:             href="/"
+  40:             className="text-foreground font-mono text-sm font-semibold tracking-tight"
+  41:           >
+  42:             POLARIS · Canada
+  43:           </Link>
+  44:           <nav className="flex items-center gap-1" aria-label="Primary">
+  45:             {PRIMARY_NAV.map((item) => (
+  46:               <NavLink key={item.href} href={item.href}>
+  47:                 {item.label}
+  48:               </NavLink>
+  49:             ))}
+  50:           </nav>
+  51:         </div>
+  52:       </header>
+  53:       <main className="flex-1">{children}</main>
+  54:     </>
+  55:   );
+  56: }
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path state'"\\polaris_ui_rebuild_matrix.md | Select-Object -First 40 | ForEach-Object { "'$i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+ succeeded in 780ms:
+   1: # POLARIS UI rebuild — auditable route backlog (v1, 2026-05-19)
+   2: 
+   3: Built per Codex iter-4 P1: "every page top-tier" needs an executable
+   4: route-by-route matrix with objective acceptance, a design system, and
+   5: responsive/a11y gates. Source audit: `outputs/audit_2026_05_18/ui_audit.md`.
+   6: 
+   7: ## 1. Design system — the decision
+   8: 
+   9: - **Component library:** shadcn/ui (MIT) + Tailwind v4 + Next.js 16 — already in
+  10:   `web/`. Keep. No new framework.
+  11: - **Token set:** one canonical set — colour, spacing scale, type scale, radius,
+  12:   shadow, z-index — defined once in `web/app/globals.css` + Tailwind theme;
+  13:   every route consumes tokens, zero ad-hoc values.
+  14: - **Visual reference standard:** a serious analytical / research instrument —
+  15:   the polish bar is Linear / Vercel-dashboard / a government-grade analytics
+  16:   console: data-dense, restrained palette, purposeful whitespace, strong
+  17:   typographic hierarchy. NOT a marketing site, NOT a thin prototype.
+  18: - **Owner of visual direction:** the `ui-designer` agent sets the system + a
+  19:   reference mock for one "gold" route (the Evidence Inspector); `frontend-developer`
+  20:   implements; every route is screenshot-reviewed against the gold route.
+  21: 
+  22: ## 2. Standing acceptance gates — EVERY shipped route must pass ALL 8
+  23: 
+  24: - **G1 — App shell:** the global header/sidebar nav is present and identical.
+  25: - **G2 — No dev language:** zero "SLICE 00x", issue IDs, "scaffold",
+  26:   "placeholder", "post-Carney", "Phase 0" in any user-visible string.
+  27: - **G3 — Interactive states:** every button / tab / link / control has
+  28:   hover + focus + active + disabled states.
+  29: - **G4 — Async states:** every data surface has loading + empty + error states;
+  30:   no raw status strings ("backend returned 401"), no stuck "Loading…".
+  31: - **G5 — Responsive:** correct at 1440px (demo laptop) and 1024px (tablet).
+  32: - **G6 — Accessibility:** keyboard-navigable, visible focus ring, WCAG-AA
+  33:   contrast, semantic landmarks + ARIA labels.
+  34: - **G7 — Design system:** uses the token set only; matches the gold route.
+  35: - **G8 — Clean:** no console errors/warnings on load or interaction.
+  36: 
+  37: **Objective "ships" bar (what Codex checks per route diff):** G1-G8 each
+  38: pass + a full-page screenshot attached + the route matches the gold-route
+  39: polish. Subjective "looks nice" is not the bar — the 8 gates are.
+  40: 
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-FileHash -Algorithm SHA256 .codex\\I-cd-023\\codex_diff_canonical.patch | Format-List" in C:\POLARIS
+ succeeded in 779ms:
+
+[32;1mAlgorithm : [0mSHA256
+[32;1mHash      : [0m782AE85909C1956221CC40B42D6E6794BB61807EBD03E46914FC301C3D2D7E24
+[32;1mPath      : [0mC:\POLARIS\.codex\I-cd-023\codex_diff_canonical.patch
+
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/tests/e2e/intake_g1_g8.spec.ts:33: G8 test only fails on console errors, but the matrix requires zero errors/warnings on load or interaction."
+  - "web/tests/e2e/intake_g1_g8.spec.ts:49: Nav parity test checks only 6 of the 8 canonical AppShell links; it omits Pin Replay and Memory."
+  - "web/app/intake/components/pdf_drop_banner.tsx:56: Interactive PDF-drop state still exposes '(coming soon)' copy; not a blocker for this structural diff, but it is unfinished-product language."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+Checked canonical patch hash: matches `782ae85909c1956221cc40b42d6e6794bb61807ebd03e46914fc301c3d2d7e24`. Focused `tsc`, ESLint, and Prettier on changed TS files were clean.
+tokens used
+64,147
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/tests/e2e/intake_g1_g8.spec.ts:33: G8 test only fails on console errors, but the matrix requires zero errors/warnings on load or interaction."
+  - "web/tests/e2e/intake_g1_g8.spec.ts:49: Nav parity test checks only 6 of the 8 canonical AppShell links; it omits Pin Replay and Memory."
+  - "web/app/intake/components/pdf_drop_banner.tsx:56: Interactive PDF-drop state still exposes '(coming soon)' copy; not a blocker for this structural diff, but it is unfinished-product language."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+Checked canonical patch hash: matches `782ae85909c1956221cc40b42d6e6794bb61807ebd03e46914fc301c3d2d7e24`. Focused `tsc`, ESLint, and Prettier on changed TS files were clean.

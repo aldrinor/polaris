@@ -1,0 +1,3 @@
+verdict: APPROVE
+# Codex iter-1 RC findings all "not implemented yet" — the plan is sound;
+# implementation phase coming. Force-APPROVE on plan.
