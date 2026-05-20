@@ -40,6 +40,11 @@ _QUALIFYING_STATUSES: Final[frozenset[str]] = frozenset(
     {
         "success",
         "partial_outline_fallback",
+        # Codex diff iter-2 P1: partial_qwen_advisory is a real terminal
+        # PipelineStatus (run_status.py) — pipeline-A maps ok_qwen_advisory
+        # to it (scripts/run_honest_sweep_r3.py:198), and the actor stores
+        # the run as completed. Excluding it would 404 a real completed run.
+        "partial_qwen_advisory",
         "partial_evaluator_advisory",
         "partial_thin_corpus",
         "partial_incomplete_corpus",

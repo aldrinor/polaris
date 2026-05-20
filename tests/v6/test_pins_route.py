@@ -301,6 +301,45 @@ def test_get_pin_by_date_malformed_returns_422(client, db_path: Path):
     assert response.status_code == 422
 
 
+def test_list_pins_includes_partial_qwen_advisory(client, tmp_path: Path, db_path: Path):
+    """Codex diff iter-2 P1: partial_qwen_advisory MUST be pin-eligible.
+
+    pipeline-A maps ok_qwen_advisory → partial_qwen_advisory; the v6 actor
+    persists it as a completed run. Excluding it would 404 a real run.
+    """
+    artifact_dir = tmp_path / "qwen_advisory"
+    _write_manifest(
+        artifact_dir,
+        generator={
+            "outline_sections": ["a", "b", "c"],
+            "sections_kept": 2,
+            "sentences_verified": 10,
+            "sentences_dropped": 6,
+        },
+        status="partial_qwen_advisory",
+    )
+    _seed_run(
+        db_path,
+        run_id="r_qwen",
+        query="Q",
+        query_slug="q",
+        finished_at="2026-05-20T00:00:00Z",
+        pipeline_status="partial_qwen_advisory",
+        artifact_dir=str(artifact_dir),
+    )
+
+    response = client.get("/runs/r_qwen/pins")
+    assert response.status_code == 200
+    pins = response.json()
+    assert len(pins) == 1
+    # verdict is collapsed to "success" — only abort_no_verified_sections
+    # keeps its own verdict in the PinSnapshot frontend contract.
+    assert pins[0]["verdict"] == "success"
+
+    response = client.get("/runs/r_qwen/pins/2026-05-20")
+    assert response.status_code == 200
+
+
 def test_pass_rate_zero_denominator_returns_zero(client, tmp_path: Path, db_path: Path):
     """sentences_verified=0 AND sentences_dropped=0 → pass_rate=0.0 not NaN."""
     artifact_dir = tmp_path / "zero"
