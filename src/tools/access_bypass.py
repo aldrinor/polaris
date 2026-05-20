@@ -367,6 +367,63 @@ def _drain_detached(task: "asyncio.Task") -> None:
             pass
 
 
+def _force_drop_detached_task(task: "asyncio.Task") -> None:
+    """I-cd-032 (#632): forcibly remove a wedged detached task from the
+    main asyncio loop's await-list at teardown.
+
+    `asyncio.run`'s built-in shutdown calls `_cancel_all_tasks` which
+    `await`s every still-pending task. If a detached backend ignores
+    cancellation, that await is unbounded.
+
+    Mitigation: close the task's underlying coroutine via
+    `_coro.close()` — this raises GeneratorExit in the coroutine,
+    cleanup runs synchronously, and the task is finalized as cancelled
+    so `_cancel_all_tasks` does not have to await it.
+
+    Best-effort: if `_coro` is not accessible OR `close()` itself blocks
+    (it shouldn't — close just raises GeneratorExit into the frame), the
+    fallback path drops the strong reference and lets asyncio teardown
+    proceed with the standard cancellation + await behavior.
+
+    Called by an `asyncio.run`-teardown hook installed at run start.
+    """
+    if task.done():
+        return
+    coro = getattr(task, "_coro", None)
+    if coro is None:
+        return
+    try:
+        # close() raises GeneratorExit into the coroutine's current
+        # suspension point, which runs any finally/except blocks but
+        # cannot await anything new (GeneratorExit suppresses yields).
+        coro.close()
+    except Exception:  # noqa: BLE001 — close() must never raise here
+        pass
+    _DETACHED_BACKEND_TASKS.discard(task)
+
+
+def install_teardown_drain_hook(loop: "asyncio.AbstractEventLoop") -> None:
+    """I-cd-032 (#632): install a shutdown hook that force-drops every
+    detached wedged backend task BEFORE asyncio.run's _cancel_all_tasks
+    iterates them.
+
+    Call this from the pipeline entry (e.g. `run_one_query`) right after
+    `asyncio.new_event_loop` / `asyncio.set_event_loop`, OR from
+    `asyncio.run(...)` callers via a small wrapper.
+    """
+    # The hook runs at loop close; by that time we want all detached
+    # wedged tasks to be already drained so _cancel_all_tasks has nothing
+    # un-cancellable to await.
+    original_close = loop.close
+
+    def _drain_then_close() -> None:
+        for task in list(_DETACHED_BACKEND_TASKS):
+            _force_drop_detached_task(task)
+        original_close()
+
+    loop.close = _drain_then_close  # type: ignore[method-assign]
+
+
 def _backend_failure(label: str, url: str, error: str) -> AccessResult:
     """A failure AccessResult for a backend that timed out or errored."""
     return AccessResult(
