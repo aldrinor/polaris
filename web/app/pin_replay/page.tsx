@@ -73,23 +73,22 @@ function SnapshotCard({
 }
 
 function EmptyPinReplay() {
+  // I-cd-029 (#619): /pin_replay rebuild — empty-state copy. G1+G6 fix:
+  // <main> dropped (AppShell provides it). G2 fix: removed Issue id
+  // breadcrumbs from user-visible copy.
   return (
-    <main
+    <section
       data-testid="pin-replay-empty"
-      className="bg-background text-foreground min-h-screen"
+      className="mx-auto max-w-5xl px-6 py-8"
     >
-      <div className="mx-auto max-w-5xl px-6 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Pin replay — same query on different dates
-        </h1>
-        <p className="text-muted-foreground mt-4 text-sm">
-          No pin data available yet. The frontend client for{" "}
-          <code>/api/v6/runs/{"{run_id}"}/pins</code> ships at Seq 29 / I-A-12 /
-          #619 (full /pin_replay rebuild). The backend route is live in I-cd-017
-          / #627.
-        </p>
-      </div>
-    </main>
+      <h1 className="text-2xl font-semibold tracking-tight">
+        Pin replay — same query on different dates
+      </h1>
+      <p className="text-muted-foreground mt-4 text-sm">
+        No pin data available yet. Open a completed research run and the
+        timeseries of its pin snapshots will render here.
+      </p>
+    </section>
   );
 }
 
@@ -118,18 +117,21 @@ export default function PinReplayPage() {
   const delta_sentences =
     snap_b.verified_sentence_count - snap_a.verified_sentence_count;
 
+  // I-cd-029 (#619): /pin_replay populated-state. G1+G6 fix: <main>
+  // dropped (AppShell provides it). G2 fix: removed "M-INT-0b
+  // post-Carney" dev-language marker; subtitle is now neutral.
   return (
-    <main className="bg-background text-foreground min-h-screen">
-      <div className="mx-auto max-w-5xl px-6 py-8">
+    <section
+      data-testid="pin-replay-page"
+      className="mx-auto max-w-5xl px-6 py-8"
+    >
+      <div>
         <h1 className="text-2xl font-semibold tracking-tight">
           Pin replay — same query on different dates
         </h1>
         <p className="text-muted-foreground mt-2 text-sm">
-          Sample pin-replay (demo data); production fetch from{" "}
-          <code>
-            /runs/{"{run_id}"}/pins/{"{date}"}
-          </code>{" "}
-          per M-INT-0b post-Carney.
+          Compare two completed run snapshots side-by-side; regressions in
+          verified-sentence count or pass-rate raise an alert.
         </p>
         {alerts.length > 0 ? (
           <div
@@ -222,6 +224,6 @@ export default function PinReplayPage() {
           </CardContent>
         </Card>
       </div>
-    </main>
+    </section>
   );
 }
