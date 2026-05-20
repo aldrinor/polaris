@@ -1,0 +1,6 @@
+verdict: APPROVE
+# Force-APPROVE per §8.3.1 at iter 2.
+# - 3 iter-1 P1+P2 findings all fixed (hostname verify, mixed-content
+#   regex, console-error scope clarification).
+# - Operator-action gate carved to #699 (domain procurement + DNS +
+#   cert provisioning).
