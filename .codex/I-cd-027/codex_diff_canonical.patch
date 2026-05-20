@@ -1,0 +1,228 @@
+diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
+index 1f590b10..90cf1080 100644
+--- a/.github/workflows/web_ci.yml
++++ b/.github/workflows/web_ci.yml
+@@ -198,6 +198,13 @@ jobs:
+           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+         run: npx playwright test --project=chromium tests/e2e/upload_g1_g8.spec.ts
+ 
++      # I-cd-027 (#617): /benchmark route G1-G8 acceptance gates.
++      - name: run_e2e_benchmark_g1_g8
++        env:
++          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
++          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
++        run: npx playwright test --project=chromium tests/e2e/benchmark_g1_g8.spec.ts
++
+       # Visual baselines are *-chromium-win32.png (locally captured on Win).
+       # On Linux CI the snapshot file resolves to a different name and will
+       # be missing; skip visual.spec until Linux baselines are added.
+diff --git a/web/app/benchmark/page.tsx b/web/app/benchmark/page.tsx
+index effabf8c..7aedc7a5 100644
+--- a/web/app/benchmark/page.tsx
++++ b/web/app/benchmark/page.tsx
+@@ -1,7 +1,3 @@
+-import Link from "next/link";
+-
+-import { Button } from "@/components/ui/button";
+-
+ import { BenchmarkBoard } from "./components/benchmark_board";
+ 
+ export const metadata = {
+@@ -10,76 +6,48 @@ export const metadata = {
+     "Head-to-head comparison of POLARIS vs ChatGPT Deep Research vs Gemini DR across 7 dimensions. Demoable scoreboard for the gift to PM Carney's office.",
+ };
+ 
++// I-cd-027 (#617): /benchmark rebuild — G1/G6 fix. Page no longer renders
++// its own <header>, <footer>, or <main>. AppShell (via AppShellGate from
++// I-cd-022) is the single landmark provider. G2 fix: removed
++// "POLARIS Canada — Slice 005" + "POLARIS v6.2 — Slice 005 (BEAT-BOTH
++// benchmark)" dev-language strings via header/footer removal.
+ export default function BenchmarkPage() {
+   return (
+-    <div className="flex min-h-screen flex-col">
+-      <header className="border-border bg-background border-b">
+-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+-          <div className="flex flex-col">
+-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+-              POLARIS Canada — Slice 005
+-            </span>
+-            <span className="text-foreground text-base font-semibold">
+-              BEAT-BOTH benchmark
+-            </span>
+-          </div>
+-          <div className="flex gap-2">
+-            {/* I-cd-015 (GH#611): /generation is a dev-only harness route;
+-                the prod middleware 404s it. Removed the dead link button. */}
+-            <Button
+-              variant="outline"
+-              nativeButton={false}
+-              render={<Link href="/" />}
+-            >
+-              Home
+-            </Button>
+-          </div>
+-        </div>
+-      </header>
+-
+-      <main
+-        data-testid="benchmark-page"
+-        className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-6 py-10"
++    <section
++      data-testid="benchmark-page"
++      className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10"
++    >
++      <div className="flex flex-col gap-2">
++        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
++          BEAT-BOTH benchmark
++        </h1>
++        <p className="text-muted-foreground max-w-3xl text-sm sm:text-base">
++          Head-to-head comparison of POLARIS vs commercial deep-research
++          products on 7 dimensions: sourcing tier mix, numeric grounding,
++          provenance density, refusal correctness, coverage completeness,
++          latency, and auditability. POLARIS uniquely scores 1.0 on refusal
++          correctness and auditability — these are features no commercial
++          system attempts.
++        </p>
++      </div>
++
++      <BenchmarkBoard />
++
++      <div
++        aria-label="What this proves"
++        className="border-border text-muted-foreground rounded-lg border p-4 text-xs"
+       >
+-        <section className="flex flex-col gap-2">
+-          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+-            BEAT-BOTH benchmark
+-          </h1>
+-          <p className="text-muted-foreground max-w-3xl text-sm sm:text-base">
+-            Head-to-head comparison of POLARIS vs commercial deep-research
+-            products on 7 dimensions: sourcing tier mix, numeric grounding,
+-            provenance density, refusal correctness, coverage completeness,
+-            latency, and auditability. POLARIS uniquely scores 1.0 on refusal
+-            correctness and auditability — these are features no commercial
+-            system attempts.
+-          </p>
+-        </section>
+-
+-        <BenchmarkBoard />
+-
+-        <section
+-          aria-label="What this proves"
+-          className="border-border text-muted-foreground rounded-lg border p-4 text-xs"
+-        >
+-          <p>
+-            <strong className="text-foreground">Reproducible.</strong> Each
+-            scoreboard is produced by{" "}
+-            <code className="bg-muted rounded px-1 py-0.5 text-xs">
+-              scripts/run_benchmark.py
+-            </code>
+-            . The scoreboard.json artifact is canonical (sort_keys=True), so two
+-            runs against the same inputs produce identical scores.
+-            Carney&rsquo;s office can re-run the benchmark and compare bytewise.
+-          </p>
+-        </section>
+-      </main>
+-
+-      <footer className="border-border bg-background border-t">
+-        <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+-          <span>POLARIS v6.2 — Slice 005 (BEAT-BOTH benchmark)</span>
+-          <span>Sovereign Canadian deep research</span>
+-        </div>
+-      </footer>
+-    </div>
++        <p>
++          <strong className="text-foreground">Reproducible.</strong> Each
++          scoreboard is produced by{" "}
++          <code className="bg-muted rounded px-1 py-0.5 text-xs">
++            scripts/run_benchmark.py
++          </code>
++          . The scoreboard.json artifact is canonical (sort_keys=True), so two
++          runs against the same inputs produce identical scores.
++          Carney&rsquo;s office can re-run the benchmark and compare bytewise.
++        </p>
++      </div>
++    </section>
+   );
+ }
+diff --git a/web/tests/e2e/benchmark_g1_g8.spec.ts b/web/tests/e2e/benchmark_g1_g8.spec.ts
+new file mode 100644
+index 00000000..6c4537e6
+--- /dev/null
++++ b/web/tests/e2e/benchmark_g1_g8.spec.ts
+@@ -0,0 +1,75 @@
++// I-cd-027 (#617): /benchmark route G1-G8 acceptance gates.
++
++import { expect, test } from "@playwright/test";
++
++const BANNED_DEV_LANGUAGE = [
++  /\bslice\b/i,
++  /\bscaffold\b/i,
++  /\bplaceholder\b/i,
++  /\bphase 0\b/i,
++  /\bphase 1\b/i,
++  /\bphase 2[a-z]?\b/i,
++  /\bF4 plan\b/i,
++  /\bpost[- ]carney\b/i,
++  /\bi-cd-/i,
++];
++
++test("G1 + G6: /benchmark has exactly one header + one main", async ({
++  page,
++}) => {
++  await page.goto("/benchmark");
++  await expect(page.locator("header")).toHaveCount(1);
++  await expect(page.locator("main")).toHaveCount(1);
++});
++
++test("G2: /benchmark contains no banned dev-language strings (body + titles + aria-labels)", async ({
++  page,
++}) => {
++  await page.goto("/benchmark");
++  const body_text = (await page.locator("body").textContent()) || "";
++  const title_text =
++    (await page
++      .locator("[title]")
++      .evaluateAll((els: Element[]) =>
++        els.map((el) => el.getAttribute("title") || "").join(" · "),
++      )) || "";
++  const aria_text =
++    (await page
++      .locator("[aria-label]")
++      .evaluateAll((els: Element[]) =>
++        els.map((el) => el.getAttribute("aria-label") || "").join(" · "),
++      )) || "";
++  const all_text = `${body_text} · ${title_text} · ${aria_text}`;
++  for (const banned of BANNED_DEV_LANGUAGE) {
++    expect(all_text).not.toMatch(banned);
++  }
++});
++
++test("G1 nav parity: primary nav visible on /benchmark", async ({ page }) => {
++  await page.goto("/benchmark");
++  const nav = page.locator("nav[aria-label='Primary']");
++  await expect(nav).toBeVisible();
++  for (const label of [
++    "Home",
++    "Intake",
++    "Dashboard",
++    "Upload",
++    "Benchmark",
++    "Contracts",
++    "Pin Replay",
++    "Memory",
++  ]) {
++    await expect(nav.getByRole("link", { name: label })).toBeVisible();
++  }
++});
++
++test("G8: /benchmark renders with zero console errors", async ({ page }) => {
++  const errors: string[] = [];
++  page.on("console", (msg) => {
++    if (msg.type() === "error") errors.push(msg.text());
++  });
++  await page.goto("/benchmark");
++  await page.waitForLoadState("domcontentloaded");
++  await page.waitForTimeout(1500);
++  expect(errors).toEqual([]);
++});
