@@ -6,6 +6,11 @@
 .env
 *.env.local
 *.env.production
+# I-cd-014 (GH#610): real static_accounts.yaml MUST NOT enter the Docker
+# build context. Dockerfile.v6 does `COPY config/ config/`; without this
+# exclusion any local copy gets baked into the image. The .example template
+# is fine; the real file is mounted at /etc/polaris/ in deployment.
+config/static_accounts.yaml
 
 # Development artifacts
 __pycache__

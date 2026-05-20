@@ -1,10 +1,34 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 import { login } from "@/lib/auth";
+
+/**
+ * I-cd-014 (GH#610): same-origin validation for `?next=` redirect.
+ *
+ * Rejects:
+ *   - non-string / empty values
+ *   - URLs that, when parsed against `window.location.origin`, resolve to a
+ *     different origin (protocol-relative `//evil.com`, absolute `http://...`,
+ *     backslash-as-separator `/\evil.com` — all caught by the URL parser).
+ *   - values containing a fragment-only escape or any URL parse failure.
+ *
+ * Returns the validated path (the URL's `pathname + search + hash`) or `"/"`.
+ */
+function safeNextPath(next: string | null): string {
+  if (!next) return "/";
+  if (typeof window === "undefined") return "/";
+  try {
+    const parsed = new URL(next, window.location.origin);
+    if (parsed.origin !== window.location.origin) return "/";
+    return parsed.pathname + parsed.search + parsed.hash;
+  } catch {
+    return "/";
+  }
+}
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -18,6 +42,7 @@ import { Input } from "@/components/ui/input";
 
 export default function SignInPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +55,8 @@ export default function SignInPage() {
     const result = await login(username.trim(), password);
     setPending(false);
     if (result.ok) {
-      router.push("/");
+      const next = safeNextPath(searchParams.get("next"));
+      router.push(next);
       router.refresh();
     } else {
       setError(result.error ?? "Sign-in failed.");
@@ -50,7 +76,7 @@ export default function SignInPage() {
         </div>
 
         <Card>
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} data-testid="sign-in-form">
             <CardHeader>
               <CardTitle>Sign in</CardTitle>
               <CardDescription>
@@ -97,6 +123,7 @@ export default function SignInPage() {
               {error ? (
                 <p
                   role="alert"
+                  data-testid="sign-in-error"
                   className="text-destructive text-sm font-medium"
                 >
                   {error}
@@ -106,6 +133,7 @@ export default function SignInPage() {
             <CardFooter className="flex flex-col gap-3">
               <Button
                 type="submit"
+                data-testid="sign-in-submit"
                 className="w-full"
                 disabled={pending || !username || !password}
               >

@@ -33,7 +33,7 @@ See `infra/vexxhost/README.md` for the active deploy path. The §1 section below
 | Serper API key (web search — US, disclosed) | Ops | https://serper.dev/ |
 | OVH BHS H200 procurement initiated | Ops | email per `docs/ovh_h200_procurement_spec.md` to salescanada@ovhcloud.com |
 | OVH H200 + Vexxhost private-network peering confirmed | Ops | private IPv4 reachable from Vexxhost VM (vLLM endpoint `http://<priv-ip>:8000/v1`) |
-| `static_accounts.yaml` filled with bcrypt-hashed reviewer pwd | Ops | `htpasswd -bnBC 12 "" <pw>` then strip leading `:` |
+| `static_accounts.yaml` filled with bcrypt-hashed reviewer pwd (at `/etc/polaris/static_accounts.yaml` on VM — NEVER in repo `config/`) | Ops | `python -c "from passlib.hash import bcrypt; print(bcrypt.using(rounds=12).hash('<pw>'))"` |
 | Carney office contact + demo time confirmed | Lead | calendar invite |
 | Fallback laptop ready | Lead | `docker compose -f docker-compose.v6.yml up -d` on laptop |
 
@@ -55,7 +55,11 @@ POLARIS_ACME_EMAIL=ops@<your-domain>
 scp infra/vexxhost/.env.example       root@${POLARIS_DOMAIN}:/root/.env  # edit FIRST
 scp outputs/polaris_demo_pubkey.asc   root@${POLARIS_DOMAIN}:/root/
 scp ~/polaris_demo_secret.asc         root@${POLARIS_DOMAIN}:/root/
-scp config/static_accounts.yaml       root@${POLARIS_DOMAIN}:/root/  # bcrypt-hashed
+# I-cd-014: NEVER stage static_accounts.yaml inside the repo `config/` — it
+# is gitignored AND dockerignored. Generate locally in /tmp/polaris_secrets/
+# (see "T-3 setup" below), then scp directly to the VM, then move to /etc/polaris/.
+scp /tmp/polaris_secrets/static_accounts.yaml root@${POLARIS_DOMAIN}:/tmp/static_accounts.yaml
+# Then on the VM: sudo cp /tmp/static_accounts.yaml /etc/polaris/static_accounts.yaml && sudo chmod 640 /etc/polaris/static_accounts.yaml
 scp infra/vexxhost/provision.sh       root@${POLARIS_DOMAIN}:/root/
 
 # 2. Run provisioning — pass the locally-resolved commit through ssh env.
