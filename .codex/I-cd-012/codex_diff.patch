@@ -12,10 +12,10 @@ index e4240ca8..2b07c242 100644
 +!tests/fixtures/signed_bundle/**
 diff --git a/scripts/regen_signed_bundle_canonical_fixture.py b/scripts/regen_signed_bundle_canonical_fixture.py
 new file mode 100644
-index 00000000..d3618383
+index 00000000..2ac8ece6
 --- /dev/null
 +++ b/scripts/regen_signed_bundle_canonical_fixture.py
-@@ -0,0 +1,248 @@
+@@ -0,0 +1,274 @@
 +"""Deterministic regenerator for tests/fixtures/signed_bundle/v1_canonical/.
 +
 +I-cd-012 (GH#608). Run after any schema-compatible change to the canonical
@@ -159,21 +159,47 @@ index 00000000..d3618383
 +
 +
 +def _build_reasoning_trace_jsonl() -> str:
-+    """JSONL: 2 records, one per generator LLM call."""
++    """JSONL: 2 records, one per generator LLM call.
++
++    Schema mirrors `src/polaris_graph/generator/reasoning_trace.py:67
++    ReasoningTraceRecord` (the active producer dataclass). Codex diff
++    iter-1 P1: align with real producer; previous 5-field invented shape
++    diverged from the 15-field production record.
++    """
 +    records = [
 +        {
-+            "ts_utc": FIXED_TIMESTAMP,
 +            "call_id": "call_0001",
++            "section": "outline",
++            "call_type": "outline",
 +            "model": GENERATOR_MODEL,
-+            "reasoning_chars": 256,
-+            "completion_chars": 128,
++            "status": "ok",
++            "content_source": "direct",
++            "parent_call_id": None,
++            "regen_reason": None,
++            "attempt_n": 1,
++            "reasoning_text": "Outline reasoning trace placeholder for the canonical fixture.",
++            "content_text": "1. Background\n2. Methods\n3. Results\n4. Limitations\n",
++            "input_tokens": 100,
++            "output_tokens": 80,
++            "reasoning_tokens": 200,
++            "timestamp": FIXED_TIMESTAMP,
 +        },
 +        {
-+            "ts_utc": FIXED_TIMESTAMP,
 +            "call_id": "call_0002",
++            "section": "Background",
++            "call_type": "section",
 +            "model": GENERATOR_MODEL,
-+            "reasoning_chars": 512,
-+            "completion_chars": 200,
++            "status": "ok",
++            "content_source": "direct",
++            "parent_call_id": "call_0001",
++            "regen_reason": None,
++            "attempt_n": 1,
++            "reasoning_text": "Section reasoning trace placeholder for the canonical fixture.",
++            "content_text": "Background prose placeholder.",
++            "input_tokens": 200,
++            "output_tokens": 150,
++            "reasoning_tokens": 400,
++            "timestamp": FIXED_TIMESTAMP,
 +        },
 +    ]
 +    return "".join(json.dumps(rec, sort_keys=True) + "\n" for rec in records)
@@ -293,7 +319,7 @@ index 83ffd8aa..da990006 100644
 +7. `src/polaris_v6/api/bundle.py` — F15 GET endpoint.
 +8. Inspector route (I-A-03) + I-B-08 emitter + `web/lib/signed_bundle.ts` frontend mirror.
 diff --git a/src/polaris_graph/audit_bundle/bundle_schema.py b/src/polaris_graph/audit_bundle/bundle_schema.py
-index dc879182..d50324b9 100644
+index dc879182..b6b0ee57 100644
 --- a/src/polaris_graph/audit_bundle/bundle_schema.py
 +++ b/src/polaris_graph/audit_bundle/bundle_schema.py
 @@ -2,6 +2,22 @@
@@ -319,7 +345,28 @@ index dc879182..d50324b9 100644
  Pure-types module. The BundleManifest is the audit anchor: an external
  verifier extracts the .tar.gz, computes SHA256 of every content file,
  checks against `files[*].sha256`, then verifies the GPG signature on the
-@@ -71,10 +87,39 @@ class FileEntry(BaseModel):
+@@ -15,7 +31,7 @@ import uuid
+ from datetime import datetime, timezone
+ from typing import Literal
+ 
+-from pydantic import BaseModel, Field, field_validator
++from pydantic import BaseModel, ConfigDict, Field, field_validator
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -42,6 +58,11 @@ BUNDLE_VERSION = "1.0"
+ class FileEntry(BaseModel):
+     """One file in the bundle, with hash anchor."""
+ 
++    # I-cd-012 (GH#608) v1.0 freeze: forbid unknown fields so additive
++    # changes (which would be SemVer-breaking) hit the parse rather than
++    # passing silently. Codex diff iter-1 P1.
++    model_config = ConfigDict(extra="forbid")
++
+     path: str = Field(
+         min_length=1,
+         max_length=500,
+@@ -71,10 +92,39 @@ class FileEntry(BaseModel):
      @field_validator("path")
      @classmethod
      def _path_no_traversal(cls, v: str) -> str:
@@ -361,7 +408,7 @@ index dc879182..d50324b9 100644
              )
          return v
  
-@@ -88,6 +133,9 @@ class BundleManifest(BaseModel):
+@@ -88,8 +138,16 @@ class BundleManifest(BaseModel):
  
      The signature in `manifest.yaml.asc` is over the YAML-serialized form
      of this manifest. External verifiers re-serialize and re-verify.
@@ -370,13 +417,20 @@ index dc879182..d50324b9 100644
 +    bump cascade documented in this module's top-level docstring.
      """
  
++    # I-cd-012 (GH#608) v1.0 freeze: forbid unknown fields so additive
++    # changes (which would be SemVer-breaking) hit the parse rather than
++    # passing silently. Codex diff iter-1 P1.
++    model_config = ConfigDict(extra="forbid")
++
      bundle_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+     bundle_version: Literal["1.0"] = BUNDLE_VERSION
+ 
 diff --git a/src/polaris_graph/audit_bundle/conformance.py b/src/polaris_graph/audit_bundle/conformance.py
 new file mode 100644
-index 00000000..a368d8ca
+index 00000000..7c94fa53
 --- /dev/null
 +++ b/src/polaris_graph/audit_bundle/conformance.py
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,327 @@
 +"""Audit-bundle conformance check (I-cd-012 / GH#608).
 +
 +Validates an extracted audit-bundle directory against the frozen v1.0
@@ -441,6 +495,9 @@ index 00000000..a368d8ca
 +
 +MANIFEST_FILENAME = "manifest.yaml"
 +SIGNATURE_FILENAME = "manifest.yaml.asc"
++# Mirrors `src/polaris_graph/generator/reasoning_trace.py:34
++# REASONING_TRACE_FILENAME` — the active producer constant. A
++# bundle that renames this file must bump BUNDLE_VERSION.
 +REASONING_TRACE_FILENAME = "reasoning_trace.jsonl"
 +
 +# All ContentType members required for a v1.0 bundle.
@@ -543,6 +600,22 @@ index 00000000..a368d8ca
 +            )
 +            result.valid = False
 +
++    # --- 4b. Reasoning-trace path MUST equal the canonical filename --
++    # Codex diff iter-1 P1: without this, a bundle can rename
++    # reasoning_trace.jsonl to trace.jsonl, update the manifest path,
++    # and still pass valid=True, diverging from the active producer
++    # constant in generator/reasoning_trace.py:34.
++    for entry in manifest.files:
++        if entry.content_type == "reasoning_trace" and entry.path != REASONING_TRACE_FILENAME:
++            result.add(
++                "REASONING_TRACE_FILENAME_MISMATCH",
++                f"reasoning_trace path {entry.path!r} != canonical "
++                f"{REASONING_TRACE_FILENAME!r} (see "
++                f"src/polaris_graph/generator/reasoning_trace.py:34)",
++                path=entry.path,
++            )
++            result.valid = False
++
 +    # --- 5-8. Per-file path resolution + existence + hash + size -----
 +    by_content_type: dict[ContentType, list[Path]] = {}
 +    for entry in manifest.files:
@@ -577,8 +650,21 @@ index 00000000..a368d8ca
 +            result.valid = False
 +            continue
 +
-+        # Layer 7: SHA256 matches.
-+        actual_sha = hashlib.sha256(resolved.read_bytes()).hexdigest()
++        # Layer 7: SHA256 matches. Wrap read_bytes/stat so a directory
++        # path or read error surfaces as a structured ConformanceError
++        # rather than raising out of the check (Codex diff iter-1 P2).
++        try:
++            file_bytes = resolved.read_bytes()
++            actual_size = resolved.stat().st_size
++        except OSError as exc:
++            result.add(
++                "FILE_READ_ERROR",
++                f"path {entry.path!r} could not be read: {exc}",
++                path=entry.path,
++            )
++            result.valid = False
++            continue
++        actual_sha = hashlib.sha256(file_bytes).hexdigest()
 +        if actual_sha != entry.sha256:
 +            result.add(
 +                "SHA256_MISMATCH",
@@ -589,7 +675,6 @@ index 00000000..a368d8ca
 +            continue
 +
 +        # Layer 8: size matches.
-+        actual_size = resolved.stat().st_size
 +        if actual_size != entry.size_bytes:
 +            result.add(
 +                "SIZE_MISMATCH",
@@ -674,10 +759,10 @@ index 00000000..a368d8ca
 +    except ValueError:
 +        return False
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 9cd03090..3ae3a880 100644
+index 9cd03090..8801f266 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -658,3 +658,15 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
+@@ -658,3 +658,27 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
  - convergence_call: accept_remaining
  - 13 files / +78 / -20 / +58 net LOC; well under 200-LOC PR cap.
  - next: push as sotaleung-wec, gh pr create --base polaris, auto-merge.
@@ -693,6 +778,18 @@ index 9cd03090..3ae3a880 100644
 +- iter trajectory: 1 RC (3 P1 + 2 P2: manifest.yaml.asc + required-content-type + reasoning_trace.jsonl filename + TS handling + cross-ref) -> 2 RC (1 NEW P1 + 2 P2: Windows path safety + js-yaml dep + bump cascade) -> 3 APPROVE
 +- final scope: 16 files / +1216 / -2 LOC (17 deliverables; conformance + fixture + tests + TS mirror + path validator hardening + freeze docstrings + npm deps)
 +- next: write audit + diff brief; run diff Codex.
++
++## I-cd-012 diff — iter 2 APPROVE — 2026-05-19
++
++- doc: `.codex/I-cd-012/codex_diff.patch` (sha256 7f859d01...0dd2d25f8a)
++- gate: diff review
++- iter: 2 of 5 (iter 1 caught 3 real P1, iter 2 APPROVE'd after fold-in)
++- verdict: APPROVE
++- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 2 (non-blocking)
++- convergence_call: accept_remaining
++- iter-1 catches: extra="forbid" for v1.0 freeze, reasoning_trace.jsonl filename enforcement, ReasoningTraceRecord 15-field shape alignment, FILE_READ_ERROR structured handling
++- 20/20 conformance tests pass (was 17 + 3 new for the iter-1 fixes)
++- next: push as sotaleung-wec, gh pr create, auto-merge.
 diff --git a/tests/fixtures/signed_bundle/README.md b/tests/fixtures/signed_bundle/README.md
 new file mode 100644
 index 00000000..96a9d611
@@ -798,7 +895,7 @@ index 00000000..3be51e54
 +}
 diff --git a/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml b/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml
 new file mode 100644
-index 00000000..fe9204df
+index 00000000..11f24f65
 --- /dev/null
 +++ b/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml
 @@ -0,0 +1,33 @@
@@ -825,8 +922,8 @@ index 00000000..fe9204df
 +  size_bytes: 211
 +- content_type: reasoning_trace
 +  path: reasoning_trace.jsonl
-+  sha256: 0c63cfc741cd6c42713e6bd56cd6a4544575dd96778fd047ce056d982a6d5cc5
-+  size_bytes: 300
++  sha256: 6f4fd0efd23dbbb4072008ec094059dc064c1068da71fd206da95f8ac47ae613
++  size_bytes: 949
 +- content_type: source_snapshot
 +  path: sources/src_v1_canonical_0001.txt
 +  sha256: 8d308259726e2dd27ebfc09e9122a9042b3c159b8180d4de42839991d29d2d23
@@ -862,12 +959,12 @@ index 00000000..b06c9a2e
 +}
 diff --git a/tests/fixtures/signed_bundle/v1_canonical/reasoning_trace.jsonl b/tests/fixtures/signed_bundle/v1_canonical/reasoning_trace.jsonl
 new file mode 100644
-index 00000000..73d816d1
+index 00000000..8538e015
 --- /dev/null
 +++ b/tests/fixtures/signed_bundle/v1_canonical/reasoning_trace.jsonl
 @@ -0,0 +1,2 @@
-+{"call_id": "call_0001", "completion_chars": 128, "model": "deepseek/deepseek-v4-pro", "reasoning_chars": 256, "ts_utc": "2026-05-19T00:00:00+00:00"}
-+{"call_id": "call_0002", "completion_chars": 200, "model": "deepseek/deepseek-v4-pro", "reasoning_chars": 512, "ts_utc": "2026-05-19T00:00:00+00:00"}
++{"attempt_n": 1, "call_id": "call_0001", "call_type": "outline", "content_source": "direct", "content_text": "1. Background\n2. Methods\n3. Results\n4. Limitations\n", "input_tokens": 100, "model": "deepseek/deepseek-v4-pro", "output_tokens": 80, "parent_call_id": null, "reasoning_text": "Outline reasoning trace placeholder for the canonical fixture.", "reasoning_tokens": 200, "regen_reason": null, "section": "outline", "status": "ok", "timestamp": "2026-05-19T00:00:00+00:00"}
++{"attempt_n": 1, "call_id": "call_0002", "call_type": "section", "content_source": "direct", "content_text": "Background prose placeholder.", "input_tokens": 200, "model": "deepseek/deepseek-v4-pro", "output_tokens": 150, "parent_call_id": "call_0001", "reasoning_text": "Section reasoning trace placeholder for the canonical fixture.", "reasoning_tokens": 400, "regen_reason": null, "section": "Background", "status": "ok", "timestamp": "2026-05-19T00:00:00+00:00"}
 diff --git a/tests/fixtures/signed_bundle/v1_canonical/scope_decision.json b/tests/fixtures/signed_bundle/v1_canonical/scope_decision.json
 new file mode 100644
 index 00000000..70ddf333
@@ -919,10 +1016,10 @@ index 00000000..95d751ca
 +}
 diff --git a/tests/polaris_graph/audit_bundle/test_conformance.py b/tests/polaris_graph/audit_bundle/test_conformance.py
 new file mode 100644
-index 00000000..a94e6b7f
+index 00000000..584e234c
 --- /dev/null
 +++ b/tests/polaris_graph/audit_bundle/test_conformance.py
-@@ -0,0 +1,247 @@
+@@ -0,0 +1,302 @@
 +"""Unit tests for `check_bundle_conformance` (I-cd-012 / GH#608).
 +
 +Covers the 12 conformance layers + 4 path-safety negative cases per the
@@ -1170,12 +1267,67 @@ index 00000000..a94e6b7f
 +    if dest.exists():
 +        shutil.rmtree(dest)
 +    shutil.copytree(CANONICAL_FIXTURE, dest)
++
++
++# --------------------------------------------------------------------------
++# Codex diff iter-1 P1 — extra="forbid" + reasoning_trace filename enforcement
++# --------------------------------------------------------------------------
++
++def test_bundle_manifest_rejects_unknown_field() -> None:
++    """BundleManifest with `extra="forbid"` rejects unknown top-level field."""
++    minimal = {
++        "decision_id": "d1",
++        "pool_id": "p1",
++        "report_id": "r1",
++        "generator_model": "deepseek/deepseek-v4-pro",
++        "polaris_version": "1.0.0",
++        "files": [],
++    }
++    BundleManifest(**minimal)  # baseline passes
++    with pytest.raises(ValidationError):
++        BundleManifest(**minimal, future_field="boom")
++
++
++def test_file_entry_rejects_unknown_field() -> None:
++    """FileEntry with `extra="forbid"` rejects unknown field."""
++    FileEntry(path="a.txt", sha256="0" * 64, size_bytes=1, content_type="metadata")
++    with pytest.raises(ValidationError):
++        FileEntry(
++            path="a.txt",
++            sha256="0" * 64,
++            size_bytes=1,
++            content_type="metadata",
++            extra_field="boom",
++        )
++
++
++def test_reasoning_trace_filename_mismatch(tmp_path: Path) -> None:
++    """Renaming reasoning_trace.jsonl in the manifest → REASONING_TRACE_FILENAME_MISMATCH.
++
++    Belt-and-suspenders: even if the file content + SHA are correct, the
++    canonical filename must match `manifest_builder.py:55`.
++    """
++    import hashlib
++
++    _copy_canonical_to(tmp_path)
++    # Move the file + rename the manifest entry's path.
++    (tmp_path / "reasoning_trace.jsonl").rename(tmp_path / "trace.jsonl")
++    manifest_path = tmp_path / MANIFEST_FILENAME
++    data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
++    for entry in data["files"]:
++        if entry["content_type"] == "reasoning_trace":
++            entry["path"] = "trace.jsonl"
++    manifest_path.write_text(yaml.safe_dump(data, sort_keys=True), encoding="utf-8")
++
++    result = check_bundle_conformance(tmp_path)
++    assert not result.valid
++    assert any(e.code == "REASONING_TRACE_FILENAME_MISMATCH" for e in result.errors)
 diff --git a/web/lib/signed_bundle.ts b/web/lib/signed_bundle.ts
 new file mode 100644
-index 00000000..2cbc9b13
+index 00000000..c9c675cf
 --- /dev/null
 +++ b/web/lib/signed_bundle.ts
-@@ -0,0 +1,176 @@
+@@ -0,0 +1,186 @@
 +// I-cd-012 (GH#608) — frontend mirror of
 +// src/polaris_graph/audit_bundle/bundle_schema.py:BundleManifest (FROZEN v1.0).
 +//
@@ -1250,15 +1402,25 @@ index 00000000..2cbc9b13
 +// Reasoning trace — JSONL (one record per generator LLM call)
 +// ---------------------------------------------------------------------------
 +
++// Mirrors src/polaris_graph/generator/reasoning_trace.py:67
++// ReasoningTraceRecord (the active producer dataclass). 15 fields.
++// Codex diff iter-1 P1: previous 5-field shape diverged from real producer.
 +export interface ReasoningTraceRecord {
-+  ts_utc: string;
 +  call_id: string;
++  section: string;
++  call_type: string;
 +  model: string;
-+  reasoning_chars: number;
-+  completion_chars: number;
-+  // Producers may add additional opaque keys; consumers should not
-+  // reject unknown keys.
-+  [extra: string]: unknown;
++  status: string; // see reasoning_trace.py STATUSES
++  content_source: string; // see reasoning_trace.py CONTENT_SOURCES
++  parent_call_id: string | null;
++  regen_reason: string | null;
++  attempt_n: number;
++  reasoning_text: string;
++  content_text: string;
++  input_tokens: number;
++  output_tokens: number;
++  reasoning_tokens: number;
++  timestamp: string; // ISO-8601 UTC
 +}
 +
 +// ---------------------------------------------------------------------------
@@ -1407,4 +1569,4 @@ index 1f7365bb..c32f47df 100644
      "@types/react": "^19",
      "@types/react-cytoscapejs": "^1.2.6",
 
-# canonical-diff-sha256: bf37eb2e3e933508a4e6d67330f5ac7620a8d40de6f979be78c3599e33c2cee6
+# canonical-diff-sha256: 970c072244cc1fdaee60a729dcb76fed04eeaa4227a4a1b66a8e702e3f002fc6
