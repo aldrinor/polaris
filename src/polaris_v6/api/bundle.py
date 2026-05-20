@@ -55,13 +55,35 @@ _GOLDEN_RUN_INDEX = {
 @router.get("/{run_id}/bundle", response_model=EvidenceContract)
 def get_bundle(run_id: str) -> EvidenceContract:
     fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
-    if fixture_name is None:
+    if fixture_name is not None:
+        raw = json.loads((_FIXTURE_DIR / fixture_name).read_text())
+        return EvidenceContract.model_validate(raw)
+
+    # I-cd-020 (#630): real runs do NOT have an EvidenceContract JSON today.
+    # The I-A-02b frozen schema is BundleManifest v1.0 (I-cd-012), served by
+    # the companion `GET /runs/{run_id}/bundle.tar.gz` route via slice-chain
+    # (I-arch-001d). The data gaps that block JSON-EvidenceContract for real
+    # runs (span char-offsets, per-sentence provenance) are tracked in
+    # I-cd-020-followup (#680).
+    run = run_store.get_run(run_id)
+    if run is not None and run.lifecycle_status == "completed" and run.artifact_dir:
         raise HTTPException(
             status_code=404,
-            detail=f"Bundle for run {run_id!r} not found. Available golden runs: {list(_GOLDEN_RUN_INDEX)}",
+            detail=(
+                f"EvidenceContract JSON not available for real run {run_id!r}. "
+                f"Fetch GET /runs/{run_id}/bundle.tar.gz instead — it returns "
+                f"the signed BundleManifest v1.0 bundle (the I-A-02b frozen "
+                f"schema). EvidenceContract for real runs requires pipeline-A "
+                f"per-sentence-provenance JSON capability (tracked in #680)."
+            ),
         )
-    raw = json.loads((_FIXTURE_DIR / fixture_name).read_text())
-    return EvidenceContract.model_validate(raw)
+    raise HTTPException(
+        status_code=404,
+        detail=(
+            f"Bundle for run {run_id!r} not found. Available golden fixtures: "
+            f"{list(_GOLDEN_RUN_INDEX)}."
+        ),
+    )
 
 
 @router.get("/{run_id}/bundle.tar.gz")

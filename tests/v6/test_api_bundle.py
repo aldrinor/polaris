@@ -46,3 +46,90 @@ def test_bundle_returns_abort_run(client):
     body = response.json()
     assert body["pipeline_status"] == "abort_no_verified_sections"
     assert body["verified_sentences"] == []
+
+
+# ─── I-cd-020 (#630) Option D — real-run 404 disambiguation ────────────────
+
+
+@pytest.fixture
+def auth_disabled(monkeypatch):
+    monkeypatch.setenv("POLARIS_AUTH_DISABLED", "1")
+
+
+@pytest.fixture
+def db_path(tmp_path, monkeypatch):
+    from polaris_v6.queue import run_store
+
+    db = tmp_path / "runs.sqlite"
+    monkeypatch.setenv(run_store.ENV_DB_PATH, str(db))
+    run_store.init_db(str(db))
+    return db
+
+
+def _seed_completed_run(db_path, run_id: str, artifact_dir: str):
+    import sqlite3
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute(
+            "INSERT INTO runs (run_id, template, question, lifecycle_status, "
+            "queued_at, started_at, finished_at, artifact_dir, "
+            "pipeline_status, cancel_requested) VALUES (?,?,?,?,?,?,?,?,?,0)",
+            (
+                run_id,
+                "clinical",
+                "Q",
+                "completed",
+                "2026-05-20T00:00:00Z",
+                "2026-05-20T00:00:00Z",
+                "2026-05-20T00:05:00Z",
+                artifact_dir,
+                "success",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_bundle_real_run_returns_enriched_404_pointing_to_tar_gz(
+    auth_disabled, db_path, tmp_path,
+):
+    """I-cd-020 (#630) Option D: real completed run UUID gets a 404 detail
+    that points the caller to bundle.tar.gz + #680 follow-up — NOT silently
+    confused with an unknown-id 404.
+    """
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from polaris_v6.api.app import create_app
+
+    run_id = "real_run_uuid_xyz"
+    artifact_dir = tmp_path / run_id
+    artifact_dir.mkdir(parents=True)
+    _seed_completed_run(db_path, run_id, str(artifact_dir))
+
+    client = TestClient(create_app())
+    response = client.get(f"/runs/{run_id}/bundle")
+    assert response.status_code == 404
+    detail = response.json()["detail"]
+    assert "bundle.tar.gz" in detail
+    assert "#680" in detail
+    assert "BundleManifest v1.0" in detail
+
+
+def test_bundle_unknown_run_returns_generic_404(auth_disabled, db_path):
+    """Unknown UUID gets the original golden-fixtures 404 — distinguishable
+    from the real-run enriched 404.
+    """
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from polaris_v6.api.app import create_app
+
+    client = TestClient(create_app())
+    response = client.get("/runs/totally_unknown_id/bundle")
+    assert response.status_code == 404
+    detail = response.json()["detail"]
+    assert "Available golden fixtures" in detail
+    assert "bundle.tar.gz" not in detail
