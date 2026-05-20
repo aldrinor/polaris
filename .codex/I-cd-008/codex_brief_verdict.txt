@@ -1,0 +1,17 @@
+# I-cd-008 brief review — slim verdict
+# Source: .codex/I-cd-008/codex_brief_review_iter{1,2}.txt (raw transcripts gitignored)
+# Trajectory: iter 1 RC (1 P1 — Codex live OVH probe found quota=0 + h200-1920 absent; 5 P2 endpoint/framing corrections) → iter 2 APPROVE.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Quota-allowed endpoint: GET /cloud/project/{serviceName}/region/{regionName}/quota/allowed (with /region/{regionName}/ prefix; not a project-wide path). Folded into the probe script."
+  - "Use GET /cloud/project/{serviceName}/region to derive real region codes; BHS/GRA/SBG/RBX are geography families. Folded into probe."
+  - "Do not invent quota-ticket SLA; OVH support docs say 'manual, processing times vary.' Folded into doc."
+  - "/cloud/order/rule/availability is the additional catalog/order-rule read-only signal (not cart/expressOrder dry-runs as authoritative capacity proof). Folded into probe as signal 5."
+  - "External/operator blocker remains: locked topology not deployable until OVH project exposes h200-1920 and lifts h100-1520 quota >= 1; correctly framed as the I-cd-008 finding rather than hidden."
+convergence_call: accept_remaining
+remaining_blockers_for_execution:
+  - "External/operator: OVH support ticket required for h200-1920 project-flavor allowlist + h100-1520 quota increase in GRA9/GRA11 (or another non-US region)."
