@@ -24,7 +24,9 @@ See `state/restart_instructions.md` + the I-A-01 (#606) + I-B-01 (#622) PRs for 
 
 ---
 
-## §0 — Prereqs (1 week before demo, sovereign deploy)
+## §0 — Prereqs (original Vexxhost path) — **PRESERVED FOR REFERENCE — NOT THE ACTIVE PATH**
+
+> **Current production deploy is on OVH BHS5 Québec** (`polaris-orchestrator` 51.79.90.35), NOT Vexxhost. The §0 prereqs below describe the *original* Vexxhost-targeted procurement; preserved for archaeology. **For the live deploy state**, see `state/restart_instructions.md` + I-A-01 (#606). The fresh OVH prereqs list lands at I-D-05 / #651 (final accuracy refresh).
 
 | Item | Owner | Status |
 |---|---|---|
@@ -44,7 +46,7 @@ See `state/restart_instructions.md` + the I-A-01 (#606) + I-B-01 (#622) PRs for 
 
 ## §1 — Deploy day-1 (T-7 before demo, original Vexxhost path) — **PRESERVED FOR REFERENCE — NOT THE ACTIVE PATH**
 
-> **The live demo deploys on OVH BHS5 Québec** (`polaris-orchestrator` 51.79.90.35), not Vexxhost. The Vexxhost flow below is preserved for archaeology + as a fallback if OVH BHS5 capacity changes. **Live deploy steps are in I-A-01 (#606) + `state/restart_instructions.md`.** Downstream sections (§2 smoke, §4 live demo, §8 teardown, §9 laptop fallback) inherit this preservation framing — full per-section rewrite to the current OVH flow is the "final accuracy refresh" deferred to **I-D-05 / #651** per #635 acceptance.
+> **The live demo deploys on OVH BHS5 Québec** (`polaris-orchestrator` 51.79.90.35), not Vexxhost. The Vexxhost flow below is preserved for archaeology + as a fallback if OVH BHS5 capacity changes. **Live deploy steps are in I-A-01 (#606) + `state/restart_instructions.md`.** Downstream sections (§2 smoke, §4 live demo, §5 laptop fallback, §8 teardown) inherit this preservation framing — full per-section rewrite to the current OVH flow is the "final accuracy refresh" deferred to **I-D-05 / #651** per #635 acceptance.
 
 **Prereqs done in §0 (original Vexxhost path):** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, Serper API key obtained, OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
 
