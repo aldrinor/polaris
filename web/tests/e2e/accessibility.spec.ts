@@ -204,16 +204,26 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => 
 
   // I-cd-013b (GH#669): replaces legacy /inspector/golden_clinical_001
   // target-size sweep with one against the signed-bundle Inspector
-  // (success fixture, Reasoning + Hash chain tabs activated since those
-  // contain the most clickable surfaces).
-  test("Inspector v1-canonical-success — all clickable targets ≥24x24", async ({
+  // (success fixture). Cycles through ALL 6 tabs (Codex diff iter-1 P2 #2)
+  // so Report + Scope + Evidence + Reasoning + Sources + Hash chain
+  // tab-specific controls are exercised before the sweep measures.
+  test("Inspector v1-canonical-success — all clickable targets ≥24x24 across all tabs", async ({
     page,
   }) => {
     await page.goto("/inspector/v1-canonical-success", {
       waitUntil: "networkidle",
     });
-    // Activate the Reasoning tab to surface toggle-trace-content buttons.
-    await page.getByRole("tab", { name: /^reasoning$/i }).click();
+    const tabLabels = [
+      /^report$/i,
+      /^scope$/i,
+      /^evidence$/i,
+      /^reasoning$/i,
+      /^sources$/i,
+      /^hash chain$/i,
+    ];
+    for (const label of tabLabels) {
+      await page.getByRole("tab", { name: label }).click();
+    }
     const small = await page.evaluate(() => {
       const results: Array<{
         tag: string;
