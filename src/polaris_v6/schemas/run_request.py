@@ -31,9 +31,10 @@ class RunRequest(BaseModel):
     )
     document_ids: list[str] = Field(
         default_factory=list,
+        max_length=20,
         description=(
-            "Optional uploaded-document ids. Phase 1 Task 1.3 wires these into "
-            "graph_v4 evidence pool (currently ignored at graph_v4.py:149 — "
-            "Errata to substrate_audit_2026-05-01.md)."
+            "Optional uploaded-document ids. I-cd-018 (#628) caps the list "
+            "at 20 — paired with MAX_GROUNDING_CHUNKS=40 per doc, this bounds "
+            "the actor message + generator prompt to 800 chunks worst case."
         ),
     )

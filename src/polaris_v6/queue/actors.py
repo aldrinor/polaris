@@ -194,26 +194,42 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
         decision_id=decision_id,
     )
 
+    # I-cd-018 (#628): pre-compute upload counts for error-path observability.
+    upload_counts: dict[str, int] = {
+        "uploaded_documents_used": len(allowed_uploads),
+        "uploaded_documents_blocked": len(blocked_uploads),
+    }
+
     try:
         from scripts.run_honest_sweep_r3 import run_one_query
 
         summary = asyncio.run(run_one_query(q, artifact_dir_root))
     except Exception as exc:  # noqa: BLE001 — actor must record any pipeline crash
         logger.exception("[actor] pipeline-A raised for run_id=%s", run_id)
-        run_store.mark_failed(run_id, f"pipeline_exception: {type(exc).__name__}: {exc}")
+        run_store.mark_failed(
+            run_id,
+            f"pipeline_exception: {type(exc).__name__}: {exc}",
+            **upload_counts,
+        )
         raise
 
     # Parse pipeline-A's manifest.json — written at every exit path
     manifest_path = artifact_dir_root / "manifest.json"
     if not manifest_path.is_file():
         run_store.mark_failed(
-            run_id, "manifest_missing: pipeline-A returned without writing manifest.json"
+            run_id,
+            "manifest_missing: pipeline-A returned without writing manifest.json",
+            **upload_counts,
         )
         return summary
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        run_store.mark_failed(run_id, f"manifest_invalid: {exc}")
+        run_store.mark_failed(
+            run_id,
+            f"manifest_invalid: {exc}",
+            **upload_counts,
+        )
         return summary
 
     pipeline_status = manifest.get("status") or "error_unexpected"

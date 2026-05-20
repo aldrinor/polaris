@@ -1,0 +1,300 @@
+diff --git a/src/polaris_v6/queue/actors.py b/src/polaris_v6/queue/actors.py
+index 75780e0f..2f90e6c9 100644
+--- a/src/polaris_v6/queue/actors.py
++++ b/src/polaris_v6/queue/actors.py
+@@ -194,26 +194,42 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
+         decision_id=decision_id,
+     )
+ 
++    # I-cd-018 (#628): pre-compute upload counts for error-path observability.
++    upload_counts: dict[str, int] = {
++        "uploaded_documents_used": len(allowed_uploads),
++        "uploaded_documents_blocked": len(blocked_uploads),
++    }
++
+     try:
+         from scripts.run_honest_sweep_r3 import run_one_query
+ 
+         summary = asyncio.run(run_one_query(q, artifact_dir_root))
+     except Exception as exc:  # noqa: BLE001 — actor must record any pipeline crash
+         logger.exception("[actor] pipeline-A raised for run_id=%s", run_id)
+-        run_store.mark_failed(run_id, f"pipeline_exception: {type(exc).__name__}: {exc}")
++        run_store.mark_failed(
++            run_id,
++            f"pipeline_exception: {type(exc).__name__}: {exc}",
++            **upload_counts,
++        )
+         raise
+ 
+     # Parse pipeline-A's manifest.json — written at every exit path
+     manifest_path = artifact_dir_root / "manifest.json"
+     if not manifest_path.is_file():
+         run_store.mark_failed(
+-            run_id, "manifest_missing: pipeline-A returned without writing manifest.json"
++            run_id,
++            "manifest_missing: pipeline-A returned without writing manifest.json",
++            **upload_counts,
+         )
+         return summary
+     try:
+         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+     except json.JSONDecodeError as exc:
+-        run_store.mark_failed(run_id, f"manifest_invalid: {exc}")
++        run_store.mark_failed(
++            run_id,
++            f"manifest_invalid: {exc}",
++            **upload_counts,
++        )
+         return summary
+ 
+     pipeline_status = manifest.get("status") or "error_unexpected"
+diff --git a/src/polaris_v6/queue/run_store.py b/src/polaris_v6/queue/run_store.py
+index 4c8c605d..df265f98 100644
+--- a/src/polaris_v6/queue/run_store.py
++++ b/src/polaris_v6/queue/run_store.py
+@@ -385,19 +385,36 @@ def mark_aborted(
+         conn.close()
+ 
+ 
+-def mark_failed(run_id: str, error: str, *, path: str | None = None) -> None:
++def mark_failed(
++    run_id: str,
++    error: str,
++    *,
++    path: str | None = None,
++    uploaded_documents_used: int | None = None,
++    uploaded_documents_blocked: int | None = None,
++) -> None:
+     """Operational failure (exception, missing manifest, unknown status, etc).
+ 
+     Distinct from mark_aborted: failures are unplanned (exception or invariant
+     violation); aborts are planned (pipeline_status='abort_*' written by
+     pipeline-A at a gate).
++
++    I-cd-018 (#628): optional `uploaded_documents_used` +
++    `uploaded_documents_blocked` flow into `error_json` so the error-path
++    observability mirrors the success-path INFO log (actors.py:146-151).
++    Keys are present in error_json only when caller passes them.
+     """
++    error_payload: dict[str, object] = {"error": error}
++    if uploaded_documents_used is not None:
++        error_payload["uploaded_documents_used"] = uploaded_documents_used
++    if uploaded_documents_blocked is not None:
++        error_payload["uploaded_documents_blocked"] = uploaded_documents_blocked
+     conn = _connect(path)
+     try:
+         conn.execute(
+             "UPDATE runs SET lifecycle_status='failed', finished_at=?, "
+             "pipeline_status='error_unexpected', error_json=? WHERE run_id=?",
+-            (_now_iso(), json.dumps({"error": error}, sort_keys=True), run_id),
++            (_now_iso(), json.dumps(error_payload, sort_keys=True), run_id),
+         )
+         conn.commit()
+     finally:
+diff --git a/src/polaris_v6/schemas/run_request.py b/src/polaris_v6/schemas/run_request.py
+index 18b8f3d7..fbc9ff4e 100644
+--- a/src/polaris_v6/schemas/run_request.py
++++ b/src/polaris_v6/schemas/run_request.py
+@@ -31,9 +31,10 @@ class RunRequest(BaseModel):
+     )
+     document_ids: list[str] = Field(
+         default_factory=list,
++        max_length=20,
+         description=(
+-            "Optional uploaded-document ids. Phase 1 Task 1.3 wires these into "
+-            "graph_v4 evidence pool (currently ignored at graph_v4.py:149 — "
+-            "Errata to substrate_audit_2026-05-01.md)."
++            "Optional uploaded-document ids. I-cd-018 (#628) caps the list "
++            "at 20 — paired with MAX_GROUNDING_CHUNKS=40 per doc, this bounds "
++            "the actor message + generator prompt to 800 chunks worst case."
+         ),
+     )
+diff --git a/tests/v6/test_actors_upload_error_path.py b/tests/v6/test_actors_upload_error_path.py
+new file mode 100644
+index 00000000..cf23c4cd
+--- /dev/null
++++ b/tests/v6/test_actors_upload_error_path.py
+@@ -0,0 +1,181 @@
++"""I-cd-018 (#628) — error-path observability for uploaded documents.
++
++Ensures the three actor error sites (pipeline_exception, manifest_missing,
++manifest_invalid) thread `uploaded_documents_used` +
++`uploaded_documents_blocked` counts into `error_json` via `mark_failed`.
++
++Also covers the new `RunRequest.document_ids` max_length=20 cap (422
++when exceeded; valid otherwise).
++"""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from typing import Any
++from unittest.mock import patch
++
++import pytest
++
++
++@pytest.fixture
++def db_path(tmp_path: Path, monkeypatch) -> Path:
++    from polaris_v6.queue import run_store
++
++    db = tmp_path / "runs.sqlite"
++    monkeypatch.setenv(run_store.ENV_DB_PATH, str(db))
++    run_store.init_db(str(db))
++    return db
++
++
++@pytest.fixture
++def auth_disabled(monkeypatch):
++    monkeypatch.setenv("POLARIS_AUTH_DISABLED", "1")
++
++
++def _read_error_json(db_path: Path, run_id: str) -> dict[str, Any]:
++    import sqlite3
++
++    conn = sqlite3.connect(str(db_path))
++    try:
++        row = conn.execute(
++            "SELECT error_json FROM runs WHERE run_id=?", (run_id,)
++        ).fetchone()
++    finally:
++        conn.close()
++    assert row is not None and row[0]
++    return json.loads(row[0])
++
++
++def _invoke_actor(*, run_id: str, allowed: list[dict], blocked_count: int, run_one_query_behavior):
++    """Run the v6 actor logic with a controlled mock of run_one_query.
++
++    Returns the resulting run_store state so tests can inspect mark_failed
++    pathways without an actual dramatiq broker.
++    """
++    from polaris_v6.queue import actors, run_store
++
++    run_store.insert_run(run_id, "clinical", "test question?")
++    run_store.set_pipeline_meta(run_id, query_slug="q_slug", artifact_dir=None)
++
++    request_payload = {
++        "template": "clinical",
++        "question": "test question?",
++        "uploaded_documents": allowed,
++    }
++
++    with patch(
++        "polaris_v6.adapters.upload_evidence.partition_uploads_by_sovereignty",
++        return_value=(allowed, [{"document_id": f"blocked_{i}"} for i in range(blocked_count)]),
++    ):
++        with patch("scripts.run_honest_sweep_r3.run_one_query", side_effect=run_one_query_behavior):
++            try:
++                actors.enqueue_research_run.fn(run_id, request_payload)
++            except RuntimeError:
++                # The actor re-raises pipeline_exception per noqa BLE001; that
++                # is the documented contract for dramatiq retry.
++                pass
++
++
++def test_pipeline_exception_records_upload_counts(db_path: Path):
++    run_id = "r_exc"
++    allowed = [{"document_id": "d1", "classification": "PUBLIC_SYNTHETIC", "chunks": []}]
++
++    def _raises(*_args, **_kwargs):
++        raise RuntimeError("simulated pipeline crash")
++
++    _invoke_actor(run_id=run_id, allowed=allowed, blocked_count=2, run_one_query_behavior=_raises)
++
++    error_json = _read_error_json(db_path, run_id)
++    assert error_json["uploaded_documents_used"] == 1
++    assert error_json["uploaded_documents_blocked"] == 2
++    assert "pipeline_exception" in error_json["error"]
++
++
++def test_manifest_missing_records_upload_counts(db_path: Path, tmp_path: Path, monkeypatch):
++    run_id = "r_no_manifest"
++    allowed = [
++        {"document_id": "d1", "classification": "PUBLIC_SYNTHETIC", "chunks": []},
++        {"document_id": "d2", "classification": "PUBLIC_SYNTHETIC", "chunks": []},
++    ]
++    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path))
++
++    def _returns_no_manifest(q, artifact_dir_root):
++        # Intentionally don't write manifest.json — exercise the missing path.
++        return {"run_id": q.get("external_run_id"), "cost_usd": 0.0}
++
++    _invoke_actor(
++        run_id=run_id, allowed=allowed, blocked_count=0,
++        run_one_query_behavior=_returns_no_manifest,
++    )
++
++    error_json = _read_error_json(db_path, run_id)
++    assert error_json["uploaded_documents_used"] == 2
++    assert error_json["uploaded_documents_blocked"] == 0
++    assert "manifest_missing" in error_json["error"]
++
++
++def test_manifest_invalid_records_upload_counts(db_path: Path, tmp_path: Path, monkeypatch):
++    run_id = "r_bad_manifest"
++    monkeypatch.setenv("POLARIS_V6_OUTPUT_ROOT", str(tmp_path))
++
++    def _writes_garbage(q, artifact_dir_root):
++        Path(artifact_dir_root).mkdir(parents=True, exist_ok=True)
++        (Path(artifact_dir_root) / "manifest.json").write_text(
++            "{not valid json", encoding="utf-8"
++        )
++        return {"run_id": q.get("external_run_id"), "cost_usd": 0.0}
++
++    _invoke_actor(
++        run_id=run_id,
++        allowed=[{"document_id": "d1", "classification": "PUBLIC_SYNTHETIC", "chunks": []}],
++        blocked_count=3,
++        run_one_query_behavior=_writes_garbage,
++    )
++
++    error_json = _read_error_json(db_path, run_id)
++    assert error_json["uploaded_documents_used"] == 1
++    assert error_json["uploaded_documents_blocked"] == 3
++    assert "manifest_invalid" in error_json["error"]
++
++
++def test_run_request_document_ids_cap_rejects_21(auth_disabled, db_path: Path):
++    """RunRequest.document_ids max_length=20 → POST /runs with 21 ids returns 422."""
++    pytest.importorskip("fastapi")
++    from fastapi.testclient import TestClient
++
++    from polaris_v6.api.app import create_app
++
++    client = TestClient(create_app())
++    response = client.post(
++        "/runs",
++        json={
++            "template": "clinical",
++            "question": "test question with sufficient length",
++            "document_ids": [f"d_{i}" for i in range(21)],
++        },
++    )
++    assert response.status_code == 422
++    detail = response.json().get("detail", [])
++    assert any("document_ids" in str(item) for item in detail)
++
++
++def test_run_request_document_ids_accepts_20(auth_disabled, db_path: Path):
++    """20 document_ids accepted (boundary inclusive)."""
++    pytest.importorskip("fastapi")
++    from fastapi.testclient import TestClient
++
++    from polaris_v6.api.app import create_app
++
++    client = TestClient(create_app())
++    # 20 ids → upload-resolver may 400 since the docs don't actually exist,
++    # but the request must NOT 422 on the schema validation.
++    response = client.post(
++        "/runs",
++        json={
++            "template": "clinical",
++            "question": "test question with sufficient length",
++            "document_ids": [f"d_{i}" for i in range(20)],
++        },
++    )
++    assert response.status_code != 422
+
+# canonical-diff-sha256: dfee9e5796fe70678d2ffe03c01dafda7955463a916b90fb6f5bfab3ccd84e5b
