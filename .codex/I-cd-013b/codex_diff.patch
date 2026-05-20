@@ -1,8 +1,8 @@
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index bbb4412f..56b273b8 100644
+index bbb4412f..1eae908c 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -707,3 +707,12 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
+@@ -707,3 +707,19 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
  - convergence_call: accept_remaining
  - iter-1 catches: 2 more legacy /inspector tests in accessibility.spec.ts; tab-label regex mismatch (Hash chain); 5 missing reasoning-trace fields; signaturePresent hardcoded; Linux testIgnore too broad; placeholder text in fixtures.
  - next: push as sotaleung-wec, gh pr create, auto-merge.
@@ -15,6 +15,13 @@ index bbb4412f..56b273b8 100644
 +- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 3 (non-blocking)
 +- iter trajectory: 1 RC (1 P1 + 3 P2) -> 2 APPROVE
 +- scope: 11 files / -172 net LOC (legacy /inspector Playwright migration; deletion-heavy)
++
++## I-cd-013b diff — iter 2 APPROVE — 2026-05-20
++
++- iter: 2 of 5 (iter 1 RC with 1 P1 + 2 P2; iter 2 APPROVE after fold)
++- verdict: APPROVE
++- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 3 (non-blocking)
++- iter-1 fold: 3 toHaveScreenshot -> test.fixme, removed inspector_route from Linux testIgnore, target-size sweep cycles all 6 tabs
 diff --git a/web/components/inspector/reasoning_trace_timeline.tsx b/web/components/inspector/reasoning_trace_timeline.tsx
 index bffa66a9..7990e086 100644
 --- a/web/components/inspector/reasoning_trace_timeline.tsx
@@ -42,10 +49,10 @@ index af81f613..b7eba00a 100644
            data-testid="toggle-provenance-tokens"
          >
 diff --git a/web/playwright.config.ts b/web/playwright.config.ts
-index 014067ee..75de9b8b 100644
+index 014067ee..c610d023 100644
 --- a/web/playwright.config.ts
 +++ b/web/playwright.config.ts
-@@ -20,12 +20,14 @@ export default defineConfig({
+@@ -20,11 +20,10 @@ export default defineConfig({
    // to *-chromium-linux.png and is missing → Playwright would auto-write
    // a new baseline (silent regression). Skip visual.spec.ts on Linux until
    // Linux baselines are generated.
@@ -54,20 +61,15 @@ index 014067ee..75de9b8b 100644
 -  // baselines land at I-cd-013b, the testIgnore list will be extended to
 -  // include inspector_route.spec.ts on Linux per the visual.spec.ts
 -  // convention.
--  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
-+  // I-cd-013b (GH#669): inspector_route.spec.ts now ships
-+  // toHaveScreenshot() baselines authored only for chromium-win32, so
-+  // skip on Linux (matches existing visual.spec.ts convention; Linux
-+  // baselines are deferred to a CI-Linux-baseline-generation follow-up).
-+  testIgnore:
-+    process.platform === "linux"
-+      ? ["**/visual.spec.ts", "**/inspector_route.spec.ts"]
-+      : undefined,
++  // I-cd-013b (GH#669): inspector_route.spec.ts visual baselines are
++  // `test.fixme()` (deferred until baselines captured by --update-snapshots
++  // run); non-visual cases run on all platforms. Linux ignore only
++  // applies to visual.spec.ts.
+   testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
    timeout: 30_000,
    fullyParallel: false, // single browser instance to keep memory bounded on dev
-   retries: 0,
 diff --git a/web/tests/e2e/accessibility.spec.ts b/web/tests/e2e/accessibility.spec.ts
-index e41d004f..d7c16830 100644
+index e41d004f..dd4b4efe 100644
 --- a/web/tests/e2e/accessibility.spec.ts
 +++ b/web/tests/e2e/accessibility.spec.ts
 @@ -63,50 +63,56 @@ test.describe("WCAG-AA — research dashboard", () => {
@@ -191,7 +193,7 @@ index e41d004f..d7c16830 100644
  
  test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => {
    // axe's target-size rule has loose overlap-detection; cycle-8 P1.1 and
-@@ -210,17 +202,18 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () =>
+@@ -210,17 +202,28 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () =>
      }
    });
  
@@ -199,9 +201,10 @@ index e41d004f..d7c16830 100644
 -  test.skip("Inspector golden_clinical_001 — all clickable targets ≥24x24", async ({
 +  // I-cd-013b (GH#669): replaces legacy /inspector/golden_clinical_001
 +  // target-size sweep with one against the signed-bundle Inspector
-+  // (success fixture, Reasoning + Hash chain tabs activated since those
-+  // contain the most clickable surfaces).
-+  test("Inspector v1-canonical-success — all clickable targets ≥24x24", async ({
++  // (success fixture). Cycles through ALL 6 tabs (Codex diff iter-1 P2 #2)
++  // so Report + Scope + Evidence + Reasoning + Sources + Hash chain
++  // tab-specific controls are exercised before the sweep measures.
++  test("Inspector v1-canonical-success — all clickable targets ≥24x24 across all tabs", async ({
      page,
    }) => {
 -    await page.goto("/inspector/golden_clinical_001", {
@@ -212,12 +215,21 @@ index e41d004f..d7c16830 100644
 -      .getByRole("button", { name: /Verified sentences/ })
 -      .first()
 -      .click();
-+    // Activate the Reasoning tab to surface toggle-trace-content buttons.
-+    await page.getByRole("tab", { name: /^reasoning$/i }).click();
++    const tabLabels = [
++      /^report$/i,
++      /^scope$/i,
++      /^evidence$/i,
++      /^reasoning$/i,
++      /^sources$/i,
++      /^hash chain$/i,
++    ];
++    for (const label of tabLabels) {
++      await page.getByRole("tab", { name: label }).click();
++    }
      const small = await page.evaluate(() => {
        const results: Array<{
          tag: string;
-@@ -228,7 +221,7 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () =>
+@@ -228,7 +231,7 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () =>
          w: number;
          h: number;
        }> = [];
@@ -226,7 +238,7 @@ index e41d004f..d7c16830 100644
        document.querySelectorAll(sel).forEach((el) => {
          if (!(el instanceof HTMLElement)) return;
          const r = el.getBoundingClientRect();
-@@ -281,22 +274,13 @@ test.describe("WCAG 2.1.1 keyboard sweep — template radiogroup operable", () =
+@@ -281,22 +284,13 @@ test.describe("WCAG 2.1.1 keyboard sweep — template radiogroup operable", () =
    });
  });
  
@@ -379,32 +391,31 @@ index 9231eec4..107726ba 100644
    test("rejects clinical-treatment-recommendation prompt", async ({ page }) => {
      await page.goto("/dashboard", { waitUntil: "networkidle" });
 diff --git a/web/tests/e2e/inspector_route.spec.ts b/web/tests/e2e/inspector_route.spec.ts
-index 1edff804..db4acd8e 100644
+index 1edff804..e2f5508c 100644
 --- a/web/tests/e2e/inspector_route.spec.ts
 +++ b/web/tests/e2e/inspector_route.spec.ts
-@@ -144,3 +144,62 @@ test.describe("Inspector route — unknown runId pending CTA", () => {
+@@ -144,3 +144,49 @@ test.describe("Inspector route — unknown runId pending CTA", () => {
      await expect(page.getByTestId("inspector-view")).toHaveCount(0);
    });
  });
 +
 +// I-cd-013b (GH#669): visual regression baselines for the new Inspector.
-+// Chromium-win32 only per existing visual.spec.ts convention (the
-+// playwright.config.ts testIgnore list excludes inspector_route.spec.ts
-+// on Linux when these visual cases are present).
++// These are `test.fixme()` because the chromium-win32 baselines have not
++// been captured yet — running with `--update-snapshots` after the dev
++// server is up will write them; a follow-up PR commits them and flips
++// the .fixme() markers off. The legacy chromium-win32 baselines (for
++// the old AuditIR Inspector) were deleted at this PR; the new ones
++// need an operator-manual capture or CI --update-snapshots run.
 +const SCREENSHOT_OPTIONS = {
 +  fullPage: true,
 +  animations: "disabled" as const,
 +  maxDiffPixelRatio: 0.02,
 +};
 +
-+test.describe("Inspector route — visual baselines (chromium-win32)", () => {
-+  test("v1-canonical-success Report tab visual baseline", async ({
++test.describe("Inspector route — visual baselines (chromium-win32; deferred)", () => {
++  test.fixme("v1-canonical-success Report tab visual baseline", async ({
 +    page,
-+  }, testInfo) => {
-+    test.skip(
-+      testInfo.project.name !== "chromium",
-+      "Visual gold only authored for chromium-win32; firefox/webkit baselines in a follow-up.",
-+    );
++  }) => {
 +    await page.goto("/inspector/v1-canonical-success", {
 +      waitUntil: "networkidle",
 +    });
@@ -412,20 +423,12 @@ index 1edff804..db4acd8e 100644
 +      "inspector-v1-canonical-success-report.png",
 +      {
 +        ...SCREENSHOT_OPTIONS,
-+        // Mask the bundle ID + decision/pool/report ID strings (vary by fixture)
-+        // and the bundle_created_at_utc timestamp.
 +        mask: [page.locator('[data-testid="bundle-header"]')],
 +      },
 +    );
 +  });
 +
-+  test("v1-canonical abort-shape visual baseline", async ({
-+    page,
-+  }, testInfo) => {
-+    test.skip(
-+      testInfo.project.name !== "chromium",
-+      "Visual gold only authored for chromium-win32.",
-+    );
++  test.fixme("v1-canonical abort-shape visual baseline", async ({ page }) => {
 +    await page.goto("/inspector/v1-canonical", { waitUntil: "networkidle" });
 +    await expect(page).toHaveScreenshot("inspector-v1-canonical-abort.png", {
 +      ...SCREENSHOT_OPTIONS,
@@ -433,11 +436,7 @@ index 1edff804..db4acd8e 100644
 +    });
 +  });
 +
-+  test("bundle-pending CTA visual baseline", async ({ page }, testInfo) => {
-+    test.skip(
-+      testInfo.project.name !== "chromium",
-+      "Visual gold only authored for chromium-win32.",
-+    );
++  test.fixme("bundle-pending CTA visual baseline", async ({ page }) => {
 +    await page.goto("/inspector/does-not-exist", { waitUntil: "networkidle" });
 +    await expect(page).toHaveScreenshot("inspector-bundle-pending-cta.png", {
 +      ...SCREENSHOT_OPTIONS,
@@ -616,4 +615,4 @@ deleted file mode 100644
 index d4b8c4ac..00000000
 Binary files a/web/tests/e2e/visual.spec.ts-snapshots/inspector-verified-sentences-chromium-win32.png and /dev/null differ
 
-# canonical-diff-sha256: 65b59b9d0ce520070f38b857c1d711061e50b646427f56f033664e9135c8f9bb
+# canonical-diff-sha256: a26bf024ab9ae4d451028ba5d4ad33e7f5b1e92369217387ce9120f47895fd47
