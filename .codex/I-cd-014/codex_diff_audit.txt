@@ -1,0 +1,10 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "safeNextPath does not actually reject encoded fragment-only next values: ?next=%23frag resolves against window.location.origin and returns /#frag. This is same-origin and not an open redirect, so non-blocking."
+  - "AuthRedirect derives initial render state from typeof window/sessionStorage, so once mounted on a route, already-authenticated direct loads can SSR null but hydrate children, producing a hydration mismatch. It is currently unused in this PR, so non-blocking."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+# Codex diff review iter 2/5 — APPROVE after iter-1 fold.

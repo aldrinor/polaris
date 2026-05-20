@@ -731,3 +731,11 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
 - novel_p0: 0, continuing_p0: 0, p1: 0, p2: 0
 - iter trajectory: 1 RC (2 P1: AuthGate-claim + gitignore-alone) -> 2 RC (continuing P1: Docker/deploy-docs leak + 3 P2) -> 3 APPROVE clean
 - scope: 8 files / +252 net LOC; security-substantive (static_accounts hygiene + ?next= URL hardening + AuthRedirect UX-only framing)
+
+## I-cd-014 diff — iter 2 APPROVE — 2026-05-20
+
+- iter: 2 of 5
+- verdict: APPROVE
+- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 2 (non-blocking)
+- iter trajectory: 1 RC (2 P1: provision.sh path mismatch + useSearchParams Suspense; 2 P2: AuthRedirect flash + fragment-only) -> 2 APPROVE
+- scope: 12 files / +259 + 75 net
