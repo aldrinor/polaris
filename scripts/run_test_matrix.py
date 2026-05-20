@@ -199,25 +199,91 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # Codex iter-3 P2: row/journey validation runs BEFORE env checks + /health
-    # so typos surface fast without requiring network or operator-supplied
-    # secrets. (P2-004 iter-2 fix landed validation but in the wrong order.)
+    # Codex iter-4 P1: ALL selection validation runs BEFORE env + /health so
+    # malformed --rows / --journey input fails fast with exit 11, not 12 or
+    # via UNCAUGHT ValueError. Order: parse → validate → (then env + network).
 
-    # Parse row selection.
-    if "-" in args.rows and "," not in args.rows:
-        start_s, end_s = args.rows.split("-")
-        start_n = int(start_s.lstrip("R"))
-        end_n = int(end_s.lstrip("R"))
-        if start_n > end_n:
-            print(
-                f"ERROR: reversed row range {args.rows!r}; expected ascending "
-                f"(e.g. R01-R24).",
-                file=sys.stderr,
-            )
-            return 11
-        selected_ids = {f"R{n:02d}" for n in range(start_n, end_n + 1)}
-    else:
-        selected_ids = set(args.rows.split(","))
+    def _parse_row_selection(spec: str) -> set[str] | int:
+        """Return parsed set, or an exit code (11) on malformed input."""
+        if "-" in spec and "," not in spec:
+            parts = spec.split("-")
+            if len(parts) != 2 or not (parts[0].startswith("R") and parts[1].startswith("R")):
+                print(
+                    f"ERROR: malformed row range {spec!r}; expected R01-R24.",
+                    file=sys.stderr,
+                )
+                return 11
+            try:
+                start_n = int(parts[0].lstrip("R"))
+                end_n = int(parts[1].lstrip("R"))
+            except ValueError:
+                print(
+                    f"ERROR: row range {spec!r} contains non-numeric IDs.",
+                    file=sys.stderr,
+                )
+                return 11
+            if start_n > end_n:
+                print(
+                    f"ERROR: reversed row range {spec!r}; expected ascending.",
+                    file=sys.stderr,
+                )
+                return 11
+            return {f"R{n:02d}" for n in range(start_n, end_n + 1)}
+        return set(spec.split(","))
+
+    def _parse_journey_selection(spec: str) -> set[str] | int:
+        if "-" in spec and "," not in spec:
+            parts = spec.split("-")
+            if len(parts) != 2 or not (parts[0].startswith("J") and parts[1].startswith("J")):
+                print(
+                    f"ERROR: malformed journey range {spec!r}; expected J1-J11.",
+                    file=sys.stderr,
+                )
+                return 11
+            try:
+                s = int(parts[0].lstrip("J"))
+                e = int(parts[1].lstrip("J"))
+            except ValueError:
+                print(
+                    f"ERROR: journey range {spec!r} contains non-numeric IDs.",
+                    file=sys.stderr,
+                )
+                return 11
+            if s > e:
+                print(
+                    f"ERROR: reversed journey range {spec!r}; expected ascending.",
+                    file=sys.stderr,
+                )
+                return 11
+            return {f"J{n}" for n in range(s, e + 1)}
+        return set(spec.split(","))
+
+    row_result = _parse_row_selection(args.rows)
+    if isinstance(row_result, int):
+        return row_result
+    selected_ids = row_result
+    journey_result = _parse_journey_selection(args.journey)
+    if isinstance(journey_result, int):
+        return journey_result
+    selected_stages = journey_result
+
+    # Unknown-id validation (typos in comma-separated lists OR range outputs).
+    all_known_ids = {row["id"] for row in _MATRIX_ROWS}
+    unknown_ids = selected_ids - all_known_ids
+    if unknown_ids:
+        print(
+            f"ERROR: unknown row id(s): {sorted(unknown_ids)}. Valid: R01-R24.",
+            file=sys.stderr,
+        )
+        return 11
+    all_known_stages = {f"J{n}" for n in range(1, 12)}
+    unknown_stages = selected_stages - all_known_stages
+    if unknown_stages:
+        print(
+            f"ERROR: unknown journey id(s): {sorted(unknown_stages)}. Valid: J1-J11.",
+            file=sys.stderr,
+        )
+        return 11
 
     base_url = _env_or_die("POLARIS_MATRIX_BASE_URL")
     if args.include_llm:
@@ -229,44 +295,7 @@ def main() -> int:
         print(f"ERROR: {base_url}/health unreachable", file=sys.stderr)
         return 12
 
-    # Codex iter-2 P2-004 fix: unknown row IDs are a configuration error,
-    # NOT a successful no-op. Fail with exit 11 (config error).
-    all_known_ids = {row["id"] for row in _MATRIX_ROWS}
-    unknown_ids = selected_ids - all_known_ids
-    if unknown_ids:
-        print(
-            f"ERROR: unknown row id(s): {sorted(unknown_ids)}. "
-            f"Valid: R01-R24.",
-            file=sys.stderr,
-        )
-        return 11
-
-    # Codex iter-1 P2-001 fix: parse + apply --journey selection.
-    if "-" in args.journey and "," not in args.journey:
-        j_start, j_end = args.journey.split("-")
-        j_start_n = int(j_start.lstrip("J"))
-        j_end_n = int(j_end.lstrip("J"))
-        if j_start_n > j_end_n:
-            print(
-                f"ERROR: reversed journey range {args.journey!r}; expected "
-                f"ascending (e.g. J1-J11).",
-                file=sys.stderr,
-            )
-            return 11
-        selected_stages = {f"J{n}" for n in range(j_start_n, j_end_n + 1)}
-    else:
-        selected_stages = set(args.journey.split(","))
-
-    # Codex iter-2 P2-004 fix: unknown journey IDs also fail loud.
-    all_known_stages = {f"J{n}" for n in range(1, 12)}
-    unknown_stages = selected_stages - all_known_stages
-    if unknown_stages:
-        print(
-            f"ERROR: unknown journey id(s): {sorted(unknown_stages)}. "
-            f"Valid: J1-J11.",
-            file=sys.stderr,
-        )
-        return 11
+    # (Unknown-id validation already performed above before env checks.)
 
     results: list[RowResult] = []
     for row in _MATRIX_ROWS:
