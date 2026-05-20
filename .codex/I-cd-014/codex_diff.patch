@@ -1,0 +1,409 @@
+diff --git a/.dockerignore b/.dockerignore
+index c07e57c3..cc3844d9 100644
+--- a/.dockerignore
++++ b/.dockerignore
+@@ -6,6 +6,11 @@
+ .env
+ *.env.local
+ *.env.production
++# I-cd-014 (GH#610): real static_accounts.yaml MUST NOT enter the Docker
++# build context. Dockerfile.v6 does `COPY config/ config/`; without this
++# exclusion any local copy gets baked into the image. The .example template
++# is fine; the real file is mounted at /etc/polaris/ in deployment.
++config/static_accounts.yaml
+ 
+ # Development artifacts
+ __pycache__
+diff --git a/.gitignore b/.gitignore
+index 2b07c242..53aabc78 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -84,6 +84,12 @@ state/polaris_restart/cleanup_manifest_sidecars/*
+ state/polaris_restart/codex_verdict_*.txt
+ state/polaris_restart/*_verdict_iter_*.txt
+ 
++# I-cd-014 (GH#610): real static_accounts.yaml MUST NOT be in repo.
++# Operator provisions at /etc/polaris/static_accounts.yaml in deployment
++# (see docs/carney_demo_runbook.md "Auth setup"). The .example file
++# stays tracked as a template.
++config/static_accounts.yaml
++
+ # --- Large trace files ---
+ *.jsonl
+ # Plan v13 §I exception: track durable audit logs + verdict trails.
+diff --git a/docs/carney_demo_runbook.md b/docs/carney_demo_runbook.md
+index 1dfdc0f1..e03c8c93 100644
+--- a/docs/carney_demo_runbook.md
++++ b/docs/carney_demo_runbook.md
+@@ -33,7 +33,7 @@ See `infra/vexxhost/README.md` for the active deploy path. The §1 section below
+ | Serper API key (web search — US, disclosed) | Ops | https://serper.dev/ |
+ | OVH BHS H200 procurement initiated | Ops | email per `docs/ovh_h200_procurement_spec.md` to salescanada@ovhcloud.com |
+ | OVH H200 + Vexxhost private-network peering confirmed | Ops | private IPv4 reachable from Vexxhost VM (vLLM endpoint `http://<priv-ip>:8000/v1`) |
+-| `static_accounts.yaml` filled with bcrypt-hashed reviewer pwd | Ops | `htpasswd -bnBC 12 "" <pw>` then strip leading `:` |
++| `static_accounts.yaml` filled with bcrypt-hashed reviewer pwd (at `/etc/polaris/static_accounts.yaml` on VM — NEVER in repo `config/`) | Ops | `python -c "from passlib.hash import bcrypt; print(bcrypt.using(rounds=12).hash('<pw>'))"` |
+ | Carney office contact + demo time confirmed | Lead | calendar invite |
+ | Fallback laptop ready | Lead | `docker compose -f docker-compose.v6.yml up -d` on laptop |
+ 
+@@ -55,7 +55,11 @@ POLARIS_ACME_EMAIL=ops@<your-domain>
+ scp infra/vexxhost/.env.example       root@${POLARIS_DOMAIN}:/root/.env  # edit FIRST
+ scp outputs/polaris_demo_pubkey.asc   root@${POLARIS_DOMAIN}:/root/
+ scp ~/polaris_demo_secret.asc         root@${POLARIS_DOMAIN}:/root/
+-scp config/static_accounts.yaml       root@${POLARIS_DOMAIN}:/root/  # bcrypt-hashed
++# I-cd-014: NEVER stage static_accounts.yaml inside the repo `config/` — it
++# is gitignored AND dockerignored. Generate locally in /tmp/polaris_secrets/
++# (see "T-3 setup" below), then scp directly to the VM, then move to /etc/polaris/.
++scp /tmp/polaris_secrets/static_accounts.yaml root@${POLARIS_DOMAIN}:/tmp/static_accounts.yaml
++# Then on the VM: sudo cp /tmp/static_accounts.yaml /etc/polaris/static_accounts.yaml && sudo chmod 640 /etc/polaris/static_accounts.yaml
+ scp infra/vexxhost/provision.sh       root@${POLARIS_DOMAIN}:/root/
+ 
+ # 2. Run provisioning — pass the locally-resolved commit through ssh env.
+diff --git a/infra/vexxhost/README.md b/infra/vexxhost/README.md
+index 7dc25026..ca059e9a 100644
+--- a/infra/vexxhost/README.md
++++ b/infra/vexxhost/README.md
+@@ -19,7 +19,7 @@ The active Carney demo deploy path. Replaces `infra/aws.archived/` (US-owned, fa
+ 4. GPG demo signing key generated on operator workstation: `bash scripts/bootstrap_gpg_demo_key.sh`. Produces `outputs/polaris_demo_pubkey.asc` and a fingerprint in `state/polaris_gpg_keyid.txt`. ALSO export the secret: `gpg --homedir ~/.gnupg-polaris --armor --export-secret-key "POLARIS Carney Demo" > polaris_demo_secret.asc`.
+ 5. Serper API key from https://serper.dev/ — the web search backend. US-based, disclosed exception per operator directive 2026-05-13 (search queries non-confidential; reports stay sovereign). REQUIRED.
+ 6. OVH H200 server provisioned in BHS — see `docs/ovh_h200_procurement_spec.md`. Note its private IP; default vLLM endpoint is `http://10.0.0.42:8000/v1`.
+-7. bcrypt-hashed `static_accounts.yaml` prepared locally (template at `config/static_accounts.example.yaml`).
++7. bcrypt-hashed `static_accounts.yaml` prepared locally **outside the repo** (e.g., `/tmp/polaris_secrets/static_accounts.yaml`); template structure at `config/static_accounts.example.yaml`. I-cd-014 (GH#610): the real file MUST NEVER be staged inside `config/` — it is gitignored AND dockerignored to prevent accidental check-in or Docker-image inclusion.
+ 
+ ## Deploy (single command)
+ 
+@@ -28,7 +28,9 @@ The active Carney demo deploy path. Replaces `infra/aws.archived/` (US-owned, fa
+ scp infra/vexxhost/.env.example root@polaris.<domain>:/root/.env  # edit first
+ scp outputs/polaris_demo_pubkey.asc root@polaris.<domain>:/root/
+ scp ~/polaris_demo_secret.asc       root@polaris.<domain>:/root/
+-scp config/static_accounts.yaml     root@polaris.<domain>:/root/  # filled-in version
++# I-cd-014: NEVER scp from inside the repo. The real file is in
++# /tmp/polaris_secrets/ (operator local) and mounts at /etc/polaris/ on the VM.
++scp /tmp/polaris_secrets/static_accounts.yaml root@polaris.<domain>:/tmp/static_accounts.yaml
+ scp infra/vexxhost/provision.sh     root@polaris.<domain>:/root/
+ 
+ # 2. Run provisioning.
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 1eae908c..60e2d1ff 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -723,3 +723,11 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
+ - verdict: APPROVE
+ - novel_p0: 0, continuing_p0: 0, p1: 0, p2: 3 (non-blocking)
+ - iter-1 fold: 3 toHaveScreenshot -> test.fixme, removed inspector_route from Linux testIgnore, target-size sweep cycles all 6 tabs
++
++## I-cd-014 brief — iter 3 APPROVE clean — 2026-05-20
++
++- iter: 3 of 5
++- verdict: APPROVE
++- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 0
++- iter trajectory: 1 RC (2 P1: AuthGate-claim + gitignore-alone) -> 2 RC (continuing P1: Docker/deploy-docs leak + 3 P2) -> 3 APPROVE clean
++- scope: 8 files / +252 net LOC; security-substantive (static_accounts hygiene + ?next= URL hardening + AuthRedirect UX-only framing)
+diff --git a/tests/fixtures/auth/test_static_accounts.yaml b/tests/fixtures/auth/test_static_accounts.yaml
+new file mode 100644
+index 00000000..48ea11a2
+--- /dev/null
++++ b/tests/fixtures/auth/test_static_accounts.yaml
+@@ -0,0 +1,30 @@
++# I-cd-014 (GH#610): Playwright e2e fixture — test-only static accounts.
++#
++# *** TEST-ONLY CREDENTIALS — DO NOT REUSE IN PRODUCTION ***
++#
++# These bcrypt hashes are committed to the repo. They are intended ONLY
++# for `web/tests/e2e/sign_in.spec.ts` driving the live backend with a
++# known-good account/password pair. Production accounts MUST never use
++# these passwords. Production credentials live OUTSIDE the repo at
++# `/etc/polaris/static_accounts.yaml` per docs/carney_demo_runbook.md.
++#
++# Test passwords (known plaintext for the e2e to type):
++#   carney_office: "carney-test-password"
++#   ops:           "ops-test-password"
++#
++# Bcrypt cost: 12 rounds (matches production passlib config).
++#
++# Regenerate with:
++#   python -c "from passlib.hash import bcrypt; print(bcrypt.using(rounds=12).hash('carney-test-password'))"
++#   python -c "from passlib.hash import bcrypt; print(bcrypt.using(rounds=12).hash('ops-test-password'))"
++
++accounts:
++  - username: carney_office
++    # bcrypt of "carney-test-password" (rounds=12)
++    password_bcrypt: "$2b$12$G.n6O59Ek.SAkiMMSrfPVu1WwMXcXqN..m39tW8S3Mx7EswB9NBv2"
++    role: reviewer
++
++  - username: ops
++    # bcrypt of "ops-test-password" (rounds=12)
++    password_bcrypt: "$2b$12$5OpYIrbE95lzw3UAWNtKwe5U/68AGg.TZwokcBH3MtzOexS229vGG"
++    role: admin
+diff --git a/web/app/sign-in/page.tsx b/web/app/sign-in/page.tsx
+index 9d125091..01b90381 100644
+--- a/web/app/sign-in/page.tsx
++++ b/web/app/sign-in/page.tsx
+@@ -1,10 +1,34 @@
+ "use client";
+ 
+ import { useState } from "react";
+-import { useRouter } from "next/navigation";
++import { useRouter, useSearchParams } from "next/navigation";
+ import Link from "next/link";
+ 
+ import { login } from "@/lib/auth";
++
++/**
++ * I-cd-014 (GH#610): same-origin validation for `?next=` redirect.
++ *
++ * Rejects:
++ *   - non-string / empty values
++ *   - URLs that, when parsed against `window.location.origin`, resolve to a
++ *     different origin (protocol-relative `//evil.com`, absolute `http://...`,
++ *     backslash-as-separator `/\evil.com` — all caught by the URL parser).
++ *   - values containing a fragment-only escape or any URL parse failure.
++ *
++ * Returns the validated path (the URL's `pathname + search + hash`) or `"/"`.
++ */
++function safeNextPath(next: string | null): string {
++  if (!next) return "/";
++  if (typeof window === "undefined") return "/";
++  try {
++    const parsed = new URL(next, window.location.origin);
++    if (parsed.origin !== window.location.origin) return "/";
++    return parsed.pathname + parsed.search + parsed.hash;
++  } catch {
++    return "/";
++  }
++}
+ import { Button } from "@/components/ui/button";
+ import {
+   Card,
+@@ -18,6 +42,7 @@ import { Input } from "@/components/ui/input";
+ 
+ export default function SignInPage() {
+   const router = useRouter();
++  const searchParams = useSearchParams();
+   const [username, setUsername] = useState("");
+   const [password, setPassword] = useState("");
+   const [error, setError] = useState<string | null>(null);
+@@ -30,7 +55,8 @@ export default function SignInPage() {
+     const result = await login(username.trim(), password);
+     setPending(false);
+     if (result.ok) {
+-      router.push("/");
++      const next = safeNextPath(searchParams.get("next"));
++      router.push(next);
+       router.refresh();
+     } else {
+       setError(result.error ?? "Sign-in failed.");
+@@ -50,7 +76,7 @@ export default function SignInPage() {
+         </div>
+ 
+         <Card>
+-          <form onSubmit={handleSubmit}>
++          <form onSubmit={handleSubmit} data-testid="sign-in-form">
+             <CardHeader>
+               <CardTitle>Sign in</CardTitle>
+               <CardDescription>
+@@ -97,6 +123,7 @@ export default function SignInPage() {
+               {error ? (
+                 <p
+                   role="alert"
++                  data-testid="sign-in-error"
+                   className="text-destructive text-sm font-medium"
+                 >
+                   {error}
+@@ -106,6 +133,7 @@ export default function SignInPage() {
+             <CardFooter className="flex flex-col gap-3">
+               <Button
+                 type="submit"
++                data-testid="sign-in-submit"
+                 className="w-full"
+                 disabled={pending || !username || !password}
+               >
+diff --git a/web/components/auth_redirect.tsx b/web/components/auth_redirect.tsx
+new file mode 100644
+index 00000000..068e260c
+--- /dev/null
++++ b/web/components/auth_redirect.tsx
+@@ -0,0 +1,44 @@
++// I-cd-014 (GH#610) — `<AuthRedirect>` UX-only client component.
++//
++// SECURITY FRAMING (binding):
++// This component is a UX convenience that redirects unauthenticated
++// browsers to /sign-in?next=<current-path>. It is **NOT** an authorization
++// boundary. The JWT lives in client-side sessionStorage which is fully
++// controllable by the browser; any user can spoof a value.
++//
++// Real authorization lives at the API layer via FastAPI's `require_auth`
++// dependency (`src/polaris_v6/api/auth.py`). Server components MUST NOT
++// load protected data from local fs/db on the page render path; they MUST
++// fetch from the FastAPI backend with `Authorization: Bearer <jwt>`
++// headers (real-data wiring at I-B-08).
++//
++// Used by route pages to redirect to /sign-in when a JWT is missing. Do
++// not rely on this for security-sensitive data exposure.
++"use client";
++
++import { usePathname, useRouter } from "next/navigation";
++import { useEffect, useRef, type ReactNode } from "react";
++
++import { isAuthenticated } from "@/lib/auth";
++
++interface AuthRedirectProps {
++  children: ReactNode;
++}
++
++export function AuthRedirect({ children }: AuthRedirectProps) {
++  const router = useRouter();
++  const pathname = usePathname();
++  // Hydration-safe: SSR returns true (children render); the effect below
++  // performs the client-only auth check + redirect when needed.
++  const checked = useRef(false);
++
++  useEffect(() => {
++    if (checked.current) return;
++    checked.current = true;
++    if (isAuthenticated()) return;
++    const next = encodeURIComponent(pathname ?? "/");
++    router.replace(`/sign-in?next=${next}`);
++  }, [pathname, router]);
++
++  return <>{children}</>;
++}
+diff --git a/web/tests/e2e/sign_in.spec.ts b/web/tests/e2e/sign_in.spec.ts
+new file mode 100644
+index 00000000..0ca71f39
+--- /dev/null
++++ b/web/tests/e2e/sign_in.spec.ts
+@@ -0,0 +1,133 @@
++// I-cd-014 (GH#610) — /sign-in route e2e.
++//
++// REQUIRED ENV ORCHESTRATION (Codex iter-2 P2 #3):
++//
++//   # Terminal A — FastAPI backend with test-fixture static_accounts:
++//   POLARIS_JWT_SECRET="local-dev-32char-secret-for-tests-only" \
++//   POLARIS_STATIC_ACCOUNTS_PATH="$PWD/tests/fixtures/auth/test_static_accounts.yaml" \
++//     PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
++//
++//   # Terminal B — Next.js (use `next dev` for local iteration OR
++//   # `npm run build && next start -p 3738` for production-build coverage):
++//   cd web && npx next dev -p 3738
++//   # OR: cd web && npm run build && npx next start -p 3738
++//
++//   # Terminal C — run the spec:
++//   cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 \
++//     npx playwright test --project=chromium tests/e2e/sign_in.spec.ts
++//
++// Visual baseline ships as `test.fixme()` — chromium-win32 baselines
++// captured by operator via `--update-snapshots` after first dev-server
++// run; a follow-up PR commits the PNGs.
++
++import { expect, test } from "@playwright/test";
++
++const CARNEY_USERNAME = "carney_office";
++const CARNEY_PASSWORD = "carney-test-password";
++
++test.describe("Sign-in route — render + accessibility (G1-G8)", () => {
++  test("renders sign-in form with username + password fields (G1 app shell)", async ({
++    page,
++  }) => {
++    await page.goto("/sign-in");
++    await expect(page.getByTestId("sign-in-form")).toBeVisible();
++    await expect(page.getByLabel("Username")).toBeVisible();
++    await expect(page.getByLabel("Password")).toBeVisible();
++    await expect(page.getByTestId("sign-in-submit")).toBeVisible();
++  });
++
++  test("no console errors on render (G8)", async ({ page }) => {
++    const errors: string[] = [];
++    page.on("pageerror", (e) => errors.push(String(e)));
++    page.on("console", (msg) => {
++      if (msg.type() === "error") errors.push(msg.text());
++    });
++    await page.goto("/sign-in", { waitUntil: "networkidle" });
++    expect(errors).toEqual([]);
++  });
++
++  test("responsive at 1280/768/375 viewports (G5)", async ({ page }) => {
++    for (const vp of [
++      { w: 1280, h: 800 },
++      { w: 768, h: 1024 },
++      { w: 375, h: 667 },
++    ]) {
++      await page.setViewportSize({ width: vp.w, height: vp.h });
++      await page.goto("/sign-in");
++      await expect(page.getByTestId("sign-in-form")).toBeVisible();
++      await expect(page.getByTestId("sign-in-submit")).toBeVisible();
++    }
++  });
++});
++
++test.describe("Sign-in route — credential validation", () => {
++  test("invalid creds → error banner visible", async ({ page }) => {
++    await page.goto("/sign-in");
++    await page.getByLabel("Username").fill("does-not-exist");
++    await page.getByLabel("Password").fill("wrong-password");
++    await page.getByTestId("sign-in-submit").click();
++    const errorBanner = page.getByTestId("sign-in-error");
++    await expect(errorBanner).toBeVisible({ timeout: 8_000 });
++    await expect(errorBanner).toHaveAttribute("role", "alert");
++  });
++
++  test("valid creds → JWT stored + redirect to /", async ({ page }) => {
++    await page.goto("/sign-in");
++    await page.getByLabel("Username").fill(CARNEY_USERNAME);
++    await page.getByLabel("Password").fill(CARNEY_PASSWORD);
++    await page.getByTestId("sign-in-submit").click();
++    await expect(page).toHaveURL(/\/$/, { timeout: 8_000 });
++    // JWT in sessionStorage (per web/lib/auth.ts).
++    const token = await page.evaluate(() =>
++      window.sessionStorage.getItem("polaris_jwt"),
++    );
++    expect(token).toBeTruthy();
++  });
++});
++
++test.describe("Sign-in route — ?next= same-origin validation", () => {
++  test("valid same-origin `?next=` honored after login", async ({ page }) => {
++    await page.goto("/sign-in?next=%2Fdashboard");
++    await page.getByLabel("Username").fill(CARNEY_USERNAME);
++    await page.getByLabel("Password").fill(CARNEY_PASSWORD);
++    await page.getByTestId("sign-in-submit").click();
++    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 8_000 });
++  });
++
++  test("absolute-URL `?next=` falls back to / (cross-origin reject)", async ({
++    page,
++  }) => {
++    // Sign out any leftover session from prior test.
++    await page.goto("/sign-in");
++    await page.evaluate(() => window.sessionStorage.clear());
++    await page.goto("/sign-in?next=https%3A%2F%2Fevil.com%2Fphish");
++    await page.getByLabel("Username").fill(CARNEY_USERNAME);
++    await page.getByLabel("Password").fill(CARNEY_PASSWORD);
++    await page.getByTestId("sign-in-submit").click();
++    await expect(page).toHaveURL(/\/$/, { timeout: 8_000 });
++  });
++
++  test("protocol-relative `?next=` falls back to /", async ({ page }) => {
++    await page.goto("/sign-in");
++    await page.evaluate(() => window.sessionStorage.clear());
++    await page.goto("/sign-in?next=%2F%2Fevil.com%2Fphish");
++    await page.getByLabel("Username").fill(CARNEY_USERNAME);
++    await page.getByLabel("Password").fill(CARNEY_PASSWORD);
++    await page.getByTestId("sign-in-submit").click();
++    await expect(page).toHaveURL(/\/$/, { timeout: 8_000 });
++  });
++});
++
++// I-cd-014 (GH#610): visual baseline for the sign-in route. test.fixme()
++// because chromium-win32 baseline not captured yet; operator runs
++// `--update-snapshots` to write the PNG; follow-up PR commits it.
++test.describe("Sign-in route — visual baseline (chromium-win32; deferred)", () => {
++  test.fixme("sign-in default render visual baseline", async ({ page }) => {
++    await page.goto("/sign-in", { waitUntil: "networkidle" });
++    await expect(page).toHaveScreenshot("sign-in-default.png", {
++      fullPage: true,
++      animations: "disabled",
++      maxDiffPixelRatio: 0.02,
++    });
++  });
++});
+
+# canonical-diff-sha256: 3cb253f9bde9400aa93fdf79f15a3e924e6061f3b97f032b39e6de3f3f436fec
