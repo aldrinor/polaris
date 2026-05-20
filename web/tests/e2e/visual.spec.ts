@@ -8,6 +8,11 @@ import { expect, test } from "@playwright/test";
  * are conservative (≤2% pixel diff, dynamic regions masked) to avoid flake
  * from font hinting, antialiasing, or run-id strings.
  *
+ * The 2 legacy `/inspector/golden_*` visual describes were deleted at
+ * I-cd-013b (#669) after I-cd-013a (#609) rebuilt the Inspector route
+ * to consume signed-bundle fixtures. The new Inspector visual baselines
+ * live alongside `tests/e2e/inspector_route.spec.ts`.
+ *
  * To re-baseline after intentional UI changes:
  *   SCREENSHOT_BASE_URL=http://127.0.0.1:3738 \
  *     npx playwright test --project=chromium tests/e2e/visual.spec.ts \
@@ -29,47 +34,5 @@ test.describe("Visual baselines — research dashboard", () => {
       "dashboard-initial.png",
       SCREENSHOT_OPTIONS,
     );
-  });
-});
-
-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
-test.describe.skip("Visual baselines — Inspector golden_clinical_001", () => {
-  test("Executive summary tab (default)", async ({ page }) => {
-    await page.goto("/inspector/golden_clinical_001", {
-      waitUntil: "networkidle",
-    });
-    // Mask the run-id string in the header (varies per run).
-    await expect(page).toHaveScreenshot("inspector-executive-summary.png", {
-      ...SCREENSHOT_OPTIONS,
-      mask: [page.locator("text=/Run golden_clinical/")],
-    });
-  });
-
-  test("Verified sentences tab", async ({ page }) => {
-    await page.goto("/inspector/golden_clinical_001", {
-      waitUntil: "networkidle",
-    });
-    await page
-      .getByRole("button", { name: /Verified sentences/ })
-      .first()
-      .click();
-    await expect(page).toHaveScreenshot("inspector-verified-sentences.png", {
-      ...SCREENSHOT_OPTIONS,
-      mask: [page.locator("text=/Run golden_clinical/")],
-    });
-  });
-});
-
-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
-test.describe.skip("Visual baselines — Inspector error state", () => {
-  test("/inspector/<bad-runid> error banner", async ({ page }) => {
-    await page.goto("/inspector/does_not_exist_runid_404", {
-      waitUntil: "networkidle",
-    });
-    await expect(page.getByText(/POLARIS backend returned 404/i)).toBeVisible();
-    await expect(page).toHaveScreenshot("inspector-error-state.png", {
-      ...SCREENSHOT_OPTIONS,
-      mask: [page.locator("text=/Run does_not_exist/")],
-    });
   });
 });

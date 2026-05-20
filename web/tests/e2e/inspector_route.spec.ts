@@ -144,3 +144,49 @@ test.describe("Inspector route — unknown runId pending CTA", () => {
     await expect(page.getByTestId("inspector-view")).toHaveCount(0);
   });
 });
+
+// I-cd-013b (GH#669): visual regression baselines for the new Inspector.
+// These are `test.fixme()` because the chromium-win32 baselines have not
+// been captured yet — running with `--update-snapshots` after the dev
+// server is up will write them; a follow-up PR commits them and flips
+// the .fixme() markers off. The legacy chromium-win32 baselines (for
+// the old AuditIR Inspector) were deleted at this PR; the new ones
+// need an operator-manual capture or CI --update-snapshots run.
+const SCREENSHOT_OPTIONS = {
+  fullPage: true,
+  animations: "disabled" as const,
+  maxDiffPixelRatio: 0.02,
+};
+
+test.describe("Inspector route — visual baselines (chromium-win32; deferred)", () => {
+  test.fixme("v1-canonical-success Report tab visual baseline", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    await expect(page).toHaveScreenshot(
+      "inspector-v1-canonical-success-report.png",
+      {
+        ...SCREENSHOT_OPTIONS,
+        mask: [page.locator('[data-testid="bundle-header"]')],
+      },
+    );
+  });
+
+  test.fixme("v1-canonical abort-shape visual baseline", async ({ page }) => {
+    await page.goto("/inspector/v1-canonical", { waitUntil: "networkidle" });
+    await expect(page).toHaveScreenshot("inspector-v1-canonical-abort.png", {
+      ...SCREENSHOT_OPTIONS,
+      mask: [page.locator('[data-testid="bundle-header"]')],
+    });
+  });
+
+  test.fixme("bundle-pending CTA visual baseline", async ({ page }) => {
+    await page.goto("/inspector/does-not-exist", { waitUntil: "networkidle" });
+    await expect(page).toHaveScreenshot("inspector-bundle-pending-cta.png", {
+      ...SCREENSHOT_OPTIONS,
+      mask: [page.locator('[data-testid="cta-run-id"]')],
+    });
+  });
+});

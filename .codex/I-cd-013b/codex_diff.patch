@@ -1,0 +1,618 @@
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index bbb4412f..1eae908c 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -707,3 +707,19 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
+ - convergence_call: accept_remaining
+ - iter-1 catches: 2 more legacy /inspector tests in accessibility.spec.ts; tab-label regex mismatch (Hash chain); 5 missing reasoning-trace fields; signaturePresent hardcoded; Linux testIgnore too broad; placeholder text in fixtures.
+ - next: push as sotaleung-wec, gh pr create, auto-merge.
++
++## I-cd-013b brief — iter 2 APPROVE — 2026-05-20
++
++- doc: `.codex/I-cd-013b/brief.md`
++- iter: 2 of 5 (clean convergence)
++- verdict: APPROVE
++- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 3 (non-blocking)
++- iter trajectory: 1 RC (1 P1 + 3 P2) -> 2 APPROVE
++- scope: 11 files / -172 net LOC (legacy /inspector Playwright migration; deletion-heavy)
++
++## I-cd-013b diff — iter 2 APPROVE — 2026-05-20
++
++- iter: 2 of 5 (iter 1 RC with 1 P1 + 2 P2; iter 2 APPROVE after fold)
++- verdict: APPROVE
++- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 3 (non-blocking)
++- iter-1 fold: 3 toHaveScreenshot -> test.fixme, removed inspector_route from Linux testIgnore, target-size sweep cycles all 6 tabs
+diff --git a/web/components/inspector/reasoning_trace_timeline.tsx b/web/components/inspector/reasoning_trace_timeline.tsx
+index bffa66a9..7990e086 100644
+--- a/web/components/inspector/reasoning_trace_timeline.tsx
++++ b/web/components/inspector/reasoning_trace_timeline.tsx
+@@ -96,7 +96,7 @@ function TraceRecordCard({ record }: { record: ReasoningTraceRecord }) {
+       </div>
+       <button
+         type="button"
+-        className="focus-visible:ring-ring mt-2 inline-flex items-center gap-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
++        className="focus-visible:ring-ring mt-2 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+         onClick={() => setExpanded((v) => !v)}
+         data-testid="toggle-trace-content"
+       >
+diff --git a/web/components/inspector/verified_report_sections.tsx b/web/components/inspector/verified_report_sections.tsx
+index af81f613..b7eba00a 100644
+--- a/web/components/inspector/verified_report_sections.tsx
++++ b/web/components/inspector/verified_report_sections.tsx
+@@ -102,7 +102,7 @@ function SentenceItem({ sentence }: { sentence: VerifiedSentenceShape }) {
+       {sentence.provenance_tokens.length > 0 && (
+         <button
+           type="button"
+-          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex items-center gap-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
++          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+           onClick={() => setShowTokens((v) => !v)}
+           data-testid="toggle-provenance-tokens"
+         >
+diff --git a/web/playwright.config.ts b/web/playwright.config.ts
+index 014067ee..c610d023 100644
+--- a/web/playwright.config.ts
++++ b/web/playwright.config.ts
+@@ -20,11 +20,10 @@ export default defineConfig({
+   // to *-chromium-linux.png and is missing → Playwright would auto-write
+   // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+   // Linux baselines are generated.
+-  // I-cd-013a (GH#609): inspector_route.spec.ts currently contains no
+-  // toHaveScreenshot() assertions, so it runs on Linux too. When visual
+-  // baselines land at I-cd-013b, the testIgnore list will be extended to
+-  // include inspector_route.spec.ts on Linux per the visual.spec.ts
+-  // convention.
++  // I-cd-013b (GH#669): inspector_route.spec.ts visual baselines are
++  // `test.fixme()` (deferred until baselines captured by --update-snapshots
++  // run); non-visual cases run on all platforms. Linux ignore only
++  // applies to visual.spec.ts.
+   testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+   timeout: 30_000,
+   fullyParallel: false, // single browser instance to keep memory bounded on dev
+diff --git a/web/tests/e2e/accessibility.spec.ts b/web/tests/e2e/accessibility.spec.ts
+index e41d004f..dd4b4efe 100644
+--- a/web/tests/e2e/accessibility.spec.ts
++++ b/web/tests/e2e/accessibility.spec.ts
+@@ -63,50 +63,56 @@ test.describe("WCAG-AA — research dashboard", () => {
+   });
+ });
+ 
+-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+-test.describe.skip("WCAG-AA — Inspector golden_clinical_001", () => {
+-  test("Executive summary tab (default) is WCAG-AA clean", async ({ page }) => {
+-    await page.goto("/inspector/golden_clinical_001", {
++// I-cd-013b (GH#669): replaces 3 legacy /inspector/golden_* AuditIR a11y
++// describes with axe assertions against the new signed-bundle Inspector.
++// New route consumes v1.0 BundleManifest fixtures; the 3 tabs we now cover
++// (Report, Reasoning, Hash chain) are the SHAPE-RELEVANT ones — the legacy
++// "Charts" + "Contradictions" tabs don't exist in the rebuild and have no
++// migration target. The CTA surface for unknown runIds (axe-clean check)
++// preserves the legacy "destructive error banner" test intent.
++test.describe("WCAG-AA — Inspector (signed-bundle, post-I-cd-013a)", () => {
++  test("v1-canonical-success Report tab (default) is WCAG-AA clean", async ({
++    page,
++  }) => {
++    await page.goto("/inspector/v1-canonical-success", {
+       waitUntil: "networkidle",
+     });
+     await expectNoA11yViolations(page);
+   });
+ 
+-  test("Verified sentences tab is WCAG-AA clean", async ({ page }) => {
+-    await page.goto("/inspector/golden_clinical_001", {
++  test("v1-canonical-success Reasoning tab is WCAG-AA clean", async ({
++    page,
++  }) => {
++    await page.goto("/inspector/v1-canonical-success", {
+       waitUntil: "networkidle",
+     });
+-    await page
+-      .getByRole("button", { name: /Verified sentences/ })
+-      .first()
+-      .click();
++    await page.getByRole("tab", { name: /^reasoning$/i }).click();
+     await expectNoA11yViolations(page);
+   });
+ 
+-  test("Charts tab is WCAG-AA clean", async ({ page }) => {
+-    await page.goto("/inspector/golden_climate_005", {
++  test("v1-canonical-success Hash chain tab is WCAG-AA clean", async ({
++    page,
++  }) => {
++    await page.goto("/inspector/v1-canonical-success", {
+       waitUntil: "networkidle",
+     });
+-    await page
+-      .getByRole("button", { name: /^Charts/ })
+-      .first()
+-      .click();
+-    await page.waitForSelector(".polaris-vega-chart svg", { timeout: 10_000 });
++    await page.getByRole("tab", { name: /^hash chain$/i }).click();
+     await expectNoA11yViolations(page);
+   });
+-});
+ 
+-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+-test.describe
+-  .skip("WCAG-AA — Inspector golden_housing_002 (contradictions)", () => {
+-  test("Contradictions tab is WCAG-AA clean", async ({ page }) => {
+-    await page.goto("/inspector/golden_housing_002", {
+-      waitUntil: "networkidle",
+-    });
+-    await page
+-      .getByRole("button", { name: /Contradictions/ })
+-      .first()
+-      .click();
++  test("v1-canonical (abort verdict) Report tab is WCAG-AA clean", async ({
++    page,
++  }) => {
++    await page.goto("/inspector/v1-canonical", { waitUntil: "networkidle" });
++    await expectNoA11yViolations(page);
++  });
++
++  test("bundle-pending CTA (unknown runId) is WCAG-AA clean", async ({
++    page,
++  }) => {
++    // Preserves the legacy "/inspector/<bad-runid> destructive error banner"
++    // a11y test intent; the new route renders BundlePendingCta instead.
++    await page.goto("/inspector/does-not-exist", { waitUntil: "networkidle" });
+     await expectNoA11yViolations(page);
+   });
+ });
+@@ -142,27 +148,13 @@ test.describe("WCAG-AA — dashboard upload list with files", () => {
+   });
+ });
+ 
+-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+-test.describe
+-  .skip("WCAG-AA — Inspector verified-sentence with drop_reason", () => {
+-  test("Verified sentences tab with a Dropped sentence is WCAG-AA clean", async ({
+-    page,
+-  }) => {
+-    // Exercises the inspector/[runId]/page.tsx:315 surface (the
+-    // \"Dropped: <reason>\" annotation) which axe never saw before because
+-    // no golden fixture populated drop_reason. Cycle-2 audit P1.1
+-    // demonstrated this was a real WCAG-AA color-contrast hazard until F-7.
+-    await page.goto("/inspector/golden_with_drop_reason", {
+-      waitUntil: "networkidle",
+-    });
+-    await page
+-      .getByRole("button", { name: /Verified sentences/ })
+-      .first()
+-      .click();
+-    await expect(page.getByText(/Dropped:/i)).toBeVisible({ timeout: 8_000 });
+-    await expectNoA11yViolations(page);
+-  });
+-});
++// I-cd-013b (GH#669): the legacy `/inspector/golden_with_drop_reason`
++// a11y test exercised a "Dropped: <reason>" annotation that doesn't
++// exist in the new Inspector — verified_sentences with drop_reason will
++// render via verified_report_sections.tsx in a future PR that extends
++// the rendering (currently the toggle hides them by default). Test
++// intent (axe on dropped-sentence-annotation surface) is preserved as
++// a follow-up when that rendering lands.
+ 
+ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => {
+   // axe's target-size rule has loose overlap-detection; cycle-8 P1.1 and
+@@ -210,17 +202,28 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () =>
+     }
+   });
+ 
+-  // I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+-  test.skip("Inspector golden_clinical_001 — all clickable targets ≥24x24", async ({
++  // I-cd-013b (GH#669): replaces legacy /inspector/golden_clinical_001
++  // target-size sweep with one against the signed-bundle Inspector
++  // (success fixture). Cycles through ALL 6 tabs (Codex diff iter-1 P2 #2)
++  // so Report + Scope + Evidence + Reasoning + Sources + Hash chain
++  // tab-specific controls are exercised before the sweep measures.
++  test("Inspector v1-canonical-success — all clickable targets ≥24x24 across all tabs", async ({
+     page,
+   }) => {
+-    await page.goto("/inspector/golden_clinical_001", {
++    await page.goto("/inspector/v1-canonical-success", {
+       waitUntil: "networkidle",
+     });
+-    await page
+-      .getByRole("button", { name: /Verified sentences/ })
+-      .first()
+-      .click();
++    const tabLabels = [
++      /^report$/i,
++      /^scope$/i,
++      /^evidence$/i,
++      /^reasoning$/i,
++      /^sources$/i,
++      /^hash chain$/i,
++    ];
++    for (const label of tabLabels) {
++      await page.getByRole("tab", { name: label }).click();
++    }
+     const small = await page.evaluate(() => {
+       const results: Array<{
+         tag: string;
+@@ -228,7 +231,7 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () =>
+         w: number;
+         h: number;
+       }> = [];
+-      const sel = 'button, label, [role="button"], a[href]';
++      const sel = 'button, label, [role="button"], [role="tab"], a[href]';
+       document.querySelectorAll(sel).forEach((el) => {
+         if (!(el instanceof HTMLElement)) return;
+         const r = el.getBoundingClientRect();
+@@ -281,22 +284,13 @@ test.describe("WCAG 2.1.1 keyboard sweep — template radiogroup operable", () =
+   });
+ });
+ 
+-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+-test.describe.skip("WCAG-AA — Inspector error states", () => {
+-  test("Inspector destructive error banner (invalid runId) is WCAG-AA clean", async ({
+-    page,
+-  }) => {
+-    await page.goto("/inspector/does_not_exist_runid_404", {
+-      waitUntil: "networkidle",
+-    });
+-    // Error banner pattern (border-only + text-foreground font-medium) —
+-    // verify axe doesn't flag the destructive surface.
+-    await expect(page.getByText(/POLARIS backend returned 404/i)).toBeVisible({
+-      timeout: 8_000,
+-    });
+-    await expectNoA11yViolations(page);
+-  });
+-
++// I-cd-013b (GH#669): the legacy /inspector/<bad-runid> destructive-error
++// axe test was MIGRATED into the "WCAG-AA — Inspector (signed-bundle,
++// post-I-cd-013a)" describe above as the bundle-pending CTA axe check.
++// The /runs/<bad-runid> destructive-error test below stays here — it
++// targets the /runs/[runId] route which lands at I-cd-025 and uses a
++// different (legacy) error-banner pattern.
++test.describe("WCAG-AA — Run-detail error states", () => {
+   test("Run-detail destructive error banner (invalid runId) is WCAG-AA clean", async ({
+     page,
+   }) => {
+diff --git a/web/tests/e2e/inspector.spec.ts b/web/tests/e2e/inspector.spec.ts
+index 9231eec4..107726ba 100644
+--- a/web/tests/e2e/inspector.spec.ts
++++ b/web/tests/e2e/inspector.spec.ts
+@@ -1,108 +1,18 @@
+ import { expect, test } from "@playwright/test";
+ 
+ /**
+- * Phase 2C.1 — cross-feature integration tests for the Inspector route.
++ * Dashboard scope-discovery flow tests.
+  *
+- * Each test exercises one user-visible flow against a real
+- * `polaris_v6.api.app` backend. No mocks — the inspector page reads the
+- * faithful AuditIR via `GET /api/inspector/runs/{id}` and the verified
+- * evidence spans via `GET /api/inspector/runs/{id}/evidence`. The
+- * golden-fixture-only `getBundle()`/`EvidenceContract` dependency was
+- * removed in I-rdy-008 (#504) slice 7b (PR #597).
++ * Originally part of a broader Inspector + Dashboard suite; the 3 legacy
++ * `/inspector/golden_*` describes (AuditIR shape) were deleted at
++ * I-cd-013b (#669) after I-cd-013a (#609) rebuilt the Inspector to
++ * consume signed-bundle fixtures. The new Inspector e2e lives at
++ * `tests/e2e/inspector_route.spec.ts`.
++ *
++ * The Dashboard scope-discovery describe below is preserved verbatim
++ * (it does not touch the Inspector route).
+  */
+ 
+-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+-test.describe.skip("Inspector — golden_clinical_001", () => {
+-  test.beforeEach(async ({ page }) => {
+-    await page.goto("/inspector/golden_clinical_001", {
+-      waitUntil: "networkidle",
+-    });
+-  });
+-
+-  test("renders title and three KPI cards", async ({ page }) => {
+-    await expect(page.getByText(/Run golden_clinical_001/i)).toBeVisible();
+-    await expect(page.getByText(/Pipeline status/i)).toBeVisible();
+-    await expect(page.getByText(/Two-family invariant/i)).toBeVisible();
+-    await expect(page.getByText(/^Cost$/i)).toBeVisible();
+-  });
+-
+-  test("two-family invariant shows PASS for golden run", async ({ page }) => {
+-    await expect(page.getByText(/PASS .* deepseek-v4-flash/i)).toBeVisible();
+-  });
+-
+-  test("default tab is Executive summary and lands on KPI strip", async ({
+-    page,
+-  }) => {
+-    await expect(page.getByText(/Executive briefing/i)).toBeVisible();
+-    await expect(page.getByText(/^Verified$/i)).toBeVisible();
+-    await expect(page.getByText(/^Sources$/i)).toBeVisible();
+-  });
+-
+-  test("clicking Verified sentences tab shows provenance tokens", async ({
+-    page,
+-  }) => {
+-    await page
+-      .getByRole("button", { name: /Verified sentences/ })
+-      .first()
+-      .click();
+-    await expect(page.getByText(/\[#ev:ev_clin_001:1200-1450\]/)).toBeVisible();
+-  });
+-
+-  test("Evidence pool tab settles into a terminal PoolTab state", async ({
+-    page,
+-  }) => {
+-    // I-rdy-008 (#504) slice 7b migrated PoolTab off the golden-fixture-only
+-    // getBundle() onto GET /api/inspector/runs/{id}/evidence (the bundle
+-    // Export button was removed in the same slice). The tab resolves to one
+-    // of three terminal states: grouped evidence rows ("<id> · tier <T> ·
+-    // <N> span(s)"), "No verified evidence spans for this run.", or
+-    // "Evidence unavailable:". The transient "Loading evidence…"
+-    // (evidence === null) state is NOT terminal — a test that accepts it
+-    // would pass even if the evidence fetch never resolved.
+-    await page
+-      .getByRole("button", { name: /Evidence pool/ })
+-      .first()
+-      .click();
+-    const terminalState = page.getByText(
+-      /· tier .+ · \d+ span|No verified evidence spans for this run\.|Evidence unavailable:/,
+-    );
+-    await expect(terminalState.first()).toBeVisible({ timeout: 15_000 });
+-    await expect(page.getByText("Loading evidence…")).toHaveCount(0);
+-  });
+-});
+-
+-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+-test.describe.skip("Inspector — golden_housing_002 (contradiction)", () => {
+-  test("shows contradiction count and resolution badge", async ({ page }) => {
+-    await page.goto("/inspector/golden_housing_002", {
+-      waitUntil: "networkidle",
+-    });
+-    await page
+-      .getByRole("button", { name: /Contradictions/ })
+-      .first()
+-      .click();
+-    await expect(page.getByText(/noted_both/)).toBeVisible();
+-  });
+-});
+-
+-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+-test.describe.skip("Inspector — Charts tab end-to-end", () => {
+-  test("Vega-Lite SVG renders for forest_plot on climate run", async ({
+-    page,
+-  }) => {
+-    await page.goto("/inspector/golden_climate_005", {
+-      waitUntil: "networkidle",
+-    });
+-    await page
+-      .getByRole("button", { name: /^Charts/ })
+-      .first()
+-      .click();
+-    await page.waitForSelector(".polaris-vega-chart svg", { timeout: 10_000 });
+-    const svgCount = await page.locator(".polaris-vega-chart svg").count();
+-    expect(svgCount).toBeGreaterThanOrEqual(1);
+-  });
+-});
+-
+ test.describe("Dashboard — scope discovery flow", () => {
+   test("rejects clinical-treatment-recommendation prompt", async ({ page }) => {
+     await page.goto("/dashboard", { waitUntil: "networkidle" });
+diff --git a/web/tests/e2e/inspector_route.spec.ts b/web/tests/e2e/inspector_route.spec.ts
+index 1edff804..e2f5508c 100644
+--- a/web/tests/e2e/inspector_route.spec.ts
++++ b/web/tests/e2e/inspector_route.spec.ts
+@@ -144,3 +144,49 @@ test.describe("Inspector route — unknown runId pending CTA", () => {
+     await expect(page.getByTestId("inspector-view")).toHaveCount(0);
+   });
+ });
++
++// I-cd-013b (GH#669): visual regression baselines for the new Inspector.
++// These are `test.fixme()` because the chromium-win32 baselines have not
++// been captured yet — running with `--update-snapshots` after the dev
++// server is up will write them; a follow-up PR commits them and flips
++// the .fixme() markers off. The legacy chromium-win32 baselines (for
++// the old AuditIR Inspector) were deleted at this PR; the new ones
++// need an operator-manual capture or CI --update-snapshots run.
++const SCREENSHOT_OPTIONS = {
++  fullPage: true,
++  animations: "disabled" as const,
++  maxDiffPixelRatio: 0.02,
++};
++
++test.describe("Inspector route — visual baselines (chromium-win32; deferred)", () => {
++  test.fixme("v1-canonical-success Report tab visual baseline", async ({
++    page,
++  }) => {
++    await page.goto("/inspector/v1-canonical-success", {
++      waitUntil: "networkidle",
++    });
++    await expect(page).toHaveScreenshot(
++      "inspector-v1-canonical-success-report.png",
++      {
++        ...SCREENSHOT_OPTIONS,
++        mask: [page.locator('[data-testid="bundle-header"]')],
++      },
++    );
++  });
++
++  test.fixme("v1-canonical abort-shape visual baseline", async ({ page }) => {
++    await page.goto("/inspector/v1-canonical", { waitUntil: "networkidle" });
++    await expect(page).toHaveScreenshot("inspector-v1-canonical-abort.png", {
++      ...SCREENSHOT_OPTIONS,
++      mask: [page.locator('[data-testid="bundle-header"]')],
++    });
++  });
++
++  test.fixme("bundle-pending CTA visual baseline", async ({ page }) => {
++    await page.goto("/inspector/does-not-exist", { waitUntil: "networkidle" });
++    await expect(page).toHaveScreenshot("inspector-bundle-pending-cta.png", {
++      ...SCREENSHOT_OPTIONS,
++      mask: [page.locator('[data-testid="cta-run-id"]')],
++    });
++  });
++});
+diff --git a/web/tests/e2e/performance_hover.spec.ts b/web/tests/e2e/performance_hover.spec.ts
+deleted file mode 100644
+index 3aa8baf7..00000000
+--- a/web/tests/e2e/performance_hover.spec.ts
++++ /dev/null
+@@ -1,90 +0,0 @@
+-import { expect, test } from "@playwright/test";
+-
+-/**
+- * Phase 2C.4 F-2 (root_cause) — measure REAL hover-to-tooltip latency.
+- *
+- * Closes outputs/audits/continuous/4fe03f7_audit.md P1.2: the original
+- * 2C.4 spec docstring promised hover-latency measurement but no test
+- * file actually exercised it.
+- *
+- * Approach
+- * --------
+- * `EvidenceTooltip` wraps base-ui `Tooltip.Root`. On mouseenter the lib
+- * waits its open-delay (~600ms in base-ui v1.4 default) before showing
+- * the popup. So end-to-end user-perceived latency is:
+- *
+- *   total_ms = base_ui_open_delay_ms + react_render_ms
+- *
+- * The render contribution is what we care about for perf regressions.
+- * We bound the WHOLE thing (1000ms = 600ms typical open-delay + 400ms
+- * render budget) so a regression in either component fails the gate.
+- *
+- * Hover target: the `[#ev:ev_clin_001:1200-1450]` provenance token
+- * inside the Verified-sentences tab on golden_clinical_001.
+- */
+-
+-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+-test.describe.skip("Performance — hover-to-tooltip end-to-end latency", () => {
+-  // The popup unique signature is the `<p>` containing `<evidenceId> · tier <T>`
+-  // text rendered first inside Tooltip.Popup (see EvidenceTooltip component).
+-  // base-ui doesn't put role="tooltip" on Popup so we content-select instead.
+-  const POPUP_TEXT = /ev_clin_001 · tier T1/;
+-
+-  test("token hover → tooltip visible < 1000ms (golden_clinical_001)", async ({
+-    page,
+-  }) => {
+-    await page.goto("/inspector/golden_clinical_001", {
+-      waitUntil: "networkidle",
+-    });
+-    await page
+-      .getByRole("button", { name: /Verified sentences/ })
+-      .first()
+-      .click();
+-
+-    const trigger = page
+-      .locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/")
+-      .first();
+-    await trigger.waitFor({ state: "visible", timeout: 5_000 });
+-
+-    const start = Date.now();
+-    await trigger.hover();
+-    await page.getByText(POPUP_TEXT).first().waitFor({
+-      state: "visible",
+-      timeout: 5_000,
+-    });
+-    const totalMs = Date.now() - start;
+-
+-    expect(totalMs).toBeLessThan(1000);
+-  });
+-
+-  test("hover-out hides tooltip < 500ms", async ({ page }) => {
+-    await page.goto("/inspector/golden_clinical_001", {
+-      waitUntil: "networkidle",
+-    });
+-    await page
+-      .getByRole("button", { name: /Verified sentences/ })
+-      .first()
+-      .click();
+-
+-    const trigger = page
+-      .locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/")
+-      .first();
+-    await trigger.waitFor({ state: "visible", timeout: 5_000 });
+-    await trigger.hover();
+-    await page.getByText(POPUP_TEXT).first().waitFor({
+-      state: "visible",
+-      timeout: 5_000,
+-    });
+-
+-    // Move the cursor far away to trigger close.
+-    const start = Date.now();
+-    await page.mouse.move(0, 0);
+-    await page.getByText(POPUP_TEXT).first().waitFor({
+-      state: "hidden",
+-      timeout: 1_500,
+-    });
+-    const closeMs = Date.now() - start;
+-
+-    expect(closeMs).toBeLessThan(500);
+-  });
+-});
+diff --git a/web/tests/e2e/visual.spec.ts b/web/tests/e2e/visual.spec.ts
+index 55f7c32b..df02ed6d 100644
+--- a/web/tests/e2e/visual.spec.ts
++++ b/web/tests/e2e/visual.spec.ts
+@@ -8,6 +8,11 @@ import { expect, test } from "@playwright/test";
+  * are conservative (≤2% pixel diff, dynamic regions masked) to avoid flake
+  * from font hinting, antialiasing, or run-id strings.
+  *
++ * The 2 legacy `/inspector/golden_*` visual describes were deleted at
++ * I-cd-013b (#669) after I-cd-013a (#609) rebuilt the Inspector route
++ * to consume signed-bundle fixtures. The new Inspector visual baselines
++ * live alongside `tests/e2e/inspector_route.spec.ts`.
++ *
+  * To re-baseline after intentional UI changes:
+  *   SCREENSHOT_BASE_URL=http://127.0.0.1:3738 \
+  *     npx playwright test --project=chromium tests/e2e/visual.spec.ts \
+@@ -31,45 +36,3 @@ test.describe("Visual baselines — research dashboard", () => {
+     );
+   });
+ });
+-
+-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+-test.describe.skip("Visual baselines — Inspector golden_clinical_001", () => {
+-  test("Executive summary tab (default)", async ({ page }) => {
+-    await page.goto("/inspector/golden_clinical_001", {
+-      waitUntil: "networkidle",
+-    });
+-    // Mask the run-id string in the header (varies per run).
+-    await expect(page).toHaveScreenshot("inspector-executive-summary.png", {
+-      ...SCREENSHOT_OPTIONS,
+-      mask: [page.locator("text=/Run golden_clinical/")],
+-    });
+-  });
+-
+-  test("Verified sentences tab", async ({ page }) => {
+-    await page.goto("/inspector/golden_clinical_001", {
+-      waitUntil: "networkidle",
+-    });
+-    await page
+-      .getByRole("button", { name: /Verified sentences/ })
+-      .first()
+-      .click();
+-    await expect(page).toHaveScreenshot("inspector-verified-sentences.png", {
+-      ...SCREENSHOT_OPTIONS,
+-      mask: [page.locator("text=/Run golden_clinical/")],
+-    });
+-  });
+-});
+-
+-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+-test.describe.skip("Visual baselines — Inspector error state", () => {
+-  test("/inspector/<bad-runid> error banner", async ({ page }) => {
+-    await page.goto("/inspector/does_not_exist_runid_404", {
+-      waitUntil: "networkidle",
+-    });
+-    await expect(page.getByText(/POLARIS backend returned 404/i)).toBeVisible();
+-    await expect(page).toHaveScreenshot("inspector-error-state.png", {
+-      ...SCREENSHOT_OPTIONS,
+-      mask: [page.locator("text=/Run does_not_exist/")],
+-    });
+-  });
+-});
+diff --git a/web/tests/e2e/visual.spec.ts-snapshots/inspector-error-state-chromium-win32.png b/web/tests/e2e/visual.spec.ts-snapshots/inspector-error-state-chromium-win32.png
+deleted file mode 100644
+index 4df10ed2..00000000
+Binary files a/web/tests/e2e/visual.spec.ts-snapshots/inspector-error-state-chromium-win32.png and /dev/null differ
+diff --git a/web/tests/e2e/visual.spec.ts-snapshots/inspector-executive-summary-chromium-win32.png b/web/tests/e2e/visual.spec.ts-snapshots/inspector-executive-summary-chromium-win32.png
+deleted file mode 100644
+index 4647ae17..00000000
+Binary files a/web/tests/e2e/visual.spec.ts-snapshots/inspector-executive-summary-chromium-win32.png and /dev/null differ
+diff --git a/web/tests/e2e/visual.spec.ts-snapshots/inspector-verified-sentences-chromium-win32.png b/web/tests/e2e/visual.spec.ts-snapshots/inspector-verified-sentences-chromium-win32.png
+deleted file mode 100644
+index d4b8c4ac..00000000
+Binary files a/web/tests/e2e/visual.spec.ts-snapshots/inspector-verified-sentences-chromium-win32.png and /dev/null differ
+
+# canonical-diff-sha256: a26bf024ab9ae4d451028ba5d4ad33e7f5b1e92369217387ce9120f47895fd47

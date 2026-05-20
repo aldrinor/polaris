@@ -707,3 +707,19 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
 - convergence_call: accept_remaining
 - iter-1 catches: 2 more legacy /inspector tests in accessibility.spec.ts; tab-label regex mismatch (Hash chain); 5 missing reasoning-trace fields; signaturePresent hardcoded; Linux testIgnore too broad; placeholder text in fixtures.
 - next: push as sotaleung-wec, gh pr create, auto-merge.
+
+## I-cd-013b brief — iter 2 APPROVE — 2026-05-20
+
+- doc: `.codex/I-cd-013b/brief.md`
+- iter: 2 of 5 (clean convergence)
+- verdict: APPROVE
+- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 3 (non-blocking)
+- iter trajectory: 1 RC (1 P1 + 3 P2) -> 2 APPROVE
+- scope: 11 files / -172 net LOC (legacy /inspector Playwright migration; deletion-heavy)
+
+## I-cd-013b diff — iter 2 APPROVE — 2026-05-20
+
+- iter: 2 of 5 (iter 1 RC with 1 P1 + 2 P2; iter 2 APPROVE after fold)
+- verdict: APPROVE
+- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 3 (non-blocking)
+- iter-1 fold: 3 toHaveScreenshot -> test.fixme, removed inspector_route from Linux testIgnore, target-size sweep cycles all 6 tabs
