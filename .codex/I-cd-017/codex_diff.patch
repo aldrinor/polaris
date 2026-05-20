@@ -660,7 +660,7 @@ index 00000000..9ada6322
 +    assert response.status_code == 200
 +    assert response.json()["pass_rate"] == 0.0
 diff --git a/web/app/pin_replay/page.tsx b/web/app/pin_replay/page.tsx
-index 1bf1bfdc..3f9d8d93 100644
+index 1bf1bfdc..404682dd 100644
 --- a/web/app/pin_replay/page.tsx
 +++ b/web/app/pin_replay/page.tsx
 @@ -72,12 +72,42 @@ function SnapshotCard({
@@ -680,8 +680,8 @@ index 1bf1bfdc..3f9d8d93 100644
 +        <p className="text-muted-foreground mt-4 text-sm">
 +          No pin data available yet. The frontend client for{" "}
 +          <code>/api/v6/runs/{"{run_id}"}/pins</code> ships at Seq 29 / I-A-12 /
-+          #619 (full /pin_replay rebuild). The backend route is live in
-+          I-cd-017 / #627.
++          #619 (full /pin_replay rebuild). The backend route is live in I-cd-017
++          / #627.
 +        </p>
 +      </div>
 +    </main>
@@ -857,75 +857,291 @@ index 08415335..295adc31 100644
  }, info) => {
    chromium_only(info);
 diff --git a/web/tests/e2e/pin_regression_alert.spec.ts b/web/tests/e2e/pin_regression_alert.spec.ts
-index d2a28333..74ea9198 100644
+index d2a28333..2c6f5790 100644
 --- a/web/tests/e2e/pin_regression_alert.spec.ts
 +++ b/web/tests/e2e/pin_regression_alert.spec.ts
-@@ -1,5 +1,7 @@
+@@ -1,28 +1,32 @@
  import { expect, test } from "@playwright/test";
  
+-test("Regression alert fires when comparing later-A to earlier-B (metric drop)", async ({
+-  page,
+-}) => {
+-  await page.goto("/pin_replay");
 +// I-cd-017 (#627): demo-data dependency; live-route wiring at Seq 29 / #619.
-+test.describe.skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
- test("Regression alert fires when comparing later-A to earlier-B (metric drop)", async ({
-   page,
- }) => {
-@@ -26,3 +28,4 @@ test("Regression alert fires when comparing later-A to earlier-B (metric drop)",
-   await page.getByTestId("pin-snapshot-b-date").selectOption("2026-04-30");
-   await expect(page.getByTestId("regression-alert")).toHaveCount(0);
++test.describe
++  .skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
++  test("Regression alert fires when comparing later-A to earlier-B (metric drop)", async ({
++    page,
++  }) => {
++    await page.goto("/pin_replay");
+ 
+-  // Initial load: A=2026-01-15 (72%), B=2026-04-30 (85%) — improvement, no alert.
+-  await expect(page.getByTestId("regression-alert")).toHaveCount(0);
++    // Initial load: A=2026-01-15 (72%), B=2026-04-30 (85%) — improvement, no alert.
++    await expect(page.getByTestId("regression-alert")).toHaveCount(0);
+ 
+-  // Swap: A=2026-04-30 (85%), B=2026-01-15 (72%) — pass rate dropped 13 pct points.
+-  await page.getByTestId("pin-snapshot-a-date").selectOption("2026-04-30");
+-  await page.getByTestId("pin-snapshot-b-date").selectOption("2026-01-15");
++    // Swap: A=2026-04-30 (85%), B=2026-01-15 (72%) — pass rate dropped 13 pct points.
++    await page.getByTestId("pin-snapshot-a-date").selectOption("2026-04-30");
++    await page.getByTestId("pin-snapshot-b-date").selectOption("2026-01-15");
+ 
+-  await expect(page.getByTestId("regression-alert")).toBeVisible();
+-  await expect(page.getByTestId("regression-alert-pass_rate")).toContainText(
+-    /dropped 13/,
+-  );
+-  // Sentence count also dropped 23 → 18 = 5 (> threshold 3).
+-  await expect(
+-    page.getByTestId("regression-alert-verified_sentence_count"),
+-  ).toContainText(/dropped 5/);
++    await expect(page.getByTestId("regression-alert")).toBeVisible();
++    await expect(page.getByTestId("regression-alert-pass_rate")).toContainText(
++      /dropped 13/,
++    );
++    // Sentence count also dropped 23 → 18 = 5 (> threshold 3).
++    await expect(
++      page.getByTestId("regression-alert-verified_sentence_count"),
++    ).toContainText(/dropped 5/);
+ 
+-  // Switch back to improvement: A=2026-01-15, B=2026-04-30 — alert disappears.
+-  await page.getByTestId("pin-snapshot-a-date").selectOption("2026-01-15");
+-  await page.getByTestId("pin-snapshot-b-date").selectOption("2026-04-30");
+-  await expect(page.getByTestId("regression-alert")).toHaveCount(0);
++    // Switch back to improvement: A=2026-01-15, B=2026-04-30 — alert disappears.
++    await page.getByTestId("pin-snapshot-a-date").selectOption("2026-01-15");
++    await page.getByTestId("pin-snapshot-b-date").selectOption("2026-04-30");
++    await expect(page.getByTestId("regression-alert")).toHaveCount(0);
++  });
  });
-+});
 diff --git a/web/tests/e2e/pin_replay.spec.ts b/web/tests/e2e/pin_replay.spec.ts
-index e3bc059d..ff1d1694 100644
+index e3bc059d..653d0317 100644
 --- a/web/tests/e2e/pin_replay.spec.ts
 +++ b/web/tests/e2e/pin_replay.spec.ts
-@@ -1,5 +1,9 @@
+@@ -1,40 +1,46 @@
  import { expect, test } from "@playwright/test";
  
+-test("Pin replay route renders 2 snapshot cards + delta; switching dates updates", async ({
+-  page,
+-}) => {
+-  await page.goto("/pin_replay");
 +// I-cd-017 (#627): DEMO_PIN_REGISTRY removed; live client wiring lands at
 +// Seq 29 / I-A-12 / #619 (full /pin_replay rebuild). Re-enable this spec
 +// after the rebuild fetches from `/api/v6/runs/{run_id}/pins`.
-+test.describe.skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
- test("Pin replay route renders 2 snapshot cards + delta; switching dates updates", async ({
-   page,
- }) => {
-@@ -38,3 +42,4 @@ test("Pin replay route renders 2 snapshot cards + delta; switching dates updates
-     "0",
-   );
++test.describe
++  .skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
++  test("Pin replay route renders 2 snapshot cards + delta; switching dates updates", async ({
++    page,
++  }) => {
++    await page.goto("/pin_replay");
+ 
+-  await expect(page.getByTestId("pin-snapshot-a")).toBeVisible();
+-  await expect(page.getByTestId("pin-snapshot-b")).toBeVisible();
+-  await expect(page.getByTestId("pin-replay-delta")).toBeVisible();
++    await expect(page.getByTestId("pin-snapshot-a")).toBeVisible();
++    await expect(page.getByTestId("pin-snapshot-b")).toBeVisible();
++    await expect(page.getByTestId("pin-replay-delta")).toBeVisible();
+ 
+-  // Initial state: A = first registry date (2026-01-15), B = last (2026-04-30).
+-  await expect(page.getByTestId("pin-snapshot-a-date")).toHaveValue(
+-    "2026-01-15",
+-  );
+-  await expect(page.getByTestId("pin-snapshot-b-date")).toHaveValue(
+-    "2026-04-30",
+-  );
+-  await expect(page.getByTestId("pin-snapshot-a-pass-rate")).toContainText(
+-    "72%",
+-  );
+-  await expect(page.getByTestId("pin-snapshot-b-pass-rate")).toContainText(
+-    "85%",
+-  );
+-  await expect(page.getByTestId("pin-replay-delta-pass-rate")).toContainText(
+-    "+13%",
+-  );
++    // Initial state: A = first registry date (2026-01-15), B = last (2026-04-30).
++    await expect(page.getByTestId("pin-snapshot-a-date")).toHaveValue(
++      "2026-01-15",
++    );
++    await expect(page.getByTestId("pin-snapshot-b-date")).toHaveValue(
++      "2026-04-30",
++    );
++    await expect(page.getByTestId("pin-snapshot-a-pass-rate")).toContainText(
++      "72%",
++    );
++    await expect(page.getByTestId("pin-snapshot-b-pass-rate")).toContainText(
++      "85%",
++    );
++    await expect(page.getByTestId("pin-replay-delta-pass-rate")).toContainText(
++      "+13%",
++    );
+ 
+-  // Switch A to the later date — A and B now identical, delta should be 0.
+-  await page.getByTestId("pin-snapshot-a-date").selectOption("2026-04-30");
+-  await expect(page.getByTestId("pin-snapshot-a-pass-rate")).toContainText(
+-    "85%",
+-  );
+-  await expect(page.getByTestId("pin-replay-delta-pass-rate")).toContainText(
+-    "0%",
+-  );
+-  await expect(page.getByTestId("pin-replay-delta-sentences")).toContainText(
+-    "0",
+-  );
++    // Switch A to the later date — A and B now identical, delta should be 0.
++    await page.getByTestId("pin-snapshot-a-date").selectOption("2026-04-30");
++    await expect(page.getByTestId("pin-snapshot-a-pass-rate")).toContainText(
++      "85%",
++    );
++    await expect(page.getByTestId("pin-replay-delta-pass-rate")).toContainText(
++      "0%",
++    );
++    await expect(page.getByTestId("pin-replay-delta-sentences")).toContainText(
++      "0",
++    );
++  });
  });
-+});
 diff --git a/web/tests/e2e/pin_replay_diff.spec.ts b/web/tests/e2e/pin_replay_diff.spec.ts
-index 45c7e5a8..5f5b2758 100644
+index 45c7e5a8..ea7ed0db 100644
 --- a/web/tests/e2e/pin_replay_diff.spec.ts
 +++ b/web/tests/e2e/pin_replay_diff.spec.ts
-@@ -1,5 +1,7 @@
+@@ -1,41 +1,45 @@
  import { expect, test } from "@playwright/test";
  
+-test("Pin replay renders timeseries charts and diff side-panel on demand", async ({
+-  page,
+-}) => {
+-  await page.goto("/pin_replay");
 +// I-cd-017 (#627): demo-data dependency; live-route wiring at Seq 29 / #619.
-+test.describe.skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
- test("Pin replay renders timeseries charts and diff side-panel on demand", async ({
-   page,
- }) => {
-@@ -39,3 +41,4 @@ test("Pin replay renders timeseries charts and diff side-panel on demand", async
++test.describe
++  .skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
++  test("Pin replay renders timeseries charts and diff side-panel on demand", async ({
++    page,
++  }) => {
++    await page.goto("/pin_replay");
  
-   await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+-  // Two timeseries charts render with svg.
+-  const pass_rate_section = page.getByTestId("pin-timeseries-pass-rate");
+-  const sentence_section = page.getByTestId("pin-timeseries-sentence-count");
+-  await expect(pass_rate_section).toBeVisible();
+-  await expect(sentence_section).toBeVisible();
+-  await expect(pass_rate_section.locator("svg").first()).toBeVisible({
+-    timeout: 10_000,
+-  });
+-  await expect(sentence_section.locator("svg").first()).toBeVisible({
+-    timeout: 10_000,
+-  });
++    // Two timeseries charts render with svg.
++    const pass_rate_section = page.getByTestId("pin-timeseries-pass-rate");
++    const sentence_section = page.getByTestId("pin-timeseries-sentence-count");
++    await expect(pass_rate_section).toBeVisible();
++    await expect(sentence_section).toBeVisible();
++    await expect(pass_rate_section.locator("svg").first()).toBeVisible({
++      timeout: 10_000,
++    });
++    await expect(sentence_section.locator("svg").first()).toBeVisible({
++      timeout: 10_000,
++    });
+ 
+-  // Open the diff side-panel.
+-  await page.getByTestId("pin-show-diff").click();
+-  await expect(page.getByTestId("pin-diff-pane")).toBeVisible();
++    // Open the diff side-panel.
++    await page.getByTestId("pin-show-diff").click();
++    await expect(page.getByTestId("pin-diff-pane")).toBeVisible();
+ 
+-  // Per-field rows visible.
+-  await expect(page.getByTestId("pin-diff-row-pass_rate")).toBeVisible();
+-  await expect(
+-    page.getByTestId("pin-diff-row-verified_sentence_count"),
+-  ).toBeVisible();
+-  await expect(page.getByTestId("pin-diff-row-query")).toBeVisible();
++    // Per-field rows visible.
++    await expect(page.getByTestId("pin-diff-row-pass_rate")).toBeVisible();
++    await expect(
++      page.getByTestId("pin-diff-row-verified_sentence_count"),
++    ).toBeVisible();
++    await expect(page.getByTestId("pin-diff-row-query")).toBeVisible();
+ 
+-  // Numeric delta on pass_rate is "+13%" (B=2026-04-30 85% − A=2026-01-15 72%).
+-  await expect(page.getByTestId("pin-diff-delta-pass_rate")).toContainText(
+-    "+13%",
+-  );
+-  // String field delta is "(unchanged)" since same query string.
+-  await expect(page.getByTestId("pin-diff-delta-query")).toContainText(
+-    "unchanged",
+-  );
++    // Numeric delta on pass_rate is "+13%" (B=2026-04-30 85% − A=2026-01-15 72%).
++    await expect(page.getByTestId("pin-diff-delta-pass_rate")).toContainText(
++      "+13%",
++    );
++    // String field delta is "(unchanged)" since same query string.
++    await expect(page.getByTestId("pin-diff-delta-query")).toContainText(
++      "unchanged",
++    );
+ 
+-  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
++    await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
++  });
  });
-+});
 diff --git a/web/tests/e2e/pin_retraction_handled.spec.ts b/web/tests/e2e/pin_retraction_handled.spec.ts
-index 3d0d3d89..cd60bfd9 100644
+index 3d0d3d89..7f7c50d8 100644
 --- a/web/tests/e2e/pin_retraction_handled.spec.ts
 +++ b/web/tests/e2e/pin_retraction_handled.spec.ts
-@@ -1,5 +1,7 @@
+@@ -1,29 +1,33 @@
  import { expect, test } from "@playwright/test";
  
+-test("Pin replay attributes sentence-count regression to newly retracted sources", async ({
+-  page,
+-}) => {
+-  await page.goto("/pin_replay");
 +// I-cd-017 (#627): demo-data dependency; live-route wiring at Seq 29 / #619.
-+test.describe.skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
- test("Pin replay attributes sentence-count regression to newly retracted sources", async ({
-   page,
- }) => {
-@@ -27,3 +29,4 @@ test("Pin replay attributes sentence-count regression to newly retracted sources
-   // demo-clin-002 was already retracted in A, so it must NOT be attributed.
-   await expect(attribution).not.toContainText("demo-clin-002");
++test.describe
++  .skip("legacy pin-replay demo (Seq 29 / #619 will re-enable)", () => {
++  test("Pin replay attributes sentence-count regression to newly retracted sources", async ({
++    page,
++  }) => {
++    await page.goto("/pin_replay");
+ 
+-  // A=2026-04-30 (retracted: demo-clin-002),
+-  // B=2026-05-15 (retracted: demo-clin-002 + demo-clin-005).
+-  // Sentence-count drops 23 → 17 = 6 (>3 threshold).
+-  // Pass-rate drops 85% → 83% = 2pp (<5pp threshold), so NO pass-rate alert.
+-  await page.getByTestId("pin-snapshot-a-date").selectOption("2026-04-30");
+-  await page.getByTestId("pin-snapshot-b-date").selectOption("2026-05-15");
++    // A=2026-04-30 (retracted: demo-clin-002),
++    // B=2026-05-15 (retracted: demo-clin-002 + demo-clin-005).
++    // Sentence-count drops 23 → 17 = 6 (>3 threshold).
++    // Pass-rate drops 85% → 83% = 2pp (<5pp threshold), so NO pass-rate alert.
++    await page.getByTestId("pin-snapshot-a-date").selectOption("2026-04-30");
++    await page.getByTestId("pin-snapshot-b-date").selectOption("2026-05-15");
+ 
+-  await expect(page.getByTestId("regression-alert")).toBeVisible();
+-  await expect(
+-    page.getByTestId("regression-alert-verified_sentence_count"),
+-  ).toBeVisible();
++    await expect(page.getByTestId("regression-alert")).toBeVisible();
++    await expect(
++      page.getByTestId("regression-alert-verified_sentence_count"),
++    ).toBeVisible();
+ 
+-  // Pass-rate alert must NOT fire (2pp drop is under threshold).
+-  await expect(page.getByTestId("regression-alert-pass_rate")).toHaveCount(0);
++    // Pass-rate alert must NOT fire (2pp drop is under threshold).
++    await expect(page.getByTestId("regression-alert-pass_rate")).toHaveCount(0);
+ 
+-  // Retraction attribution shows demo-clin-005 (newly retracted between A and B).
+-  const attribution = page.getByTestId("regression-retraction-attribution");
+-  await expect(attribution).toBeVisible();
+-  await expect(attribution).toContainText("demo-clin-005");
+-  // demo-clin-002 was already retracted in A, so it must NOT be attributed.
+-  await expect(attribution).not.toContainText("demo-clin-002");
++    // Retraction attribution shows demo-clin-005 (newly retracted between A and B).
++    const attribution = page.getByTestId("regression-retraction-attribution");
++    await expect(attribution).toBeVisible();
++    await expect(attribution).toContainText("demo-clin-005");
++    // demo-clin-002 was already retracted in A, so it must NOT be attributed.
++    await expect(attribution).not.toContainText("demo-clin-002");
++  });
  });
-+});
 diff --git a/web/tests/e2e/visual_60_baselines.spec.ts b/web/tests/e2e/visual_60_baselines.spec.ts
 index 1e610c3b..7eabfa75 100644
 --- a/web/tests/e2e/visual_60_baselines.spec.ts
@@ -947,4 +1163,4 @@ index 1e610c3b..7eabfa75 100644
      feature: "F14",
      path: "/memory",
 
-# canonical-diff-sha256: ad616358aa7cfea628beec6f20a6ba028fb187f68a2789d53e92ae731d721064
+# canonical-diff-sha256: 39febc216829a66cefb3c6f27318c6c44849cab603e0035da98cc5f2aa9aec95
