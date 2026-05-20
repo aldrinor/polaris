@@ -135,9 +135,20 @@ def probe(env: dict[str, str], project_id: str) -> dict:
     result["signal_2_catalog_FR"] = _catalog_skus(client, "FR")
 
     # Signal 3: project flavors (unfiltered, then client-side filter).
-    regions = _project_regions(client, project_id)
-    result["project_regions"] = regions
-    all_flavors = _project_flavors(client, project_id)
+    # Both wrapped in try/except so a single failure doesn't abort the whole
+    # probe (per Codex diff iter-1 P2).
+    try:
+        regions = _project_regions(client, project_id)
+        result["project_regions"] = regions
+    except ovh.exceptions.APIError as exc:
+        result["project_regions"] = []
+        result["project_regions_error"] = str(exc)
+        regions = []
+    try:
+        all_flavors = _project_flavors(client, project_id)
+    except ovh.exceptions.APIError as exc:
+        all_flavors = []
+        result["project_flavors_error"] = str(exc)
     target_rows = [
         {
             "name": f.get("name"),
@@ -175,17 +186,47 @@ def probe(env: dict[str, str], project_id: str) -> dict:
         sku: _order_rule_availability(client, sku) for sku in TARGET_SKUS
     }
 
-    # Topology verdict — honest reporting.
-    verdict: dict = {"target_skus_obtainable_now": False, "blockers": []}
-    has_target_available = any(r.get("available") and (r.get("quota") or 0) >= 1 for r in target_rows)
-    if not has_target_available:
-        verdict["blockers"].append(
-            "No project-flavor row for h200-1920 or h100-1520 with available=true AND quota>=1 "
-            "in any project region. Operator-action required: open OVH support ticket to increase "
-            "per-region quota for h200-1920 (GRA9/GRA11) and h100-1520 (GRA9/GRA11)."
-        )
-    if not any(f.get("name") == "h200-1920" for f in all_flavors):
-        verdict["blockers"].append("h200-1920 absent from project flavor list entirely.")
+    # Topology verdict — derive from the actual target-SKU state, not hardcoded.
+    # BOTH target SKUs must have at least one project-flavor row with
+    # available=True AND quota>=1 for the topology to be obtainable.
+    has_h200 = any(
+        r.get("name") == "h200-1920" and r.get("available") and (r.get("quota") or 0) >= 1
+        for r in target_rows
+    )
+    has_h100 = any(
+        r.get("name") == "h100-1520" and r.get("available") and (r.get("quota") or 0) >= 1
+        for r in target_rows
+    )
+    verdict: dict = {
+        "target_skus_obtainable_now": bool(has_h200 and has_h100),
+        "h200_1920_obtainable": has_h200,
+        "h100_1520_obtainable": has_h100,
+        "blockers": [],
+    }
+    if not has_h200:
+        if not any(f.get("name") == "h200-1920" for f in all_flavors):
+            verdict["blockers"].append(
+                "h200-1920 absent from project flavor list entirely — operator must request "
+                "OVH support add this SKU to the project allowlist for a non-US region "
+                "(preferred: GRA9 or GRA11)."
+            )
+        else:
+            verdict["blockers"].append(
+                "h200-1920 present in project flavor list but no row has available=True AND "
+                "quota>=1 — operator must request an OVH quota increase."
+            )
+    if not has_h100:
+        if not any(f.get("name") == "h100-1520" for f in all_flavors):
+            verdict["blockers"].append(
+                "h100-1520 absent from project flavor list entirely — operator must request "
+                "OVH support add this SKU to the project allowlist."
+            )
+        else:
+            verdict["blockers"].append(
+                "h100-1520 present in project flavor list but no row has available=True AND "
+                "quota>=1 in any project region — operator must request an OVH quota "
+                "increase (GRA9/GRA11 candidates)."
+            )
     result["verdict"] = verdict
     return result
 

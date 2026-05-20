@@ -1,5 +1,5 @@
 {
-  "probe_utc": "2026-05-20T02:52:43.783130+00:00",
+  "probe_utc": "2026-05-20T02:58:46.740114+00:00",
   "project_id": "446fccde73604cfbb0758c6012dad6d1",
   "endpoint": "ovh-ca",
   "target_skus": [
@@ -613,7 +613,7 @@
     }
   ],
   "signal_2_catalog_FR": {
-    "error": "BadParametersError: invalid ovhSubsidiary \nOVH-Query-ID: CA.ext-4.6a0d21ff.2604587.0ed568cd92e476c5da84f3372da4c82a",
+    "error": "BadParametersError: invalid ovhSubsidiary \nOVH-Query-ID: CA.ext-3.6a0d236a.2607257.bc49564e7993185c363381eeaf03cac2",
     "subsidiary": "FR"
   },
   "project_regions": [
@@ -1485,9 +1485,11 @@
   },
   "verdict": {
     "target_skus_obtainable_now": false,
+    "h200_1920_obtainable": false,
+    "h100_1520_obtainable": false,
     "blockers": [
-      "No project-flavor row for h200-1920 or h100-1520 with available=true AND quota>=1 in any project region. Operator-action required: open OVH support ticket to increase per-region quota for h200-1920 (GRA9/GRA11) and h100-1520 (GRA9/GRA11).",
-      "h200-1920 absent from project flavor list entirely."
+      "h200-1920 absent from project flavor list entirely \u2014 operator must request OVH support add this SKU to the project allowlist for a non-US region (preferred: GRA9 or GRA11).",
+      "h100-1520 present in project flavor list but no row has available=True AND quota>=1 in any project region \u2014 operator must request an OVH quota increase (GRA9/GRA11 candidates)."
     ]
   }
 }
