@@ -38,15 +38,32 @@ test("demo journey: home → intake → dashboard → inspector (canonical fixtu
 
   // Step 5: claim → source UI surface — the family-segregation badge
   // proves the two-family invariant (CLAUDE.md §9.1 invariant 1)
-  // surfaces to the reviewer.
-  await expect(page.getByTestId("inspector-view")).toContainText(
-    /generator|evaluator|two-family/i,
-  );
+  // surfaces to the reviewer. Tightened per Codex iter-1 P2: assert
+  // the dedicated badge testid instead of a broad text match.
+  await expect(
+    page
+      .getByTestId("family-segregation-badge")
+      .or(page.locator("[data-testid*='family-segregation']").first()),
+  ).toBeVisible({ timeout: 5_000 });
 });
 
+// Codex iter-1 P1 fix: the previous version had an
+// `if (label === "Upload")` guard that silently skipped Home/Intake/
+// Dashboard/etc — so a broken nav with most labels missing would still
+// pass. This version unconditionally asserts every primary-nav label.
 test("demo journey nav-parity: header + primary nav identical across journey routes", async ({
   page,
 }) => {
+  const PRIMARY_NAV_LABELS = [
+    "Home",
+    "Intake",
+    "Dashboard",
+    "Upload",
+    "Benchmark",
+    "Contracts",
+    "Pin Replay",
+    "Memory",
+  ];
   for (const path of [
     "/",
     "/intake",
@@ -57,15 +74,8 @@ test("demo journey nav-parity: header + primary nav identical across journey rou
     await expect(page.locator("header")).toHaveCount(1);
     const nav = page.locator("nav[aria-label='Primary']");
     await expect(nav).toBeVisible();
-    for (const label of [
-      "Home",
-      "Intake",
-      "Dashboard",
-      "Inspector".replace("Inspector", "Upload"), // Inspector isn't in primary nav
-    ]) {
-      if (label === "Upload") {
-        await expect(nav.getByRole("link", { name: label })).toBeVisible();
-      }
+    for (const label of PRIMARY_NAV_LABELS) {
+      await expect(nav.getByRole("link", { name: label })).toBeVisible();
     }
   }
 });
