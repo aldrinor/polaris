@@ -39,6 +39,10 @@ import type {
 } from "@/lib/inspector_bundle_loader";
 
 const MAX_TAR_GZ_BYTES = 50 * 1024 * 1024;
+// Codex iter-1 P1.1 fix: cap DECOMPRESSED tar bytes to prevent gzip-bomb OOM.
+// A 50MB gzip can inflate to 50GB+ of zeros. 200MB is generous for legitimate
+// bundles (the largest v1.0 fixture is ~80KB; real runs may approach a few MB).
+const MAX_DECOMPRESSED_BYTES = 200 * 1024 * 1024;
 
 export class BundleClientLoaderError extends Error {
   readonly code: string;
@@ -125,11 +129,15 @@ function _decode(bytes: Uint8Array): string {
   return new TextDecoder("utf-8").decode(bytes);
 }
 
+// Codex iter-1 P1.2 fix: v1.0 conformance per
+// src/polaris_graph/audit_bundle/conformance.py:_REQUIRED_CONTENT_TYPES
+// requires ALL SIX content types (including source_snapshot).
 const REQUIRED_CONTENT_TYPES = [
   "scope_decision",
   "evidence_pool",
   "verified_report",
   "metadata",
+  "source_snapshot",
   "reasoning_trace",
 ] as const;
 
@@ -148,6 +156,12 @@ export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
     throw new BundleClientLoaderError(
       "ungzip_failed",
       `Failed to gunzip bundle: ${(exc as Error).message}`,
+    );
+  }
+  if (tarBytes.length > MAX_DECOMPRESSED_BYTES) {
+    throw new BundleClientLoaderError(
+      "decompressed_too_large",
+      `Decompressed tar is ${tarBytes.length} bytes, exceeds ${MAX_DECOMPRESSED_BYTES} byte limit (gzip-bomb guard).`,
     );
   }
   const files = await _extractTarBytes(tarBytes);
