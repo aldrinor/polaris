@@ -1,0 +1,209 @@
+diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
+index a3c3573e..3e993329 100644
+--- a/.github/workflows/web_ci.yml
++++ b/.github/workflows/web_ci.yml
+@@ -102,6 +102,13 @@ jobs:
+           exit 1
+ 
+       - name: build_and_start_next
++        # I-cd-015 (GH#611): POLARIS_TEST_HARNESS_ENABLED=1 lets the prod
++        # build serve harness routes for tests that depend on them
++        # (evidence_tooltip_perf etc.). Real production leaves this UNSET
++        # and the middleware 404s /charts_test/*, /sentence_hover_test/*,
++        # /disambiguation_modal_preview/*, /generation/*, /retrieval/*, /sse/*.
++        env:
++          POLARIS_TEST_HARNESS_ENABLED: "1"
+         run: |
+           npm run build
+           nohup npx next start -p 3738 > /tmp/next.log 2>&1 &
+@@ -136,6 +143,10 @@ jobs:
+         run: npx playwright test --project=chromium tests/e2e/performance.spec.ts
+ 
+       # I-f6-005: 100x tooltip mount-cycle render budget locked at <100ms.
++      # I-cd-015: this spec hits /sentence_hover_test/perf (a harness
++      # route). The next start step above sets POLARIS_TEST_HARNESS_ENABLED=1
++      # so the middleware passes through; real production leaves it UNSET
++      # and 404s the harness paths.
+       - name: run_e2e_evidence_tooltip_perf
+         env:
+           SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 305b680a..57aa2ccb 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -739,3 +739,10 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
+ - novel_p0: 0, continuing_p0: 0, p1: 0, p2: 2 (non-blocking)
+ - iter trajectory: 1 RC (2 P1: provision.sh path mismatch + useSearchParams Suspense; 2 P2: AuthRedirect flash + fragment-only) -> 2 APPROVE
+ - scope: 12 files / +259 + 75 net
++
++## I-cd-015 brief — iter 4 APPROVE — 2026-05-20
++
++- iter: 4 of 5
++- verdict: APPROVE
++- iter trajectory: 1 RC (1 P1 NextResponse.next broken + 3 P2) -> 2 RC (smoke script cwd P1) -> 3 RC (CI conflict P1 + 2 P2) -> 4 APPROVE
++- scope: 4 files / +137 net LOC
+diff --git a/web/app/benchmark/page.tsx b/web/app/benchmark/page.tsx
+index 2f36bef7..effabf8c 100644
+--- a/web/app/benchmark/page.tsx
++++ b/web/app/benchmark/page.tsx
+@@ -24,13 +24,8 @@ export default function BenchmarkPage() {
+             </span>
+           </div>
+           <div className="flex gap-2">
+-            <Button
+-              variant="outline"
+-              nativeButton={false}
+-              render={<Link href="/generation" />}
+-            >
+-              Generation
+-            </Button>
++            {/* I-cd-015 (GH#611): /generation is a dev-only harness route;
++                the prod middleware 404s it. Removed the dead link button. */}
+             <Button
+               variant="outline"
+               nativeButton={false}
+diff --git a/web/middleware.ts b/web/middleware.ts
+new file mode 100644
+index 00000000..6dc85e09
+--- /dev/null
++++ b/web/middleware.ts
+@@ -0,0 +1,43 @@
++// I-cd-015 (GH#611) — exclude test-harness routes from the production build.
++//
++// Listed routes (/charts_test/*, /sentence_hover_test/*,
++// /disambiguation_modal_preview/*, /generation/*, /retrieval/*, /sse/*)
++// are dev-only harness surfaces. In production deployments they must
++// return 404 so reviewers + Carney's office don't reach internal test
++// pages.
++//
++// Override: `POLARIS_TEST_HARNESS_ENABLED=1` keeps harness routes
++// reachable (CI workflow `.github/workflows/web_ci.yml` runs
++// `evidence_tooltip_perf.spec.ts` against `next start` in prod mode
++// and needs `/sentence_hover_test/perf` to work). Real production
++// deployment leaves this UNSET.
++import { NextResponse } from "next/server";
++
++export function middleware() {
++  const isProd = process.env.NODE_ENV === "production";
++  const harnessAllowed = process.env.POLARIS_TEST_HARNESS_ENABLED === "1";
++  if (isProd && !harnessAllowed) {
++    return new NextResponse(null, {
++      status: 404,
++      headers: { "x-harness-blocked": "1" },
++    });
++  }
++  return NextResponse.next();
++}
++
++export const config = {
++  matcher: [
++    "/charts_test",
++    "/charts_test/:path*",
++    "/sentence_hover_test",
++    "/sentence_hover_test/:path*",
++    "/disambiguation_modal_preview",
++    "/disambiguation_modal_preview/:path*",
++    "/generation",
++    "/generation/:path*",
++    "/retrieval",
++    "/retrieval/:path*",
++    "/sse",
++    "/sse/:path*",
++  ],
++};
+diff --git a/web/scripts/verify_harness_404.sh b/web/scripts/verify_harness_404.sh
+new file mode 100644
+index 00000000..14599158
+--- /dev/null
++++ b/web/scripts/verify_harness_404.sh
+@@ -0,0 +1,88 @@
++#!/usr/bin/env bash
++# I-cd-015 (GH#611) acceptance: harness routes return 404 in prod.
++#
++# Usage:  bash web/scripts/verify_harness_404.sh
++#
++# Builds the Next.js production bundle, starts the server in production
++# mode (with POLARIS_TEST_HARNESS_ENABLED UNSET), then curls each harness
++# path + asserts HTTP 404 + asserts `x-harness-blocked: 1` header
++# (differentiates middleware 404 from default Next.js not-found).
++# Finally curls non-harness routes + asserts 2xx/3xx.
++set -euo pipefail
++
++# Self-locate: this script lives at web/scripts/, operate from web/.
++cd "$(dirname "${BASH_SOURCE[0]}")/.."
++
++PORT="${PORT:-3738}"
++
++echo "==> npm run build (production)"
++NODE_ENV=production npm run build
++
++echo "==> next start -p $PORT (POLARIS_TEST_HARNESS_ENABLED UNSET)"
++NODE_ENV=production npx next start -p "$PORT" &
++SERVER_PID=$!
++trap "kill -TERM $SERVER_PID 2>/dev/null || true" EXIT
++
++# Poll until server ready.
++for i in $(seq 1 30); do
++  if curl -sS -o /dev/null "http://localhost:$PORT/sign-in" 2>/dev/null; then
++    break
++  fi
++  sleep 1
++done
++
++# Harness paths — mix of base + REAL existing descendants. Each must
++# return HTTP 404 AND the x-harness-blocked: 1 header (differentiates
++# middleware 404 from a generic Next not-found).
++HARNESS_PATHS=(
++  /charts_test
++  /charts_test/click_through
++  /charts_test/forest_plot
++  /sentence_hover_test
++  /sentence_hover_test/coverage
++  /sentence_hover_test/perf
++  /sentence_hover_test/evidence_tooltip
++  /disambiguation_modal_preview
++  /generation
++  /retrieval
++  /sse
++)
++
++fail=0
++for path in "${HARNESS_PATHS[@]}"; do
++  read -r status header < <(
++    curl -sS -o /dev/null -w "%{http_code} " -D - "http://localhost:$PORT$path" \
++      | awk 'NR==1 {next} /^x-harness-blocked:/ {h=tolower($2); gsub(/[\r\n]/, "", h); print "HAS"} END{}' \
++      | xargs
++  )
++  status=$(curl -sS -o /dev/null -w "%{http_code}" "http://localhost:$PORT$path")
++  has_header=$(curl -sS -o /dev/null -D - "http://localhost:$PORT$path" \
++    | grep -i '^x-harness-blocked:' | head -1 | awk '{print $2}' | tr -d '\r')
++  if [ "$status" != "404" ]; then
++    echo "FAIL: $path returned HTTP $status (expected 404)"
++    fail=1
++    continue
++  fi
++  if [ "$has_header" != "1" ]; then
++    echo "FAIL: $path missing x-harness-blocked: 1 header (got '$has_header')"
++    fail=1
++    continue
++  fi
++  echo "OK:   $path → 404 (middleware-blocked)"
++done
++
++# Non-harness paths must remain reachable.
++NON_HARNESS_PATHS=(/sign-in /dashboard /)
++for path in "${NON_HARNESS_PATHS[@]}"; do
++  status=$(curl -sS -o /dev/null -w "%{http_code}" "http://localhost:$PORT$path")
++  case "$status" in
++    2*|3*) echo "OK:   $path → HTTP $status (non-harness reachable)" ;;
++    *) echo "FAIL: $path returned HTTP $status (expected 2xx/3xx)"; fail=1 ;;
++  esac
++done
++
++if [ "$fail" = "1" ]; then
++  echo "harness 404 verification FAILED"
++  exit 1
++fi
++echo "harness 404 verification PASSED"
+
+# canonical-diff-sha256: 7a8851614690d714c50b8f2a81c7a374c275e6f76b95aef98cfe379461276bdc
