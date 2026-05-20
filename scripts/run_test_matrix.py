@@ -77,7 +77,7 @@ from typing import Any
 _MATRIX_ROWS: list[dict[str, Any]] = [
     {"id": "R01", "name": "Unit tests", "llm_bound": False, "stages": ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8", "J9", "J10", "J11"]},
     {"id": "R02", "name": "Integration tests", "llm_bound": False, "stages": ["J3", "J4", "J5", "J6", "J7", "J8", "J9", "J10", "J11"]},
-    {"id": "R03", "name": "Artifact contract / schema versioning", "llm_bound": True, "stages": ["J7", "J8"]},
+    {"id": "R03", "name": "Artifact contract / schema versioning", "llm_bound": True, "stages": ["J5", "J6", "J7", "J8", "J11"]},
     {"id": "R04", "name": "Visual regression", "llm_bound": False, "stages": ["J1", "J2", "J3", "J6", "J7", "J8", "J9", "J10", "J11"]},
     {"id": "R05", "name": "E2E happy path", "llm_bound": True, "stages": ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8", "J9", "J10", "J11"]},
     {"id": "R06", "name": "E2E adversarial", "llm_bound": True, "stages": ["J3", "J4", "J5", "J6", "J8"]},
@@ -89,12 +89,12 @@ _MATRIX_ROWS: list[dict[str, Any]] = [
     {"id": "R12", "name": "Cancellation / resume", "llm_bound": False, "stages": ["J6"]},
     {"id": "R13", "name": "Performance", "llm_bound": False, "stages": ["J2", "J3", "J6", "J7", "J8"]},
     {"id": "R14", "name": "Security", "llm_bound": False, "stages": ["J1", "J3", "J6", "J7", "J8", "J9", "J10", "J11"]},
-    {"id": "R15", "name": "Tenant isolation + data deletion", "llm_bound": False, "stages": ["J1", "J9", "J11"]},
+    {"id": "R15", "name": "Tenant isolation + data deletion", "llm_bound": False, "stages": ["J6", "J7", "J8", "J9", "J10", "J11"]},
     {"id": "R16", "name": "Privacy / log redaction", "llm_bound": False, "stages": ["J4", "J5", "J6", "J7", "J9"]},
     {"id": "R17", "name": "Sovereignty (data-classification routing)", "llm_bound": False, "stages": ["J4", "J5", "J9"]},
     {"id": "R18", "name": "Migration tests", "llm_bound": False, "stages": []},
-    {"id": "R19", "name": "LLM quality gates", "llm_bound": True, "stages": ["J5", "J11"]},
-    {"id": "R20", "name": "Semantic chart correctness", "llm_bound": False, "stages": ["J11"]},
+    {"id": "R19", "name": "LLM quality gates", "llm_bound": True, "stages": ["J5", "J6", "J7"]},
+    {"id": "R20", "name": "Semantic chart correctness", "llm_bound": False, "stages": ["J7", "J8"]},
     {"id": "R21", "name": "Anti-sycophancy", "llm_bound": True, "stages": ["J3", "J5"]},
     {"id": "R22", "name": "Codex code review (process gate)", "llm_bound": False, "stages": []},
     {"id": "R23", "name": "Layer-3 walkthrough", "llm_bound": False, "stages": ["J1", "J2", "J3", "J5", "J6", "J7", "J8", "J9", "J10", "J11"]},
@@ -199,6 +199,26 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # Codex iter-3 P2: row/journey validation runs BEFORE env checks + /health
+    # so typos surface fast without requiring network or operator-supplied
+    # secrets. (P2-004 iter-2 fix landed validation but in the wrong order.)
+
+    # Parse row selection.
+    if "-" in args.rows and "," not in args.rows:
+        start_s, end_s = args.rows.split("-")
+        start_n = int(start_s.lstrip("R"))
+        end_n = int(end_s.lstrip("R"))
+        if start_n > end_n:
+            print(
+                f"ERROR: reversed row range {args.rows!r}; expected ascending "
+                f"(e.g. R01-R24).",
+                file=sys.stderr,
+            )
+            return 11
+        selected_ids = {f"R{n:02d}" for n in range(start_n, end_n + 1)}
+    else:
+        selected_ids = set(args.rows.split(","))
+
     base_url = _env_or_die("POLARIS_MATRIX_BASE_URL")
     if args.include_llm:
         _env_or_die("OPENROUTER_API_KEY")
@@ -208,15 +228,6 @@ def main() -> int:
     if not _check_reachable(base_url):
         print(f"ERROR: {base_url}/health unreachable", file=sys.stderr)
         return 12
-
-    # Parse row selection.
-    if "-" in args.rows and "," not in args.rows:
-        start_s, end_s = args.rows.split("-")
-        start_n = int(start_s.lstrip("R"))
-        end_n = int(end_s.lstrip("R"))
-        selected_ids = {f"R{n:02d}" for n in range(start_n, end_n + 1)}
-    else:
-        selected_ids = set(args.rows.split(","))
 
     # Codex iter-2 P2-004 fix: unknown row IDs are a configuration error,
     # NOT a successful no-op. Fail with exit 11 (config error).
@@ -235,6 +246,13 @@ def main() -> int:
         j_start, j_end = args.journey.split("-")
         j_start_n = int(j_start.lstrip("J"))
         j_end_n = int(j_end.lstrip("J"))
+        if j_start_n > j_end_n:
+            print(
+                f"ERROR: reversed journey range {args.journey!r}; expected "
+                f"ascending (e.g. J1-J11).",
+                file=sys.stderr,
+            )
+            return 11
         selected_stages = {f"J{n}" for n in range(j_start_n, j_end_n + 1)}
     else:
         selected_stages = set(args.journey.split(","))
