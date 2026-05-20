@@ -349,3 +349,57 @@ Read, in order:
 
 If the docs and the code disagree, the code is the source of truth
 — open a PR updating the docs, don't silently follow the stale doc.
+
+---
+
+## Live-run smoke (I-cd-016a harness)
+
+`scripts/live_run_smoke.py` is an **operator-runs** harness that drives a
+real research run end-to-end against a running v6 backend and verifies
+the resulting audit bundle. Costs real OpenRouter spend per invocation
+(operator-supervised; not for CI).
+
+### Backend prereqs (must be set on the API + Dramatiq worker hosts)
+
+| Env var | Purpose |
+|---|---|
+| `POLARIS_JWT_SECRET` | ≥32 chars; HS256 signing for /auth/login tokens (I-cd-014). |
+| `POLARIS_STATIC_ACCOUNTS_PATH` | Path to operator-provisioned static_accounts.yaml (default `/etc/polaris/static_accounts.yaml`; I-cd-014). |
+| `POLARIS_GPG_KEY_ID` | GPG fingerprint for bundle signing (FastAPI signer override + secret-key in keyring). |
+| `OPENROUTER_API_KEY` | OpenRouter gateway auth — used by pipeline-A generator + evaluator. |
+| `PG_MAX_COST_PER_RUN` | Hard per-run cost cap (BudgetExceededError); enforces spend ceiling. |
+
+### Client prereqs (where you invoke the smoke)
+
+| Env var | Purpose |
+|---|---|
+| `POLARIS_V6_BACKEND_URL` | Backend URL (default `http://localhost:8000`). |
+| `POLARIS_SMOKE_USERNAME` + `POLARIS_SMOKE_PASSWORD` | Credentials from static_accounts.yaml (required unless `POLARIS_SMOKE_AUTH_DISABLED=1`). |
+| `POLARIS_SMOKE_TIMEOUT_S` | SSE wallclock cap; default 600. On timeout the smoke posts /runs/{id}/cancel before exiting. |
+
+### Invocation
+
+```bash
+python scripts/live_run_smoke.py \
+  --question "What does the 2025 ADA guideline say about tirzepatide dosing for type 2 diabetes?" \
+  --template clinical
+```
+
+### Output
+
+On PASS:
+```
+PASS: run_id=<uuid> sections=N verified_sentences=M cost_usd=X duration_ms=Y
+RESULT: PASS
+```
+
+On FAIL: structured stderr error + non-zero exit (see exit codes in the script docstring).
+
+### Known limitations (tracked)
+
+- **Lock-verification assertions deferred to I-cd-016b** (operator-supervised real run after I-cd-016c fixes the audit bridge model fallback). This harness asserts only success + verified content + bundle conformance.
+- **GPG preflight is a stub** until I-cd-016d (#676) ships a real signer-health endpoint. For now, operator manually runs `scripts/v6_preflight.py` to verify the secret key is in the keyring.
+
+### Closes #626
+
+This harness alone does NOT close #626. The acceptance criterion is "real question → verified report end-to-end on OpenRouter" — that artifact is produced at **I-cd-016b (#674)** under operator supervision.
