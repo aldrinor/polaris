@@ -4,20 +4,23 @@ This is the single source of truth for the PM Mark Carney POLARIS demo. Read end
 
 **Demo target window:** 2026-06-05 to 2026-06-09.
 
-**Stack (revised 2026-05-13, sovereign pivot per I-carney-008):**
+**Stack (revised 2026-05-20 per current deploy state — see `project_polaris_already_deployed` memory):**
 
 | Layer | Provider | Ownership |
 |---|---|---|
-| Orchestrator hosting | Vexxhost (Montréal) | Canadian-owned |
-| LLM inference (production) | OVH BHS H200 GPU (Beauharnois QC) running DeepSeek V4 Pro + Gemma 4 31B via vLLM | French-owned (not US) |
-| LLM inference (transition) | OpenRouter | US — disclosed in `/transparency` until OVH H200 + GH#199 vLLM client land |
+| Orchestrator hosting | OVH BHS5 Québec VM `polaris-orchestrator` (51.79.90.35) | French-owned (non-US) |
+| LLM inference (production) | OpenRouter (`deepseek/deepseek-v4-pro` generator + `google/gemma-4-31b-it` evaluator per I-cd-009) | US — disclosed in `/transparency`; sovereign GPU lands at the Session-A cluster bring-up (Seq 39 / #644) before the dress rehearsal |
+| LLM inference (sovereign target) | OVH H200 (Beauharnois QC) OR Scaleway/Hetzner EU per operator directive 2026-05-18 (Canada-only GPU was too hard/expensive/slow; EU GPU allowed at demo stage) running DeepSeek V4 Pro + Gemma 4 31B via vLLM | French / EU-owned (non-US) |
 | Live search | Serper (`google.serper.dev`) | US — disclosed exception per operator directive 2026-05-13; search queries carry no confidential content, reports stay sovereign. See `docs/transparency.md` §4. |
 | Bib / DOI / T1 corpus | doi.org + Crossref (UK) + Unpaywall + OpenAlex + arXiv + government endpoints | Mixed; disclosed per layer |
 | DNS | easyDNS or Cira | Canadian |
 | TLS CA | Let's Encrypt ISRG | US 501(c)(3) — public attestation only, no data leaves |
 | **AWS** | ARCHIVED at `infra/aws.archived/` | Was US-owned — fails sovereignty audit |
+| **Vexxhost** | RETIRED (was the 2026-05-13 plan; current deploy is OVH BHS5 per `project_polaris_already_deployed` memory) | Canadian-owned but unused for the current deploy |
 
-See `infra/vexxhost/README.md` for the active deploy path. The §1 section below replaces the original AWS Terraform flow.
+**Domain status (2026-05-20):** the live demo URL today is the bare IP `http://51.79.90.35:3000`. Domain + TLS land at **Seq 36 / I-cd-036 / #636** (Caddy/TLS + production-domain acceptance). The dress rehearsal (Seq 42 / I-D-01 / #647) runs against the domain.
+
+See `state/restart_instructions.md` + the I-A-01 (#606) + I-B-01 (#622) PRs for the current OVH deploy path. The §1 below describes the **original** Vexxhost-targeted flow; preserved for reference but NOT what's live today.
 
 ---
 
