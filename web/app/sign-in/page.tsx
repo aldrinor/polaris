@@ -1,34 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 import { login } from "@/lib/auth";
-
-/**
- * I-cd-014 (GH#610): same-origin validation for `?next=` redirect.
- *
- * Rejects:
- *   - non-string / empty values
- *   - URLs that, when parsed against `window.location.origin`, resolve to a
- *     different origin (protocol-relative `//evil.com`, absolute `http://...`,
- *     backslash-as-separator `/\evil.com` — all caught by the URL parser).
- *   - values containing a fragment-only escape or any URL parse failure.
- *
- * Returns the validated path (the URL's `pathname + search + hash`) or `"/"`.
- */
-function safeNextPath(next: string | null): string {
-  if (!next) return "/";
-  if (typeof window === "undefined") return "/";
-  try {
-    const parsed = new URL(next, window.location.origin);
-    if (parsed.origin !== window.location.origin) return "/";
-    return parsed.pathname + parsed.search + parsed.hash;
-  } catch {
-    return "/";
-  }
-}
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -40,7 +16,64 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
+/**
+ * I-cd-014 (GH#610): same-origin validation for `?next=` redirect.
+ *
+ * Rejects:
+ *   - non-string / empty values
+ *   - URL parse failures
+ *   - URLs that, when parsed against `window.location.origin`, resolve to
+ *     a different origin (protocol-relative `//evil.com`, absolute
+ *     `http://...`, backslash-as-separator `/\evil.com` — all caught by
+ *     the URL parser).
+ *   - fragment-only / hash-only navigation (e.g. `#frag`) — these are
+ *     same-origin but offer no real navigation, so we fall back to `/`.
+ *
+ * Returns the validated `pathname + search + hash` or `"/"`.
+ */
+function safeNextPath(next: string | null): string {
+  if (!next) return "/";
+  if (typeof window === "undefined") return "/";
+  try {
+    const parsed = new URL(next, window.location.origin);
+    if (parsed.origin !== window.location.origin) return "/";
+    // Reject fragment-only / hash-only / empty pathname — they leave the
+    // user on the sign-in route with just a fragment appended.
+    if (!parsed.pathname || parsed.pathname === "/sign-in") return "/";
+    return parsed.pathname + parsed.search + parsed.hash;
+  } catch {
+    return "/";
+  }
+}
+
+/**
+ * I-cd-014 (GH#610): Next.js App Router requires `useSearchParams()` users
+ * to be wrapped in a Suspense boundary (or the route opts into dynamic
+ * rendering). Wrapping the form here is the lighter-weight choice and
+ * matches the existing repo convention.
+ */
 export default function SignInPage() {
+  return (
+    <Suspense fallback={<SignInPageFallback />}>
+      <SignInPageContent />
+    </Suspense>
+  );
+}
+
+function SignInPageFallback() {
+  return (
+    <div className="bg-muted/40 flex min-h-screen flex-col items-center justify-center px-6 py-12">
+      <div
+        className="text-muted-foreground text-sm"
+        data-testid="sign-in-loading"
+      >
+        Loading sign-in…
+      </div>
+    </div>
+  );
+}
+
+function SignInPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [username, setUsername] = useState("");
@@ -146,15 +179,11 @@ export default function SignInPage() {
                 nativeButton={false}
                 render={<Link href="/" />}
               >
-                Back to dashboard
+                Back to home
               </Button>
             </CardFooter>
           </form>
         </Card>
-
-        <p className="text-muted-foreground text-center text-xs">
-          POLARIS v6.2 — sovereign Canadian deep research
-        </p>
       </div>
     </div>
   );

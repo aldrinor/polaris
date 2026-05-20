@@ -28,9 +28,11 @@ The active Carney demo deploy path. Replaces `infra/aws.archived/` (US-owned, fa
 scp infra/vexxhost/.env.example root@polaris.<domain>:/root/.env  # edit first
 scp outputs/polaris_demo_pubkey.asc root@polaris.<domain>:/root/
 scp ~/polaris_demo_secret.asc       root@polaris.<domain>:/root/
-# I-cd-014: NEVER scp from inside the repo. The real file is in
-# /tmp/polaris_secrets/ (operator local) and mounts at /etc/polaris/ on the VM.
-scp /tmp/polaris_secrets/static_accounts.yaml root@polaris.<domain>:/tmp/static_accounts.yaml
+# I-cd-014: NEVER scp from inside the repo. Operator-local source path is
+# /tmp/polaris_secrets/static_accounts.yaml (outside repo); destination is
+# /root/static_accounts.yaml on the VM — `infra/vexxhost/provision.sh:102-107`
+# then copies it to /etc/polaris/static_accounts.yaml.
+scp /tmp/polaris_secrets/static_accounts.yaml root@polaris.<domain>:/root/static_accounts.yaml
 scp infra/vexxhost/provision.sh     root@polaris.<domain>:/root/
 
 # 2. Run provisioning.

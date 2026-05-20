@@ -17,7 +17,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { isAuthenticated } from "@/lib/auth";
 
@@ -28,17 +28,24 @@ interface AuthRedirectProps {
 export function AuthRedirect({ children }: AuthRedirectProps) {
   const router = useRouter();
   const pathname = usePathname();
-  // Hydration-safe: SSR returns true (children render); the effect below
-  // performs the client-only auth check + redirect when needed.
-  const checked = useRef(false);
+  // Synchronous initial check via lazy `useState` initializer. On the
+  // very first render in the browser this resolves true|false from
+  // sessionStorage immediately — no flash of protected content
+  // (Codex diff iter-1 P2 #1). SSR returns `null` (window undefined)
+  // so the first SSR pass renders no children; the client takes over.
+  const [authState] = useState<"authed" | "redirect" | "ssr">(() => {
+    if (typeof window === "undefined") return "ssr";
+    return isAuthenticated() ? "authed" : "redirect";
+  });
 
   useEffect(() => {
-    if (checked.current) return;
-    checked.current = true;
-    if (isAuthenticated()) return;
+    if (authState !== "redirect") return;
     const next = encodeURIComponent(pathname ?? "/");
     router.replace(`/sign-in?next=${next}`);
-  }, [pathname, router]);
+  }, [authState, pathname, router]);
 
+  // SSR / not-yet-checked / about-to-redirect: render nothing rather
+  // than flash protected UI.
+  if (authState !== "authed") return null;
   return <>{children}</>;
 }

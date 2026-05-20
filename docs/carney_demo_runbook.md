@@ -56,10 +56,11 @@ scp infra/vexxhost/.env.example       root@${POLARIS_DOMAIN}:/root/.env  # edit 
 scp outputs/polaris_demo_pubkey.asc   root@${POLARIS_DOMAIN}:/root/
 scp ~/polaris_demo_secret.asc         root@${POLARIS_DOMAIN}:/root/
 # I-cd-014: NEVER stage static_accounts.yaml inside the repo `config/` — it
-# is gitignored AND dockerignored. Generate locally in /tmp/polaris_secrets/
-# (see "T-3 setup" below), then scp directly to the VM, then move to /etc/polaris/.
-scp /tmp/polaris_secrets/static_accounts.yaml root@${POLARIS_DOMAIN}:/tmp/static_accounts.yaml
-# Then on the VM: sudo cp /tmp/static_accounts.yaml /etc/polaris/static_accounts.yaml && sudo chmod 640 /etc/polaris/static_accounts.yaml
+# is gitignored AND dockerignored. Operator generates it locally OUTSIDE
+# the repo (e.g., /tmp/polaris_secrets/static_accounts.yaml) and scps to
+# /root/ on the VM; `infra/vexxhost/provision.sh:102-107` then copies it
+# to /etc/polaris/static_accounts.yaml with chmod 640.
+scp /tmp/polaris_secrets/static_accounts.yaml root@${POLARIS_DOMAIN}:/root/static_accounts.yaml
 scp infra/vexxhost/provision.sh       root@${POLARIS_DOMAIN}:/root/
 
 # 2. Run provisioning — pass the locally-resolved commit through ssh env.
