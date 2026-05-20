@@ -5,7 +5,10 @@ Iterates the 24-row test matrix (`docs/carney_handover/test_matrix.md`)
 against the live deployed POLARIS product (`polaris-orchestrator` OVH
 VM by default). Emits a structured YAML result file:
 
-    outputs/audits/I-cd-034/matrix_results_<utc_iso>.yaml
+    outputs/audits/I-cd-034/matrix_results_<utc_iso>.json
+    (JSON content; .json extension. The "structured YAML" framing in
+    parent #516 maps to "structured machine-readable" — we ship JSON
+    for stdlib portability.)
 
 Each row records:
 - row_id (R01-R24)
@@ -18,12 +21,12 @@ The runner is intentionally SUPERVISED — it does NOT auto-merge anything
 or report "matrix green" unilaterally. The operator reviews the YAML at
 the end and signs off via the I-cd-034-followup Issue.
 
-OpenRouter spend ROW SUBSET (LLM-bound):
-- R03 (artifact-contract schema) — needs a real /runs/<id>/bundle.tar.gz
-- R05 (per-claim provenance) — needs a real verified report
-- R07 (scope intake) — needs scope-gate LLM call
-- R09 (ambiguity detection) — needs ambiguity-gate LLM call
-- R11 (generation BEAT-BOTH) — needs full pipeline-A run
+OpenRouter spend ROW SUBSET (LLM-bound test types per doc):
+- R03 (Artifact contract / schema versioning) — needs a real /runs/<id>/bundle
+- R05 (E2E happy path) — drives a real run through pipeline-A
+- R06 (E2E adversarial) — adversarial inputs against the LLM gates
+- R19 (LLM quality gates) — intrinsic LLM-bound
+- R21 (Anti-sycophancy) — intrinsic LLM-bound
 
 These 5 rows estimate ~$30-50 OpenRouter spend per full matrix pass.
 
@@ -57,38 +60,45 @@ from typing import Any
 # Each row carries: id, name, llm_bound (does this row need real LLM spend),
 # journey_stages it touches, and a default skip_reason if llm_bound and the
 # operator has not flagged --include-llm.
-# Codex iter-1 P1-001 fix: ASCII-only row names so Windows operator host
-# print() does not raise UnicodeEncodeError on the default cp1252 stdout.
-# Codex iter-1 P1-002 fix: llm_bound flags now align with the documented
-# 5-row spend subset (R03, R05, R07, R09, R11). Other "live-system" rows
-# (R04, R08, R10, R12, R17, R21) are marked llm_bound=False because they
-# verify deployed-system behavior — the operator records them via the
-# live OVH product, not via a separate OpenRouter spend.
+# Codex iter-2 P1-003 fix: row catalog now matches the 24 TEST TYPES
+# enumerated in docs/carney_handover/test_matrix.md (NOT product workflow
+# checks). Each test-type's `stages` is the subset of J1-J11 where the
+# doc says it applies.
+#
+# llm_bound rows are those whose execution against the live deployed
+# product requires real OpenRouter spend (LLM-quality gates + the
+# generation/scope/ambiguity surfaces that drive LLM calls per row's
+# applicable journey stages):
+#   R03  Artifact contract / schema versioning (touches J7/J8 — uses bundle)
+#   R05  E2E happy path (uses J5 generation)
+#   R06  E2E adversarial (uses J5 generation + J3 scope)
+#   R19  LLM quality gates (intrinsic LLM-bound)
+#   R21  Anti-sycophancy (intrinsic LLM-bound)
 _MATRIX_ROWS: list[dict[str, Any]] = [
-    {"id": "R01", "name": "Sign-in (static_accounts auth)", "llm_bound": False, "stages": ["J1"]},
-    {"id": "R02", "name": "App-shell + nav presence (G1-G8)", "llm_bound": False, "stages": ["J1", "J2", "J3", "J6", "J7", "J8", "J9", "J10", "J11"]},
-    {"id": "R03", "name": "Artifact-contract schema (BundleManifest v1.0)", "llm_bound": True, "stages": ["J7", "J8"]},
-    {"id": "R04", "name": "Run lifecycle (queued -> in_progress -> completed)", "llm_bound": False, "stages": ["J6", "J7"]},
-    {"id": "R05", "name": "Per-claim provenance + source span", "llm_bound": True, "stages": ["J8"]},
-    {"id": "R06", "name": "Family segregation (two-family)", "llm_bound": False, "stages": ["J7", "J8"]},
-    {"id": "R07", "name": "Scope intake gate", "llm_bound": True, "stages": ["J3"]},
-    {"id": "R08", "name": "Refusal-bait detection", "llm_bound": False, "stages": ["J3"]},
-    {"id": "R09", "name": "Ambiguity detection + disambiguation modal", "llm_bound": True, "stages": ["J3"]},
-    {"id": "R10", "name": "Retrieval + corpus adequacy", "llm_bound": False, "stages": ["J4"]},
-    {"id": "R11", "name": "Generation BEAT-BOTH (vs ChatGPT/Gemini)", "llm_bound": True, "stages": ["J5", "J11"]},
-    {"id": "R12", "name": "Live SSE stream (run events)", "llm_bound": False, "stages": ["J6"]},
-    {"id": "R13", "name": "Bundle export + signature verify", "llm_bound": False, "stages": ["J7"]},
-    {"id": "R14", "name": "Inspector - claim -> source navigation", "llm_bound": False, "stages": ["J8"]},
-    {"id": "R15", "name": "Inspector offline (tar.gz drop)", "llm_bound": False, "stages": ["J8"]},
-    {"id": "R16", "name": "Document upload + grounding", "llm_bound": False, "stages": ["J9"]},
-    {"id": "R17", "name": "Dashboard run creation", "llm_bound": False, "stages": ["J10"]},
-    {"id": "R18", "name": "Evidence Contract editor", "llm_bound": False, "stages": ["J11"]},
-    {"id": "R19", "name": "Workspace memory (save/forget)", "llm_bound": False, "stages": ["J11"]},
-    {"id": "R20", "name": "Pin replay timeseries", "llm_bound": False, "stages": ["J11"]},
-    {"id": "R21", "name": "Cancel + cooperative-abort", "llm_bound": False, "stages": ["J6"]},
+    {"id": "R01", "name": "Unit tests", "llm_bound": False, "stages": ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8", "J9", "J10", "J11"]},
+    {"id": "R02", "name": "Integration tests", "llm_bound": False, "stages": ["J3", "J4", "J5", "J6", "J7", "J8", "J9", "J10", "J11"]},
+    {"id": "R03", "name": "Artifact contract / schema versioning", "llm_bound": True, "stages": ["J7", "J8"]},
+    {"id": "R04", "name": "Visual regression", "llm_bound": False, "stages": ["J1", "J2", "J3", "J6", "J7", "J8", "J9", "J10", "J11"]},
+    {"id": "R05", "name": "E2E happy path", "llm_bound": True, "stages": ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8", "J9", "J10", "J11"]},
+    {"id": "R06", "name": "E2E adversarial", "llm_bound": True, "stages": ["J3", "J4", "J5", "J6", "J8"]},
+    {"id": "R07", "name": "Cross-browser", "llm_bound": False, "stages": ["J1", "J2", "J3", "J6", "J7", "J8", "J9", "J10", "J11"]},
+    {"id": "R08", "name": "Accessibility (WCAG-AA)", "llm_bound": False, "stages": ["J1", "J2", "J3", "J7", "J8", "J9", "J10", "J11"]},
+    {"id": "R09", "name": "Multi-tab safety", "llm_bound": False, "stages": ["J3", "J6", "J7", "J10"]},
+    {"id": "R10", "name": "Network resilience", "llm_bound": False, "stages": ["J4", "J5", "J6", "J7"]},
+    {"id": "R11", "name": "Streaming SSE ordering / backpressure", "llm_bound": False, "stages": ["J6"]},
+    {"id": "R12", "name": "Cancellation / resume", "llm_bound": False, "stages": ["J6"]},
+    {"id": "R13", "name": "Performance", "llm_bound": False, "stages": ["J2", "J3", "J6", "J7", "J8"]},
+    {"id": "R14", "name": "Security", "llm_bound": False, "stages": ["J1", "J3", "J6", "J7", "J8", "J9", "J10", "J11"]},
+    {"id": "R15", "name": "Tenant isolation + data deletion", "llm_bound": False, "stages": ["J1", "J9", "J11"]},
+    {"id": "R16", "name": "Privacy / log redaction", "llm_bound": False, "stages": ["J4", "J5", "J6", "J7", "J9"]},
+    {"id": "R17", "name": "Sovereignty (data-classification routing)", "llm_bound": False, "stages": ["J4", "J5", "J9"]},
+    {"id": "R18", "name": "Migration tests", "llm_bound": False, "stages": []},
+    {"id": "R19", "name": "LLM quality gates", "llm_bound": True, "stages": ["J5", "J11"]},
+    {"id": "R20", "name": "Semantic chart correctness", "llm_bound": False, "stages": ["J11"]},
+    {"id": "R21", "name": "Anti-sycophancy", "llm_bound": True, "stages": ["J3", "J5"]},
     {"id": "R22", "name": "Codex code review (process gate)", "llm_bound": False, "stages": []},
-    {"id": "R23", "name": "WCAG-AA accessibility sweep", "llm_bound": False, "stages": ["J1", "J2", "J3", "J7", "J8", "J9", "J10", "J11"]},
-    {"id": "R24", "name": "Fixture governance (schema-freeze)", "llm_bound": False, "stages": []},
+    {"id": "R23", "name": "Layer-3 walkthrough", "llm_bound": False, "stages": ["J1", "J2", "J3", "J5", "J6", "J7", "J8", "J9", "J10", "J11"]},
+    {"id": "R24", "name": "Fixture governance + flake budget", "llm_bound": False, "stages": []},
 ]
 
 
@@ -208,6 +218,18 @@ def main() -> int:
     else:
         selected_ids = set(args.rows.split(","))
 
+    # Codex iter-2 P2-004 fix: unknown row IDs are a configuration error,
+    # NOT a successful no-op. Fail with exit 11 (config error).
+    all_known_ids = {row["id"] for row in _MATRIX_ROWS}
+    unknown_ids = selected_ids - all_known_ids
+    if unknown_ids:
+        print(
+            f"ERROR: unknown row id(s): {sorted(unknown_ids)}. "
+            f"Valid: R01-R24.",
+            file=sys.stderr,
+        )
+        return 11
+
     # Codex iter-1 P2-001 fix: parse + apply --journey selection.
     if "-" in args.journey and "," not in args.journey:
         j_start, j_end = args.journey.split("-")
@@ -216,6 +238,17 @@ def main() -> int:
         selected_stages = {f"J{n}" for n in range(j_start_n, j_end_n + 1)}
     else:
         selected_stages = set(args.journey.split(","))
+
+    # Codex iter-2 P2-004 fix: unknown journey IDs also fail loud.
+    all_known_stages = {f"J{n}" for n in range(1, 12)}
+    unknown_stages = selected_stages - all_known_stages
+    if unknown_stages:
+        print(
+            f"ERROR: unknown journey id(s): {sorted(unknown_stages)}. "
+            f"Valid: J1-J11.",
+            file=sys.stderr,
+        )
+        return 11
 
     results: list[RowResult] = []
     for row in _MATRIX_ROWS:
