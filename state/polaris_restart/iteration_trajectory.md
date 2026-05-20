@@ -752,3 +752,17 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
 - iter: 1 of 5 (clean APPROVE on first pass)
 - verdict: APPROVE
 - novel_p0: 0, continuing_p0: 0, p1: 0, p2: 5 (non-blocking script polish + Next 16 middleware->proxy deprecation)
+
+## I-cd-016a brief — iter 3 APPROVE — 2026-05-20
+
+- iter: 3 of 5 — APPROVE
+- iter trajectory: 1 RC (4 P1) -> 2 RC (3 P1 with 2 split to I-cd-016c #675 + I-cd-016d #676) -> 3 APPROVE
+- scope split: I-cd-016b (#674) carved per Codex scope-consult Path A
+- final scope: 1 NEW smoke script + 1 docs section + 1 audit note
+
+## I-cd-016a diff — iter 4 APPROVE — 2026-05-20
+
+- iter: 4 of 5
+- verdict: APPROVE
+- iter trajectory: 1 RC (2 P1 template_id + degraded SSE) -> 2 RC (1 P1 cancel-on-error + 3 P2) -> 3 RC (1 P1 diff_brief scope + 1 P2 exit-code count) -> 4 APPROVE clean
+- scope: 3-file canonical (smoke + runbook + trajectory) + audit substrate
