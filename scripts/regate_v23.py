@@ -110,10 +110,10 @@ def regate_run(run_dir: Path) -> dict[str, Any]:
 
     generator_model = manifest_prev.get("generator", {}).get(
         "model",
-        rule_checks_prev.get("generator_model", "deepseek/deepseek-v3.2-exp"),
+        rule_checks_prev.get("generator_model", "deepseek/deepseek-v4-pro"),
     )
     evaluator_model = rule_checks_prev.get(
-        "evaluator_model", "qwen/qwen3-8b"
+        "evaluator_model", "google/gemma-4-31b-it"
     )
 
     # Reconstruct tier_distribution_report from manifest.corpus.tier_fractions.

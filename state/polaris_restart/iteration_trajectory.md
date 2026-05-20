@@ -607,3 +607,17 @@ This-session live OVH API probe (endpoint `ovh-ca`, project `446fccde...`): topo
 - Diff review: iter 1 RC — 1 P1 (`verdict.target_skus_obtainable_now` hardcoded False, would block future remediation reruns) + 1 P2 (`_project_regions` / `_project_flavors` uncaught-API, single failure aborts before JSON write). Both fixed: verdict now derives per-SKU obtainability (`has_h200 AND has_h100`), uncaught calls wrapped in try/except. iter 2 APPROVE — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining.
 
 Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
+
+## I-cd-009 brief — iter 5 (cap) APPROVE — 2026-05-19
+
+- doc: `.codex/I-cd-009/brief.md`
+- gate: brief review
+- iter: 5 of 5 (cap reached cleanly with APPROVE)
+- verdict: APPROVE
+- novel_p0: 0, continuing_p0: 0, p1: 0
+- p2: 2 (module docstrings + standalone script log-strings — deferred to I-cd-010 per breakdown)
+- convergence_call: accept_remaining
+- final scope: 24 changes across 14 files (23 active + 1 test fix + 3 handover docs)
+- key iter-4 fold-in: `tests/polaris_graph/clinical_generator/test_real_completion.py:46-51` (NEW P1)
+- dropped from scope: `docker-compose.yml:56` (deferred to I-cd-038 — needs full vLLM `command:` wiring)
+- next: implement all 24 changes + smoke + diff review.

@@ -170,10 +170,10 @@ generator and evaluator **must** be from different training lineages.
 This prevents the self-bias pathology (Play Favorites arXiv:2508.06709,
 DeepHalluBench arXiv:2601.22984).
 
-Current default pair (as of 2026-04-17):
+Current default pair (re-pinned 2026-05-19 per I-cd-009 / GH#624 Carney demo lock):
 
-- **Generator**: `deepseek/deepseek-v3.2-exp` (family: `deepseek`)
-- **Evaluator**: `qwen/qwen3-8b` (family: `qwen`)
+- **Generator**: `deepseek/deepseek-v4-pro` (family: `deepseek`; 1.6T total / 49B active MoE)
+- **Evaluator**: `google/gemma-4-31b-it` (family: `gemma`)
 
 Attempting to set both to the same family raises `RuntimeError` at
 client construction. Hyphenated org prefixes (`deepseek-ai/...`) are
@@ -334,9 +334,9 @@ Both outputs are written to the manifest.
 | Var | Default | Purpose |
 |---|---|---|
 | `OPENROUTER_API_KEY` | (required) | OpenRouter gateway auth |
-| `OPENROUTER_DEFAULT_MODEL` | `deepseek/deepseek-v3.2-exp` | Generator model |
+| `OPENROUTER_DEFAULT_MODEL` | `deepseek/deepseek-v4-pro` | Generator model |
 | `PG_GENERATOR_MODEL` | inherits from default | Generator for strict_verify pipeline |
-| `PG_EVALUATOR_MODEL` | `qwen/qwen3-8b` | Evaluator model (must be different family) |
+| `PG_EVALUATOR_MODEL` | `google/gemma-4-31b-it` | Evaluator model (must be different family) |
 | `PG_MAX_COST_PER_RUN` | `5.00` | Budget cap per sweep |
 | `PG_PROVENANCE_MIN_CONTENT_OVERLAP` | `2` | B-1 invariant threshold |
 | `PG_LIVE_MAX_EV_TO_GEN` | `20` | Max evidence slices passed to generator |

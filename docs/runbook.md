@@ -148,28 +148,28 @@ repair / leave decision tree.
 Pipeline A enforces a two-family constraint: generator and evaluator
 must be from different training lineages.
 
-### Default pair (verified 2026-04-17)
+### Default pair (re-pinned 2026-05-19 per I-cd-009 / GH#624 Carney demo lock)
 
-- Generator: `deepseek/deepseek-v3.2-exp`
-- Evaluator: `qwen/qwen3-8b`
+- Generator: `deepseek/deepseek-v4-pro` (DeepSeek lineage; 1.6T total, 49B active MoE)
+- Evaluator: `google/gemma-4-31b-it` (Gemma lineage)
 
 ### Override via environment
 
 ```
-PG_GENERATOR_MODEL=deepseek/deepseek-v3.2-exp
-PG_EVALUATOR_MODEL=qwen/qwen3-8b
+PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro
+PG_EVALUATOR_MODEL=google/gemma-4-31b-it
 ```
 
 ### Invalid pairs raise at construction
 
 ```python
-# This will raise RuntimeError
+# This will raise RuntimeError (both in DeepSeek family)
 from src.polaris_graph.llm.openrouter_client import check_family_segregation
-check_family_segregation("deepseek/deepseek-v3.2-exp", "deepseek/deepseek-v2-base")
+check_family_segregation("deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-flash")
 ```
 
-The check handles case variants (`DeepSeek/DeepSeek-V3.2-Exp`) and
-hyphenated org prefixes (`deepseek-ai/DeepSeek-V3.2-Exp`).
+The check handles case variants (`DeepSeek/DeepSeek-V4-Pro`) and
+hyphenated org prefixes (`deepseek-ai/DeepSeek-V4-Pro`).
 
 ---
 

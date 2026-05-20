@@ -659,7 +659,7 @@ _generate_env_template() {
 # --- LLM Gateway (REQUIRED) ---
 OPENROUTER_API_KEY=your_openrouter_api_key_here
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-OPENROUTER_DEFAULT_MODEL=moonshotai/kimi-k2.5
+OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v4-pro
 OPENROUTER_BUDGET_USD=50.0
 OPENROUTER_PROVIDER_ORDER=Chutes,DeepInfra,Fireworks
 OPENROUTER_ALLOW_FALLBACKS=true

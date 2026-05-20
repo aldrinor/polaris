@@ -43,11 +43,11 @@ PG_SOVEREIGN_MODE = os.getenv("PG_SOVEREIGN_MODE", "0") == "1"
 # OpenRouter (cloud)
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "moonshotai/kimi-k2-0711")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4-pro")
 
 # vLLM (local GPU server)
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8200/v1")
-VLLM_MODEL = os.getenv("VLLM_MODEL", "meta-llama/Llama-3.1-70B-Instruct")
+VLLM_MODEL = os.getenv("VLLM_MODEL", "ebircak/gemma-4-31B-it-4bit-W4A16-AWQ")
 VLLM_API_KEY = os.getenv("VLLM_API_KEY", "EMPTY")
 
 # Ollama (local, lightweight)

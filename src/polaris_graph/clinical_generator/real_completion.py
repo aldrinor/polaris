@@ -4,7 +4,7 @@ Per `.codex/slices/slice_003/architecture_proposal.md` PR 7 row.
 
 Implements GeneratorCompletionFn protocol with an OpenRouter chat-completion
 backend. Default model from OPENROUTER_DEFAULT_MODEL env var (e.g.
-'z-ai/glm-5.1'). Prompt template instructs the LLM to:
+'deepseek/deepseek-v4-pro'). Prompt template instructs the LLM to:
 
   - write 4-8 sentences for the requested section
   - cite EVERY claim with a [#ev:<source_id>:<start>-<end>] token
@@ -77,7 +77,7 @@ def load_config_from_env() -> RealCompletionConfig:
             "CLAUDE.md LAW II, this MUST fail loudly rather than silently "
             "skipping the generator."
         )
-    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "z-ai/glm-5.1"
+    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "deepseek/deepseek-v4-pro"
     return RealCompletionConfig(api_key=key, model=model)
 
 

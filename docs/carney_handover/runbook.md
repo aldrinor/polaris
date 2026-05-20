@@ -14,7 +14,7 @@
 | Frontend (Next.js 16) | (TBD CDN) | Canada-East POP | static + SSE proxy to backend |
 | Backend (FastAPI 0.136) | OVH BHS | Canada (sovereign) | uvicorn, exposes /health /runs /stream /ambiguity /scope/check /upload /runs/{id}/bundle |
 | Queue (Dramatiq + Redis 7.4) | OVH BHS | Canada (sovereign) | StubBroker in dev; RedisBroker in prod |
-| LLM serving (vLLM or SGLang per Phase 0.7 bakeoff) | OVH BHS H200 (8×) | Canada (sovereign, Beauharnois) | DeepSeek V4 Flash generator (Path C LOCKED per Plan v13 §F + blockers.md §3) + Gemma 4 31B verifier (different lineage; `openrouter_client.check_family_segregation` invariant) |
+| LLM serving (vLLM, locked I-cd-007) | OVH BHS H200 (8×) + OVH H100 (4×) | non-US (sovereign) | DeepSeek V4 Pro 1.6T generator on 8× H200 + Gemma 4 31B-it evaluator on 4× H100 (different lineage; `openrouter_client.check_family_segregation` invariant). Carney demo lock per I-cd-009 (GH#624). |
 | ChromaDB (workspace memory) | OVH BHS | Canada (sovereign) | Phase 2B substrate |
 | Observability (OTEL) | (TBD US dashboards) | US (brainless) | trace IDs only; CAN_REAL data redacted |
 
@@ -44,8 +44,8 @@ docker compose -f docker-compose.sovereign.yml down
 
 Generator + verifier MUST come from different lineages (CLAUDE.md §9.1 invariant 1). The `openrouter_client.check_family_segregation` raises `RuntimeError` at construction if violated.
 
-Active pairing (LOCKED per Plan v13 §F):
-- **DeepSeek V4 Flash (DeepSeek lineage) + Gemma 4 31B (Google lineage)** — Path C, sovereign cluster
+Active pairing (LOCKED per I-cd-009 / GH#624 Carney demo):
+- **DeepSeek V4 Pro 1.6T (DeepSeek lineage) + Gemma 4 31B-it (Google lineage)** — sovereign cluster
 
 Per Plan v13 §F "no SILENT fallback" semantics — alternate pairings below are NOT auto-fallbacks. They are halt-and-decide options if the active pairing becomes unavailable (e.g., model deprecation, license revocation). When that happens, the orchestrator emits a halt marker; user explicitly authorizes one of:
 
