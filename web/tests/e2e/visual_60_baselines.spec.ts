@@ -76,12 +76,9 @@ const PAGES: PageEntry[] = [
     path: "/sentence_hover_test/perf",
     testid: "perf-trigger",
   },
-  {
-    feature: "F13",
-    path: "/pin_replay",
-    testid: "pin-snapshot-a",
-    wait_svg_count: 2,
-  },
+  // I-cd-017 (#627): F13 demo-data removed; visual baseline re-captured
+  // after Seq 29 / I-A-12 / #619 (full /pin_replay rebuild) wires the live
+  // route. Row deliberately omitted; restore with the post-rebuild path.
   {
     feature: "F14",
     path: "/memory",

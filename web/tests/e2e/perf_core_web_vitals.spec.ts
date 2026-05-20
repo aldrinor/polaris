@@ -62,7 +62,8 @@ test("Hover render avg under 100ms via /sentence_hover_test/perf harness", async
   expect(avg).toBeLessThan(100);
 });
 
-test("INP on /pin_replay show-diff click under 200ms", async ({
+// I-cd-017 (#627): demo-data dependency; live-route wiring at Seq 29 / #619.
+test.skip("INP on /pin_replay show-diff click under 200ms", async ({
   page,
 }, info) => {
   chromium_only(info);

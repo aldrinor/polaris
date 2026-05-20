@@ -72,12 +72,42 @@ function SnapshotCard({
   );
 }
 
+function EmptyPinReplay() {
+  return (
+    <main
+      data-testid="pin-replay-empty"
+      className="bg-background text-foreground min-h-screen"
+    >
+      <div className="mx-auto max-w-5xl px-6 py-8">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Pin replay — same query on different dates
+        </h1>
+        <p className="text-muted-foreground mt-4 text-sm">
+          No pin data available yet. The frontend client for{" "}
+          <code>/api/v6/runs/{"{run_id}"}/pins</code> ships at Seq 29 / I-A-12 /
+          #619 (full /pin_replay rebuild). The backend route is live in I-cd-017
+          / #627.
+        </p>
+      </div>
+    </main>
+  );
+}
+
 export default function PinReplayPage() {
-  const [date_a, set_date_a] = useState(PIN_DATES[0]);
-  // I-f13-004: pin default-B so adding a later registry date doesn't shift the
-  // initial state and break existing tests.
-  const [date_b, set_date_b] = useState("2026-04-30");
+  // I-cd-017 (#627): DEMO_PIN_REGISTRY removed — page falls back to empty
+  // state until Seq 29 / I-A-12 / #619 wires the live route client. The
+  // guard runs BEFORE detectRegressions / delta math (Codex iter-2 P2.2)
+  // so undefined snapshot dereferences cannot crash the empty-state path.
+  const [date_a, set_date_a] = useState(PIN_DATES[0] ?? "");
+  const [date_b, set_date_b] = useState(
+    PIN_DATES.includes("2026-04-30") ? "2026-04-30" : (PIN_DATES[0] ?? ""),
+  );
   const [diff_open, set_diff_open] = useState(false);
+
+  if (PIN_DATES.length === 0) {
+    return <EmptyPinReplay />;
+  }
+
   const snap_a = DEMO_PIN_REGISTRY[date_a];
   const snap_b = DEMO_PIN_REGISTRY[date_b];
   const all_snapshots = Object.values(DEMO_PIN_REGISTRY);

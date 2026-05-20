@@ -1,0 +1,120 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4614-0291-7011-aca5-a5de1061c315
+--------
+user
+# I-cd-017 (#627) — pin-replay backend route — scope consult
+
+## Operator directive 2026-05-20
+
+"For all decision, pls ask Codex to decide, and ask Codex to decide based on which one will have highest quality impact."
+
+**Rank A vs B vs C below by quality impact. Return picked option + 1-2 sentence rationale.**
+
+## Hard constraints (NOT consultable)
+
+- Generator `deepseek/deepseek-v4-pro` locked.
+- Evaluator `google/gemma-4-31b-it` locked.
+- 200-LOC canonical-diff halt condition (CLAUDE.md §3.0).
+- Iter-5 Codex review cap.
+- Per-issue 5-artifact triple required.
+- `gh pr merge --admin` revoked — Claude only writes briefs + diffs.
+
+## Reality of the current substrate (Claude-verified by grep, 2026-05-20)
+
+1. **No v6 pin-write path exists.** `src/polaris_graph/audit_ir/model_pin.py` defines the `ModelPin` schema (v4) and `pin_replay.py` ships replay-from-pin execution, but the v6 actor (`src/polaris_v6/queue/actors.py`) never calls `ModelPin` capture at run completion. The pipeline writes `manifest.json` + the signed audit bundle, but no `pin.json` artifact per run is produced.
+2. **`web/lib/pin_replay_demo.ts` has a hand-authored `DEMO_PIN_REGISTRY`** keyed by ISO date. Schema: `{ pin_date, query, verdict, section_count_kept, section_count_dropped, verified_sentence_count, pass_rate, retracted_source_ids? }`. ~5-10 demo entries representing a "trend over time" for the same query.
+3. **Conceptual mismatch:** the frontend `PinSnapshot` (run-quality snapshot, daily, multi-date for same query) is fundamentally a DIFFERENT artifact than the pipeline's `ModelPin` (single-run configuration pin for replay-from-pin). Issue body acknowledges this — `ModelPin` is the "pipeline-side typed source" and `PinSnapshot` is the "consumer shape" — and asks for an adapter.
+4. **Issue #627 acceptance:** "A live completed run's pins are replayable through the product pin-replay surface (not demo data); Codex APPROVE on brief + diff."
+5. **Frontend rebuild is a SEPARATE Issue:** Seq 29 · I-A-12 (#619) "Rebuild /pin_replay" — so this Issue #627 is **backend route + thin frontend swap-off-demo**, NOT a full frontend rebuild.
+6. **Existing v6 manifest fields available for synthesis:**
+   - `pipeline_status` (success / abort_no_verified_sections / ...) → maps to `PinSnapshot.verdict`
+   - Bundle data has section counts + verified sentence counts + per-section pass rates already.
+   - `manifest.json` has `run_id`, `query`, completion timestamp.
+   - **The data the frontend needs is already in the bundle** — a synthesized adapter would not require a new pin-capture write path.
+7. **Existing routes pattern** (`src/polaris_v6/api/bundle.py`): `APIRouter(prefix="/runs", tags=...)` + `@router.get("/{run_id}/bundle")`. `run_store` resolves `run_id → artifact_dir`. Pin-replay route would be `/runs/{run_id}/pins` + `/runs/{run_id}/pins/{date}`.
+8. **`PinSnapshot.retracted_source_ids`** is the source-retraction-adversarial demo field; the manifest does NOT capture retracted-source-id history. It would need a separate source-retraction-log if real.
+
+## Three options
+
+### Option A — full Pattern-C with new pin write path
+
+Scope:
+1. Define `PinSnapshot` Pydantic schema (`src/polaris_v6/schemas/pin_snapshot.py`).
+2. Add SQLite table `pins` (run_id, pin_date, payload_json) to `run_store` + migration.
+3. Add pin-write call in `actors.py` at `mark_completed` boundary — capture one `PinSnapshot` per completed run.
+4. Add `GET /runs/{run_id}/pins` (list) + `GET /runs/{run_id}/pins/{date}` (one snapshot).
+5. Backfill: optional one-shot script to walk existing completed runs + write pins from their manifests.
+6. Frontend `web/lib/pin_replay_demo.ts` → `web/lib/pin_replay_client.ts` (HTTP-backed loader). Swap `web/app/pin_replay/page.tsx` over.
+7. Retracted-source-ids: add nullable column for future hook (not populated today).
+
+Estimated canonical diff: **350-500 LOC** (over 200-LOC halt).
+
+Risks: (a) DB migration + actor mutation = larger blast radius into other Issues; (b) per-run pin writes by date is conceptually odd (one run = one date, no "multi-date for same query" series unless multi-run history is queried); (c) write path lacks the retracted-source-id provenance the demo shows, so live pins look impoverished compared to demo until source-retraction logging lands.
+
+### Option B — synthesize-from-manifest adapter
+
+Scope:
+1. Define `PinSnapshot` Pydantic schema (`src/polaris_v6/schemas/pin_snapshot.py`).
+2. Add `GET /runs/{run_id}/pins` (list — derived from a run_store query: "all completed runs with same query, sorted by completed_at") + `GET /runs/{run_id}/pins/{date}` (one snapshot, derived from the artifact_dir's manifest.json + bundle data).
+3. The route's "pin date" semantics is **completed_at ISO date of any run with the same query**. So a "pin series" is the trend of how the same query's verified output looks over time across multiple completed runs.
+4. Frontend rewire: `web/lib/pin_replay_demo.ts` → `web/lib/pin_replay_client.ts`. Swap `web/app/pin_replay/page.tsx` over.
+5. Retracted-source-ids: nullable, undefined for synthesized pins (honest "not captured today" rather than fabricated).
+
+Estimated canonical diff: **200-280 LOC** (close to halt).
+
+Honest reasoning: the manifest + bundle already contains everything `PinSnapshot` needs except retracted-source-ids; no separate pin-write is needed because the data the FE renders is fully derivable from the bundle. The "pin series" concept maps onto "all runs of the same query, chronologically."
+
+Risks: (a) "all runs of same query" requires querying run_store by query text — may need an index; (b) frontend currently expects ≤10 dates static; over time this list grows; (c) the response semantics differ from the demo (which had hand-picked dates) — operator demos may need a curated subset, which means an additional layer.
+
+### Option C — fixture-backed read-only route, deferred wiring
+
+Scope:
+1. Define `PinSnapshot` Pydantic schema (`src/polaris_v6/schemas/pin_snapshot.py`).
+2. Move `DEMO_PIN_REGISTRY` data from frontend to a backend fixture file (`tests/v6/fixtures/pin_replay/<run_id>.json`).
+3. Add `GET /runs/{run_id}/pins` + `GET /runs/{run_id}/pins/{date}` returning the backend fixture for known demo run_ids; `404` for unknown.
+4. Frontend rewire: `web/lib/pin_replay_demo.ts` → `web/lib/pin_replay_client.ts` (HTTP-backed loader). Swap `web/app/pin_replay/page.tsx`.
+5. Phase-N-PARTIAL-honest manifest: route exists, schema frozen, frontend off demo data; **synthesizing pins from real completed runs deferred to a follow-up Issue** (I-cd-017b new Issue).
+
+Estimated canonical diff: **150-200 LOC** (within halt).
+
+Risks: (a) violates the Acceptance criterion as currently worded — Issue says "live completed run's pins are replayable (not demo data)"; Option C ships the route + frontend wiring but still serves fixture-backed data, so strictly speaking it doesn't meet acceptance unless the Issue is rescoped + an explicit follow-up is filed; (b) less progress per Issue against the broader breakdown.
+
+## Quality-impact rubric to apply
+
+(a) correctness / clinical-safety risk per option — does it fabricate, hide, or distort data?
+(b) PR-cap discipline (200-LOC halt) — does it stay under?
+(c) iter-5 convergence pressure — fewer files + simpler diff = fewer iter-loop surface for Codex review.
+(d) downstream-issue dependency chain — does it block or accelerate Seq 18 (#628 document-grounding), Seq 20 (#630 EvidenceContract bridge), Seq 29 (#619 rebuild /pin_replay)?
+(e) operator-supervised-action gating — no real money / hardware / keys involved here; all backend code.
+
+## Question to Codex
+
+**Rank Option A, Option B, Option C by quality impact and pick the one to implement.** Return:
+
+- Picked: A | B | C
+- Reasoning (1-2 sentences citing the rubric).
+- If picking C, confirm the Issue's Acceptance criterion needs rewording (or a follow-up Issue) — that's an Acceptance rescope, which Codex's pick implicitly endorses.
+
+Brief Codex this is the scope-consult call; the actual review brief comes after the scope is set.
+
+codex
+Picked: **B**
+
+Rank: **B > C > A**
+
+Reasoning: **B** has the highest quality impact because it satisfies the live-run acceptance criterion using already-canonical manifest/bundle data, avoids fabricating missing `retracted_source_ids`, and keeps blast radius far lower than adding a new write path. **C** is cleaner for PR size but fails acceptance without rescope; **A** over-expands scope, crosses the 200-LOC halt, and adds persistence/actor risk before the data model justifies it.
+tokens used
+4,136
+Picked: **B**
+
+Rank: **B > C > A**
+
+Reasoning: **B** has the highest quality impact because it satisfies the live-run acceptance criterion using already-canonical manifest/bundle data, avoids fabricating missing `retracted_source_ids`, and keeps blast radius far lower than adding a new write path. **C** is cleaner for PR size but fails acceptance without rescope; **A** over-expands scope, crosses the 200-LOC halt, and adds persistence/actor risk before the data model justifies it.

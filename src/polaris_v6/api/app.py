@@ -26,6 +26,7 @@ from polaris_v6.api.followup import router as followup_router
 from polaris_v6.api.health import router as health_router
 from polaris_v6.api.inspector import router as inspector_router
 from polaris_v6.api.memory import router as memory_router
+from polaris_v6.api.pins import router as pins_router
 from polaris_v6.api.runs import router as runs_router
 from polaris_v6.api.scope import router as scope_router
 from polaris_v6.api.stream import router as stream_router
@@ -95,6 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(stream_router)
     app.include_router(ambiguity_router)
     app.include_router(bundle_router)
+    app.include_router(pins_router)
     app.include_router(scope_router)
     app.include_router(upload_router)
     app.include_router(charts_router)

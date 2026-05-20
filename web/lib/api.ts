@@ -178,6 +178,37 @@ export async function cancelRun(runId: string): Promise<RunStatusResponse> {
   return asJsonOrThrow<RunStatusResponse>(response);
 }
 
+// I-cd-017 (#627): pin-replay snapshot consumed by /pin_replay timeseries.
+// Mirrors PinSnapshot schema in src/polaris_v6/schemas/pin_snapshot.py.
+export interface PinSnapshot {
+  run_id: string;
+  pin_date: string;
+  query: string;
+  verdict: "success" | "abort_no_verified_sections";
+  section_count_kept: number;
+  section_count_dropped: number;
+  verified_sentence_count: number;
+  pass_rate: number;
+  retracted_source_ids?: string[] | null;
+}
+
+export async function fetchPinList(runId: string): Promise<PinSnapshot[]> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/pins`,
+  );
+  return asJsonOrThrow<PinSnapshot[]>(response);
+}
+
+export async function fetchPin(
+  runId: string,
+  date: string,
+): Promise<PinSnapshot> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/pins/${encodeURIComponent(date)}`,
+  );
+  return asJsonOrThrow<PinSnapshot>(response);
+}
+
 export type DataClassification =
   | "PUBLIC_SYNTHETIC"
   | "CAN_REAL"
