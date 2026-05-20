@@ -1,0 +1,135 @@
+diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
+index dccb0d67..b019bafe 100644
+--- a/.github/workflows/web_ci.yml
++++ b/.github/workflows/web_ci.yml
+@@ -219,6 +219,13 @@ jobs:
+           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+         run: npx playwright test --project=chromium tests/e2e/pin_replay_g1_g8.spec.ts
+ 
++      # I-cd-030 (#620): /memory route G1-G8 acceptance gates.
++      - name: run_e2e_memory_g1_g8
++        env:
++          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
++          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
++        run: npx playwright test --project=chromium tests/e2e/memory_g1_g8.spec.ts
++
+       # Visual baselines are *-chromium-win32.png (locally captured on Win).
+       # On Linux CI the snapshot file resolves to a different name and will
+       # be missing; skip visual.spec until Linux baselines are added.
+diff --git a/web/app/memory/page.tsx b/web/app/memory/page.tsx
+index 7a3cef15..57f4f024 100644
+--- a/web/app/memory/page.tsx
++++ b/web/app/memory/page.tsx
+@@ -47,8 +47,12 @@ export default function MemoryPage() {
+   );
+   const recent_runs = sorted.filter((e) => e.kind === "prior_run_summary");
+ 
++  // I-cd-030 (#620): /memory rebuild — G1+G6 fix. Page no longer renders
++  // its own <main>; AppShell (via AppShellGate from I-cd-022) is the
++  // single landmark provider. G2 fix: remove Issue-id breadcrumb
++  // ("I-f14-002b") from user-visible copy.
+   return (
+-    <main className="bg-background text-foreground mx-auto max-w-3xl px-6 py-8">
++    <section data-testid="memory-page" className="mx-auto max-w-3xl px-6 py-8">
+       <h1 className="text-2xl font-semibold tracking-tight">
+         Workspace memory
+       </h1>
+@@ -56,8 +60,8 @@ export default function MemoryPage() {
+         data-testid="memory-banner"
+         className="text-muted-foreground mt-2 text-sm"
+       >
+-        Demo workspace <code>{WS}</code>. Save + forget shipped here; pin
+-        controls land in I-f14-002b once the localStorage pattern is reviewed.
++        Demo workspace <code>{WS}</code>. Save and forget actions are live;
++        additional pin controls land in a follow-up release.
+       </p>
+       {recent_runs.length > 0 ? (
+         <section
+@@ -134,6 +138,6 @@ export default function MemoryPage() {
+           </li>
+         ))}
+       </ul>
+-    </main>
++    </section>
+   );
+ }
+diff --git a/web/tests/e2e/memory_g1_g8.spec.ts b/web/tests/e2e/memory_g1_g8.spec.ts
+new file mode 100644
+index 00000000..6dfdb8bc
+--- /dev/null
++++ b/web/tests/e2e/memory_g1_g8.spec.ts
+@@ -0,0 +1,74 @@
++// I-cd-030 (#620): /memory route G1-G8 acceptance gates.
++
++import { expect, test } from "@playwright/test";
++
++const BANNED_DEV_LANGUAGE = [
++  /\bslice\b/i,
++  /\bscaffold\b/i,
++  /\bplaceholder\b/i,
++  /\bphase 0\b/i,
++  /\bphase 1\b/i,
++  /\bphase 2[a-z]?\b/i,
++  /\bF4 plan\b/i,
++  /\bpost[- ]carney\b/i,
++  /\bi-cd-/i,
++  /\bi-f14-/i,
++];
++
++test("G1 + G6: /memory has exactly one header + one main", async ({ page }) => {
++  await page.goto("/memory");
++  await expect(page.locator("header")).toHaveCount(1);
++  await expect(page.locator("main")).toHaveCount(1);
++});
++
++test("G2: /memory contains no banned dev-language strings (body + titles + aria-labels)", async ({
++  page,
++}) => {
++  await page.goto("/memory");
++  const body_text = (await page.locator("body").textContent()) || "";
++  const title_text =
++    (await page
++      .locator("[title]")
++      .evaluateAll((els: Element[]) =>
++        els.map((el) => el.getAttribute("title") || "").join(" · "),
++      )) || "";
++  const aria_text =
++    (await page
++      .locator("[aria-label]")
++      .evaluateAll((els: Element[]) =>
++        els.map((el) => el.getAttribute("aria-label") || "").join(" · "),
++      )) || "";
++  const all_text = `${body_text} · ${title_text} · ${aria_text}`;
++  for (const banned of BANNED_DEV_LANGUAGE) {
++    expect(all_text).not.toMatch(banned);
++  }
++});
++
++test("G1 nav parity: primary nav visible on /memory", async ({ page }) => {
++  await page.goto("/memory");
++  const nav = page.locator("nav[aria-label='Primary']");
++  await expect(nav).toBeVisible();
++  for (const label of [
++    "Home",
++    "Intake",
++    "Dashboard",
++    "Upload",
++    "Benchmark",
++    "Contracts",
++    "Pin Replay",
++    "Memory",
++  ]) {
++    await expect(nav.getByRole("link", { name: label })).toBeVisible();
++  }
++});
++
++test("G8: /memory renders with zero console errors", async ({ page }) => {
++  const errors: string[] = [];
++  page.on("console", (msg) => {
++    if (msg.type() === "error") errors.push(msg.text());
++  });
++  await page.goto("/memory");
++  await page.waitForLoadState("domcontentloaded");
++  await page.waitForTimeout(1500);
++  expect(errors).toEqual([]);
++});
