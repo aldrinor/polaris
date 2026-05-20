@@ -2,7 +2,7 @@
 
 This is the single source of truth for the PM Mark Carney POLARIS demo. Read end-to-end before the meeting; refer back during.
 
-**Demo target window:** 2026-06-05 to 2026-06-09.
+**Demo target window:** 2026-08-31 to 2026-09-06 (per `docs/carney_delivery_plan_v6_2.md` Phase 5 — 18-week plan May 1 → Sep 6).
 
 **Stack (revised 2026-05-20 per current deploy state — see `project_polaris_already_deployed` memory):**
 
@@ -40,11 +40,13 @@ See `state/restart_instructions.md` + the I-A-01 (#606) + I-B-01 (#622) PRs for 
 | Carney office contact + demo time confirmed | Lead | calendar invite |
 | Fallback laptop ready | Lead | `docker compose -f docker-compose.v6.yml up -d` on laptop |
 
-**During the OVH H200 lead-time (5-10 business days):** the orchestrator runs with `POLARIS_LLM_BACKEND=openrouter` as a transitional fallback (this is the `.env.example` default). `/transparency` surfaces OpenRouter as the active inference backend so reviewers see the US disclosure during the transition. Flip to `POLARIS_LLM_BACKEND=vllm` + restart compose once (a) the OVH H200 is online with a reachable private IP, AND (b) GH#199 I-sov-001 has shipped the vLLM client code. Setting the flag without both prereqs will break generation.
+**Current LLM backend (2026-05-20):** `POLARIS_LLM_BACKEND=openrouter` is the **production deploy-state-of-record** on `polaris-orchestrator`, with `deepseek/deepseek-v4-pro` (generator) + `google/gemma-4-31b-it` (evaluator) per I-cd-009 (#624). The `/transparency` page discloses OpenRouter as the active US-routed inference backend. This is NOT a "transitional fallback" today — it is production. Sovereign GPU bring-up (OVH H200 OR EU per the 2026-05-18 EU-relax) lands at Seq 39 / I-cd-039 / #644 before the dress rehearsal; the flip to `POLARIS_LLM_BACKEND=vllm` happens then (after the sovereign GPU is online + GH#199 vLLM client ships).
 
-## §1 — Deploy day-1 (T-7 before demo, sovereign Vexxhost path)
+## §1 — Deploy day-1 (T-7 before demo, original Vexxhost path) — **PRESERVED FOR REFERENCE — NOT THE ACTIVE PATH**
 
-**Prereqs done in §0:** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, Serper API key obtained, OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
+> **The live demo deploys on OVH BHS5 Québec** (`polaris-orchestrator` 51.79.90.35), not Vexxhost. The Vexxhost flow below is preserved for archaeology + as a fallback if OVH BHS5 capacity changes. **Live deploy steps are in I-A-01 (#606) + `state/restart_instructions.md`.** Downstream sections (§2 smoke, §4 live demo, §8 teardown, §9 laptop fallback) inherit this preservation framing — full per-section rewrite to the current OVH flow is the "final accuracy refresh" deferred to **I-D-05 / #651** per #635 acceptance.
+
+**Prereqs done in §0 (original Vexxhost path):** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, Serper API key obtained, OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
 
 ```bash
 # 0. Resolve the commit to pin LOCALLY (Codex iter-1 P2-3: $(git rev-parse polaris)
