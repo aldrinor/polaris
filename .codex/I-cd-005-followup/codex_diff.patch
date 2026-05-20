@@ -445,10 +445,10 @@ index d6f4fe3c..e4442f66 100644
 +4. **Quality + 4×H100 INT4 weight residency** (~16 GB; massive headroom).
 +5. **Engine = vLLM** (I-cd-007 lock).
 diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
-index 5bef2ecb..ea94b9c9 100644
+index 5bef2ecb..459715f5 100644
 --- a/state/polaris_restart/iteration_trajectory.md
 +++ b/state/polaris_restart/iteration_trajectory.md
-@@ -592,4 +592,11 @@ Locked: **vLLM for both boxes** (Box 1 generator DeepSeek V4 Pro on 8×H200; Box
+@@ -592,4 +592,12 @@ Locked: **vLLM for both boxes** (Box 1 generator DeepSeek V4 Pro on 8×H200; Box
  - Brief review: 2 iters. iter 1 RC — 1 P1 (SGLang + Maverick + INT4 + 4×H100 not source-verified; iter-1's "SGLang for both" recommendation pivoted to vLLM-primary) + 4 P2 (DeepSeek V4 Pro now has explicit engine support; vLLM V1 has prefix caching and structured_outputs too — tempering SGLang's iter-1 "category" advantages; NVIDIA Dynamo runs vLLM/SGLang/TensorRT-LLM as a wrapper). iter 2 APPROVE — 3 P2 folded (symmetric SGLang-for-Box-2 branch, tightened vLLM V4 Pro contingency trigger, TensorRT-LLM as direct backend). tokens 113,418 + 28,771.
  - Diff review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining.
  
@@ -458,7 +458,8 @@ index 5bef2ecb..ea94b9c9 100644
 +- Brief review: iter 1 RC — 1 P1 (operator-locked "Gemma 4 400B" unreleased per Codex web verification; top released = 31B dense / 26B-A4B MoE; operator-escalated as required by the brief — Codex correctly stayed in operational mode and did NOT propose alternative models). Operator: "which is best as evaluator" → Claude judgment: 31B dense > 26B-A4B (dense beats MoE for LLM-as-judge reasoning at comparable total size; 31B-active > 4B-active). iter 2 APPROVE — 0 P0 / 0 P1, 8 P2 operational verifications all folded into the docs. tokens 204,136 + 192,873.
 +
 +Locked: `google/gemma-4-31B-it` (Apache 2.0 + Gemma PUP overlay) + community AWQ `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` for vLLM `--quantization compressed-tensors` on 4×H100. Hard fallback retained: Llama 3.1 405B + AWQ/GPTQ-INT4. Two-family vs DeepSeek V4 Pro: passes (`('deepseek', 'gemma')`). I-cd-008 (GPU topology) paused on `bot/I-cd-008` until this merges.
++- Diff review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining.
 +
  Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
 
-# canonical-diff-sha256: 810c8e80185274d58cf5292c4e6ecc3c74a3d8e2358f66bf0a3395d18be4db3e
+# canonical-diff-sha256: c918d0cb402389319bcc262018426da33c9c56aceb230b0b6b6bc092438c34dc
