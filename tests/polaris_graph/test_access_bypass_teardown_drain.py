@@ -94,3 +94,30 @@ def test_force_drop_detached_task_handles_done_task():
         _force_drop_detached_task(task)
 
     asyncio.run(_runner())
+
+
+def test_polaris_asyncio_run_drains_UNTRACKED_wedged_task():
+    """Codex iter-2 P0 fix: an UNCANCELLABLE task NOT in
+    `_DETACHED_BACKEND_TASKS` must also be bounded by
+    `polaris_asyncio_run`'s hard wall. Tests the defense-in-depth
+    path through `_polaris_cancel_all_tasks` with
+    `asyncio.wait(timeout=)` (NOT `asyncio.wait_for` which still
+    awaits child cleanup beyond the wall).
+    """
+
+    async def _runner():
+        # Spawn an UNTRACKED wedged task and don't await it.
+        asyncio.create_task(_truly_uncancellable())
+        await asyncio.sleep(0.05)  # let it start
+        return "ok"
+
+    started = time.monotonic()
+    out = polaris_asyncio_run(_runner())
+    elapsed = time.monotonic() - started
+
+    assert out == "ok"
+    # 2s hard wall + small overhead — definitely under 5s.
+    assert elapsed < 5.0, (
+        f"polaris_asyncio_run teardown took {elapsed:.2f}s with an "
+        f"untracked uncancellable task — hard wall did not work."
+    )

@@ -468,28 +468,40 @@ def polaris_asyncio_run(coro: Any) -> Any:
 
 def _polaris_cancel_all_tasks(loop: "asyncio.AbstractEventLoop") -> None:
     """Mirror of stdlib asyncio.runners._cancel_all_tasks but with a
-    hard wall-clock — after 2s, abandon any still-pending task by
-    force-closing its coroutine. Defense-in-depth in case a backend
-    OTHER than the tracked _DETACHED_BACKEND_TASKS set wedges.
+    GENUINE hard wall-clock. Codex iter-2 P0 fix: stdlib
+    `asyncio.wait_for(asyncio.gather(...), timeout=2)` does NOT bound
+    because gather's child-task cancellation cleanup continues past
+    the wait_for's own cancellation. Use `asyncio.wait(..., timeout)`
+    instead — it returns `(done, pending)` sets unconditionally at
+    the timeout AND does not propagate cancellation to children.
+
+    After the 2s wall, every task still in `pending` is force-closed
+    via `_force_drop_detached_task` so the subsequent loop.close()
+    has nothing pending to await.
     """
     to_cancel = [t for t in asyncio.all_tasks(loop) if not t.done()]
     if not to_cancel:
         return
     for task in to_cancel:
         task.cancel()
-    # Race the wait against a hard timeout.
-    gather = asyncio.gather(*to_cancel, return_exceptions=True)
+
+    async def _wait_with_hard_wall():
+        # asyncio.wait returns (done, pending) at timeout — does NOT
+        # await child-task cleanup beyond the wall. Defense-in-depth
+        # against untracked wedged tasks.
+        done, pending = await asyncio.wait(to_cancel, timeout=2.0)
+        return done, pending
+
     try:
-        loop.run_until_complete(asyncio.wait_for(gather, timeout=2.0))
-    except (asyncio.TimeoutError, TimeoutError):
-        for task in to_cancel:
-            if not task.done():
-                _force_drop_detached_task(task)
+        _done, pending = loop.run_until_complete(_wait_with_hard_wall())
     except BaseException:
-        # Best-effort — never propagate teardown failure.
-        for task in to_cancel:
-            if not task.done():
-                _force_drop_detached_task(task)
+        # Best-effort — if even our wait helper raises, just force-
+        # drop every pending task.
+        pending = [t for t in to_cancel if not t.done()]
+
+    for task in pending:
+        if not task.done():
+            _force_drop_detached_task(task)
 
 
 def _backend_failure(label: str, url: str, error: str) -> AccessResult:
