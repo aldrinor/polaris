@@ -307,15 +307,15 @@ async def generate_analyst_synthesis(
     bibliography: list[dict[str, Any]],
     evidence_rows: list[dict[str, Any]],
     research_question: str,
-    model: str = "deepseek/deepseek-v3.2-exp",
+    model: str = "deepseek/deepseek-v4-pro",
     max_tokens: int = 4000,
     temperature: float = 0.3,
 ) -> tuple[str, int, int]:
     """Generate the Analyst Synthesis section.
 
-    Per Codex iter-1 brief verdict: DeepSeek V3.2-Exp is the writer
-    (consistent with verified prose voice; Gemma stays in the
-    judge/evaluator role).
+    Per I-cd-009 (GH#624) Carney demo lock: DeepSeek V4 Pro 1.6T (49B
+    active MoE) is the writer (consistent with verified prose voice;
+    Gemma 4 31B-it stays in the judge/evaluator role).
 
     Returns (text, input_tokens, output_tokens). Returns ("", 0, 0)
     on failure — caller MUST treat empty text as "omit synthesis

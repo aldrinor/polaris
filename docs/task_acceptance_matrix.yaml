@@ -956,7 +956,7 @@ phase_4:
       - id: "4_2_prep_serving_runbook"
         title: "Sovereign serving runbook (vLLM/SGLang + DeepSeek V4 + Gemma 4 deployment recipe)"
         green_criteria:
-          - "docs/sovereign_serving_runbook.md — step-by-step deployment recipe: (a) cluster precondition checks; (b) vLLM/SGLang install commands with version pins; (c) DeepSeek V4 Flash weights loading per docs/hardware_decision.md §2.3 + Path C; (d) Gemma 4 31B evaluator loading per docs/gemma_4_verification.md §3.2 NVFP4 recipe; (e) two-family segregation invariant verification; (f) smoke test queries; (g) rollback procedure"
+          - "docs/sovereign_serving_runbook.md — step-by-step deployment recipe: (a) cluster precondition checks; (b) vLLM install commands with version pins (engine locked to vLLM per I-cd-007); (c) DeepSeek V4 Pro 1.6T weights loading per docs/hardware_decision.md §2.3 + Carney demo lock (I-cd-009); (d) Gemma 4 31B-it evaluator loading per docs/gemma_4_verification.md §3.2 AWQ W4A16 recipe with `--quantization compressed-tensors`; (e) two-family segregation invariant verification; (f) smoke test queries; (g) rollback procedure"
           - "References hardware_decision.md + gemma_4_verification.md by canonical pin SHA"
           - "outputs/audits/manifests/4_2_prep_serving_runbook.json — Phase-4-PARTIAL-honest manifest"
         changed_files_glob:

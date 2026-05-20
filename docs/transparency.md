@@ -26,7 +26,7 @@ Pipeline-A uses a **two-family evaluator**: generator and verifier are from diff
 
 Current models in production (from `/transparency`):
 - **Generator:** `${PG_GENERATOR_MODEL}` (default `deepseek/deepseek-v4-pro`)
-- **Evaluator:** `${PG_EVALUATOR_MODEL}` (default `qwen/qwen-2.5-72b-instruct`)
+- **Evaluator:** `${PG_EVALUATOR_MODEL}` (default `google/gemma-4-31b-it`)
 
 `openrouter_client.check_family_segregation` raises `RuntimeError` at construction if the configured models are not from different families.
 

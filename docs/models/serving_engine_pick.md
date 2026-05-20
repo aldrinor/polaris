@@ -1,15 +1,23 @@
 # POLARIS serving engine — locked pick (I-cd-007, GH#639)
 
 **Decision:** **vLLM** is the locked serving engine for both boxes — generator
-(DeepSeek V4 Pro on Box 1 = 8×H200) and evaluator (Llama 4 Maverick INT4 on
-Box 2 = 4×H100). Per-role SGLang contingencies + TensorRT-LLM as a direct
-backend fallback are documented below, with empirical triggers resolved at
-I-cd-011 (FP4 hardware spike).
+(DeepSeek V4 Pro on Box 1 = 8×H200) and evaluator (Gemma 4 31B-it INT4 AWQ
+W4A16, weights artifact `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ`, on
+Box 2 = 4×H100). Loaded server-side with `--quantization compressed-tensors`
+(NOT `--quantization awq`). Per-role SGLang contingencies + TensorRT-LLM
+as a direct backend fallback are documented below, with empirical triggers
+resolved at I-cd-011 (FP4 hardware spike).
+
+Evaluator pick re-locked at I-cd-005-followup (PR #664): Gemma 4 31B-it,
+NOT Llama 4 Maverick — operator-locked per
+`feedback_operator_locked_decisions_not_codex_consultable_2026_05_15` and
+the "Llama 4 is famous for garbage" pushback. See
+`docs/models/evaluator_pick.md` for the full pick history.
 
 Codex brief review: iter 1 RC → **iter 2 APPROVE**. iter 1's "SGLang for
-both" was overconfident — no 2026 source confirmed SGLang + Maverick + INT4
-+ exactly 4×H100, while vLLM V1 has automatic prefix caching and
-`structured_outputs` with xgrammar/guidance, tempering SGLang's iter-1
+both" was overconfident — no 2026 source confirmed SGLang for community
+INT4 quants on exactly 4×H100, while vLLM V1 has automatic prefix caching
+and `structured_outputs` with xgrammar/guidance, tempering SGLang's iter-1
 "category" advantages.
 
 ## Why vLLM (primary)
@@ -34,14 +42,15 @@ both" was overconfident — no 2026 source confirmed SGLang + Maverick + INT4
 
 ## The unverified runtime risk (resolved at I-cd-011)
 
-**Neither vLLM nor SGLang has a source-confirmed Llama 4 Maverick + INT4 +
-exactly 4×H100 recipe in 2026 public docs.** vLLM/Red Hat validates Maverick
-**FP8** (~400GB, doesn't fit 4×H100=320GB); SGLang docs target Maverick on
-8×H100/H200. Both engines need empirical verification of a community AWQ /
-GPTQ-INT4 quant of Maverick on exactly 4×H100. I-cd-011 (#641, FP4 readiness
-spike, ~$400 GPU) does this verification.
+**vLLM has community AWQ W4A16 support for Gemma 4 31B-it via the
+`compressed-tensors` quant kernel.** Weight residency drops to ~16GB on
+4×H100 = 320GB HBM (massive headroom). The unverified piece is the
+end-to-end serving smoke under demo-realistic concurrency + context
+length; I-cd-011 (#641, FP4 readiness spike, ~$400 GPU) does this
+verification.
 
-If I-cd-011 confirms vLLM Maverick INT4 on 4×H100 works, the lock holds.
+If I-cd-011 confirms vLLM ebircak-AWQ Gemma 4 31B-it on 4×H100 works, the
+lock holds.
 
 ## I-cd-011 contingency branches (per-role swaps if empirical fails)
 
@@ -53,16 +62,17 @@ If I-cd-011 confirms vLLM Maverick INT4 on 4×H100 works, the lock holds.
 - In that case: SGLang on Box 1 (V4 Pro FP4 documented), vLLM stays on
   Box 2 (per-role split).
 
-**Box 2 (Evaluator, Llama 4 Maverick INT4, 4×H100) — swap to SGLang if:**
-- vLLM Maverick INT4 on 4×H100 cannot be made to work at I-cd-011, AND
-  SGLang Maverick INT4 on 4×H100 CAN be made to work (per Codex iter-2 P2's
-  symmetric branch).
+**Box 2 (Evaluator, Gemma 4 31B-it AWQ W4A16, 4×H100) — swap to SGLang if:**
+- vLLM ebircak-AWQ Gemma 4 31B-it on 4×H100 cannot be made to work at
+  I-cd-011, AND SGLang AWQ-Gemma-4-31B-it on 4×H100 CAN be made to work
+  (per Codex iter-2 P2's symmetric branch).
 - In that case: SGLang on Box 2, vLLM stays on Box 1.
 
-**Model-side hard fallback (already locked at I-cd-005):** if Maverick INT4
-cannot be made to fit on 4×H100 via ANY tested engine, fall back to
-`meta-llama/Llama-3.1-405B-Instruct` + AWQ/GPTQ-INT4 on vLLM — the
-most-mature path in the industry. This is the safety net.
+**Model-side hard fallback:** if ebircak AWQ W4A16 weights cannot be made
+to serve on 4×H100 via ANY tested engine, fall back to FP16
+`google/gemma-4-31B-it` at `--tensor-parallel-size 4` — ~62GB weights fits
+comfortably, just trades context-window headroom for safety. This is the
+demo safety net.
 
 **Direct-backend fallback (Codex iter-2 P2):** NVIDIA TensorRT-LLM is a
 real direct-backend candidate if vLLM AND SGLang both miss I-cd-011 targets
@@ -79,7 +89,7 @@ not in scope for this lock.
 | Prefix caching | vLLM V1 automatic prefix caching | RadixAttention (shared-prefix edge for batched scoring) |
 | Structured outputs | `structured_outputs` with xgrammar/guidance | First-class DSL + xgrammar |
 | DeepSeek V4 Pro | 0.20.0+: 8×H200, native FP4+FP8, 800K context | 8×H200 FP4 OR 16×H200 FP8 |
-| Llama 4 Maverick | Red Hat validates FP8 (doesn't fit 4×H100); INT4 path = I-cd-011 empirical | Documented on 8×H100/H200; INT4 on 4×H100 = I-cd-011 empirical |
+| Gemma 4 31B-it AWQ W4A16 | `compressed-tensors` quant kernel; INT4 on 4×H100 = ~16GB residency; I-cd-011 end-to-end smoke | AWQ supported; I-cd-011 end-to-end smoke |
 | INT4 (AWQ/GPTQ) on H100 | Mature, multi-year | Supported, newer |
 | OpenAI-compatible API | Yes | Yes |
 

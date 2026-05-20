@@ -38,7 +38,7 @@ Here's the run. Three things to notice.
 
 > [Point at the top KPI cards.]
 
-First, the two-family invariant. The generator was DeepSeek V4 Flash. The verifier was Gemma 4 31B. They are from different lineages, so neither can certify its own output. If they shared a lineage, POLARIS aborts the run before any token is billed.
+First, the two-family invariant. The generator was DeepSeek V4 Pro. The verifier was Gemma 4 31B. They are from different lineages, so neither can certify its own output. If they shared a lineage, POLARIS aborts the run before any token is billed.
 
 > [Click the Verified Sentences tab. Hover over a provenance token.]
 

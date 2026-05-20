@@ -60,7 +60,7 @@ The Prohibited Use Policy excludes:
 | Sliding window | 1024 tokens | HF model card |
 | Pre-trained variant | `google/gemma-4-31B` | HF |
 | Instruction-tuned | `google/gemma-4-31B-it` | HF |
-| NVIDIA NVFP4 quantized | `nvidia/Gemma-4-31B-IT-NVFP4` | HF |
+| Community INT4 AWQ (W4A16) | `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` | HF — Carney demo evaluator artifact (I-cd-009) |
 
 ---
 
@@ -68,7 +68,7 @@ The Prohibited Use Policy excludes:
 
 Per official [vLLM Gemma 4 recipe](https://docs.vllm.ai/projects/recipes/en/latest/Google/Gemma4.html):
 
-### 3.1 Build-phase (Vast.ai US 4× H100, FP16)
+### 3.1 Build-phase (4× H100, FP16)
 
 ```bash
 vllm serve google/gemma-4-31B-it \
@@ -77,18 +77,25 @@ vllm serve google/gemma-4-31B-it \
   --gpu-memory-utilization 0.90
 ```
 
-Memory footprint: ~62GB FP16 weights + KV cache headroom on 2× H100 = workable. Use 2 of 4 H100s for verifier; remaining 2 for DeepSeek V4 Flash generator (per Path C default).
+Memory footprint: ~62GB FP16 weights + KV cache headroom on 2× H100 = workable.
 
-### 3.2 Phase 4 sovereign (OVH Canada BHS H200, NVFP4 quantized)
+### 3.2 Carney demo evaluator box (4× H100, community AWQ INT4)
 
 ```bash
-vllm serve nvidia/Gemma-4-31B-IT-NVFP4 \
-  --tensor-parallel-size 2 \
+vllm serve ebircak/gemma-4-31B-it-4bit-W4A16-AWQ \
+  --tensor-parallel-size 4 \
   --max-model-len 65536 \
-  --gpu-memory-utilization 0.85
+  --gpu-memory-utilization 0.85 \
+  --quantization compressed-tensors
 ```
 
-NVFP4 reduces weights to ~16GB; doubles effective context-window headroom on H200.
+INT4 AWQ (W4A16) drops weight residency to ~16GB; massive headroom on
+4× H100 = 320GB HBM for KV cache. Locked per I-cd-009 (GH#624) Carney demo.
+Generator on the V4 Pro box (8× H200) is DeepSeek V4 Pro 1.6T per the
+two-family invariant.
+
+NOTE: `--quantization compressed-tensors` (NOT `--quantization awq`) — the
+ebircak weights ship in W4A16 compressed-tensors format.
 
 ### 3.3 Two-family segregation invariant cross-check
 
@@ -162,7 +169,7 @@ Per `docs/task_acceptance_matrix.yaml` task_0_8:
 - [x] License scan completed with material correction surfaced (Apache 2.0 + Gemma policies)
 - [x] Use-policy compatibility assessed: LOW severity for Carney delivery
 - [x] Two-family segregation cross-check: PASSES (Google vs DeepSeek lineages)
-- [x] vLLM serving recipe locked for build-phase (FP16) + sovereign (NVFP4)
+- [x] vLLM serving recipe locked for build-phase (FP16) + Carney demo evaluator (AWQ W4A16 via `--quantization compressed-tensors`)
 - [ ] Smoke test on Vast.ai cluster (deferred to Task 0.3 + 0.7 once cluster live)
 - [ ] Legal opinion added to docs/blockers.md §5 re: research synthesis ≠ practice of medicine
 
@@ -177,4 +184,4 @@ Per `docs/task_acceptance_matrix.yaml` task_0_8:
 - [Gemma 4 license](https://ai.google.dev/gemma/docs/gemma_4_license)
 - [Gemma Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy)
 - [vLLM Gemma 4 recipe](https://docs.vllm.ai/projects/recipes/en/latest/Google/Gemma4.html)
-- [NVIDIA Gemma-4-31B-IT-NVFP4 quantized weights](https://huggingface.co/nvidia/Gemma-4-31B-IT-NVFP4)
+- [Community AWQ W4A16 weights — `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ`](https://huggingface.co/ebircak/gemma-4-31B-it-4bit-W4A16-AWQ) (Carney demo evaluator artifact)

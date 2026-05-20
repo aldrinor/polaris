@@ -43,7 +43,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv(
     "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
 )
-OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "qwen/qwen3.5-plus-02-15")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "deepseek/deepseek-v4-pro")
 OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 
 # R-2 (readiness gate): hard per-run cost cap — a RUNAWAY-LOOP GUARD,
