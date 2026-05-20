@@ -403,17 +403,13 @@ def _force_drop_detached_task(task: "asyncio.Task") -> None:
 
 
 def install_teardown_drain_hook(loop: "asyncio.AbstractEventLoop") -> None:
-    """I-cd-032 (#632): install a shutdown hook that force-drops every
-    detached wedged backend task BEFORE asyncio.run's _cancel_all_tasks
-    iterates them.
-
-    Call this from the pipeline entry (e.g. `run_one_query`) right after
-    `asyncio.new_event_loop` / `asyncio.set_event_loop`, OR from
-    `asyncio.run(...)` callers via a small wrapper.
+    """I-cd-032 (#632) DEPRECATED — hooking loop.close() runs too late:
+    `asyncio.run` calls `_cancel_all_tasks` (which awaits every pending
+    task) BEFORE `loop.close()`, so a wedged detached task hangs the
+    cancel-all phase. Use `polaris_asyncio_run()` below instead. Kept
+    as a thin shim that ALSO patches `_cancel_all_tasks` for callers
+    that already use `asyncio.run` directly.
     """
-    # The hook runs at loop close; by that time we want all detached
-    # wedged tasks to be already drained so _cancel_all_tasks has nothing
-    # un-cancellable to await.
     original_close = loop.close
 
     def _drain_then_close() -> None:
@@ -422,6 +418,78 @@ def install_teardown_drain_hook(loop: "asyncio.AbstractEventLoop") -> None:
         original_close()
 
     loop.close = _drain_then_close  # type: ignore[method-assign]
+
+
+def polaris_asyncio_run(coro: Any) -> Any:
+    """I-cd-032 (#632): drop-in replacement for `asyncio.run` that
+    drains wedged detached backend tasks BEFORE the loop's
+    `_cancel_all_tasks` phase awaits them.
+
+    Sequence:
+      1. Create a new event loop.
+      2. Run the main coroutine to completion (or exception).
+      3. **Drain `_DETACHED_BACKEND_TASKS` by force-closing each.** This
+         must happen BEFORE `_cancel_all_tasks` so the task is already
+         finalized (cancelled) when the standard shutdown iterates it.
+      4. Mirror `asyncio.run`'s standard shutdown: cancel all remaining
+         tasks, run them until complete, run async generator shutdown,
+         shutdown default executor, close the loop.
+
+    Replaces `asyncio.run(...)` at pipeline-A entry (`run_one_query`)
+    when the run includes any Playwright-bound fetch backend.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        main_task = loop.create_task(coro)
+        try:
+            return loop.run_until_complete(main_task)
+        finally:
+            # I-cd-032: force-close wedged detached tasks BEFORE the
+            # standard cancel-all-tasks step so it has nothing
+            # un-cancellable to await.
+            for task in list(_DETACHED_BACKEND_TASKS):
+                _force_drop_detached_task(task)
+            # Mirror asyncio.run's shutdown phases.
+            try:
+                _polaris_cancel_all_tasks(loop)
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                if hasattr(loop, "shutdown_default_executor"):
+                    loop.run_until_complete(loop.shutdown_default_executor())
+            finally:
+                asyncio.set_event_loop(None)
+                loop.close()
+    except BaseException:
+        # Ensure the loop is closed on any exception path.
+        if not loop.is_closed():
+            loop.close()
+        raise
+
+
+def _polaris_cancel_all_tasks(loop: "asyncio.AbstractEventLoop") -> None:
+    """Mirror of stdlib asyncio.runners._cancel_all_tasks but with a
+    hard wall-clock — after 2s, abandon any still-pending task by
+    force-closing its coroutine. Defense-in-depth in case a backend
+    OTHER than the tracked _DETACHED_BACKEND_TASKS set wedges.
+    """
+    to_cancel = [t for t in asyncio.all_tasks(loop) if not t.done()]
+    if not to_cancel:
+        return
+    for task in to_cancel:
+        task.cancel()
+    # Race the wait against a hard timeout.
+    gather = asyncio.gather(*to_cancel, return_exceptions=True)
+    try:
+        loop.run_until_complete(asyncio.wait_for(gather, timeout=2.0))
+    except (asyncio.TimeoutError, TimeoutError):
+        for task in to_cancel:
+            if not task.done():
+                _force_drop_detached_task(task)
+    except BaseException:
+        # Best-effort — never propagate teardown failure.
+        for task in to_cancel:
+            if not task.done():
+                _force_drop_detached_task(task)
 
 
 def _backend_failure(label: str, url: str, error: str) -> AccessResult:
