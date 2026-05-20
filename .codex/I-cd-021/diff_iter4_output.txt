@@ -1,0 +1,4346 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e46b2-c688-7f53-89b1-f9d082ca6d84
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 4 of 5.
+- Front-load ALL real findings in iter 1.
+- "Don't pick bone from egg" — P1 only for real execution risks.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# Codex diff review — I-cd-021 (#631) — Offline Inspector
+
+Brief APPROVE'd iter 2. Iter-1 + iter-2 fixes applied. Canonical-diff-sha256: `f9da55f2dabf91da0c7ddb29ca002247a99e950494c56afab4ee53c990898c53`.
+
+**Iter-2 fix (P1.1 streaming):** Refactored from one-shot `pako.ungzip()` to streaming `pako.Inflate`.
+
+**Iter-3 fixes:**
+- P1.1 (true abort): onData now THROWS `_GzipBombAbort` when cumulative bytes exceed cap. The throw propagates out of `inflator.push` and is caught locally — pako stops decompressing immediately, not just stops collecting (the iter-2 stop-collecting code still let pako process the rest of the stream).
+- P1.2 (lint): replaced inline `require('node:fs')` in the Playwright spec with a static `import { writeFileSync } from 'node:fs'`. Lint passes (0 errors).
+
+Canonical-diff-sha256: `5633064dbe6ee6fcc22ba58cf73b1ad08aa3759b9dceb41574b50c8f4324292f`.
+
+**Iter-1 fixes:**
+- P1.1 (gzip bomb): `MAX_DECOMPRESSED_BYTES = 200 MB` checked AFTER `pako.ungzip` — prevents 50MB compressed → 50GB decompressed OOM.
+- P1.2 (missing required content type): added `source_snapshot` to `REQUIRED_CONTENT_TYPES` — now 6 types matching `_REQUIRED_CONTENT_TYPES` in `src/polaris_graph/audit_bundle/conformance.py:70-78`.
+- P1.3 (metadata schema mismatch producer vs fixture): carved to follow-up Issue **#682**. Producer at `manifest_builder.py:196-213` emits different field names than the v1_canonical fixture; both schemas need reconciliation. Out of scope for this PR.
+- P2.1 (CI wiring): added `run_e2e_inspector_offline_fallback` step to `.github/workflows/web_ci.yml`.
+- P2.2 (Windows CRLF/LF fixture): added `tests/fixtures/signed_bundle/.gitattributes` with `** -text` to prevent line-ending translation that would invalidate SHA hashes.
+
+## §A Canonical diff summary
+
+**New code (~559 net LOC):**
+- `web/lib/inspector_bundle_client_loader.ts` (NEW, 271 LOC) — `loadBundleFromTarGz(file: File): Promise<LoadedBundle>` via pako (gzip) + tar-stream. Verifies tar.gz size ≤ 50MB, manifest.yaml parses, `bundle_version == "1.0"`, all 5 required content types present, every declared file present in tar, SHA-256 + size match for every manifest entry.
+- `web/app/inspector/offline/page.tsx` (NEW, 129 LOC) — client component with drag-drop + file picker; on load reuses `<InspectorView>` (the same component used by `/inspector/[runId]`). WCAG: dropzone is `role="button"` + `tabIndex={0}` + Enter/Space keyboard activation + aria-label.
+- `web/components/inspector/metadata_panel.tsx` (NEW, 59 LOC) — surfaces all 5 BundleMetadata fields (polaris_version, generator_model, evaluator_model, bundle_created_at_utc, schema_version). Fixes Codex iter-1 P1.2.
+- `web/app/inspector/[runId]/inspector_view.tsx` (MOD, +5 LOC) — adds "Metadata" tab to the existing route (so the metadata panel surfaces on BOTH /inspector/[runId] AND /inspector/offline).
+- `web/tests/e2e/inspector_offline_fallback.spec.ts` (NEW, 91 LOC) — Playwright e2e: builds tar.gz from `tests/fixtures/signed_bundle/v1_canonical_success/` at setup, drops it via the file input, asserts InspectorView mounts + Metadata tab renders all 5 fields with non-empty values + no error card. Second test: malformed file → visible error card.
+- `web/package.json` + `web/package-lock.json` — new deps `pako@^2.1.0`, `tar-stream@^3.2.0`, `@types/pako`, `@types/tar-stream`.
+
+## §B Acceptance check
+
+| Criterion | Met by |
+|---|---|
+| Inspector renders v1.0 bundle without backend running | offline/page.tsx + inspector_bundle_client_loader.ts |
+| Same `<InspectorView>` component used (no duplicate renderer) | offline/page.tsx:55 imports InspectorView |
+| `LoadedBundle` shape identical to server loader | `import type { LoadedBundle } from "@/lib/inspector_bundle_loader"` |
+| SHA-256 verify every file vs manifest | _sha256Hex + entry.sha256 check per file |
+| Size verify every file vs manifest | candidate.bytes.length === entry.size_bytes check |
+| Bundle version=1.0 enforced | inspector_bundle_client_loader.ts:170 |
+| 5 required content_types present | inspector_bundle_client_loader.ts:128-134 + 176-183 |
+| signaturePresent: detects manifest.yaml.asc | inspector_bundle_client_loader.ts:255 |
+| GPG cryptographic verify explicitly out-of-scope (documented) | offline/page.tsx:75-77 + loader docstring |
+| WCAG: dropzone keyboard-accessible | role=button, tabIndex=0, Enter/Space, aria-label, focus-visible:ring |
+| Metadata panel renders all 5 fields | metadata_panel.tsx + 5 data-testid attrs |
+| Playwright e2e covers success + malformed-file error path | inspector_offline_fallback.spec.ts |
+| No backend / API call on the offline path | page.tsx is "use client", no /api/ fetch |
+| TypeScript clean (`npx tsc --noEmit` rc=0) | confirmed locally |
+| 50MB file size limit prevents OOM | MAX_TAR_GZ_BYTES = 50 \* 1024 \* 1024 |
+
+## §C Red-team checklist
+
+1. **pako vs tar-stream** — pako handles gzip (mature, browser-tested, GitHub uses it); tar-stream is the standard Node tar parser. `tar-stream@3.x` is browser-build-compatible via Webpack/Next bundling.
+2. **SHA-256 verification** — uses `crypto.subtle.digest("SHA-256", ...)` (browser-native since 2016). Result is base16 hex matching the manifest hash format.
+3. **ArrayBuffer typing** — `bytes.buffer.slice(...)` ensures we pass `ArrayBuffer` (not `SharedArrayBuffer`) per TypeScript's strict BufferSource check.
+4. **`_findFile` suffix-match** — handles both `tar -czf bundle.tar.gz <dir>` (entries prefixed with `<dir>/`) and `tar -czf bundle.tar.gz -C <dir> .` (entries without prefix).
+5. **Filename traversal safety** — `_findFile` does NOT use the entry name directly for fs access (we're in-browser); manifest declares paths; no traversal vector.
+6. **`runId` derivation** — `BundleMetadata` does not carry run_id in the v1.0 frozen schema; falls back to filename stem. Documented in loader.
+7. **Tab IDs** — added "metadata" tab. Existing Tabs component uses `value=` keys; no collision.
+8. **MetadataPanel data-testid** — 5 specific testids let Playwright assert each field individually.
+9. **`InspectorView` import from offline/** — page.tsx imports `@/app/inspector/[runId]/inspector_view`. Next.js App Router permits this; component is "use client" already.
+10. **Error code surfacing** — `BundleClientLoaderError.code` ("ungzip_failed", "manifest_missing", "sha256_mismatch", etc.) is included in the error card for debugging.
+
+## §D Files I have ALSO checked and they're clean
+
+- `web/lib/inspector_bundle_loader.ts:13-32` — server loader's `LoadedBundle` interface is the shared contract; client loader matches.
+- `web/lib/signed_bundle.ts` — `parseManifest`, `parseReasoningTraceJsonl`, `BundleMetadata` are isomorphic; no node-only deps.
+- `web/components/inspector/` — 9 existing components; no breakage.
+- `web/components/ui/tabs.tsx` — wraps `@base-ui/react/tabs`; supports any number of tabs.
+- `web/next.config.ts` — pako + tar-stream get bundled by Next.js webpack; no special config needed.
+- `tests/fixtures/signed_bundle/v1_canonical_success/` — used as the test bundle source.
+- `.codex-tmp/i-cd-021-bundles/` — gitignored; e2e setup builds the tar.gz here.
+
+## §E Smoke test
+
+```bash
+cd web && npx tsc --noEmit  # rc=0 confirmed
+cd /c/POLARIS && wc -l .codex/I-cd-021/codex_diff_canonical.patch  # 915 lines (188 of which is package-lock)
+```
+
+Playwright e2e requires `next dev` server running on port 3737 + the fixture bundle building — runs in CI workflow `web_ci.yml` against a built/started Next.js production server, so cannot be smoke-tested headless on Windows in this dev shell. Codex runs `web_ci.yml` as the binding gate.
+
+## §F Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll review the applied diff and the touched files directly, then check the specific iter-3 fixes for abort behavior, lint hygiene, and any remaining execution blockers.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-FileHash -Algorithm SHA256 .codex/I-cd-021/codex_diff_canonical.patch | Format-List' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web tests .github .codex/I-cd-021 | rg "(inspector_bundle_client_loader|inspector_offline_fallback|metadata_panel|inspector_view|web_ci|package.json|package-lock|gitattributes|codex_diff_canonical.patch)$"' in C:\POLARIS
+ succeeded in 910ms:
+
+[32;1mAlgorithm : [0mSHA256
+[32;1mHash      : [0m5633064DBE6EE6FCC22BA58CF73B1AD08AA3759B9DCEB41574B50C8F4324292F
+[32;1mPath      : [0mC:\POLARIS\.codex\I-cd-021\codex_diff_canonical.patch
+
+
+ succeeded in 933ms:
+ M .claude/settings.json
+ M docs/todo_list.md
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+ M tests/fixtures/signed_bundle/v1_canonical/metadata.json
+ M tests/fixtures/signed_bundle/v1_canonical/scope_decision.json
+ M tests/fixtures/signed_bundle/v1_canonical/verified_report.json
+?? .claude/hooks/__pycache__/
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-021/
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+ succeeded in 990ms:
+.codex/I-cd-021\codex_diff_canonical.patch
+web\package.json
+tests\fixtures\signed_bundle\.gitattributes
+
+codex
+The canonical patch hash matches the iter-3 value. The worktree is very dirty with unrelated changes, so I’m narrowing to the canonical patch and the files named in this PR rather than treating the ambient status as signal.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --name-only -- .codex/I-cd-021/codex_diff_canonical.patch web/lib/inspector_bundle_client_loader.ts web/app/inspector/offline/page.tsx web/components/inspector/metadata_panel.tsx web/app/inspector/[runId]/inspector_view.tsx web/tests/e2e/inspector_offline_fallback.spec.ts web/package.json web/package-lock.json .github/workflows/web_ci.yml tests/fixtures/signed_bundle/.gitattributes' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "''^(diff --git|'"\\+const MAX|\\+class _GzipBombAbort|\\+function|\\+export|\\+const REQUIRED_CONTENT_TYPES|\\+.*source_snapshot|\\+.*Inflate|\\+.*onData|\\+.*writeFileSync|run_e2e_inspector_offline_fallback|Metadata)\" .codex/I-cd-021/codex_diff_canonical.patch" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Test-Path web/lib/inspector_bundle_client_loader.ts; Test-Path web/app/inspector/offline/page.tsx; Test-Path web/components/inspector/metadata_panel.tsx; Test-Path web/app/inspector/[runId]/inspector_view.tsx; Test-Path web/tests/e2e/inspector_offline_fallback.spec.ts; Test-Path .github/workflows/web_ci.yml; Test-Path tests/fixtures/signed_bundle/.gitattributes' in C:\POLARIS
+ succeeded in 777ms:
+ succeeded in 821ms:
+1:diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
+21:diff --git a/tests/fixtures/signed_bundle/.gitattributes b/tests/fixtures/signed_bundle/.gitattributes
+28:diff --git a/web/app/inspector/[runId]/inspector_view.tsx b/web/app/inspector/[runId]/inspector_view.tsx
+58:diff --git a/web/app/inspector/offline/page.tsx b/web/app/inspector/offline/page.tsx
+79:+export default function InspectorOfflinePage() {
+193:diff --git a/web/components/inspector/metadata_panel.tsx b/web/components/inspector/metadata_panel.tsx
+210:+export function MetadataPanel({ metadata }: MetadataPanelProps) {
+258:diff --git a/web/lib/inspector_bundle_client_loader.ts b/web/lib/inspector_bundle_client_loader.ts
+304:+const MAX_TAR_GZ_BYTES = 50 * 1024 * 1024;
+308:+const MAX_DECOMPRESSED_BYTES = 200 * 1024 * 1024;
+310:+export class BundleClientLoaderError extends Error {
+365:+class _GzipBombAbort extends Error {
+373:+function _streamingUngzip(
+376:+  // pako.Inflate emits chunks via an onData callback; we accumulate up to
+378:+  // onData just stopped collecting but inflator.push continued processing
+380:+  // Throwing from onData propagates out of inflator.push so we stop pako
+382:+  const inflator = new pako.Inflate({ raw: false });
+386:+  inflator.onData = (chunk: Uint8Array): void => {
+443:+function _findFile(
+455:+function _decode(bytes: Uint8Array): string {
+461:+// requires ALL SIX content types (including source_snapshot).
+462:+const REQUIRED_CONTENT_TYPES = [
+467:+  "source_snapshot",
+471:+export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
+479:+  // Codex iter-2 P1.1 fix: streaming inflate via pako.Inflate, aborting as
+578:+    if (entry.content_type !== "source_snapshot") continue;
+606:diff --git a/web/package-lock.json b/web/package-lock.json
+885:diff --git a/web/package.json b/web/package.json
+917:diff --git a/web/tests/e2e/inspector_offline_fallback.spec.ts b/web/tests/e2e/inspector_offline_fallback.spec.ts
+930:+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+1000:+    writeFileSync(junkPath, "not gzip");
+
+ succeeded in 895ms:
+True
+True
+True
+False
+True
+True
+True
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath web/app/inspector/offline/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath web/lib/inspector_bundle_client_loader.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath web/app/inspector/[runId]/inspector_view.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath web/components/inspector/metadata_panel.tsx' in C:\POLARIS
+ succeeded in 848ms:
+// I-cd-021 (#631) — Offline Inspector page. Renders a v1.0 signed bundle
+// in-browser from a `.tar.gz` file dropped by a disconnected reviewer.
+// No GPU, no backend, no API call.
+"use client";
+
+import { useState } from "react";
+
+import { InspectorView } from "@/app/inspector/[runId]/inspector_view";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  BundleClientLoaderError,
+  loadBundleFromTarGz,
+} from "@/lib/inspector_bundle_client_loader";
+import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+
+export default function InspectorOfflinePage() {
+  const [bundle, setBundle] = useState<LoadedBundle | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  async function handleFile(file: File) {
+    setLoading(true);
+    setError(null);
+    setBundle(null);
+    try {
+      const loaded = await loadBundleFromTarGz(file);
+      setBundle(loaded);
+    } catch (exc) {
+      const message =
+        exc instanceof BundleClientLoaderError
+          ? `${exc.code}: ${exc.message}`
+          : (exc as Error).message;
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  if (bundle) {
+    return (
+      <InspectorView
+        bundle={bundle}
+        signaturePresent={bundle.signaturePresent}
+      />
+    );
+  }
+
+  return (
+    <main
+      className="mx-auto flex max-w-3xl flex-col gap-6 p-6"
+      data-testid="inspector-offline"
+    >
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Offline Inspector</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <p className="text-muted-foreground">
+            Drop or pick a signed POLARIS audit bundle (<code>.tar.gz</code>).
+            The bundle is verified and rendered entirely in your browser — no
+            backend or GPU required. SHA-256 of every file is checked against
+            the manifest. GPG cryptographic verify is out of scope (the
+            bundle&apos;s <code>.asc</code> presence is detected, but full
+            key-trust verification needs a CLI).
+          </p>
+          <div
+            data-testid="inspector-offline-dropzone"
+            role="button"
+            tabIndex={0}
+            aria-label="Drop bundle tar.gz or click to pick a file"
+            onDrop={onDrop}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                document.getElementById("inspector-offline-input")?.click();
+              }
+            }}
+            onClick={() =>
+              document.getElementById("inspector-offline-input")?.click()
+            }
+            className={`border-border focus-visible:ring-ring flex min-h-32 cursor-pointer items-center justify-center rounded border-2 border-dashed px-6 py-8 text-center text-sm focus-visible:ring-2 focus-visible:outline-none ${
+              dragOver ? "bg-muted/60" : "bg-muted/20"
+            }`}
+          >
+            {loading
+              ? "Loading bundle…"
+              : "Drop bundle.tar.gz here or press Enter to pick a file"}
+          </div>
+          <input
+            id="inspector-offline-input"
+            data-testid="inspector-offline-file-input"
+            type="file"
+            accept=".tar.gz,.tgz,application/gzip,application/x-gzip"
+            className="sr-only"
+            onChange={onInputChange}
+          />
+          {error ? (
+            <div
+              data-testid="inspector-offline-error"
+              role="alert"
+              className="rounded border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-700 dark:text-rose-300"
+            >
+              <strong className="block">Bundle could not be loaded</strong>
+              <code className="mt-1 block text-xs">{error}</code>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+
+
+ succeeded in 916ms:
+/**
+ * I-cd-021 (#631) — Browser-side bundle loader.
+ *
+ * Parses a v1.0 BundleManifest tar.gz uploaded by a disconnected
+ * reviewer (no backend, no GPU). Same `LoadedBundle` shape as the
+ * server-side `inspector_bundle_loader.ts` so all Inspector components
+ * accept either source.
+ *
+ * Conformance (browser-safe subset of the 12-layer Python check):
+ *   - tar.gz size ≤ 50MB
+ *   - inflate via pako
+ *   - extract files with tar-stream (browser build)
+ *   - manifest.yaml parses cleanly (existing parseManifest)
+ *   - bundle_version == "1.0"
+ *   - all 6 required ContentTypes present in manifest.files
+ *   - each declared file is present in the tar
+ *   - SHA-256 of each file matches manifest hash (browser crypto.subtle)
+ *   - byte size matches manifest size
+ *   - signaturePresent: derived from manifest.yaml.asc existence + non-empty
+ *
+ * GPG cryptographic verify is out of scope (requires CLI / pgp.js + key
+ * trust UX, both browser-impractical for Carney handover).
+ */
+
+import pako from "pako";
+import { extract as tarExtract } from "tar-stream";
+
+import {
+  type BundleManifest,
+  type BundleMetadata,
+  type ReasoningTraceRecord,
+  parseManifest,
+  parseReasoningTraceJsonl,
+} from "@/lib/signed_bundle";
+
+import type {
+  LoadedBundle,
+  VerifiedReportShape,
+} from "@/lib/inspector_bundle_loader";
+
+const MAX_TAR_GZ_BYTES = 50 * 1024 * 1024;
+// Codex iter-1 P1.1 fix: cap DECOMPRESSED tar bytes to prevent gzip-bomb OOM.
+// A 50MB gzip can inflate to 50GB+ of zeros. 200MB is generous for legitimate
+// bundles (the largest v1.0 fixture is ~80KB; real runs may approach a few MB).
+const MAX_DECOMPRESSED_BYTES = 200 * 1024 * 1024;
+
+export class BundleClientLoaderError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+    this.name = "BundleClientLoaderError";
+  }
+}
+
+interface ExtractedFile {
+  name: string;
+  bytes: Uint8Array;
+}
+
+async function _extractTarBytes(
+  tarBytes: Uint8Array,
+): Promise<ExtractedFile[]> {
+  return new Promise((resolve, reject) => {
+    const files: ExtractedFile[] = [];
+    const extractor = tarExtract();
+    extractor.on(
+      "entry",
+      (
+        header: { name: string; type?: string },
+        stream: NodeJS.ReadableStream,
+        next: () => void,
+      ) => {
+        const chunks: Uint8Array[] = [];
+        stream.on("data", (c: Uint8Array) => chunks.push(c));
+        stream.on("end", () => {
+          if (header.type === "file") {
+            // Concat chunks into one Uint8Array.
+            const total = chunks.reduce((s, c) => s + c.length, 0);
+            const merged = new Uint8Array(total);
+            let off = 0;
+            for (const c of chunks) {
+              merged.set(c, off);
+              off += c.length;
+            }
+            files.push({
+              name: header.name.replace(/^\.\//, ""),
+              bytes: merged,
+            });
+          }
+          next();
+        });
+        stream.resume();
+      },
+    );
+    extractor.on("finish", () => resolve(files));
+    extractor.on("error", reject);
+    extractor.end(tarBytes);
+  });
+}
+
+class _GzipBombAbort extends Error {
+  readonly cap: number;
+  constructor(cap: number) {
+    super(`Decompressed bytes exceeded ${cap} cap (gzip-bomb guard).`);
+    this.cap = cap;
+  }
+}
+
+function _streamingUngzip(
+  compressed: Uint8Array,
+): Uint8Array | BundleClientLoaderError {
+  // pako.Inflate emits chunks via an onData callback; we accumulate up to
+  // MAX_DECOMPRESSED_BYTES then ABORT (Codex iter-3 P1 fix: previously
+  // onData just stopped collecting but inflator.push continued processing
+  // the rest of the stream — bomb could still hang the thread).
+  // Throwing from onData propagates out of inflator.push so we stop pako
+  // from continuing to decompress. The throw is caught locally.
+  const inflator = new pako.Inflate({ raw: false });
+  let total = 0;
+  const chunks: Uint8Array[] = [];
+
+  inflator.onData = (chunk: Uint8Array): void => {
+    total += chunk.length;
+    if (total > MAX_DECOMPRESSED_BYTES) {
+      throw new _GzipBombAbort(MAX_DECOMPRESSED_BYTES);
+    }
+    chunks.push(chunk);
+  };
+  inflator.onEnd = (_status: number): void => {
+    /* status handled via err/msg fields below */
+  };
+
+  try {
+    inflator.push(compressed, true);
+  } catch (exc) {
+    if (exc instanceof _GzipBombAbort) {
+      return new BundleClientLoaderError(
+        "decompressed_too_large",
+        exc.message,
+      );
+    }
+    return new BundleClientLoaderError(
+      "ungzip_failed",
+      `Failed to gunzip bundle: ${(exc as Error).message}`,
+    );
+  }
+
+  if (inflator.err) {
+    return new BundleClientLoaderError(
+      "ungzip_failed",
+      `Failed to gunzip bundle: ${inflator.msg || "pako error " + inflator.err}`,
+    );
+  }
+
+  // Concatenate chunks into one Uint8Array.
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.length;
+  }
+  return out;
+}
+
+async function _sha256Hex(bytes: Uint8Array): Promise<string> {
+  // Slice into a fresh ArrayBuffer (not SharedArrayBuffer) for browser-safe
+  // BufferSource typing on crypto.subtle.digest.
+  const buf = await crypto.subtle.digest(
+    "SHA-256",
+    bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer,
+  );
+  const arr = Array.from(new Uint8Array(buf));
+  return arr.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function _findFile(
+  files: ExtractedFile[],
+  pathInManifest: string,
+): ExtractedFile | undefined {
+  // tar entries may be prefixed with bundle-dir name (e.g. "v1_canonical/").
+  // Match suffix to keep loader robust against `tar -czf bundle.tar.gz <dir>`
+  // vs `tar -czf bundle.tar.gz -C <dir> .`.
+  return files.find(
+    (f) => f.name === pathInManifest || f.name.endsWith("/" + pathInManifest),
+  );
+}
+
+function _decode(bytes: Uint8Array): string {
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+// Codex iter-1 P1.2 fix: v1.0 conformance per
+// src/polaris_graph/audit_bundle/conformance.py:_REQUIRED_CONTENT_TYPES
+// requires ALL SIX content types (including source_snapshot).
+const REQUIRED_CONTENT_TYPES = [
+  "scope_decision",
+  "evidence_pool",
+  "verified_report",
+  "metadata",
+  "source_snapshot",
+  "reasoning_trace",
+] as const;
+
+export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
+  if (file.size > MAX_TAR_GZ_BYTES) {
+    throw new BundleClientLoaderError(
+      "tar_gz_too_large",
+      `Bundle file is ${file.size} bytes, exceeds ${MAX_TAR_GZ_BYTES} byte limit.`,
+    );
+  }
+  const arrayBuffer = await file.arrayBuffer();
+  // Codex iter-2 P1.1 fix: streaming inflate via pako.Inflate, aborting as
+  // soon as cumulative decompressed bytes exceed MAX_DECOMPRESSED_BYTES.
+  // The previous one-shot pako.ungzip() materialized the full bomb before
+  // the size guard ran.
+  const tarBytes = _streamingUngzip(new Uint8Array(arrayBuffer));
+  if (tarBytes instanceof BundleClientLoaderError) {
+    throw tarBytes;
+  }
+  const files = await _extractTarBytes(tarBytes);
+  const manifestFile = _findFile(files, "manifest.yaml");
+  if (!manifestFile) {
+    throw new BundleClientLoaderError(
+      "manifest_missing",
+      "Bundle is missing manifest.yaml.",
+    );
+  }
+  let manifest: BundleManifest;
+  try {
+    manifest = parseManifest(_decode(manifestFile.bytes));
+  } catch (exc) {
+    throw new BundleClientLoaderError(
+      "manifest_parse_failed",
+      `manifest.yaml parse failed: ${(exc as Error).message}`,
+    );
+  }
+  if (manifest.bundle_version !== "1.0") {
+    throw new BundleClientLoaderError(
+      "version_mismatch",
+      `Bundle version ${JSON.stringify(manifest.bundle_version)} != frozen v1.0.`,
+    );
+  }
+  for (const required of REQUIRED_CONTENT_TYPES) {
+    if (!manifest.files.some((f) => f.content_type === required)) {
+      throw new BundleClientLoaderError(
+        "required_content_type_missing",
+        `Manifest missing required content_type ${JSON.stringify(required)}.`,
+      );
+    }
+  }
+
+  // SHA-256 + size verify every manifest entry.
+  for (const entry of manifest.files) {
+    const candidate = _findFile(files, entry.path);
+    if (!candidate) {
+      throw new BundleClientLoaderError(
+        "manifest_file_missing",
+        `Manifest declares ${JSON.stringify(entry.path)} but bundle does not contain it.`,
+      );
+    }
+    if (candidate.bytes.length !== entry.size_bytes) {
+      throw new BundleClientLoaderError(
+        "size_mismatch",
+        `${JSON.stringify(entry.path)}: manifest size=${entry.size_bytes}, actual=${candidate.bytes.length}.`,
+      );
+    }
+    const actualSha = await _sha256Hex(candidate.bytes);
+    if (actualSha !== entry.sha256) {
+      throw new BundleClientLoaderError(
+        "sha256_mismatch",
+        `${JSON.stringify(entry.path)}: manifest sha256=${JSON.stringify(entry.sha256)}, actual=${JSON.stringify(actualSha)}.`,
+      );
+    }
+  }
+
+  // metadata.json by explicit path (v1.0 spec).
+  const metadataEntry = manifest.files.find(
+    (f) => f.content_type === "metadata" && f.path === "metadata.json",
+  );
+  if (!metadataEntry) {
+    throw new BundleClientLoaderError(
+      "metadata_entry_missing",
+      "Manifest must have a metadata entry with path=metadata.json.",
+    );
+  }
+  const metadataFile = _findFile(files, "metadata.json")!;
+  const metadata = JSON.parse(_decode(metadataFile.bytes)) as BundleMetadata;
+
+  const scopeDecisionFile = _findFile(files, "scope_decision.json")!;
+  const scopeDecision = JSON.parse(_decode(scopeDecisionFile.bytes));
+
+  const evidencePoolFile = _findFile(files, "evidence_pool.json")!;
+  const evidencePool = JSON.parse(_decode(evidencePoolFile.bytes));
+
+  const verifiedReportFile = _findFile(files, "verified_report.json")!;
+  const verifiedReport = JSON.parse(
+    _decode(verifiedReportFile.bytes),
+  ) as VerifiedReportShape;
+
+  const reasoningEntry = manifest.files.find(
+    (f) => f.content_type === "reasoning_trace",
+  );
+  const reasoningTrace: ReasoningTraceRecord[] = reasoningEntry
+    ? parseReasoningTraceJsonl(
+        _decode(_findFile(files, reasoningEntry.path)!.bytes),
+      )
+    : [];
+
+  const sources: Record<string, string> = {};
+  for (const entry of manifest.files) {
+    if (entry.content_type !== "source_snapshot") continue;
+    const sourceFile = _findFile(files, entry.path);
+    if (sourceFile) {
+      sources[entry.path] = _decode(sourceFile.bytes);
+    }
+  }
+
+  const signatureFile = _findFile(files, "manifest.yaml.asc");
+  const signaturePresent = !!signatureFile && signatureFile.bytes.length > 0;
+
+  // runId for offline mode: derive from filename (BundleMetadata doesn't
+  // carry run_id; it's a session-level field outside the v1.0 freeze).
+  const runId =
+    file.name.replace(/\.tar\.gz$/, "").replace(/\.tgz$/, "") ||
+    "offline-bundle";
+
+  return {
+    runId,
+    manifest,
+    scopeDecision,
+    evidencePool,
+    verifiedReport,
+    metadata,
+    reasoningTrace,
+    sources,
+    signaturePresent,
+  };
+}
+
+
+ succeeded in 955ms:
+// I-cd-013a (GH#609) — Inspector view (client component, Tabs structure).
+"use client";
+
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BundleHeader } from "@/components/inspector/bundle_header";
+import { EvidencePoolTable } from "@/components/inspector/evidence_pool_table";
+import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
+import { HashChainPanel } from "@/components/inspector/hash_chain_panel";
+import { MetadataPanel } from "@/components/inspector/metadata_panel";
+import { ReasoningTraceTimeline } from "@/components/inspector/reasoning_trace_timeline";
+import { ScopeDecisionCard } from "@/components/inspector/scope_decision_card";
+import { SourcesPanel } from "@/components/inspector/sources_panel";
+import { VerifiedReportSections } from "@/components/inspector/verified_report_sections";
+import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+
+interface InspectorViewProps {
+  bundle: LoadedBundle;
+  signaturePresent: boolean;
+}
+
+export function InspectorView({
+  bundle,
+  signaturePresent,
+}: InspectorViewProps) {
+  return (
+    <main
+      className="mx-auto flex max-w-6xl flex-col gap-6 p-6"
+      data-testid="inspector-view"
+      data-run-id={bundle.runId}
+    >
+      <BundleHeader
+        manifest={bundle.manifest}
+        signaturePresent={signaturePresent}
+      />
+      <FamilySegregationBadge
+        manifest={bundle.manifest}
+        verifiedReport={bundle.verifiedReport}
+      />
+      <Tabs defaultValue="report">
+        <TabsList>
+          <TabsTrigger value="report">Report</TabsTrigger>
+          <TabsTrigger value="scope">Scope</TabsTrigger>
+          <TabsTrigger value="evidence">Evidence</TabsTrigger>
+          <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
+          <TabsTrigger value="sources">Sources</TabsTrigger>
+          <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
+          <TabsTrigger value="metadata">Metadata</TabsTrigger>
+        </TabsList>
+        <TabsContent value="report" tabId="report">
+          <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
+        </TabsContent>
+        <TabsContent value="scope" tabId="scope">
+          <ScopeDecisionCard value={bundle.scopeDecision} />
+        </TabsContent>
+        <TabsContent value="evidence" tabId="evidence">
+          <EvidencePoolTable value={bundle.evidencePool} />
+        </TabsContent>
+        <TabsContent value="reasoning" tabId="reasoning">
+          <ReasoningTraceTimeline records={bundle.reasoningTrace} />
+        </TabsContent>
+        <TabsContent value="sources" tabId="sources">
+          <SourcesPanel sources={bundle.sources} />
+        </TabsContent>
+        <TabsContent value="hashchain" tabId="hashchain">
+          <HashChainPanel manifest={bundle.manifest} />
+        </TabsContent>
+        <TabsContent value="metadata" tabId="metadata">
+          <MetadataPanel metadata={bundle.metadata} />
+        </TabsContent>
+      </Tabs>
+    </main>
+  );
+}
+
+
+ succeeded in 980ms:
+// I-cd-021 (#631): metadata panel — Codex iter-1 P1.2 finding was that
+// `LoadedBundle.metadata` was parsed but never rendered. Adds explicit
+// surfacing for both /inspector/[runId] and /inspector/offline.
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { BundleMetadata } from "@/lib/signed_bundle";
+
+interface MetadataPanelProps {
+  metadata: BundleMetadata;
+}
+
+export function MetadataPanel({ metadata }: MetadataPanelProps) {
+  return (
+    <Card data-testid="metadata-panel">
+      <CardHeader>
+        <CardTitle className="text-base">Bundle metadata</CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm">
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 md:grid-cols-[max-content,1fr]">
+          <dt className="text-muted-foreground">POLARIS version</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-polaris-version"
+          >
+            {metadata.polaris_version}
+          </dd>
+          <dt className="text-muted-foreground">Generator model</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-generator-model"
+          >
+            {metadata.generator_model}
+          </dd>
+          <dt className="text-muted-foreground">Evaluator model</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-evaluator-model"
+          >
+            {metadata.evaluator_model}
+          </dd>
+          <dt className="text-muted-foreground">Bundle created at (UTC)</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-created-at"
+          >
+            {metadata.bundle_created_at_utc}
+          </dd>
+          <dt className="text-muted-foreground">Schema version</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-schema-version"
+          >
+            {metadata.schema_version}
+          </dd>
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath .github/workflows/web_ci.yml' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath web/tests/e2e/inspector_offline_fallback.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath web/lib/signed_bundle.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath web/package.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath tests/fixtures/signed_bundle/.gitattributes' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath web/lib/inspector_bundle_loader.ts' in C:\POLARIS
+ succeeded in 956ms:
+name: web_ci
+
+on:
+  push:
+    paths:
+      - "web/**"
+      - "src/polaris_v6/**"
+      - "tests/v6/**"
+      - "requirements*.txt"
+      - ".github/workflows/web_ci.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - "src/polaris_v6/**"
+      - "tests/v6/**"
+      - "requirements*.txt"
+      - ".github/workflows/web_ci.yml"
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  lint_format_typecheck_build:
+    name: lint + format + typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: install_dependencies
+        run: npm ci
+
+      - name: lint
+        run: npm run lint
+
+      - name: format_check
+        run: npm run format:check
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: build
+        run: npm run build
+
+  e2e_playwright:
+    name: e2e + a11y + perf (Playwright on Chromium)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: install_python_dependencies
+        working-directory: ${{ github.workspace }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: install_npm_dependencies
+        run: npm ci
+
+      - name: install_playwright_chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: start_fastapi_backend
+        working-directory: ${{ github.workspace }}
+        run: |
+          PYTHONPATH=src nohup python -m uvicorn polaris_v6.api.app:app \
+            --host 127.0.0.1 --port 8000 \
+            > /tmp/fastapi.log 2>&1 &
+          # Wait for /health to respond.
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:8000/health > /dev/null; then
+              echo "backend ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "backend failed to start"
+          cat /tmp/fastapi.log
+          exit 1
+
+      - name: build_and_start_next
+        # I-cd-015 (GH#611): POLARIS_TEST_HARNESS_ENABLED=1 lets the prod
+        # build serve harness routes for tests that depend on them
+        # (evidence_tooltip_perf etc.). Real production leaves this UNSET
+        # and the middleware 404s /charts_test/*, /sentence_hover_test/*,
+        # /disambiguation_modal_preview/*, /generation/*, /retrieval/*, /sse/*.
+        env:
+          POLARIS_TEST_HARNESS_ENABLED: "1"
+        run: |
+          npm run build
+          nohup npx next start -p 3738 > /tmp/next.log 2>&1 &
+          # Wait for /dashboard to respond.
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:3738/dashboard > /dev/null; then
+              echo "frontend ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "frontend failed to start"
+          cat /tmp/next.log
+          exit 1
+
+      - name: run_e2e_inspector
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/inspector.spec.ts
+
+      - name: run_e2e_accessibility
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/accessibility.spec.ts
+
+      - name: run_e2e_performance
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/performance.spec.ts
+
+      # I-f6-005: 100x tooltip mount-cycle render budget locked at <100ms.
+      # I-cd-015: this spec hits /sentence_hover_test/perf (a harness
+      # route). The next start step above sets POLARIS_TEST_HARNESS_ENABLED=1
+      # so the middleware passes through; real production leaves it UNSET
+      # and 404s the harness paths.
+      - name: run_e2e_evidence_tooltip_perf
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/evidence_tooltip_perf.spec.ts
+
+      # I-cd-021 (#631): offline Inspector — renders a v1.0 signed bundle
+      # tar.gz entirely in-browser. Codex diff iter-1 P2.1 fix: wire the
+      # new spec into the CI workflow.
+      - name: run_e2e_inspector_offline_fallback
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/inspector_offline_fallback.spec.ts
+
+      # Visual baselines are *-chromium-win32.png (locally captured on Win).
+      # On Linux CI the snapshot file resolves to a different name and will
+      # be missing; skip visual.spec until Linux baselines are added.
+      # See `.codex/continuous/2057fac_2c2_visual_regression.md` P0.
+
+      - name: upload_playwright_traces_on_failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: web/test-results/**/trace.zip
+          retention-days: 7
+
+  verify_pip_resolution:
+    # F-22 (cycle-7 P1.1 prevention): catches pip dependency conflicts
+    # before they reach pytest_v6_backend or the production Dockerfile.
+    # Cycle-7 caught F-17's protobuf>=6.33.5 pin breaking against
+    # google-generativeai's transitive protobuf<5.0.0 constraint.
+    name: pip install --dry-run (catch ResolutionImpossible early)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: pip_dry_run_legacy_requirements
+        # If this fails, requirements.txt has a conflict; production
+        # Dockerfile build would fail in the same way.
+        run: pip install --dry-run -r requirements.txt
+
+      - name: pip_dry_run_v6_requirements
+        # Verify the v6 backend's pinned set also resolves cleanly.
+        run: pip install --dry-run -r requirements-v6.txt
+
+  pytest_v6_backend:
+    name: pytest tests/v6/ (Phase 0 backend coverage)
+    runs-on: ubuntu-latest
+    needs: [lint_format_typecheck_build, verify_pip_resolution]
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      # Cycle-3 audit P2.3 (outputs/audits/continuous/bb60495_audit.md):
+      # tests/v6/test_*_middleware.py + test_actors.py + test_broker.py +
+      # test_otel_init.py use pytest.importorskip against dramatiq +
+      # opentelemetry deps. Without -v6.txt installed they SILENTLY SKIP
+      # (LAW II violation). This job uses requirements-v6.txt as the
+      # canonical pin source for v6 backend code.
+      - name: install_v6_dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-v6.txt
+
+      - name: run_pytest_v6
+        env:
+          PYTHONPATH: src
+        # `-q` keeps output tight; `--strict-markers` fails on undefined
+        # markers; `--no-header` removes pytest banner from CI logs.
+        # Acceptance suite (tests/v6/acceptance/) is excluded — it requires
+        # a live broker; covered by tests/v6/acceptance/test_dramatiq_acceptance.py
+        # which runs in its own integration job once Vast.ai cluster is live.
+        run: |
+          pytest tests/v6/ \
+            --ignore=tests/v6/acceptance \
+            -q --strict-markers --no-header
+
+
+ succeeded in 958ms:
+// I-cd-021 (#631) — Disconnected reviewer drops a v1.0 .tar.gz on the
+// offline Inspector route. No backend running.
+//
+// Builds a tar.gz from tests/fixtures/signed_bundle/v1_canonical_success/
+// at test-setup time and feeds it to the file input.
+
+import { execSync } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+
+import { expect, test } from "@playwright/test";
+
+const FIXTURE_DIR = path.resolve(
+  process.cwd(),
+  "..",
+  "tests/fixtures/signed_bundle/v1_canonical_success",
+);
+const OUT_DIR = path.resolve(
+  process.cwd(),
+  "..",
+  ".codex-tmp",
+  "i-cd-021-bundles",
+);
+const TAR_GZ_PATH = path.join(OUT_DIR, "v1_canonical_success.tar.gz");
+
+test.beforeAll(() => {
+  if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });
+  if (!existsSync(TAR_GZ_PATH)) {
+    execSync(`tar -czf "${TAR_GZ_PATH}" -C "${FIXTURE_DIR}" .`, {
+      stdio: "inherit",
+    });
+  }
+});
+
+test("Offline Inspector parses + renders a v1.0 tar.gz bundle in-browser", async ({
+  page,
+}) => {
+  await page.goto("/inspector/offline");
+  await expect(page.getByTestId("inspector-offline-dropzone")).toBeVisible();
+
+  await page
+    .getByTestId("inspector-offline-file-input")
+    .setInputFiles(TAR_GZ_PATH);
+
+  // Wait for InspectorView to mount in place of the dropzone.
+  await expect(page.getByTestId("inspector-view")).toBeVisible({
+    timeout: 15_000,
+  });
+
+  // Bundle header + verified report visible.
+  await expect(page.getByTestId("inspector-view")).toContainText(
+    /POLARIS|bundle|run/i,
+  );
+
+  // Metadata panel surfaces all 5 fields (Codex iter-1 P1.2 fix).
+  await page.getByRole("tab", { name: "Metadata" }).click();
+  await expect(page.getByTestId("metadata-panel")).toBeVisible();
+  await expect(page.getByTestId("metadata-polaris-version")).not.toBeEmpty();
+  await expect(page.getByTestId("metadata-generator-model")).not.toBeEmpty();
+  await expect(page.getByTestId("metadata-evaluator-model")).not.toBeEmpty();
+  await expect(page.getByTestId("metadata-created-at")).not.toBeEmpty();
+  await expect(page.getByTestId("metadata-schema-version")).toContainText(
+    "1.0",
+  );
+
+  // No error card.
+  await expect(page.getByTestId("inspector-offline-error")).toHaveCount(0);
+});
+
+test("Offline Inspector rejects a malformed file with a visible error", async ({
+  page,
+}) => {
+  await page.goto("/inspector/offline");
+
+  // Build a junk file in temp; setInputFiles accepts a path AND a payload.
+  const junkPath = path.join(OUT_DIR, "garbage.tar.gz");
+  if (!existsSync(junkPath)) {
+    writeFileSync(junkPath, "not gzip");
+  }
+
+  await page
+    .getByTestId("inspector-offline-file-input")
+    .setInputFiles(junkPath);
+
+  await expect(page.getByTestId("inspector-offline-error")).toBeVisible({
+    timeout: 5_000,
+  });
+  await expect(page.getByTestId("inspector-offline-error")).toContainText(
+    /ungzip_failed|manifest|gzip/i,
+  );
+});
+
+
+ succeeded in 974ms:
+// I-cd-012 (GH#608) — frontend mirror of
+// src/polaris_graph/audit_bundle/bundle_schema.py:BundleManifest (FROZEN v1.0).
+//
+// FROZEN v1.0: Field additions, removals, type changes, or new ContentType
+// enum members require the full bump cascade documented in the Python module.
+//
+// Active consumers:
+//   - Future Inspector route (I-A-03, #609)
+//   - Offline fallback Inspector that renders a signed bundle in-browser
+//     with no GPU/no backend (I-B-09, #631)
+//
+// Active producers (mirror this contract):
+//   - src/polaris_graph/audit_bundle/manifest_builder.py
+//   - src/polaris_graph/audit_bundle/bundle_builder.py
+//   - src/polaris_graph/api/audit_bundle_route.py
+//   - src/polaris_v6/api/bundle.py
+
+import yaml from "js-yaml";
+
+// ---------------------------------------------------------------------------
+// Type literals — must match
+// src/polaris_graph/audit_bundle/bundle_schema.py:ContentType
+// ---------------------------------------------------------------------------
+
+export type ContentType =
+  | "scope_decision"
+  | "evidence_pool"
+  | "verified_report"
+  | "source_snapshot"
+  | "metadata"
+  | "reasoning_trace";
+
+export const CONTENT_TYPES: ContentType[] = [
+  "scope_decision",
+  "evidence_pool",
+  "verified_report",
+  "source_snapshot",
+  "metadata",
+  "reasoning_trace",
+];
+
+export const BUNDLE_VERSION = "1.0" as const;
+
+// ---------------------------------------------------------------------------
+// FileEntry — mirrors bundle_schema.py:FileEntry
+// ---------------------------------------------------------------------------
+
+export interface FileEntry {
+  path: string; // relative POSIX path inside the extracted bundle
+  sha256: string; // lowercase hex SHA256
+  size_bytes: number;
+  content_type: ContentType;
+}
+
+// ---------------------------------------------------------------------------
+// BundleManifest — mirrors bundle_schema.py:BundleManifest
+// ---------------------------------------------------------------------------
+
+export interface BundleManifest {
+  bundle_id: string;
+  bundle_version: typeof BUNDLE_VERSION;
+  decision_id: string;
+  pool_id: string;
+  report_id: string;
+  generator_model: string;
+  polaris_version: string;
+  files: FileEntry[];
+  bundle_created_at_utc: string; // ISO-8601 UTC
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning trace — JSONL (one record per generator LLM call)
+// ---------------------------------------------------------------------------
+
+// Mirrors src/polaris_graph/generator/reasoning_trace.py:67
+// ReasoningTraceRecord (the active producer dataclass). 15 fields.
+// Codex diff iter-1 P1: previous 5-field shape diverged from real producer.
+export interface ReasoningTraceRecord {
+  call_id: string;
+  section: string;
+  call_type: string;
+  model: string;
+  status: string; // see reasoning_trace.py STATUSES
+  content_source: string; // see reasoning_trace.py CONTENT_SOURCES
+  parent_call_id: string | null;
+  regen_reason: string | null;
+  attempt_n: number;
+  reasoning_text: string;
+  content_text: string;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  timestamp: string; // ISO-8601 UTC
+}
+
+// ---------------------------------------------------------------------------
+// Bundle metadata — content of metadata.json
+// ---------------------------------------------------------------------------
+
+export interface BundleMetadata {
+  polaris_version: string;
+  generator_model: string;
+  evaluator_model: string;
+  bundle_created_at_utc: string;
+  schema_version: typeof BUNDLE_VERSION;
+}
+
+// ---------------------------------------------------------------------------
+// Parsers
+// ---------------------------------------------------------------------------
+
+/** Parse a `manifest.yaml` text into a typed `BundleManifest`.
+ *
+ * Validation is structural (presence of required fields + bundle_version
+ * literal); deeper conformance (path traversal, SHA256 matching, content
+ * schema validity) lives in the Python `check_bundle_conformance`. */
+export function parseManifest(yamlText: string): BundleManifest {
+  const parsed = yaml.load(yamlText);
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("manifest.yaml does not parse to a YAML mapping");
+  }
+  const m = parsed as Partial<BundleManifest>;
+  if (m.bundle_version !== BUNDLE_VERSION) {
+    throw new Error(
+      `bundle_version ${m.bundle_version} != frozen ${BUNDLE_VERSION}`,
+    );
+  }
+  for (const required of [
+    "bundle_id",
+    "decision_id",
+    "pool_id",
+    "report_id",
+    "generator_model",
+    "polaris_version",
+    "files",
+    "bundle_created_at_utc",
+  ] as const) {
+    if (m[required] === undefined || m[required] === null) {
+      throw new Error(`manifest.yaml missing required field: ${required}`);
+    }
+  }
+  if (!Array.isArray(m.files)) {
+    throw new Error("manifest.yaml `files` must be an array");
+  }
+  return m as BundleManifest;
+}
+
+/** Parse a `reasoning_trace.jsonl` text body into a list of records.
+ *
+ * One JSON object per non-empty line; blank lines are skipped. Malformed
+ * lines throw to surface bundle corruption at the source. */
+export function parseReasoningTraceJsonl(text: string): ReasoningTraceRecord[] {
+  const out: ReasoningTraceRecord[] = [];
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.trim() === "") continue;
+    let record: unknown;
+    try {
+      record = JSON.parse(line);
+    } catch (err) {
+      throw new Error(
+        `reasoning_trace.jsonl line ${i + 1} is not valid JSON: ${(err as Error).message}`,
+      );
+    }
+    if (
+      typeof record !== "object" ||
+      record === null ||
+      Array.isArray(record)
+    ) {
+      throw new Error(
+        `reasoning_trace.jsonl line ${i + 1} is not a JSON object`,
+      );
+    }
+    out.push(record as ReasoningTraceRecord);
+  }
+  return out;
+}
+
+/** Helper: filter `BundleManifest.files` by ContentType. */
+export function filesByContentType(
+  manifest: BundleManifest,
+  contentType: ContentType,
+): FileEntry[] {
+  return manifest.files.filter((f) => f.content_type === contentType);
+}
+
+
+ succeeded in 1055ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+
+ succeeded in 1119ms:
+tests/fixtures/signed_bundle/** -text
+
+
+ succeeded in 1206ms:
+// I-cd-013a (GH#609) — server-only bundle loader.
+//
+// Imported by web/app/inspector/[runId]/page.tsx and
+// web/app/api/inspector_bundle/[runId]/route.ts. Returns the parsed
+// canonical fixture data for runId === "v1-canonical" or
+// "v1-canonical-success"; returns null for any other runId (the page
+// renders a BundlePendingCTA in that case).
+//
+// Real-bundle backend wiring lands at I-B-08 (Seq 20); offline
+// fallback (in-browser bundle render) at I-B-09 (Seq 21). This module
+// is the swappable seam — same function signature, different data
+// path in each follow-up issue.
+
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
+import {
+  type BundleManifest,
+  type BundleMetadata,
+  type ReasoningTraceRecord,
+  parseManifest,
+  parseReasoningTraceJsonl,
+} from "@/lib/signed_bundle";
+
+const REPO_ROOT = path.resolve(process.cwd(), "..");
+
+export interface LoadedBundle {
+  runId: string;
+  manifest: BundleManifest;
+  scopeDecision: unknown;
+  evidencePool: unknown;
+  verifiedReport: VerifiedReportShape;
+  metadata: BundleMetadata;
+  reasoningTrace: ReasoningTraceRecord[];
+  sources: Record<string, string>;
+  /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
+   * Derived during load — NOT a manifest field. Codex diff iter-1 P2. */
+  signaturePresent: boolean;
+}
+
+export interface VerifiedReportShape {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSectionShape[];
+  overall_verify_pass_rate: number;
+  verifier_pass_threshold: number;
+  pipeline_verdict: string;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface VerifiedReportSectionShape {
+  section_id: string;
+  section_verify_pass_rate: number;
+  verified_sentences: VerifiedSentenceShape[];
+  [extra: string]: unknown;
+}
+
+export interface VerifiedSentenceShape {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  [extra: string]: unknown;
+}
+
+const KNOWN_FIXTURES: Record<string, string> = {
+  "v1-canonical": "tests/fixtures/signed_bundle/v1_canonical",
+  "v1-canonical-success": "tests/fixtures/signed_bundle/v1_canonical_success",
+};
+
+export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+  const relPath = KNOWN_FIXTURES[runId];
+  if (!relPath) return null;
+  const dir = path.join(REPO_ROOT, relPath);
+
+  const manifestRaw = await fs.readFile(
+    path.join(dir, "manifest.yaml"),
+    "utf-8",
+  );
+  const manifest = parseManifest(manifestRaw);
+
+  const scopeDecision = await readJson(dir, manifest, "scope_decision");
+  const evidencePool = await readJson(dir, manifest, "evidence_pool");
+  const verifiedReport = (await readJson(
+    dir,
+    manifest,
+    "verified_report",
+  )) as VerifiedReportShape;
+
+  // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
+  // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
+  // also flagged metadata in the active producer).
+  const metadataEntry = manifest.files.find(
+    (f) => f.content_type === "metadata" && f.path === "metadata.json",
+  );
+  if (!metadataEntry) {
+    throw new Error(
+      `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
+    );
+  }
+  const metadata = JSON.parse(
+    await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
+  ) as BundleMetadata;
+
+  const reasoningTraceEntry = manifest.files.find(
+    (f) => f.content_type === "reasoning_trace",
+  );
+  const reasoningTrace = reasoningTraceEntry
+    ? parseReasoningTraceJsonl(
+        await fs.readFile(path.join(dir, reasoningTraceEntry.path), "utf-8"),
+      )
+    : [];
+
+  const sources: Record<string, string> = {};
+  for (const entry of manifest.files) {
+    if (entry.content_type !== "source_snapshot") continue;
+    sources[entry.path] = await fs.readFile(
+      path.join(dir, entry.path),
+      "utf-8",
+    );
+  }
+
+  // Signature presence check (Codex diff iter-1 P2): mirror the conformance
+  // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
+  // bundle. The UI surfaces this boolean transparently; cryptographic
+  // verification belongs to operator-side `gpg --verify` tooling.
+  let signaturePresent = false;
+  try {
+    const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
+    signaturePresent = stat.isFile() && stat.size > 0;
+  } catch {
+    signaturePresent = false;
+  }
+
+  return {
+    runId,
+    manifest,
+    scopeDecision,
+    evidencePool,
+    verifiedReport,
+    metadata,
+    reasoningTrace,
+    sources,
+    signaturePresent,
+  };
+}
+
+async function readJson(
+  dir: string,
+  manifest: BundleManifest,
+  contentType: "scope_decision" | "evidence_pool" | "verified_report",
+): Promise<unknown> {
+  const entry = manifest.files.find((f) => f.content_type === contentType);
+  if (!entry) {
+    throw new Error(
+      `bundle: manifest has no entry of content_type=${contentType}`,
+    );
+  }
+  const body = await fs.readFile(path.join(dir, entry.path), "utf-8");
+  return JSON.parse(body);
+}
+
+
+codex
+I’ve read the client loader, offline route, metadata panel, shared loader types, test, and CI wiring. The two prior P1 fixes are present in the actual files, not just the patch; I’m now checking whether the browser bundle/build path has any remaining execution risk.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run lint -- --file lib/inspector_bundle_client_loader.ts --file app/inspector/offline/page.tsx --file components/inspector/metadata_panel.tsx --file tests/e2e/inspector_offline_fallback.spec.ts' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath node_modules/tar-stream/package.json' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"from ['\\\"](node:)?(stream|buffer|events|zlib|fs|path)|require\\(['\\\"](node:)?(stream|buffer|events|zlib|fs|path)|browser|exports|streamx|b4a|Buffer\" node_modules/tar-stream node_modules/streamx node_modules/b4a -g package.json -g \"*.js\"" in C:\POLARIS\web
+ succeeded in 792ms:
+{
+  "name": "tar-stream",
+  "version": "3.2.0",
+  "description": "tar-stream is a streaming tar parser and generator and nothing else. It operates purely using streams which means you can easily extract/parse tarballs without ever hitting the file system.",
+  "main": "index.js",
+  "files": [
+    "*.js"
+  ],
+  "browser": {
+    "fs": false
+  },
+  "imports": {
+    "fs": {
+      "bare": "bare-fs",
+      "default": "fs"
+    }
+  },
+  "scripts": {
+    "test": "standard && brittle test/*.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mafintosh/tar-stream.git"
+  },
+  "author": "Mathias Buus <mathiasbuus@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mafintosh/tar-stream/issues"
+  },
+  "homepage": "https://github.com/mafintosh/tar-stream",
+  "dependencies": {
+    "b4a": "^1.6.4",
+    "bare-fs": "^4.5.5",
+    "fast-fifo": "^1.2.0",
+    "streamx": "^2.15.0"
+  },
+  "devDependencies": {
+    "brittle": "^3.3.2",
+    "concat-stream": "^2.0.0",
+    "standard": "^17.0.1"
+  }
+}
+
+
+2026-05-20T18:43:58.219018Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+
+ exited 1 in 1015ms:
+2026-05-20T18:43:58.903346Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.8 seconds
+Output:
+
+> web@0.1.0 lint
+> eslint --file lib/inspector_bundle_client_loader.ts --file app/inspector/offline/page.tsx --file components/inspector/metadata_panel.tsx --file tests/e2e/inspector_offline_fallback.spec.ts
+
+Invalid option '--file' - perhaps you meant '--rule'?
+You're using eslint.config.js, some command line flags are no longer available. Please see https://eslint.org/docs/latest/use/command-line-interface for details.
+
+ exited 1 in 1754ms:
+
+> web@0.1.0 lint
+> eslint --file lib/inspector_bundle_client_loader.ts --file app/inspector/offline/page.tsx --file components/inspector/metadata_panel.tsx --file tests/e2e/inspector_offline_fallback.spec.ts
+
+Invalid option '--file' - perhaps you meant '--rule'?
+You're using eslint.config.js, some command line flags are no longer available. Please see https://eslint.org/docs/latest/use/command-line-interface for details.
+
+ succeeded in 3529ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+
+codex
+`npm run typecheck` passes. My targeted lint invocation used a legacy Next-style `--file` flag that this repo’s ESLint 9 config rejects, so I’m rerunning lint with direct path arguments and checking a production build path next.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx eslint lib/inspector_bundle_client_loader.ts app/inspector/offline/page.tsx components/inspector/metadata_panel.tsx tests/e2e/inspector_offline_fallback.spec.ts' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath node_modules/streamx/package.json; Get-Content -Raw -LiteralPath node_modules/b4a/package.json' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath node_modules/tar-stream/index.js; Get-Content -Raw -LiteralPath node_modules/tar-stream/extract.js' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run build' in C:\POLARIS\web
+ succeeded in 847ms:
+exports.extract = require('./extract')
+exports.pack = require('./pack')
+
+const { Writable, Readable, getStreamError } = require('streamx')
+const FIFO = require('fast-fifo')
+const b4a = require('b4a')
+const headers = require('./headers')
+
+const EMPTY = b4a.alloc(0)
+const MAX_HEADER_SIZE = 4 * 1024 * 1024 // arbitrary big number
+
+class BufferList {
+  constructor () {
+    this.buffered = 0
+    this.shifted = 0
+    this.queue = new FIFO()
+
+    this._offset = 0
+  }
+
+  push (buffer) {
+    this.buffered += buffer.byteLength
+    this.queue.push(buffer)
+  }
+
+  shiftFirst (size) {
+    return this.buffered === 0 ? null : this._next(size)
+  }
+
+  shift (size) {
+    if (size > this.buffered) return null
+    if (size === 0) return EMPTY
+
+    let chunk = this._next(size)
+
+    if (size === chunk.byteLength) return chunk // likely case
+
+    const chunks = [chunk]
+
+    while ((size -= chunk.byteLength) > 0) {
+      chunk = this._next(size)
+      chunks.push(chunk)
+    }
+
+    return b4a.concat(chunks)
+  }
+
+  _next (size) {
+    const buf = this.queue.peek()
+    const rem = buf.byteLength - this._offset
+
+    if (size >= rem) {
+      const sub = this._offset ? buf.subarray(this._offset, buf.byteLength) : buf
+      this.queue.shift()
+      this._offset = 0
+      this.buffered -= rem
+      this.shifted += rem
+      return sub
+    }
+
+    this.buffered -= size
+    this.shifted += size
+
+    return buf.subarray(this._offset, (this._offset += size))
+  }
+}
+
+class Source extends Readable {
+  constructor (self, header, offset) {
+    super()
+
+    this.header = header
+    this.offset = offset
+
+    this._parent = self
+  }
+
+  _read (cb) {
+    if (this.header.size === 0) {
+      this.push(null)
+    }
+    if (this._parent._stream === this) {
+      this._parent._update()
+    }
+    cb(null)
+  }
+
+  _predestroy () {
+    this._parent.destroy(getStreamError(this))
+  }
+
+  _detach () {
+    if (this._parent._stream === this) {
+      this._parent._stream = null
+      this._parent._missing = overflow(this.header.size)
+      this._parent._update()
+    }
+  }
+
+  _destroy (cb) {
+    this._detach()
+    cb(null)
+  }
+}
+
+class Extract extends Writable {
+  constructor (opts) {
+    super(opts)
+
+    if (!opts) opts = {}
+
+    this._buffer = new BufferList()
+    this._offset = 0
+    this._header = null
+    this._stream = null
+    this._missing = 0
+    this._longHeader = false
+    this._callback = noop
+    this._locked = false
+    this._finished = false
+    this._pax = null
+    this._paxGlobal = null
+    this._gnuLongPath = null
+    this._gnuLongLinkPath = null
+    this._filenameEncoding = opts.filenameEncoding || 'utf-8'
+    this._allowUnknownFormat = !!opts.allowUnknownFormat
+    this._unlockBound = this._unlock.bind(this)
+  }
+
+  _unlock (err) {
+    this._locked = false
+
+    if (err) {
+      this.destroy(err)
+      this._continueWrite(err)
+      return
+    }
+
+    this._update()
+  }
+
+  _consumeHeader () {
+    if (this._locked) return false
+
+    this._offset = this._buffer.shifted
+
+    try {
+      this._header = headers.decode(this._buffer.shift(512), this._filenameEncoding, this._allowUnknownFormat)
+    } catch (err) {
+      this._continueWrite(err)
+      return false
+    }
+
+    if (!this._header) return true
+
+    this._header.byteOffset = this._buffer.shifted
+
+    switch (this._header.type) {
+      case 'gnu-long-path':
+      case 'gnu-long-link-path':
+      case 'pax-global-header':
+      case 'pax-header':
+        this._longHeader = true
+        this._missing = this._header.size
+        if (this._missing > MAX_HEADER_SIZE) {
+          this._continueWrite(new Error('Header exceeds max size'))
+          return false
+        }
+        return true
+    }
+
+    this._locked = true
+    this._applyLongHeaders()
+
+    if (!(this._header.size >= 0)) {
+      this._continueWrite(new Error('Invalid header'))
+      return false
+    }
+
+    if (this._header.size === 0 || this._header.type === 'directory') {
+      this.emit('entry', this._header, this._createStream(), this._unlockBound)
+      return true
+    }
+
+    this._stream = this._createStream()
+    this._missing = this._header.size
+
+    this.emit('entry', this._header, this._stream, this._unlockBound)
+    return true
+  }
+
+  _applyLongHeaders () {
+    if (this._gnuLongPath) {
+      this._header.name = this._gnuLongPath
+      this._gnuLongPath = null
+    }
+
+    if (this._gnuLongLinkPath) {
+      this._header.linkname = this._gnuLongLinkPath
+      this._gnuLongLinkPath = null
+    }
+
+    if (this._pax) {
+      if (this._pax.path) this._header.name = this._pax.path
+      if (this._pax.linkpath) this._header.linkname = this._pax.linkpath
+      if (this._pax.size) this._header.size = parseInt(this._pax.size, 10)
+      this._header.pax = this._pax
+      this._pax = null
+    }
+  }
+
+  _decodeLongHeader (buf) {
+    switch (this._header.type) {
+      case 'gnu-long-path':
+        this._gnuLongPath = headers.decodeLongPath(buf, this._filenameEncoding)
+        break
+      case 'gnu-long-link-path':
+        this._gnuLongLinkPath = headers.decodeLongPath(buf, this._filenameEncoding)
+        break
+      case 'pax-global-header':
+        this._paxGlobal = headers.decodePax(buf)
+        break
+      case 'pax-header':
+        this._pax = this._paxGlobal === null
+          ? headers.decodePax(buf)
+          : Object.assign({}, this._paxGlobal, headers.decodePax(buf))
+        break
+    }
+  }
+
+  _consumeLongHeader () {
+    this._longHeader = false
+    this._missing = overflow(this._header.size)
+
+    const buf = this._buffer.shift(this._header.size)
+
+    try {
+      this._decodeLongHeader(buf)
+    } catch (err) {
+      this._continueWrite(err)
+      return false
+    }
+
+    return true
+  }
+
+  _consumeStream () {
+    const buf = this._buffer.shiftFirst(this._missing)
+    if (buf === null) return false
+
+    this._missing -= buf.byteLength
+    const drained = this._stream.push(buf)
+
+    if (this._missing === 0) {
+      this._stream.push(null)
+      if (drained) this._stream._detach()
+      return drained && this._locked === false
+    }
+
+    return drained
+  }
+
+  _createStream () {
+    return new Source(this, this._header, this._offset)
+  }
+
+  _update () {
+    while (this._buffer.buffered > 0 && !this.destroying) {
+      if (this._missing > 0) {
+        if (this._stream !== null) {
+          if (this._consumeStream() === false) return
+          continue
+        }
+
+        if (this._longHeader === true) {
+          if (this._missing > this._buffer.buffered) break
+          if (this._consumeLongHeader() === false) return false
+          continue
+        }
+
+        const ignore = this._buffer.shiftFirst(this._missing)
+        if (ignore !== null) this._missing -= ignore.byteLength
+        continue
+      }
+
+      if (this._buffer.buffered < 512) break
+      if (this._stream !== null || this._consumeHeader() === false) return
+    }
+
+    this._continueWrite(null)
+  }
+
+  _continueWrite (err) {
+    const cb = this._callback
+    this._callback = noop
+    cb(err)
+  }
+
+  _write (data, cb) {
+    this._callback = cb
+    this._buffer.push(data)
+    this._update()
+  }
+
+  _final (cb) {
+    this._finished = this._missing === 0 && this._buffer.buffered === 0
+    cb(this._finished ? null : new Error('Unexpected end of data'))
+  }
+
+  _predestroy () {
+    this._continueWrite(null)
+  }
+
+  _destroy (cb) {
+    if (this._stream) this._stream.destroy(getStreamError(this))
+    cb(null)
+  }
+
+  [Symbol.asyncIterator] () {
+    let error = null
+
+    let promiseResolve = null
+    let promiseReject = null
+
+    let entryStream = null
+    let entryCallback = null
+
+    const extract = this
+
+    this.on('entry', onentry)
+    this.on('error', (err) => { error = err })
+    this.on('close', onclose)
+
+    return {
+      [Symbol.asyncIterator] () {
+        return this
+      },
+      next () {
+        return new Promise(onnext)
+      },
+      return () {
+        return destroy(null)
+      },
+      throw (err) {
+        return destroy(err)
+      }
+    }
+
+    function consumeCallback (err) {
+      if (!entryCallback) return
+      const cb = entryCallback
+      entryCallback = null
+      cb(err)
+    }
+
+    function onnext (resolve, reject) {
+      if (error) {
+        return reject(error)
+      }
+
+      if (entryStream) {
+        resolve({ value: entryStream, done: false })
+        entryStream = null
+        return
+      }
+
+      promiseResolve = resolve
+      promiseReject = reject
+
+      consumeCallback(null)
+
+      if (extract._finished && promiseResolve) {
+        promiseResolve({ value: undefined, done: true })
+        promiseResolve = promiseReject = null
+      }
+    }
+
+    function onentry (header, stream, callback) {
+      entryCallback = callback
+      stream.on('error', noop) // no way around this due to tick sillyness
+
+      if (promiseResolve) {
+        promiseResolve({ value: stream, done: false })
+        promiseResolve = promiseReject = null
+      } else {
+        entryStream = stream
+      }
+    }
+
+    function onclose () {
+      consumeCallback(error)
+      if (!promiseResolve) return
+      if (error) promiseReject(error)
+      else promiseResolve({ value: undefined, done: true })
+      promiseResolve = promiseReject = null
+    }
+
+    function destroy (err) {
+      extract.destroy(err)
+      consumeCallback(err)
+      return new Promise((resolve, reject) => {
+        if (extract.destroyed) return resolve({ value: undefined, done: true })
+        extract.once('close', function () {
+          if (err) reject(err)
+          else resolve({ value: undefined, done: true })
+        })
+      })
+    }
+  }
+}
+
+module.exports = function extract (opts) {
+  return new Extract(opts)
+}
+
+function noop () {}
+
+function overflow (size) {
+  size &= 511
+  return size && 512 - size
+}
+
+
+ succeeded in 997ms:
+{
+  "name": "streamx",
+  "version": "2.25.0",
+  "description": "An iteration of the Node.js core streams with a series of improvements",
+  "main": "index.js",
+  "dependencies": {
+    "events-universal": "^1.0.0",
+    "fast-fifo": "^1.3.2",
+    "text-decoder": "^1.1.0"
+  },
+  "devDependencies": {
+    "b4a": "^1.6.6",
+    "brittle": "^3.1.1",
+    "end-of-stream": "^1.4.4",
+    "prettier": "^3.6.2",
+    "prettier-config-holepunch": "^2.0.0"
+  },
+  "files": [
+    "index.js"
+  ],
+  "scripts": {
+    "format": "prettier --write .",
+    "test": "prettier --check . && node test/all.js",
+    "test:bare": "bare test/all.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mafintosh/streamx.git"
+  },
+  "author": "Mathias Buus (@mafintosh)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mafintosh/streamx/issues"
+  },
+  "homepage": "https://github.com/mafintosh/streamx"
+}
+
+{
+  "name": "b4a",
+  "version": "1.8.1",
+  "description": "Bridging the gap between buffers and typed arrays",
+  "exports": {
+    "./package": "./package.json",
+    ".": {
+      "react-native": "./react-native.js",
+      "browser": "./browser.js",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "browser.js",
+    "index.js",
+    "react-native.js",
+    "lib"
+  ],
+  "scripts": {
+    "format": "prettier --write . && lunte --fix",
+    "lint": "prettier --check . && lunte",
+    "test": "npm run test:bare && npm run test:node",
+    "test:bare": "brittle-bare --coverage test.mjs",
+    "test:node": "brittle-node --coverage test.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/holepunchto/b4a.git"
+  },
+  "author": "Holepunch",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/holepunchto/b4a/issues"
+  },
+  "homepage": "https://github.com/holepunchto/b4a#readme",
+  "devDependencies": {
+    "brittle": "^3.5.2",
+    "lunte": "^1.7.0",
+    "nanobench": "^3.0.0",
+    "prettier": "^3.6.2",
+    "prettier-config-holepunch": "^2.0.0"
+  },
+  "peerDependencies": {
+    "react-native-b4a": "*"
+  },
+  "peerDependenciesMeta": {
+    "react-native-b4a": {
+      "optional": true
+    }
+  }
+}
+
+
+ succeeded in 4944ms:
+
+C:\POLARIS\web\lib\inspector_bundle_client_loader.ts
+  130:21  warning  '_status' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 1 problem (0 errors, 1 warning)
+
+
+2026-05-20T18:44:17.545423Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 8.3 seconds
+Output:
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.2.4 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 5.4s
+  Running TypeScript ...
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+Turbopack build encountered 1 warnings:
+./next.config.ts
+Encountered unexpected file in NFT list
+A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
+- filesystem operations (like path.join, path.resolve or fs.readFile), or
+- very dynamic requires (like require('./' + foo)).
+To resolve this, you can
+- remove them if possible, or
+- only use them in development, or
+- make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+- add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+
+Import trace:
+  App Route:
+    ./next.config.ts
+    ./lib/inspector_bundle_loader.ts
+    ./app/api/inspector_bundle/[runId]/route.ts
+
+
+
+> Build error occurred
+Error: spawn EPERM
+    at ignore-listed frames {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+ exited 1 in 8272ms:
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.2.4 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 5.4s
+  Running TypeScript ...
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+Turbopack build encountered 1 warnings:
+./next.config.ts
+Encountered unexpected file in NFT list
+A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
+- filesystem operations (like path.join, path.resolve or fs.readFile), or
+- very dynamic requires (like require('./' + foo)).
+To resolve this, you can
+- remove them if possible, or
+- only use them in development, or
+- make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+- add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+
+Import trace:
+  App Route:
+    ./next.config.ts
+    ./lib/inspector_bundle_loader.ts
+    ./app/api/inspector_bundle/[runId]/route.ts
+
+
+
+> Build error occurred
+Error: spawn EPERM
+    at ignore-listed frames {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -LiteralPath tests/fixtures/signed_bundle/v1_canonical_success | Select-Object Name,Length | Format-Table -AutoSize' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath tests/fixtures/signed_bundle/v1_canonical_success/manifest.yaml' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath web/next.config.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"inspector_bundle_client_loader|tar-stream|pako|buffer|resolve\\.fallback|webpack|serverExternalPackages|transpilePackages\" web/next.config.ts web -g \"*.ts\" -g \"*.tsx\" -g \"*.js\" -g \"*.mjs\"" in C:\POLARIS
+ succeeded in 917ms:
+
+[32;1mName                 [0m[32;1m Length[0m
+[32;1m----                 [0m [32;1m------[0m
+sources               
+evidence_pool.json    1171
+manifest.yaml         1402
+manifest.yaml.asc     291
+metadata.json         218
+reasoning_trace.jsonl 963
+REVIEWER_README.md    342
+scope_decision.json   345
+verified_report.json  2533
+
+
+ succeeded in 927ms:
+bundle_created_at_utc: '2026-05-19T00:00:00Z'
+bundle_id: bundle_v1_canonical_0001_success
+bundle_version: '1.0'
+decision_id: decision_v1_canonical_0001
+files:
+- content_type: scope_decision
+  path: scope_decision.json
+  sha256: 37e8a54e7536e02788cf8e1aaca546714c18549878aec92e8b6458fa59e813f5
+  size_bytes: 332
+- content_type: evidence_pool
+  path: evidence_pool.json
+  sha256: f8249c902925aefa03a2ef0e3f86a82f160f21aa0eaf11875f30bd4a9c8557b5
+  size_bytes: 1138
+- content_type: verified_report
+  path: verified_report.json
+  sha256: 813970c56041eeab246cb697fb49b75ccab905d76f8ee0c5610576e35f183111
+  size_bytes: 2458
+- content_type: metadata
+  path: metadata.json
+  sha256: 69b94105be13490815dbd18d8c3dc02485c2e8c68b123f12f95f13001f7f3fde
+  size_bytes: 211
+- content_type: metadata
+  path: REVIEWER_README.md
+  sha256: f440f60cda8861400cfa4b572c7784def6832987756e2066cf24158df96825ee
+  size_bytes: 336
+- content_type: reasoning_trace
+  path: reasoning_trace.jsonl
+  sha256: 815069307891201bc1a06324e961fda0cdf81143a210939975f007705afba2d0
+  size_bytes: 961
+- content_type: source_snapshot
+  path: sources/src_v1_canonical_0001.txt
+  sha256: 0d42df092fd4032c76267df6548d270ab1f31d2c8dad9c3cfda7265cf3769aa1
+  size_bytes: 203
+generator_model: deepseek/deepseek-v4-pro
+polaris_version: 1.0.0
+pool_id: pool_v1_canonical_0001
+report_id: report_v1_canonical_0001_success
+
+
+ succeeded in 979ms:
+import type { NextConfig } from "next";
+
+// I-carney-005 P1-004 + P1-005: standalone output for Docker runner +
+// server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
+// fetch only talks to the webui container (Next.js then proxies to the
+// api container by Docker service name, which the browser can't resolve).
+const nextConfig: NextConfig = {
+  output: "standalone",
+  async rewrites() {
+    const internal =
+      process.env.INTERNAL_API_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      "http://localhost:8000";
+    return [
+      {
+        source: "/api/v6/:path*",
+        destination: `${internal}/:path*`,
+      },
+      // I-carney-003 P1-001: expose FastAPI /transparency directly so
+      // reviewers (incl. Carney's office) can audit the deploy without
+      // going through /api/v6 prefix routing.
+      {
+        source: "/transparency",
+        destination: `${internal}/transparency`,
+      },
+      {
+        source: "/transparency/:path*",
+        destination: `${internal}/transparency/:path*`,
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+
+
+ succeeded in 1064ms:
+web\lib\inspector_bundle_client_loader.ts:11: *   - inflate via pako
+web\lib\inspector_bundle_client_loader.ts:12: *   - extract files with tar-stream (browser build)
+web\lib\inspector_bundle_client_loader.ts:25:import pako from "pako";
+web\lib\inspector_bundle_client_loader.ts:26:import { extract as tarExtract } from "tar-stream";
+web\lib\inspector_bundle_client_loader.ts:113:  // pako.Inflate emits chunks via an onData callback; we accumulate up to
+web\lib\inspector_bundle_client_loader.ts:117:  // Throwing from onData propagates out of inflator.push so we stop pako
+web\lib\inspector_bundle_client_loader.ts:119:  const inflator = new pako.Inflate({ raw: false });
+web\lib\inspector_bundle_client_loader.ts:152:      `Failed to gunzip bundle: ${inflator.msg || "pako error " + inflator.err}`,
+web\lib\inspector_bundle_client_loader.ts:171:    bytes.buffer.slice(
+web\lib\inspector_bundle_client_loader.ts:216:  // Codex iter-2 P1.1 fix: streaming inflate via pako.Inflate, aborting as
+web\lib\inspector_bundle_client_loader.ts:218:  // The previous one-shot pako.ungzip() materialized the full bomb before
+web\tests\e2e\accessibility.spec.ts:136:      buffer: Buffer.from("hello-from-a11y-probe"),
+web\app\inspector\offline\page.tsx:13:} from "@/lib/inspector_bundle_client_loader";
+web\tests\e2e\evidence_tooltip.spec.ts:18:  // (c) within 500ms the popup should be present (300ms delay + buffer).
+web\tests\e2e\perf_core_web_vitals.spec.ts:30:    }).observe({ type: "largest-contentful-paint", buffered: true });
+web\tests\e2e\perf_core_web_vitals.spec.ts:79:      buffered: true,
+web\tests\e2e\performance.spec.ts:131:        obs.observe({ type: "paint", buffered: true });
+
+codex
+One discrepancy surfaced: the checked-in `.gitattributes` content is not what the brief says. I’m verifying whether that affects fixture hash stability or is just local checkout state.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git check-attr text -- tests/fixtures/signed_bundle/v1_canonical_success/evidence_pool.json tests/fixtures/signed_bundle/v1_canonical_success/metadata.json tests/fixtures/signed_bundle/v1_canonical_success/sources/src_v1_canonical_0001.txt' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --stat --oneline -- tests/fixtures/signed_bundle/.gitattributes; git show HEAD:tests/fixtures/signed_bundle/.gitattributes' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git check-attr text -- tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json tests/fixtures/signed_bundle/v1_canonical/metadata.json tests/fixtures/signed_bundle/v1_canonical/sources/src_v1_canonical_0001.txt' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$files = @('"'scope_decision.json','evidence_pool.json','verified_report.json','metadata.json','REVIEWER_README.md','reasoning_trace.jsonl','sources/src_v1_canonical_0001.txt'); foreach ("'$f in $files) { $p = "tests/fixtures/signed_bundle/v1_canonical_success/$f"; $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLower(); $len = (Get-Item -LiteralPath $p).Length; "$f $len $hash" }' in C:\POLARIS
+ succeeded in 793ms:
+tests/fixtures/signed_bundle/v1_canonical_success/evidence_pool.json: text: unspecified
+tests/fixtures/signed_bundle/v1_canonical_success/metadata.json: text: unspecified
+tests/fixtures/signed_bundle/v1_canonical_success/sources/src_v1_canonical_0001.txt: text: unspecified
+
+ succeeded in 922ms:
+tests/fixtures/signed_bundle/** -text
+
+ succeeded in 975ms:
+scope_decision.json 345 e3de8a232648e5b67e71383b53bb220f125e0dec65d528a7aefa24269687e8b9
+evidence_pool.json 1171 b180f33adb366ab191f1c8c3076507e5e656825e413bd5b24117b94d02cc467c
+verified_report.json 2533 15bb8f5525f57102f23b907273b308140b8f4b0a27e0fca0b61ca0bf2829a097
+metadata.json 218 bf23ae1d065ce4e5a8a9a007fedcad16715fdd0ca320c5084c44cab95a537a22
+REVIEWER_README.md 342 618812c5fbbd3dfed9859e269f27f0c37d87a271466e700a1c6ae21ee31f2a69
+reasoning_trace.jsonl 963 b9807e60105dc3bba5df58d65f783c42a838fbdeac180d2abe9c9dfad289b0b2
+sources/src_v1_canonical_0001.txt 205 9f5cb798771ffe218299758dfb79ecbed19a4d70e1eeaefa5b3c62a898ed1c35
+
+ succeeded in 1011ms:
+tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json: text: unspecified
+tests/fixtures/signed_bundle/v1_canonical/metadata.json: text: unspecified
+tests/fixtures/signed_bundle/v1_canonical/sources/src_v1_canonical_0001.txt: text: unspecified
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath src/polaris_graph/audit_bundle/conformance.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"scope_decision\\.json|evidence_pool\\.json|verified_report\\.json|reasoning_trace\\.jsonl|metadata\\.json|source_snapshot|_REQUIRED_CONTENT_TYPES|ContentType|FileEntry\" src/polaris_graph/audit_bundle tests web/lib/signed_bundle.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath src/polaris_graph/audit_bundle/bundle_builder.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath src/polaris_graph/audit_bundle/manifest_builder.py' in C:\POLARIS
+ succeeded in 898ms:
+web/lib/signed_bundle.ts:4:// FROZEN v1.0: Field additions, removals, type changes, or new ContentType
+web/lib/signed_bundle.ts:22:// src/polaris_graph/audit_bundle/bundle_schema.py:ContentType
+web/lib/signed_bundle.ts:25:export type ContentType =
+web/lib/signed_bundle.ts:29:  | "source_snapshot"
+web/lib/signed_bundle.ts:33:export const CONTENT_TYPES: ContentType[] = [
+web/lib/signed_bundle.ts:37:  "source_snapshot",
+web/lib/signed_bundle.ts:45:// FileEntry — mirrors bundle_schema.py:FileEntry
+web/lib/signed_bundle.ts:48:export interface FileEntry {
+web/lib/signed_bundle.ts:52:  content_type: ContentType;
+web/lib/signed_bundle.ts:67:  files: FileEntry[];
+web/lib/signed_bundle.ts:97:// Bundle metadata — content of metadata.json
+web/lib/signed_bundle.ts:148:/** Parse a `reasoning_trace.jsonl` text body into a list of records.
+web/lib/signed_bundle.ts:163:        `reasoning_trace.jsonl line ${i + 1} is not valid JSON: ${(err as Error).message}`,
+web/lib/signed_bundle.ts:172:        `reasoning_trace.jsonl line ${i + 1} is not a JSON object`,
+web/lib/signed_bundle.ts:180:/** Helper: filter `BundleManifest.files` by ContentType. */
+web/lib/signed_bundle.ts:181:export function filesByContentType(
+web/lib/signed_bundle.ts:183:  contentType: ContentType,
+web/lib/signed_bundle.ts:184:): FileEntry[] {
+src/polaris_graph/audit_bundle\sovereignty_guard.py:6:serialized into evidence_pool.json by the bundle builder, so EVERY
+src/polaris_graph/audit_bundle\sovereignty_guard.py:21:    full pool serializes into evidence_pool.json — uncited sources still
+tests\integration\test_document_pipeline_wiring.py:51:    (doc_dir / "metadata.json").write_text(json.dumps({
+src/polaris_graph/audit_bundle\REVIEWER_README.md:9:- `scope_decision.json` — slice 001: the scope-gate verdict for the user's question.
+src/polaris_graph/audit_bundle\REVIEWER_README.md:10:- `evidence_pool.json` — slice 002: the corpus retrieved for the question.
+src/polaris_graph/audit_bundle\REVIEWER_README.md:11:- `verified_report.json` — slice 003: the generated report after strict-verify.
+src/polaris_graph/audit_bundle\REVIEWER_README.md:12:- `metadata.json` — bundle-level metadata (versions, timestamps).
+src/polaris_graph/audit_bundle\REVIEWER_README.md:15:- `reasoning_trace.jsonl` — raw model reasoning channel, one record per generator LLM call (see "Reasoning-trace note" below). Process evidence, **NOT** verified claims.
+src/polaris_graph/audit_bundle\REVIEWER_README.md:31:1. Open `verified_report.json`.
+src/polaris_graph/audit_bundle\REVIEWER_README.md:41:## Reasoning-trace note (`reasoning_trace.jsonl`)
+src/polaris_graph/audit_bundle\REVIEWER_README.md:43:`reasoning_trace.jsonl` records the **raw model reasoning channel** for every generator LLM call in the run — one JSON object per completed provider response. DeepSeek V4 Pro is reasoning-first: it emits a large internal reasoning trace alongside its final answer. POLARIS captures that trace here, stored **separately** from the report.
+src/polaris_graph/audit_bundle\REVIEWER_README.md:47:- `strict_verify` is **never** run against `reasoning_text`. Only the report's content channel (`verified_report.json`) is provenance-gated and citation-checked.
+src/polaris_graph/audit_bundle\REVIEWER_README.md:67:Any field addition, removal, type change, or new `ContentType` enum
+src/polaris_graph/audit_bundle\manifest_builder.py:27:    FileEntry,
+src/polaris_graph/audit_bundle\manifest_builder.py:48:FILE_SCOPE_DECISION = "scope_decision.json"
+src/polaris_graph/audit_bundle\manifest_builder.py:49:FILE_EVIDENCE_POOL = "evidence_pool.json"
+src/polaris_graph/audit_bundle\manifest_builder.py:50:FILE_VERIFIED_REPORT = "verified_report.json"
+src/polaris_graph/audit_bundle\manifest_builder.py:51:FILE_METADATA = "metadata.json"
+src/polaris_graph/audit_bundle\manifest_builder.py:55:FILE_REASONING_TRACE = "reasoning_trace.jsonl"
+src/polaris_graph/audit_bundle\manifest_builder.py:149:            reasoning_trace.jsonl through here. Each path must NOT
+src/polaris_graph/audit_bundle\manifest_builder.py:206:        "source_snapshot_count": len(snapshots),
+src/polaris_graph/audit_bundle\manifest_builder.py:216:    # reasoning_trace.jsonl). Each carries its own content_type; a path
+src/polaris_graph/audit_bundle\manifest_builder.py:233:    # Build FileEntry list with content_type tags
+src/polaris_graph/audit_bundle\manifest_builder.py:234:    file_entries: list[FileEntry] = []
+src/polaris_graph/audit_bundle\manifest_builder.py:246:                "source_snapshot"
+src/polaris_graph/audit_bundle\manifest_builder.py:252:            FileEntry(
+src/polaris_graph/audit_bundle\conformance.py:19:    (>= 1 FileEntry each: scope_decision, evidence_pool, verified_report,
+src/polaris_graph/audit_bundle\conformance.py:20:    metadata, source_snapshot, reasoning_trace).
+src/polaris_graph/audit_bundle\conformance.py:27: 9. `scope_decision.json` parses to `ScopeDecision`.
+src/polaris_graph/audit_bundle\conformance.py:28:10. `evidence_pool.json` parses to `EvidencePool`.
+src/polaris_graph/audit_bundle\conformance.py:29:11. `verified_report.json` parses to `VerifiedReport`.
+src/polaris_graph/audit_bundle\conformance.py:30:12. `reasoning_trace.jsonl` parses as JSONL (every non-empty line is a
+src/polaris_graph/audit_bundle\conformance.py:56:    ContentType,
+src/polaris_graph/audit_bundle\conformance.py:68:REASONING_TRACE_FILENAME = "reasoning_trace.jsonl"
+src/polaris_graph/audit_bundle\conformance.py:70:# All ContentType members required for a v1.0 bundle.
+src/polaris_graph/audit_bundle\conformance.py:71:_REQUIRED_CONTENT_TYPES: tuple[ContentType, ...] = (
+src/polaris_graph/audit_bundle\conformance.py:76:    "source_snapshot",
+src/polaris_graph/audit_bundle\conformance.py:161:    present_types: set[ContentType] = {entry.content_type for entry in manifest.files}
+src/polaris_graph/audit_bundle\conformance.py:162:    for required in _REQUIRED_CONTENT_TYPES:
+src/polaris_graph/audit_bundle\conformance.py:172:    # reasoning_trace.jsonl to trace.jsonl, update the manifest path,
+src/polaris_graph/audit_bundle\conformance.py:187:    by_content_type: dict[ContentType, list[Path]] = {}
+src/polaris_graph/audit_bundle\conformance.py:284:    # --- 12. reasoning_trace.jsonl parses as JSONL --------------------
+src/polaris_graph/audit_bundle\bundle_schema.py:6:removals, type changes, or new ContentType enum members require:
+src/polaris_graph/audit_bundle\bundle_schema.py:41:ContentType = Literal[
+src/polaris_graph/audit_bundle\bundle_schema.py:45:    "source_snapshot",     # full_text of one cited source
+src/polaris_graph/audit_bundle\bundle_schema.py:55:# FileEntry
+src/polaris_graph/audit_bundle\bundle_schema.py:58:class FileEntry(BaseModel):
+src/polaris_graph/audit_bundle\bundle_schema.py:71:            " 'sources/abc-123.txt', 'verified_report.json'."
+src/polaris_graph/audit_bundle\bundle_schema.py:80:    content_type: ContentType
+src/polaris_graph/audit_bundle\bundle_schema.py:164:    files: list[FileEntry] = Field(default_factory=list, max_length=10000)
+src/polaris_graph/audit_bundle\bundle_schema.py:172:    def _files_unique_paths(cls, v: list[FileEntry]) -> list[FileEntry]:
+src/polaris_graph/audit_bundle\bundle_schema.py:182:        self, content_type: ContentType
+src/polaris_graph/audit_bundle\bundle_schema.py:183:    ) -> list[FileEntry]:
+src/polaris_graph/audit_bundle\bundle_builder.py:20:      scope_decision.json
+src/polaris_graph/audit_bundle\bundle_builder.py:21:      evidence_pool.json
+src/polaris_graph/audit_bundle\bundle_builder.py:22:      verified_report.json
+src/polaris_graph/audit_bundle\bundle_builder.py:24:      metadata.json
+src/polaris_graph/audit_bundle\bundle_builder.py:94:                 I-gen-004 (#496) threads reasoning_trace.jsonl here.
+tests\fixtures\signed_bundle\v1_canonical_success\REVIEWER_README.md:5:this file with `content_type="metadata"` alongside `metadata.json`;
+tests\fixtures\signed_bundle\v1_canonical_success\REVIEWER_README.md:6:downstream consumers MUST select `metadata.json` by explicit path.
+tests\fixtures\signed_bundle\v1_canonical_success\manifest.yaml:7:  path: scope_decision.json
+tests\fixtures\signed_bundle\v1_canonical_success\manifest.yaml:11:  path: evidence_pool.json
+tests\fixtures\signed_bundle\v1_canonical_success\manifest.yaml:15:  path: verified_report.json
+tests\fixtures\signed_bundle\v1_canonical_success\manifest.yaml:19:  path: metadata.json
+tests\fixtures\signed_bundle\v1_canonical_success\manifest.yaml:27:  path: reasoning_trace.jsonl
+tests\fixtures\signed_bundle\v1_canonical_success\manifest.yaml:30:- content_type: source_snapshot
+tests\fixtures\signed_bundle\v1_canonical\manifest.yaml:7:  path: scope_decision.json
+tests\fixtures\signed_bundle\v1_canonical\manifest.yaml:11:  path: evidence_pool.json
+tests\fixtures\signed_bundle\v1_canonical\manifest.yaml:15:  path: verified_report.json
+tests\fixtures\signed_bundle\v1_canonical\manifest.yaml:19:  path: metadata.json
+tests\fixtures\signed_bundle\v1_canonical\manifest.yaml:23:  path: reasoning_trace.jsonl
+tests\fixtures\signed_bundle\v1_canonical\manifest.yaml:26:- content_type: source_snapshot
+tests\fixtures\signed_bundle\README.md:16:| `scope_decision.json` | `scope_decision` | One `ScopeDecision` (slice 001 output) |
+tests\fixtures\signed_bundle\README.md:17:| `evidence_pool.json` | `evidence_pool` | One `EvidencePool` (slice 002 output) with one Source |
+tests\fixtures\signed_bundle\README.md:18:| `verified_report.json` | `verified_report` | One `VerifiedReport` (slice 003 output) — minimal sections |
+tests\fixtures\signed_bundle\README.md:19:| `metadata.json` | `metadata` | Bundle-level metadata (polaris_version, generator_model, evaluator_model, timestamps) |
+tests\fixtures\signed_bundle\README.md:20:| `reasoning_trace.jsonl` | `reasoning_trace` | I-gen-004 raw model reasoning channel; JSONL, one record per generator LLM call |
+tests\fixtures\signed_bundle\README.md:21:| `sources/<sha-id>.txt` | `source_snapshot` | One source full-text snapshot |
+tests\v6\test_end_to_end_arch_001f.py:6:+ verified_report.json IDs.
+tests\v6\test_end_to_end_arch_001f.py:181:    # 2b-bis. Per Codex diff iter-1 P1: write evidence_pool.json so source
+tests\v6\test_end_to_end_arch_001f.py:186:    evidence_pool_path = artifact_dir / "evidence_pool.json"
+tests\v6\test_end_to_end_arch_001f.py:278:    # signer wiring is wrong; 400 means evidence_pool.json snapshot is wrong.
+tests\v6\test_end_to_end_arch_001f.py:286:    #   audit_<bundle_id>/{manifest.yaml, verified_report.json, ...}
+tests\v6\test_end_to_end_arch_001f.py:296:        report_member = tar.extractfile(f"{bundle_dir}/verified_report.json")
+tests\v6\test_end_to_end_arch_001f.py:297:        assert report_member is not None, f"missing verified_report.json in {names}"
+tests\v6\test_inspector_route.py:124:# as evidence_pool.json's body[start:end]. Per the Codex arch consult
+tests\v6\test_inspector_route.py:135:    kept sentences, plus an optional evidence_pool.json.
+tests\v6\test_inspector_route.py:138:    ``evidence_pool`` — written as evidence_pool.json: a str is written
+tests\v6\test_inspector_route.py:153:        (d / "evidence_pool.json").write_text(
+tests\v6\test_inspector_route.py:247:        evidence_pool=None,  # evidence_pool.json deliberately omitted
+tests\v6\test_inspector_route.py:253:    assert "evidence_pool.json" in response.json()["detail"]
+tests\v6\test_inspector_route.py:351:    # evidence_pool.json as {"sources": [...]} (not a bare list); the body
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:206:    assert any(n.endswith("scope_decision.json") for n in names)
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:207:    assert any(n.endswith("evidence_pool.json") for n in names)
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:208:    assert any(n.endswith("verified_report.json") for n in names)
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:209:    assert any(n.endswith("metadata.json") for n in names)
+tests\polaris_graph\audit_bundle\test_bundle_hash_chain.py:179:        "scope_decision.json",
+tests\polaris_graph\audit_bundle\test_bundle_hash_chain.py:180:        "evidence_pool.json",
+tests\polaris_graph\audit_bundle\test_bundle_hash_chain.py:181:        "verified_report.json",
+tests\polaris_graph\audit_bundle\test_bundle_hash_chain.py:182:        "metadata.json",
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:14:    FileEntry,
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:24:# ---------- FileEntry ----------
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:27:    fe = FileEntry(
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:28:        path="verified_report.json",
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:33:    assert fe.path == "verified_report.json"
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:39:    fe = FileEntry(
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:50:        FileEntry(
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:61:        FileEntry(
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:71:        FileEntry(
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:81:        FileEntry(
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:91:        FileEntry(
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:101:        FileEntry(
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:111:def _file(path: str, content_type: str = "metadata", body: bytes = b"x") -> FileEntry:
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:112:    return FileEntry(
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:143:            _file("scope_decision.json", "scope_decision"),
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:144:            _file("evidence_pool.json", "evidence_pool"),
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:145:            _file("verified_report.json", "verified_report"),
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:146:            _file("sources/src-1.txt", "source_snapshot"),
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:187:            _file("b.txt", "source_snapshot"),
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:188:            _file("c.txt", "source_snapshot"),
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:191:    sources = m.file_by_content_type("source_snapshot")
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:193:    assert all(f.content_type == "source_snapshot" for f in sources)
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:205:            _file("b.txt", "source_snapshot", b"world!"),
+tests\polaris_graph\api\test_audit_bundle_route.py:270:    assert any(n.endswith("scope_decision.json") for n in names)
+tests\polaris_graph\api\test_audit_bundle_route.py:271:    assert any(n.endswith("evidence_pool.json") for n in names)
+tests\polaris_graph\api\test_audit_bundle_route.py:272:    assert any(n.endswith("verified_report.json") for n in names)
+tests\polaris_graph\audit_bundle\test_conformance.py:18:    FileEntry,
+tests\polaris_graph\audit_bundle\test_conformance.py:132:    metadata_path = tmp_path / "metadata.json"
+tests\polaris_graph\audit_bundle\test_conformance.py:158:# Layer 12 — malformed reasoning_trace.jsonl
+tests\polaris_graph\audit_bundle\test_conformance.py:170:    trace_path = tmp_path / "reasoning_trace.jsonl"
+tests\polaris_graph\audit_bundle\test_conformance.py:190:# Layer 9 — malformed scope_decision.json (typed JSON)
+tests\polaris_graph\audit_bundle\test_conformance.py:194:    """scope_decision.json with wrong shape → CONTENT_SCHEMA_INVALID."""
+tests\polaris_graph\audit_bundle\test_conformance.py:198:    sd_path = tmp_path / "scope_decision.json"
+tests\polaris_graph\audit_bundle\test_conformance.py:231:    """FileEntry path validator rejects backslash + drive + UNC + rooted."""
+tests\polaris_graph\audit_bundle\test_conformance.py:233:        FileEntry(
+tests\polaris_graph\audit_bundle\test_conformance.py:242:    """FileEntry path validator accepts POSIX-relative paths."""
+tests\polaris_graph\audit_bundle\test_conformance.py:243:    entry = FileEntry(
+tests\polaris_graph\audit_bundle\test_conformance.py:247:        content_type="source_snapshot",
+tests\polaris_graph\audit_bundle\test_conformance.py:283:    """FileEntry with `extra="forbid"` rejects unknown field."""
+tests\polaris_graph\audit_bundle\test_conformance.py:284:    FileEntry(path="a.txt", sha256="0" * 64, size_bytes=1, content_type="metadata")
+tests\polaris_graph\audit_bundle\test_conformance.py:286:        FileEntry(
+tests\polaris_graph\audit_bundle\test_conformance.py:296:    """Renaming reasoning_trace.jsonl in the manifest → REASONING_TRACE_FILENAME_MISMATCH.
+tests\polaris_graph\audit_bundle\test_conformance.py:305:    (tmp_path / "reasoning_trace.jsonl").rename(tmp_path / "trace.jsonl")
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:129:    assert manifest.file_by_content_type("source_snapshot")
+tests\polaris_graph\audit_bundle\test_sovereignty_ci.py:125:    """Uncited sources still ship in evidence_pool.json, so they must be cleared."""
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:245:    assert metadata["source_snapshot_count"] == 1
+tests\polaris_graph\test_reasoning_trace_capture.py:5:artifact (``reasoning_trace.jsonl``), never merged into ``report.md`` /
+tests\polaris_graph\test_reasoning_trace_capture.py:67:    leak into report.md / verified_report.json because the collector's
+tests\polaris_graph\test_reasoning_trace_capture.py:217:    """reasoning_trace.jsonl stores the WHOLE reasoning log — flush()
+tests\polaris_graph\test_reasoning_trace_capture.py:245:    materializes reasoning_trace.jsonl (an empty file). A run that aborts
+
+ succeeded in 913ms:
+"""Audit-bundle conformance check (I-cd-012 / GH#608).
+
+Validates an extracted audit-bundle directory against the frozen v1.0
+BundleManifest schema (`bundle_schema.py`). Public API consumed by:
+
+- I-B-08 (#630) — real-run bundle / EvidenceContract bridge: confirms
+  every emitted bundle conforms before the GPG signing step.
+- Future reviewer/operator tooling that wants a fast pre-verification
+  check before the more expensive `gpg --verify` step.
+
+This module is PURE-FUNCTION (no I/O at import time, no global state).
+
+What it checks (all 11 layers must pass for `valid=True`):
+ 1. `manifest.yaml` parses to a valid `BundleManifest` (Pydantic).
+ 2. `bundle_version` literal equals `BUNDLE_VERSION` ("1.0").
+ 3. `manifest.yaml.asc` exists and is non-empty (PRESENCE only —
+    cryptographic verification belongs to a separate operator tool).
+ 4. All 6 required content types are present in `manifest.files`
+    (>= 1 FileEntry each: scope_decision, evidence_pool, verified_report,
+    metadata, source_snapshot, reasoning_trace).
+ 5. Every `files[*].path` resolves under `extracted_dir` (path-traversal
+    belt-and-suspenders even though `bundle_schema._path_no_traversal`
+    rejects unsafe paths at Pydantic parse).
+ 6. Every `files[*].path` exists on disk.
+ 7. Every actual SHA256 matches `files[*].sha256`.
+ 8. Every actual size matches `files[*].size_bytes`.
+ 9. `scope_decision.json` parses to `ScopeDecision`.
+10. `evidence_pool.json` parses to `EvidencePool`.
+11. `verified_report.json` parses to `VerifiedReport`.
+12. `reasoning_trace.jsonl` parses as JSONL (every non-empty line is a
+    valid JSON object).
+
+What it does NOT check (out of scope):
+- `gpg --verify manifest.yaml.asc manifest.yaml` — cryptographic
+  verification belongs to operator/reviewer side tooling, not the
+  pre-sign emitter check.
+- Sovereignty filtering on source full-texts (separate concern,
+  `sovereignty_guard.py`).
+- Pipeline-level invariants of the wrapped content (two-family
+  segregation, strict-verify pass rate floor) — those are upstream
+  pipeline contracts; conformance only checks the BUNDLE shape.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from polaris_graph.audit_bundle.bundle_schema import (
+    BUNDLE_VERSION,
+    BundleManifest,
+    ContentType,
+)
+from polaris_graph.clinical_generator.verified_report import VerifiedReport
+from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
+from polaris_graph.scope.scope_decision import ScopeDecision
+
+
+MANIFEST_FILENAME = "manifest.yaml"
+SIGNATURE_FILENAME = "manifest.yaml.asc"
+# Mirrors `src/polaris_graph/generator/reasoning_trace.py:34
+# REASONING_TRACE_FILENAME` — the active producer constant. A
+# bundle that renames this file must bump BUNDLE_VERSION.
+REASONING_TRACE_FILENAME = "reasoning_trace.jsonl"
+
+# All ContentType members required for a v1.0 bundle.
+_REQUIRED_CONTENT_TYPES: tuple[ContentType, ...] = (
+    "scope_decision",
+    "evidence_pool",
+    "verified_report",
+    "metadata",
+    "source_snapshot",
+    "reasoning_trace",
+)
+
+
+@dataclass(frozen=True)
+class ConformanceError:
+    """Structured conformance failure record (public API for I-B-08)."""
+
+    code: str
+    message: str
+    path: str | None = None
+
+
+@dataclass
+class ConformanceResult:
+    """Public API return shape — consumed by I-B-08 emitter."""
+
+    valid: bool
+    errors: list[ConformanceError] = field(default_factory=list)
+
+    def add(self, code: str, message: str, path: str | None = None) -> None:
+        self.errors.append(ConformanceError(code=code, message=message, path=path))
+
+
+def check_bundle_conformance(extracted_dir: Path) -> ConformanceResult:
+    """Validate an extracted audit-bundle directory.
+
+    Args:
+        extracted_dir: Directory containing the extracted .tar.gz contents
+            (manifest.yaml + manifest.yaml.asc + content files).
+
+    Returns:
+        ConformanceResult with `valid=True` iff all 12 checks pass.
+    """
+    result = ConformanceResult(valid=True)
+    extracted_dir = extracted_dir.resolve()
+
+    # --- 1. manifest.yaml parses to BundleManifest --------------------
+    manifest_path = extracted_dir / MANIFEST_FILENAME
+    if not manifest_path.exists():
+        result.add("MISSING_MANIFEST", f"manifest.yaml not found in {extracted_dir}")
+        result.valid = False
+        return result
+
+    try:
+        manifest_raw = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        result.add("MANIFEST_YAML_PARSE_ERROR", f"manifest.yaml is not valid YAML: {exc}")
+        result.valid = False
+        return result
+
+    try:
+        manifest = BundleManifest(**(manifest_raw or {}))
+    except Exception as exc:  # noqa: BLE001 — Pydantic raises various
+        result.add("MANIFEST_SCHEMA_INVALID", f"manifest.yaml does not parse to BundleManifest: {exc}")
+        result.valid = False
+        return result
+
+    # --- 2. bundle_version literal == BUNDLE_VERSION ------------------
+    if manifest.bundle_version != BUNDLE_VERSION:
+        result.add(
+            "WRONG_BUNDLE_VERSION",
+            f"bundle_version={manifest.bundle_version!r} != frozen {BUNDLE_VERSION!r}",
+        )
+        result.valid = False
+
+    # --- 3. manifest.yaml.asc presence + non-empty --------------------
+    signature_path = extracted_dir / SIGNATURE_FILENAME
+    if not signature_path.exists():
+        result.add(
+            "MISSING_SIGNATURE",
+            f"{SIGNATURE_FILENAME} not found in {extracted_dir} (bundle is unsigned)",
+            path=SIGNATURE_FILENAME,
+        )
+        result.valid = False
+    elif signature_path.stat().st_size == 0:
+        result.add(
+            "EMPTY_SIGNATURE",
+            f"{SIGNATURE_FILENAME} is empty (bundle signature is missing)",
+            path=SIGNATURE_FILENAME,
+        )
+        result.valid = False
+
+    # --- 4. All 6 required content types present ----------------------
+    present_types: set[ContentType] = {entry.content_type for entry in manifest.files}
+    for required in _REQUIRED_CONTENT_TYPES:
+        if required not in present_types:
+            result.add(
+                "MISSING_REQUIRED_CONTENT_TYPE",
+                f"v1.0 bundle requires at least one file of content_type={required!r}",
+            )
+            result.valid = False
+
+    # --- 4b. Reasoning-trace path MUST equal the canonical filename --
+    # Codex diff iter-1 P1: without this, a bundle can rename
+    # reasoning_trace.jsonl to trace.jsonl, update the manifest path,
+    # and still pass valid=True, diverging from the active producer
+    # constant in generator/reasoning_trace.py:34.
+    for entry in manifest.files:
+        if entry.content_type == "reasoning_trace" and entry.path != REASONING_TRACE_FILENAME:
+            result.add(
+                "REASONING_TRACE_FILENAME_MISMATCH",
+                f"reasoning_trace path {entry.path!r} != canonical "
+                f"{REASONING_TRACE_FILENAME!r} (see "
+                f"src/polaris_graph/generator/reasoning_trace.py:34)",
+                path=entry.path,
+            )
+            result.valid = False
+
+    # --- 5-8. Per-file path resolution + existence + hash + size -----
+    by_content_type: dict[ContentType, list[Path]] = {}
+    for entry in manifest.files:
+        # Layer 5: belt-and-suspenders path resolution check.
+        try:
+            resolved = (extracted_dir / entry.path).resolve()
+        except (OSError, ValueError) as exc:
+            result.add(
+                "PATH_RESOLVE_ERROR",
+                f"path {entry.path!r} cannot be resolved: {exc}",
+                path=entry.path,
+            )
+            result.valid = False
+            continue
+        if not _is_under(resolved, extracted_dir):
+            result.add(
+                "PATH_OUTSIDE_BUNDLE",
+                f"path {entry.path!r} resolves outside the extracted bundle "
+                f"({resolved} not under {extracted_dir})",
+                path=entry.path,
+            )
+            result.valid = False
+            continue
+
+        # Layer 6: file exists.
+        if not resolved.exists():
+            result.add(
+                "MISSING_FILE",
+                f"path {entry.path!r} listed in manifest but not present on disk",
+                path=entry.path,
+            )
+            result.valid = False
+            continue
+
+        # Layer 7: SHA256 matches. Wrap read_bytes/stat so a directory
+        # path or read error surfaces as a structured ConformanceError
+        # rather than raising out of the check (Codex diff iter-1 P2).
+        try:
+            file_bytes = resolved.read_bytes()
+            actual_size = resolved.stat().st_size
+        except OSError as exc:
+            result.add(
+                "FILE_READ_ERROR",
+                f"path {entry.path!r} could not be read: {exc}",
+                path=entry.path,
+            )
+            result.valid = False
+            continue
+        actual_sha = hashlib.sha256(file_bytes).hexdigest()
+        if actual_sha != entry.sha256:
+            result.add(
+                "SHA256_MISMATCH",
+                f"path {entry.path!r}: manifest claims {entry.sha256}, actual {actual_sha}",
+                path=entry.path,
+            )
+            result.valid = False
+            continue
+
+        # Layer 8: size matches.
+        if actual_size != entry.size_bytes:
+            result.add(
+                "SIZE_MISMATCH",
+                f"path {entry.path!r}: manifest claims {entry.size_bytes} bytes, actual {actual_size}",
+                path=entry.path,
+            )
+            result.valid = False
+            continue
+
+        by_content_type.setdefault(entry.content_type, []).append(resolved)
+
+    # --- 9-11. Typed-JSON content validation --------------------------
+    for typed_check in (
+        ("scope_decision", ScopeDecision),
+        ("evidence_pool", EvidencePool),
+        ("verified_report", VerifiedReport),
+    ):
+        content_type, schema_cls = typed_check
+        for path in by_content_type.get(content_type, []):  # type: ignore[arg-type]
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                result.add(
+                    "CONTENT_JSON_INVALID",
+                    f"{path.name} is not valid JSON: {exc}",
+                    path=str(path.relative_to(extracted_dir)),
+                )
+                result.valid = False
+                continue
+            try:
+                schema_cls(**payload)
+            except Exception as exc:  # noqa: BLE001 — Pydantic raises various
+                result.add(
+                    "CONTENT_SCHEMA_INVALID",
+                    f"{path.name} does not parse to {schema_cls.__name__}: {exc}",
+                    path=str(path.relative_to(extracted_dir)),
+                )
+                result.valid = False
+
+    # --- 12. reasoning_trace.jsonl parses as JSONL --------------------
+    for path in by_content_type.get("reasoning_trace", []):
+        try:
+            for line_no, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
+                if not line.strip():
+                    continue
+                try:
+                    parsed: Any = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    result.add(
+                        "REASONING_TRACE_JSONL_INVALID",
+                        f"{path.name} line {line_no} is not valid JSON: {exc}",
+                        path=str(path.relative_to(extracted_dir)),
+                    )
+                    result.valid = False
+                    break
+                if not isinstance(parsed, dict):
+                    result.add(
+                        "REASONING_TRACE_JSONL_INVALID",
+                        f"{path.name} line {line_no} is not a JSON object",
+                        path=str(path.relative_to(extracted_dir)),
+                    )
+                    result.valid = False
+                    break
+        except OSError as exc:
+            result.add(
+                "REASONING_TRACE_READ_ERROR",
+                f"{path.name} cannot be read: {exc}",
+                path=str(path.relative_to(extracted_dir)),
+            )
+            result.valid = False
+
+    return result
+
+
+def _is_under(candidate: Path, parent: Path) -> bool:
+    """Cross-version `Path.is_relative_to` (3.9+) — Windows-safe."""
+    try:
+        candidate.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+ succeeded in 899ms:
+"""Bundle builder — end-to-end audit bundle assembler.
+
+Per `.codex/slices/slice_004/architecture_proposal.md` §"bundle_builder".
+
+Pipeline:
+    ScopeDecision + EvidencePool + VerifiedReport (verdict=success)
+        ↓
+    build_manifest_and_files()  -> manifest + content files
+        ↓
+    serialize_manifest_yaml()    -> manifest.yaml bytes
+        ↓
+    sign_fn(manifest.yaml)       -> manifest.yaml.asc bytes
+        ↓
+    pack_tarball()               -> audit_<bundle_id>.tar.gz
+
+The output tarball:
+    audit_<bundle_id>/
+      manifest.yaml
+      manifest.yaml.asc
+      scope_decision.json
+      evidence_pool.json
+      verified_report.json
+      sources/<source_id>.txt   (for each cited source)
+      metadata.json
+
+External verifiers run:
+    tar -xzf audit_<id>.tar.gz
+    cd audit_<id>
+    gpg --verify manifest.yaml.asc manifest.yaml
+    # then re-hash each content file and compare against manifest.files[*].sha256
+"""
+
+from __future__ import annotations
+
+import io
+import logging
+import tarfile
+import time
+from pathlib import Path
+from typing import Callable
+
+from polaris_graph.audit_bundle.bundle_schema import BundleManifest
+from polaris_graph.audit_bundle.manifest_builder import (
+    build_manifest_and_files,
+    serialize_manifest_yaml,
+)
+from polaris_graph.clinical_generator.verified_report import VerifiedReport
+from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
+from polaris_graph.scope.scope_decision import ScopeDecision
+
+_LOG = logging.getLogger(__name__)
+
+
+# Type alias for the sign function we accept (Protocol-style duck typing).
+# Concrete impl is GPGSigner from gpg_signer.py; tests can pass a stub.
+SignFn = Callable[[bytes], bytes]
+
+
+def _default_sign_fn(_payload: bytes) -> bytes:
+    """Sentinel that refuses to run.
+
+    Forces callers to provide a real signer (or test stub). Per LAW II,
+    silently writing an unsigned bundle is FORBIDDEN — the audit bundle's
+    legal value comes from the signature.
+    """
+    raise NotImplementedError(
+        "no sign_fn injected. The audit bundle MUST be GPG-signed. "
+        "Inject a real signer (e.g. GPGSigner from gpg_signer.py) or "
+        "a test stub."
+    )
+
+
+def build_audit_bundle(
+    decision: ScopeDecision,
+    pool: EvidencePool,
+    report: VerifiedReport,
+    output_dir: Path,
+    sign_fn: SignFn = _default_sign_fn,
+    *,
+    extra_files: dict[str, tuple[bytes, str]] | None = None,
+) -> Path:
+    """End-to-end: build manifest + sign + pack tarball.
+
+    Args:
+        decision: slice 001 ScopeDecision
+        pool: slice 002 EvidencePool (must match report.pool_id)
+        report: slice 003 VerifiedReport (must have verdict=success)
+        output_dir: directory where audit_<id>.tar.gz is written
+        sign_fn: function that takes manifest.yaml bytes and returns
+                 .asc bytes. Default raises NotImplementedError; callers
+                 MUST inject a real signer.
+        extra_files: optional {path: (bytes, content_type)} of extra
+                 artifacts to include + hash in the signed manifest —
+                 I-gen-004 (#496) threads reasoning_trace.jsonl here.
+
+    Returns:
+        Path to the generated audit_<bundle_id>.tar.gz file.
+
+    Raises:
+        ValueError: if report.pipeline_verdict != 'success' or pool/report
+                    FK chain inconsistent.
+        RuntimeError: if sign_fn raises (propagated, original error chained).
+    """
+    if report.pool_id != pool.pool_id:
+        raise ValueError(
+            f"FK chain mismatch: report.pool_id={report.pool_id!r} != "
+            f"pool.pool_id={pool.pool_id!r}"
+        )
+    if report.decision_id != decision.decision_id:
+        raise ValueError(
+            f"FK chain mismatch: report.decision_id={report.decision_id!r}"
+            f" != decision.decision_id={decision.decision_id!r}"
+        )
+
+    t_start = time.perf_counter()
+    manifest, content_files = build_manifest_and_files(
+        decision, pool, report, extra_files=extra_files,
+    )
+
+    manifest_yaml = serialize_manifest_yaml(manifest)
+
+    try:
+        manifest_sig = sign_fn(manifest_yaml)
+    except NotImplementedError:
+        raise RuntimeError(
+            "audit bundle requires a sign_fn; default sentinel forbids "
+            "shipping unsigned bundles per CLAUDE.md LAW II"
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"sign_fn raised {type(exc).__name__}: {exc}"
+        ) from exc
+
+    # Pack everything into a single .tar.gz under top-level dir audit_<id>
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    bundle_filename = f"audit_{manifest.bundle_id}.tar.gz"
+    bundle_path = output_dir / bundle_filename
+
+    with tarfile.open(bundle_path, "w:gz") as tar:
+        top_dir = f"audit_{manifest.bundle_id}"
+
+        # 1. manifest.yaml + manifest.yaml.asc (NOT in manifest.files;
+        #    they are the manifest itself + signature)
+        _add_file(tar, f"{top_dir}/manifest.yaml", manifest_yaml)
+        _add_file(tar, f"{top_dir}/manifest.yaml.asc", manifest_sig)
+
+        # 2. Content files (paths from manifest.files)
+        for path, content_bytes in content_files.items():
+            _add_file(tar, f"{top_dir}/{path}", content_bytes)
+
+    elapsed_ms = int((time.perf_counter() - t_start) * 1000)
+    _LOG.info(
+        "audit bundle built bundle_id=%s files=%d size=%dB elapsed=%dms",
+        manifest.bundle_id,
+        len(manifest.files),
+        bundle_path.stat().st_size,
+        elapsed_ms,
+    )
+    return bundle_path
+
+
+def _add_file(tar: tarfile.TarFile, name: str, data: bytes) -> None:
+    """Add bytes to a tarfile under `name`."""
+    info = tarfile.TarInfo(name=name)
+    info.size = len(data)
+    info.mtime = int(time.time())
+    info.mode = 0o644
+    tar.addfile(info, io.BytesIO(data))
+
+
+def extract_manifest_from_bundle(
+    bundle_path: Path,
+) -> tuple[BundleManifest, bytes, bytes]:
+    """Helper for verifiers/tests: extract manifest + signature + their bytes.
+
+    Returns:
+        (manifest, manifest_yaml_bytes, manifest_sig_bytes)
+
+    Raises FileNotFoundError if either is missing in the tarball.
+    """
+    bundle_path = Path(bundle_path)
+    manifest_yaml: bytes | None = None
+    manifest_sig: bytes | None = None
+
+    with tarfile.open(bundle_path, "r:gz") as tar:
+        for member in tar.getmembers():
+            if member.name.endswith("manifest.yaml") and not member.name.endswith(
+                "manifest.yaml.asc"
+            ):
+                f = tar.extractfile(member)
+                if f is not None:
+                    manifest_yaml = f.read()
+            elif member.name.endswith("manifest.yaml.asc"):
+                f = tar.extractfile(member)
+                if f is not None:
+                    manifest_sig = f.read()
+
+    if manifest_yaml is None:
+        raise FileNotFoundError(
+            f"manifest.yaml not found in bundle {bundle_path}"
+        )
+    if manifest_sig is None:
+        raise FileNotFoundError(
+            f"manifest.yaml.asc not found in bundle {bundle_path}"
+        )
+
+    import yaml
+
+    parsed = yaml.safe_load(manifest_yaml.decode("utf-8"))
+    manifest = BundleManifest.model_validate(parsed)
+    return manifest, manifest_yaml, manifest_sig
+
+
+ succeeded in 991ms:
+"""Manifest builder — collects all bundle content + computes SHA256s.
+
+Per `.codex/slices/slice_004/architecture_proposal.md` §"manifest_builder".
+
+Given a ScopeDecision + EvidencePool + VerifiedReport (the research chain
+output), serializes each to canonical JSON, snapshots cited source
+texts, and assembles a BundleManifest with SHA256 anchors over every
+content file.
+
+The manifest itself is YAML-serialized (canonical sort keys); GPG signs
+that YAML. External verifiers re-serialize the manifest and re-verify
+the signature.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import datetime, timezone
+from typing import Any
+
+import yaml
+
+from polaris_graph.audit_bundle.bundle_schema import (
+    BUNDLE_VERSION,
+    BundleManifest,
+    FileEntry,
+)
+from pathlib import Path
+
+from polaris_graph.audit_bundle.snapshot_sources import (
+    snapshot_sources,
+    snapshot_sources_with_reachable,
+)
+from polaris_graph.audit_bundle.sovereignty_guard import (
+    assert_all_pool_sources_legal_cleared,
+)
+from polaris_graph.clinical_generator.provenance import extract_tokens
+from polaris_graph.clinical_generator.verified_report import VerifiedReport
+from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
+from polaris_graph.scope.scope_decision import ScopeDecision
+
+
+POLARIS_VERSION = "6.2.0"
+
+# Canonical filenames inside the bundle. External verifiers depend on
+# these; do not rename without bumping bundle_version.
+FILE_SCOPE_DECISION = "scope_decision.json"
+FILE_EVIDENCE_POOL = "evidence_pool.json"
+FILE_VERIFIED_REPORT = "verified_report.json"
+FILE_METADATA = "metadata.json"
+FILE_REVIEWER_README = "REVIEWER_README.md"
+# I-gen-004 (#496): raw model reasoning channel; mirrors
+# generator.reasoning_trace.REASONING_TRACE_FILENAME.
+FILE_REASONING_TRACE = "reasoning_trace.jsonl"
+SOURCES_DIR = "sources"
+
+# I-gen-561 (#561) P2-5: tar members that bundle_builder writes ALONGSIDE the
+# packed content files (manifest.yaml + its detached signature). They never
+# appear in `files_bytes`, so an `extra_files` path equal to one of these
+# would pass the core-file collision check yet still clash at pack time.
+_RESERVED_TAR_MEMBERS = frozenset({"manifest.yaml", "manifest.yaml.asc"})
+
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _serialize_json_canonical(model: Any) -> bytes:
+    """Pydantic model -> deterministic UTF-8 JSON bytes.
+
+    sort_keys + no extra whitespace beyond standard separators ensures
+    re-serialization on the verifier side produces identical bytes →
+    SHA256 stable across implementations.
+    """
+    if hasattr(model, "model_dump"):
+        payload = model.model_dump(mode="json")
+    else:
+        payload = model
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _assert_cited_spans_reachable(report: VerifiedReport, snapshots: dict) -> None:
+    """Raise ValueError if any cited span exceeds its snapshot's reachable_chars.
+
+    Validates the UNION of tokens parsed from `sentence.sentence_text` and
+    `sentence.provenance_tokens`, deduped by `token.raw`. Missing source_id =>
+    unreachable. Span end > reachable_chars => unreachable.
+    """
+    seen: set[str] = set()
+    for section in report.sections:
+        if section.section_status == "dropped":
+            continue
+        for sentence in section.verified_sentences:
+            if not sentence.verifier_pass:
+                continue
+            tokens = list(extract_tokens(sentence.sentence_text))
+            for raw in sentence.provenance_tokens:
+                tokens.extend(extract_tokens(raw))
+            for tok in tokens:
+                if tok.raw in seen:
+                    continue
+                seen.add(tok.raw)
+                entry = snapshots.get(tok.source_id)
+                if entry is None:
+                    raise ValueError(
+                        f"cited span unreachable after snapshot: source "
+                        f"{tok.source_id!r} not in snapshots (token={tok.raw!r})"
+                    )
+                if not (0 <= tok.span_start < tok.span_end <= entry.reachable_chars):
+                    raise ValueError(
+                        f"cited span unreachable after snapshot: source "
+                        f"{tok.source_id!r} token={tok.raw!r} span="
+                        f"{tok.span_start}-{tok.span_end} reachable={entry.reachable_chars}"
+                    )
+
+
+def _safe_source_filename(source_id: str) -> str:
+    """Build a tar-safe filename from a source_id.
+
+    source_id is opaque (uuid by default, but could be 'src-1' etc). We
+    sanitize aggressively: only [a-zA-Z0-9_-]. Anything else becomes _.
+    Length-capped at 100 chars to avoid pathological inputs.
+    """
+    safe = "".join(
+        c if c.isalnum() or c in "-_" else "_" for c in source_id
+    )[:100]
+    return f"{SOURCES_DIR}/{safe}.txt"
+
+
+def build_manifest_and_files(
+    decision: ScopeDecision,
+    pool: EvidencePool,
+    report: VerifiedReport,
+    *,
+    extra_files: dict[str, tuple[bytes, str]] | None = None,
+) -> tuple[BundleManifest, dict[str, bytes]]:
+    """Build the bundle manifest + content-file dict.
+
+    Args:
+        extra_files: optional {path: (content_bytes, content_type)} of
+            caller-supplied artifacts to include + hash in the signed
+            manifest — I-gen-004 (#496) threads the run's
+            reasoning_trace.jsonl through here. Each path must NOT
+            collide with a core bundle file.
+
+    Returns:
+        (manifest, files) where files is {path: content_bytes}. The
+        caller (bundle_builder) packs files into a tarball and writes
+        the manifest.yaml + manifest.yaml.asc alongside.
+
+    Raises:
+        ValueError if report.pipeline_verdict != 'success', or if an
+        extra_files path collides with a core bundle file.
+    """
+    if report.pipeline_verdict != "success":
+        raise ValueError(
+            f"cannot build audit bundle for verdict "
+            f"{report.pipeline_verdict!r}; report must be successful"
+        )
+
+    files_bytes: dict[str, bytes] = {}
+
+    # 1. Slice 001 ScopeDecision
+    sd_bytes = _serialize_json_canonical(decision)
+    files_bytes[FILE_SCOPE_DECISION] = sd_bytes
+
+    # 2. Slice 002 EvidencePool
+    ep_bytes = _serialize_json_canonical(pool)
+    files_bytes[FILE_EVIDENCE_POOL] = ep_bytes
+
+    # 3. Slice 003 VerifiedReport
+    vr_bytes = _serialize_json_canonical(report)
+    files_bytes[FILE_VERIFIED_REPORT] = vr_bytes
+
+    # 4. Sovereignty: refuse to ship verbatim spans for non-cleared sources
+    assert_all_pool_sources_legal_cleared(pool)
+
+    # 4b. Per-source snapshots + cited-span reachability guard
+    snapshot_entries = snapshot_sources_with_reachable(report, pool)
+    _assert_cited_spans_reachable(report, snapshot_entries)
+    for source_id, entry in snapshot_entries.items():
+        files_bytes[_safe_source_filename(source_id)] = entry.text.encode("utf-8")
+    snapshots = {sid: e.text for sid, e in snapshot_entries.items()}
+
+    # 4b. REVIEWER_README ships verbatim in every bundle as metadata content_type.
+    readme_path = Path(__file__).parent / "REVIEWER_README.md"
+    files_bytes[FILE_REVIEWER_README] = readme_path.read_bytes()
+
+    # 5. Bundle metadata (versions + creation timestamp)
+    metadata = {
+        "bundle_version": BUNDLE_VERSION,
+        "polaris_version": POLARIS_VERSION,
+        "created_at_utc": datetime.now(timezone.utc).isoformat().replace(
+            "+00:00", "Z"
+        ),
+        "generator_model": report.generator_model,
+        "decision_id": decision.decision_id,
+        "pool_id": report.pool_id,
+        "report_id": report.report_id,
+        "source_snapshot_count": len(snapshots),
+    }
+    files_bytes[FILE_METADATA] = json.dumps(
+        metadata,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    # I-gen-004 (#496): merge caller-supplied extra files (e.g. the run's
+    # reasoning_trace.jsonl). Each carries its own content_type; a path
+    # collision with a core bundle file is a hard error.
+    extra_content_types: dict[str, str] = {}
+    for path, (content, ct_extra) in (extra_files or {}).items():
+        if path in files_bytes:
+            raise ValueError(
+                f"extra_files path {path!r} collides with a core bundle file"
+            )
+        if path in _RESERVED_TAR_MEMBERS:
+            raise ValueError(
+                f"extra_files path {path!r} collides with a reserved tar "
+                f"member ({sorted(_RESERVED_TAR_MEMBERS)} are written "
+                f"alongside the packed files)"
+            )
+        files_bytes[path] = content
+        extra_content_types[path] = ct_extra
+
+    # Build FileEntry list with content_type tags
+    file_entries: list[FileEntry] = []
+    content_type_by_path = {
+        FILE_SCOPE_DECISION: "scope_decision",
+        FILE_EVIDENCE_POOL: "evidence_pool",
+        FILE_VERIFIED_REPORT: "verified_report",
+        FILE_METADATA: "metadata",
+    }
+    for path, content in files_bytes.items():
+        ct = (
+            content_type_by_path.get(path)
+            or extra_content_types.get(path)
+            or (
+                "source_snapshot"
+                if path.startswith(SOURCES_DIR + "/")
+                else "metadata"
+            )
+        )
+        file_entries.append(
+            FileEntry(
+                path=path,
+                sha256=_sha256_bytes(content),
+                size_bytes=len(content),
+                content_type=ct,  # type: ignore[arg-type]
+            )
+        )
+
+    # Sort entries deterministically for stable manifest output
+    file_entries.sort(key=lambda f: f.path)
+
+    manifest = BundleManifest(
+        decision_id=decision.decision_id,
+        pool_id=report.pool_id,
+        report_id=report.report_id,
+        generator_model=report.generator_model,
+        polaris_version=POLARIS_VERSION,
+        files=file_entries,
+    )
+    return manifest, files_bytes
+
+
+def serialize_manifest_yaml(manifest: BundleManifest) -> bytes:
+    """Produce canonical YAML bytes for GPG signing.
+
+    PyYAML default_flow_style=False + sort_keys=True keeps it stable
+    across re-serializations.
+    """
+    payload = manifest.model_dump(mode="json")
+    return yaml.safe_dump(
+        payload,
+        default_flow_style=False,
+        sort_keys=True,
+        allow_unicode=True,
+    ).encode("utf-8")
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath web/playwright.config.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "SCREENSHOT_BASE_URL|baseURL|webServer|3738|3737|workers|projects" web/playwright.config.ts web/tests -g "*.ts"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git ls-files --eol tests/fixtures/signed_bundle/v1_canonical_success/evidence_pool.json tests/fixtures/signed_bundle/.gitattributes' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git check-attr --all -- tests/fixtures/signed_bundle/v1_canonical_success/evidence_pool.json tests/fixtures/signed_bundle/.gitattributes' in C:\POLARIS
+ succeeded in 827ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  // I-cd-013b (GH#669): inspector_route.spec.ts visual baselines are
+  // `test.fixme()` (deferred until baselines captured by --update-snapshots
+  // run); non-visual cases run on all platforms. Linux ignore only
+  // applies to visual.spec.ts.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+
+ succeeded in 921ms:
+web/playwright.config.ts:7: * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+web/playwright.config.ts:13: *   2. Terminal B: cd web && npx next start -p 3738
+web/playwright.config.ts:14: *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+web/playwright.config.ts:31:  workers: 1,
+web/playwright.config.ts:34:    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+web/playwright.config.ts:41:  projects: [
+web/tests\e2e\sign_in.spec.ts:11://   # `npm run build && next start -p 3738` for production-build coverage):
+web/tests\e2e\sign_in.spec.ts:12://   cd web && npx next dev -p 3738
+web/tests\e2e\sign_in.spec.ts:13://   # OR: cd web && npm run build && npx next start -p 3738
+web/tests\e2e\sign_in.spec.ts:16://   cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 \
+web/tests\e2e\visual.spec.ts:17: *   SCREENSHOT_BASE_URL=http://127.0.0.1:3738 \
+
+ succeeded in 922ms:
+ succeeded in 985ms:
+i/lf    w/lf    attr/                 	tests/fixtures/signed_bundle/.gitattributes
+i/lf    w/crlf  attr/                 	tests/fixtures/signed_bundle/v1_canonical_success/evidence_pool.json
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"tests/fixtures/signed_bundle|\\*\\* -text|-text\" tests/fixtures/signed_bundle/.gitattributes .gitattributes" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+const pako = require('./node_modules/pako');
+const input = new Uint8Array(1024 * 1024).fill(0);
+const gz = pako.gzip(input);
+class Abort extends Error {}
+const inflator = new pako.Inflate({ raw: false });
+let total = 0;
+inflator.onData = (chunk) => { total += chunk.length; if (total > 10000) throw new Abort('cap'); };
+let caught = false;
+try { inflator.push(gz, true); } catch (e) { caught = e instanceof Abort; }
+console.log(JSON.stringify({ caught, total, err: inflator.err, msg: inflator.msg }));
+'@ | node -" in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --check -- .codex/I-cd-021/codex_diff_canonical.patch web/lib/inspector_bundle_client_loader.ts web/app/inspector/offline/page.tsx web/components/inspector/metadata_panel.tsx web/app/inspector/[runId]/inspector_view.tsx web/tests/e2e/inspector_offline_fallback.spec.ts web/package.json web/package-lock.json .github/workflows/web_ci.yml tests/fixtures/signed_bundle/.gitattributes' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class _GzipBombAbort|function _streamingUngzip|onData|REQUIRED_CONTENT_TYPES|source_snapshot|writeFileSync|run_e2e_inspector_offline_fallback" web/lib/inspector_bundle_client_loader.ts web/tests/e2e/inspector_offline_fallback.spec.ts .github/workflows/web_ci.yml tests/fixtures/signed_bundle/.gitattributes' in C:\POLARIS
+ succeeded in 872ms:
+tests/fixtures/signed_bundle/.gitattributes:1:tests/fixtures/signed_bundle/** -text
+
+ succeeded in 935ms:
+ succeeded in 985ms:
+web/tests/e2e/inspector_offline_fallback.spec.ts:8:import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+web/tests/e2e/inspector_offline_fallback.spec.ts:78:    writeFileSync(junkPath, "not gzip");
+.github/workflows/web_ci.yml:159:      - name: run_e2e_inspector_offline_fallback
+web/lib/inspector_bundle_client_loader.ts:102:class _GzipBombAbort extends Error {
+web/lib/inspector_bundle_client_loader.ts:110:function _streamingUngzip(
+web/lib/inspector_bundle_client_loader.ts:113:  // pako.Inflate emits chunks via an onData callback; we accumulate up to
+web/lib/inspector_bundle_client_loader.ts:115:  // onData just stopped collecting but inflator.push continued processing
+web/lib/inspector_bundle_client_loader.ts:117:  // Throwing from onData propagates out of inflator.push so we stop pako
+web/lib/inspector_bundle_client_loader.ts:123:  inflator.onData = (chunk: Uint8Array): void => {
+web/lib/inspector_bundle_client_loader.ts:197:// src/polaris_graph/audit_bundle/conformance.py:_REQUIRED_CONTENT_TYPES
+web/lib/inspector_bundle_client_loader.ts:198:// requires ALL SIX content types (including source_snapshot).
+web/lib/inspector_bundle_client_loader.ts:199:const REQUIRED_CONTENT_TYPES = [
+web/lib/inspector_bundle_client_loader.ts:204:  "source_snapshot",
+web/lib/inspector_bundle_client_loader.ts:247:  for (const required of REQUIRED_CONTENT_TYPES) {
+web/lib/inspector_bundle_client_loader.ts:315:    if (entry.content_type !== "source_snapshot") continue;
+
+ succeeded in 1043ms:
+{"caught":true,"total":65536,"err":0,"msg":""}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "TabsContent|tabId|TabsTrigger|use client" web/components/ui/tabs.tsx web/app/inspector/[runId]/inspector_view.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath web/components/ui/tabs.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "LoadedBundle|metadata|signaturePresent|reasoningTrace|sources" web/app/inspector web/components/inspector web/lib -g "*.ts" -g "*.tsx"' in C:\POLARIS
+ succeeded in 767ms:
+// I-cd-013a (GH#609) — Tabs primitive wrapping @base-ui/react/tabs.
+//
+// Used by web/app/inspector/[runId]/inspector_view.tsx and any
+// downstream route that needs a tabbed layout. Each TabsContent
+// carries a `data-tab` attribute so Playwright e2e can assert tab
+// state explicitly per the Codex iter-2 P2 #3 directive.
+"use client";
+
+import { Tabs as BaseTabs } from "@base-ui/react/tabs";
+import { forwardRef, type ComponentPropsWithoutRef } from "react";
+
+import { cn } from "@/lib/utils";
+
+export const Tabs = BaseTabs.Root;
+
+export const TabsList = forwardRef<
+  HTMLDivElement,
+  ComponentPropsWithoutRef<typeof BaseTabs.List>
+>(({ className, ...props }, ref) => (
+  <BaseTabs.List
+    ref={ref}
+    className={cn(
+      "border-border bg-muted text-muted-foreground inline-flex h-10 items-center justify-start gap-1 rounded-md border p-1",
+      className,
+    )}
+    {...props}
+  />
+));
+TabsList.displayName = "TabsList";
+
+export const TabsTrigger = forwardRef<
+  HTMLButtonElement,
+  ComponentPropsWithoutRef<typeof BaseTabs.Tab>
+>(({ className, ...props }, ref) => (
+  <BaseTabs.Tab
+    ref={ref}
+    className={cn(
+      "ring-offset-background inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-all",
+      "focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+      "data-[selected]:bg-background data-[selected]:text-foreground data-[selected]:shadow-sm",
+      "hover:bg-background/60",
+      "disabled:pointer-events-none disabled:opacity-50",
+      className,
+    )}
+    {...props}
+  />
+));
+TabsTrigger.displayName = "TabsTrigger";
+
+export const TabsContent = forwardRef<
+  HTMLDivElement,
+  ComponentPropsWithoutRef<typeof BaseTabs.Panel> & { tabId: string }
+>(({ className, tabId, ...props }, ref) => (
+  <BaseTabs.Panel
+    ref={ref}
+    data-tab={tabId}
+    className={cn(
+      "ring-offset-background focus-visible:ring-ring mt-4 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+      className,
+    )}
+    {...props}
+  />
+));
+TabsContent.displayName = "TabsContent";
+
+
+ succeeded in 831ms:
+web/app/inspector/[runId]/inspector_view.tsx:2:"use client";
+web/app/inspector/[runId]/inspector_view.tsx:4:import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+web/app/inspector/[runId]/inspector_view.tsx:41:          <TabsTrigger value="report">Report</TabsTrigger>
+web/app/inspector/[runId]/inspector_view.tsx:42:          <TabsTrigger value="scope">Scope</TabsTrigger>
+web/app/inspector/[runId]/inspector_view.tsx:43:          <TabsTrigger value="evidence">Evidence</TabsTrigger>
+web/app/inspector/[runId]/inspector_view.tsx:44:          <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
+web/app/inspector/[runId]/inspector_view.tsx:45:          <TabsTrigger value="sources">Sources</TabsTrigger>
+web/app/inspector/[runId]/inspector_view.tsx:46:          <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
+web/app/inspector/[runId]/inspector_view.tsx:47:          <TabsTrigger value="metadata">Metadata</TabsTrigger>
+web/app/inspector/[runId]/inspector_view.tsx:49:        <TabsContent value="report" tabId="report">
+web/app/inspector/[runId]/inspector_view.tsx:51:        </TabsContent>
+web/app/inspector/[runId]/inspector_view.tsx:52:        <TabsContent value="scope" tabId="scope">
+web/app/inspector/[runId]/inspector_view.tsx:54:        </TabsContent>
+web/app/inspector/[runId]/inspector_view.tsx:55:        <TabsContent value="evidence" tabId="evidence">
+web/app/inspector/[runId]/inspector_view.tsx:57:        </TabsContent>
+web/app/inspector/[runId]/inspector_view.tsx:58:        <TabsContent value="reasoning" tabId="reasoning">
+web/app/inspector/[runId]/inspector_view.tsx:60:        </TabsContent>
+web/app/inspector/[runId]/inspector_view.tsx:61:        <TabsContent value="sources" tabId="sources">
+web/app/inspector/[runId]/inspector_view.tsx:63:        </TabsContent>
+web/app/inspector/[runId]/inspector_view.tsx:64:        <TabsContent value="hashchain" tabId="hashchain">
+web/app/inspector/[runId]/inspector_view.tsx:66:        </TabsContent>
+web/app/inspector/[runId]/inspector_view.tsx:67:        <TabsContent value="metadata" tabId="metadata">
+web/app/inspector/[runId]/inspector_view.tsx:69:        </TabsContent>
+web/components/ui/tabs.tsx:4:// downstream route that needs a tabbed layout. Each TabsContent
+web/components/ui/tabs.tsx:7:"use client";
+web/components/ui/tabs.tsx:31:export const TabsTrigger = forwardRef<
+web/components/ui/tabs.tsx:48:TabsTrigger.displayName = "TabsTrigger";
+web/components/ui/tabs.tsx:50:export const TabsContent = forwardRef<
+web/components/ui/tabs.tsx:52:  ComponentPropsWithoutRef<typeof BaseTabs.Panel> & { tabId: string }
+web/components/ui/tabs.tsx:53:>(({ className, tabId, ...props }, ref) => (
+web/components/ui/tabs.tsx:56:    data-tab={tabId}
+web/components/ui/tabs.tsx:64:TabsContent.displayName = "TabsContent";
+
+ succeeded in 861ms:
+web/components/inspector\bundle_header.tsx:7:  signaturePresent: boolean;
+web/components/inspector\bundle_header.tsx:12:  signaturePresent,
+web/components/inspector\bundle_header.tsx:37:          <SignatureBadge present={signaturePresent} />
+web/lib\api.ts:321:  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+web/lib\api.ts:364:    sources_assigned: number;
+web/lib\api.ts:588:// Slice 002 — Clinical Retrieval (verified clinical sources)
+web/lib\api.ts:613:  sources_per_tier: Record<RetrievalSourceTier, number>;
+web/lib\api.ts:621:  sources: RetrievalSource[];
+web/lib\api.ts:686:/** Convenience: count sources matching a given tier. */
+web/lib\api.ts:691:  return pool.sources.filter((s) => s.tier === tier).length;
+web/lib\api.ts:694:/** Convenience: dedupe + sort sources by tier (T1 first), then by domain. */
+web/lib\api.ts:696:  sources: RetrievalSource[],
+web/lib\api.ts:703:  return [...sources].sort((a, b) => {
+web/lib\api.ts:743:  cited_sources: string[];
+web/components/inspector\evidence_pool_table.tsx:17:  sources_per_tier: Record<string, number>;
+web/components/inspector\evidence_pool_table.tsx:24:  sources: SourceShape[];
+web/components/inspector\evidence_pool_table.tsx:40:        <CardTitle>Evidence pool ({p.sources.length} sources)</CardTitle>
+web/components/inspector\evidence_pool_table.tsx:44:        {p.sources.length === 0 ? (
+web/components/inspector\evidence_pool_table.tsx:46:            No sources captured for this run.
+web/components/inspector\evidence_pool_table.tsx:60:                {p.sources.map((s) => (
+web/components/inspector\family_segregation_badge.tsx:3:// (NOT metadata.json — corrected at brief iter 1 P1).
+web/app/inspector\[runId]\page.tsx:35:    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
+web/app/inspector\offline\page.tsx:14:import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+web/app/inspector\offline\page.tsx:17:  const [bundle, setBundle] = useState<LoadedBundle | null>(null);
+web/app/inspector\offline\page.tsx:56:        signaturePresent={bundle.signaturePresent}
+web/components/inspector\metadata_panel.tsx:1:// I-cd-021 (#631): metadata panel — Codex iter-1 P1.2 finding was that
+web/components/inspector\metadata_panel.tsx:2:// `LoadedBundle.metadata` was parsed but never rendered. Adds explicit
+web/components/inspector\metadata_panel.tsx:9:  metadata: BundleMetadata;
+web/components/inspector\metadata_panel.tsx:12:export function MetadataPanel({ metadata }: MetadataPanelProps) {
+web/components/inspector\metadata_panel.tsx:14:    <Card data-testid="metadata-panel">
+web/components/inspector\metadata_panel.tsx:16:        <CardTitle className="text-base">Bundle metadata</CardTitle>
+web/components/inspector\metadata_panel.tsx:23:            data-testid="metadata-polaris-version"
+web/components/inspector\metadata_panel.tsx:25:            {metadata.polaris_version}
+web/components/inspector\metadata_panel.tsx:30:            data-testid="metadata-generator-model"
+web/components/inspector\metadata_panel.tsx:32:            {metadata.generator_model}
+web/components/inspector\metadata_panel.tsx:37:            data-testid="metadata-evaluator-model"
+web/components/inspector\metadata_panel.tsx:39:            {metadata.evaluator_model}
+web/components/inspector\metadata_panel.tsx:44:            data-testid="metadata-created-at"
+web/components/inspector\metadata_panel.tsx:46:            {metadata.bundle_created_at_utc}
+web/components/inspector\metadata_panel.tsx:51:            data-testid="metadata-schema-version"
+web/components/inspector\metadata_panel.tsx:53:            {metadata.schema_version}
+web/app/inspector\[runId]\inspector_view.tsx:9:import { MetadataPanel } from "@/components/inspector/metadata_panel";
+web/app/inspector\[runId]\inspector_view.tsx:12:import { SourcesPanel } from "@/components/inspector/sources_panel";
+web/app/inspector\[runId]\inspector_view.tsx:14:import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+web/app/inspector\[runId]\inspector_view.tsx:17:  bundle: LoadedBundle;
+web/app/inspector\[runId]\inspector_view.tsx:18:  signaturePresent: boolean;
+web/app/inspector\[runId]\inspector_view.tsx:23:  signaturePresent,
+web/app/inspector\[runId]\inspector_view.tsx:33:        signaturePresent={signaturePresent}
+web/app/inspector\[runId]\inspector_view.tsx:45:          <TabsTrigger value="sources">Sources</TabsTrigger>
+web/app/inspector\[runId]\inspector_view.tsx:47:          <TabsTrigger value="metadata">Metadata</TabsTrigger>
+web/app/inspector\[runId]\inspector_view.tsx:59:          <ReasoningTraceTimeline records={bundle.reasoningTrace} />
+web/app/inspector\[runId]\inspector_view.tsx:61:        <TabsContent value="sources" tabId="sources">
+web/app/inspector\[runId]\inspector_view.tsx:62:          <SourcesPanel sources={bundle.sources} />
+web/app/inspector\[runId]\inspector_view.tsx:67:        <TabsContent value="metadata" tabId="metadata">
+web/app/inspector\[runId]\inspector_view.tsx:68:          <MetadataPanel metadata={bundle.metadata} />
+web/lib\inspector_bundle_client_loader.ts:5: * reviewer (no backend, no GPU). Same `LoadedBundle` shape as the
+web/lib\inspector_bundle_client_loader.ts:19: *   - signaturePresent: derived from manifest.yaml.asc existence + non-empty
+web/lib\inspector_bundle_client_loader.ts:37:  LoadedBundle,
+web/lib\inspector_bundle_client_loader.ts:203:  "metadata",
+web/lib\inspector_bundle_client_loader.ts:208:export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
+web/lib\inspector_bundle_client_loader.ts:280:  // metadata.json by explicit path (v1.0 spec).
+web/lib\inspector_bundle_client_loader.ts:281:  const metadataEntry = manifest.files.find(
+web/lib\inspector_bundle_client_loader.ts:282:    (f) => f.content_type === "metadata" && f.path === "metadata.json",
+web/lib\inspector_bundle_client_loader.ts:284:  if (!metadataEntry) {
+web/lib\inspector_bundle_client_loader.ts:286:      "metadata_entry_missing",
+web/lib\inspector_bundle_client_loader.ts:287:      "Manifest must have a metadata entry with path=metadata.json.",
+web/lib\inspector_bundle_client_loader.ts:290:  const metadataFile = _findFile(files, "metadata.json")!;
+web/lib\inspector_bundle_client_loader.ts:291:  const metadata = JSON.parse(_decode(metadataFile.bytes)) as BundleMetadata;
+web/lib\inspector_bundle_client_loader.ts:307:  const reasoningTrace: ReasoningTraceRecord[] = reasoningEntry
+web/lib\inspector_bundle_client_loader.ts:313:  const sources: Record<string, string> = {};
+web/lib\inspector_bundle_client_loader.ts:318:      sources[entry.path] = _decode(sourceFile.bytes);
+web/lib\inspector_bundle_client_loader.ts:323:  const signaturePresent = !!signatureFile && signatureFile.bytes.length > 0;
+web/lib\inspector_bundle_client_loader.ts:337:    metadata,
+web/lib\inspector_bundle_client_loader.ts:338:    reasoningTrace,
+web/lib\inspector_bundle_client_loader.ts:339:    sources,
+web/lib\inspector_bundle_client_loader.ts:340:    signaturePresent,
+web/lib\inspector_bundle_loader.ts:27:export interface LoadedBundle {
+web/lib\inspector_bundle_loader.ts:33:  metadata: BundleMetadata;
+web/lib\inspector_bundle_loader.ts:34:  reasoningTrace: ReasoningTraceRecord[];
+web/lib\inspector_bundle_loader.ts:35:  sources: Record<string, string>;
+web/lib\inspector_bundle_loader.ts:38:  signaturePresent: boolean;
+web/lib\inspector_bundle_loader.ts:78:export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+web/lib\inspector_bundle_loader.ts:97:  // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
+web/lib\inspector_bundle_loader.ts:98:  // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
+web/lib\inspector_bundle_loader.ts:99:  // also flagged metadata in the active producer).
+web/lib\inspector_bundle_loader.ts:100:  const metadataEntry = manifest.files.find(
+web/lib\inspector_bundle_loader.ts:101:    (f) => f.content_type === "metadata" && f.path === "metadata.json",
+web/lib\inspector_bundle_loader.ts:103:  if (!metadataEntry) {
+web/lib\inspector_bundle_loader.ts:105:      `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
+web/lib\inspector_bundle_loader.ts:108:  const metadata = JSON.parse(
+web/lib\inspector_bundle_loader.ts:109:    await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
+web/lib\inspector_bundle_loader.ts:112:  const reasoningTraceEntry = manifest.files.find(
+web/lib\inspector_bundle_loader.ts:115:  const reasoningTrace = reasoningTraceEntry
+web/lib\inspector_bundle_loader.ts:117:        await fs.readFile(path.join(dir, reasoningTraceEntry.path), "utf-8"),
+web/lib\inspector_bundle_loader.ts:121:  const sources: Record<string, string> = {};
+web/lib\inspector_bundle_loader.ts:124:    sources[entry.path] = await fs.readFile(
+web/lib\inspector_bundle_loader.ts:134:  let signaturePresent = false;
+web/lib\inspector_bundle_loader.ts:137:    signaturePresent = stat.isFile() && stat.size > 0;
+web/lib\inspector_bundle_loader.ts:139:    signaturePresent = false;
+web/lib\inspector_bundle_loader.ts:148:    metadata,
+web/lib\inspector_bundle_loader.ts:149:    reasoningTrace,
+web/lib\inspector_bundle_loader.ts:150:    sources,
+web/lib\inspector_bundle_loader.ts:151:    signaturePresent,
+web/components/inspector\sources_panel.tsx:9:  sources: Record<string, string>;
+web/components/inspector\sources_panel.tsx:12:export function SourcesPanel({ sources }: SourcesPanelProps) {
+web/components/inspector\sources_panel.tsx:13:  const paths = Object.keys(sources).sort();
+web/components/inspector\sources_panel.tsx:17:    <Card data-testid="sources-panel">
+web/components/inspector\sources_panel.tsx:53:              {active ? sources[active] : ""}
+web/lib\signed_bundle.ts:30:  | "metadata"
+web/lib\signed_bundle.ts:38:  "metadata",
+web/lib\signed_bundle.ts:97:// Bundle metadata — content of metadata.json
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git config --get core.autocrlf; git config --get --global core.autocrlf' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git ls-files --eol tests/fixtures/signed_bundle/v1_canonical_success/scope_decision.json tests/fixtures/signed_bundle/v1_canonical_success/metadata.json tests/fixtures/signed_bundle/v1_canonical_success/sources/src_v1_canonical_0001.txt tests/fixtures/signed_bundle/.gitattributes' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "size_bytes:|sha256:" tests/fixtures/signed_bundle/v1_canonical_success/manifest.yaml' in C:\POLARIS
+2026-05-20T18:46:15.293176Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.9 seconds
+Output:
+true
+
+ exited 1 in 850ms:
+true
+
+ succeeded in 800ms:
+8:  sha256: 37e8a54e7536e02788cf8e1aaca546714c18549878aec92e8b6458fa59e813f5
+9:  size_bytes: 332
+12:  sha256: f8249c902925aefa03a2ef0e3f86a82f160f21aa0eaf11875f30bd4a9c8557b5
+13:  size_bytes: 1138
+16:  sha256: 813970c56041eeab246cb697fb49b75ccab905d76f8ee0c5610576e35f183111
+17:  size_bytes: 2458
+20:  sha256: 69b94105be13490815dbd18d8c3dc02485c2e8c68b123f12f95f13001f7f3fde
+21:  size_bytes: 211
+24:  sha256: f440f60cda8861400cfa4b572c7784def6832987756e2066cf24158df96825ee
+25:  size_bytes: 336
+28:  sha256: 815069307891201bc1a06324e961fda0cdf81143a210939975f007705afba2d0
+29:  size_bytes: 961
+32:  sha256: 0d42df092fd4032c76267df6548d270ab1f31d2c8dad9c3cfda7265cf3769aa1
+33:  size_bytes: 203
+
+ succeeded in 912ms:
+i/lf    w/lf    attr/                 	tests/fixtures/signed_bundle/.gitattributes
+i/lf    w/crlf  attr/                 	tests/fixtures/signed_bundle/v1_canonical_success/metadata.json
+i/lf    w/crlf  attr/                 	tests/fixtures/signed_bundle/v1_canonical_success/scope_decision.json
+i/lf    w/crlf  attr/                 	tests/fixtures/signed_bundle/v1_canonical_success/sources/src_v1_canonical_0001.txt
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - id: P2.2-continuing
+    file: tests/fixtures/signed_bundle/.gitattributes:1
+    finding: "Pattern is rooted incorrectly for a nested .gitattributes file: `tests/fixtures/signed_bundle/** -text` matches nothing there. On Windows with core.autocrlf=true, fixture files remain CRLF and local tar.gz builds fail manifest size/SHA checks. Use `** -text` here, or move the current pattern to repo-root .gitattributes."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+67,173
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - id: P2.2-continuing
+    file: tests/fixtures/signed_bundle/.gitattributes:1
+    finding: "Pattern is rooted incorrectly for a nested .gitattributes file: `tests/fixtures/signed_bundle/** -text` matches nothing there. On Windows with core.autocrlf=true, fixture files remain CRLF and local tar.gz builds fail manifest size/SHA checks. Use `** -text` here, or move the current pattern to repo-root .gitattributes."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

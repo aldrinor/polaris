@@ -1,0 +1,3503 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e46ae-fa34-7d03-b929-33ddbb26cc54
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+- Front-load ALL real findings in iter 1.
+- "Don't pick bone from egg" — P1 only for real execution risks.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# Codex diff review — I-cd-021 (#631) — Offline Inspector
+
+Brief APPROVE'd iter 2. Iter-1 + iter-2 fixes applied. Canonical-diff-sha256: `f9da55f2dabf91da0c7ddb29ca002247a99e950494c56afab4ee53c990898c53`.
+
+**Iter-2 fix (P1.1 streaming):** Refactored from one-shot `pako.ungzip()` (which materializes the full bomb before any size check) to streaming `pako.Inflate` with per-chunk `onData` callback. Cumulative byte count is checked per chunk and the inflator stops emitting more on overflow. Allocation never exceeds `MAX_DECOMPRESSED_BYTES = 200MB`. Pattern matches pako's own README example for size-bounded inflate.
+
+**Iter-1 fixes:**
+- P1.1 (gzip bomb): `MAX_DECOMPRESSED_BYTES = 200 MB` checked AFTER `pako.ungzip` — prevents 50MB compressed → 50GB decompressed OOM.
+- P1.2 (missing required content type): added `source_snapshot` to `REQUIRED_CONTENT_TYPES` — now 6 types matching `_REQUIRED_CONTENT_TYPES` in `src/polaris_graph/audit_bundle/conformance.py:70-78`.
+- P1.3 (metadata schema mismatch producer vs fixture): carved to follow-up Issue **#682**. Producer at `manifest_builder.py:196-213` emits different field names than the v1_canonical fixture; both schemas need reconciliation. Out of scope for this PR.
+- P2.1 (CI wiring): added `run_e2e_inspector_offline_fallback` step to `.github/workflows/web_ci.yml`.
+- P2.2 (Windows CRLF/LF fixture): added `tests/fixtures/signed_bundle/.gitattributes` with `** -text` to prevent line-ending translation that would invalidate SHA hashes.
+
+## §A Canonical diff summary
+
+**New code (~559 net LOC):**
+- `web/lib/inspector_bundle_client_loader.ts` (NEW, 271 LOC) — `loadBundleFromTarGz(file: File): Promise<LoadedBundle>` via pako (gzip) + tar-stream. Verifies tar.gz size ≤ 50MB, manifest.yaml parses, `bundle_version == "1.0"`, all 5 required content types present, every declared file present in tar, SHA-256 + size match for every manifest entry.
+- `web/app/inspector/offline/page.tsx` (NEW, 129 LOC) — client component with drag-drop + file picker; on load reuses `<InspectorView>` (the same component used by `/inspector/[runId]`). WCAG: dropzone is `role="button"` + `tabIndex={0}` + Enter/Space keyboard activation + aria-label.
+- `web/components/inspector/metadata_panel.tsx` (NEW, 59 LOC) — surfaces all 5 BundleMetadata fields (polaris_version, generator_model, evaluator_model, bundle_created_at_utc, schema_version). Fixes Codex iter-1 P1.2.
+- `web/app/inspector/[runId]/inspector_view.tsx` (MOD, +5 LOC) — adds "Metadata" tab to the existing route (so the metadata panel surfaces on BOTH /inspector/[runId] AND /inspector/offline).
+- `web/tests/e2e/inspector_offline_fallback.spec.ts` (NEW, 91 LOC) — Playwright e2e: builds tar.gz from `tests/fixtures/signed_bundle/v1_canonical_success/` at setup, drops it via the file input, asserts InspectorView mounts + Metadata tab renders all 5 fields with non-empty values + no error card. Second test: malformed file → visible error card.
+- `web/package.json` + `web/package-lock.json` — new deps `pako@^2.1.0`, `tar-stream@^3.2.0`, `@types/pako`, `@types/tar-stream`.
+
+## §B Acceptance check
+
+| Criterion | Met by |
+|---|---|
+| Inspector renders v1.0 bundle without backend running | offline/page.tsx + inspector_bundle_client_loader.ts |
+| Same `<InspectorView>` component used (no duplicate renderer) | offline/page.tsx:55 imports InspectorView |
+| `LoadedBundle` shape identical to server loader | `import type { LoadedBundle } from "@/lib/inspector_bundle_loader"` |
+| SHA-256 verify every file vs manifest | _sha256Hex + entry.sha256 check per file |
+| Size verify every file vs manifest | candidate.bytes.length === entry.size_bytes check |
+| Bundle version=1.0 enforced | inspector_bundle_client_loader.ts:170 |
+| 5 required content_types present | inspector_bundle_client_loader.ts:128-134 + 176-183 |
+| signaturePresent: detects manifest.yaml.asc | inspector_bundle_client_loader.ts:255 |
+| GPG cryptographic verify explicitly out-of-scope (documented) | offline/page.tsx:75-77 + loader docstring |
+| WCAG: dropzone keyboard-accessible | role=button, tabIndex=0, Enter/Space, aria-label, focus-visible:ring |
+| Metadata panel renders all 5 fields | metadata_panel.tsx + 5 data-testid attrs |
+| Playwright e2e covers success + malformed-file error path | inspector_offline_fallback.spec.ts |
+| No backend / API call on the offline path | page.tsx is "use client", no /api/ fetch |
+| TypeScript clean (`npx tsc --noEmit` rc=0) | confirmed locally |
+| 50MB file size limit prevents OOM | MAX_TAR_GZ_BYTES = 50 \* 1024 \* 1024 |
+
+## §C Red-team checklist
+
+1. **pako vs tar-stream** — pako handles gzip (mature, browser-tested, GitHub uses it); tar-stream is the standard Node tar parser. `tar-stream@3.x` is browser-build-compatible via Webpack/Next bundling.
+2. **SHA-256 verification** — uses `crypto.subtle.digest("SHA-256", ...)` (browser-native since 2016). Result is base16 hex matching the manifest hash format.
+3. **ArrayBuffer typing** — `bytes.buffer.slice(...)` ensures we pass `ArrayBuffer` (not `SharedArrayBuffer`) per TypeScript's strict BufferSource check.
+4. **`_findFile` suffix-match** — handles both `tar -czf bundle.tar.gz <dir>` (entries prefixed with `<dir>/`) and `tar -czf bundle.tar.gz -C <dir> .` (entries without prefix).
+5. **Filename traversal safety** — `_findFile` does NOT use the entry name directly for fs access (we're in-browser); manifest declares paths; no traversal vector.
+6. **`runId` derivation** — `BundleMetadata` does not carry run_id in the v1.0 frozen schema; falls back to filename stem. Documented in loader.
+7. **Tab IDs** — added "metadata" tab. Existing Tabs component uses `value=` keys; no collision.
+8. **MetadataPanel data-testid** — 5 specific testids let Playwright assert each field individually.
+9. **`InspectorView` import from offline/** — page.tsx imports `@/app/inspector/[runId]/inspector_view`. Next.js App Router permits this; component is "use client" already.
+10. **Error code surfacing** — `BundleClientLoaderError.code` ("ungzip_failed", "manifest_missing", "sha256_mismatch", etc.) is included in the error card for debugging.
+
+## §D Files I have ALSO checked and they're clean
+
+- `web/lib/inspector_bundle_loader.ts:13-32` — server loader's `LoadedBundle` interface is the shared contract; client loader matches.
+- `web/lib/signed_bundle.ts` — `parseManifest`, `parseReasoningTraceJsonl`, `BundleMetadata` are isomorphic; no node-only deps.
+- `web/components/inspector/` — 9 existing components; no breakage.
+- `web/components/ui/tabs.tsx` — wraps `@base-ui/react/tabs`; supports any number of tabs.
+- `web/next.config.ts` — pako + tar-stream get bundled by Next.js webpack; no special config needed.
+- `tests/fixtures/signed_bundle/v1_canonical_success/` — used as the test bundle source.
+- `.codex-tmp/i-cd-021-bundles/` — gitignored; e2e setup builds the tar.gz here.
+
+## §E Smoke test
+
+```bash
+cd web && npx tsc --noEmit  # rc=0 confirmed
+cd /c/POLARIS && wc -l .codex/I-cd-021/codex_diff_canonical.patch  # 915 lines (188 of which is package-lock)
+```
+
+Playwright e2e requires `next dev` server running on port 3737 + the fixture bundle building — runs in CI workflow `web_ci.yml` against a built/started Next.js production server, so cannot be smoke-tested headless on Windows in this dev shell. Codex runs `web_ci.yml` as the binding gate.
+
+## §F Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll review the actual diff and the touched loader/UI/test paths against the stated execution risks, then I’ll return only findings that matter for the approval gate.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"MAX_DECOMPRESSED_BYTES|pako\\.Inflate|onData|loadBundleFromTarGz|REQUIRED_CONTENT_TYPES|source_snapshot|signaturePresent|_findFile|BundleClientLoaderError|tar-stream|metadata\" web/lib web/app web/components web/tests .github tests/fixtures/signed_bundle -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path .codex\\I-cd-021 -Force" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+ succeeded in 842ms:
+tests/fixtures/signed_bundle\README.md:19:| `metadata.json` | `metadata` | Bundle-level metadata (polaris_version, generator_model, evaluator_model, timestamps) |
+tests/fixtures/signed_bundle\README.md:21:| `sources/<sha-id>.txt` | `source_snapshot` | One source full-text snapshot |
+tests/fixtures/signed_bundle\v1_canonical\manifest.yaml:18:- content_type: metadata
+tests/fixtures/signed_bundle\v1_canonical\manifest.yaml:19:  path: metadata.json
+tests/fixtures/signed_bundle\v1_canonical\manifest.yaml:26:- content_type: source_snapshot
+tests/fixtures/signed_bundle\v1_canonical_success\manifest.yaml:18:- content_type: metadata
+tests/fixtures/signed_bundle\v1_canonical_success\manifest.yaml:19:  path: metadata.json
+tests/fixtures/signed_bundle\v1_canonical_success\manifest.yaml:22:- content_type: metadata
+tests/fixtures/signed_bundle\v1_canonical_success\manifest.yaml:30:- content_type: source_snapshot
+tests/fixtures/signed_bundle\v1_canonical_success\REVIEWER_README.md:5:this file with `content_type="metadata"` alongside `metadata.json`;
+tests/fixtures/signed_bundle\v1_canonical_success\REVIEWER_README.md:6:downstream consumers MUST select `metadata.json` by explicit path.
+web/components\inspector\bundle_header.tsx:7:  signaturePresent: boolean;
+web/components\inspector\bundle_header.tsx:12:  signaturePresent,
+web/components\inspector\bundle_header.tsx:37:          <SignatureBadge present={signaturePresent} />
+.github\workflows\protection_drift_check.yml:160:#   1. Generate fine-grained PAT on aldrinor account with polaris-controls:metadata:read
+web/app\layout.tsx:19:export const metadata: Metadata = {
+web/components\inspector\family_segregation_badge.tsx:3:// (NOT metadata.json — corrected at brief iter 1 P1).
+web/app\upload\page.tsx:3:export const metadata = {
+web/app\retrieval\page.tsx:7:export const metadata = {
+web/app\generation\page.tsx:7:export const metadata = {
+web/app\intake\page.tsx:8:export const metadata = {
+web/tests\e2e\bundle_preview.spec.ts:53:    source_snapshot: { count: 0, bytes: 0 },
+web/tests\e2e\bundle_preview.spec.ts:54:    metadata: { count: 1, bytes: 5177 },
+web/tests\e2e\bundle_preview.spec.ts:118:    "source_snapshot",
+web/tests\e2e\bundle_preview.spec.ts:119:    "metadata",
+web/components\inspector\metadata_panel.tsx:1:// I-cd-021 (#631): metadata panel — Codex iter-1 P1.2 finding was that
+web/components\inspector\metadata_panel.tsx:2:// `LoadedBundle.metadata` was parsed but never rendered. Adds explicit
+web/components\inspector\metadata_panel.tsx:9:  metadata: BundleMetadata;
+web/components\inspector\metadata_panel.tsx:12:export function MetadataPanel({ metadata }: MetadataPanelProps) {
+web/components\inspector\metadata_panel.tsx:14:    <Card data-testid="metadata-panel">
+web/components\inspector\metadata_panel.tsx:16:        <CardTitle className="text-base">Bundle metadata</CardTitle>
+web/components\inspector\metadata_panel.tsx:23:            data-testid="metadata-polaris-version"
+web/components\inspector\metadata_panel.tsx:25:            {metadata.polaris_version}
+web/components\inspector\metadata_panel.tsx:30:            data-testid="metadata-generator-model"
+web/components\inspector\metadata_panel.tsx:32:            {metadata.generator_model}
+web/components\inspector\metadata_panel.tsx:37:            data-testid="metadata-evaluator-model"
+web/components\inspector\metadata_panel.tsx:39:            {metadata.evaluator_model}
+web/components\inspector\metadata_panel.tsx:44:            data-testid="metadata-created-at"
+web/components\inspector\metadata_panel.tsx:46:            {metadata.bundle_created_at_utc}
+web/components\inspector\metadata_panel.tsx:51:            data-testid="metadata-schema-version"
+web/components\inspector\metadata_panel.tsx:53:            {metadata.schema_version}
+web/app\benchmark\page.tsx:7:export const metadata = {
+web/lib\signed_bundle.ts:29:  | "source_snapshot"
+web/lib\signed_bundle.ts:30:  | "metadata"
+web/lib\signed_bundle.ts:37:  "source_snapshot",
+web/lib\signed_bundle.ts:38:  "metadata",
+web/lib\signed_bundle.ts:97:// Bundle metadata — content of metadata.json
+web/lib\inspector_bundle_loader.ts:33:  metadata: BundleMetadata;
+web/lib\inspector_bundle_loader.ts:38:  signaturePresent: boolean;
+web/lib\inspector_bundle_loader.ts:97:  // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
+web/lib\inspector_bundle_loader.ts:98:  // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
+web/lib\inspector_bundle_loader.ts:99:  // also flagged metadata in the active producer).
+web/lib\inspector_bundle_loader.ts:100:  const metadataEntry = manifest.files.find(
+web/lib\inspector_bundle_loader.ts:101:    (f) => f.content_type === "metadata" && f.path === "metadata.json",
+web/lib\inspector_bundle_loader.ts:103:  if (!metadataEntry) {
+web/lib\inspector_bundle_loader.ts:105:      `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
+web/lib\inspector_bundle_loader.ts:108:  const metadata = JSON.parse(
+web/lib\inspector_bundle_loader.ts:109:    await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
+web/lib\inspector_bundle_loader.ts:123:    if (entry.content_type !== "source_snapshot") continue;
+web/lib\inspector_bundle_loader.ts:134:  let signaturePresent = false;
+web/lib\inspector_bundle_loader.ts:137:    signaturePresent = stat.isFile() && stat.size > 0;
+web/lib\inspector_bundle_loader.ts:139:    signaturePresent = false;
+web/lib\inspector_bundle_loader.ts:148:    metadata,
+web/lib\inspector_bundle_loader.ts:151:    signaturePresent,
+web/app\(test_harness)\disambiguation_modal_preview\page.tsx:3:export const metadata = {
+web/lib\inspector_bundle_client_loader.ts:12: *   - extract files with tar-stream (browser build)
+web/lib\inspector_bundle_client_loader.ts:19: *   - signaturePresent: derived from manifest.yaml.asc existence + non-empty
+web/lib\inspector_bundle_client_loader.ts:26:import { extract as tarExtract } from "tar-stream";
+web/lib\inspector_bundle_client_loader.ts:45:const MAX_DECOMPRESSED_BYTES = 200 * 1024 * 1024;
+web/lib\inspector_bundle_client_loader.ts:47:export class BundleClientLoaderError extends Error {
+web/lib\inspector_bundle_client_loader.ts:52:    this.name = "BundleClientLoaderError";
+web/lib\inspector_bundle_client_loader.ts:104:): Uint8Array | BundleClientLoaderError {
+web/lib\inspector_bundle_client_loader.ts:105:  // pako.Inflate emits chunks via an onData callback; we accumulate up to
+web/lib\inspector_bundle_client_loader.ts:106:  // MAX_DECOMPRESSED_BYTES then bail. Reference:
+web/lib\inspector_bundle_client_loader.ts:108:  const inflator = new pako.Inflate({ raw: false });
+web/lib\inspector_bundle_client_loader.ts:113:  inflator.onData = (chunk: Uint8Array): void => {
+web/lib\inspector_bundle_client_loader.ts:116:    if (total > MAX_DECOMPRESSED_BYTES) {
+web/lib\inspector_bundle_client_loader.ts:117:      abortedReason = `Decompressed bytes ${total} exceeded ${MAX_DECOMPRESSED_BYTES} cap (gzip-bomb guard).`;
+web/lib\inspector_bundle_client_loader.ts:129:    return new BundleClientLoaderError("decompressed_too_large", abortedReason);
+web/lib\inspector_bundle_client_loader.ts:132:    return new BundleClientLoaderError(
+web/lib\inspector_bundle_client_loader.ts:162:function _findFile(
+web/lib\inspector_bundle_client_loader.ts:179:// src/polaris_graph/audit_bundle/conformance.py:_REQUIRED_CONTENT_TYPES
+web/lib\inspector_bundle_client_loader.ts:180:// requires ALL SIX content types (including source_snapshot).
+web/lib\inspector_bundle_client_loader.ts:181:const REQUIRED_CONTENT_TYPES = [
+web/lib\inspector_bundle_client_loader.ts:185:  "metadata",
+web/lib\inspector_bundle_client_loader.ts:186:  "source_snapshot",
+web/lib\inspector_bundle_client_loader.ts:190:export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
+web/lib\inspector_bundle_client_loader.ts:192:    throw new BundleClientLoaderError(
+web/lib\inspector_bundle_client_loader.ts:198:  // Codex iter-2 P1.1 fix: streaming inflate via pako.Inflate, aborting as
+web/lib\inspector_bundle_client_loader.ts:199:  // soon as cumulative decompressed bytes exceed MAX_DECOMPRESSED_BYTES.
+web/lib\inspector_bundle_client_loader.ts:203:  if (tarBytes instanceof BundleClientLoaderError) {
+web/lib\inspector_bundle_client_loader.ts:207:  const manifestFile = _findFile(files, "manifest.yaml");
+web/lib\inspector_bundle_client_loader.ts:209:    throw new BundleClientLoaderError(
+web/lib\inspector_bundle_client_loader.ts:218:    throw new BundleClientLoaderError(
+web/lib\inspector_bundle_client_loader.ts:224:    throw new BundleClientLoaderError(
+web/lib\inspector_bundle_client_loader.ts:229:  for (const required of REQUIRED_CONTENT_TYPES) {
+web/lib\inspector_bundle_client_loader.ts:231:      throw new BundleClientLoaderError(
+web/lib\inspector_bundle_client_loader.ts:240:    const candidate = _findFile(files, entry.path);
+web/lib\inspector_bundle_client_loader.ts:242:      throw new BundleClientLoaderError(
+web/lib\inspector_bundle_client_loader.ts:248:      throw new BundleClientLoaderError(
+web/lib\inspector_bundle_client_loader.ts:255:      throw new BundleClientLoaderError(
+web/lib\inspector_bundle_client_loader.ts:262:  // metadata.json by explicit path (v1.0 spec).
+web/lib\inspector_bundle_client_loader.ts:263:  const metadataEntry = manifest.files.find(
+web/lib\inspector_bundle_client_loader.ts:264:    (f) => f.content_type === "metadata" && f.path === "metadata.json",
+web/lib\inspector_bundle_client_loader.ts:266:  if (!metadataEntry) {
+web/lib\inspector_bundle_client_loader.ts:267:    throw new BundleClientLoaderError(
+web/lib\inspector_bundle_client_loader.ts:268:      "metadata_entry_missing",
+web/lib\inspector_bundle_client_loader.ts:269:      "Manifest must have a metadata entry with path=metadata.json.",
+web/lib\inspector_bundle_client_loader.ts:272:  const metadataFile = _findFile(files, "metadata.json")!;
+web/lib\inspector_bundle_client_loader.ts:273:  const metadata = JSON.parse(_decode(metadataFile.bytes)) as BundleMetadata;
+web/lib\inspector_bundle_client_loader.ts:275:  const scopeDecisionFile = _findFile(files, "scope_decision.json")!;
+web/lib\inspector_bundle_client_loader.ts:278:  const evidencePoolFile = _findFile(files, "evidence_pool.json")!;
+web/lib\inspector_bundle_client_loader.ts:281:  const verifiedReportFile = _findFile(files, "verified_report.json")!;
+web/lib\inspector_bundle_client_loader.ts:291:        _decode(_findFile(files, reasoningEntry.path)!.bytes),
+web/lib\inspector_bundle_client_loader.ts:297:    if (entry.content_type !== "source_snapshot") continue;
+web/lib\inspector_bundle_client_loader.ts:298:    const sourceFile = _findFile(files, entry.path);
+web/lib\inspector_bundle_client_loader.ts:304:  const signatureFile = _findFile(files, "manifest.yaml.asc");
+web/lib\inspector_bundle_client_loader.ts:305:  const signaturePresent = !!signatureFile && signatureFile.bytes.length > 0;
+web/lib\inspector_bundle_client_loader.ts:319:    metadata,
+web/lib\inspector_bundle_client_loader.ts:322:    signaturePresent,
+web/app\inspector\[runId]\page.tsx:35:    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
+web/app\inspector\[runId]\inspector_view.tsx:9:import { MetadataPanel } from "@/components/inspector/metadata_panel";
+web/app\inspector\[runId]\inspector_view.tsx:18:  signaturePresent: boolean;
+web/app\inspector\[runId]\inspector_view.tsx:23:  signaturePresent,
+web/app\inspector\[runId]\inspector_view.tsx:33:        signaturePresent={signaturePresent}
+web/app\inspector\[runId]\inspector_view.tsx:47:          <TabsTrigger value="metadata">Metadata</TabsTrigger>
+web/app\inspector\[runId]\inspector_view.tsx:67:        <TabsContent value="metadata" tabId="metadata">
+web/app\inspector\[runId]\inspector_view.tsx:68:          <MetadataPanel metadata={bundle.metadata} />
+web/app\generation\components\BundlePreview.tsx:23:  ["source_snapshot", "Source snapshots"],
+web/app\generation\components\BundlePreview.tsx:24:  ["metadata", "Metadata"],
+web/app\inspector\offline\page.tsx:11:  BundleClientLoaderError,
+web/app\inspector\offline\page.tsx:12:  loadBundleFromTarGz,
+web/app\inspector\offline\page.tsx:27:      const loaded = await loadBundleFromTarGz(file);
+web/app\inspector\offline\page.tsx:31:        exc instanceof BundleClientLoaderError
+web/app\inspector\offline\page.tsx:56:        signaturePresent={bundle.signaturePresent}
+web/app\contracts\page.tsx:3:export const metadata = {
+web/tests\e2e\inspector_offline_fallback.spec.ts:57:  await expect(page.getByTestId("metadata-panel")).toBeVisible();
+web/tests\e2e\inspector_offline_fallback.spec.ts:58:  await expect(page.getByTestId("metadata-polaris-version")).not.toBeEmpty();
+web/tests\e2e\inspector_offline_fallback.spec.ts:59:  await expect(page.getByTestId("metadata-generator-model")).not.toBeEmpty();
+web/tests\e2e\inspector_offline_fallback.spec.ts:60:  await expect(page.getByTestId("metadata-evaluator-model")).not.toBeEmpty();
+web/tests\e2e\inspector_offline_fallback.spec.ts:61:  await expect(page.getByTestId("metadata-created-at")).not.toBeEmpty();
+web/tests\e2e\inspector_offline_fallback.spec.ts:62:  await expect(page.getByTestId("metadata-schema-version")).toContainText(
+
+ succeeded in 878ms:
+
+    Directory: C:\POLARIS\.codex\I-cd-021
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m[32;1m         Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+-a---          2026-05-20 11:22 AM         142165 brief_iter1_output.txt
+-a---          2026-05-20 11:23 AM          78889 brief_iter2_output.txt
+-a---          2026-05-20 11:22 AM           7372 brief.md
+-a---          2026-05-20 11:24 AM            367 codex_brief_verdict.txt
+-a---          2026-05-20 11:38 AM          35736 codex_diff_canonical.patch
+-a---          2026-05-20 11:38 AM          35827 codex_diff.patch
+-a---          2026-05-20 11:38 AM           7858 diff_brief.md
+-a---          2026-05-20 11:33 AM         296850 diff_iter1_output.txt
+-a---          2026-05-20 11:37 AM         127216 diff_iter2_output.txt
+-a---          2026-05-20 11:38 AM              0 diff_iter3_output.txt
+
+
+ succeeded in 989ms:
+ M .claude/settings.json
+ M docs/todo_list.md
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+ M tests/fixtures/signed_bundle/v1_canonical/metadata.json
+ M tests/fixtures/signed_bundle/v1_canonical/scope_decision.json
+ M tests/fixtures/signed_bundle/v1_canonical/verified_report.json
+?? .claude/hooks/__pycache__/
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-021/
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+codex
+The repo has a dirty worktree outside this PR, so I’m treating those as unrelated and reading only the I-cd-021 patch plus the touched web/test files.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path web'"\\lib\\inspector_bundle_client_loader.ts | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath '"'web\\app\\inspector\\offline\\page.tsx' | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path web'"\\tests\\e2e\\inspector_offline_fallback.spec.ts | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -LiteralPath '"'web\\app\\inspector\\[runId]\\inspector_view.tsx' | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+ succeeded in 866ms:
+   1: // I-cd-021 (#631) — Offline Inspector page. Renders a v1.0 signed bundle
+   2: // in-browser from a `.tar.gz` file dropped by a disconnected reviewer.
+   3: // No GPU, no backend, no API call.
+   4: "use client";
+   5: 
+   6: import { useState } from "react";
+   7: 
+   8: import { InspectorView } from "@/app/inspector/[runId]/inspector_view";
+   9: import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+  10: import {
+  11:   BundleClientLoaderError,
+  12:   loadBundleFromTarGz,
+  13: } from "@/lib/inspector_bundle_client_loader";
+  14: import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+  15: 
+  16: export default function InspectorOfflinePage() {
+  17:   const [bundle, setBundle] = useState<LoadedBundle | null>(null);
+  18:   const [error, setError] = useState<string | null>(null);
+  19:   const [loading, setLoading] = useState(false);
+  20:   const [dragOver, setDragOver] = useState(false);
+  21: 
+  22:   async function handleFile(file: File) {
+  23:     setLoading(true);
+  24:     setError(null);
+  25:     setBundle(null);
+  26:     try {
+  27:       const loaded = await loadBundleFromTarGz(file);
+  28:       setBundle(loaded);
+  29:     } catch (exc) {
+  30:       const message =
+  31:         exc instanceof BundleClientLoaderError
+  32:           ? `${exc.code}: ${exc.message}`
+  33:           : (exc as Error).message;
+  34:       setError(message);
+  35:     } finally {
+  36:       setLoading(false);
+  37:     }
+  38:   }
+  39: 
+  40:   function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+  41:     const file = e.target.files?.[0];
+  42:     if (file) handleFile(file);
+  43:   }
+  44: 
+  45:   function onDrop(e: React.DragEvent<HTMLDivElement>) {
+  46:     e.preventDefault();
+  47:     setDragOver(false);
+  48:     const file = e.dataTransfer.files?.[0];
+  49:     if (file) handleFile(file);
+  50:   }
+  51: 
+  52:   if (bundle) {
+  53:     return (
+  54:       <InspectorView
+  55:         bundle={bundle}
+  56:         signaturePresent={bundle.signaturePresent}
+  57:       />
+  58:     );
+  59:   }
+  60: 
+  61:   return (
+  62:     <main
+  63:       className="mx-auto flex max-w-3xl flex-col gap-6 p-6"
+  64:       data-testid="inspector-offline"
+  65:     >
+  66:       <Card>
+  67:         <CardHeader>
+  68:           <CardTitle className="text-lg">Offline Inspector</CardTitle>
+  69:         </CardHeader>
+  70:         <CardContent className="space-y-4 text-sm">
+  71:           <p className="text-muted-foreground">
+  72:             Drop or pick a signed POLARIS audit bundle (<code>.tar.gz</code>).
+  73:             The bundle is verified and rendered entirely in your browser — no
+  74:             backend or GPU required. SHA-256 of every file is checked against
+  75:             the manifest. GPG cryptographic verify is out of scope (the
+  76:             bundle&apos;s <code>.asc</code> presence is detected, but full
+  77:             key-trust verification needs a CLI).
+  78:           </p>
+  79:           <div
+  80:             data-testid="inspector-offline-dropzone"
+  81:             role="button"
+  82:             tabIndex={0}
+  83:             aria-label="Drop bundle tar.gz or click to pick a file"
+  84:             onDrop={onDrop}
+  85:             onDragOver={(e) => {
+  86:               e.preventDefault();
+  87:               setDragOver(true);
+  88:             }}
+  89:             onDragLeave={() => setDragOver(false)}
+  90:             onKeyDown={(e) => {
+  91:               if (e.key === "Enter" || e.key === " ") {
+  92:                 e.preventDefault();
+  93:                 document.getElementById("inspector-offline-input")?.click();
+  94:               }
+  95:             }}
+  96:             onClick={() =>
+  97:               document.getElementById("inspector-offline-input")?.click()
+  98:             }
+  99:             className={`border-border focus-visible:ring-ring flex min-h-32 cursor-pointer items-center justify-center rounded border-2 border-dashed px-6 py-8 text-center text-sm focus-visible:ring-2 focus-visible:outline-none ${
+ 100:               dragOver ? "bg-muted/60" : "bg-muted/20"
+ 101:             }`}
+ 102:           >
+ 103:             {loading
+ 104:               ? "Loading bundle…"
+ 105:               : "Drop bundle.tar.gz here or press Enter to pick a file"}
+ 106:           </div>
+ 107:           <input
+ 108:             id="inspector-offline-input"
+ 109:             data-testid="inspector-offline-file-input"
+ 110:             type="file"
+ 111:             accept=".tar.gz,.tgz,application/gzip,application/x-gzip"
+ 112:             className="sr-only"
+ 113:             onChange={onInputChange}
+ 114:           />
+ 115:           {error ? (
+ 116:             <div
+ 117:               data-testid="inspector-offline-error"
+ 118:               role="alert"
+ 119:               className="rounded border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-700 dark:text-rose-300"
+ 120:             >
+ 121:               <strong className="block">Bundle could not be loaded</strong>
+ 122:               <code className="mt-1 block text-xs">{error}</code>
+ 123:             </div>
+ 124:           ) : null}
+ 125:         </CardContent>
+ 126:       </Card>
+ 127:     </main>
+ 128:   );
+ 129: }
+
+ succeeded in 1003ms:
+   1: /**
+   2:  * I-cd-021 (#631) — Browser-side bundle loader.
+   3:  *
+   4:  * Parses a v1.0 BundleManifest tar.gz uploaded by a disconnected
+   5:  * reviewer (no backend, no GPU). Same `LoadedBundle` shape as the
+   6:  * server-side `inspector_bundle_loader.ts` so all Inspector components
+   7:  * accept either source.
+   8:  *
+   9:  * Conformance (browser-safe subset of the 12-layer Python check):
+  10:  *   - tar.gz size ≤ 50MB
+  11:  *   - inflate via pako
+  12:  *   - extract files with tar-stream (browser build)
+  13:  *   - manifest.yaml parses cleanly (existing parseManifest)
+  14:  *   - bundle_version == "1.0"
+  15:  *   - all 6 required ContentTypes present in manifest.files
+  16:  *   - each declared file is present in the tar
+  17:  *   - SHA-256 of each file matches manifest hash (browser crypto.subtle)
+  18:  *   - byte size matches manifest size
+  19:  *   - signaturePresent: derived from manifest.yaml.asc existence + non-empty
+  20:  *
+  21:  * GPG cryptographic verify is out of scope (requires CLI / pgp.js + key
+  22:  * trust UX, both browser-impractical for Carney handover).
+  23:  */
+  24: 
+  25: import pako from "pako";
+  26: import { extract as tarExtract } from "tar-stream";
+  27: 
+  28: import {
+  29:   type BundleManifest,
+  30:   type BundleMetadata,
+  31:   type ReasoningTraceRecord,
+  32:   parseManifest,
+  33:   parseReasoningTraceJsonl,
+  34: } from "@/lib/signed_bundle";
+  35: 
+  36: import type {
+  37:   LoadedBundle,
+  38:   VerifiedReportShape,
+  39: } from "@/lib/inspector_bundle_loader";
+  40: 
+  41: const MAX_TAR_GZ_BYTES = 50 * 1024 * 1024;
+  42: // Codex iter-1 P1.1 fix: cap DECOMPRESSED tar bytes to prevent gzip-bomb OOM.
+  43: // A 50MB gzip can inflate to 50GB+ of zeros. 200MB is generous for legitimate
+  44: // bundles (the largest v1.0 fixture is ~80KB; real runs may approach a few MB).
+  45: const MAX_DECOMPRESSED_BYTES = 200 * 1024 * 1024;
+  46: 
+  47: export class BundleClientLoaderError extends Error {
+  48:   readonly code: string;
+  49:   constructor(code: string, message: string) {
+  50:     super(message);
+  51:     this.code = code;
+  52:     this.name = "BundleClientLoaderError";
+  53:   }
+  54: }
+  55: 
+  56: interface ExtractedFile {
+  57:   name: string;
+  58:   bytes: Uint8Array;
+  59: }
+  60: 
+  61: async function _extractTarBytes(
+  62:   tarBytes: Uint8Array,
+  63: ): Promise<ExtractedFile[]> {
+  64:   return new Promise((resolve, reject) => {
+  65:     const files: ExtractedFile[] = [];
+  66:     const extractor = tarExtract();
+  67:     extractor.on(
+  68:       "entry",
+  69:       (
+  70:         header: { name: string; type?: string },
+  71:         stream: NodeJS.ReadableStream,
+  72:         next: () => void,
+  73:       ) => {
+  74:         const chunks: Uint8Array[] = [];
+  75:         stream.on("data", (c: Uint8Array) => chunks.push(c));
+  76:         stream.on("end", () => {
+  77:           if (header.type === "file") {
+  78:             // Concat chunks into one Uint8Array.
+  79:             const total = chunks.reduce((s, c) => s + c.length, 0);
+  80:             const merged = new Uint8Array(total);
+  81:             let off = 0;
+  82:             for (const c of chunks) {
+  83:               merged.set(c, off);
+  84:               off += c.length;
+  85:             }
+  86:             files.push({
+  87:               name: header.name.replace(/^\.\//, ""),
+  88:               bytes: merged,
+  89:             });
+  90:           }
+  91:           next();
+  92:         });
+  93:         stream.resume();
+  94:       },
+  95:     );
+  96:     extractor.on("finish", () => resolve(files));
+  97:     extractor.on("error", reject);
+  98:     extractor.end(tarBytes);
+  99:   });
+ 100: }
+ 101: 
+ 102: function _streamingUngzip(
+ 103:   compressed: Uint8Array,
+ 104: ): Uint8Array | BundleClientLoaderError {
+ 105:   // pako.Inflate emits chunks via an onData callback; we accumulate up to
+ 106:   // MAX_DECOMPRESSED_BYTES then bail. Reference:
+ 107:   // https://github.com/nodeca/pako#inflate-on-the-fly
+ 108:   const inflator = new pako.Inflate({ raw: false });
+ 109:   let total = 0;
+ 110:   const chunks: Uint8Array[] = [];
+ 111:   let abortedReason: string | null = null;
+ 112: 
+ 113:   inflator.onData = (chunk: Uint8Array): void => {
+ 114:     if (abortedReason !== null) return;
+ 115:     total += chunk.length;
+ 116:     if (total > MAX_DECOMPRESSED_BYTES) {
+ 117:       abortedReason = `Decompressed bytes ${total} exceeded ${MAX_DECOMPRESSED_BYTES} cap (gzip-bomb guard).`;
+ 118:       return;
+ 119:     }
+ 120:     chunks.push(chunk);
+ 121:   };
+ 122:   inflator.onEnd = (_status: number): void => {
+ 123:     /* status handled via err/msg fields below */
+ 124:   };
+ 125: 
+ 126:   inflator.push(compressed, true);
+ 127: 
+ 128:   if (abortedReason !== null) {
+ 129:     return new BundleClientLoaderError("decompressed_too_large", abortedReason);
+ 130:   }
+ 131:   if (inflator.err) {
+ 132:     return new BundleClientLoaderError(
+ 133:       "ungzip_failed",
+ 134:       `Failed to gunzip bundle: ${inflator.msg || "pako error " + inflator.err}`,
+ 135:     );
+ 136:   }
+ 137: 
+ 138:   // Concatenate chunks into one Uint8Array.
+ 139:   const out = new Uint8Array(total);
+ 140:   let off = 0;
+ 141:   for (const c of chunks) {
+ 142:     out.set(c, off);
+ 143:     off += c.length;
+ 144:   }
+ 145:   return out;
+ 146: }
+ 147: 
+ 148: async function _sha256Hex(bytes: Uint8Array): Promise<string> {
+ 149:   // Slice into a fresh ArrayBuffer (not SharedArrayBuffer) for browser-safe
+ 150:   // BufferSource typing on crypto.subtle.digest.
+ 151:   const buf = await crypto.subtle.digest(
+ 152:     "SHA-256",
+ 153:     bytes.buffer.slice(
+ 154:       bytes.byteOffset,
+ 155:       bytes.byteOffset + bytes.byteLength,
+ 156:     ) as ArrayBuffer,
+ 157:   );
+ 158:   const arr = Array.from(new Uint8Array(buf));
+ 159:   return arr.map((b) => b.toString(16).padStart(2, "0")).join("");
+ 160: }
+ 161: 
+ 162: function _findFile(
+ 163:   files: ExtractedFile[],
+ 164:   pathInManifest: string,
+ 165: ): ExtractedFile | undefined {
+ 166:   // tar entries may be prefixed with bundle-dir name (e.g. "v1_canonical/").
+ 167:   // Match suffix to keep loader robust against `tar -czf bundle.tar.gz <dir>`
+ 168:   // vs `tar -czf bundle.tar.gz -C <dir> .`.
+ 169:   return files.find(
+ 170:     (f) => f.name === pathInManifest || f.name.endsWith("/" + pathInManifest),
+ 171:   );
+ 172: }
+ 173: 
+ 174: function _decode(bytes: Uint8Array): string {
+ 175:   return new TextDecoder("utf-8").decode(bytes);
+ 176: }
+ 177: 
+ 178: // Codex iter-1 P1.2 fix: v1.0 conformance per
+ 179: // src/polaris_graph/audit_bundle/conformance.py:_REQUIRED_CONTENT_TYPES
+ 180: // requires ALL SIX content types (including source_snapshot).
+ 181: const REQUIRED_CONTENT_TYPES = [
+ 182:   "scope_decision",
+ 183:   "evidence_pool",
+ 184:   "verified_report",
+ 185:   "metadata",
+ 186:   "source_snapshot",
+ 187:   "reasoning_trace",
+ 188: ] as const;
+ 189: 
+ 190: export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
+ 191:   if (file.size > MAX_TAR_GZ_BYTES) {
+ 192:     throw new BundleClientLoaderError(
+ 193:       "tar_gz_too_large",
+ 194:       `Bundle file is ${file.size} bytes, exceeds ${MAX_TAR_GZ_BYTES} byte limit.`,
+ 195:     );
+ 196:   }
+ 197:   const arrayBuffer = await file.arrayBuffer();
+ 198:   // Codex iter-2 P1.1 fix: streaming inflate via pako.Inflate, aborting as
+ 199:   // soon as cumulative decompressed bytes exceed MAX_DECOMPRESSED_BYTES.
+ 200:   // The previous one-shot pako.ungzip() materialized the full bomb before
+ 201:   // the size guard ran.
+ 202:   const tarBytes = _streamingUngzip(new Uint8Array(arrayBuffer));
+ 203:   if (tarBytes instanceof BundleClientLoaderError) {
+ 204:     throw tarBytes;
+ 205:   }
+ 206:   const files = await _extractTarBytes(tarBytes);
+ 207:   const manifestFile = _findFile(files, "manifest.yaml");
+ 208:   if (!manifestFile) {
+ 209:     throw new BundleClientLoaderError(
+ 210:       "manifest_missing",
+ 211:       "Bundle is missing manifest.yaml.",
+ 212:     );
+ 213:   }
+ 214:   let manifest: BundleManifest;
+ 215:   try {
+ 216:     manifest = parseManifest(_decode(manifestFile.bytes));
+ 217:   } catch (exc) {
+ 218:     throw new BundleClientLoaderError(
+ 219:       "manifest_parse_failed",
+ 220:       `manifest.yaml parse failed: ${(exc as Error).message}`,
+ 221:     );
+ 222:   }
+ 223:   if (manifest.bundle_version !== "1.0") {
+ 224:     throw new BundleClientLoaderError(
+ 225:       "version_mismatch",
+ 226:       `Bundle version ${JSON.stringify(manifest.bundle_version)} != frozen v1.0.`,
+ 227:     );
+ 228:   }
+ 229:   for (const required of REQUIRED_CONTENT_TYPES) {
+ 230:     if (!manifest.files.some((f) => f.content_type === required)) {
+ 231:       throw new BundleClientLoaderError(
+ 232:         "required_content_type_missing",
+ 233:         `Manifest missing required content_type ${JSON.stringify(required)}.`,
+ 234:       );
+ 235:     }
+ 236:   }
+ 237: 
+ 238:   // SHA-256 + size verify every manifest entry.
+ 239:   for (const entry of manifest.files) {
+ 240:     const candidate = _findFile(files, entry.path);
+ 241:     if (!candidate) {
+ 242:       throw new BundleClientLoaderError(
+ 243:         "manifest_file_missing",
+ 244:         `Manifest declares ${JSON.stringify(entry.path)} but bundle does not contain it.`,
+ 245:       );
+ 246:     }
+ 247:     if (candidate.bytes.length !== entry.size_bytes) {
+ 248:       throw new BundleClientLoaderError(
+ 249:         "size_mismatch",
+ 250:         `${JSON.stringify(entry.path)}: manifest size=${entry.size_bytes}, actual=${candidate.bytes.length}.`,
+ 251:       );
+ 252:     }
+ 253:     const actualSha = await _sha256Hex(candidate.bytes);
+ 254:     if (actualSha !== entry.sha256) {
+ 255:       throw new BundleClientLoaderError(
+ 256:         "sha256_mismatch",
+ 257:         `${JSON.stringify(entry.path)}: manifest sha256=${JSON.stringify(entry.sha256)}, actual=${JSON.stringify(actualSha)}.`,
+ 258:       );
+ 259:     }
+ 260:   }
+ 261: 
+ 262:   // metadata.json by explicit path (v1.0 spec).
+ 263:   const metadataEntry = manifest.files.find(
+ 264:     (f) => f.content_type === "metadata" && f.path === "metadata.json",
+ 265:   );
+ 266:   if (!metadataEntry) {
+ 267:     throw new BundleClientLoaderError(
+ 268:       "metadata_entry_missing",
+ 269:       "Manifest must have a metadata entry with path=metadata.json.",
+ 270:     );
+ 271:   }
+ 272:   const metadataFile = _findFile(files, "metadata.json")!;
+ 273:   const metadata = JSON.parse(_decode(metadataFile.bytes)) as BundleMetadata;
+ 274: 
+ 275:   const scopeDecisionFile = _findFile(files, "scope_decision.json")!;
+ 276:   const scopeDecision = JSON.parse(_decode(scopeDecisionFile.bytes));
+ 277: 
+ 278:   const evidencePoolFile = _findFile(files, "evidence_pool.json")!;
+ 279:   const evidencePool = JSON.parse(_decode(evidencePoolFile.bytes));
+ 280: 
+ 281:   const verifiedReportFile = _findFile(files, "verified_report.json")!;
+ 282:   const verifiedReport = JSON.parse(
+ 283:     _decode(verifiedReportFile.bytes),
+ 284:   ) as VerifiedReportShape;
+ 285: 
+ 286:   const reasoningEntry = manifest.files.find(
+ 287:     (f) => f.content_type === "reasoning_trace",
+ 288:   );
+ 289:   const reasoningTrace: ReasoningTraceRecord[] = reasoningEntry
+ 290:     ? parseReasoningTraceJsonl(
+ 291:         _decode(_findFile(files, reasoningEntry.path)!.bytes),
+ 292:       )
+ 293:     : [];
+ 294: 
+ 295:   const sources: Record<string, string> = {};
+ 296:   for (const entry of manifest.files) {
+ 297:     if (entry.content_type !== "source_snapshot") continue;
+ 298:     const sourceFile = _findFile(files, entry.path);
+ 299:     if (sourceFile) {
+ 300:       sources[entry.path] = _decode(sourceFile.bytes);
+ 301:     }
+ 302:   }
+ 303: 
+ 304:   const signatureFile = _findFile(files, "manifest.yaml.asc");
+ 305:   const signaturePresent = !!signatureFile && signatureFile.bytes.length > 0;
+ 306: 
+ 307:   // runId for offline mode: derive from filename (BundleMetadata doesn't
+ 308:   // carry run_id; it's a session-level field outside the v1.0 freeze).
+ 309:   const runId =
+ 310:     file.name.replace(/\.tar\.gz$/, "").replace(/\.tgz$/, "") ||
+ 311:     "offline-bundle";
+ 312: 
+ 313:   return {
+ 314:     runId,
+ 315:     manifest,
+ 316:     scopeDecision,
+ 317:     evidencePool,
+ 318:     verifiedReport,
+ 319:     metadata,
+ 320:     reasoningTrace,
+ 321:     sources,
+ 322:     signaturePresent,
+ 323:   };
+ 324: }
+
+ succeeded in 984ms:
+   1: // I-cd-021 (#631) — Disconnected reviewer drops a v1.0 .tar.gz on the
+   2: // offline Inspector route. No backend running.
+   3: //
+   4: // Builds a tar.gz from tests/fixtures/signed_bundle/v1_canonical_success/
+   5: // at test-setup time and feeds it to the file input.
+   6: 
+   7: import { execSync } from "node:child_process";
+   8: import { existsSync, mkdirSync } from "node:fs";
+   9: import path from "node:path";
+  10: 
+  11: import { expect, test } from "@playwright/test";
+  12: 
+  13: const FIXTURE_DIR = path.resolve(
+  14:   process.cwd(),
+  15:   "..",
+  16:   "tests/fixtures/signed_bundle/v1_canonical_success",
+  17: );
+  18: const OUT_DIR = path.resolve(
+  19:   process.cwd(),
+  20:   "..",
+  21:   ".codex-tmp",
+  22:   "i-cd-021-bundles",
+  23: );
+  24: const TAR_GZ_PATH = path.join(OUT_DIR, "v1_canonical_success.tar.gz");
+  25: 
+  26: test.beforeAll(() => {
+  27:   if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });
+  28:   if (!existsSync(TAR_GZ_PATH)) {
+  29:     execSync(`tar -czf "${TAR_GZ_PATH}" -C "${FIXTURE_DIR}" .`, {
+  30:       stdio: "inherit",
+  31:     });
+  32:   }
+  33: });
+  34: 
+  35: test("Offline Inspector parses + renders a v1.0 tar.gz bundle in-browser", async ({
+  36:   page,
+  37: }) => {
+  38:   await page.goto("/inspector/offline");
+  39:   await expect(page.getByTestId("inspector-offline-dropzone")).toBeVisible();
+  40: 
+  41:   await page
+  42:     .getByTestId("inspector-offline-file-input")
+  43:     .setInputFiles(TAR_GZ_PATH);
+  44: 
+  45:   // Wait for InspectorView to mount in place of the dropzone.
+  46:   await expect(page.getByTestId("inspector-view")).toBeVisible({
+  47:     timeout: 15_000,
+  48:   });
+  49: 
+  50:   // Bundle header + verified report visible.
+  51:   await expect(page.getByTestId("inspector-view")).toContainText(
+  52:     /POLARIS|bundle|run/i,
+  53:   );
+  54: 
+  55:   // Metadata panel surfaces all 5 fields (Codex iter-1 P1.2 fix).
+  56:   await page.getByRole("tab", { name: "Metadata" }).click();
+  57:   await expect(page.getByTestId("metadata-panel")).toBeVisible();
+  58:   await expect(page.getByTestId("metadata-polaris-version")).not.toBeEmpty();
+  59:   await expect(page.getByTestId("metadata-generator-model")).not.toBeEmpty();
+  60:   await expect(page.getByTestId("metadata-evaluator-model")).not.toBeEmpty();
+  61:   await expect(page.getByTestId("metadata-created-at")).not.toBeEmpty();
+  62:   await expect(page.getByTestId("metadata-schema-version")).toContainText(
+  63:     "1.0",
+  64:   );
+  65: 
+  66:   // No error card.
+  67:   await expect(page.getByTestId("inspector-offline-error")).toHaveCount(0);
+  68: });
+  69: 
+  70: test("Offline Inspector rejects a malformed file with a visible error", async ({
+  71:   page,
+  72: }) => {
+  73:   await page.goto("/inspector/offline");
+  74: 
+  75:   // Build a junk file in temp; setInputFiles accepts a path AND a payload.
+  76:   const junkPath = path.join(OUT_DIR, "garbage.tar.gz");
+  77:   if (!existsSync(junkPath)) {
+  78:     require("node:fs").writeFileSync(junkPath, "not gzip");
+  79:   }
+  80: 
+  81:   await page
+  82:     .getByTestId("inspector-offline-file-input")
+  83:     .setInputFiles(junkPath);
+  84: 
+  85:   await expect(page.getByTestId("inspector-offline-error")).toBeVisible({
+  86:     timeout: 5_000,
+  87:   });
+  88:   await expect(page.getByTestId("inspector-offline-error")).toContainText(
+  89:     /ungzip_failed|manifest|gzip/i,
+  90:   );
+  91: });
+
+ succeeded in 1044ms:
+   1: // I-cd-013a (GH#609) — Inspector view (client component, Tabs structure).
+   2: "use client";
+   3: 
+   4: import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+   5: import { BundleHeader } from "@/components/inspector/bundle_header";
+   6: import { EvidencePoolTable } from "@/components/inspector/evidence_pool_table";
+   7: import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
+   8: import { HashChainPanel } from "@/components/inspector/hash_chain_panel";
+   9: import { MetadataPanel } from "@/components/inspector/metadata_panel";
+  10: import { ReasoningTraceTimeline } from "@/components/inspector/reasoning_trace_timeline";
+  11: import { ScopeDecisionCard } from "@/components/inspector/scope_decision_card";
+  12: import { SourcesPanel } from "@/components/inspector/sources_panel";
+  13: import { VerifiedReportSections } from "@/components/inspector/verified_report_sections";
+  14: import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+  15: 
+  16: interface InspectorViewProps {
+  17:   bundle: LoadedBundle;
+  18:   signaturePresent: boolean;
+  19: }
+  20: 
+  21: export function InspectorView({
+  22:   bundle,
+  23:   signaturePresent,
+  24: }: InspectorViewProps) {
+  25:   return (
+  26:     <main
+  27:       className="mx-auto flex max-w-6xl flex-col gap-6 p-6"
+  28:       data-testid="inspector-view"
+  29:       data-run-id={bundle.runId}
+  30:     >
+  31:       <BundleHeader
+  32:         manifest={bundle.manifest}
+  33:         signaturePresent={signaturePresent}
+  34:       />
+  35:       <FamilySegregationBadge
+  36:         manifest={bundle.manifest}
+  37:         verifiedReport={bundle.verifiedReport}
+  38:       />
+  39:       <Tabs defaultValue="report">
+  40:         <TabsList>
+  41:           <TabsTrigger value="report">Report</TabsTrigger>
+  42:           <TabsTrigger value="scope">Scope</TabsTrigger>
+  43:           <TabsTrigger value="evidence">Evidence</TabsTrigger>
+  44:           <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
+  45:           <TabsTrigger value="sources">Sources</TabsTrigger>
+  46:           <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
+  47:           <TabsTrigger value="metadata">Metadata</TabsTrigger>
+  48:         </TabsList>
+  49:         <TabsContent value="report" tabId="report">
+  50:           <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
+  51:         </TabsContent>
+  52:         <TabsContent value="scope" tabId="scope">
+  53:           <ScopeDecisionCard value={bundle.scopeDecision} />
+  54:         </TabsContent>
+  55:         <TabsContent value="evidence" tabId="evidence">
+  56:           <EvidencePoolTable value={bundle.evidencePool} />
+  57:         </TabsContent>
+  58:         <TabsContent value="reasoning" tabId="reasoning">
+  59:           <ReasoningTraceTimeline records={bundle.reasoningTrace} />
+  60:         </TabsContent>
+  61:         <TabsContent value="sources" tabId="sources">
+  62:           <SourcesPanel sources={bundle.sources} />
+  63:         </TabsContent>
+  64:         <TabsContent value="hashchain" tabId="hashchain">
+  65:           <HashChainPanel manifest={bundle.manifest} />
+  66:         </TabsContent>
+  67:         <TabsContent value="metadata" tabId="metadata">
+  68:           <MetadataPanel metadata={bundle.metadata} />
+  69:         </TabsContent>
+  70:       </Tabs>
+  71:     </main>
+  72:   );
+  73: }
+
+codex
+The streaming gzip fix caps retained output, but I’m checking whether it actually stops decompression work and whether the client bundle can compile with `tar-stream` under this Next setup. Those are the only remaining places that look capable of breaking execution.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\next.config.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\package.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "if (Test-Path web\\node_modules\\tar-stream\\package.json) { Get-Content -Path web\\node_modules\\tar-stream\\package.json } else { 'NO node_modules tar-stream' }" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "if (Test-Path web\\node_modules\\pako\\README.md) { rg -n \"onData|onEnd|Inflate|push\" web\\node_modules\\pako\\README.md web\\node_modules\\pako\\lib -S } else { 'NO node_modules pako' }" in C:\POLARIS
+ succeeded in 848ms:
+import type { NextConfig } from "next";
+
+// I-carney-005 P1-004 + P1-005: standalone output for Docker runner +
+// server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
+// fetch only talks to the webui container (Next.js then proxies to the
+// api container by Docker service name, which the browser can't resolve).
+const nextConfig: NextConfig = {
+  output: "standalone",
+  async rewrites() {
+    const internal =
+      process.env.INTERNAL_API_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      "http://localhost:8000";
+    return [
+      {
+        source: "/api/v6/:path*",
+        destination: `${internal}/:path*`,
+      },
+      // I-carney-003 P1-001: expose FastAPI /transparency directly so
+      // reviewers (incl. Carney's office) can audit the deploy without
+      // going through /api/v6 prefix routing.
+      {
+        source: "/transparency",
+        destination: `${internal}/transparency`,
+      },
+      {
+        source: "/transparency/:path*",
+        destination: `${internal}/transparency/:path*`,
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+
+ succeeded in 928ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 971ms:
+web\node_modules\pako\README.md:73:// Inflate (simple wrapper can throw exception on broken stream)
+web\node_modules\pako\README.md:90:deflator.push(chunk1, false);
+web\node_modules\pako\README.md:91:deflator.push(chunk2); // second param is false by default.
+web\node_modules\pako\README.md:93:deflator.push(chunk_last, true); // `true` says this chunk is last
+web\node_modules\pako\README.md:102:const inflator = new pako.Inflate();
+web\node_modules\pako\README.md:104:inflator.push(chunk1);
+web\node_modules\pako\README.md:105:inflator.push(chunk2);
+web\node_modules\pako\README.md:107:inflator.push(chunk_last); // no second param because end is auto-detected
+web\node_modules\pako\README.md:118:automatically recode strings to utf-8 prior to compress. Inflate has special
+web\node_modules\pako\lib\inflate.js:25: * class Inflate
+web\node_modules\pako\lib\inflate.js:35: * Chunks of output data, if [[Inflate#onData]] not overridden.
+web\node_modules\pako\lib\inflate.js:39: * Inflate.result -> Uint8Array|String
+web\node_modules\pako\lib\inflate.js:41: * Uncompressed result, generated by default [[Inflate#onData]]
+web\node_modules\pako\lib\inflate.js:42: * and [[Inflate#onEnd]] handlers. Filled after you push last chunk
+web\node_modules\pako\lib\inflate.js:43: * (call [[Inflate#push]] with `Z_FINISH` / `true` param).
+web\node_modules\pako\lib\inflate.js:47: * Inflate.err -> Number
+web\node_modules\pako\lib\inflate.js:54: * Inflate.msg -> String
+web\node_modules\pako\lib\inflate.js:56: * Error message, if [[Inflate.err]] != 0
+web\node_modules\pako\lib\inflate.js:61: * new Inflate(options)
+web\node_modules\pako\lib\inflate.js:91: * const inflate = new pako.Inflate({ level: 3});
+web\node_modules\pako\lib\inflate.js:93: * inflate.push(chunk1, false);
+web\node_modules\pako\lib\inflate.js:94: * inflate.push(chunk2, true);  // true -> last chunk
+web\node_modules\pako\lib\inflate.js:101:function Inflate(options) {
+web\node_modules\pako\lib\inflate.js:135:  this.ended  = false;  // used to avoid multiple onEnd() calls
+web\node_modules\pako\lib\inflate.js:172: * Inflate#push(data[, flush_mode]) -> Boolean
+web\node_modules\pako\lib\inflate.js:178: * Sends input data to inflate pipe, generating [[Inflate#onData]] calls with
+web\node_modules\pako\lib\inflate.js:180: * [[Inflate#onEnd]] will be called.
+web\node_modules\pako\lib\inflate.js:186: * On fail call [[Inflate#onEnd]] with error code and return false.
+web\node_modules\pako\lib\inflate.js:191: * push(chunk, false); // push one of data chunks
+web\node_modules\pako\lib\inflate.js:193: * push(chunk, true);  // push last chunk
+web\node_modules\pako\lib\inflate.js:196:Inflate.prototype.push = function (data, flush_mode) {
+web\node_modules\pako\lib\inflate.js:252:        this.onEnd(status);
+web\node_modules\pako\lib\inflate.js:276:          this.onData(utf8str);
+web\node_modules\pako\lib\inflate.js:279:          this.onData(strm.output.length === strm.next_out ? strm.output : strm.output.subarray(0, strm.next_out));
+web\node_modules\pako\lib\inflate.js:290:      this.onEnd(status);
+web\node_modules\pako\lib\inflate.js:303: * Inflate#onData(chunk) -> Void
+web\node_modules\pako\lib\inflate.js:308: * those in `onEnd`. Override this handler, if you need another behaviour.
+web\node_modules\pako\lib\inflate.js:310:Inflate.prototype.onData = function (chunk) {
+web\node_modules\pako\lib\inflate.js:311:  this.chunks.push(chunk);
+web\node_modules\pako\lib\inflate.js:316: * Inflate#onEnd(status) -> Void
+web\node_modules\pako\lib\inflate.js:324:Inflate.prototype.onEnd = function (status) {
+web\node_modules\pako\lib\inflate.js:379:  const inflator = new Inflate(options);
+web\node_modules\pako\lib\inflate.js:381:  inflator.push(input);
+web\node_modules\pako\lib\inflate.js:415:module.exports.Inflate = Inflate;
+web\node_modules\pako\lib\deflate.js:37: * Chunks of output data, if [[Deflate#onData]] not overridden.
+web\node_modules\pako\lib\deflate.js:43: * Compressed result, generated by default [[Deflate#onData]]
+web\node_modules\pako\lib\deflate.js:44: * and [[Deflate#onEnd]] handlers. Filled after you push last chunk
+web\node_modules\pako\lib\deflate.js:45: * (call [[Deflate#push]] with `Z_FINISH` / `true` param).
+web\node_modules\pako\lib\deflate.js:53: * are possible only on wrong options or bad `onData` / `onEnd`
+web\node_modules\pako\lib\deflate.js:103: * deflate.push(chunk1, false);
+web\node_modules\pako\lib\deflate.js:104: * deflate.push(chunk2, true);  // true -> last chunk
+web\node_modules\pako\lib\deflate.js:133:  this.ended  = false;  // used to avoid multiple onEnd() calls
+web\node_modules\pako\lib\deflate.js:179: * Deflate#push(data[, flush_mode]) -> Boolean
+web\node_modules\pako\lib\deflate.js:185: * Sends input data to deflate pipe, generating [[Deflate#onData]] calls with
+web\node_modules\pako\lib\deflate.js:188: * buffers and call [[Deflate#onEnd]].
+web\node_modules\pako\lib\deflate.js:190: * On fail call [[Deflate#onEnd]] with error code and return false.
+web\node_modules\pako\lib\deflate.js:195: * push(chunk, false); // push one of data chunks
+web\node_modules\pako\lib\deflate.js:197: * push(chunk, true);  // push last chunk
+web\node_modules\pako\lib\deflate.js:200:Deflate.prototype.push = function (data, flush_mode) {
+web\node_modules\pako\lib\deflate.js:232:      this.onData(strm.output.subarray(0, strm.next_out));
+web\node_modules\pako\lib\deflate.js:242:        this.onData(strm.output.subarray(0, strm.next_out));
+web\node_modules\pako\lib\deflate.js:245:      this.onEnd(status);
+web\node_modules\pako\lib\deflate.js:252:      this.onData(strm.output);
+web\node_modules\pako\lib\deflate.js:258:      this.onData(strm.output.subarray(0, strm.next_out));
+web\node_modules\pako\lib\deflate.js:271: * Deflate#onData(chunk) -> Void
+web\node_modules\pako\lib\deflate.js:275: * those in `onEnd`. Override this handler, if you need another behaviour.
+web\node_modules\pako\lib\deflate.js:277:Deflate.prototype.onData = function (chunk) {
+web\node_modules\pako\lib\deflate.js:278:  this.chunks.push(chunk);
+web\node_modules\pako\lib\deflate.js:283: * Deflate#onEnd(status) -> Void
+web\node_modules\pako\lib\deflate.js:291:Deflate.prototype.onEnd = function (status) {
+web\node_modules\pako\lib\deflate.js:337:  deflator.push(input, true);
+web\node_modules\pako\lib\zlib\inflate.js:100:function InflateState() {
+web\node_modules\pako\lib\zlib\inflate.js:255:  const state = new InflateState();
+
+ succeeded in 986ms:
+{
+  "name": "tar-stream",
+  "version": "3.2.0",
+  "description": "tar-stream is a streaming tar parser and generator and nothing else. It operates purely using streams which means you can easily extract/parse tarballs without ever hitting the file system.",
+  "main": "index.js",
+  "files": [
+    "*.js"
+  ],
+  "browser": {
+    "fs": false
+  },
+  "imports": {
+    "fs": {
+      "bare": "bare-fs",
+      "default": "fs"
+    }
+  },
+  "scripts": {
+    "test": "standard && brittle test/*.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mafintosh/tar-stream.git"
+  },
+  "author": "Mathias Buus <mathiasbuus@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mafintosh/tar-stream/issues"
+  },
+  "homepage": "https://github.com/mafintosh/tar-stream",
+  "dependencies": {
+    "b4a": "^1.6.4",
+    "bare-fs": "^4.5.5",
+    "fast-fifo": "^1.2.0",
+    "streamx": "^2.15.0"
+  },
+  "devDependencies": {
+    "brittle": "^3.3.2",
+    "concat-stream": "^2.0.0",
+    "standard": "^17.0.1"
+  }
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=160; Get-Content -Path web'"\\node_modules\\pako\\lib\\inflate.js | Select-Object -Skip 159 -First 150 | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path web'"\\node_modules\\tar-stream\\index.js | Select-Object -First 220 | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path web'"\\node_modules\\b4a\\index.js | Select-Object -First 120 | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path web'"\\node_modules\\streamx\\index.js | Select-Object -First 80 | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+ succeeded in 878ms:
+ 160:       opt.dictionary = new Uint8Array(opt.dictionary);
+ 161:     }
+ 162:     if (opt.raw) { //In raw mode we need to set the dictionary early
+ 163:       status = zlib_inflate.inflateSetDictionary(this.strm, opt.dictionary);
+ 164:       if (status !== Z_OK) {
+ 165:         throw new Error(msg[status]);
+ 166:       }
+ 167:     }
+ 168:   }
+ 169: }
+ 170: 
+ 171: /**
+ 172:  * Inflate#push(data[, flush_mode]) -> Boolean
+ 173:  * - data (Uint8Array|ArrayBuffer): input data
+ 174:  * - flush_mode (Number|Boolean): 0..6 for corresponding Z_NO_FLUSH..Z_TREE
+ 175:  *   flush modes. See constants. Skipped or `false` means Z_NO_FLUSH,
+ 176:  *   `true` means Z_FINISH.
+ 177:  *
+ 178:  * Sends input data to inflate pipe, generating [[Inflate#onData]] calls with
+ 179:  * new output chunks. Returns `true` on success. If end of stream detected,
+ 180:  * [[Inflate#onEnd]] will be called.
+ 181:  *
+ 182:  * `flush_mode` is not needed for normal operation, because end of stream
+ 183:  * detected automatically. You may try to use it for advanced things, but
+ 184:  * this functionality was not tested.
+ 185:  *
+ 186:  * On fail call [[Inflate#onEnd]] with error code and return false.
+ 187:  *
+ 188:  * ##### Example
+ 189:  *
+ 190:  * ```javascript
+ 191:  * push(chunk, false); // push one of data chunks
+ 192:  * ...
+ 193:  * push(chunk, true);  // push last chunk
+ 194:  * ```
+ 195:  **/
+ 196: Inflate.prototype.push = function (data, flush_mode) {
+ 197:   const strm = this.strm;
+ 198:   const chunkSize = this.options.chunkSize;
+ 199:   const dictionary = this.options.dictionary;
+ 200:   let status, _flush_mode, last_avail_out;
+ 201: 
+ 202:   if (this.ended) return false;
+ 203: 
+ 204:   if (flush_mode === ~~flush_mode) _flush_mode = flush_mode;
+ 205:   else _flush_mode = flush_mode === true ? Z_FINISH : Z_NO_FLUSH;
+ 206: 
+ 207:   // Convert data if needed
+ 208:   if (toString.call(data) === '[object ArrayBuffer]') {
+ 209:     strm.input = new Uint8Array(data);
+ 210:   } else {
+ 211:     strm.input = data;
+ 212:   }
+ 213: 
+ 214:   strm.next_in = 0;
+ 215:   strm.avail_in = strm.input.length;
+ 216: 
+ 217:   for (;;) {
+ 218:     if (strm.avail_out === 0) {
+ 219:       strm.output = new Uint8Array(chunkSize);
+ 220:       strm.next_out = 0;
+ 221:       strm.avail_out = chunkSize;
+ 222:     }
+ 223: 
+ 224:     status = zlib_inflate.inflate(strm, _flush_mode);
+ 225: 
+ 226:     if (status === Z_NEED_DICT && dictionary) {
+ 227:       status = zlib_inflate.inflateSetDictionary(strm, dictionary);
+ 228: 
+ 229:       if (status === Z_OK) {
+ 230:         status = zlib_inflate.inflate(strm, _flush_mode);
+ 231:       } else if (status === Z_DATA_ERROR) {
+ 232:         // Replace code with more verbose
+ 233:         status = Z_NEED_DICT;
+ 234:       }
+ 235:     }
+ 236: 
+ 237:     // Skip snyc markers if more data follows and not raw mode
+ 238:     while (strm.avail_in > 0 &&
+ 239:            status === Z_STREAM_END &&
+ 240:            strm.state.wrap > 0 &&
+ 241:            data[strm.next_in] !== 0)
+ 242:     {
+ 243:       zlib_inflate.inflateReset(strm);
+ 244:       status = zlib_inflate.inflate(strm, _flush_mode);
+ 245:     }
+ 246: 
+ 247:     switch (status) {
+ 248:       case Z_STREAM_ERROR:
+ 249:       case Z_DATA_ERROR:
+ 250:       case Z_NEED_DICT:
+ 251:       case Z_MEM_ERROR:
+ 252:         this.onEnd(status);
+ 253:         this.ended = true;
+ 254:         return false;
+ 255:     }
+ 256: 
+ 257:     // Remember real `avail_out` value, because we may patch out buffer content
+ 258:     // to align utf8 strings boundaries.
+ 259:     last_avail_out = strm.avail_out;
+ 260: 
+ 261:     if (strm.next_out) {
+ 262:       if (strm.avail_out === 0 || status === Z_STREAM_END) {
+ 263: 
+ 264:         if (this.options.to === 'string') {
+ 265: 
+ 266:           let next_out_utf8 = strings.utf8border(strm.output, strm.next_out);
+ 267: 
+ 268:           let tail = strm.next_out - next_out_utf8;
+ 269:           let utf8str = strings.buf2string(strm.output, next_out_utf8);
+ 270: 
+ 271:           // move tail & realign counters
+ 272:           strm.next_out = tail;
+ 273:           strm.avail_out = chunkSize - tail;
+ 274:           if (tail) strm.output.set(strm.output.subarray(next_out_utf8, next_out_utf8 + tail), 0);
+ 275: 
+ 276:           this.onData(utf8str);
+ 277: 
+ 278:         } else {
+ 279:           this.onData(strm.output.length === strm.next_out ? strm.output : strm.output.subarray(0, strm.next_out));
+ 280:         }
+ 281:       }
+ 282:     }
+ 283: 
+ 284:     // Must repeat iteration if out buffer is full
+ 285:     if (status === Z_OK && last_avail_out === 0) continue;
+ 286: 
+ 287:     // Finalize if end of stream reached.
+ 288:     if (status === Z_STREAM_END) {
+ 289:       status = zlib_inflate.inflateEnd(this.strm);
+ 290:       this.onEnd(status);
+ 291:       this.ended = true;
+ 292:       return true;
+ 293:     }
+ 294: 
+ 295:     if (strm.avail_in === 0) break;
+ 296:   }
+ 297: 
+ 298:   return true;
+ 299: };
+ 300: 
+ 301: 
+ 302: /**
+ 303:  * Inflate#onData(chunk) -> Void
+ 304:  * - chunk (Uint8Array|String): output data. When string output requested,
+ 305:  *   each chunk will be string.
+ 306:  *
+ 307:  * By default, stores data blocks in `chunks[]` property and glue
+ 308:  * those in `onEnd`. Override this handler, if you need another behaviour.
+ 309:  **/
+
+ succeeded in 959ms:
+   1: const { EventEmitter } = require('events-universal')
+   2: const STREAM_DESTROYED = new Error('Stream was destroyed')
+   3: const PREMATURE_CLOSE = new Error('Premature close')
+   4: 
+   5: const FIFO = require('fast-fifo')
+   6: const TextDecoder = require('text-decoder')
+   7: 
+   8: // if we do a future major, expect queue microtask to be there always, for now a bit defensive
+   9: const qmt =
+  10:   typeof queueMicrotask === 'undefined' ? (fn) => global.process.nextTick(fn) : queueMicrotask
+  11: 
+  12: // 29 bits used total (4 from shared, 14 from read, and 11 from write)
+  13: const MAX = (1 << 29) - 1
+  14: 
+  15: // Shared state
+  16: const OPENING = 0b0001
+  17: const PREDESTROYING = 0b0010
+  18: const DESTROYING = 0b0100
+  19: const DESTROYED = 0b1000
+  20: 
+  21: const NOT_OPENING = MAX ^ OPENING
+  22: const NOT_PREDESTROYING = MAX ^ PREDESTROYING
+  23: 
+  24: // Read state (4 bit offset from shared state)
+  25: const READ_ACTIVE = 0b00000000000001 << 4
+  26: const READ_UPDATING = 0b00000000000010 << 4
+  27: const READ_PRIMARY = 0b00000000000100 << 4
+  28: const READ_QUEUED = 0b00000000001000 << 4
+  29: const READ_RESUMED = 0b00000000010000 << 4
+  30: const READ_PIPE_DRAINED = 0b00000000100000 << 4
+  31: const READ_ENDING = 0b00000001000000 << 4
+  32: const READ_EMIT_DATA = 0b00000010000000 << 4
+  33: const READ_EMIT_READABLE = 0b00000100000000 << 4
+  34: const READ_EMITTED_READABLE = 0b00001000000000 << 4
+  35: const READ_DONE = 0b00010000000000 << 4
+  36: const READ_NEXT_TICK = 0b00100000000000 << 4
+  37: const READ_NEEDS_PUSH = 0b01000000000000 << 4
+  38: const READ_READ_AHEAD = 0b10000000000000 << 4
+  39: 
+  40: // Combined read state
+  41: const READ_FLOWING = READ_RESUMED | READ_PIPE_DRAINED
+  42: const READ_ACTIVE_AND_NEEDS_PUSH = READ_ACTIVE | READ_NEEDS_PUSH
+  43: const READ_PRIMARY_AND_ACTIVE = READ_PRIMARY | READ_ACTIVE
+  44: const READ_EMIT_READABLE_AND_QUEUED = READ_EMIT_READABLE | READ_QUEUED
+  45: const READ_RESUMED_READ_AHEAD = READ_RESUMED | READ_READ_AHEAD
+  46: 
+  47: const READ_NOT_ACTIVE = MAX ^ READ_ACTIVE
+  48: const READ_NON_PRIMARY = MAX ^ READ_PRIMARY
+  49: const READ_NON_PRIMARY_AND_PUSHED = MAX ^ (READ_PRIMARY | READ_NEEDS_PUSH)
+  50: const READ_PUSHED = MAX ^ READ_NEEDS_PUSH
+  51: const READ_PAUSED = MAX ^ READ_RESUMED
+  52: const READ_NOT_QUEUED = MAX ^ (READ_QUEUED | READ_EMITTED_READABLE)
+  53: const READ_NOT_ENDING = MAX ^ READ_ENDING
+  54: const READ_PIPE_NOT_DRAINED = MAX ^ READ_FLOWING
+  55: const READ_NOT_NEXT_TICK = MAX ^ READ_NEXT_TICK
+  56: const READ_NOT_UPDATING = MAX ^ READ_UPDATING
+  57: const READ_NO_READ_AHEAD = MAX ^ READ_READ_AHEAD
+  58: const READ_PAUSED_NO_READ_AHEAD = MAX ^ READ_RESUMED_READ_AHEAD
+  59: 
+  60: // Write state (18 bit offset, 4 bit offset from shared state and 14 from read state)
+  61: const WRITE_ACTIVE = 0b00000000001 << 18
+  62: const WRITE_UPDATING = 0b00000000010 << 18
+  63: const WRITE_PRIMARY = 0b00000000100 << 18
+  64: const WRITE_QUEUED = 0b00000001000 << 18
+  65: const WRITE_UNDRAINED = 0b00000010000 << 18
+  66: const WRITE_DONE = 0b00000100000 << 18
+  67: const WRITE_EMIT_DRAIN = 0b00001000000 << 18
+  68: const WRITE_NEXT_TICK = 0b00010000000 << 18
+  69: const WRITE_WRITING = 0b00100000000 << 18
+  70: const WRITE_FINISHING = 0b01000000000 << 18
+  71: const WRITE_CORKED = 0b10000000000 << 18
+  72: 
+  73: const WRITE_NOT_ACTIVE = MAX ^ (WRITE_ACTIVE | WRITE_WRITING)
+  74: const WRITE_NON_PRIMARY = MAX ^ WRITE_PRIMARY
+  75: const WRITE_NOT_FINISHING = MAX ^ (WRITE_ACTIVE | WRITE_FINISHING)
+  76: const WRITE_DRAINED = MAX ^ WRITE_UNDRAINED
+  77: const WRITE_NOT_QUEUED = MAX ^ WRITE_QUEUED
+  78: const WRITE_NOT_NEXT_TICK = MAX ^ WRITE_NEXT_TICK
+  79: const WRITE_NOT_UPDATING = MAX ^ WRITE_UPDATING
+  80: const WRITE_NOT_CORKED = MAX ^ WRITE_CORKED
+
+ succeeded in 1011ms:
+   1: exports.extract = require('./extract')
+   2: exports.pack = require('./pack')
+
+ succeeded in 1059ms:
+   1: function isBuffer(value) {
+   2:   return Buffer.isBuffer(value) || value instanceof Uint8Array
+   3: }
+   4: 
+   5: function isEncoding(encoding) {
+   6:   return Buffer.isEncoding(encoding)
+   7: }
+   8: 
+   9: function alloc(size, fill, encoding) {
+  10:   return Buffer.alloc(size, fill, encoding)
+  11: }
+  12: 
+  13: function allocUnsafe(size) {
+  14:   return Buffer.allocUnsafe(size)
+  15: }
+  16: 
+  17: function allocUnsafeSlow(size) {
+  18:   return Buffer.allocUnsafeSlow(size)
+  19: }
+  20: 
+  21: function byteLength(string, encoding) {
+  22:   return Buffer.byteLength(string, encoding)
+  23: }
+  24: 
+  25: function compare(a, b) {
+  26:   return Buffer.compare(a, b)
+  27: }
+  28: 
+  29: function concat(buffers, totalLength) {
+  30:   return Buffer.concat(buffers, totalLength)
+  31: }
+  32: 
+  33: function copy(source, target, targetStart, start, end) {
+  34:   return toBuffer(source).copy(target, targetStart, start, end)
+  35: }
+  36: 
+  37: function equals(a, b) {
+  38:   return toBuffer(a).equals(b)
+  39: }
+  40: 
+  41: function fill(buffer, value, offset, end, encoding) {
+  42:   return toBuffer(buffer).fill(value, offset, end, encoding)
+  43: }
+  44: 
+  45: function from(value, encodingOrOffset, length) {
+  46:   return Buffer.from(value, encodingOrOffset, length)
+  47: }
+  48: 
+  49: function includes(buffer, value, byteOffset, encoding) {
+  50:   return toBuffer(buffer).includes(value, byteOffset, encoding)
+  51: }
+  52: 
+  53: function indexOf(buffer, value, byfeOffset, encoding) {
+  54:   return toBuffer(buffer).indexOf(value, byfeOffset, encoding)
+  55: }
+  56: 
+  57: function lastIndexOf(buffer, value, byteOffset, encoding) {
+  58:   return toBuffer(buffer).lastIndexOf(value, byteOffset, encoding)
+  59: }
+  60: 
+  61: function swap16(buffer) {
+  62:   return toBuffer(buffer).swap16()
+  63: }
+  64: 
+  65: function swap32(buffer) {
+  66:   return toBuffer(buffer).swap32()
+  67: }
+  68: 
+  69: function swap64(buffer) {
+  70:   return toBuffer(buffer).swap64()
+  71: }
+  72: 
+  73: function toBuffer(buffer) {
+  74:   if (Buffer.isBuffer(buffer)) return buffer
+  75:   return Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+  76: }
+  77: 
+  78: function toString(buffer, encoding, start, end) {
+  79:   return toBuffer(buffer).toString(encoding, start, end)
+  80: }
+  81: 
+  82: function write(buffer, string, offset, length, encoding) {
+  83:   return toBuffer(buffer).write(string, offset, length, encoding)
+  84: }
+  85: 
+  86: function readDoubleBE(buffer, offset) {
+  87:   return toBuffer(buffer).readDoubleBE(offset)
+  88: }
+  89: 
+  90: function readDoubleLE(buffer, offset) {
+  91:   return toBuffer(buffer).readDoubleLE(offset)
+  92: }
+  93: 
+  94: function readFloatBE(buffer, offset) {
+  95:   return toBuffer(buffer).readFloatBE(offset)
+  96: }
+  97: 
+  98: function readFloatLE(buffer, offset) {
+  99:   return toBuffer(buffer).readFloatLE(offset)
+ 100: }
+ 101: 
+ 102: function readInt32BE(buffer, offset) {
+ 103:   return toBuffer(buffer).readInt32BE(offset)
+ 104: }
+ 105: 
+ 106: function readInt32LE(buffer, offset) {
+ 107:   return toBuffer(buffer).readInt32LE(offset)
+ 108: }
+ 109: 
+ 110: function readUInt32BE(buffer, offset) {
+ 111:   return toBuffer(buffer).readUInt32BE(offset)
+ 112: }
+ 113: 
+ 114: function readUInt32LE(buffer, offset) {
+ 115:   return toBuffer(buffer).readUInt32LE(offset)
+ 116: }
+ 117: 
+ 118: function writeDoubleBE(buffer, value, offset) {
+ 119:   return toBuffer(buffer).writeDoubleBE(value, offset)
+ 120: }
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path .github'"\\workflows\\web_ci.yml | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path web'"\\components\\inspector\\metadata_panel.tsx | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path web'"\\lib\\inspector_bundle_loader.ts | Select-Object -First 180 | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path web'"\\lib\\signed_bundle.ts | Select-Object -First 220 | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+ succeeded in 849ms:
+   1: name: web_ci
+   2: 
+   3: on:
+   4:   push:
+   5:     paths:
+   6:       - "web/**"
+   7:       - "src/polaris_v6/**"
+   8:       - "tests/v6/**"
+   9:       - "requirements*.txt"
+  10:       - ".github/workflows/web_ci.yml"
+  11:   pull_request:
+  12:     paths:
+  13:       - "web/**"
+  14:       - "src/polaris_v6/**"
+  15:       - "tests/v6/**"
+  16:       - "requirements*.txt"
+  17:       - ".github/workflows/web_ci.yml"
+  18: 
+  19: defaults:
+  20:   run:
+  21:     working-directory: web
+  22: 
+  23: jobs:
+  24:   lint_format_typecheck_build:
+  25:     name: lint + format + typecheck + build
+  26:     runs-on: ubuntu-latest
+  27:     steps:
+  28:       - name: checkout
+  29:         uses: actions/checkout@v4
+  30: 
+  31:       - name: setup_node
+  32:         uses: actions/setup-node@v4
+  33:         with:
+  34:           node-version: "22"
+  35:           cache: "npm"
+  36:           cache-dependency-path: web/package-lock.json
+  37: 
+  38:       - name: install_dependencies
+  39:         run: npm ci
+  40: 
+  41:       - name: lint
+  42:         run: npm run lint
+  43: 
+  44:       - name: format_check
+  45:         run: npm run format:check
+  46: 
+  47:       - name: typecheck
+  48:         run: npm run typecheck
+  49: 
+  50:       - name: build
+  51:         run: npm run build
+  52: 
+  53:   e2e_playwright:
+  54:     name: e2e + a11y + perf (Playwright on Chromium)
+  55:     runs-on: ubuntu-latest
+  56:     needs: lint_format_typecheck_build
+  57:     steps:
+  58:       - name: checkout
+  59:         uses: actions/checkout@v4
+  60: 
+  61:       - name: setup_node
+  62:         uses: actions/setup-node@v4
+  63:         with:
+  64:           node-version: "22"
+  65:           cache: "npm"
+  66:           cache-dependency-path: web/package-lock.json
+  67: 
+  68:       - name: setup_python
+  69:         uses: actions/setup-python@v5
+  70:         with:
+  71:           python-version: "3.13"
+  72:           cache: "pip"
+  73: 
+  74:       - name: install_python_dependencies
+  75:         working-directory: ${{ github.workspace }}
+  76:         run: |
+  77:           python -m pip install --upgrade pip
+  78:           pip install -r requirements.txt
+  79: 
+  80:       - name: install_npm_dependencies
+  81:         run: npm ci
+  82: 
+  83:       - name: install_playwright_chromium
+  84:         run: npx playwright install --with-deps chromium
+  85: 
+  86:       - name: start_fastapi_backend
+  87:         working-directory: ${{ github.workspace }}
+  88:         run: |
+  89:           PYTHONPATH=src nohup python -m uvicorn polaris_v6.api.app:app \
+  90:             --host 127.0.0.1 --port 8000 \
+  91:             > /tmp/fastapi.log 2>&1 &
+  92:           # Wait for /health to respond.
+  93:           for i in {1..30}; do
+  94:             if curl -fs http://127.0.0.1:8000/health > /dev/null; then
+  95:               echo "backend ready"
+  96:               exit 0
+  97:             fi
+  98:             sleep 1
+  99:           done
+ 100:           echo "backend failed to start"
+ 101:           cat /tmp/fastapi.log
+ 102:           exit 1
+ 103: 
+ 104:       - name: build_and_start_next
+ 105:         # I-cd-015 (GH#611): POLARIS_TEST_HARNESS_ENABLED=1 lets the prod
+ 106:         # build serve harness routes for tests that depend on them
+ 107:         # (evidence_tooltip_perf etc.). Real production leaves this UNSET
+ 108:         # and the middleware 404s /charts_test/*, /sentence_hover_test/*,
+ 109:         # /disambiguation_modal_preview/*, /generation/*, /retrieval/*, /sse/*.
+ 110:         env:
+ 111:           POLARIS_TEST_HARNESS_ENABLED: "1"
+ 112:         run: |
+ 113:           npm run build
+ 114:           nohup npx next start -p 3738 > /tmp/next.log 2>&1 &
+ 115:           # Wait for /dashboard to respond.
+ 116:           for i in {1..30}; do
+ 117:             if curl -fs http://127.0.0.1:3738/dashboard > /dev/null; then
+ 118:               echo "frontend ready"
+ 119:               exit 0
+ 120:             fi
+ 121:             sleep 1
+ 122:           done
+ 123:           echo "frontend failed to start"
+ 124:           cat /tmp/next.log
+ 125:           exit 1
+ 126: 
+ 127:       - name: run_e2e_inspector
+ 128:         env:
+ 129:           SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+ 130:           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+ 131:         run: npx playwright test --project=chromium tests/e2e/inspector.spec.ts
+ 132: 
+ 133:       - name: run_e2e_accessibility
+ 134:         env:
+ 135:           SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+ 136:           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+ 137:         run: npx playwright test --project=chromium tests/e2e/accessibility.spec.ts
+ 138: 
+ 139:       - name: run_e2e_performance
+ 140:         env:
+ 141:           SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+ 142:           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+ 143:         run: npx playwright test --project=chromium tests/e2e/performance.spec.ts
+ 144: 
+ 145:       # I-f6-005: 100x tooltip mount-cycle render budget locked at <100ms.
+ 146:       # I-cd-015: this spec hits /sentence_hover_test/perf (a harness
+ 147:       # route). The next start step above sets POLARIS_TEST_HARNESS_ENABLED=1
+ 148:       # so the middleware passes through; real production leaves it UNSET
+ 149:       # and 404s the harness paths.
+ 150:       - name: run_e2e_evidence_tooltip_perf
+ 151:         env:
+ 152:           SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+ 153:           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+ 154:         run: npx playwright test --project=chromium tests/e2e/evidence_tooltip_perf.spec.ts
+ 155: 
+ 156:       # I-cd-021 (#631): offline Inspector — renders a v1.0 signed bundle
+ 157:       # tar.gz entirely in-browser. Codex diff iter-1 P2.1 fix: wire the
+ 158:       # new spec into the CI workflow.
+ 159:       - name: run_e2e_inspector_offline_fallback
+ 160:         env:
+ 161:           SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+ 162:           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+ 163:         run: npx playwright test --project=chromium tests/e2e/inspector_offline_fallback.spec.ts
+ 164: 
+ 165:       # Visual baselines are *-chromium-win32.png (locally captured on Win).
+ 166:       # On Linux CI the snapshot file resolves to a different name and will
+ 167:       # be missing; skip visual.spec until Linux baselines are added.
+ 168:       # See `.codex/continuous/2057fac_2c2_visual_regression.md` P0.
+ 169: 
+ 170:       - name: upload_playwright_traces_on_failure
+ 171:         if: failure()
+ 172:         uses: actions/upload-artifact@v4
+ 173:         with:
+ 174:           name: playwright-traces
+ 175:           path: web/test-results/**/trace.zip
+ 176:           retention-days: 7
+ 177: 
+ 178:   verify_pip_resolution:
+ 179:     # F-22 (cycle-7 P1.1 prevention): catches pip dependency conflicts
+ 180:     # before they reach pytest_v6_backend or the production Dockerfile.
+ 181:     # Cycle-7 caught F-17's protobuf>=6.33.5 pin breaking against
+ 182:     # google-generativeai's transitive protobuf<5.0.0 constraint.
+ 183:     name: pip install --dry-run (catch ResolutionImpossible early)
+ 184:     runs-on: ubuntu-latest
+ 185:     needs: lint_format_typecheck_build
+ 186:     steps:
+ 187:       - name: checkout
+ 188:         uses: actions/checkout@v4
+ 189: 
+ 190:       - name: setup_python
+ 191:         uses: actions/setup-python@v5
+ 192:         with:
+ 193:           python-version: "3.13"
+ 194: 
+ 195:       - name: pip_dry_run_legacy_requirements
+ 196:         # If this fails, requirements.txt has a conflict; production
+ 197:         # Dockerfile build would fail in the same way.
+ 198:         run: pip install --dry-run -r requirements.txt
+ 199: 
+ 200:       - name: pip_dry_run_v6_requirements
+ 201:         # Verify the v6 backend's pinned set also resolves cleanly.
+ 202:         run: pip install --dry-run -r requirements-v6.txt
+ 203: 
+ 204:   pytest_v6_backend:
+ 205:     name: pytest tests/v6/ (Phase 0 backend coverage)
+ 206:     runs-on: ubuntu-latest
+ 207:     needs: [lint_format_typecheck_build, verify_pip_resolution]
+ 208:     defaults:
+ 209:       run:
+ 210:         working-directory: ${{ github.workspace }}
+ 211:     steps:
+ 212:       - name: checkout
+ 213:         uses: actions/checkout@v4
+ 214: 
+ 215:       - name: setup_python
+ 216:         uses: actions/setup-python@v5
+ 217:         with:
+ 218:           python-version: "3.13"
+ 219:           cache: "pip"
+ 220: 
+ 221:       # Cycle-3 audit P2.3 (outputs/audits/continuous/bb60495_audit.md):
+ 222:       # tests/v6/test_*_middleware.py + test_actors.py + test_broker.py +
+ 223:       # test_otel_init.py use pytest.importorskip against dramatiq +
+ 224:       # opentelemetry deps. Without -v6.txt installed they SILENTLY SKIP
+ 225:       # (LAW II violation). This job uses requirements-v6.txt as the
+ 226:       # canonical pin source for v6 backend code.
+ 227:       - name: install_v6_dependencies
+ 228:         run: |
+ 229:           python -m pip install --upgrade pip
+ 230:           pip install -r requirements-v6.txt
+ 231: 
+ 232:       - name: run_pytest_v6
+ 233:         env:
+ 234:           PYTHONPATH: src
+ 235:         # `-q` keeps output tight; `--strict-markers` fails on undefined
+ 236:         # markers; `--no-header` removes pytest banner from CI logs.
+ 237:         # Acceptance suite (tests/v6/acceptance/) is excluded — it requires
+ 238:         # a live broker; covered by tests/v6/acceptance/test_dramatiq_acceptance.py
+ 239:         # which runs in its own integration job once Vast.ai cluster is live.
+ 240:         run: |
+ 241:           pytest tests/v6/ \
+ 242:             --ignore=tests/v6/acceptance \
+ 243:             -q --strict-markers --no-header
+
+ succeeded in 890ms:
+   1: // I-cd-021 (#631): metadata panel — Codex iter-1 P1.2 finding was that
+   2: // `LoadedBundle.metadata` was parsed but never rendered. Adds explicit
+   3: // surfacing for both /inspector/[runId] and /inspector/offline.
+   4: 
+   5: import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+   6: import type { BundleMetadata } from "@/lib/signed_bundle";
+   7: 
+   8: interface MetadataPanelProps {
+   9:   metadata: BundleMetadata;
+  10: }
+  11: 
+  12: export function MetadataPanel({ metadata }: MetadataPanelProps) {
+  13:   return (
+  14:     <Card data-testid="metadata-panel">
+  15:       <CardHeader>
+  16:         <CardTitle className="text-base">Bundle metadata</CardTitle>
+  17:       </CardHeader>
+  18:       <CardContent className="text-sm">
+  19:         <dl className="grid grid-cols-1 gap-x-6 gap-y-2 md:grid-cols-[max-content,1fr]">
+  20:           <dt className="text-muted-foreground">POLARIS version</dt>
+  21:           <dd
+  22:             className="text-foreground font-mono"
+  23:             data-testid="metadata-polaris-version"
+  24:           >
+  25:             {metadata.polaris_version}
+  26:           </dd>
+  27:           <dt className="text-muted-foreground">Generator model</dt>
+  28:           <dd
+  29:             className="text-foreground font-mono"
+  30:             data-testid="metadata-generator-model"
+  31:           >
+  32:             {metadata.generator_model}
+  33:           </dd>
+  34:           <dt className="text-muted-foreground">Evaluator model</dt>
+  35:           <dd
+  36:             className="text-foreground font-mono"
+  37:             data-testid="metadata-evaluator-model"
+  38:           >
+  39:             {metadata.evaluator_model}
+  40:           </dd>
+  41:           <dt className="text-muted-foreground">Bundle created at (UTC)</dt>
+  42:           <dd
+  43:             className="text-foreground font-mono"
+  44:             data-testid="metadata-created-at"
+  45:           >
+  46:             {metadata.bundle_created_at_utc}
+  47:           </dd>
+  48:           <dt className="text-muted-foreground">Schema version</dt>
+  49:           <dd
+  50:             className="text-foreground font-mono"
+  51:             data-testid="metadata-schema-version"
+  52:           >
+  53:             {metadata.schema_version}
+  54:           </dd>
+  55:         </dl>
+  56:       </CardContent>
+  57:     </Card>
+  58:   );
+  59: }
+
+ succeeded in 947ms:
+   1: // I-cd-012 (GH#608) — frontend mirror of
+   2: // src/polaris_graph/audit_bundle/bundle_schema.py:BundleManifest (FROZEN v1.0).
+   3: //
+   4: // FROZEN v1.0: Field additions, removals, type changes, or new ContentType
+   5: // enum members require the full bump cascade documented in the Python module.
+   6: //
+   7: // Active consumers:
+   8: //   - Future Inspector route (I-A-03, #609)
+   9: //   - Offline fallback Inspector that renders a signed bundle in-browser
+  10: //     with no GPU/no backend (I-B-09, #631)
+  11: //
+  12: // Active producers (mirror this contract):
+  13: //   - src/polaris_graph/audit_bundle/manifest_builder.py
+  14: //   - src/polaris_graph/audit_bundle/bundle_builder.py
+  15: //   - src/polaris_graph/api/audit_bundle_route.py
+  16: //   - src/polaris_v6/api/bundle.py
+  17: 
+  18: import yaml from "js-yaml";
+  19: 
+  20: // ---------------------------------------------------------------------------
+  21: // Type literals — must match
+  22: // src/polaris_graph/audit_bundle/bundle_schema.py:ContentType
+  23: // ---------------------------------------------------------------------------
+  24: 
+  25: export type ContentType =
+  26:   | "scope_decision"
+  27:   | "evidence_pool"
+  28:   | "verified_report"
+  29:   | "source_snapshot"
+  30:   | "metadata"
+  31:   | "reasoning_trace";
+  32: 
+  33: export const CONTENT_TYPES: ContentType[] = [
+  34:   "scope_decision",
+  35:   "evidence_pool",
+  36:   "verified_report",
+  37:   "source_snapshot",
+  38:   "metadata",
+  39:   "reasoning_trace",
+  40: ];
+  41: 
+  42: export const BUNDLE_VERSION = "1.0" as const;
+  43: 
+  44: // ---------------------------------------------------------------------------
+  45: // FileEntry — mirrors bundle_schema.py:FileEntry
+  46: // ---------------------------------------------------------------------------
+  47: 
+  48: export interface FileEntry {
+  49:   path: string; // relative POSIX path inside the extracted bundle
+  50:   sha256: string; // lowercase hex SHA256
+  51:   size_bytes: number;
+  52:   content_type: ContentType;
+  53: }
+  54: 
+  55: // ---------------------------------------------------------------------------
+  56: // BundleManifest — mirrors bundle_schema.py:BundleManifest
+  57: // ---------------------------------------------------------------------------
+  58: 
+  59: export interface BundleManifest {
+  60:   bundle_id: string;
+  61:   bundle_version: typeof BUNDLE_VERSION;
+  62:   decision_id: string;
+  63:   pool_id: string;
+  64:   report_id: string;
+  65:   generator_model: string;
+  66:   polaris_version: string;
+  67:   files: FileEntry[];
+  68:   bundle_created_at_utc: string; // ISO-8601 UTC
+  69: }
+  70: 
+  71: // ---------------------------------------------------------------------------
+  72: // Reasoning trace — JSONL (one record per generator LLM call)
+  73: // ---------------------------------------------------------------------------
+  74: 
+  75: // Mirrors src/polaris_graph/generator/reasoning_trace.py:67
+  76: // ReasoningTraceRecord (the active producer dataclass). 15 fields.
+  77: // Codex diff iter-1 P1: previous 5-field shape diverged from real producer.
+  78: export interface ReasoningTraceRecord {
+  79:   call_id: string;
+  80:   section: string;
+  81:   call_type: string;
+  82:   model: string;
+  83:   status: string; // see reasoning_trace.py STATUSES
+  84:   content_source: string; // see reasoning_trace.py CONTENT_SOURCES
+  85:   parent_call_id: string | null;
+  86:   regen_reason: string | null;
+  87:   attempt_n: number;
+  88:   reasoning_text: string;
+  89:   content_text: string;
+  90:   input_tokens: number;
+  91:   output_tokens: number;
+  92:   reasoning_tokens: number;
+  93:   timestamp: string; // ISO-8601 UTC
+  94: }
+  95: 
+  96: // ---------------------------------------------------------------------------
+  97: // Bundle metadata — content of metadata.json
+  98: // ---------------------------------------------------------------------------
+  99: 
+ 100: export interface BundleMetadata {
+ 101:   polaris_version: string;
+ 102:   generator_model: string;
+ 103:   evaluator_model: string;
+ 104:   bundle_created_at_utc: string;
+ 105:   schema_version: typeof BUNDLE_VERSION;
+ 106: }
+ 107: 
+ 108: // ---------------------------------------------------------------------------
+ 109: // Parsers
+ 110: // ---------------------------------------------------------------------------
+ 111: 
+ 112: /** Parse a `manifest.yaml` text into a typed `BundleManifest`.
+ 113:  *
+ 114:  * Validation is structural (presence of required fields + bundle_version
+ 115:  * literal); deeper conformance (path traversal, SHA256 matching, content
+ 116:  * schema validity) lives in the Python `check_bundle_conformance`. */
+ 117: export function parseManifest(yamlText: string): BundleManifest {
+ 118:   const parsed = yaml.load(yamlText);
+ 119:   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+ 120:     throw new Error("manifest.yaml does not parse to a YAML mapping");
+ 121:   }
+ 122:   const m = parsed as Partial<BundleManifest>;
+ 123:   if (m.bundle_version !== BUNDLE_VERSION) {
+ 124:     throw new Error(
+ 125:       `bundle_version ${m.bundle_version} != frozen ${BUNDLE_VERSION}`,
+ 126:     );
+ 127:   }
+ 128:   for (const required of [
+ 129:     "bundle_id",
+ 130:     "decision_id",
+ 131:     "pool_id",
+ 132:     "report_id",
+ 133:     "generator_model",
+ 134:     "polaris_version",
+ 135:     "files",
+ 136:     "bundle_created_at_utc",
+ 137:   ] as const) {
+ 138:     if (m[required] === undefined || m[required] === null) {
+ 139:       throw new Error(`manifest.yaml missing required field: ${required}`);
+ 140:     }
+ 141:   }
+ 142:   if (!Array.isArray(m.files)) {
+ 143:     throw new Error("manifest.yaml `files` must be an array");
+ 144:   }
+ 145:   return m as BundleManifest;
+ 146: }
+ 147: 
+ 148: /** Parse a `reasoning_trace.jsonl` text body into a list of records.
+ 149:  *
+ 150:  * One JSON object per non-empty line; blank lines are skipped. Malformed
+ 151:  * lines throw to surface bundle corruption at the source. */
+ 152: export function parseReasoningTraceJsonl(text: string): ReasoningTraceRecord[] {
+ 153:   const out: ReasoningTraceRecord[] = [];
+ 154:   const lines = text.split(/\r?\n/);
+ 155:   for (let i = 0; i < lines.length; i += 1) {
+ 156:     const line = lines[i];
+ 157:     if (line.trim() === "") continue;
+ 158:     let record: unknown;
+ 159:     try {
+ 160:       record = JSON.parse(line);
+ 161:     } catch (err) {
+ 162:       throw new Error(
+ 163:         `reasoning_trace.jsonl line ${i + 1} is not valid JSON: ${(err as Error).message}`,
+ 164:       );
+ 165:     }
+ 166:     if (
+ 167:       typeof record !== "object" ||
+ 168:       record === null ||
+ 169:       Array.isArray(record)
+ 170:     ) {
+ 171:       throw new Error(
+ 172:         `reasoning_trace.jsonl line ${i + 1} is not a JSON object`,
+ 173:       );
+ 174:     }
+ 175:     out.push(record as ReasoningTraceRecord);
+ 176:   }
+ 177:   return out;
+ 178: }
+ 179: 
+ 180: /** Helper: filter `BundleManifest.files` by ContentType. */
+ 181: export function filesByContentType(
+ 182:   manifest: BundleManifest,
+ 183:   contentType: ContentType,
+ 184: ): FileEntry[] {
+ 185:   return manifest.files.filter((f) => f.content_type === contentType);
+ 186: }
+
+ succeeded in 1065ms:
+   1: // I-cd-013a (GH#609) — server-only bundle loader.
+   2: //
+   3: // Imported by web/app/inspector/[runId]/page.tsx and
+   4: // web/app/api/inspector_bundle/[runId]/route.ts. Returns the parsed
+   5: // canonical fixture data for runId === "v1-canonical" or
+   6: // "v1-canonical-success"; returns null for any other runId (the page
+   7: // renders a BundlePendingCTA in that case).
+   8: //
+   9: // Real-bundle backend wiring lands at I-B-08 (Seq 20); offline
+  10: // fallback (in-browser bundle render) at I-B-09 (Seq 21). This module
+  11: // is the swappable seam — same function signature, different data
+  12: // path in each follow-up issue.
+  13: 
+  14: import { promises as fs } from "node:fs";
+  15: import path from "node:path";
+  16: 
+  17: import {
+  18:   type BundleManifest,
+  19:   type BundleMetadata,
+  20:   type ReasoningTraceRecord,
+  21:   parseManifest,
+  22:   parseReasoningTraceJsonl,
+  23: } from "@/lib/signed_bundle";
+  24: 
+  25: const REPO_ROOT = path.resolve(process.cwd(), "..");
+  26: 
+  27: export interface LoadedBundle {
+  28:   runId: string;
+  29:   manifest: BundleManifest;
+  30:   scopeDecision: unknown;
+  31:   evidencePool: unknown;
+  32:   verifiedReport: VerifiedReportShape;
+  33:   metadata: BundleMetadata;
+  34:   reasoningTrace: ReasoningTraceRecord[];
+  35:   sources: Record<string, string>;
+  36:   /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
+  37:    * Derived during load — NOT a manifest field. Codex diff iter-1 P2. */
+  38:   signaturePresent: boolean;
+  39: }
+  40: 
+  41: export interface VerifiedReportShape {
+  42:   report_id: string;
+  43:   pool_id: string;
+  44:   decision_id: string;
+  45:   sections: VerifiedReportSectionShape[];
+  46:   overall_verify_pass_rate: number;
+  47:   verifier_pass_threshold: number;
+  48:   pipeline_verdict: string;
+  49:   generator_model: string;
+  50:   evaluator_model: string;
+  51:   family_segregation_passed: boolean;
+  52:   started_at_utc: string;
+  53:   finished_at_utc: string;
+  54:   latency_ms: number;
+  55:   cost_usd: number;
+  56: }
+  57: 
+  58: export interface VerifiedReportSectionShape {
+  59:   section_id: string;
+  60:   section_verify_pass_rate: number;
+  61:   verified_sentences: VerifiedSentenceShape[];
+  62:   [extra: string]: unknown;
+  63: }
+  64: 
+  65: export interface VerifiedSentenceShape {
+  66:   section_id: string;
+  67:   sentence_text: string;
+  68:   provenance_tokens: string[];
+  69:   verifier_pass: boolean;
+  70:   [extra: string]: unknown;
+  71: }
+  72: 
+  73: const KNOWN_FIXTURES: Record<string, string> = {
+  74:   "v1-canonical": "tests/fixtures/signed_bundle/v1_canonical",
+  75:   "v1-canonical-success": "tests/fixtures/signed_bundle/v1_canonical_success",
+  76: };
+  77: 
+  78: export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+  79:   const relPath = KNOWN_FIXTURES[runId];
+  80:   if (!relPath) return null;
+  81:   const dir = path.join(REPO_ROOT, relPath);
+  82: 
+  83:   const manifestRaw = await fs.readFile(
+  84:     path.join(dir, "manifest.yaml"),
+  85:     "utf-8",
+  86:   );
+  87:   const manifest = parseManifest(manifestRaw);
+  88: 
+  89:   const scopeDecision = await readJson(dir, manifest, "scope_decision");
+  90:   const evidencePool = await readJson(dir, manifest, "evidence_pool");
+  91:   const verifiedReport = (await readJson(
+  92:     dir,
+  93:     manifest,
+  94:     "verified_report",
+  95:   )) as VerifiedReportShape;
+  96: 
+  97:   // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
+  98:   // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
+  99:   // also flagged metadata in the active producer).
+ 100:   const metadataEntry = manifest.files.find(
+ 101:     (f) => f.content_type === "metadata" && f.path === "metadata.json",
+ 102:   );
+ 103:   if (!metadataEntry) {
+ 104:     throw new Error(
+ 105:       `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
+ 106:     );
+ 107:   }
+ 108:   const metadata = JSON.parse(
+ 109:     await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
+ 110:   ) as BundleMetadata;
+ 111: 
+ 112:   const reasoningTraceEntry = manifest.files.find(
+ 113:     (f) => f.content_type === "reasoning_trace",
+ 114:   );
+ 115:   const reasoningTrace = reasoningTraceEntry
+ 116:     ? parseReasoningTraceJsonl(
+ 117:         await fs.readFile(path.join(dir, reasoningTraceEntry.path), "utf-8"),
+ 118:       )
+ 119:     : [];
+ 120: 
+ 121:   const sources: Record<string, string> = {};
+ 122:   for (const entry of manifest.files) {
+ 123:     if (entry.content_type !== "source_snapshot") continue;
+ 124:     sources[entry.path] = await fs.readFile(
+ 125:       path.join(dir, entry.path),
+ 126:       "utf-8",
+ 127:     );
+ 128:   }
+ 129: 
+ 130:   // Signature presence check (Codex diff iter-1 P2): mirror the conformance
+ 131:   // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
+ 132:   // bundle. The UI surfaces this boolean transparently; cryptographic
+ 133:   // verification belongs to operator-side `gpg --verify` tooling.
+ 134:   let signaturePresent = false;
+ 135:   try {
+ 136:     const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
+ 137:     signaturePresent = stat.isFile() && stat.size > 0;
+ 138:   } catch {
+ 139:     signaturePresent = false;
+ 140:   }
+ 141: 
+ 142:   return {
+ 143:     runId,
+ 144:     manifest,
+ 145:     scopeDecision,
+ 146:     evidencePool,
+ 147:     verifiedReport,
+ 148:     metadata,
+ 149:     reasoningTrace,
+ 150:     sources,
+ 151:     signaturePresent,
+ 152:   };
+ 153: }
+ 154: 
+ 155: async function readJson(
+ 156:   dir: string,
+ 157:   manifest: BundleManifest,
+ 158:   contentType: "scope_decision" | "evidence_pool" | "verified_report",
+ 159: ): Promise<unknown> {
+ 160:   const entry = manifest.files.find((f) => f.content_type === contentType);
+ 161:   if (!entry) {
+ 162:     throw new Error(
+ 163:       `bundle: manifest has no entry of content_type=${contentType}`,
+ 164:     );
+ 165:   }
+ 166:   const body = await fs.readFile(path.join(dir, entry.path), "utf-8");
+ 167:   return JSON.parse(body);
+ 168: }
+
+codex
+The workflow does run a full production build before Playwright, so I’m going to use that as the decisive check for the browser package compatibility claim.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run build' in C:\POLARIS\web
+2026-05-20T18:40:01.643218Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 7.5 seconds
+Output:
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.2.4 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 5.2s
+  Running TypeScript ...
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+Turbopack build encountered 1 warnings:
+./next.config.ts
+Encountered unexpected file in NFT list
+A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
+- filesystem operations (like path.join, path.resolve or fs.readFile), or
+- very dynamic requires (like require('./' + foo)).
+To resolve this, you can
+- remove them if possible, or
+- only use them in development, or
+- make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+- add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+
+Import trace:
+  App Route:
+    ./next.config.ts
+    ./lib/inspector_bundle_loader.ts
+    ./app/api/inspector_bundle/[runId]/route.ts
+
+
+
+> Build error occurred
+Error: spawn EPERM
+    at ignore-listed frames {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+ exited 1 in 7544ms:
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.2.4 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 5.2s
+  Running TypeScript ...
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+Turbopack build encountered 1 warnings:
+./next.config.ts
+Encountered unexpected file in NFT list
+A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
+- filesystem operations (like path.join, path.resolve or fs.readFile), or
+- very dynamic requires (like require('./' + foo)).
+To resolve this, you can
+- remove them if possible, or
+- only use them in development, or
+- make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+- add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+
+Import trace:
+  App Route:
+    ./next.config.ts
+    ./lib/inspector_bundle_loader.ts
+    ./app/api/inspector_bundle/[runId]/route.ts
+
+
+
+> Build error occurred
+Error: spawn EPERM
+    at ignore-listed frames {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+codex
+Production compilation reached the app build, so `tar-stream` is not obviously blocked by bundling here. I’m narrowing on the inflate path now because the code currently checks size inside `onData` but still calls `push(compressed, true)` for the whole input in one synchronous operation.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+const pako = require('pako');
+const zlib = require('node:zlib');
+const input = Buffer.alloc(32 * 1024 * 1024, 0);
+const compressed = zlib.gzipSync(input, { level: 9 });
+let total = 0;
+let callbacks = 0;
+let afterAbortCallbacks = 0;
+let aborted = false;
+const inflator = new pako.Inflate({ raw: false, chunkSize: 64 * 1024 });
+inflator.onData = (chunk) => {
+  callbacks++;
+  total += chunk.length;
+  if (aborted) afterAbortCallbacks++;
+  if (total > 1024 * 1024) {
+    aborted = true;
+    return;
+  }
+};
+const t0 = Date.now();
+inflator.push(new Uint8Array(compressed), true);
+const dt = Date.now() - t0;
+console.log(JSON.stringify({ input: input.length, compressed: compressed.length, total, callbacks, afterAbortCallbacks, ended: inflator.ended, err: inflator.err, ms: dt }));
+'@ | node -" in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"class Inflate|Inflate\\.prototype\\.push|onData\\(|avail_in === 0|status === Z_OK\" web\\node_modules\\pako\\lib\\inflate.js -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"destroy\\(|abort|ended|onData\" web\\node_modules\\pako\\lib\\inflate.js web\\node_modules\\pako\\README.md -S" in C:\POLARIS
+ succeeded in 769ms:
+25: * class Inflate
+196:Inflate.prototype.push = function (data, flush_mode) {
+229:      if (status === Z_OK) {
+276:          this.onData(utf8str);
+279:          this.onData(strm.output.length === strm.next_out ? strm.output : strm.output.subarray(0, strm.next_out));
+285:    if (status === Z_OK && last_avail_out === 0) continue;
+295:    if (strm.avail_in === 0) break;
+303: * Inflate#onData(chunk) -> Void
+326:  if (status === Z_OK) {
+
+ succeeded in 856ms:
+web\node_modules\pako\lib\inflate.js:35: * Chunks of output data, if [[Inflate#onData]] not overridden.
+web\node_modules\pako\lib\inflate.js:41: * Uncompressed result, generated by default [[Inflate#onData]]
+web\node_modules\pako\lib\inflate.js:135:  this.ended  = false;  // used to avoid multiple onEnd() calls
+web\node_modules\pako\lib\inflate.js:178: * Sends input data to inflate pipe, generating [[Inflate#onData]] calls with
+web\node_modules\pako\lib\inflate.js:202:  if (this.ended) return false;
+web\node_modules\pako\lib\inflate.js:253:        this.ended = true;
+web\node_modules\pako\lib\inflate.js:276:          this.onData(utf8str);
+web\node_modules\pako\lib\inflate.js:279:          this.onData(strm.output.length === strm.next_out ? strm.output : strm.output.subarray(0, strm.next_out));
+web\node_modules\pako\lib\inflate.js:291:      this.ended = true;
+web\node_modules\pako\lib\inflate.js:303: * Inflate#onData(chunk) -> Void
+web\node_modules\pako\lib\inflate.js:310:Inflate.prototype.onData = function (chunk) {
+
+ succeeded in 1187ms:
+{"input":33554432,"compressed":32635,"total":33554432,"callbacks":512,"afterAbortCallbacks":495,"ended":true,"err":0,"ms":138}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck' in C:\POLARIS\web
+ succeeded in 3088ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+
+codex
+TypeScript is clean. I’m doing the fast lint pass too because a CI-only lint failure would be an execution blocker even if the browser path itself works.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run lint' in C:\POLARIS\web
+2026-05-20T18:40:53.537144Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 7.4 seconds
+Output:
+
+> web@0.1.0 lint
+> eslint
+
+
+C:\POLARIS\web\app\benchmark\components\benchmark_board.tsx
+  12:8  warning  'BenchmarkDimension' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\lib\inspector_bundle_client_loader.ts
+  122:21  warning  '_status' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\tests\e2e\frame_coverage_panel.spec.ts
+  44:27  warning  '_text' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\tests\e2e\inspector_offline_fallback.spec.ts
+  78:5  error  A `require()` style import is forbidden  @typescript-eslint/no-require-imports
+
+✖ 4 problems (1 error, 3 warnings)
+
+
+ exited 1 in 7447ms:
+
+> web@0.1.0 lint
+> eslint
+
+
+C:\POLARIS\web\app\benchmark\components\benchmark_board.tsx
+  12:8  warning  'BenchmarkDimension' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\lib\inspector_bundle_client_loader.ts
+  122:21  warning  '_status' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\tests\e2e\frame_coverage_panel.spec.ts
+  44:27  warning  '_text' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\tests\e2e\inspector_offline_fallback.spec.ts
+  78:5  error  A `require()` style import is forbidden  @typescript-eslint/no-require-imports
+
+✖ 4 problems (1 error, 3 warnings)
+
+
+codex
+Lint found one real CI blocker in the new Playwright spec: the inline `require("node:fs")` violates the repo’s ESLint rules. I’m checking format as well so the CI-gate findings are complete.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run format:check' in C:\POLARIS\web
+2026-05-20T18:41:04.117974Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.3 seconds
+Output:
+
+> web@0.1.0 format:check
+> prettier --check .
+
+Checking formatting...
+[[33mwarn[39m] .prettierrc.json
+[[33mwarn[39m] AGENTS.md
+[[33mwarn[39m] app/(test_harness)/disambiguation_modal_preview/_client.tsx
+[[33mwarn[39m] app/(test_harness)/disambiguation_modal_preview/page.tsx
+[[33mwarn[39m] app/api/inspector_bundle/[runId]/route.ts
+[[33mwarn[39m] app/audit_live/_panels.tsx
+[[33mwarn[39m] app/audit_live/page.tsx
+[[33mwarn[39m] app/benchmark/components/benchmark_board.tsx
+[[33mwarn[39m] app/benchmark/page.tsx
+[[33mwarn[39m] app/charts_test/click_through/page.tsx
+[[33mwarn[39m] app/charts_test/comparison_table/page.tsx
+[[33mwarn[39m] app/charts_test/components/chart_source_inspector.tsx
+[[33mwarn[39m] app/charts_test/forest_plot/page.tsx
+[[33mwarn[39m] app/charts_test/page.tsx
+[[33mwarn[39m] app/charts_test/timeline/page.tsx
+[[33mwarn[39m] app/components/command_palette.tsx
+[[33mwarn[39m] app/components/home_keyboard_shell.tsx
+[[33mwarn[39m] app/contracts/_editor.tsx
+[[33mwarn[39m] app/contracts/page.tsx
+[[33mwarn[39m] app/dashboard/page.tsx
+[[33mwarn[39m] app/generation/components/BundlePreview.tsx
+[[33mwarn[39m] app/generation/components/contradiction_pane.tsx
+[[33mwarn[39m] app/generation/components/evaluator_pane.tsx
+[[33mwarn[39m] app/generation/components/follow_up_append_view.tsx
+[[33mwarn[39m] app/generation/components/frame_coverage_panel.tsx
+[[33mwarn[39m] app/generation/components/generation_runner.tsx
+[[33mwarn[39m] app/generation/components/multi_source_panel.tsx
+[[33mwarn[39m] app/generation/components/sentence_inspector.tsx
+[[33mwarn[39m] app/generation/components/split_screen.tsx
+[[33mwarn[39m] app/generation/components/two_run_picker.tsx
+[[33mwarn[39m] app/generation/components/verified_report_view.tsx
+[[33mwarn[39m] app/generation/page.tsx
+[[33mwarn[39m] app/globals.css
+[[33mwarn[39m] app/inspector/[runId]/page.tsx
+[[33mwarn[39m] app/intake/components/ambiguity_modal.tsx
+[[33mwarn[39m] app/intake/components/disambiguation_modal.tsx
+[[33mwarn[39m] app/intake/components/intake_form.tsx
+[[33mwarn[39m] app/intake/components/pdf_drop_banner.tsx
+[[33mwarn[39m] app/intake/components/scope_decision_view.tsx
+[[33mwarn[39m] app/intake/page.tsx
+[[33mwarn[39m] app/layout.tsx
+[[33mwarn[39m] app/memory/page.tsx
+[[33mwarn[39m] app/page.tsx
+[[33mwarn[39m] app/pin_replay/components/diff_side_panel.tsx
+[[33mwarn[39m] app/pin_replay/components/pin_timeseries.tsx
+[[33mwarn[39m] app/pin_replay/page.tsx
+[[33mwarn[39m] app/retrieval/components/corpus_brief.tsx
+[[33mwarn[39m] app/retrieval/components/retrieval_runner.tsx
+[[33mwarn[39m] app/retrieval/page.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/accessible_graph_list.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/claim_graph.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/graph_export_buttons.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/graph_export.ts
+[[33mwarn[39m] app/runs/[runId]/graph/components/graph_styles.ts
+[[33mwarn[39m] app/runs/[runId]/graph/components/snowball.ts
+[[33mwarn[39m] app/runs/[runId]/graph/components/use_graph_state.ts
+[[33mwarn[39m] app/runs/[runId]/graph/page.tsx
+[[33mwarn[39m] app/runs/[runId]/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_coverage.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_evaluator_edge.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_evidence_tooltip.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_perf.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_stress.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo.tsx
+[[33mwarn[39m] app/sentence_hover_test/evaluator_edge/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/evidence_tooltip_edges/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/evidence_tooltip/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/follow_up_append/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/memory_cite/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/perf/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/split_screen/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/stress/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/two_run_picker/page.tsx
+[[33mwarn[39m] app/sign-in/page.tsx
+[[33mwarn[39m] app/sse/_harness.tsx
+[[33mwarn[39m] app/sse/page.tsx
+[[33mwarn[39m] app/upload/components/document_preview.tsx
+[[33mwarn[39m] app/upload/components/selected_docs_indicator.tsx
+[[33mwarn[39m] app/upload/components/upload_drop_zone.tsx
+[[33mwarn[39m] app/upload/components/upload_workspace.tsx
+[[33mwarn[39m] app/upload/page.tsx
+[[33mwarn[39m] CLAUDE.md
+[[33mwarn[39m] components.json
+[[33mwarn[39m] components/app_shell.tsx
+[[33mwarn[39m] components/auth_redirect.tsx
+[[33mwarn[39m] components/inspector/bundle_header.tsx
+[[33mwarn[39m] components/inspector/bundle_pending_cta.tsx
+[[33mwarn[39m] components/inspector/evidence_pool_table.tsx
+[[33mwarn[39m] components/inspector/family_segregation_badge.tsx
+[[33mwarn[39m] components/inspector/hash_chain_panel.tsx
+[[33mwarn[39m] components/inspector/reasoning_trace_timeline.tsx
+[[33mwarn[39m] components/inspector/scope_decision_card.tsx
+[[33mwarn[39m] components/inspector/sources_panel.tsx
+[[33mwarn[39m] components/inspector/verified_report_sections.tsx
+[[33mwarn[39m] components/nav_link.tsx
+[[33mwarn[39m] components/ui/button.tsx
+[[33mwarn[39m] components/ui/card.tsx
+[[33mwarn[39m] components/ui/evidence-tooltip.tsx
+[[33mwarn[39m] components/ui/input.tsx
+[[33mwarn[39m] components/ui/sheet.tsx
+[[33mwarn[39m] components/ui/sonner.tsx
+[[33mwarn[39m] components/ui/tabs.tsx
+[[33mwarn[39m] components/ui/vega-chart.tsx
+[[33mwarn[39m] eslint.config.mjs
+[[33mwarn[39m] lib/api.ts
+[[33mwarn[39m] lib/auth.ts
+[[33mwarn[39m] lib/comparison_table_spec.ts
+[[33mwarn[39m] lib/contracts.ts
+[[33mwarn[39m] lib/forest_plot_spec.ts
+[[33mwarn[39m] lib/inspector_bundle_loader.ts
+[[33mwarn[39m] lib/pin_regression.ts
+[[33mwarn[39m] lib/pin_replay_client.ts
+[[33mwarn[39m] lib/pin_replay_demo.ts
+[[33mwarn[39m] lib/provenance_tokens.ts
+[[33mwarn[39m] lib/relative_time.ts
+[[33mwarn[39m] lib/run_broadcast.ts
+[[33mwarn[39m] lib/sentence_highlight.ts
+[[33mwarn[39m] lib/signed_bundle.ts
+[[33mwarn[39m] lib/sse_client.ts
+[[33mwarn[39m] lib/sse_events.ts
+[[33mwarn[39m] lib/timeline_spec.ts
+[[33mwarn[39m] lib/utils.ts
+[[33mwarn[39m] middleware.ts
+[[33mwarn[39m] next.config.ts
+[[33mwarn[39m] package.json
+[[33mwarn[39m] playwright.config.ts
+[[33mwarn[39m] postcss.config.mjs
+[[33mwarn[39m] README.md
+[[33mwarn[39m] scripts/capture_screenshots.mjs
+[[33mwarn[39m] tests/e2e/accessibility.spec.ts
+[[33mwarn[39m] tests/e2e/audit_bundle.spec.ts
+[[33mwarn[39m] tests/e2e/audit_live_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/audit_live_multitab.spec.ts
+[[33mwarn[39m] tests/e2e/audit_live.spec.ts
+[[33mwarn[39m] tests/e2e/benchmark.spec.ts
+[[33mwarn[39m] tests/e2e/bundle_preview.spec.ts
+[[33mwarn[39m] tests/e2e/chart_click_through.spec.ts
+[[33mwarn[39m] tests/e2e/cited_recall_badge.spec.ts
+[[33mwarn[39m] tests/e2e/command_palette_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/command_palette_suggest.spec.ts
+[[33mwarn[39m] tests/e2e/command_palette.spec.ts
+[[33mwarn[39m] tests/e2e/comparison_table_chart.spec.ts
+[[33mwarn[39m] tests/e2e/contract_editor.spec.ts
+[[33mwarn[39m] tests/e2e/cross_browser_smoke.spec.ts
+[[33mwarn[39m] tests/e2e/cross_session_surface.spec.ts
+[[33mwarn[39m] tests/e2e/demo_walkthrough.spec.ts
+[[33mwarn[39m] tests/e2e/disambiguation_modal.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip_edges.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip_mobile.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip_perf.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip.spec.ts
+[[33mwarn[39m] tests/e2e/f1_a11y.spec.ts
+[[33mwarn[39m] tests/e2e/f1_multi_tab.spec.ts
+[[33mwarn[39m] tests/e2e/f2_walkthrough.spec.ts
+[[33mwarn[39m] tests/e2e/follow_up_append.spec.ts
+[[33mwarn[39m] tests/e2e/forest_plot_chart.spec.ts
+[[33mwarn[39m] tests/e2e/frame_coverage_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/frame_coverage_panel.spec.ts
+[[33mwarn[39m] tests/e2e/generation.spec.ts
+[[33mwarn[39m] tests/e2e/graph_page_smoke.spec.ts
+[[33mwarn[39m] tests/e2e/inspector_route.spec.ts
+[[33mwarn[39m] tests/e2e/inspector.spec.ts
+[[33mwarn[39m] tests/e2e/intake_disambiguation_negative.spec.ts
+[[33mwarn[39m] tests/e2e/intake_disambiguation.spec.ts
+[[33mwarn[39m] tests/e2e/intake_edge.spec.ts
+[[33mwarn[39m] tests/e2e/intake.spec.ts
+[[33mwarn[39m] tests/e2e/landing_template_grid.spec.ts
+[[33mwarn[39m] tests/e2e/memory_page_controls.spec.ts
+[[33mwarn[39m] tests/e2e/multi_source_panel.spec.ts
+[[33mwarn[39m] tests/e2e/p2c_001_chain.spec.ts
+[[33mwarn[39m] tests/e2e/p2c_005_mobile.spec.ts
+[[33mwarn[39m] tests/e2e/perf_core_web_vitals.spec.ts
+[[33mwarn[39m] tests/e2e/pin_regression_alert.spec.ts
+[[33mwarn[39m] tests/e2e/pin_replay_diff.spec.ts
+[[33mwarn[39m] tests/e2e/pin_replay.spec.ts
+[[33mwarn[39m] tests/e2e/pin_retraction_handled.spec.ts
+[[33mwarn[39m] tests/e2e/retrieval.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_hover.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_agreement.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_ai_agent.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_contradiction.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_evaluator_edge.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_evaluator_flag.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_latency.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_multispan.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_retracted_stale.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_source.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_surfaces.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_synthesis.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector.spec.ts
+[[33mwarn[39m] tests/e2e/sign_in.spec.ts
+[[33mwarn[39m] tests/e2e/split_screen.spec.ts
+[[33mwarn[39m] tests/e2e/sse_client.spec.ts
+[[33mwarn[39m] tests/e2e/timeline_chart.spec.ts
+[[33mwarn[39m] tests/e2e/two_run_picker.spec.ts
+[[33mwarn[39m] tests/e2e/upload_doc_preview.spec.ts
+[[33mwarn[39m] tests/e2e/upload_dropzone.spec.ts
+[[33mwarn[39m] tests/e2e/upload_evidence_toggle.spec.ts
+[[33mwarn[39m] tests/e2e/upload_parse_status.spec.ts
+[[33mwarn[39m] tests/e2e/vega_lite_chart.spec.ts
+[[33mwarn[39m] tests/e2e/visual_60_baselines.spec.ts
+[[33mwarn[39m] tests/e2e/visual.spec.ts
+[[33mwarn[39m] tests/fixtures/graph_payload.json
+[[33mwarn[39m] THIRD_PARTY_LICENSES.md
+[[33mwarn[39m] tsconfig.json
+[[33mwarn[39m] Code style issues found in 208 files. Run Prettier with --write to fix.
+
+ exited 1 in 3345ms:
+
+> web@0.1.0 format:check
+> prettier --check .
+
+Checking formatting...
+[[33mwarn[39m] .prettierrc.json
+[[33mwarn[39m] AGENTS.md
+[[33mwarn[39m] app/(test_harness)/disambiguation_modal_preview/_client.tsx
+[[33mwarn[39m] app/(test_harness)/disambiguation_modal_preview/page.tsx
+[[33mwarn[39m] app/api/inspector_bundle/[runId]/route.ts
+[[33mwarn[39m] app/audit_live/_panels.tsx
+[[33mwarn[39m] app/audit_live/page.tsx
+[[33mwarn[39m] app/benchmark/components/benchmark_board.tsx
+[[33mwarn[39m] app/benchmark/page.tsx
+[[33mwarn[39m] app/charts_test/click_through/page.tsx
+[[33mwarn[39m] app/charts_test/comparison_table/page.tsx
+[[33mwarn[39m] app/charts_test/components/chart_source_inspector.tsx
+[[33mwarn[39m] app/charts_test/forest_plot/page.tsx
+[[33mwarn[39m] app/charts_test/page.tsx
+[[33mwarn[39m] app/charts_test/timeline/page.tsx
+[[33mwarn[39m] app/components/command_palette.tsx
+[[33mwarn[39m] app/components/home_keyboard_shell.tsx
+[[33mwarn[39m] app/contracts/_editor.tsx
+[[33mwarn[39m] app/contracts/page.tsx
+[[33mwarn[39m] app/dashboard/page.tsx
+[[33mwarn[39m] app/generation/components/BundlePreview.tsx
+[[33mwarn[39m] app/generation/components/contradiction_pane.tsx
+[[33mwarn[39m] app/generation/components/evaluator_pane.tsx
+[[33mwarn[39m] app/generation/components/follow_up_append_view.tsx
+[[33mwarn[39m] app/generation/components/frame_coverage_panel.tsx
+[[33mwarn[39m] app/generation/components/generation_runner.tsx
+[[33mwarn[39m] app/generation/components/multi_source_panel.tsx
+[[33mwarn[39m] app/generation/components/sentence_inspector.tsx
+[[33mwarn[39m] app/generation/components/split_screen.tsx
+[[33mwarn[39m] app/generation/components/two_run_picker.tsx
+[[33mwarn[39m] app/generation/components/verified_report_view.tsx
+[[33mwarn[39m] app/generation/page.tsx
+[[33mwarn[39m] app/globals.css
+[[33mwarn[39m] app/inspector/[runId]/page.tsx
+[[33mwarn[39m] app/intake/components/ambiguity_modal.tsx
+[[33mwarn[39m] app/intake/components/disambiguation_modal.tsx
+[[33mwarn[39m] app/intake/components/intake_form.tsx
+[[33mwarn[39m] app/intake/components/pdf_drop_banner.tsx
+[[33mwarn[39m] app/intake/components/scope_decision_view.tsx
+[[33mwarn[39m] app/intake/page.tsx
+[[33mwarn[39m] app/layout.tsx
+[[33mwarn[39m] app/memory/page.tsx
+[[33mwarn[39m] app/page.tsx
+[[33mwarn[39m] app/pin_replay/components/diff_side_panel.tsx
+[[33mwarn[39m] app/pin_replay/components/pin_timeseries.tsx
+[[33mwarn[39m] app/pin_replay/page.tsx
+[[33mwarn[39m] app/retrieval/components/corpus_brief.tsx
+[[33mwarn[39m] app/retrieval/components/retrieval_runner.tsx
+[[33mwarn[39m] app/retrieval/page.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/accessible_graph_list.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/claim_graph.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/graph_export_buttons.tsx
+[[33mwarn[39m] app/runs/[runId]/graph/components/graph_export.ts
+[[33mwarn[39m] app/runs/[runId]/graph/components/graph_styles.ts
+[[33mwarn[39m] app/runs/[runId]/graph/components/snowball.ts
+[[33mwarn[39m] app/runs/[runId]/graph/components/use_graph_state.ts
+[[33mwarn[39m] app/runs/[runId]/graph/page.tsx
+[[33mwarn[39m] app/runs/[runId]/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_coverage.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_evaluator_edge.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_evidence_tooltip_edges.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_evidence_tooltip.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_perf.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo_stress.tsx
+[[33mwarn[39m] app/sentence_hover_test/_demo.tsx
+[[33mwarn[39m] app/sentence_hover_test/evaluator_edge/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/evidence_tooltip_edges/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/evidence_tooltip/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/follow_up_append/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/memory_cite/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/perf/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/split_screen/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/stress/page.tsx
+[[33mwarn[39m] app/sentence_hover_test/two_run_picker/page.tsx
+[[33mwarn[39m] app/sign-in/page.tsx
+[[33mwarn[39m] app/sse/_harness.tsx
+[[33mwarn[39m] app/sse/page.tsx
+[[33mwarn[39m] app/upload/components/document_preview.tsx
+[[33mwarn[39m] app/upload/components/selected_docs_indicator.tsx
+[[33mwarn[39m] app/upload/components/upload_drop_zone.tsx
+[[33mwarn[39m] app/upload/components/upload_workspace.tsx
+[[33mwarn[39m] app/upload/page.tsx
+[[33mwarn[39m] CLAUDE.md
+[[33mwarn[39m] components.json
+[[33mwarn[39m] components/app_shell.tsx
+[[33mwarn[39m] components/auth_redirect.tsx
+[[33mwarn[39m] components/inspector/bundle_header.tsx
+[[33mwarn[39m] components/inspector/bundle_pending_cta.tsx
+[[33mwarn[39m] components/inspector/evidence_pool_table.tsx
+[[33mwarn[39m] components/inspector/family_segregation_badge.tsx
+[[33mwarn[39m] components/inspector/hash_chain_panel.tsx
+[[33mwarn[39m] components/inspector/reasoning_trace_timeline.tsx
+[[33mwarn[39m] components/inspector/scope_decision_card.tsx
+[[33mwarn[39m] components/inspector/sources_panel.tsx
+[[33mwarn[39m] components/inspector/verified_report_sections.tsx
+[[33mwarn[39m] components/nav_link.tsx
+[[33mwarn[39m] components/ui/button.tsx
+[[33mwarn[39m] components/ui/card.tsx
+[[33mwarn[39m] components/ui/evidence-tooltip.tsx
+[[33mwarn[39m] components/ui/input.tsx
+[[33mwarn[39m] components/ui/sheet.tsx
+[[33mwarn[39m] components/ui/sonner.tsx
+[[33mwarn[39m] components/ui/tabs.tsx
+[[33mwarn[39m] components/ui/vega-chart.tsx
+[[33mwarn[39m] eslint.config.mjs
+[[33mwarn[39m] lib/api.ts
+[[33mwarn[39m] lib/auth.ts
+[[33mwarn[39m] lib/comparison_table_spec.ts
+[[33mwarn[39m] lib/contracts.ts
+[[33mwarn[39m] lib/forest_plot_spec.ts
+[[33mwarn[39m] lib/inspector_bundle_loader.ts
+[[33mwarn[39m] lib/pin_regression.ts
+[[33mwarn[39m] lib/pin_replay_client.ts
+[[33mwarn[39m] lib/pin_replay_demo.ts
+[[33mwarn[39m] lib/provenance_tokens.ts
+[[33mwarn[39m] lib/relative_time.ts
+[[33mwarn[39m] lib/run_broadcast.ts
+[[33mwarn[39m] lib/sentence_highlight.ts
+[[33mwarn[39m] lib/signed_bundle.ts
+[[33mwarn[39m] lib/sse_client.ts
+[[33mwarn[39m] lib/sse_events.ts
+[[33mwarn[39m] lib/timeline_spec.ts
+[[33mwarn[39m] lib/utils.ts
+[[33mwarn[39m] middleware.ts
+[[33mwarn[39m] next.config.ts
+[[33mwarn[39m] package.json
+[[33mwarn[39m] playwright.config.ts
+[[33mwarn[39m] postcss.config.mjs
+[[33mwarn[39m] README.md
+[[33mwarn[39m] scripts/capture_screenshots.mjs
+[[33mwarn[39m] tests/e2e/accessibility.spec.ts
+[[33mwarn[39m] tests/e2e/audit_bundle.spec.ts
+[[33mwarn[39m] tests/e2e/audit_live_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/audit_live_multitab.spec.ts
+[[33mwarn[39m] tests/e2e/audit_live.spec.ts
+[[33mwarn[39m] tests/e2e/benchmark.spec.ts
+[[33mwarn[39m] tests/e2e/bundle_preview.spec.ts
+[[33mwarn[39m] tests/e2e/chart_click_through.spec.ts
+[[33mwarn[39m] tests/e2e/cited_recall_badge.spec.ts
+[[33mwarn[39m] tests/e2e/command_palette_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/command_palette_suggest.spec.ts
+[[33mwarn[39m] tests/e2e/command_palette.spec.ts
+[[33mwarn[39m] tests/e2e/comparison_table_chart.spec.ts
+[[33mwarn[39m] tests/e2e/contract_editor.spec.ts
+[[33mwarn[39m] tests/e2e/cross_browser_smoke.spec.ts
+[[33mwarn[39m] tests/e2e/cross_session_surface.spec.ts
+[[33mwarn[39m] tests/e2e/demo_walkthrough.spec.ts
+[[33mwarn[39m] tests/e2e/disambiguation_modal.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip_edges.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip_mobile.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip_perf.spec.ts
+[[33mwarn[39m] tests/e2e/evidence_tooltip.spec.ts
+[[33mwarn[39m] tests/e2e/f1_a11y.spec.ts
+[[33mwarn[39m] tests/e2e/f1_multi_tab.spec.ts
+[[33mwarn[39m] tests/e2e/f2_walkthrough.spec.ts
+[[33mwarn[39m] tests/e2e/follow_up_append.spec.ts
+[[33mwarn[39m] tests/e2e/forest_plot_chart.spec.ts
+[[33mwarn[39m] tests/e2e/frame_coverage_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/frame_coverage_panel.spec.ts
+[[33mwarn[39m] tests/e2e/generation.spec.ts
+[[33mwarn[39m] tests/e2e/graph_page_smoke.spec.ts
+[[33mwarn[39m] tests/e2e/inspector_route.spec.ts
+[[33mwarn[39m] tests/e2e/inspector.spec.ts
+[[33mwarn[39m] tests/e2e/intake_disambiguation_negative.spec.ts
+[[33mwarn[39m] tests/e2e/intake_disambiguation.spec.ts
+[[33mwarn[39m] tests/e2e/intake_edge.spec.ts
+[[33mwarn[39m] tests/e2e/intake.spec.ts
+[[33mwarn[39m] tests/e2e/landing_template_grid.spec.ts
+[[33mwarn[39m] tests/e2e/memory_page_controls.spec.ts
+[[33mwarn[39m] tests/e2e/multi_source_panel.spec.ts
+[[33mwarn[39m] tests/e2e/p2c_001_chain.spec.ts
+[[33mwarn[39m] tests/e2e/p2c_005_mobile.spec.ts
+[[33mwarn[39m] tests/e2e/perf_core_web_vitals.spec.ts
+[[33mwarn[39m] tests/e2e/pin_regression_alert.spec.ts
+[[33mwarn[39m] tests/e2e/pin_replay_diff.spec.ts
+[[33mwarn[39m] tests/e2e/pin_replay.spec.ts
+[[33mwarn[39m] tests/e2e/pin_retraction_handled.spec.ts
+[[33mwarn[39m] tests/e2e/retrieval.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_hover.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_adversarial.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_agreement.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_ai_agent.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_contradiction.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_evaluator_edge.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_evaluator_flag.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_latency.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_multispan.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_retracted_stale.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_source.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_surfaces.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector_synthesis.spec.ts
+[[33mwarn[39m] tests/e2e/sentence_inspector.spec.ts
+[[33mwarn[39m] tests/e2e/sign_in.spec.ts
+[[33mwarn[39m] tests/e2e/split_screen.spec.ts
+[[33mwarn[39m] tests/e2e/sse_client.spec.ts
+[[33mwarn[39m] tests/e2e/timeline_chart.spec.ts
+[[33mwarn[39m] tests/e2e/two_run_picker.spec.ts
+[[33mwarn[39m] tests/e2e/upload_doc_preview.spec.ts
+[[33mwarn[39m] tests/e2e/upload_dropzone.spec.ts
+[[33mwarn[39m] tests/e2e/upload_evidence_toggle.spec.ts
+[[33mwarn[39m] tests/e2e/upload_parse_status.spec.ts
+[[33mwarn[39m] tests/e2e/vega_lite_chart.spec.ts
+[[33mwarn[39m] tests/e2e/visual_60_baselines.spec.ts
+[[33mwarn[39m] tests/e2e/visual.spec.ts
+[[33mwarn[39m] tests/fixtures/graph_payload.json
+[[33mwarn[39m] THIRD_PARTY_LICENSES.md
+[[33mwarn[39m] tsconfig.json
+[[33mwarn[39m] Code style issues found in 208 files. Run Prettier with --write to fix.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path web'"\\middleware.ts | Select-Object -First 220 | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"inspector|offline|test_harness|matcher|middleware\" web\\middleware.ts web\\app -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path web\\app\\inspector -Recurse -Force | Select-Object FullName,Length" in C:\POLARIS
+ succeeded in 753ms:
+   1: // I-cd-015 (GH#611) — exclude test-harness routes from the production build.
+   2: //
+   3: // Listed routes (/charts_test/*, /sentence_hover_test/*,
+   4: // /disambiguation_modal_preview/*, /generation/*, /retrieval/*, /sse/*)
+   5: // are dev-only harness surfaces. In production deployments they must
+   6: // return 404 so reviewers + Carney's office don't reach internal test
+   7: // pages.
+   8: //
+   9: // Override: `POLARIS_TEST_HARNESS_ENABLED=1` keeps harness routes
+  10: // reachable (CI workflow `.github/workflows/web_ci.yml` runs
+  11: // `evidence_tooltip_perf.spec.ts` against `next start` in prod mode
+  12: // and needs `/sentence_hover_test/perf` to work). Real production
+  13: // deployment leaves this UNSET.
+  14: import { NextResponse } from "next/server";
+  15: 
+  16: export function middleware() {
+  17:   const isProd = process.env.NODE_ENV === "production";
+  18:   const harnessAllowed = process.env.POLARIS_TEST_HARNESS_ENABLED === "1";
+  19:   if (isProd && !harnessAllowed) {
+  20:     return new NextResponse(null, {
+  21:       status: 404,
+  22:       headers: { "x-harness-blocked": "1" },
+  23:     });
+  24:   }
+  25:   return NextResponse.next();
+  26: }
+  27: 
+  28: export const config = {
+  29:   matcher: [
+  30:     "/charts_test",
+  31:     "/charts_test/:path*",
+  32:     "/sentence_hover_test",
+  33:     "/sentence_hover_test/:path*",
+  34:     "/disambiguation_modal_preview",
+  35:     "/disambiguation_modal_preview/:path*",
+  36:     "/generation",
+  37:     "/generation/:path*",
+  38:     "/retrieval",
+  39:     "/retrieval/:path*",
+  40:     "/sse",
+  41:     "/sse/:path*",
+  42:   ],
+  43: };
+
+ succeeded in 803ms:
+web\middleware.ts:9:// Override: `POLARIS_TEST_HARNESS_ENABLED=1` keeps harness routes
+web\middleware.ts:16:export function middleware() {
+web\middleware.ts:18:  const harnessAllowed = process.env.POLARIS_TEST_HARNESS_ENABLED === "1";
+web\middleware.ts:29:  matcher: [
+web\app\api\inspector_bundle\[runId]\route.ts:3:// when implementing offline (no-backend) fallback.
+web\app\api\inspector_bundle\[runId]\route.ts:6:import { loadBundle } from "@/lib/inspector_bundle_loader";
+web\app\benchmark\page.tsx:28:                the prod middleware 404s it. Removed the dead link button. */}
+web\app\charts_test\click_through\page.tsx:12:  ChartSourceInspector,
+web\app\charts_test\click_through\page.tsx:14:} from "../components/chart_source_inspector";
+web\app\charts_test\click_through\page.tsx:79:          Click any chart point to open the source-span inspector.{" "}
+web\app\charts_test\click_through\page.tsx:99:        <ChartSourceInspector
+web\app\generation\components\sentence_inspector.tsx:52:      data-testid="inspector-synthesis-claim"
+web\app\generation\components\sentence_inspector.tsx:69:        data-testid="inspector-agree"
+web\app\generation\components\sentence_inspector.tsx:80:        data-testid="inspector-disagree"
+web\app\generation\components\sentence_inspector.tsx:90:      data-testid="inspector-agree-pending"
+web\app\generation\components\sentence_inspector.tsx:115:        data-testid={`inspector-span-out-of-range-${idx}-${spanIdx}`}
+web\app\generation\components\sentence_inspector.tsx:124:      data-testid={`inspector-span-${idx}-${spanIdx}`}
+web\app\generation\components\sentence_inspector.tsx:145:        data-testid={`inspector-source-missing-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:155:      data-testid={`inspector-source-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:160:          data-testid={`inspector-source-url-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:171:              data-testid={`inspector-paywalled-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:180:              data-testid={`inspector-retracted-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:189:              data-testid={`inspector-stale-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:197:            data-testid={`inspector-tier-${source.tier}`}
+web\app\generation\components\sentence_inspector.tsx:206:        data-testid={`inspector-trace-${idx}`}
+web\app\generation\components\sentence_inspector.tsx:228:export function SentenceInspector({
+web\app\generation\components\sentence_inspector.tsx:253:        data-testid="sentence-inspector-sheet"
+web\app\generation\components\sentence_inspector.tsx:258:          <SheetTitle data-testid="sentence-inspector-id">
+web\app\generation\components\sentence_inspector.tsx:259:            {sentence_id ?? "Sentence inspector"}
+web\app\generation\components\sentence_inspector.tsx:270:                  data-testid="sentence-inspector-text"
+web\app\generation\components\sentence_inspector.tsx:288:                  data-testid="inspector-sources"
+web\app\generation\components\sentence_inspector.tsx:303:                  data-testid="sentence-inspector-drop"
+web\app\generation\components\verified_report_view.tsx:45:import { SentenceInspector } from "./sentence_inspector";
+web\app\generation\components\verified_report_view.tsx:121:  // for one sentence, surface a "may conflict — review Inspector" caption.
+web\app\generation\components\verified_report_view.tsx:164:              title={`Assertion surface: ${SURFACE_LABEL[surface]} (gated through Inspector)`}
+web\app\generation\components\verified_report_view.tsx:224:          data-testid={`inspector-contradiction-${sentence_id}`}
+web\app\generation\components\verified_report_view.tsx:228:            // SentenceInspector doesn't ALSO open.
+web\app\generation\components\verified_report_view.tsx:235:            // parent row onKeyDown either, otherwise SentenceInspector opens.
+web\app\generation\components\verified_report_view.tsx:259:          data-testid="inspector-t1-conflict"
+web\app\generation\components\verified_report_view.tsx:260:          title="Multiple T1 sources cited — they may conflict; review Inspector. Heuristic flag, not a semantic conflict detection."
+web\app\generation\components\verified_report_view.tsx:263:          ⚠ T1 sources may conflict — review Inspector
+web\app\generation\components\verified_report_view.tsx:385:  const [inspector, setInspector] = useState<{
+web\app\generation\components\verified_report_view.tsx:465:            Gated assertion surfaces (all clickable through Inspector):{" "}
+web\app\generation\components\verified_report_view.tsx:477:          onSelect={(id, sentence) => setInspector({ id, sentence })}
+web\app\generation\components\verified_report_view.tsx:507:      <SentenceInspector
+web\app\generation\components\verified_report_view.tsx:508:        open={inspector !== null}
+web\app\generation\components\verified_report_view.tsx:510:          if (!open) setInspector(null);
+web\app\generation\components\verified_report_view.tsx:512:        sentence={inspector?.sentence ?? null}
+web\app\generation\components\verified_report_view.tsx:513:        sentence_id={inspector?.id ?? null}
+web\app\charts_test\components\chart_source_inspector.tsx:24:export function ChartSourceInspector({
+web\app\sentence_hover_test\_demo_stress.tsx:85:      data-testid={`inspector-latency-${n}`}
+web\app\inspector\offline\page.tsx:1:// I-cd-021 (#631) — Offline Inspector page. Renders a v1.0 signed bundle
+web\app\inspector\offline\page.tsx:8:import { InspectorView } from "@/app/inspector/[runId]/inspector_view";
+web\app\inspector\offline\page.tsx:13:} from "@/lib/inspector_bundle_client_loader";
+web\app\inspector\offline\page.tsx:14:import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+web\app\inspector\offline\page.tsx:16:export default function InspectorOfflinePage() {
+web\app\inspector\offline\page.tsx:54:      <InspectorView
+web\app\inspector\offline\page.tsx:64:      data-testid="inspector-offline"
+web\app\inspector\offline\page.tsx:68:          <CardTitle className="text-lg">Offline Inspector</CardTitle>
+web\app\inspector\offline\page.tsx:80:            data-testid="inspector-offline-dropzone"
+web\app\inspector\offline\page.tsx:93:                document.getElementById("inspector-offline-input")?.click();
+web\app\inspector\offline\page.tsx:97:              document.getElementById("inspector-offline-input")?.click()
+web\app\inspector\offline\page.tsx:108:            id="inspector-offline-input"
+web\app\inspector\offline\page.tsx:109:            data-testid="inspector-offline-file-input"
+web\app\inspector\offline\page.tsx:117:              data-testid="inspector-offline-error"
+web\app\inspector\[runId]\inspector_view.tsx:1:// I-cd-013a (GH#609) — Inspector view (client component, Tabs structure).
+web\app\inspector\[runId]\inspector_view.tsx:5:import { BundleHeader } from "@/components/inspector/bundle_header";
+web\app\inspector\[runId]\inspector_view.tsx:6:import { EvidencePoolTable } from "@/components/inspector/evidence_pool_table";
+web\app\inspector\[runId]\inspector_view.tsx:7:import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
+web\app\inspector\[runId]\inspector_view.tsx:8:import { HashChainPanel } from "@/components/inspector/hash_chain_panel";
+web\app\inspector\[runId]\inspector_view.tsx:9:import { MetadataPanel } from "@/components/inspector/metadata_panel";
+web\app\inspector\[runId]\inspector_view.tsx:10:import { ReasoningTraceTimeline } from "@/components/inspector/reasoning_trace_timeline";
+web\app\inspector\[runId]\inspector_view.tsx:11:import { ScopeDecisionCard } from "@/components/inspector/scope_decision_card";
+web\app\inspector\[runId]\inspector_view.tsx:12:import { SourcesPanel } from "@/components/inspector/sources_panel";
+web\app\inspector\[runId]\inspector_view.tsx:13:import { VerifiedReportSections } from "@/components/inspector/verified_report_sections";
+web\app\inspector\[runId]\inspector_view.tsx:14:import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+web\app\inspector\[runId]\inspector_view.tsx:16:interface InspectorViewProps {
+web\app\inspector\[runId]\inspector_view.tsx:21:export function InspectorView({
+web\app\inspector\[runId]\inspector_view.tsx:24:}: InspectorViewProps) {
+web\app\inspector\[runId]\inspector_view.tsx:28:      data-testid="inspector-view"
+web\app\inspector\[runId]\page.tsx:1:// I-cd-013a (GH#609) — gold route: /inspector/[runId].
+web\app\inspector\[runId]\page.tsx:5:// `InspectorView`. Unknown runIds get the bundle-pending CTA (the page
+web\app\inspector\[runId]\page.tsx:8:// Real-bundle backend wiring lands at I-B-08 (Seq 20); offline fallback
+web\app\inspector\[runId]\page.tsx:12:import { BundlePendingCta } from "@/components/inspector/bundle_pending_cta";
+web\app\inspector\[runId]\page.tsx:13:import { loadBundle } from "@/lib/inspector_bundle_loader";
+web\app\inspector\[runId]\page.tsx:16:import { InspectorView } from "./inspector_view";
+web\app\inspector\[runId]\page.tsx:18:interface InspectorPageProps {
+web\app\inspector\[runId]\page.tsx:22:export default async function InspectorPage({ params }: InspectorPageProps) {
+web\app\inspector\[runId]\page.tsx:35:    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
+web\app\runs\[runId]\page.tsx:174:              render={<Link href={`/inspector/${runId}`} />}
+web\app\runs\[runId]\page.tsx:176:              Open Inspector
+web\app\runs\[runId]\graph\page.tsx:57:            render={<Link href={`/inspector/${runId}`} />}
+web\app\runs\[runId]\graph\page.tsx:59:            Back to Inspector
+web\app\runs\[runId]\graph\page.tsx:106:  const inspectorHref = (id: string) =>
+web\app\runs\[runId]\graph\page.tsx:107:    `/inspector/${runId}?${new URLSearchParams({ focused_node: id }).toString()}`;
+web\app\runs\[runId]\graph\page.tsx:130:              router.push(inspectorHref(state.selected_node_id));
+web\app\runs\[runId]\graph\page.tsx:133:          Open Inspector
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:9: * Inspector" button that fires the router push.
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:13: * Enter=open Inspector, Esc=clear selection, `/`=focus search.
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:80:  const inspectorHref = (id: string) =>
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:81:    `/inspector/${runId}?${new URLSearchParams({ focused_node: id }).toString()}`;
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:94:    // Enter opens Inspector on the SELECTED node (Codex diff iter-1 P1 fix:
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:98:      router.push(inspectorHref(state.selected_node_id));
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:164:                render={<Link href={inspectorHref(n.data.id)} />}
+web\app\runs\[runId]\graph\components\claim_graph.tsx:87:  // (page-level "Open Inspector" button now owns Inspector routing).
+
+ succeeded in 852ms:
+
+[32;1mFullName                                               [0m[32;1m Length[0m
+[32;1m--------                                               [0m [32;1m------[0m
+C:\POLARIS\web\app\inspector\[runId]                    
+C:\POLARIS\web\app\inspector\offline                    
+C:\POLARIS\web\app\inspector\offline\page.tsx           4513
+C:\POLARIS\web\app\inspector\[runId]\inspector_view.tsx 3027
+C:\POLARIS\web\app\inspector\[runId]\page.tsx           1520
+
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/tests/e2e/inspector_offline_fallback.spec.ts:78: CI lint fails on the new spec because inline require('node:fs') violates @typescript-eslint/no-require-imports. `npm run lint` exits 1, so web_ci cannot pass."
+  - "web/lib/inspector_bundle_client_loader.ts:113-126: gzip overflow detection does not actually abort pako inflation. onData returns after MAX_DECOMPRESSED_BYTES, but inflator.push(compressed, true) continues synchronously through the rest of the decompressed stream, so a gzip bomb can still hang the browser/CI path even though retained output is capped."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Replace the spec's inline require with a static fs import so lint passes."
+  - "Make decompression abort immediately on overflow, e.g. throw/catch from onData or otherwise stop pako instead of only ignoring later chunks."
+```
+tokens used
+62,695
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/tests/e2e/inspector_offline_fallback.spec.ts:78: CI lint fails on the new spec because inline require('node:fs') violates @typescript-eslint/no-require-imports. `npm run lint` exits 1, so web_ci cannot pass."
+  - "web/lib/inspector_bundle_client_loader.ts:113-126: gzip overflow detection does not actually abort pako inflation. onData returns after MAX_DECOMPRESSED_BYTES, but inflator.push(compressed, true) continues synchronously through the rest of the decompressed stream, so a gzip bomb can still hang the browser/CI path even though retained output is capped."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Replace the spec's inline require with a static fs import so lint passes."
+  - "Make decompression abort immediately on overflow, e.g. throw/catch from onData or otherwise stop pako instead of only ignoring later chunks."
+```
