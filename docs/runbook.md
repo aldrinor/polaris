@@ -400,6 +400,6 @@ On FAIL: structured stderr error + non-zero exit (see exit codes in the script d
 - **Lock-verification assertions deferred to I-cd-016b** (operator-supervised real run after I-cd-016c fixes the audit bridge model fallback). This harness asserts only success + verified content + bundle conformance.
 - **GPG preflight is a stub** until I-cd-016d (#676) ships a real signer-health endpoint. For now, operator manually runs `scripts/v6_preflight.py` to verify the secret key is in the keyring.
 
-### Closes #626
+### Does NOT close #626
 
 This harness alone does NOT close #626. The acceptance criterion is "real question → verified report end-to-end on OpenRouter" — that artifact is produced at **I-cd-016b (#674)** under operator supervision.

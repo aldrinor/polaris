@@ -63,8 +63,12 @@ from polaris_graph.audit_bundle.conformance import (  # noqa: E402
 def _env(name: str, default: str | None = None) -> str:
     val = os.environ.get(name, default)
     if val is None or val == "":
+        # Codex diff iter-2 P2: missing smoke creds is auth-preflight, not
+        # unexpected error. Use exit 11 (AUTH_FAILED) to match the structured
+        # exit-code scheme documented in the module docstring.
         print(f"FAIL: env var {name} is required", file=sys.stderr)
-        sys.exit(99)
+        print("RESULT: FAIL")
+        sys.exit(11)
     return val
 
 
@@ -250,11 +254,19 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"FAIL: bundle contains non-file/dir member {member.name!r}", file=sys.stderr)
                     print("RESULT: FAIL")
                     return 16
-                rel = member.name.lstrip("/")
-                if "\\" in rel or (len(rel) >= 2 and rel[1] == ":") or rel.startswith("//"):
+                # Codex diff iter-2 P2: detect absolute / UNC / drive-qualified
+                # BEFORE lstrip (so we reject them outright rather than normalize).
+                raw = member.name
+                if (
+                    raw.startswith("/")
+                    or "\\" in raw
+                    or (len(raw) >= 2 and raw[1] == ":")
+                    or raw.startswith("//")
+                ):
                     print(f"FAIL: bundle contains unsafe path {member.name!r}", file=sys.stderr)
                     print("RESULT: FAIL")
                     return 16
+                rel = raw
                 parts = rel.split("/", 1)
                 if len(parts) == 2 and parts[1]:
                     rel = parts[1]
