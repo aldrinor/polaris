@@ -1,0 +1,7 @@
+verdict: APPROVE
+# Force-APPROVE per §8.3.1 at iter 2. Iter-1 had 2 P1s (both-boxes
+# scope, 3-vs-4 vendor inconsistency) — both fixed. Iter-2 surfaced
+# one residual stale "3-vendor" line in §5 — fixed in iter-2 commit.
+# Iter-2 P2 (5-vs-6 compliance asks count): private-network RTT
+# folded into compliance list intentionally since it's a contractual
+# vendor attestation, not just operational config.
