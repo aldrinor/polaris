@@ -19,19 +19,19 @@ KNOWN LIMITATIONS (do NOT remove without addressing the underlying issues):
   - GPG signer preflight is a STUB (GET /transparency just echoes the env);
     real preflight at I-cd-016d (#676). Operator confirms via scripts/v6_preflight.py manually.
 
-EXIT CODES (structured):
-  0          PASS
+EXIT CODES (11 structured codes: PASS + 10 domain failures + 1 uncaught):
+  0   PASS
   10  MISSING_SIGNER     /transparency.signing_key_fingerprint empty
-  11  AUTH_FAILED        /auth/login non-200 or no token returned
+  11  AUTH_FAILED        /auth/login non-200 or no token (also missing creds env)
   12  RUN_START_FAILED   POST /runs non-200
-  13  TIMEOUT            SSE wallclock cap reached; cancel attempted
+  13  TIMEOUT            SSE wallclock cap reached / degraded status / SSE HTTPError; cancel attempted
   14  RUN_CANCELED       lifecycle_status=='cancelled' after wait
-  15  POLL_TIMEOUT       lifecycle_status not 'completed' after 30x2s post run_complete
-  16  BUNDLE_FETCH_FAILED  GET /bundle.tar.gz non-200
-  17  CONFORMANCE_FAILED   check_bundle_conformance.valid==False
+  15  POLL_TIMEOUT       lifecycle not 'completed'+pipeline not 'success' after 30x2s post run_complete
+  16  BUNDLE_FETCH_FAILED  GET /bundle.tar.gz non-200 or unsafe path in tar
+  17  CONFORMANCE_FAILED   check_bundle_conformance.valid==False or verified_report.json unparseable
   18  VERDICT_NOT_SUCCESS  verified_report.pipeline_verdict != 'success'
   19  NO_VERIFIED_SECTIONS no sections with >=1 verifier_pass=true sentence
-  99  UNEXPECTED_ERROR    uncaught exception
+  99  UNEXPECTED_ERROR    uncaught exception (KeyboardInterrupt etc.)
 
 Per Codex brief iter-3 APPROVE 2026-05-20 (Codex caveats honored: PR scope tight;
 GPG + OpenRouter spend operator-only; SSE via httpx; race-handling via lifecycle poll).

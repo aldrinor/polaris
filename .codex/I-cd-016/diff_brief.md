@@ -4,11 +4,17 @@ HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 
 Brief APPROVE'd at iter 3/5. 3 files / +379 LOC. Path-A split per Codex scope-consult 2026-05-20.
 
-## §A — Diff summary
+## §A — Canonical diff summary (excludes .codex/ + outputs/audits/ per-issue convention)
 
+The reviewable canonical diff contains:
 - 1 NEW operator-runs harness (`scripts/live_run_smoke.py`).
 - 1 docs section appended (`docs/runbook.md` "Live-run smoke").
-- 1 Phase-N-PARTIAL-honest manifest (`outputs/audits/I-cd-016/harness_ready.md`).
+- 1 trajectory log append (`state/polaris_restart/iteration_trajectory.md`).
+- iter-1+iter-2 fold-in commits: `template_id` → `template`, SSE degraded-status handling, cancel-on-SSE-error, tarfile path-traversal hardening pre-lstrip detection, runbook STATIC_ACCOUNTS_PATH default correction, _env() exit code, "Does NOT close #626" heading.
+
+Out-of-canonical-diff (audit substrate; reviewed separately):
+- `outputs/audits/I-cd-016/harness_ready.md` (Phase-N-PARTIAL-honest manifest).
+- `.codex/I-cd-016/` brief + verdict files.
 
 ## §B — Acceptance check
 
