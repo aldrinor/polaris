@@ -99,6 +99,52 @@ async function _extractTarBytes(
   });
 }
 
+function _streamingUngzip(
+  compressed: Uint8Array,
+): Uint8Array | BundleClientLoaderError {
+  // pako.Inflate emits chunks via an onData callback; we accumulate up to
+  // MAX_DECOMPRESSED_BYTES then bail. Reference:
+  // https://github.com/nodeca/pako#inflate-on-the-fly
+  const inflator = new pako.Inflate({ raw: false });
+  let total = 0;
+  const chunks: Uint8Array[] = [];
+  let abortedReason: string | null = null;
+
+  inflator.onData = (chunk: Uint8Array): void => {
+    if (abortedReason !== null) return;
+    total += chunk.length;
+    if (total > MAX_DECOMPRESSED_BYTES) {
+      abortedReason = `Decompressed bytes ${total} exceeded ${MAX_DECOMPRESSED_BYTES} cap (gzip-bomb guard).`;
+      return;
+    }
+    chunks.push(chunk);
+  };
+  inflator.onEnd = (_status: number): void => {
+    /* status handled via err/msg fields below */
+  };
+
+  inflator.push(compressed, true);
+
+  if (abortedReason !== null) {
+    return new BundleClientLoaderError("decompressed_too_large", abortedReason);
+  }
+  if (inflator.err) {
+    return new BundleClientLoaderError(
+      "ungzip_failed",
+      `Failed to gunzip bundle: ${inflator.msg || "pako error " + inflator.err}`,
+    );
+  }
+
+  // Concatenate chunks into one Uint8Array.
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.length;
+  }
+  return out;
+}
+
 async function _sha256Hex(bytes: Uint8Array): Promise<string> {
   // Slice into a fresh ArrayBuffer (not SharedArrayBuffer) for browser-safe
   // BufferSource typing on crypto.subtle.digest.
@@ -149,20 +195,13 @@ export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
     );
   }
   const arrayBuffer = await file.arrayBuffer();
-  let tarBytes: Uint8Array;
-  try {
-    tarBytes = pako.ungzip(new Uint8Array(arrayBuffer));
-  } catch (exc) {
-    throw new BundleClientLoaderError(
-      "ungzip_failed",
-      `Failed to gunzip bundle: ${(exc as Error).message}`,
-    );
-  }
-  if (tarBytes.length > MAX_DECOMPRESSED_BYTES) {
-    throw new BundleClientLoaderError(
-      "decompressed_too_large",
-      `Decompressed tar is ${tarBytes.length} bytes, exceeds ${MAX_DECOMPRESSED_BYTES} byte limit (gzip-bomb guard).`,
-    );
+  // Codex iter-2 P1.1 fix: streaming inflate via pako.Inflate, aborting as
+  // soon as cumulative decompressed bytes exceed MAX_DECOMPRESSED_BYTES.
+  // The previous one-shot pako.ungzip() materialized the full bomb before
+  // the size guard ran.
+  const tarBytes = _streamingUngzip(new Uint8Array(arrayBuffer));
+  if (tarBytes instanceof BundleClientLoaderError) {
+    throw tarBytes;
   }
   const files = await _extractTarBytes(tarBytes);
   const manifestFile = _findFile(files, "manifest.yaml");
