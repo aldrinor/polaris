@@ -32,7 +32,8 @@ test.describe("Visual baselines — research dashboard", () => {
   });
 });
 
-test.describe("Visual baselines — Inspector golden_clinical_001", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("Visual baselines — Inspector golden_clinical_001", () => {
   test("Executive summary tab (default)", async ({ page }) => {
     await page.goto("/inspector/golden_clinical_001", {
       waitUntil: "networkidle",
@@ -59,7 +60,8 @@ test.describe("Visual baselines — Inspector golden_clinical_001", () => {
   });
 });
 
-test.describe("Visual baselines — Inspector error state", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("Visual baselines — Inspector error state", () => {
   test("/inspector/<bad-runid> error banner", async ({ page }) => {
     await page.goto("/inspector/does_not_exist_runid_404", {
       waitUntil: "networkidle",

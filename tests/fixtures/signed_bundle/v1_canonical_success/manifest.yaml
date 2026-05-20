@@ -1,5 +1,5 @@
 bundle_created_at_utc: '2026-05-19T00:00:00Z'
-bundle_id: bundle_v1_canonical_0001
+bundle_id: bundle_v1_canonical_0001_success
 bundle_version: '1.0'
 decision_id: decision_v1_canonical_0001
 files:
@@ -13,12 +13,16 @@ files:
   size_bytes: 1138
 - content_type: verified_report
   path: verified_report.json
-  sha256: 89d9545e6c642c422a6d469faf24670c1fd4745ec5dc553de4f6c3fb1a0110d4
-  size_bytes: 543
+  sha256: 813970c56041eeab246cb697fb49b75ccab905d76f8ee0c5610576e35f183111
+  size_bytes: 2458
 - content_type: metadata
   path: metadata.json
   sha256: 69b94105be13490815dbd18d8c3dc02485c2e8c68b123f12f95f13001f7f3fde
   size_bytes: 211
+- content_type: metadata
+  path: REVIEWER_README.md
+  sha256: f440f60cda8861400cfa4b572c7784def6832987756e2066cf24158df96825ee
+  size_bytes: 336
 - content_type: reasoning_trace
   path: reasoning_trace.jsonl
   sha256: 815069307891201bc1a06324e961fda0cdf81143a210939975f007705afba2d0
@@ -30,4 +34,4 @@ files:
 generator_model: deepseek/deepseek-v4-pro
 polaris_version: 1.0.0
 pool_id: pool_v1_canonical_0001
-report_id: report_v1_canonical_0001
+report_id: report_v1_canonical_0001_success

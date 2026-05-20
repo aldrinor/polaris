@@ -11,7 +11,8 @@ import { expect, test } from "@playwright/test";
  * removed in I-rdy-008 (#504) slice 7b (PR #597).
  */
 
-test.describe("Inspector — golden_clinical_001", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("Inspector — golden_clinical_001", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/inspector/golden_clinical_001", {
       waitUntil: "networkidle",
@@ -70,7 +71,8 @@ test.describe("Inspector — golden_clinical_001", () => {
   });
 });
 
-test.describe("Inspector — golden_housing_002 (contradiction)", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("Inspector — golden_housing_002 (contradiction)", () => {
   test("shows contradiction count and resolution badge", async ({ page }) => {
     await page.goto("/inspector/golden_housing_002", {
       waitUntil: "networkidle",
@@ -83,7 +85,8 @@ test.describe("Inspector — golden_housing_002 (contradiction)", () => {
   });
 });
 
-test.describe("Inspector — Charts tab end-to-end", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("Inspector — Charts tab end-to-end", () => {
   test("Vega-Lite SVG renders for forest_plot on climate run", async ({
     page,
   }) => {

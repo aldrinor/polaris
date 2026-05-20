@@ -63,7 +63,8 @@ test.describe("WCAG-AA — research dashboard", () => {
   });
 });
 
-test.describe("WCAG-AA — Inspector golden_clinical_001", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("WCAG-AA — Inspector golden_clinical_001", () => {
   test("Executive summary tab (default) is WCAG-AA clean", async ({ page }) => {
     await page.goto("/inspector/golden_clinical_001", {
       waitUntil: "networkidle",
@@ -95,7 +96,9 @@ test.describe("WCAG-AA — Inspector golden_clinical_001", () => {
   });
 });
 
-test.describe("WCAG-AA — Inspector golden_housing_002 (contradictions)", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe
+  .skip("WCAG-AA — Inspector golden_housing_002 (contradictions)", () => {
   test("Contradictions tab is WCAG-AA clean", async ({ page }) => {
     await page.goto("/inspector/golden_housing_002", {
       waitUntil: "networkidle",
@@ -139,7 +142,9 @@ test.describe("WCAG-AA — dashboard upload list with files", () => {
   });
 });
 
-test.describe("WCAG-AA — Inspector verified-sentence with drop_reason", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe
+  .skip("WCAG-AA — Inspector verified-sentence with drop_reason", () => {
   test("Verified sentences tab with a Dropped sentence is WCAG-AA clean", async ({
     page,
   }) => {
@@ -205,7 +210,8 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => 
     }
   });
 
-  test("Inspector golden_clinical_001 — all clickable targets ≥24x24", async ({
+  // I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+  test.skip("Inspector golden_clinical_001 — all clickable targets ≥24x24", async ({
     page,
   }) => {
     await page.goto("/inspector/golden_clinical_001", {
@@ -275,7 +281,8 @@ test.describe("WCAG 2.1.1 keyboard sweep — template radiogroup operable", () =
   });
 });
 
-test.describe("WCAG-AA — Inspector error states", () => {
+// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
+test.describe.skip("WCAG-AA — Inspector error states", () => {
   test("Inspector destructive error banner (invalid runId) is WCAG-AA clean", async ({
     page,
   }) => {
