@@ -403,3 +403,18 @@ On FAIL: structured stderr error + non-zero exit (see exit codes in the script d
 ### Does NOT close #626
 
 This harness alone does NOT close #626. The acceptance criterion is "real question → verified report end-to-end on OpenRouter" — that artifact is produced at **I-cd-016b (#674)** under operator supervision.
+
+## Run bundle export — two endpoints
+
+Per I-cd-020 (#630) Codex scope-consult 2026-05-20 Option D:
+
+| Endpoint | Returns | Real-run support? | Schema |
+|---|---|---|---|
+| `GET /runs/{run_id}/bundle.tar.gz` | Signed multi-file tar.gz | YES (via I-arch-001d slice-chain) | **BundleManifest v1.0** (I-A-02b frozen — I-cd-012) |
+| `GET /runs/{run_id}/bundle` (JSON) | `EvidenceContract` v1.0 JSON | Golden fixtures ONLY | EvidenceContract v1.0 |
+
+**Inspector frontend** (Seq 21 / #631) consumes `bundle.tar.gz` per `web/lib/inspector_bundle_loader.ts`.
+
+**Why no JSON-EvidenceContract for real runs:** pipeline-A's `evidence_pool.json` does not record span char-offsets, and `verification_details.json` does not record per-sentence text + provenance tokens. Synthesizing those would fabricate provenance (LAW II + CLAUDE.md §-1.1 violation). Pipeline-A capability extension to write the missing data is tracked in **I-cd-020-followup (#680)**.
+
+Real-run UUIDs hitting `GET /runs/{run_id}/bundle` receive an enriched 404 that points to the tar.gz path + the #680 follow-up.
