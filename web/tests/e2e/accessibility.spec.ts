@@ -298,7 +298,9 @@ test.describe("WCAG-AA — Run-detail error states", () => {
     await page.goto("/runs/does_not_exist_runid_404", {
       waitUntil: "networkidle",
     });
-    await expect(page.getByText(/POLARIS backend returned 404/i)).toBeVisible({
+    // I-cd-025 (#615) G4 fix: error is now mapped to friendly copy
+    // instead of raw "POLARIS backend returned 404".
+    await expect(page.getByText(/This run was not found/i)).toBeVisible({
       timeout: 8_000,
     });
     await expectNoA11yViolations(page);
