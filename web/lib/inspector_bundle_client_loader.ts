@@ -135,10 +135,7 @@ function _streamingUngzip(
     inflator.push(compressed, true);
   } catch (exc) {
     if (exc instanceof _GzipBombAbort) {
-      return new BundleClientLoaderError(
-        "decompressed_too_large",
-        exc.message,
-      );
+      return new BundleClientLoaderError("decompressed_too_large", exc.message);
     }
     return new BundleClientLoaderError(
       "ungzip_failed",
