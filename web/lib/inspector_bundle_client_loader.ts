@@ -99,23 +99,31 @@ async function _extractTarBytes(
   });
 }
 
+class _GzipBombAbort extends Error {
+  readonly cap: number;
+  constructor(cap: number) {
+    super(`Decompressed bytes exceeded ${cap} cap (gzip-bomb guard).`);
+    this.cap = cap;
+  }
+}
+
 function _streamingUngzip(
   compressed: Uint8Array,
 ): Uint8Array | BundleClientLoaderError {
   // pako.Inflate emits chunks via an onData callback; we accumulate up to
-  // MAX_DECOMPRESSED_BYTES then bail. Reference:
-  // https://github.com/nodeca/pako#inflate-on-the-fly
+  // MAX_DECOMPRESSED_BYTES then ABORT (Codex iter-3 P1 fix: previously
+  // onData just stopped collecting but inflator.push continued processing
+  // the rest of the stream — bomb could still hang the thread).
+  // Throwing from onData propagates out of inflator.push so we stop pako
+  // from continuing to decompress. The throw is caught locally.
   const inflator = new pako.Inflate({ raw: false });
   let total = 0;
   const chunks: Uint8Array[] = [];
-  let abortedReason: string | null = null;
 
   inflator.onData = (chunk: Uint8Array): void => {
-    if (abortedReason !== null) return;
     total += chunk.length;
     if (total > MAX_DECOMPRESSED_BYTES) {
-      abortedReason = `Decompressed bytes ${total} exceeded ${MAX_DECOMPRESSED_BYTES} cap (gzip-bomb guard).`;
-      return;
+      throw new _GzipBombAbort(MAX_DECOMPRESSED_BYTES);
     }
     chunks.push(chunk);
   };
@@ -123,11 +131,21 @@ function _streamingUngzip(
     /* status handled via err/msg fields below */
   };
 
-  inflator.push(compressed, true);
-
-  if (abortedReason !== null) {
-    return new BundleClientLoaderError("decompressed_too_large", abortedReason);
+  try {
+    inflator.push(compressed, true);
+  } catch (exc) {
+    if (exc instanceof _GzipBombAbort) {
+      return new BundleClientLoaderError(
+        "decompressed_too_large",
+        exc.message,
+      );
+    }
+    return new BundleClientLoaderError(
+      "ungzip_failed",
+      `Failed to gunzip bundle: ${(exc as Error).message}`,
+    );
   }
+
   if (inflator.err) {
     return new BundleClientLoaderError(
       "ungzip_failed",

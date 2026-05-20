@@ -5,7 +5,7 @@
 // at test-setup time and feeds it to the file input.
 
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { expect, test } from "@playwright/test";
@@ -75,7 +75,7 @@ test("Offline Inspector rejects a malformed file with a visible error", async ({
   // Build a junk file in temp; setInputFiles accepts a path AND a payload.
   const junkPath = path.join(OUT_DIR, "garbage.tar.gz");
   if (!existsSync(junkPath)) {
-    require("node:fs").writeFileSync(junkPath, "not gzip");
+    writeFileSync(junkPath, "not gzip");
   }
 
   await page
