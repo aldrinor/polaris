@@ -385,19 +385,36 @@ def mark_aborted(
         conn.close()
 
 
-def mark_failed(run_id: str, error: str, *, path: str | None = None) -> None:
+def mark_failed(
+    run_id: str,
+    error: str,
+    *,
+    path: str | None = None,
+    uploaded_documents_used: int | None = None,
+    uploaded_documents_blocked: int | None = None,
+) -> None:
     """Operational failure (exception, missing manifest, unknown status, etc).
 
     Distinct from mark_aborted: failures are unplanned (exception or invariant
     violation); aborts are planned (pipeline_status='abort_*' written by
     pipeline-A at a gate).
+
+    I-cd-018 (#628): optional `uploaded_documents_used` +
+    `uploaded_documents_blocked` flow into `error_json` so the error-path
+    observability mirrors the success-path INFO log (actors.py:146-151).
+    Keys are present in error_json only when caller passes them.
     """
+    error_payload: dict[str, object] = {"error": error}
+    if uploaded_documents_used is not None:
+        error_payload["uploaded_documents_used"] = uploaded_documents_used
+    if uploaded_documents_blocked is not None:
+        error_payload["uploaded_documents_blocked"] = uploaded_documents_blocked
     conn = _connect(path)
     try:
         conn.execute(
             "UPDATE runs SET lifecycle_status='failed', finished_at=?, "
             "pipeline_status='error_unexpected', error_json=? WHERE run_id=?",
-            (_now_iso(), json.dumps({"error": error}, sort_keys=True), run_id),
+            (_now_iso(), json.dumps(error_payload, sort_keys=True), run_id),
         )
         conn.commit()
     finally:
