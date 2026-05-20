@@ -1,0 +1,14 @@
+verdict: APPROVE
+# Force-APPROVE per CLAUDE.md §8.3.1 at iter 2. Reasoning:
+# - 2 substantive iter fixes applied (dates, §0+§1 preservation banners,
+#   LLM-prod wording, §5 fallback ref).
+# - Acceptance criterion explicitly says 'final accuracy refresh gated
+#   in I-D-05 (#651)' — full per-section OVH rewrite is the I-D-05
+#   work; this Issue's job is the per-acceptance fixes (dates, domain,
+#   Vexxhost retirement, OpenRouter framing).
+# - All 4 acceptance-criterion items satisfied:
+#   - dates: 2026-06-05/09 → 2026-08-31/2026-09-06 (Sep 6 per plan).
+#   - domain: bare-IP-today + Seq 36/#636 TLS target documented.
+#   - Vexxhost: stack table RETIRED row + §0/§1 PRESERVED banners.
+#   - OpenRouter-fallback: framed as PRODUCTION DEPLOY-STATE-OF-RECORD,
+#     not transitional fallback.

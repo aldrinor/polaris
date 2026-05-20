@@ -2,26 +2,31 @@
 
 This is the single source of truth for the PM Mark Carney POLARIS demo. Read end-to-end before the meeting; refer back during.
 
-**Demo target window:** 2026-06-05 to 2026-06-09.
+**Demo target window:** 2026-08-31 to 2026-09-06 (per `docs/carney_delivery_plan_v6_2.md` Phase 5 — 18-week plan May 1 → Sep 6).
 
-**Stack (revised 2026-05-13, sovereign pivot per I-carney-008):**
+**Stack (revised 2026-05-20 per current deploy state — see `project_polaris_already_deployed` memory):**
 
 | Layer | Provider | Ownership |
 |---|---|---|
-| Orchestrator hosting | Vexxhost (Montréal) | Canadian-owned |
-| LLM inference (production) | OVH BHS H200 GPU (Beauharnois QC) running DeepSeek V4 Pro + Gemma 4 31B via vLLM | French-owned (not US) |
-| LLM inference (transition) | OpenRouter | US — disclosed in `/transparency` until OVH H200 + GH#199 vLLM client land |
+| Orchestrator hosting | OVH BHS5 Québec VM `polaris-orchestrator` (51.79.90.35) | French-owned (non-US) |
+| LLM inference (production) | OpenRouter (`deepseek/deepseek-v4-pro` generator + `google/gemma-4-31b-it` evaluator per I-cd-009) | US — disclosed in `/transparency`; sovereign GPU lands at the Session-A cluster bring-up (Seq 39 / #644) before the dress rehearsal |
+| LLM inference (sovereign target) | OVH H200 (Beauharnois QC) OR Scaleway/Hetzner EU per operator directive 2026-05-18 (Canada-only GPU was too hard/expensive/slow; EU GPU allowed at demo stage) running DeepSeek V4 Pro + Gemma 4 31B via vLLM | French / EU-owned (non-US) |
 | Live search | Serper (`google.serper.dev`) | US — disclosed exception per operator directive 2026-05-13; search queries carry no confidential content, reports stay sovereign. See `docs/transparency.md` §4. |
 | Bib / DOI / T1 corpus | doi.org + Crossref (UK) + Unpaywall + OpenAlex + arXiv + government endpoints | Mixed; disclosed per layer |
 | DNS | easyDNS or Cira | Canadian |
 | TLS CA | Let's Encrypt ISRG | US 501(c)(3) — public attestation only, no data leaves |
 | **AWS** | ARCHIVED at `infra/aws.archived/` | Was US-owned — fails sovereignty audit |
+| **Vexxhost** | RETIRED (was the 2026-05-13 plan; current deploy is OVH BHS5 per `project_polaris_already_deployed` memory) | Canadian-owned but unused for the current deploy |
 
-See `infra/vexxhost/README.md` for the active deploy path. The §1 section below replaces the original AWS Terraform flow.
+**Domain status (2026-05-20):** the live demo URL today is the bare IP `http://51.79.90.35:3000`. Domain + TLS land at **Seq 36 / I-cd-036 / #636** (Caddy/TLS + production-domain acceptance). The dress rehearsal (Seq 42 / I-D-01 / #647) runs against the domain.
+
+See `state/restart_instructions.md` + the I-A-01 (#606) + I-B-01 (#622) PRs for the current OVH deploy path. The §1 below describes the **original** Vexxhost-targeted flow; preserved for reference but NOT what's live today.
 
 ---
 
-## §0 — Prereqs (1 week before demo, sovereign deploy)
+## §0 — Prereqs (original Vexxhost path) — **PRESERVED FOR REFERENCE — NOT THE ACTIVE PATH**
+
+> **Current production deploy is on OVH BHS5 Québec** (`polaris-orchestrator` 51.79.90.35), NOT Vexxhost. The §0 prereqs below describe the *original* Vexxhost-targeted procurement; preserved for archaeology. **For the live deploy state**, see `state/restart_instructions.md` + I-A-01 (#606). The fresh OVH prereqs list lands at I-D-05 / #651 (final accuracy refresh).
 
 | Item | Owner | Status |
 |---|---|---|
@@ -37,11 +42,13 @@ See `infra/vexxhost/README.md` for the active deploy path. The §1 section below
 | Carney office contact + demo time confirmed | Lead | calendar invite |
 | Fallback laptop ready | Lead | `docker compose -f docker-compose.v6.yml up -d` on laptop |
 
-**During the OVH H200 lead-time (5-10 business days):** the orchestrator runs with `POLARIS_LLM_BACKEND=openrouter` as a transitional fallback (this is the `.env.example` default). `/transparency` surfaces OpenRouter as the active inference backend so reviewers see the US disclosure during the transition. Flip to `POLARIS_LLM_BACKEND=vllm` + restart compose once (a) the OVH H200 is online with a reachable private IP, AND (b) GH#199 I-sov-001 has shipped the vLLM client code. Setting the flag without both prereqs will break generation.
+**Current LLM backend (2026-05-20):** `POLARIS_LLM_BACKEND=openrouter` is the **production deploy-state-of-record** on `polaris-orchestrator`, with `deepseek/deepseek-v4-pro` (generator) + `google/gemma-4-31b-it` (evaluator) per I-cd-009 (#624). The `/transparency` page discloses OpenRouter as the active US-routed inference backend. This is NOT a "transitional fallback" today — it is production. Sovereign GPU bring-up (OVH H200 OR EU per the 2026-05-18 EU-relax) lands at Seq 39 / I-cd-039 / #644 before the dress rehearsal; the flip to `POLARIS_LLM_BACKEND=vllm` happens then (after the sovereign GPU is online + GH#199 vLLM client ships).
 
-## §1 — Deploy day-1 (T-7 before demo, sovereign Vexxhost path)
+## §1 — Deploy day-1 (T-7 before demo, original Vexxhost path) — **PRESERVED FOR REFERENCE — NOT THE ACTIVE PATH**
 
-**Prereqs done in §0:** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, Serper API key obtained, OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
+> **The live demo deploys on OVH BHS5 Québec** (`polaris-orchestrator` 51.79.90.35), not Vexxhost. The Vexxhost flow below is preserved for archaeology + as a fallback if OVH BHS5 capacity changes. **Live deploy steps are in I-A-01 (#606) + `state/restart_instructions.md`.** Downstream sections (§2 smoke, §4 live demo, §5 laptop fallback, §8 teardown) inherit this preservation framing — full per-section rewrite to the current OVH flow is the "final accuracy refresh" deferred to **I-D-05 / #651** per #635 acceptance.
+
+**Prereqs done in §0 (original Vexxhost path):** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, Serper API key obtained, OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
 
 ```bash
 # 0. Resolve the commit to pin LOCALLY (Codex iter-1 P2-3: $(git rev-parse polaris)
