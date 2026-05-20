@@ -102,7 +102,7 @@ function SentenceItem({ sentence }: { sentence: VerifiedSentenceShape }) {
       {sentence.provenance_tokens.length > 0 && (
         <button
           type="button"
-          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex items-center gap-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
           onClick={() => setShowTokens((v) => !v)}
           data-testid="toggle-provenance-tokens"
         >

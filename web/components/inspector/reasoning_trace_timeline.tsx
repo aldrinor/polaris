@@ -96,7 +96,7 @@ function TraceRecordCard({ record }: { record: ReasoningTraceRecord }) {
       </div>
       <button
         type="button"
-        className="focus-visible:ring-ring mt-2 inline-flex items-center gap-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+        className="focus-visible:ring-ring mt-2 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
         onClick={() => setExpanded((v) => !v)}
         data-testid="toggle-trace-content"
       >

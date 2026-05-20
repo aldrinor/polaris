@@ -63,50 +63,56 @@ test.describe("WCAG-AA — research dashboard", () => {
   });
 });
 
-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
-test.describe.skip("WCAG-AA — Inspector golden_clinical_001", () => {
-  test("Executive summary tab (default) is WCAG-AA clean", async ({ page }) => {
-    await page.goto("/inspector/golden_clinical_001", {
+// I-cd-013b (GH#669): replaces 3 legacy /inspector/golden_* AuditIR a11y
+// describes with axe assertions against the new signed-bundle Inspector.
+// New route consumes v1.0 BundleManifest fixtures; the 3 tabs we now cover
+// (Report, Reasoning, Hash chain) are the SHAPE-RELEVANT ones — the legacy
+// "Charts" + "Contradictions" tabs don't exist in the rebuild and have no
+// migration target. The CTA surface for unknown runIds (axe-clean check)
+// preserves the legacy "destructive error banner" test intent.
+test.describe("WCAG-AA — Inspector (signed-bundle, post-I-cd-013a)", () => {
+  test("v1-canonical-success Report tab (default) is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
       waitUntil: "networkidle",
     });
     await expectNoA11yViolations(page);
   });
 
-  test("Verified sentences tab is WCAG-AA clean", async ({ page }) => {
-    await page.goto("/inspector/golden_clinical_001", {
+  test("v1-canonical-success Reasoning tab is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
       waitUntil: "networkidle",
     });
-    await page
-      .getByRole("button", { name: /Verified sentences/ })
-      .first()
-      .click();
+    await page.getByRole("tab", { name: /^reasoning$/i }).click();
     await expectNoA11yViolations(page);
   });
 
-  test("Charts tab is WCAG-AA clean", async ({ page }) => {
-    await page.goto("/inspector/golden_climate_005", {
+  test("v1-canonical-success Hash chain tab is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
       waitUntil: "networkidle",
     });
-    await page
-      .getByRole("button", { name: /^Charts/ })
-      .first()
-      .click();
-    await page.waitForSelector(".polaris-vega-chart svg", { timeout: 10_000 });
+    await page.getByRole("tab", { name: /^hash chain$/i }).click();
     await expectNoA11yViolations(page);
   });
-});
 
-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
-test.describe
-  .skip("WCAG-AA — Inspector golden_housing_002 (contradictions)", () => {
-  test("Contradictions tab is WCAG-AA clean", async ({ page }) => {
-    await page.goto("/inspector/golden_housing_002", {
-      waitUntil: "networkidle",
-    });
-    await page
-      .getByRole("button", { name: /Contradictions/ })
-      .first()
-      .click();
+  test("v1-canonical (abort verdict) Report tab is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical", { waitUntil: "networkidle" });
+    await expectNoA11yViolations(page);
+  });
+
+  test("bundle-pending CTA (unknown runId) is WCAG-AA clean", async ({
+    page,
+  }) => {
+    // Preserves the legacy "/inspector/<bad-runid> destructive error banner"
+    // a11y test intent; the new route renders BundlePendingCta instead.
+    await page.goto("/inspector/does-not-exist", { waitUntil: "networkidle" });
     await expectNoA11yViolations(page);
   });
 });
@@ -142,27 +148,13 @@ test.describe("WCAG-AA — dashboard upload list with files", () => {
   });
 });
 
-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
-test.describe
-  .skip("WCAG-AA — Inspector verified-sentence with drop_reason", () => {
-  test("Verified sentences tab with a Dropped sentence is WCAG-AA clean", async ({
-    page,
-  }) => {
-    // Exercises the inspector/[runId]/page.tsx:315 surface (the
-    // \"Dropped: <reason>\" annotation) which axe never saw before because
-    // no golden fixture populated drop_reason. Cycle-2 audit P1.1
-    // demonstrated this was a real WCAG-AA color-contrast hazard until F-7.
-    await page.goto("/inspector/golden_with_drop_reason", {
-      waitUntil: "networkidle",
-    });
-    await page
-      .getByRole("button", { name: /Verified sentences/ })
-      .first()
-      .click();
-    await expect(page.getByText(/Dropped:/i)).toBeVisible({ timeout: 8_000 });
-    await expectNoA11yViolations(page);
-  });
-});
+// I-cd-013b (GH#669): the legacy `/inspector/golden_with_drop_reason`
+// a11y test exercised a "Dropped: <reason>" annotation that doesn't
+// exist in the new Inspector — verified_sentences with drop_reason will
+// render via verified_report_sections.tsx in a future PR that extends
+// the rendering (currently the toggle hides them by default). Test
+// intent (axe on dropped-sentence-annotation surface) is preserved as
+// a follow-up when that rendering lands.
 
 test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => {
   // axe's target-size rule has loose overlap-detection; cycle-8 P1.1 and
@@ -210,17 +202,18 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => 
     }
   });
 
-  // I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
-  test.skip("Inspector golden_clinical_001 — all clickable targets ≥24x24", async ({
+  // I-cd-013b (GH#669): replaces legacy /inspector/golden_clinical_001
+  // target-size sweep with one against the signed-bundle Inspector
+  // (success fixture, Reasoning + Hash chain tabs activated since those
+  // contain the most clickable surfaces).
+  test("Inspector v1-canonical-success — all clickable targets ≥24x24", async ({
     page,
   }) => {
-    await page.goto("/inspector/golden_clinical_001", {
+    await page.goto("/inspector/v1-canonical-success", {
       waitUntil: "networkidle",
     });
-    await page
-      .getByRole("button", { name: /Verified sentences/ })
-      .first()
-      .click();
+    // Activate the Reasoning tab to surface toggle-trace-content buttons.
+    await page.getByRole("tab", { name: /^reasoning$/i }).click();
     const small = await page.evaluate(() => {
       const results: Array<{
         tag: string;
@@ -228,7 +221,7 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => 
         w: number;
         h: number;
       }> = [];
-      const sel = 'button, label, [role="button"], a[href]';
+      const sel = 'button, label, [role="button"], [role="tab"], a[href]';
       document.querySelectorAll(sel).forEach((el) => {
         if (!(el instanceof HTMLElement)) return;
         const r = el.getBoundingClientRect();
@@ -281,22 +274,13 @@ test.describe("WCAG 2.1.1 keyboard sweep — template radiogroup operable", () =
   });
 });
 
-// I-cd-013a (GH#609): legacy AuditIR Inspector — migrated by I-cd-013b (#669).
-test.describe.skip("WCAG-AA — Inspector error states", () => {
-  test("Inspector destructive error banner (invalid runId) is WCAG-AA clean", async ({
-    page,
-  }) => {
-    await page.goto("/inspector/does_not_exist_runid_404", {
-      waitUntil: "networkidle",
-    });
-    // Error banner pattern (border-only + text-foreground font-medium) —
-    // verify axe doesn't flag the destructive surface.
-    await expect(page.getByText(/POLARIS backend returned 404/i)).toBeVisible({
-      timeout: 8_000,
-    });
-    await expectNoA11yViolations(page);
-  });
-
+// I-cd-013b (GH#669): the legacy /inspector/<bad-runid> destructive-error
+// axe test was MIGRATED into the "WCAG-AA — Inspector (signed-bundle,
+// post-I-cd-013a)" describe above as the bundle-pending CTA axe check.
+// The /runs/<bad-runid> destructive-error test below stays here — it
+// targets the /runs/[runId] route which lands at I-cd-025 and uses a
+// different (legacy) error-banner pattern.
+test.describe("WCAG-AA — Run-detail error states", () => {
   test("Run-detail destructive error banner (invalid runId) is WCAG-AA clean", async ({
     page,
   }) => {

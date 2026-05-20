@@ -144,3 +144,62 @@ test.describe("Inspector route — unknown runId pending CTA", () => {
     await expect(page.getByTestId("inspector-view")).toHaveCount(0);
   });
 });
+
+// I-cd-013b (GH#669): visual regression baselines for the new Inspector.
+// Chromium-win32 only per existing visual.spec.ts convention (the
+// playwright.config.ts testIgnore list excludes inspector_route.spec.ts
+// on Linux when these visual cases are present).
+const SCREENSHOT_OPTIONS = {
+  fullPage: true,
+  animations: "disabled" as const,
+  maxDiffPixelRatio: 0.02,
+};
+
+test.describe("Inspector route — visual baselines (chromium-win32)", () => {
+  test("v1-canonical-success Report tab visual baseline", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "chromium",
+      "Visual gold only authored for chromium-win32; firefox/webkit baselines in a follow-up.",
+    );
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    await expect(page).toHaveScreenshot(
+      "inspector-v1-canonical-success-report.png",
+      {
+        ...SCREENSHOT_OPTIONS,
+        // Mask the bundle ID + decision/pool/report ID strings (vary by fixture)
+        // and the bundle_created_at_utc timestamp.
+        mask: [page.locator('[data-testid="bundle-header"]')],
+      },
+    );
+  });
+
+  test("v1-canonical abort-shape visual baseline", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "chromium",
+      "Visual gold only authored for chromium-win32.",
+    );
+    await page.goto("/inspector/v1-canonical", { waitUntil: "networkidle" });
+    await expect(page).toHaveScreenshot("inspector-v1-canonical-abort.png", {
+      ...SCREENSHOT_OPTIONS,
+      mask: [page.locator('[data-testid="bundle-header"]')],
+    });
+  });
+
+  test("bundle-pending CTA visual baseline", async ({ page }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "chromium",
+      "Visual gold only authored for chromium-win32.",
+    );
+    await page.goto("/inspector/does-not-exist", { waitUntil: "networkidle" });
+    await expect(page).toHaveScreenshot("inspector-bundle-pending-cta.png", {
+      ...SCREENSHOT_OPTIONS,
+      mask: [page.locator('[data-testid="cta-run-id"]')],
+    });
+  });
+});
