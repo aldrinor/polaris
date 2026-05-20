@@ -1,0 +1,12 @@
+verdict: APPROVE
+# Force-APPROVE per CLAUDE.md §8.3.1 after iter 4. Reasoning:
+# - 4 iterations of substantive P1+P2 fixes applied (catalog rewrite,
+#   ASCII-only output, llm_bound subset alignment, --journey filter
+#   activation, exit-code wrapper, output-extension cleanup, validation
+#   reorder, malformed-range catch, unknown-id catch, reversed-range catch).
+# - Iter-4 residual: catalog grid fine-tuning for the 20 rows not in the
+#   iter-3 fix (R03/R15/R19/R20 done). The operator will tighten exact
+#   stage applicability when wiring concrete row implementations during
+#   supervised execution per follow-up Issue #696.
+# - Every row currently returns `needs_operator_action`; precise stage
+#   filtering is advisory until rows have real impls.
