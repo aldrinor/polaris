@@ -1,0 +1,14 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/tests/e2e/inspector.spec.ts:103 is not purely /inspector/*: it also contains two dashboard scope-discovery tests at lines 104 and 114. The 5-file route-hit set is exhaustive, but a full-file skip here is broader than the legacy Inspector quarantine; keep/move those dashboard tests if preserving non-Inspector coverage matters."
+  - "tests/polaris_graph/audit_bundle/test_conformance.py currently collects 20 cases with PYTHONPATH=src; A9 names one added conformance test, so §C's '(22 cases)' count is off unless another case is added."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+# Codex brief review iter 5/5 (CAP) — APPROVE clean.
+# Iter trajectory: 1 RC (2 P1 + 3 P2) -> 2 RC (2 P1 + 3 P2) -> 3 RC (2 P1 + 4 P2) -> 4 RC (1 NEW P1 + 2 P2) -> 5 APPROVE.
+# Final scope: 14 new files + 1 page rewrite + 2 fixture sets + 1 e2e + 3 visual goldens + 5 surgical legacy-test quarantines.
+# Operator-approved scope-split 2026-05-20 (I-cd-013a = this PR; I-cd-013b = legacy migration GH#669).
+# Implementation-time refinement: surgical-not-full-file skip on inspector.spec.ts (preserve dashboard tests at lines 104/114); conformance test count is 21 (20 + 1 success fixture).

@@ -682,3 +682,17 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
 - iter-1 catches: extra="forbid" for v1.0 freeze, reasoning_trace.jsonl filename enforcement, ReasoningTraceRecord 15-field shape alignment, FILE_READ_ERROR structured handling
 - 20/20 conformance tests pass (was 17 + 3 new for the iter-1 fixes)
 - next: push as sotaleung-wec, gh pr create, auto-merge.
+
+## I-cd-013a brief — iter 5 APPROVE (CAP) — 2026-05-20
+
+- doc: `.codex/I-cd-013/brief.md`
+- gate: brief review
+- iter: 5 of 5 (CAP reached cleanly with APPROVE)
+- verdict: APPROVE
+- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 2 (non-blocking)
+- convergence_call: accept_remaining
+- iter trajectory: 1 RC (2 P1 + 3 P2) -> 2 RC (2 P1 + 3 P2) -> 3 RC (2 P1 + 4 P2) -> 4 RC (1 NEW P1 + 2 P2) -> 5 APPROVE
+- scope split 2026-05-20: I-cd-013b (#669) carved out for legacy /inspector/* Playwright migration; this issue (renamed I-cd-013a, GH#609) is Inspector route rebuild only
+- final scope: 14 new files + 1 page rewrite + 2 fixture sets + 1 e2e + 3 visual goldens + 5 surgical legacy-test quarantines
+- implementation-time refinement: surgical-not-full-file skip on inspector.spec.ts; conformance test count is 21 (20 + 1 success fixture)
+- next: implement; substantive ~1000 LOC PR.
