@@ -658,3 +658,15 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
 - convergence_call: accept_remaining
 - 13 files / +78 / -20 / +58 net LOC; well under 200-LOC PR cap.
 - next: push as sotaleung-wec, gh pr create --base polaris, auto-merge.
+
+## I-cd-012 brief — iter 3 APPROVE — 2026-05-19
+
+- doc: `.codex/I-cd-012/brief.md`
+- gate: brief review
+- iter: 3 of 5 (clean convergence)
+- verdict: APPROVE
+- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 0
+- convergence_call: accept_remaining
+- iter trajectory: 1 RC (3 P1 + 2 P2: manifest.yaml.asc + required-content-type + reasoning_trace.jsonl filename + TS handling + cross-ref) -> 2 RC (1 NEW P1 + 2 P2: Windows path safety + js-yaml dep + bump cascade) -> 3 APPROVE
+- final scope: 16 files / +1216 / -2 LOC (17 deliverables; conformance + fixture + tests + TS mirror + path validator hardening + freeze docstrings + npm deps)
+- next: write audit + diff brief; run diff Codex.
