@@ -6,13 +6,16 @@ export const metadata = {
     "Upload documents for grounding. Drag PDFs, MD, TXT, or DOCX (50MB max).",
 };
 
+// I-cd-026 (#616): /upload rebuild — G6 fix. Page no longer renders its
+// own <main>; AppShell (via AppShellGate, I-cd-022) is the single
+// landmark provider. testid preserved on the <section> wrapper.
 export default function UploadPage() {
   return (
-    <main
+    <section
       data-testid="upload-page"
-      className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-10"
+      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
     >
-      <section className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
         <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
           Upload documents
         </h1>
@@ -21,9 +24,9 @@ export default function UploadPage() {
           document so you can ground intake queries against your uploads (50MB
           per file max).
         </p>
-      </section>
+      </div>
 
       <UploadWorkspace />
-    </main>
+    </section>
   );
 }

@@ -1,0 +1,133 @@
+diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
+index 51929142..1f590b10 100644
+--- a/.github/workflows/web_ci.yml
++++ b/.github/workflows/web_ci.yml
+@@ -191,6 +191,13 @@ jobs:
+           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+         run: npx playwright test --project=chromium tests/e2e/runs_runid_g1_g8.spec.ts
+ 
++      # I-cd-026 (#616): /upload route G1-G8 acceptance gates.
++      - name: run_e2e_upload_g1_g8
++        env:
++          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
++          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
++        run: npx playwright test --project=chromium tests/e2e/upload_g1_g8.spec.ts
++
+       # Visual baselines are *-chromium-win32.png (locally captured on Win).
+       # On Linux CI the snapshot file resolves to a different name and will
+       # be missing; skip visual.spec until Linux baselines are added.
+diff --git a/web/app/upload/page.tsx b/web/app/upload/page.tsx
+index e6e38e91..b69d6464 100644
+--- a/web/app/upload/page.tsx
++++ b/web/app/upload/page.tsx
+@@ -6,13 +6,16 @@ export const metadata = {
+     "Upload documents for grounding. Drag PDFs, MD, TXT, or DOCX (50MB max).",
+ };
+ 
++// I-cd-026 (#616): /upload rebuild — G6 fix. Page no longer renders its
++// own <main>; AppShell (via AppShellGate, I-cd-022) is the single
++// landmark provider. testid preserved on the <section> wrapper.
+ export default function UploadPage() {
+   return (
+-    <main
++    <section
+       data-testid="upload-page"
+-      className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-10"
++      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+     >
+-      <section className="flex flex-col gap-2">
++      <div className="flex flex-col gap-2">
+         <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+           Upload documents
+         </h1>
+@@ -21,9 +24,9 @@ export default function UploadPage() {
+           document so you can ground intake queries against your uploads (50MB
+           per file max).
+         </p>
+-      </section>
++      </div>
+ 
+       <UploadWorkspace />
+-    </main>
++    </section>
+   );
+ }
+diff --git a/web/tests/e2e/upload_g1_g8.spec.ts b/web/tests/e2e/upload_g1_g8.spec.ts
+new file mode 100644
+index 00000000..756ba0b3
+--- /dev/null
++++ b/web/tests/e2e/upload_g1_g8.spec.ts
+@@ -0,0 +1,73 @@
++// I-cd-026 (#616): /upload route G1-G8 acceptance gates.
++
++import { expect, test } from "@playwright/test";
++
++const BANNED_DEV_LANGUAGE = [
++  /\bslice\b/i,
++  /\bscaffold\b/i,
++  /\bplaceholder\b/i,
++  /\bphase 0\b/i,
++  /\bphase 1\b/i,
++  /\bphase 2[a-z]?\b/i,
++  /\bF4 plan\b/i,
++  /\bpost[- ]carney\b/i,
++  /\bi-cd-/i,
++];
++
++test("G1 + G6: /upload has exactly one header + one main", async ({ page }) => {
++  await page.goto("/upload");
++  await expect(page.locator("header")).toHaveCount(1);
++  await expect(page.locator("main")).toHaveCount(1);
++});
++
++test("G2: /upload contains no banned dev-language strings (body + titles + aria-labels)", async ({
++  page,
++}) => {
++  await page.goto("/upload");
++  const body_text = (await page.locator("body").textContent()) || "";
++  const title_text =
++    (await page
++      .locator("[title]")
++      .evaluateAll((els: Element[]) =>
++        els.map((el) => el.getAttribute("title") || "").join(" · "),
++      )) || "";
++  const aria_text =
++    (await page
++      .locator("[aria-label]")
++      .evaluateAll((els: Element[]) =>
++        els.map((el) => el.getAttribute("aria-label") || "").join(" · "),
++      )) || "";
++  const all_text = `${body_text} · ${title_text} · ${aria_text}`;
++  for (const banned of BANNED_DEV_LANGUAGE) {
++    expect(all_text).not.toMatch(banned);
++  }
++});
++
++test("G1 nav parity: primary nav visible on /upload", async ({ page }) => {
++  await page.goto("/upload");
++  const nav = page.locator("nav[aria-label='Primary']");
++  await expect(nav).toBeVisible();
++  for (const label of [
++    "Home",
++    "Intake",
++    "Dashboard",
++    "Upload",
++    "Benchmark",
++    "Contracts",
++    "Pin Replay",
++    "Memory",
++  ]) {
++    await expect(nav.getByRole("link", { name: label })).toBeVisible();
++  }
++});
++
++test("G8: /upload renders with zero console errors", async ({ page }) => {
++  const errors: string[] = [];
++  page.on("console", (msg) => {
++    if (msg.type() === "error") errors.push(msg.text());
++  });
++  await page.goto("/upload");
++  await page.waitForLoadState("domcontentloaded");
++  await page.waitForTimeout(1500);
++  expect(errors).toEqual([]);
++});
