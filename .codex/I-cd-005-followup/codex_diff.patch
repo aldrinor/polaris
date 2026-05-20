@@ -1,0 +1,465 @@
+diff --git a/docs/models/evaluator_license_signoff.md b/docs/models/evaluator_license_signoff.md
+index d7885c89..917a1cd7 100644
+--- a/docs/models/evaluator_license_signoff.md
++++ b/docs/models/evaluator_license_signoff.md
+@@ -1,122 +1,124 @@
+-# POLARIS evaluator — license sign-off (I-cd-006, GH#638)
+-
+-**Operator sign-off mode** (this session, AskUserQuestion): "Auto-merge per
+-Codex." Codex APPROVE on the brief + APPROVE on the diff IS the operator's
+-legal acceptance. Brief APPROVE'd iter 2 (`.codex/I-cd-006/`).
+-
+-This doc accepts the licenses below for the **Carney one-shot deployment** as
+-described in §B. The 8 license-grant clauses + 3 deployment dependencies +
+-attribution implementation plan in §B/§C are the operator's recorded
+-sign-off basis.
+-
+-## §A — Deployment shape (the basis for the sign-off)
+-
+-- **Operator (licensee) domicile:** Canada (OVH BHS5 Québec deployment, operator
+-  contact `orchunyin@gmail.com`). The licensee is not EU-domiciled.
+-- **Compute location:** Currently Canada (OVH BHS5). May relocate to EU GPU
+-  per the 2026-05-18 procurement relaxation. Hunyuan eligibility is
+-  CONDITIONAL on this choice (see §B Hunyuan row).
+-- **MAU:** Single Government-of-Canada Office user + the demo + the
+-  Codex-vetted pipeline. Comfortably under any 700M (Llama) or 100M (Hunyuan)
+-  threshold.
+-- **Use case:** Evidence-faithfulness adjudication for a Canadian deep-research
+-  pipeline (policy/research). Not military, not targeting individuals, not
+-  CSAM-related, not weapons-related, not any enumerated AUP prohibition.
+-- **Output use:** Evaluator outputs are RAG-faithfulness verdicts surfaced in
+-  generated reports. They are NOT used to train, distill, or otherwise improve
+-  any other LLM (per Codex iter-2 P2, this clears the Llama "non-Llama LLM
+-  improvement" restriction).
++# POLARIS evaluator — license sign-off (I-cd-005-followup, GH#638 + GH#637)
++
++**Operator sign-off mode** (per I-cd-006 AskUserQuestion, carries through
++this followup): "Auto-merge per Codex." Codex APPROVE on the followup brief
+++ APPROVE on the diff IS the operator's legal acceptance. Brief APPROVE'd
++iter 2 (`.codex/I-cd-005-followup/`).
++
++**Supersedes I-cd-006 (PR #662, merged `e1fa8e24`)** which signed off the
++Llama 4 Maverick + 8 alternatives shape. The model is now
++`google/gemma-4-31B-it` (Apache 2.0 + Gemma Prohibited Use Policy overlay)
++per I-cd-005-followup. This sign-off accepts the Gemma 4 31B-it license shape
++for the Carney one-shot deployment described in §A.
++
++## §A — Deployment shape (the basis for the sign-off, unchanged)
++
++- **Operator (licensee) domicile:** Canada (OVH BHS5 Québec deployment,
++  operator contact `orchunyin@gmail.com`).
++- **Compute location:** Canada (current) or EU (per the 2026-05-18 GPU
++  procurement relaxation). Gemma 4 31B-it Apache 2.0 has no territorial
++  clause, so both are fine.
++- **MAU:** Single GoC Office user + the demo + the Codex-vetted pipeline.
++  Apache 2.0 has no MAU threshold.
++- **Use case:** Evidence-faithfulness adjudication for a Canadian deep-
++  research pipeline. Not military, not targeting individuals, not CSAM-
++  related, not weapons-related, not any enumerated PUP prohibition.
++- **Output use:** Evaluator outputs are RAG-faithfulness verdicts surfaced
++  in generated reports. NOT used to train, distill, or otherwise improve
++  any other LLM.
+ - **Distribution:** No model-weight redistribution planned. If the Carney
+-  handover bundle ever ships model weights, NOTICE files attach per each
+-  license.
++  handover bundle ever ships model weights, attach Apache 2.0 LICENSE +
++  retain notices.
+ 
+ ## §B — Per-license sign-off
+ 
+-### Primary: `meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8`
++### Primary: `google/gemma-4-31B-it` (BF16) + `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` (community INT4 for vLLM)
+ 
+-License: **Llama 4 Community License** + Llama 4 Acceptable Use Policy.
+-Source: github.com/meta-llama/llama-models/.../llama4/LICENSE + USE_POLICY.md.
++License: **Apache 2.0** (per Codex iter-2 P2 verification:
++`ai.google.dev/gemma/apache_2`, HF model card label, Google license page).
++The operative model license is Apache 2.0; the legacy "Gemma Terms" page is
++deprecated for Gemma 4.
+ 
+-Clauses + Carney clearance:
++**License clauses + Carney clearance:**
+ 
+ | Clause | Clearance |
+ |---|---|
+-| Free for commercial + research use | OK — Carney research use. |
+-| 700M MAU threshold | OK — well under (single GoC Office, demo). |
+-| AUP §1(a) **EU-no-grant to EU-domiciled licensees** | OK — POLARIS operator is Canada-domiciled, not EU-domiciled (this applies to the LICENSEE legal entity, not the compute location; EU GPU hosting per 2026-05-18 relaxation does not change licensee domicile). |
+-| AUP enumerated prohibitions (no military, no targeting individuals, no CSAM, no bio/chem weapons, no safety circumvention) | OK — policy/research use. |
+-| "Built with Llama" prominent attribution on related website/UI/blog/about/product docs | **PENDING IMPLEMENTATION** — see §C. Codex iter-2 P2: must be visible + legible; dependency before first public Llama-powered use. |
+-| NOTICE text on distributing copies of Llama materials | OK — no weight redistribution planned; if handover bundle changes, attach NOTICE. |
+-| Outputs not used to improve non-Llama LLMs | OK — evaluator verdicts are surfaced in reports, not used for training/distillation/model-improvement. |
+-| HF gated access | DEPLOYMENT DEPENDENCY for I-cd-009 — `request access` with full legal name + DOB + full organization. |
++| Apache 2.0 grant: free for any use (commercial, research, redistribution) | OK — Carney research/policy use. |
++| MAU threshold | NONE (vs Llama Community's 700M). |
++| HF gating (`request access`) | NONE (vs Llama 4 / Llama 3.1 gating). Codex iter-2 P2: "no `Request access`/gated text found." |
++| Attribution requirement | Apache-style only: retain copyright/notices, provide LICENSE on redistribution, mark modified files, include NOTICE only if a NOTICE file is present in the redistribution. NO "Built with Gemma" placement requirement (Codex iter-2 P2). |
++| Outputs not used to improve non-Gemma LLMs | Apache 2.0 has no such clause; the Gemma PUP overlay (§B.1 below) also does not restrict output use for non-Gemma LLM improvement. OK. |
++| HF gated access | None (Codex iter-2 P2) — no deployment-dep step required for I-cd-009 wiring. |
+ 
+ **ACCEPTED for Carney deployment.**
+ 
+-### Hard fallback: `meta-llama/Llama-3.1-405B-Instruct`
++### §B.1 — Gemma Prohibited Use Policy (PUP) overlay
+ 
+-License: **Llama 3.1 Community License** + Llama 3.1 AUP.
+-Source: github.com/meta-llama/llama-models/.../llama3_1/LICENSE.
++Per Codex iter-2 P2 (source `ai.google.dev/gemma/prohibited_use_policy`),
++Google publishes a Gemma PUP covering Gemma and its derivatives. It is NOT
++a MAU/gating/branding requirement (the Apache 2.0 license stands as the
++operative grant); it is an acceptable-use overlay. Prohibited use
++categories:
+ 
+-Headline: same 700M MAU + Built-with-Llama + NOTICE + non-Llama-LLM-output-
+-restriction as Llama 4. AUP is the Llama 3.1 version (does NOT carry the
+-Llama 4 multimodal EU-no-grant). HF gated — same `request access` flow as a
+-deployment dependency for I-cd-009.
++| PUP category | Carney clearance |
++|---|---|
++| Rights-infringing (privacy, IP, defamation) | OK — RAG-faithfulness adjudication on cited evidence is fair-use research; no infringement. |
++| Dangerous / illegal / malicious (weapons, malware, exploitation) | OK — policy/research use. |
++| Misleading | OK — evaluator's job is to flag misleading content, not produce it. |
++| Harmful (violence, harassment, sexual content involving minors) | OK — out-of-scope by design. |
++| Sexually explicit | OK — out-of-scope by design. |
+ 
+-**ACCEPTED for Carney deployment.**
++**Gemma PUP cleared for Carney deployment.**
++
++### §C — Runtime quant artifact
++
++The intended 4×H100 runtime artifact is the community INT4 AWQ:
++`ebircak/gemma-4-31B-it-4bit-W4A16-AWQ`. As a third-party redistribution of
++quantized Gemma 4 weights, it is a derivative work under Apache 2.0.
++Apache-style attribution (retain notices, include LICENSE on
++redistribution) applies. I-cd-009 wiring SHOULD verify the artifact's
++NOTICE file (if any) is preserved in the Docker image and runtime
++deployment.
++
++NVIDIA's NVFP4 sibling (`nvidia/Gemma-4-31B-IT-NVFP4`) is Blackwell-only
++and not the 4×H100 target. If a future Blackwell migration adopts it, its
++own NVIDIA-published attribution applies in addition to Apache 2.0.
++
++### §D — Hard fallback (kept from I-cd-005)
+ 
+-### I-cd-011 revisit alternatives
+-
+-| Model | License | Carney clearance |
+-|---|---|---|
+-| `allenai/Llama-3.1-Tulu-3-405B` | **Llama 3.1 Community** (inherits Meta's license; AI2 ImpACT is a separate post-training-data declaration, not the governing model license) | Same Llama 3.1 acceptance as above. ACCEPTED. |
+-| `nvidia/Nemotron-4-340B-Instruct` | NVIDIA Open Model License (2025-12-12) | Commercial + derivatives OK; outputs not claimed by NVIDIA; redistribution requires license copy + retained notices + NOTICE attribution if present; no Carney-failure clause. ACCEPTED. |
+-| `Qwen/Qwen3.5-397B-A17B-FP8` | Apache 2.0 | Most permissive; no MAU; standard attribution. ACCEPTED. |
+-| `MiniMaxAI/MiniMax-M1-80k-hf` | Apache 2.0 | Same. ACCEPTED. |
+-| `zai-org/GLM-4.5` | MIT | Most permissive. ACCEPTED. |
+-| `arcee-ai/Trinity-Large-Thinking` | Apache 2.0 | Most permissive. ACCEPTED. |
+-| `baidu/ERNIE-4.5-VL-424B-A47B-PT` | Apache 2.0 | Most permissive. ACCEPTED. |
+-| `tencent/Tencent-Hunyuan-Large` | Tencent License (worldwide EXCLUDING EU) | **CONDITIONAL.** Only ACCEPTED if Carney compute stays outside the EU AND all licensed acts (use, reproduction, modification, distribution, display, output access) stay outside EU territory. If post-2026-05-18 procurement relocates to EU GPU, Hunyuan is **HARD INELIGIBLE** and must be removed from the I-cd-011 candidate set. Also clears 100M MAU, no-output-to-improve-other-LLM, downstream-restriction-notice, and public-machine-generated-disclosure for the non-EU Carney shape if documented per §C. |
+-
+-## §C — Deployment-step dependencies for I-cd-009
+-
+-I-cd-009 (#624 — `align model/config to V4 Pro + 400B evaluator`) cannot pull
+-weights until these complete:
+-
+-1. **Meta Llama 4 Maverick HF access**: `request access` at
+-   `huggingface.co/meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8` —
+-   requires the operator's full legal name, DOB, and full organization name.
+-2. **Meta Llama 3.1 405B Instruct HF access** (fallback path): same
+-   `request access` with the same identity disclosure.
+-3. **Community INT4 quant repo for the chosen model** (the specific Maverick
+-   or 405B AWQ/GPTQ quant chosen at I-cd-011): separate wrapper-license +
+-   NOTICE check before pulling.
+-
+-## §D — Attribution implementation plan
+-
+-Per Llama 4/3.1 Community License "Built with Llama" requirement, prominent
+-+ visible + legible on related UI/pages, before first public Llama-powered
+-use:
+-
+-1. `docs/transparency.md` (new or appended) — names Llama 4 Maverick (primary)
+-   or Llama 3.1 405B Instruct (fallback) as the evaluator; carries the
+-   verbatim "Built with Llama" sentence.
+-2. **Demo UI footer** — visible "Built with Llama" string on the production
+-   `polarisresearch.ca/` pages. Lands at I-cd-022 (home rebuild) at the
+-   latest; the I-cd-004 AppShell can be extended sooner if a public demo
+-   precedes I-cd-022.
+-3. **NOTICE files** — alongside any redistribution. None planned for the
+-   Carney one-shot; if the handover bundle ships model weights, attach the
+-   relevant NOTICE per Meta + each non-Llama license.
++`meta-llama/Llama-3.1-405B-Instruct` + AWQ/GPTQ-INT4 — accepted under
++Llama 3.1 Community License + Llama 3.1 AUP (per I-cd-005's earlier sign-off
++machinery). The sign-off shape stands: Canada-domiciled licensee, <700M
++MAU, "Built with Llama" required on related UI before first public use,
++HF gated access via Meta `request access`. Only invoked if I-cd-011
++cannot make Gemma 4 31B INT4 work on 4×H100 (unlikely).
+ 
+ ## §E — Sign-off declaration
+ 
+-Per the operator's session AskUserQuestion ("Auto-merge per Codex") and
+-Codex's APPROVE on both the brief (iter 2) and (about to be requested) the
+-diff: the licenses above are **accepted** for the Carney one-shot deployment
+-described in §A. The deployment-step dependencies in §C and the attribution
+-plan in §D are the implementation commitments this acceptance carries.
++Per the operator's I-cd-006 session AskUserQuestion ("Auto-merge per
++Codex") and Codex's APPROVE on the I-cd-005-followup brief (iter 2): the
++**Apache 2.0 + Gemma PUP** licensing of `google/gemma-4-31B-it` (and the
++derivative INT4 AWQ artifact) is **ACCEPTED** for the Carney one-shot
++deployment described in §A. The hard fallback (Llama 3.1 405B + AWQ/GPTQ-
++INT4 under Llama 3.1 Community + AUP) is **ACCEPTED** as the safety-net
++shape.
+ 
+ If the Carney deployment shape changes materially (different operator
+-domicile, different MAU regime, EU GPU hosting affecting Hunyuan eligibility,
+-output use for non-Llama LLM training), this sign-off does NOT extend to the
+-new shape — file a follow-up I-cd-006-followup.
++domicile, different MAU regime, EU GPU hosting affecting any
++territorially-restricted alternative, output use for non-Gemma LLM
++training), this sign-off does NOT extend to the new shape — file a
++follow-up.
++
++## §F — Deployment dependencies for I-cd-009 (config wiring)
++
++Much simpler than the prior Llama 4 Maverick sign-off carried:
++
++1. **No HF gated access** required for `google/gemma-4-31B-it` or the
++   community AWQ artifact `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` — both
++   public. Removes the legal-name/DOB/org gating step that was required
++   for the prior Llama 4 lock.
++2. **Apache 2.0 notice preservation**: the Docker image / runtime
++   deployment should preserve any LICENSE / NOTICE files from the
++   upstream HF artifacts.
++3. **vLLM load command**: `--quantization compressed-tensors` (NOT
++   `--quantization awq`, per Codex iter-2 P2 operational correction).
+diff --git a/docs/models/evaluator_pick.md b/docs/models/evaluator_pick.md
+index d6f4fe3c..e4442f66 100644
+--- a/docs/models/evaluator_pick.md
++++ b/docs/models/evaluator_pick.md
+@@ -1,105 +1,112 @@
+-# POLARIS evaluator model — locked pick (I-cd-005, GH#637)
+-
+-**Decision:** `meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8` is the
+-locked I-cd-005 evaluator pick. Use with a community INT4 quant for 4×H100
+-weight residency. Re-visit at I-cd-011 if no working Llama 4 Maverick INT4
+-quant on 4×H100 can be verified empirically — in that case, fall back to
+-`meta-llama/Llama-3.1-405B-Instruct` (AWQ / GPTQ-INT4, the most-mature
+-INT4-on-H100 path).
+-
+-Codex brief review: iter 1 RC → iter 2 RC → iter 3 RC → **iter 4 APPROVE**
+-(trajectory P1 1→1→1→0; the three iter-RCs were Codex's web-search-driven
+-expansion of the candidate set — Qwen3.5-397B-A17B, then 5 more MoE 400B-class
+-candidates, then Baidu ERNIE-4.5-VL-424B — all folded in before locking).
+-
+-## Why Llama 4 Maverick (primary)
+-
+-- **~400B class** — operator-locked at ~400B (the LARGEST in the class is
+-  MiniMax-M1 at 456B; Maverick at 400B sits squarely within the locked target).
+-- **Meta's current generation** (Llama 4, April 2025) — picking Llama 3.1
+-  405B (July 2024) in May 2026 is the obviously-older choice and was
+-  Codex's iter-2 P1.
+-- **MoE 400B / 17B active** — evaluator scores every sentence in every report,
+-  so per-token throughput matters. 17B active vs Llama 3.1's dense 405B active
+-  is a large efficiency edge.
+-- **Meta-published FP8 checkpoint** — `Llama-4-Maverick-17B-128E-Instruct-FP8`
+-  lowers quant-recipe risk vs starting from BF16 weights and building a
+-  community quant from scratch.
+-- **vLLM / SGLang documented** — confirmed by Codex's iter-2 web verification.
+-- **Two-family** — Meta lineage, distinct from DeepSeek V4 Pro generator.
+-  `openrouter_client.check_family_segregation` passes.
+-- **License acceptable pending I-cd-006** — Llama 4 Community license;
+-  headline terms operator-signed-off at I-cd-006.
+-
+-**The single risk that I-cd-011 must verify before this lock is final:** a
+-community INT4 (AWQ / GPTQ-INT4 / community FP4) quant of Llama 4 Maverick
+-exists and works on 4×H100 via vLLM/SGLang. If no such quant works, the
+-fallback below is the safety net.
+-
+-## Hard fallback (proven-deployable today)
+-
+-`meta-llama/Llama-3.1-405B-Instruct` + AWQ / GPTQ-INT4. The most-mature
+-INT4-on-H100 path in the entire ~400B candidate set; production-deployed for
+-over a year. Strictly older-generation than Maverick, but if Maverick's INT4
+-quant ecosystem proves immature at I-cd-011, this is the safety net that keeps
+-the demo timeline.
+-
+-## Strong alternatives — comparable class, revisit at I-cd-011
+-
+-Any of these may displace the primary at I-cd-011 if it shows a better
+-INT4-on-H100 path AND its license / quality profile is preferred.
+-
+-| HF id | License | Total / active | Note |
+-|---|---|---|---|
+-| `MiniMaxAI/MiniMax-M1-80k-hf` | Apache 2.0 | 456B / 45.9B | **Largest in class.** Strong "compute per token" within the Apache-2.0 MoE set. |
+-| `baidu/ERNIE-4.5-VL-424B-A47B-PT` | Apache 2.0 | 424B / 47B | Vision-language; the `-PT` suffix is **PyTorch format** (not "pre-trained" semantically) — Codex iter-4 P2 confirmed this is a Posttraining/Chat checkpoint, usable as evaluator. Baidu's text-only A47B line tops out at 300B (below class). |
+-| `Qwen/Qwen3.5-397B-A17B-FP8` | Apache 2.0 | 397B / 17B | Cleanest sovereignty story (Alibaba lineage, no US-origin discussion). NVIDIA's NVFP4 sibling checkpoint is Blackwell-only; on 4×H100 use Qwen's FP8 + a community INT4 quant. |
+-| `zai-org/GLM-4.5` | MIT | 355B / 32B | Most permissive license; FP8/BF16 published. |
+-| `arcee-ai/Trinity-Large-Thinking` | Apache 2.0 | 398-400B / 13B | Lowest active params in the MoE set. |
+-| `tencent/Tencent-Hunyuan-Large` | Tencent (custom; **EU territory limitation**, Codex iter-4 P2) | 389B / 52B | Highest active params in the MoE set. Re-verify the EU clause at I-cd-006 license sign-off. |
+-
+-Note on multimodality (Codex iter-4 P2): Maverick and Qwen3.5-397B-A17B are
+-also multimodal artifacts — not unique to ERNIE-4.5-VL. The evaluator role is
+-text-only; the unused multimodal components add weight footprint but are
+-inactive at inference.
+-
+-## Why deployment maturity is weighted over vendor benchmark numbers
+-
+-Codex iter-4 P2 noted: §C.2 of the brief did not rank MoE candidates by proxy
+-benchmarks because **no candidate publishes comparable RAGTruth / FEVER / RAGAS
+-/ TriviaQA-RAG numbers** — every candidate's headline scores are
+-vendor-reported on MMLU-Pro / IFEval / AlpacaEval-2 / Arena-Hard, with no
+-common independent RAG-faithfulness reproduction.
+-
+-Given that, the I-cd-005 lock weights **deployment + INT4-on-H100 quant
+-maturity** above marginal vendor-reported proxy gains from newer Apache/MIT
+-models (Qwen3.5-397B-A17B, GLM-4.5, MiniMax-M1). The conservative pick today
+-is Llama 4 Maverick (Meta-maintained, FP8 checkpoint published, most-deployed
+-of the 2025-2026 MoE 400B-class). Revisit at I-cd-011 if empirical quant
+-verification on 4×H100 changes that calculus.
++# POLARIS evaluator model — locked pick (I-cd-005-followup, GH#637)
++
++**Decision:** **`google/gemma-4-31B-it`** is the locked POLARIS evaluator,
++served via vLLM on Box 2 = 4×H100 using the community INT4 AWQ artifact
++`ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` (load with
++`--quantization compressed-tensors`, NOT `--quantization awq`, per Codex
++iter-2 web verification).
++
++**Supersedes I-cd-005 (PR #661, merged `c5e114e2`)** which locked
++`meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8`. That lock was wrong on
++two counts (both Claude failures):
++
++1. The I-cd-005 brief said "Class: ~400B operator-locked" but never surfaced
++   the specific MODEL as a HARD CONSTRAINT, leaving Codex free to propose
++   any ~400B candidate. Per
++   `feedback_operator_locked_decisions_not_codex_consultable_2026_05_15`,
++   locked decisions go at the TOP as HARD CONSTRAINTS.
++2. Codex iter-3 pivoted to Llama 4 Maverick on "newer + most-deployed 2026
++   MoE 400B" framing. I let it through without weighing the Llama 4
++   Maverick LMArena-tuning quality controversy or the operator's original
++   Gemma 4 reference in `docs/carney_delivery_plan_v6_2.md`. Per
++   `feedback_be_skeptical_of_codex_2026_05_13`, Codex-as-advisor gets
++   filtered through Claude judgment. I didn't.
++
++Operator pushback this session ("Llama 4 is famous for garbage, what's
++wrong here") + locked-in evaluator restatement ("For evaluator, Gemma 4
++400 B, no more discussion on it") triggered this followup. Codex iter-1
++web-verified that Gemma 4 400B is unreleased (top released is 31B dense /
++26B-A4B MoE); operator escalated → Claude judgment picked **31B dense
++over 26B-A4B** for the evaluator role (reasoning below).
++
++## Why Gemma 4 31B dense (primary)
++
++- **Operator-locked, originally-intended model.** The Carney plan v6.2
++  already named Gemma 4 as the evaluator. The I-cd-005 drift to Llama 4
++  Maverick was a Claude error this followup corrects.
++- **Dense beats MoE for LLM-as-judge at comparable total size.** The
++  RAG-faithfulness adjudication is reasoning-bound (read cited span,
++  decide if sentence follows from it), not throughput-bound. Gemma 4 31B
++  dense fires all 31B params per token; Gemma 4 26B-A4B MoE fires only
++  ~4B active per token. For careful judgment chains, more per-token
++  compute = more reliable verdicts.
++- **31B > 26B + 31B-active > 4B-active.** Larger AND more per-token
++  compute. Matches the operator's "the largest" preference applied to
++  Gemma 4's actual released family.
++- **Apache 2.0 license** (Codex iter-2 verified) — cleaner than Llama
++  Community: no MAU threshold, no Llama-style HF `request access` gating,
++  no "Built with Llama" prominence requirement. Apache-style attribution
++  only. The license headline is recorded separately in
++  `evaluator_license_signoff.md`.
++- **Two-family vs DeepSeek V4 Pro:** `check_family_segregation` returns
++  `('deepseek', 'gemma')` — distinct lineages, passes.
++- **Serving + quant path proven:** vLLM has Gemma4-specific parser support
++  (`docs.vllm.ai/projects/recipes/.../Google/Gemma4.html`); community AWQ
++  INT4 artifact `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` loads via
++  `--quantization compressed-tensors`. Raw 4-bit weights ~16 GB; practical
++  recommended VRAM higher (overhead + KV cache) but trivial on
++  4×H100=320GB.
++
++## Runtime artifacts
++
++| Artifact | HF id | Purpose |
++|---|---|---|
++| BF16 instruct weights | `google/gemma-4-31B-it` | Source of truth; vLLM recipe documents TP=2 on 2× A100/H100 |
++| Community INT4 AWQ (vLLM-loadable) | `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` | The intended 4×H100 runtime artifact — load with `--quantization compressed-tensors` |
++| NVIDIA NVFP4 sibling | `nvidia/Gemma-4-31B-IT-NVFP4` | Blackwell-only; noted for any future Blackwell migration; NOT the 4×H100 target |
++
++No Google-published FP8/NVFP4/INT4 official sibling repo exists yet (Codex
++iter-2 P2). The community AWQ above is the operational choice for 4×H100;
++I-cd-011 empirically verifies the load + smoke-test on actual hardware.
++
++## Model-side hard fallback (kept from I-cd-005)
++
++`meta-llama/Llama-3.1-405B-Instruct` + AWQ/GPTQ-INT4 on vLLM — the
++most-mature INT4-on-H100 path in industry. Kept as the safety net iff
++Gemma 4 31B INT4 cannot be made to work on 4×H100 at I-cd-011 (unlikely
++given the 16 GB footprint and vLLM's Gemma4 recipe support — but
++documented for completeness).
++
++## I-cd-011 (FP4 readiness spike, #641) responsibilities
++
++Now substantially simpler than the Maverick-locked I-cd-005 spec:
++1. Smoke-test `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` on vLLM at 4×H100
++   with `--quantization compressed-tensors`.
++2. Verify JSON-schema structured output works for the
++   evaluator-judgment format.
++3. Measure per-second judgment throughput (the evaluator load is
++   sentence-by-sentence; reasonable per-token speed required).
++4. The hard fallback (Llama 3.1 405B + AWQ/GPTQ-INT4 on vLLM) is a
++   secondary smoke-test only if (1) fails.
+ 
+ ## What this lock does NOT do
+ 
+-- **Config wiring** — I-cd-009 (#624, dep I-cd-006) writes the picked model
+-  into `.env` / config.
+-- **License sign-off** — I-cd-006 (#638, operator-gated). I-cd-005 records
+-  license name + headline only.
+-- **FP4 hardware spike** — I-cd-011 (#641, ~$400 GPU). The empirical
+-  verification that a Maverick INT4 quant works on 4×H100 via vLLM/SGLang.
+-- **Engine bakeoff** — I-cd-007 (#639). SGLang vs vLLM choice is engine
+-  layer, not model layer.
++- **Config wiring** — I-cd-009 (#624). The new model id (`google/gemma-4-31B-it`
++  or the AWQ sibling) gets wired into `src/providers/llm_provider.py` +
++  `.env` there.
++- **License sign-off** — `docs/models/evaluator_license_signoff.md` is
++  rewritten in this same PR for the Gemma 4 31B-it Apache 2.0 + Gemma PUP
++  shape. (I-cd-006's "Auto-merge per Codex" sign-off mode carries.)
++- **FP4 hardware spike** — I-cd-011 (#641).
++- **Engine bakeoff** — I-cd-007 (#639) locked vLLM for both boxes; vLLM
++  recipe support for Gemma 4 confirmed by Codex iter-2 P2.
+ 
+ ## Constraints reaffirmed (operator-locked, non-Codex-negotiable)
+ 
+-1. **Class ~400B** — operator-locked, repeated 6+ times.
+-2. **Family non-DeepSeek** — generator is DeepSeek V4 Pro; two-family
+-   segregation enforced by
+-   `src/polaris_graph/llm/openrouter_client.py:check_family_segregation`.
+-3. **Open-weight, self-hosted on EU GPU** — sovereignty rule
+-   (`feedback_sovereignty_threat_model_2026_05_13`).
+-4. **Quality + 4×H100 (320GB) INT4/FP4 weight residency** — "FP4" means
+-   weight-residency-only on H100 (no native FP4 tensor cores; NVFP4 is
+-   Blackwell-only). Runtime ops FP8/BF16.
+-5. **Rank by quality benchmarks; no cost columns**
+-   (`feedback_no_cost_mentions`).
+-6. **License sign-off is a separate operator-gated issue** (I-cd-006).
++1. **Evaluator model = `google/gemma-4-31B-it`** (operator-locked 2026-05-19).
++2. **Family = non-DeepSeek** (Gemma is distinct lineage; `check_family_
++   segregation('deepseek/deepseek-v4-pro', 'google/gemma-4-31b-it')` returns
++   `('deepseek', 'gemma')`).
++3. **Open-weight, self-hosted on EU/Canada GPU.**
++4. **Quality + 4×H100 INT4 weight residency** (~16 GB; massive headroom).
++5. **Engine = vLLM** (I-cd-007 lock).
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 5bef2ecb..459715f5 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -592,4 +592,12 @@ Locked: **vLLM for both boxes** (Box 1 generator DeepSeek V4 Pro on 8×H200; Box
+ - Brief review: 2 iters. iter 1 RC — 1 P1 (SGLang + Maverick + INT4 + 4×H100 not source-verified; iter-1's "SGLang for both" recommendation pivoted to vLLM-primary) + 4 P2 (DeepSeek V4 Pro now has explicit engine support; vLLM V1 has prefix caching and structured_outputs too — tempering SGLang's iter-1 "category" advantages; NVIDIA Dynamo runs vLLM/SGLang/TensorRT-LLM as a wrapper). iter 2 APPROVE — 3 P2 folded (symmetric SGLang-for-Box-2 branch, tightened vLLM V4 Pro contingency trigger, TensorRT-LLM as direct backend). tokens 113,418 + 28,771.
+ - Diff review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining.
+ 
++## I-cd-005-followup (#637+#638) — re-lock evaluator to google/gemma-4-31B-it — 2026-05-19
++
++Supersedes I-cd-005 (PR #661 — Llama 4 Maverick) AND I-cd-006 sign-off (PR #662). Two compounded Claude failures on I-cd-005 corrected: (1) brief didn't surface locked MODEL as HARD CONSTRAINT (only "Class: ~400B"), so Codex was free to propose; (2) Codex iter-3 pivoted to Llama 4 Maverick on "newer MoE" framing and Claude didn't weigh the Llama 4 LMArena-tuning quality controversy or the operator's original Gemma 4 reference. Operator session pushback ("Llama 4 is famous for garbage" + "For evaluator, Gemma 4 400 B, no more discussion") triggered the followup.
++- Brief review: iter 1 RC — 1 P1 (operator-locked "Gemma 4 400B" unreleased per Codex web verification; top released = 31B dense / 26B-A4B MoE; operator-escalated as required by the brief — Codex correctly stayed in operational mode and did NOT propose alternative models). Operator: "which is best as evaluator" → Claude judgment: 31B dense > 26B-A4B (dense beats MoE for LLM-as-judge reasoning at comparable total size; 31B-active > 4B-active). iter 2 APPROVE — 0 P0 / 0 P1, 8 P2 operational verifications all folded into the docs. tokens 204,136 + 192,873.
++
++Locked: `google/gemma-4-31B-it` (Apache 2.0 + Gemma PUP overlay) + community AWQ `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` for vLLM `--quantization compressed-tensors` on 4×H100. Hard fallback retained: Llama 3.1 405B + AWQ/GPTQ-INT4. Two-family vs DeepSeek V4 Pro: passes (`('deepseek', 'gemma')`). I-cd-008 (GPU topology) paused on `bot/I-cd-008` until this merges.
++- Diff review: APPROVE iter 1 — 0 P0 / 0 P1 / 0 P2 (clean). convergence accept_remaining.
++
+ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` in `stop_hook_v3.py` is defined but never called, AND its step-5 working-tree check false-positives on autocrlf=true Windows (all 10 canonical files are CRLF-smudged `.md`/`.yaml`). Hook-wiring + autocrlf-aware fix tracked separately — per advisor: bundling it into a SHA reconciliation = scope creep.
+
+# canonical-diff-sha256: c918d0cb402389319bcc262018426da33c9c56aceb230b0b6b6bc092438c34dc

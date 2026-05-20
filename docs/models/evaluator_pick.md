@@ -1,105 +1,112 @@
-# POLARIS evaluator model — locked pick (I-cd-005, GH#637)
+# POLARIS evaluator model — locked pick (I-cd-005-followup, GH#637)
 
-**Decision:** `meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8` is the
-locked I-cd-005 evaluator pick. Use with a community INT4 quant for 4×H100
-weight residency. Re-visit at I-cd-011 if no working Llama 4 Maverick INT4
-quant on 4×H100 can be verified empirically — in that case, fall back to
-`meta-llama/Llama-3.1-405B-Instruct` (AWQ / GPTQ-INT4, the most-mature
-INT4-on-H100 path).
+**Decision:** **`google/gemma-4-31B-it`** is the locked POLARIS evaluator,
+served via vLLM on Box 2 = 4×H100 using the community INT4 AWQ artifact
+`ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` (load with
+`--quantization compressed-tensors`, NOT `--quantization awq`, per Codex
+iter-2 web verification).
 
-Codex brief review: iter 1 RC → iter 2 RC → iter 3 RC → **iter 4 APPROVE**
-(trajectory P1 1→1→1→0; the three iter-RCs were Codex's web-search-driven
-expansion of the candidate set — Qwen3.5-397B-A17B, then 5 more MoE 400B-class
-candidates, then Baidu ERNIE-4.5-VL-424B — all folded in before locking).
+**Supersedes I-cd-005 (PR #661, merged `c5e114e2`)** which locked
+`meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8`. That lock was wrong on
+two counts (both Claude failures):
 
-## Why Llama 4 Maverick (primary)
+1. The I-cd-005 brief said "Class: ~400B operator-locked" but never surfaced
+   the specific MODEL as a HARD CONSTRAINT, leaving Codex free to propose
+   any ~400B candidate. Per
+   `feedback_operator_locked_decisions_not_codex_consultable_2026_05_15`,
+   locked decisions go at the TOP as HARD CONSTRAINTS.
+2. Codex iter-3 pivoted to Llama 4 Maverick on "newer + most-deployed 2026
+   MoE 400B" framing. I let it through without weighing the Llama 4
+   Maverick LMArena-tuning quality controversy or the operator's original
+   Gemma 4 reference in `docs/carney_delivery_plan_v6_2.md`. Per
+   `feedback_be_skeptical_of_codex_2026_05_13`, Codex-as-advisor gets
+   filtered through Claude judgment. I didn't.
 
-- **~400B class** — operator-locked at ~400B (the LARGEST in the class is
-  MiniMax-M1 at 456B; Maverick at 400B sits squarely within the locked target).
-- **Meta's current generation** (Llama 4, April 2025) — picking Llama 3.1
-  405B (July 2024) in May 2026 is the obviously-older choice and was
-  Codex's iter-2 P1.
-- **MoE 400B / 17B active** — evaluator scores every sentence in every report,
-  so per-token throughput matters. 17B active vs Llama 3.1's dense 405B active
-  is a large efficiency edge.
-- **Meta-published FP8 checkpoint** — `Llama-4-Maverick-17B-128E-Instruct-FP8`
-  lowers quant-recipe risk vs starting from BF16 weights and building a
-  community quant from scratch.
-- **vLLM / SGLang documented** — confirmed by Codex's iter-2 web verification.
-- **Two-family** — Meta lineage, distinct from DeepSeek V4 Pro generator.
-  `openrouter_client.check_family_segregation` passes.
-- **License acceptable pending I-cd-006** — Llama 4 Community license;
-  headline terms operator-signed-off at I-cd-006.
+Operator pushback this session ("Llama 4 is famous for garbage, what's
+wrong here") + locked-in evaluator restatement ("For evaluator, Gemma 4
+400 B, no more discussion on it") triggered this followup. Codex iter-1
+web-verified that Gemma 4 400B is unreleased (top released is 31B dense /
+26B-A4B MoE); operator escalated → Claude judgment picked **31B dense
+over 26B-A4B** for the evaluator role (reasoning below).
 
-**The single risk that I-cd-011 must verify before this lock is final:** a
-community INT4 (AWQ / GPTQ-INT4 / community FP4) quant of Llama 4 Maverick
-exists and works on 4×H100 via vLLM/SGLang. If no such quant works, the
-fallback below is the safety net.
+## Why Gemma 4 31B dense (primary)
 
-## Hard fallback (proven-deployable today)
+- **Operator-locked, originally-intended model.** The Carney plan v6.2
+  already named Gemma 4 as the evaluator. The I-cd-005 drift to Llama 4
+  Maverick was a Claude error this followup corrects.
+- **Dense beats MoE for LLM-as-judge at comparable total size.** The
+  RAG-faithfulness adjudication is reasoning-bound (read cited span,
+  decide if sentence follows from it), not throughput-bound. Gemma 4 31B
+  dense fires all 31B params per token; Gemma 4 26B-A4B MoE fires only
+  ~4B active per token. For careful judgment chains, more per-token
+  compute = more reliable verdicts.
+- **31B > 26B + 31B-active > 4B-active.** Larger AND more per-token
+  compute. Matches the operator's "the largest" preference applied to
+  Gemma 4's actual released family.
+- **Apache 2.0 license** (Codex iter-2 verified) — cleaner than Llama
+  Community: no MAU threshold, no Llama-style HF `request access` gating,
+  no "Built with Llama" prominence requirement. Apache-style attribution
+  only. The license headline is recorded separately in
+  `evaluator_license_signoff.md`.
+- **Two-family vs DeepSeek V4 Pro:** `check_family_segregation` returns
+  `('deepseek', 'gemma')` — distinct lineages, passes.
+- **Serving + quant path proven:** vLLM has Gemma4-specific parser support
+  (`docs.vllm.ai/projects/recipes/.../Google/Gemma4.html`); community AWQ
+  INT4 artifact `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` loads via
+  `--quantization compressed-tensors`. Raw 4-bit weights ~16 GB; practical
+  recommended VRAM higher (overhead + KV cache) but trivial on
+  4×H100=320GB.
 
-`meta-llama/Llama-3.1-405B-Instruct` + AWQ / GPTQ-INT4. The most-mature
-INT4-on-H100 path in the entire ~400B candidate set; production-deployed for
-over a year. Strictly older-generation than Maverick, but if Maverick's INT4
-quant ecosystem proves immature at I-cd-011, this is the safety net that keeps
-the demo timeline.
+## Runtime artifacts
 
-## Strong alternatives — comparable class, revisit at I-cd-011
+| Artifact | HF id | Purpose |
+|---|---|---|
+| BF16 instruct weights | `google/gemma-4-31B-it` | Source of truth; vLLM recipe documents TP=2 on 2× A100/H100 |
+| Community INT4 AWQ (vLLM-loadable) | `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` | The intended 4×H100 runtime artifact — load with `--quantization compressed-tensors` |
+| NVIDIA NVFP4 sibling | `nvidia/Gemma-4-31B-IT-NVFP4` | Blackwell-only; noted for any future Blackwell migration; NOT the 4×H100 target |
 
-Any of these may displace the primary at I-cd-011 if it shows a better
-INT4-on-H100 path AND its license / quality profile is preferred.
+No Google-published FP8/NVFP4/INT4 official sibling repo exists yet (Codex
+iter-2 P2). The community AWQ above is the operational choice for 4×H100;
+I-cd-011 empirically verifies the load + smoke-test on actual hardware.
 
-| HF id | License | Total / active | Note |
-|---|---|---|---|
-| `MiniMaxAI/MiniMax-M1-80k-hf` | Apache 2.0 | 456B / 45.9B | **Largest in class.** Strong "compute per token" within the Apache-2.0 MoE set. |
-| `baidu/ERNIE-4.5-VL-424B-A47B-PT` | Apache 2.0 | 424B / 47B | Vision-language; the `-PT` suffix is **PyTorch format** (not "pre-trained" semantically) — Codex iter-4 P2 confirmed this is a Posttraining/Chat checkpoint, usable as evaluator. Baidu's text-only A47B line tops out at 300B (below class). |
-| `Qwen/Qwen3.5-397B-A17B-FP8` | Apache 2.0 | 397B / 17B | Cleanest sovereignty story (Alibaba lineage, no US-origin discussion). NVIDIA's NVFP4 sibling checkpoint is Blackwell-only; on 4×H100 use Qwen's FP8 + a community INT4 quant. |
-| `zai-org/GLM-4.5` | MIT | 355B / 32B | Most permissive license; FP8/BF16 published. |
-| `arcee-ai/Trinity-Large-Thinking` | Apache 2.0 | 398-400B / 13B | Lowest active params in the MoE set. |
-| `tencent/Tencent-Hunyuan-Large` | Tencent (custom; **EU territory limitation**, Codex iter-4 P2) | 389B / 52B | Highest active params in the MoE set. Re-verify the EU clause at I-cd-006 license sign-off. |
+## Model-side hard fallback (kept from I-cd-005)
 
-Note on multimodality (Codex iter-4 P2): Maverick and Qwen3.5-397B-A17B are
-also multimodal artifacts — not unique to ERNIE-4.5-VL. The evaluator role is
-text-only; the unused multimodal components add weight footprint but are
-inactive at inference.
+`meta-llama/Llama-3.1-405B-Instruct` + AWQ/GPTQ-INT4 on vLLM — the
+most-mature INT4-on-H100 path in industry. Kept as the safety net iff
+Gemma 4 31B INT4 cannot be made to work on 4×H100 at I-cd-011 (unlikely
+given the 16 GB footprint and vLLM's Gemma4 recipe support — but
+documented for completeness).
 
-## Why deployment maturity is weighted over vendor benchmark numbers
+## I-cd-011 (FP4 readiness spike, #641) responsibilities
 
-Codex iter-4 P2 noted: §C.2 of the brief did not rank MoE candidates by proxy
-benchmarks because **no candidate publishes comparable RAGTruth / FEVER / RAGAS
-/ TriviaQA-RAG numbers** — every candidate's headline scores are
-vendor-reported on MMLU-Pro / IFEval / AlpacaEval-2 / Arena-Hard, with no
-common independent RAG-faithfulness reproduction.
-
-Given that, the I-cd-005 lock weights **deployment + INT4-on-H100 quant
-maturity** above marginal vendor-reported proxy gains from newer Apache/MIT
-models (Qwen3.5-397B-A17B, GLM-4.5, MiniMax-M1). The conservative pick today
-is Llama 4 Maverick (Meta-maintained, FP8 checkpoint published, most-deployed
-of the 2025-2026 MoE 400B-class). Revisit at I-cd-011 if empirical quant
-verification on 4×H100 changes that calculus.
+Now substantially simpler than the Maverick-locked I-cd-005 spec:
+1. Smoke-test `ebircak/gemma-4-31B-it-4bit-W4A16-AWQ` on vLLM at 4×H100
+   with `--quantization compressed-tensors`.
+2. Verify JSON-schema structured output works for the
+   evaluator-judgment format.
+3. Measure per-second judgment throughput (the evaluator load is
+   sentence-by-sentence; reasonable per-token speed required).
+4. The hard fallback (Llama 3.1 405B + AWQ/GPTQ-INT4 on vLLM) is a
+   secondary smoke-test only if (1) fails.
 
 ## What this lock does NOT do
 
-- **Config wiring** — I-cd-009 (#624, dep I-cd-006) writes the picked model
-  into `.env` / config.
-- **License sign-off** — I-cd-006 (#638, operator-gated). I-cd-005 records
-  license name + headline only.
-- **FP4 hardware spike** — I-cd-011 (#641, ~$400 GPU). The empirical
-  verification that a Maverick INT4 quant works on 4×H100 via vLLM/SGLang.
-- **Engine bakeoff** — I-cd-007 (#639). SGLang vs vLLM choice is engine
-  layer, not model layer.
+- **Config wiring** — I-cd-009 (#624). The new model id (`google/gemma-4-31B-it`
+  or the AWQ sibling) gets wired into `src/providers/llm_provider.py` +
+  `.env` there.
+- **License sign-off** — `docs/models/evaluator_license_signoff.md` is
+  rewritten in this same PR for the Gemma 4 31B-it Apache 2.0 + Gemma PUP
+  shape. (I-cd-006's "Auto-merge per Codex" sign-off mode carries.)
+- **FP4 hardware spike** — I-cd-011 (#641).
+- **Engine bakeoff** — I-cd-007 (#639) locked vLLM for both boxes; vLLM
+  recipe support for Gemma 4 confirmed by Codex iter-2 P2.
 
 ## Constraints reaffirmed (operator-locked, non-Codex-negotiable)
 
-1. **Class ~400B** — operator-locked, repeated 6+ times.
-2. **Family non-DeepSeek** — generator is DeepSeek V4 Pro; two-family
-   segregation enforced by
-   `src/polaris_graph/llm/openrouter_client.py:check_family_segregation`.
-3. **Open-weight, self-hosted on EU GPU** — sovereignty rule
-   (`feedback_sovereignty_threat_model_2026_05_13`).
-4. **Quality + 4×H100 (320GB) INT4/FP4 weight residency** — "FP4" means
-   weight-residency-only on H100 (no native FP4 tensor cores; NVFP4 is
-   Blackwell-only). Runtime ops FP8/BF16.
-5. **Rank by quality benchmarks; no cost columns**
-   (`feedback_no_cost_mentions`).
-6. **License sign-off is a separate operator-gated issue** (I-cd-006).
+1. **Evaluator model = `google/gemma-4-31B-it`** (operator-locked 2026-05-19).
+2. **Family = non-DeepSeek** (Gemma is distinct lineage; `check_family_
+   segregation('deepseek/deepseek-v4-pro', 'google/gemma-4-31b-it')` returns
+   `('deepseek', 'gemma')`).
+3. **Open-weight, self-hosted on EU/Canada GPU.**
+4. **Quality + 4×H100 INT4 weight residency** (~16 GB; massive headroom).
+5. **Engine = vLLM** (I-cd-007 lock).
