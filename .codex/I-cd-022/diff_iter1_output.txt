@@ -1,0 +1,3152 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e46c7-45d0-7e90-b439-18ffd6e8d350
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1.
+- "Don't pick bone from egg" — P1 only for real execution risks.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# Codex diff review — I-cd-022 (#612) — / (home) rebuild G1-G8
+
+Brief APPROVE'd at iter 2 (plan v3 with AppShellGate suppressing BOTH header AND main on `/`). Canonical-diff-sha256: `178a73af757e23247ef0dda2dc53a048226dc154c057e9a02602cfb6c113bb1f`. 6 files / +159/-13 LOC.
+
+## §A Canonical diff summary
+
+- `web/components/app_shell_gate.tsx` NEW (25 LOC) — pathname-aware `"use client"` wrapper. On `/` returns `<>{children}</>` (bare); on any other path wraps in `<AppShell>`.
+- `web/app/layout.tsx` MOD (2 LOC) — swap AppShell → AppShellGate.
+- `web/app/components/home_keyboard_shell.tsx` MOD (+28 LOC net) — moved `PRIMARY_NAV` constant + `NavLink` rendering INTO the home header so the home route's nav is identical to AppShell's. Brand cell reformatted to match AppShell's "POLARIS · Canada" font-mono style. `header-sign-in-link` testid + `signInLinkRef` PRESERVED (5 existing specs depend on them).
+- `web/app/page.tsx` MOD (3 LOC) — G2 strings: "slices 1-5 shipped" → "Sovereign Canadian deep research"; "7 to-build" → "7 in development".
+- `web/tests/e2e/home_g1_g8.spec.ts` NEW (90 LOC) — 5 tests covering G1 (single header outside main + primary nav present), G2 (no banned dev language), G3 (active link has focus-visible), G6 (single main + keyboard tab reaches active link), G8 (zero console errors).
+- `.github/workflows/web_ci.yml` MOD (+8 LOC) — new `run_e2e_home_g1_g8` step wires the spec into the binding CI gate.
+
+## §B Acceptance check (G1-G8 per state/polaris_ui_rebuild_matrix.md §2)
+
+| Gate | Met by |
+|---|---|
+| G1 — single global header w/ primary nav on `/` | AppShellGate suppresses AppShell on `/`; HomeKeyboardShell header now hosts PRIMARY_NAV with all 8 entries identical to AppShell |
+| G2 — no dev language | page.tsx string edits; spec asserts `/slice|scaffold|placeholder|phase 0|post-carney|i-cd-/i` not in body |
+| G3 — interactive states | shadcn Button + Link with `focus-visible:ring-*`; spec asserts active link has `focus-visible` class |
+| G4 — async states | N/A (home is static) |
+| G5 — responsive 1440 + 1024 | existing `md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4` |
+| G6 — a11y + single main | spec asserts `<main>` count==1 + Tab reaches active link |
+| G7 — design tokens | existing `bg-background`, `text-foreground`, `border-border`, etc. |
+| G8 — console clean | spec captures console errors via `page.on("console")` + asserts empty |
+| header-sign-in-link / signInLinkRef preserved (5 existing specs back-compat) | home_keyboard_shell.tsx:55-58 + line 75 ref pass |
+| CI gate runs the spec | web_ci.yml new step |
+
+## §C Red-team checklist
+
+1. **AppShellGate is "use client"** — uses `usePathname()` which requires a Client Component. Children rendered through it remain server-rendered where they were before; only the gate itself is client-side. No SSR regression.
+2. **No double-render on `/`** — AppShellGate returns `<>{children}</>` on `/`, so children are NOT wrapped in any extra element. The home `<header>` from HomeKeyboardShell is the page's only `<header>`.
+3. **All other routes** — AppShellGate falls through to `<AppShell>`, preserving the current behavior (header + main).
+4. **PRIMARY_NAV duplication** — the constant is defined in BOTH `web/components/app_shell.tsx` AND `web/app/components/home_keyboard_shell.tsx`. Pragmatic for back-compat with shadcn import paths and pre-existing tests; if reconciliation is wanted, factor into a shared constant in a future PR. Not a blocker for G1.
+5. **header-sign-in-link** — exact testid preserved per Codex iter-1 P1.
+6. **signInLinkRef** — preserved as a ref attached to the Sign In link. CommandPalette still receives it.
+7. **Cmd+K keyboard shortcut** — preserved in `useEffect` block.
+8. **No nested landmarks** — verified: page has exactly 1 `<header>` (from HomeKeyboardShell) + exactly 1 `<main>` (from page.tsx). AppShell is bypassed on `/`.
+9. **Existing specs that depend on the home structure** — `command_palette*.spec.ts` + `f1_*.spec.ts` use `data-testid="header-sign-in-link"` which is preserved.
+
+## §D Files I have ALSO checked and they're clean
+
+- `web/components/app_shell.tsx` — unchanged, still wraps non-home routes.
+- `web/components/nav_link.tsx` — `NavLink` component used in both AppShell and HomeKeyboardShell.
+- `web/app/components/command_palette.tsx` — unchanged; receives signInLinkRef.
+- `web/tests/e2e/command_palette*.spec.ts` + `f1_*.spec.ts` — depend on `header-sign-in-link`; preserved.
+
+## §E Smoke test
+
+```bash
+cd web
+npx tsc --noEmit   # rc=0
+npx eslint         # no new errors (verified)
+npx prettier --check .   # all formatted
+```
+
+Playwright e2e requires running `next start`; runs as binding gate in CI workflow.
+
+## §F Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll review the actual workspace diff against the described G1-G8 behavior, focusing only on execution-blocking issues and real P1 risks per your cap.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files web | rg \"(app_shell_gate|app_shell|home_keyboard_shell|home_g1_g8|page\\.tsx|layout\\.tsx|web_ci\\.yml|state/polaris_ui_rebuild_matrix)\"" in C:\POLARIS
+ succeeded in 958ms:
+web\components\app_shell_gate.tsx
+web\components\app_shell.tsx
+web\app\dashboard\page.tsx
+web\app\upload\page.tsx
+web\app\benchmark\page.tsx
+web\app\contracts\page.tsx
+web\app\memory\page.tsx
+web\app\layout.tsx
+web\app\components\home_keyboard_shell.tsx
+web\app\sse\page.tsx
+web\app\intake\page.tsx
+web\app\sign-in\page.tsx
+web\app\audit_live\page.tsx
+web\app\generation\page.tsx
+web\app\charts_test\timeline\page.tsx
+web\app\charts_test\page.tsx
+web\tests\e2e\home_g1_g8.spec.ts
+web\app\retrieval\page.tsx
+web\app\charts_test\forest_plot\page.tsx
+web\app\sentence_hover_test\two_run_picker\page.tsx
+web\app\inspector\[runId]\page.tsx
+web\app\charts_test\comparison_table\page.tsx
+web\app\page.tsx
+web\app\sentence_hover_test\follow_up_append\page.tsx
+web\app\sentence_hover_test\stress\page.tsx
+web\app\runs\[runId]\page.tsx
+web\app\sentence_hover_test\page.tsx
+web\app\(test_harness)\disambiguation_modal_preview\page.tsx
+web\app\charts_test\click_through\page.tsx
+web\app\sentence_hover_test\evaluator_edge\page.tsx
+web\app\sentence_hover_test\coverage\page.tsx
+web\app\runs\[runId]\graph\page.tsx
+web\app\sentence_hover_test\split_screen\page.tsx
+web\app\pin_replay\page.tsx
+web\app\sentence_hover_test\evidence_tooltip\page.tsx
+web\app\sentence_hover_test\memory_cite\page.tsx
+web\app\inspector\offline\page.tsx
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx
+web\app\sentence_hover_test\perf\page.tsx
+
+ succeeded in 1111ms:
+ M .claude/settings.json
+ M docs/todo_list.md
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+ M tests/fixtures/signed_bundle/v1_canonical/metadata.json
+ M tests/fixtures/signed_bundle/v1_canonical/scope_decision.json
+ M tests/fixtures/signed_bundle/v1_canonical/verified_report.json
+?? .claude/hooks/__pycache__/
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-022/
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+ succeeded in 1157ms:
+ .claude/settings.json                              |  33 +-
+ docs/todo_list.md                                  |  41 +-
+ logs/session_log.md                                |  12 +
+ .../clinical_tirzepatide_t2dm/bibliography.json    |  43 +-
+ .../clinical_tirzepatide_t2dm/contradictions.json  | 120 +--
+ .../clinical_tirzepatide_t2dm/corpus_approval.json |  77 +-
+ .../evaluator_rule_checks.json                     |  10 +-
+ .../live_corpus_dump.json                          | 153 ++--
+ .../clinical_tirzepatide_t2dm/manifest.json        | 886 ++++++++++++++++++--
+ .../clinical_tirzepatide_t2dm/protocol.json        |   6 +-
+ .../qwen_judge_output.json                         |  24 +-
+ .../clinical/clinical_tirzepatide_t2dm/report.md   | 106 ++-
+ .../clinical/clinical_tirzepatide_t2dm/run_log.txt |  56 +-
+ outputs/honest_sweep_r3/sweep_summary.json         | 897 +++++++++++++++++++--
+ outputs/honest_sweep_r3/sweep_summary.md           |   8 +-
+ state/restart_instructions.md                      | 130 +--
+ .../signed_bundle/v1_canonical/evidence_pool.json  |   4 +-
+ .../signed_bundle/v1_canonical/manifest.yaml.asc   |   2 +-
+ 18 files changed, 2024 insertions(+), 584 deletions(-)
+warning: in the working copy of '.claude/settings.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/todo_list.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'state/restart_instructions.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/signed_bundle/v1_canonical/metadata.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/signed_bundle/v1_canonical/scope_decision.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/signed_bundle/v1_canonical/verified_report.json', LF will be replaced by CRLF the next time Git touches it
+
+codex
+The top-level worktree has many unrelated dirty files and the target web files appear already committed or otherwise outside the unstaged diff. I’m going to inspect the relevant files directly and look for the described patch artifacts under `.codex/I-cd-022` so the review is grounded in the actual content.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Force .codex\\I-cd-022" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\components\\app_shell_gate.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\layout.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\components\\home_keyboard_shell.tsx" in C:\POLARIS
+ succeeded in 1127ms:
+
+    Directory: C:\POLARIS\.codex\I-cd-022
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m[32;1m         Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+-a---          2026-05-20 11:58 AM         395541 brief_iter1_output.txt
+-a---          2026-05-20 12:01 PM         243656 brief_iter2_output.txt
+-a---          2026-05-20 12:02 PM           6289 brief.md
+-a---          2026-05-20 12:02 PM             17 codex_brief_verdict.txt
+-a---          2026-05-20 12:04 PM          10016 codex_diff_canonical.patch
+-a---          2026-05-20 12:04 PM          10107 codex_diff.patch
+-a---          2026-05-20 12:05 PM           5206 diff_brief.md
+-a---          2026-05-20 12:05 PM              0 diff_iter1_output.txt
+
+
+ succeeded in 1143ms:
+// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+// the AppShell header AND its <main> wrapper so the home route can
+// provide its own header (with the same primary nav) + its own <main>.
+// This avoids G1 (double header) + G6 (nested main) landmark violations.
+//
+// Tiny "use client" boundary so the otherwise server-rendered AppShell
+// can still wrap every non-home route on the server.
+"use client";
+
+import { usePathname } from "next/navigation";
+
+import { AppShell } from "@/components/app_shell";
+
+interface AppShellGateProps {
+  children: React.ReactNode;
+}
+
+export function AppShellGate({ children }: AppShellGateProps) {
+  const pathname = usePathname();
+  // Home owns its own header + main; render children bare on `/`.
+  if (pathname === "/") {
+    return <>{children}</>;
+  }
+  return <AppShell>{children}</AppShell>;
+}
+
+ succeeded in 1312ms:
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+
+import { AppShellGate } from "@/components/app_shell_gate";
+import { Toaster } from "@/components/ui/sonner";
+
+import "./globals.css";
+
+const geist_sans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geist_mono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "POLARIS Canada — Sovereign Deep Research",
+  description:
+    "Two-family verified evidence pipelines for Government of Canada policy work.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+    >
+      <body className="flex min-h-full flex-col">
+        <AppShellGate>{children}</AppShellGate>
+        <Toaster />
+      </body>
+    </html>
+  );
+}
+
+ succeeded in 1349ms:
+"use client";
+
+import Link from "next/link";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
+import { NavLink } from "@/components/nav_link";
+import { Button } from "@/components/ui/button";
+
+import { CommandPalette } from "./command_palette";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+
+// I-cd-022 (#612): primary nav now lives in the home header too, so /
+// matches the global app-shell nav (G1: "global header/sidebar nav is
+// present and identical"). When AppShell is suppressed on `/` via
+// AppShellGate, the home page's <header> is THE app shell for this route.
+const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+  { href: "/", label: "Home" },
+  { href: "/intake", label: "Intake" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/upload", label: "Upload" },
+  { href: "/benchmark", label: "Benchmark" },
+  { href: "/contracts", label: "Contracts" },
+  { href: "/pin_replay", label: "Pin Replay" },
+  { href: "/memory", label: "Memory" },
+];
+
+export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+  const [palette_open, set_palette_open] = useState(false);
+  const sign_in_link_ref = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    function on_keydown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+        event.preventDefault();
+        event.stopPropagation();
+        set_palette_open((p) => !p);
+      }
+    }
+    window.addEventListener("keydown", on_keydown);
+    return () => window.removeEventListener("keydown", on_keydown);
+  }, []);
+
+  return (
+    <>
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <nav className="flex items-center gap-1" aria-label="Primary">
+            {PRIMARY_NAV.map((item) => (
+              <NavLink key={item.href} href={item.href}>
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={
+              <Link
+                ref={sign_in_link_ref}
+                data-testid="header-sign-in-link"
+                href={signInHref}
+              />
+            }
+          >
+            Sign in
+          </Button>
+        </div>
+      </header>
+      {children}
+      <CommandPalette
+        open={palette_open}
+        onOpenChange={set_palette_open}
+        templates={templates}
+        signInLinkRef={sign_in_link_ref}
+      />
+    </>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\components\\app_shell.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\components\\nav_link.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content .github\\workflows\\web_ci.yml" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\page.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\tests\\e2e\\home_g1_g8.spec.ts" in C:\POLARIS
+ succeeded in 1047ms:
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+/**
+ * I-cd-004: client component for top-nav active-route highlight. Pure styling
+ * via the locked shadcn token set (accent / muted-foreground / foreground).
+ * Active when the pathname equals href, or starts with `${href}/` for nested
+ * routes (e.g. `/runs/abc` highlights "Dashboard" only if we want — by default
+ * an item is active for its own subtree).
+ */
+export function NavLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  const pathname = usePathname();
+  const is_active =
+    pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
+  return (
+    <Link
+      href={href}
+      aria-current={is_active ? "page" : undefined}
+      className={
+        "rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
+        (is_active
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground")
+      }
+    >
+      {children}
+    </Link>
+  );
+}
+
+ succeeded in 1156ms:
+import Link from "next/link";
+
+import { NavLink } from "@/components/nav_link";
+
+/**
+ * I-cd-004: the global app shell. A server component that wraps every prod
+ * route with a single header + primary nav. The 8 primary nav entries are
+ * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+ *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+ *
+ * Out of scope for this issue (each its own later issue per the Seq-N order):
+ *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+ *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+ *    /dashboard rather than top-nav entries.
+ *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+ *    retired at that point (not merely hidden — per Codex P2).
+ *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+ *    I-cd-015.
+ *  - Auth gating of the nav itself is deferred to I-cd-014.
+ *  - Per-page rebuilds happen in the I-cd-013..030 series.
+ */
+const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+  { href: "/", label: "Home" },
+  { href: "/intake", label: "Intake" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/upload", label: "Upload" },
+  { href: "/benchmark", label: "Benchmark" },
+  { href: "/contracts", label: "Contracts" },
+  { href: "/pin_replay", label: "Pin Replay" },
+  { href: "/memory", label: "Memory" },
+];
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <header className="border-border bg-background sticky top-0 z-40 border-b">
+        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <nav className="flex items-center gap-1" aria-label="Primary">
+            {PRIMARY_NAV.map((item) => (
+              <NavLink key={item.href} href={item.href}>
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+        </div>
+      </header>
+      <main className="flex-1">{children}</main>
+    </>
+  );
+}
+
+ succeeded in 1237ms:
+name: web_ci
+
+on:
+  push:
+    paths:
+      - "web/**"
+      - "src/polaris_v6/**"
+      - "tests/v6/**"
+      - "requirements*.txt"
+      - ".github/workflows/web_ci.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - "src/polaris_v6/**"
+      - "tests/v6/**"
+      - "requirements*.txt"
+      - ".github/workflows/web_ci.yml"
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  lint_format_typecheck_build:
+    name: lint + format + typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: install_dependencies
+        run: npm ci
+
+      - name: lint
+        run: npm run lint
+
+      - name: format_check
+        run: npm run format:check
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: build
+        run: npm run build
+
+  e2e_playwright:
+    name: e2e + a11y + perf (Playwright on Chromium)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: install_python_dependencies
+        working-directory: ${{ github.workspace }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: install_npm_dependencies
+        run: npm ci
+
+      - name: install_playwright_chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: start_fastapi_backend
+        working-directory: ${{ github.workspace }}
+        run: |
+          PYTHONPATH=src nohup python -m uvicorn polaris_v6.api.app:app \
+            --host 127.0.0.1 --port 8000 \
+            > /tmp/fastapi.log 2>&1 &
+          # Wait for /health to respond.
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:8000/health > /dev/null; then
+              echo "backend ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "backend failed to start"
+          cat /tmp/fastapi.log
+          exit 1
+
+      - name: build_and_start_next
+        # I-cd-015 (GH#611): POLARIS_TEST_HARNESS_ENABLED=1 lets the prod
+        # build serve harness routes for tests that depend on them
+        # (evidence_tooltip_perf etc.). Real production leaves this UNSET
+        # and the middleware 404s /charts_test/*, /sentence_hover_test/*,
+        # /disambiguation_modal_preview/*, /generation/*, /retrieval/*, /sse/*.
+        env:
+          POLARIS_TEST_HARNESS_ENABLED: "1"
+        run: |
+          npm run build
+          nohup npx next start -p 3738 > /tmp/next.log 2>&1 &
+          # Wait for /dashboard to respond.
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:3738/dashboard > /dev/null; then
+              echo "frontend ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "frontend failed to start"
+          cat /tmp/next.log
+          exit 1
+
+      - name: run_e2e_inspector
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/inspector.spec.ts
+
+      - name: run_e2e_accessibility
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/accessibility.spec.ts
+
+      - name: run_e2e_performance
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/performance.spec.ts
+
+      # I-f6-005: 100x tooltip mount-cycle render budget locked at <100ms.
+      # I-cd-015: this spec hits /sentence_hover_test/perf (a harness
+      # route). The next start step above sets POLARIS_TEST_HARNESS_ENABLED=1
+      # so the middleware passes through; real production leaves it UNSET
+      # and 404s the harness paths.
+      - name: run_e2e_evidence_tooltip_perf
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/evidence_tooltip_perf.spec.ts
+
+      # I-cd-021 (#631): offline Inspector — renders a v1.0 signed bundle
+      # tar.gz entirely in-browser. Codex diff iter-1 P2.1 fix: wire the
+      # new spec into the CI workflow.
+      - name: run_e2e_inspector_offline_fallback
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/inspector_offline_fallback.spec.ts
+
+      # I-cd-022 (#612): home route G1-G8 acceptance gates per
+      # state/polaris_ui_rebuild_matrix.md §2.
+      - name: run_e2e_home_g1_g8
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/home_g1_g8.spec.ts
+
+      # Visual baselines are *-chromium-win32.png (locally captured on Win).
+      # On Linux CI the snapshot file resolves to a different name and will
+      # be missing; skip visual.spec until Linux baselines are added.
+      # See `.codex/continuous/2057fac_2c2_visual_regression.md` P0.
+
+      - name: upload_playwright_traces_on_failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: web/test-results/**/trace.zip
+          retention-days: 7
+
+  verify_pip_resolution:
+    # F-22 (cycle-7 P1.1 prevention): catches pip dependency conflicts
+    # before they reach pytest_v6_backend or the production Dockerfile.
+    # Cycle-7 caught F-17's protobuf>=6.33.5 pin breaking against
+    # google-generativeai's transitive protobuf<5.0.0 constraint.
+    name: pip install --dry-run (catch ResolutionImpossible early)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: pip_dry_run_legacy_requirements
+        # If this fails, requirements.txt has a conflict; production
+        # Dockerfile build would fail in the same way.
+        run: pip install --dry-run -r requirements.txt
+
+      - name: pip_dry_run_v6_requirements
+        # Verify the v6 backend's pinned set also resolves cleanly.
+        run: pip install --dry-run -r requirements-v6.txt
+
+  pytest_v6_backend:
+    name: pytest tests/v6/ (Phase 0 backend coverage)
+    runs-on: ubuntu-latest
+    needs: [lint_format_typecheck_build, verify_pip_resolution]
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      # Cycle-3 audit P2.3 (outputs/audits/continuous/bb60495_audit.md):
+      # tests/v6/test_*_middleware.py + test_actors.py + test_broker.py +
+      # test_otel_init.py use pytest.importorskip against dramatiq +
+      # opentelemetry deps. Without -v6.txt installed they SILENTLY SKIP
+      # (LAW II violation). This job uses requirements-v6.txt as the
+      # canonical pin source for v6 backend code.
+      - name: install_v6_dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-v6.txt
+
+      - name: run_pytest_v6
+        env:
+          PYTHONPATH: src
+        # `-q` keeps output tight; `--strict-markers` fails on undefined
+        # markers; `--no-header` removes pytest banner from CI logs.
+        # Acceptance suite (tests/v6/acceptance/) is excluded — it requires
+        # a live broker; covered by tests/v6/acceptance/test_dramatiq_acceptance.py
+        # which runs in its own integration job once Vast.ai cluster is live.
+        run: |
+          pytest tests/v6/ \
+            --ignore=tests/v6/acceptance \
+            -q --strict-markers --no-header
+
+ succeeded in 1286ms:
+// I-cd-022 (#612): home route G1-G8 acceptance gates per
+// state/polaris_ui_rebuild_matrix.md §2. Mechanical assertions only —
+// no subjective polish judgments.
+
+import { expect, test } from "@playwright/test";
+
+const BANNED_DEV_LANGUAGE = [
+  /\bslice\b/i,
+  /\bscaffold\b/i,
+  /\bplaceholder\b/i,
+  /\bphase 0\b/i,
+  /\bpost[- ]carney\b/i,
+  /\bi-cd-/i,
+];
+
+test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  // G1: exactly one <header> element (no duplicate from a forgotten AppShell).
+  const headers = page.locator("header");
+  await expect(headers).toHaveCount(1);
+
+  // Primary nav present + identical to other routes (Home/Intake/Dashboard/
+  // Upload/Benchmark/Contracts/Pin Replay/Memory).
+  const nav = page.locator("nav[aria-label='Primary']");
+  await expect(nav).toBeVisible();
+  for (const label of [
+    "Home",
+    "Intake",
+    "Dashboard",
+    "Upload",
+    "Benchmark",
+    "Contracts",
+    "Pin Replay",
+    "Memory",
+  ]) {
+    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+  }
+
+  // G6 (single main landmark — Codex iter-2 P1 fix).
+  const mains = page.locator("main");
+  await expect(mains).toHaveCount(1);
+});
+
+test("G2: home contains no banned dev-language strings", async ({ page }) => {
+  await page.goto("/");
+  const body_text = (await page.locator("body").textContent()) || "";
+  for (const banned of BANNED_DEV_LANGUAGE) {
+    expect(body_text).not.toMatch(banned);
+  }
+});
+
+test("G3: active template card link has focus-visible + hover styling", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const link = page.getByTestId("template-card-clinical-link");
+  await expect(link).toBeVisible();
+  const className = (await link.getAttribute("class")) || "";
+  // shadcn/ui Button injects focus-visible:ring + hover utilities. Codex
+  // iter-1 P2 fix: assert on the LINK, not the card (cards are not
+  // interactive — links/buttons are).
+  expect(className).toMatch(/focus-visible/);
+});
+
+test("G6: tab key reaches the active template card link", async ({ page }) => {
+  await page.goto("/");
+  // Tab repeatedly until the focused element is the active template link.
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press("Tab");
+    const focused = await page.evaluate(
+      () => document.activeElement?.getAttribute("data-testid") ?? null,
+    );
+    if (focused === "template-card-clinical-link") return;
+  }
+  throw new Error("active template card link never received focus via Tab");
+});
+
+test("G8: home renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto("/");
+  // Idle long enough for hydration + any async errors to surface.
+  await page.waitForLoadState("networkidle");
+  expect(errors).toEqual([]);
+});
+
+ succeeded in 1382ms:
+import Link from "next/link";
+
+import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+const templates: Template[] = [
+  {
+    id: "clinical",
+    name: "Clinical drug audit",
+    summary:
+      "Drug safety signals, labelling deltas, and post-market surveillance evidence across Health Canada, FDA, EMA, and clinical trials.",
+    sample_question:
+      "What did the SELECT trial show on cardiovascular outcomes for semaglutide?",
+    out_of_scope: "Should I take ozempic for my diabetes?",
+    active: true,
+  },
+  {
+    id: "policy",
+    name: "Public policy",
+    summary:
+      "Regulatory decisions, reimbursement and health-technology-assessment policy, public-health guidance, and cross-jurisdiction access comparisons.",
+    sample_question:
+      "What did NICE and CADTH conclude on the cost-effectiveness of CAR-T therapies?",
+    out_of_scope: "Which political party has the better health platform?",
+    active: false,
+  },
+  {
+    id: "tech",
+    name: "Technology assessment",
+    summary:
+      "Assessment of a technology, algorithm, or engineering approach — grounded in peer-reviewed conference and journal papers, standards, and attributed preprints.",
+    sample_question:
+      "What does the peer-reviewed evidence show on mixture-of-experts vs dense transformers as of 2025?",
+    out_of_scope: "Which GPU should I buy for my gaming PC?",
+    active: false,
+  },
+  {
+    id: "ai_sovereignty",
+    name: "AI sovereignty",
+    summary:
+      "Canadian AI policy, sovereign compute, talent retention, IP and data residency, alignment posture, Bill C-27 / AIDA, federal AI strategy.",
+    sample_question:
+      "What sovereign compute capacity does Canada have for training frontier models as of 2025?",
+    out_of_scope:
+      "Should I take a job at a Canadian AI startup or move to San Francisco?",
+    active: false,
+  },
+  {
+    id: "canada_us",
+    name: "Canada–US relations",
+    summary:
+      "Bilateral relationship, CUSMA / USMCA renegotiation, IRA spillover, energy + critical minerals integration, defense interoperability.",
+    sample_question:
+      "What are the 2026 CUSMA review triggers and what does Canada's pre-position look like?",
+    out_of_scope: "Should I move to the US for tax reasons?",
+    active: false,
+  },
+  {
+    id: "due_diligence",
+    name: "Due diligence",
+    summary:
+      "Company, product, market, and competitive-landscape research for investment, M&A, or partnership decisions — every claim carries named, dated provenance.",
+    sample_question:
+      "What did the most recent 10-K disclose on customer-concentration risk for this company?",
+    out_of_scope: "Should I buy this stock?",
+    active: false,
+  },
+  {
+    id: "custom",
+    name: "Custom research",
+    summary:
+      "Operator-defined catch-all for research questions that do not match the clinical, policy, tech, or due-diligence templates; accepts any classified source tier.",
+    sample_question:
+      "Summarize the documented positions on this question with provenance for each claim.",
+    out_of_scope:
+      "Requests for individualized legal, medical, or financial advice.",
+    active: false,
+  },
+  {
+    id: "workforce",
+    name: "Workforce & productivity",
+    summary:
+      "Canadian labour productivity, immigration + skills mismatch, regional unemployment, federal-provincial training, demographic shifts.",
+    sample_question:
+      "What does StatCan's 2024 productivity series show for Canada vs US over the last decade?",
+    out_of_scope: "How do I apply for permanent residency?",
+    active: false,
+  },
+];
+
+export default function HomePage() {
+  return (
+    <div className="flex min-h-screen flex-col">
+      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12">
+          <section className="flex flex-col gap-3">
+            <h1 className="text-foreground text-3xl font-semibold tracking-tight sm:text-4xl">
+              POLARIS Canada — Sovereign Deep Research
+            </h1>
+            <p className="text-muted-foreground max-w-3xl text-base sm:text-lg">
+              Two-family verified evidence pipelines for Government of Canada
+              policy work. Every claim carries a provenance token tied to a
+              primary source.
+            </p>
+          </section>
+
+          <section
+            aria-labelledby="template_grid_heading"
+            className="flex flex-col gap-5"
+            data-testid="template-grid"
+          >
+            <div className="flex items-baseline justify-between">
+              <h2
+                id="template_grid_heading"
+                className="text-foreground text-xl font-semibold tracking-tight"
+              >
+                Research templates
+              </h2>
+              <span className="text-muted-foreground text-xs tracking-widest uppercase">
+                1 active · 7 in development
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {templates.map((tpl) => (
+                <Card
+                  key={tpl.id}
+                  aria-disabled={tpl.active ? undefined : true}
+                  className={
+                    tpl.active
+                      ? "flex flex-col"
+                      : "bg-muted/40 text-muted-foreground flex flex-col"
+                  }
+                  data-testid={`template-card-${tpl.id}`}
+                >
+                  <CardHeader>
+                    <div className="flex items-start justify-between gap-2">
+                      <CardTitle className="text-lg">{tpl.name}</CardTitle>
+                      {!tpl.active ? (
+                        <span
+                          aria-hidden="true"
+                          className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+                        >
+                          Coming soon
+                        </span>
+                      ) : null}
+                    </div>
+                    <CardDescription className="text-sm">
+                      {tpl.summary}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex flex-1 flex-col justify-between gap-4">
+                    <div className="flex flex-col gap-2 text-sm">
+                      <p>
+                        <span className="text-foreground font-medium">
+                          In scope:
+                        </span>{" "}
+                        {tpl.sample_question}
+                      </p>
+                      <p>
+                        <span className="text-foreground font-medium">
+                          Out of scope:
+                        </span>{" "}
+                        {tpl.out_of_scope}
+                      </p>
+                    </div>
+                    {tpl.active ? (
+                      <Button
+                        variant="outline"
+                        nativeButton={false}
+                        render={
+                          <Link
+                            data-testid={`template-card-${tpl.id}-link`}
+                            href={`/intake?template=${tpl.id}`}
+                          />
+                        }
+                      >
+                        Open {tpl.name}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        disabled
+                        tabIndex={-1}
+                        aria-disabled="true"
+                      >
+                        Coming soon
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
+        </main>
+
+        <footer className="border-border bg-background border-t">
+          <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+            <span>POLARIS · Sovereign Canadian deep research</span>
+            <span>Two-family verified evidence</span>
+          </div>
+        </footer>
+      </HomeKeyboardShell>
+    </div>
+  );
+}
+
+codex
+The core route suppression shape is present: `/` bypasses AppShell, non-home routes keep it, and the home page owns its own `main`. I’m checking the supporting components now, because the most likely review risks are client/server boundaries, nav behavior, and whether the new CI test actually covers the stated gates.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\components\\ui\\button.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\playwright.config.*" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"focus-visible|aria-current|Primary|template-card-clinical-link|header-sign-in-link|AppShellGate|AppShell\" web\\tests web\\app web\\components" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"G1|G2|G3|G4|G5|G6|G7|G8|global header|interactive states|responsive\" state\\polaris_ui_rebuild_matrix.md docs web -g \"*.md\"" in C:\POLARIS
+ succeeded in 1010ms:
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
+import { cva, type VariantProps } from "class-variance-authority";
+
+import { cn } from "@/lib/utils";
+
+const buttonVariants = cva(
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        outline:
+          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+        ghost:
+          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/80 focus-visible:ring-destructive/30",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        // Cycle-7 P3.2 follow-up: WCAG 2.5.8 target-size requires
+        // touch targets ≥24px. Bumped default from h-8 (32px) to h-9
+        // (36px) — the prior 32px reported as ~21px effective height
+        // by axe due to inner text-bounding-box measurement quirks.
+        // h-9 puts unambiguous clearance.
+        default:
+          "h-9 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        xs: "h-7 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-8 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-10 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        icon: "size-9",
+        "icon-xs":
+          "size-7 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm":
+          "size-8 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+        "icon-lg": "size-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  },
+);
+
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  ...props
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  );
+}
+
+export { Button, buttonVariants };
+
+ succeeded in 1114ms:
+web\components\app_shell.tsx:33:export function AppShell({ children }: { children: React.ReactNode }) {
+web\components\app_shell.tsx:44:          <nav className="flex items-center gap-1" aria-label="Primary">
+web\components\nav_link.tsx:26:      aria-current={is_active ? "page" : undefined}
+web\components\app_shell_gate.tsx:1:// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+web\components\app_shell_gate.tsx:2:// the AppShell header AND its <main> wrapper so the home route can
+web\components\app_shell_gate.tsx:6:// Tiny "use client" boundary so the otherwise server-rendered AppShell
+web\components\app_shell_gate.tsx:12:import { AppShell } from "@/components/app_shell";
+web\components\app_shell_gate.tsx:14:interface AppShellGateProps {
+web\components\app_shell_gate.tsx:18:export function AppShellGate({ children }: AppShellGateProps) {
+web\components\app_shell_gate.tsx:24:  return <AppShell>{children}</AppShell>;
+web\components\ui\button.tsx:7:  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+web\components\ui\button.tsx:19:          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/80 focus-visible:ring-destructive/30",
+web\app\components\home_keyboard_shell.tsx:24:// present and identical"). When AppShell is suppressed on `/` via
+web\app\components\home_keyboard_shell.tsx:25:// AppShellGate, the home page's <header> is THE app shell for this route.
+web\app\components\home_keyboard_shell.tsx:63:          <nav className="flex items-center gap-1" aria-label="Primary">
+web\app\components\home_keyboard_shell.tsx:76:                data-testid="header-sign-in-link"
+web\components\ui\input.tsx:12:        "border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm",
+web\app\dashboard\page.tsx:373:                    className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+web\components\ui\tabs.tsx:39:      "focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+web\components\ui\tabs.tsx:58:      "ring-offset-background focus-visible:ring-ring mt-4 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+web\components\inspector\reasoning_trace_timeline.tsx:99:        className="focus-visible:ring-ring mt-2 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\components\inspector\verified_report_sections.tsx:105:          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\app\inspector\offline\page.tsx:99:            className={`border-border focus-visible:ring-ring flex min-h-32 cursor-pointer items-center justify-center rounded border-2 border-dashed px-6 py-8 text-center text-sm focus-visible:ring-2 focus-visible:outline-none ${
+web\app\intake\components\disambiguation_modal.tsx:70:                    className="border-border bg-muted/30 hover:bg-muted/60 flex w-full flex-col gap-1 rounded-lg border p-3 text-left focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+web\app\layout.tsx:4:import { AppShellGate } from "@/components/app_shell_gate";
+web\app\layout.tsx:36:        <AppShellGate>{children}</AppShellGate>
+web\tests\e2e\demo_walkthrough.spec.ts:30:    await page.getByTestId("template-card-clinical-link").click();
+web\tests\e2e\command_palette_suggest.spec.ts:11: * Each test waits for header-sign-in-link visible after networkidle to
+web\tests\e2e\command_palette_suggest.spec.ts:22:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette_suggest.spec.ts:42:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette_suggest.spec.ts:58:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\app\generation\components\generation_runner.tsx:146:              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+web\tests\e2e\command_palette.spec.ts:20:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette.spec.ts:35:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette.spec.ts:55:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette.spec.ts:62:    await expect(page.getByTestId("header-sign-in-link")).toBeFocused();
+web\tests\e2e\command_palette_adversarial.spec.ts:55:      await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette_adversarial.spec.ts:70:      await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\app\retrieval\components\retrieval_runner.tsx:135:              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+web\tests\e2e\f1_multi_tab.spec.ts:20:  await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\f1_a11y.spec.ts:24:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:141:              aria-current={isSelected ? "true" : undefined}
+web\tests\e2e\home_g1_g8.spec.ts:21:  // G1: exactly one <header> element (no duplicate from a forgotten AppShell).
+web\tests\e2e\home_g1_g8.spec.ts:25:  // Primary nav present + identical to other routes (Home/Intake/Dashboard/
+web\tests\e2e\home_g1_g8.spec.ts:27:  const nav = page.locator("nav[aria-label='Primary']");
+web\tests\e2e\home_g1_g8.spec.ts:55:test("G3: active template card link has focus-visible + hover styling", async ({
+web\tests\e2e\home_g1_g8.spec.ts:59:  const link = page.getByTestId("template-card-clinical-link");
+web\tests\e2e\home_g1_g8.spec.ts:62:  // shadcn/ui Button injects focus-visible:ring + hover utilities. Codex
+web\tests\e2e\home_g1_g8.spec.ts:65:  expect(className).toMatch(/focus-visible/);
+web\tests\e2e\home_g1_g8.spec.ts:76:    if (focused === "template-card-clinical-link") return;
+
+ succeeded in 1237ms:
+state\polaris_ui_rebuild_matrix.md:5:responsive/a11y gates. Source audit: `outputs/audit_2026_05_18/ui_audit.md`.
+state\polaris_ui_rebuild_matrix.md:24:- **G1 — App shell:** the global header/sidebar nav is present and identical.
+state\polaris_ui_rebuild_matrix.md:25:- **G2 — No dev language:** zero "SLICE 00x", issue IDs, "scaffold",
+state\polaris_ui_rebuild_matrix.md:27:- **G3 — Interactive states:** every button / tab / link / control has
+state\polaris_ui_rebuild_matrix.md:29:- **G4 — Async states:** every data surface has loading + empty + error states;
+state\polaris_ui_rebuild_matrix.md:31:- **G5 — Responsive:** correct at 1440px (demo laptop) and 1024px (tablet).
+state\polaris_ui_rebuild_matrix.md:32:- **G6 — Accessibility:** keyboard-navigable, visible focus ring, WCAG-AA
+state\polaris_ui_rebuild_matrix.md:34:- **G7 — Design system:** uses the token set only; matches the gold route.
+state\polaris_ui_rebuild_matrix.md:35:- **G8 — Clean:** no console errors/warnings on load or interaction.
+state\polaris_ui_rebuild_matrix.md:37:**Objective "ships" bar (what Codex checks per route diff):** G1-G8 each
+state\polaris_ui_rebuild_matrix.md:43:| # | Route | Current | Disposition | Per-route acceptance (on top of G1-G8) |
+state\polaris_ui_rebuild_matrix.md:71:  G1-G8 evidence + screenshot; Codex reviews against the gold route.
+state\polaris_ui_rebuild_matrix.md:73:- Cross-cutting: A2 (strip dev language) folds into every route issue's G2;
+state\polaris_ui_rebuild_matrix.md:74:  A5 (states) folds into every route issue's G3+G4.
+state\polaris_ui_rebuild_matrix.md:79:  design + implementation; Codex gates every route against G1-G8.
+state\polaris_ui_rebuild_matrix.md:83:  across weeks 2-12; all 14 routes pass G1-G8 by **mid-August** (≈3 weeks before
+docs\carney_secret_inventory.md:3:**G13 / 7-day-prep.** Single-page registry of every secret the Carney demo
+docs\carney_handover\rehearsal_procedure.md:87:re-scrub before the cutover. (See `secret_inventory` / G13 for the full
+docs\handover.md:50:- USER ACTION 1: G2 signed commit on polaris-controls
+docs\md8_phase1_threat_model.md:91:operator's overall responsiveness budget, not just the
+docs\models\gpu_topology.md:39:   BHS5, DE, DE1, GRA, GRA9, RBX, RBX-A, RBX-ARCHIVE, SBG, SBG5, UK, UK1,
+docs\models\gpu_topology.md:46:RBX, RBX-A, RBX-ARCHIVE, SBG, SBG5, UK, UK1, WAW, WAW1`. No US regions
+docs\todo_list.md:9:- `state/polaris_ui_rebuild_matrix.md` — the UI rebuild route matrix + gates G1-G8.
+docs\pipeline_audit_context\08_env_var_inventory.md:789:| `POLARIS_DOCX_HEADING1_SIZE` | `src/polaris_graph/export/docx_exporter.py:49` |
+docs\pipeline_audit_context\08_env_var_inventory.md:790:| `POLARIS_DOCX_HEADING2_SIZE` | `src/polaris_graph/export/docx_exporter.py:50` |
+docs\pipeline_audit_context\08_env_var_inventory.md:791:| `POLARIS_DOCX_HEADING3_SIZE` | `src/polaris_graph/export/docx_exporter.py:51` |
+
+ succeeded in 1289ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  // I-cd-013b (GH#669): inspector_route.spec.ts visual baselines are
+  // `test.fixme()` (deferred until baselines captured by --update-snapshots
+  // run); non-visual cases run on all platforms. Linux ignore only
+  // applies to visual.spec.ts.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content state\\polaris_ui_rebuild_matrix.md | Select-Object -First 90" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\package.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\tsconfig.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\next.config.*" in C:\POLARIS
+ succeeded in 1010ms:
+# POLARIS UI rebuild — auditable route backlog (v1, 2026-05-19)
+
+Built per Codex iter-4 P1: "every page top-tier" needs an executable
+route-by-route matrix with objective acceptance, a design system, and
+responsive/a11y gates. Source audit: `outputs/audit_2026_05_18/ui_audit.md`.
+
+## 1. Design system — the decision
+
+- **Component library:** shadcn/ui (MIT) + Tailwind v4 + Next.js 16 — already in
+  `web/`. Keep. No new framework.
+- **Token set:** one canonical set — colour, spacing scale, type scale, radius,
+  shadow, z-index — defined once in `web/app/globals.css` + Tailwind theme;
+  every route consumes tokens, zero ad-hoc values.
+- **Visual reference standard:** a serious analytical / research instrument —
+  the polish bar is Linear / Vercel-dashboard / a government-grade analytics
+  console: data-dense, restrained palette, purposeful whitespace, strong
+  typographic hierarchy. NOT a marketing site, NOT a thin prototype.
+- **Owner of visual direction:** the `ui-designer` agent sets the system + a
+  reference mock for one "gold" route (the Evidence Inspector); `frontend-developer`
+  implements; every route is screenshot-reviewed against the gold route.
+
+## 2. Standing acceptance gates — EVERY shipped route must pass ALL 8
+
+- **G1 — App shell:** the global header/sidebar nav is present and identical.
+- **G2 — No dev language:** zero "SLICE 00x", issue IDs, "scaffold",
+  "placeholder", "post-Carney", "Phase 0" in any user-visible string.
+- **G3 — Interactive states:** every button / tab / link / control has
+  hover + focus + active + disabled states.
+- **G4 — Async states:** every data surface has loading + empty + error states;
+  no raw status strings ("backend returned 401"), no stuck "Loading…".
+- **G5 — Responsive:** correct at 1440px (demo laptop) and 1024px (tablet).
+- **G6 — Accessibility:** keyboard-navigable, visible focus ring, WCAG-AA
+  contrast, semantic landmarks + ARIA labels.
+- **G7 — Design system:** uses the token set only; matches the gold route.
+- **G8 — Clean:** no console errors/warnings on load or interaction.
+
+**Objective "ships" bar (what Codex checks per route diff):** G1-G8 each
+pass + a full-page screenshot attached + the route matches the gold-route
+polish. Subjective "looks nice" is not the bar — the 8 gates are.
+
+## 3. The 14 product routes — disposition + per-route acceptance
+
+| # | Route | Current | Disposition | Per-route acceptance (on top of G1-G8) |
+|---|---|---|---|---|
+| 1 | `/` home | plain | **Rebuild** | template grid is the demo entry; each active template card → intake; clear value statement |
+| 2 | `/sign-in` | placeholder | **Rebuild** (gated on A3) | real login against static_accounts; or removed if A3=no-auth |
+| 3 | `/intake` | plain | **Rebuild** | scope-discovery step; ambiguity modal; clean result state |
+| 4 | `/dashboard` | plain | **Rebuild** | "start a run" step; resolve overlap w/ intake in route-map consult |
+| 5 | `/retrieval` | plain | **Consolidate** | fold into the run flow as an internal phase view, not a standalone page |
+| 6 | `/generation` | plain | **Consolidate** | fold into the run flow |
+| 7 | `/upload` | no header | **Rebuild** | document grounding; per-file parse status; in app shell |
+| 8 | `/memory` | no header | **Keep-or-cut** | decide in route-map consult; if kept, rebuild in app shell |
+| 9 | `/benchmark` | 401 | **Rebuild** | BEAT-BOTH 7-dimension proof; fix auth; real chart/table |
+| 10 | `/audit_live` | no header | **Consolidate** | fold into `/runs/[runId]` live view |
+| 11 | `/contracts` | no header | **Rebuild** | Evidence Contract editor; in app shell; real form UX |
+| 12 | `/pin_replay` | no header | **Rebuild** | reproducibility view (richest already); in app shell |
+| 13 | `/inspector/[runId]` | 401 | **Rebuild — GOLD ROUTE** | the centrepiece; claim → primary source; fix auth; sets the polish bar |
+| 14 | `/runs/[runId]` | 401 | **Rebuild** | live run + SSE events; absorbs audit_live; fix auth |
+
+Test-harness routes (`/charts_test/*`, `/sentence_hover_test/*`,
+`(test_harness)/*`) → **excluded from the production build** (A7), not merely
+unlinked: direct access returns 404 in production.
+
+## 4. Decomposition into Codex-gated issues
+
+- **Issue A1** — global app shell + nav + token set + **finalize the route map**
+  (the Consolidate/Keep-or-cut calls = a Codex architecture consult). Week 1.
+- **Issue A-gold** — rebuild `/inspector/[runId]` as the gold route (sets the
+  polish bar all others are screenshot-reviewed against).
+- **One issue per remaining kept route** (≈10 issues) — each diff carries
+  G1-G8 evidence + screenshot; Codex reviews against the gold route.
+- **Issue A7** — production exclusion of harness routes.
+- Cross-cutting: A2 (strip dev language) folds into every route issue's G2;
+  A5 (states) folds into every route issue's G3+G4.
+
+## 5. Ownership + timeline
+
+- **Owner:** Claude writes diffs; `ui-designer` + `frontend-developer` agents do
+  design + implementation; Codex gates every route against G1-G8.
+- **A3 auth decision owner:** operator — needed by end of week 1 (it gates
+  routes 2, 9, 13, 14).
+- **Timeline:** A1 + route map in week 1; gold route week 2; ~10 route issues
+  across weeks 2-12; all 14 routes pass G1-G8 by **mid-August** (≈3 weeks before
+  the 2026-09-06 demo). If a route can't reach the bar in time, it is cut from
+  the demo nav — not shipped half-done.
+
+ succeeded in 1057ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 1130ms:
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+
+ succeeded in 1261ms:
+import type { NextConfig } from "next";
+
+// I-carney-005 P1-004 + P1-005: standalone output for Docker runner +
+// server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
+// fetch only talks to the webui container (Next.js then proxies to the
+// api container by Docker service name, which the browser can't resolve).
+const nextConfig: NextConfig = {
+  output: "standalone",
+  async rewrites() {
+    const internal =
+      process.env.INTERNAL_API_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      "http://localhost:8000";
+    return [
+      {
+        source: "/api/v6/:path*",
+        destination: `${internal}/:path*`,
+      },
+      // I-carney-003 P1-001: expose FastAPI /transparency directly so
+      // reviewers (incl. Carney's office) can audit the deploy without
+      // going through /api/v6 prefix routing.
+      {
+        source: "/transparency",
+        destination: `${internal}/transparency`,
+      },
+      {
+        source: "/transparency/:path*",
+        destination: `${internal}/transparency/:path*`,
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+
+codex
+The matrix says G3 is every link/control having hover/focus/active/disabled states and G8 includes warnings, while the new spec only asserts one button-link’s class and console errors. I’m going to run the same static/build checks next so any Next client/server boundary problem is proven rather than inferred.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run lint' in C:\POLARIS\web
+ succeeded in 3791ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+
+ succeeded in 9127ms:
+
+> web@0.1.0 lint
+> eslint
+
+
+C:\POLARIS\web\app\benchmark\components\benchmark_board.tsx
+  12:8  warning  'BenchmarkDimension' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\lib\inspector_bundle_client_loader.ts
+  130:21  warning  '_status' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\tests\e2e\frame_coverage_panel.spec.ts
+  44:27  warning  '_text' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 3 problems (0 errors, 3 warnings)
+
+
+codex
+Typecheck passes, and lint reports only pre-existing warnings outside this home diff. I’m running the production build now because that is the check most likely to catch an invalid App Router boundary.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run build' in C:\POLARIS\web
+2026-05-20T19:07:00.141724Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 8.9 seconds
+Output:
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.2.4 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 6.0s
+  Running TypeScript ...
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+Turbopack build encountered 1 warnings:
+./next.config.ts
+Encountered unexpected file in NFT list
+A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
+- filesystem operations (like path.join, path.resolve or fs.readFile), or
+- very dynamic requires (like require('./' + foo)).
+To resolve this, you can
+- remove them if possible, or
+- only use them in development, or
+- make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+- add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+
+Import trace:
+  App Route:
+    ./next.config.ts
+    ./lib/inspector_bundle_loader.ts
+    ./app/api/inspector_bundle/[runId]/route.ts
+
+
+
+> Build error occurred
+Error: spawn EPERM
+    at ignore-listed frames {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+ exited 1 in 8862ms:
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.2.4 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 6.0s
+  Running TypeScript ...
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+Turbopack build encountered 1 warnings:
+./next.config.ts
+Encountered unexpected file in NFT list
+A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
+- filesystem operations (like path.join, path.resolve or fs.readFile), or
+- very dynamic requires (like require('./' + foo)).
+To resolve this, you can
+- remove them if possible, or
+- only use them in development, or
+- make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+- add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+
+Import trace:
+  App Route:
+    ./next.config.ts
+    ./lib/inspector_bundle_loader.ts
+    ./app/api/inspector_bundle/[runId]/route.ts
+
+
+
+> Build error occurred
+Error: spawn EPERM
+    at ignore-listed frames {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+codex
+The production build compiled the app before failing with a local `spawn EPERM` during Next’s build process, so it did not expose a code-level compile error. I’m going to compare the canonical patch and line references now, then I’ll decide whether any of the gaps rise above P2.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content .codex\\I-cd-022\\codex_diff_canonical.patch" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-FileHash .codex\\I-cd-022\\codex_diff_canonical.patch -Algorithm SHA256 | Format-List" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web'"\\components\\nav_link.tsx | ForEach-Object { \"{0,4}: {1}\" -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web'"\\tests\\e2e\\home_g1_g8.spec.ts | ForEach-Object { \"{0,4}: {1}\" -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web'"\\app\\components\\home_keyboard_shell.tsx | ForEach-Object { \"{0,4}: {1}\" -f "'$i, $_; $i++ }' in C:\POLARIS
+ succeeded in 979ms:
+diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
+index 5a3b9d2e..e2380417 100644
+--- a/.github/workflows/web_ci.yml
++++ b/.github/workflows/web_ci.yml
+@@ -162,6 +162,14 @@ jobs:
+           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+         run: npx playwright test --project=chromium tests/e2e/inspector_offline_fallback.spec.ts
+ 
++      # I-cd-022 (#612): home route G1-G8 acceptance gates per
++      # state/polaris_ui_rebuild_matrix.md §2.
++      - name: run_e2e_home_g1_g8
++        env:
++          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
++          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
++        run: npx playwright test --project=chromium tests/e2e/home_g1_g8.spec.ts
++
+       # Visual baselines are *-chromium-win32.png (locally captured on Win).
+       # On Linux CI the snapshot file resolves to a different name and will
+       # be missing; skip visual.spec until Linux baselines are added.
+diff --git a/web/app/components/home_keyboard_shell.tsx b/web/app/components/home_keyboard_shell.tsx
+index 3b473d25..a1e93e8c 100644
+--- a/web/app/components/home_keyboard_shell.tsx
++++ b/web/app/components/home_keyboard_shell.tsx
+@@ -3,6 +3,7 @@
+ import Link from "next/link";
+ import { useEffect, useRef, useState, type ReactNode } from "react";
+ 
++import { NavLink } from "@/components/nav_link";
+ import { Button } from "@/components/ui/button";
+ 
+ import { CommandPalette } from "./command_palette";
+@@ -18,6 +19,21 @@ type Template = {
+ 
+ type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+ 
++// I-cd-022 (#612): primary nav now lives in the home header too, so /
++// matches the global app-shell nav (G1: "global header/sidebar nav is
++// present and identical"). When AppShell is suppressed on `/` via
++// AppShellGate, the home page's <header> is THE app shell for this route.
++const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
++  { href: "/", label: "Home" },
++  { href: "/intake", label: "Intake" },
++  { href: "/dashboard", label: "Dashboard" },
++  { href: "/upload", label: "Upload" },
++  { href: "/benchmark", label: "Benchmark" },
++  { href: "/contracts", label: "Contracts" },
++  { href: "/pin_replay", label: "Pin Replay" },
++  { href: "/memory", label: "Memory" },
++];
++
+ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+   const [palette_open, set_palette_open] = useState(false);
+   const sign_in_link_ref = useRef<HTMLAnchorElement>(null);
+@@ -37,17 +53,22 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+   return (
+     <>
+       <header className="border-border bg-background border-b">
+-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+-          <div className="flex flex-col">
+-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+-              POLARIS Canada
+-            </span>
+-            <span className="text-foreground text-base font-semibold">
+-              Sovereign Deep Research
+-            </span>
+-          </div>
++        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-3">
++          <Link
++            href="/"
++            className="text-foreground font-mono text-sm font-semibold tracking-tight"
++          >
++            POLARIS · Canada
++          </Link>
++          <nav className="flex items-center gap-1" aria-label="Primary">
++            {PRIMARY_NAV.map((item) => (
++              <NavLink key={item.href} href={item.href}>
++                {item.label}
++              </NavLink>
++            ))}
++          </nav>
+           <Button
+-            variant="default"
++            variant="outline"
+             nativeButton={false}
+             render={
+               <Link
+diff --git a/web/app/layout.tsx b/web/app/layout.tsx
+index 01df271a..90d8f684 100644
+--- a/web/app/layout.tsx
++++ b/web/app/layout.tsx
+@@ -1,7 +1,7 @@
+ import type { Metadata } from "next";
+ import { Geist, Geist_Mono } from "next/font/google";
+ 
+-import { AppShell } from "@/components/app_shell";
++import { AppShellGate } from "@/components/app_shell_gate";
+ import { Toaster } from "@/components/ui/sonner";
+ 
+ import "./globals.css";
+@@ -33,7 +33,7 @@ export default function RootLayout({
+       className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+     >
+       <body className="flex min-h-full flex-col">
+-        <AppShell>{children}</AppShell>
++        <AppShellGate>{children}</AppShellGate>
+         <Toaster />
+       </body>
+     </html>
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index 329839dc..f5955bf9 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -133,7 +133,7 @@ export default function HomePage() {
+                 Research templates
+               </h2>
+               <span className="text-muted-foreground text-xs tracking-widest uppercase">
+-                1 active · 7 to-build
++                1 active · 7 in development
+               </span>
+             </div>
+             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+@@ -211,8 +211,8 @@ export default function HomePage() {
+ 
+         <footer className="border-border bg-background border-t">
+           <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+-            <span>POLARIS v6.2 — slices 1-5 shipped</span>
+-            <span>Sovereign Canadian deep research</span>
++            <span>POLARIS · Sovereign Canadian deep research</span>
++            <span>Two-family verified evidence</span>
+           </div>
+         </footer>
+       </HomeKeyboardShell>
+diff --git a/web/components/app_shell_gate.tsx b/web/components/app_shell_gate.tsx
+new file mode 100644
+index 00000000..8b110c5e
+--- /dev/null
++++ b/web/components/app_shell_gate.tsx
+@@ -0,0 +1,25 @@
++// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
++// the AppShell header AND its <main> wrapper so the home route can
++// provide its own header (with the same primary nav) + its own <main>.
++// This avoids G1 (double header) + G6 (nested main) landmark violations.
++//
++// Tiny "use client" boundary so the otherwise server-rendered AppShell
++// can still wrap every non-home route on the server.
++"use client";
++
++import { usePathname } from "next/navigation";
++
++import { AppShell } from "@/components/app_shell";
++
++interface AppShellGateProps {
++  children: React.ReactNode;
++}
++
++export function AppShellGate({ children }: AppShellGateProps) {
++  const pathname = usePathname();
++  // Home owns its own header + main; render children bare on `/`.
++  if (pathname === "/") {
++    return <>{children}</>;
++  }
++  return <AppShell>{children}</AppShell>;
++}
+diff --git a/web/tests/e2e/home_g1_g8.spec.ts b/web/tests/e2e/home_g1_g8.spec.ts
+new file mode 100644
+index 00000000..875868c4
+--- /dev/null
++++ b/web/tests/e2e/home_g1_g8.spec.ts
+@@ -0,0 +1,90 @@
++// I-cd-022 (#612): home route G1-G8 acceptance gates per
++// state/polaris_ui_rebuild_matrix.md §2. Mechanical assertions only —
++// no subjective polish judgments.
++
++import { expect, test } from "@playwright/test";
++
++const BANNED_DEV_LANGUAGE = [
++  /\bslice\b/i,
++  /\bscaffold\b/i,
++  /\bplaceholder\b/i,
++  /\bphase 0\b/i,
++  /\bpost[- ]carney\b/i,
++  /\bi-cd-/i,
++];
++
++test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
++  page,
++}) => {
++  await page.goto("/");
++
++  // G1: exactly one <header> element (no duplicate from a forgotten AppShell).
++  const headers = page.locator("header");
++  await expect(headers).toHaveCount(1);
++
++  // Primary nav present + identical to other routes (Home/Intake/Dashboard/
++  // Upload/Benchmark/Contracts/Pin Replay/Memory).
++  const nav = page.locator("nav[aria-label='Primary']");
++  await expect(nav).toBeVisible();
++  for (const label of [
++    "Home",
++    "Intake",
++    "Dashboard",
++    "Upload",
++    "Benchmark",
++    "Contracts",
++    "Pin Replay",
++    "Memory",
++  ]) {
++    await expect(nav.getByRole("link", { name: label })).toBeVisible();
++  }
++
++  // G6 (single main landmark — Codex iter-2 P1 fix).
++  const mains = page.locator("main");
++  await expect(mains).toHaveCount(1);
++});
++
++test("G2: home contains no banned dev-language strings", async ({ page }) => {
++  await page.goto("/");
++  const body_text = (await page.locator("body").textContent()) || "";
++  for (const banned of BANNED_DEV_LANGUAGE) {
++    expect(body_text).not.toMatch(banned);
++  }
++});
++
++test("G3: active template card link has focus-visible + hover styling", async ({
++  page,
++}) => {
++  await page.goto("/");
++  const link = page.getByTestId("template-card-clinical-link");
++  await expect(link).toBeVisible();
++  const className = (await link.getAttribute("class")) || "";
++  // shadcn/ui Button injects focus-visible:ring + hover utilities. Codex
++  // iter-1 P2 fix: assert on the LINK, not the card (cards are not
++  // interactive — links/buttons are).
++  expect(className).toMatch(/focus-visible/);
++});
++
++test("G6: tab key reaches the active template card link", async ({ page }) => {
++  await page.goto("/");
++  // Tab repeatedly until the focused element is the active template link.
++  for (let i = 0; i < 30; i++) {
++    await page.keyboard.press("Tab");
++    const focused = await page.evaluate(
++      () => document.activeElement?.getAttribute("data-testid") ?? null,
++    );
++    if (focused === "template-card-clinical-link") return;
++  }
++  throw new Error("active template card link never received focus via Tab");
++});
++
++test("G8: home renders with zero console errors", async ({ page }) => {
++  const errors: string[] = [];
++  page.on("console", (msg) => {
++    if (msg.type() === "error") errors.push(msg.text());
++  });
++  await page.goto("/");
++  // Idle long enough for hydration + any async errors to surface.
++  await page.waitForLoadState("networkidle");
++  expect(errors).toEqual([]);
++});
+
+ succeeded in 1035ms:
+
+[32;1mAlgorithm : [0mSHA256
+[32;1mHash      : [0m178A73AF757E23247EF0DDA2DC53A048226DC154C057E9A02602CFB6C113BB1F
+[32;1mPath      : [0mC:\POLARIS\.codex\I-cd-022\codex_diff_canonical.patch
+
+
+ succeeded in 1101ms:
+   1: "use client";
+   2: 
+   3: import Link from "next/link";
+   4: import { usePathname } from "next/navigation";
+   5: 
+   6: /**
+   7:  * I-cd-004: client component for top-nav active-route highlight. Pure styling
+   8:  * via the locked shadcn token set (accent / muted-foreground / foreground).
+   9:  * Active when the pathname equals href, or starts with `${href}/` for nested
+  10:  * routes (e.g. `/runs/abc` highlights "Dashboard" only if we want — by default
+  11:  * an item is active for its own subtree).
+  12:  */
+  13: export function NavLink({
+  14:   href,
+  15:   children,
+  16: }: {
+  17:   href: string;
+  18:   children: React.ReactNode;
+  19: }) {
+  20:   const pathname = usePathname();
+  21:   const is_active =
+  22:     pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
+  23:   return (
+  24:     <Link
+  25:       href={href}
+  26:       aria-current={is_active ? "page" : undefined}
+  27:       className={
+  28:         "rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
+  29:         (is_active
+  30:           ? "bg-accent text-accent-foreground"
+  31:           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground")
+  32:       }
+  33:     >
+  34:       {children}
+  35:     </Link>
+  36:   );
+  37: }
+
+ succeeded in 1195ms:
+   1: "use client";
+   2: 
+   3: import Link from "next/link";
+   4: import { useEffect, useRef, useState, type ReactNode } from "react";
+   5: 
+   6: import { NavLink } from "@/components/nav_link";
+   7: import { Button } from "@/components/ui/button";
+   8: 
+   9: import { CommandPalette } from "./command_palette";
+  10: 
+  11: type Template = {
+  12:   id: string;
+  13:   name: string;
+  14:   summary: string;
+  15:   sample_question: string;
+  16:   out_of_scope: string;
+  17:   active: boolean;
+  18: };
+  19: 
+  20: type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+  21: 
+  22: // I-cd-022 (#612): primary nav now lives in the home header too, so /
+  23: // matches the global app-shell nav (G1: "global header/sidebar nav is
+  24: // present and identical"). When AppShell is suppressed on `/` via
+  25: // AppShellGate, the home page's <header> is THE app shell for this route.
+  26: const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+  27:   { href: "/", label: "Home" },
+  28:   { href: "/intake", label: "Intake" },
+  29:   { href: "/dashboard", label: "Dashboard" },
+  30:   { href: "/upload", label: "Upload" },
+  31:   { href: "/benchmark", label: "Benchmark" },
+  32:   { href: "/contracts", label: "Contracts" },
+  33:   { href: "/pin_replay", label: "Pin Replay" },
+  34:   { href: "/memory", label: "Memory" },
+  35: ];
+  36: 
+  37: export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+  38:   const [palette_open, set_palette_open] = useState(false);
+  39:   const sign_in_link_ref = useRef<HTMLAnchorElement>(null);
+  40: 
+  41:   useEffect(() => {
+  42:     function on_keydown(event: KeyboardEvent) {
+  43:       if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+  44:         event.preventDefault();
+  45:         event.stopPropagation();
+  46:         set_palette_open((p) => !p);
+  47:       }
+  48:     }
+  49:     window.addEventListener("keydown", on_keydown);
+  50:     return () => window.removeEventListener("keydown", on_keydown);
+  51:   }, []);
+  52: 
+  53:   return (
+  54:     <>
+  55:       <header className="border-border bg-background border-b">
+  56:         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-3">
+  57:           <Link
+  58:             href="/"
+  59:             className="text-foreground font-mono text-sm font-semibold tracking-tight"
+  60:           >
+  61:             POLARIS · Canada
+  62:           </Link>
+  63:           <nav className="flex items-center gap-1" aria-label="Primary">
+  64:             {PRIMARY_NAV.map((item) => (
+  65:               <NavLink key={item.href} href={item.href}>
+  66:                 {item.label}
+  67:               </NavLink>
+  68:             ))}
+  69:           </nav>
+  70:           <Button
+  71:             variant="outline"
+  72:             nativeButton={false}
+  73:             render={
+  74:               <Link
+  75:                 ref={sign_in_link_ref}
+  76:                 data-testid="header-sign-in-link"
+  77:                 href={signInHref}
+  78:               />
+  79:             }
+  80:           >
+  81:             Sign in
+  82:           </Button>
+  83:         </div>
+  84:       </header>
+  85:       {children}
+  86:       <CommandPalette
+  87:         open={palette_open}
+  88:         onOpenChange={set_palette_open}
+  89:         templates={templates}
+  90:         signInLinkRef={sign_in_link_ref}
+  91:       />
+  92:     </>
+  93:   );
+  94: }
+
+ succeeded in 1289ms:
+   1: // I-cd-022 (#612): home route G1-G8 acceptance gates per
+   2: // state/polaris_ui_rebuild_matrix.md §2. Mechanical assertions only —
+   3: // no subjective polish judgments.
+   4: 
+   5: import { expect, test } from "@playwright/test";
+   6: 
+   7: const BANNED_DEV_LANGUAGE = [
+   8:   /\bslice\b/i,
+   9:   /\bscaffold\b/i,
+  10:   /\bplaceholder\b/i,
+  11:   /\bphase 0\b/i,
+  12:   /\bpost[- ]carney\b/i,
+  13:   /\bi-cd-/i,
+  14: ];
+  15: 
+  16: test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
+  17:   page,
+  18: }) => {
+  19:   await page.goto("/");
+  20: 
+  21:   // G1: exactly one <header> element (no duplicate from a forgotten AppShell).
+  22:   const headers = page.locator("header");
+  23:   await expect(headers).toHaveCount(1);
+  24: 
+  25:   // Primary nav present + identical to other routes (Home/Intake/Dashboard/
+  26:   // Upload/Benchmark/Contracts/Pin Replay/Memory).
+  27:   const nav = page.locator("nav[aria-label='Primary']");
+  28:   await expect(nav).toBeVisible();
+  29:   for (const label of [
+  30:     "Home",
+  31:     "Intake",
+  32:     "Dashboard",
+  33:     "Upload",
+  34:     "Benchmark",
+  35:     "Contracts",
+  36:     "Pin Replay",
+  37:     "Memory",
+  38:   ]) {
+  39:     await expect(nav.getByRole("link", { name: label })).toBeVisible();
+  40:   }
+  41: 
+  42:   // G6 (single main landmark — Codex iter-2 P1 fix).
+  43:   const mains = page.locator("main");
+  44:   await expect(mains).toHaveCount(1);
+  45: });
+  46: 
+  47: test("G2: home contains no banned dev-language strings", async ({ page }) => {
+  48:   await page.goto("/");
+  49:   const body_text = (await page.locator("body").textContent()) || "";
+  50:   for (const banned of BANNED_DEV_LANGUAGE) {
+  51:     expect(body_text).not.toMatch(banned);
+  52:   }
+  53: });
+  54: 
+  55: test("G3: active template card link has focus-visible + hover styling", async ({
+  56:   page,
+  57: }) => {
+  58:   await page.goto("/");
+  59:   const link = page.getByTestId("template-card-clinical-link");
+  60:   await expect(link).toBeVisible();
+  61:   const className = (await link.getAttribute("class")) || "";
+  62:   // shadcn/ui Button injects focus-visible:ring + hover utilities. Codex
+  63:   // iter-1 P2 fix: assert on the LINK, not the card (cards are not
+  64:   // interactive — links/buttons are).
+  65:   expect(className).toMatch(/focus-visible/);
+  66: });
+  67: 
+  68: test("G6: tab key reaches the active template card link", async ({ page }) => {
+  69:   await page.goto("/");
+  70:   // Tab repeatedly until the focused element is the active template link.
+  71:   for (let i = 0; i < 30; i++) {
+  72:     await page.keyboard.press("Tab");
+  73:     const focused = await page.evaluate(
+  74:       () => document.activeElement?.getAttribute("data-testid") ?? null,
+  75:     );
+  76:     if (focused === "template-card-clinical-link") return;
+  77:   }
+  78:   throw new Error("active template card link never received focus via Tab");
+  79: });
+  80: 
+  81: test("G8: home renders with zero console errors", async ({ page }) => {
+  82:   const errors: string[] = [];
+  83:   page.on("console", (msg) => {
+  84:     if (msg.type() === "error") errors.push(msg.text());
+  85:   });
+  86:   await page.goto("/");
+  87:   // Idle long enough for hydration + any async errors to surface.
+  88:   await page.waitForLoadState("networkidle");
+  89:   expect(errors).toEqual([]);
+  90: });
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\components\\command_palette.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\tests\\e2e\\command_palette.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\tests\\e2e\\f1_a11y.spec.ts" in C:\POLARIS
+ succeeded in 851ms:
+"use client";
+
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type RefObject } from "react";
+
+import { cn } from "@/lib/utils";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+type CommandPaletteProps = {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  templates: Template[];
+  signInLinkRef: RefObject<HTMLAnchorElement | null>;
+};
+
+const SYNONYMS: Record<string, string> = {
+  tirzepatide: "clinical",
+  ozempic: "clinical",
+  semaglutide: "clinical",
+  mounjaro: "clinical",
+};
+
+function score_template(t: Template, q: string): number {
+  if (!q) return 1; // empty search: equal score so all items render in original order
+  const ql = q.toLowerCase();
+  let s = 0;
+  if (t.id.toLowerCase() === ql) s += 100;
+  if (t.name.toLowerCase() === ql) s += 50;
+  if (t.name.toLowerCase().includes(ql)) s += 30;
+  if (t.summary.toLowerCase().includes(ql)) s += 10;
+  if (t.sample_question.toLowerCase().includes(ql)) s += 5;
+  if (t.out_of_scope.toLowerCase().includes(ql)) s += 2;
+  if (SYNONYMS[ql] === t.id) s += 60;
+  return s;
+}
+
+export function CommandPalette({
+  open,
+  onOpenChange,
+  templates,
+  signInLinkRef,
+}: CommandPaletteProps) {
+  const router = useRouter();
+  const [search, set_search] = useState("");
+  const [debounced_search, set_debounced_search] = useState("");
+  const [active_index, set_active_index] = useState(0);
+
+  useEffect(() => {
+    // Both debounced_search and active_index update in the timeout
+    // callback — async, not synchronous setState-in-effect. New query
+    // pre-selects the top-scored result.
+    const t = setTimeout(() => {
+      set_debounced_search(search);
+      set_active_index(0);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const scored = templates
+    .map((t) => ({ t, s: score_template(t, debounced_search) }))
+    .filter(({ s }) => s > 0)
+    .sort((a, b) => b.s - a.s)
+    .map(({ t }) => t);
+
+  const clamped =
+    scored.length === 0
+      ? 0
+      : Math.max(0, Math.min(active_index, scored.length - 1));
+
+  function handle_key(event: React.KeyboardEvent) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      set_active_index((p) => Math.min(p + 1, scored.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      set_active_index((p) => Math.max(p - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const tpl = scored[clamped];
+      if (tpl?.active) {
+        router.push(`/intake?template=${tpl.id}`);
+        onOpenChange(false);
+      }
+    }
+  }
+
+  return (
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next);
+        if (!next) requestAnimationFrame(() => signInLinkRef.current?.focus());
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/20" />
+        <DialogPrimitive.Popup
+          data-testid="command-palette"
+          onKeyDown={handle_key}
+          className="bg-popover text-popover-foreground fixed top-1/4 left-1/2 z-50 flex w-full max-w-xl -translate-x-1/2 flex-col gap-2 rounded-xl border p-4 shadow-lg"
+        >
+          <DialogPrimitive.Title className="sr-only">
+            Search templates
+          </DialogPrimitive.Title>
+          <input
+            data-testid="command-palette-input"
+            autoFocus
+            value={search}
+            onChange={(e) => set_search(e.target.value)}
+            placeholder="Search templates..."
+            className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:ring-2 focus:outline-none"
+          />
+          <ul
+            className="max-h-80 overflow-y-auto"
+            role="listbox"
+            aria-label="Template results"
+          >
+            {scored.map((t, i) => (
+              <li
+                key={t.id}
+                role="option"
+                aria-selected={i === clamped}
+                data-testid={`palette-item-${t.id}`}
+                data-active={i === clamped ? "true" : undefined}
+                aria-disabled={!t.active || undefined}
+                className={cn(
+                  "rounded-md px-3 py-2 text-sm",
+                  i === clamped && "bg-accent",
+                  !t.active && "text-muted-foreground",
+                )}
+              >
+                <span className="font-medium">{t.name}</span>
+                {!t.active ? (
+                  <span className="ml-2 text-xs uppercase">(coming soon)</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
+ succeeded in 942ms:
+import { expect, test } from "@playwright/test";
+
+/**
+ * I-f1-002 — Command palette (⌘K) keyboard-only behavior.
+ *
+ * Acceptance per `.codex/I-f1-002/brief.md` (Codex APPROVE iter 5):
+ *  - Ctrl+K opens palette; Enter on active template navigates.
+ *  - Enter on to-build template is no-op (URL unchanged, palette stays open).
+ *  - Esc closes palette + restores focus to header Sign in link.
+ *
+ * Hydration race avoidance: every test waits for the header Sign in link
+ * to be visible before pressing Ctrl+K (proves client shell hydrated).
+ */
+
+test.describe("Command palette — I-f1-002", () => {
+  test("Ctrl+K opens palette; type clinical + Enter navigates", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+
+    await page.keyboard.press("Control+k");
+    const palette = page.getByTestId("command-palette");
+    await expect(palette).toBeVisible();
+
+    await page.getByTestId("command-palette-input").fill("clinical");
+    await page.keyboard.press("Enter");
+    await page.waitForURL("**/intake?template=clinical");
+  });
+
+  test("Enter on disabled template is a no-op (URL unchanged)", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+
+    const before = page.url();
+    await page.keyboard.press("Control+k");
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+
+    // Arrow-down 3 times to first to-build (ai_sovereignty, after 3 active).
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+    await expect(page).toHaveURL(before);
+  });
+
+  test("Esc closes palette + restores focus to header Sign in link", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+
+    await page.keyboard.press("Control+k");
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("command-palette")).toBeHidden();
+    await expect(page.getByTestId("header-sign-in-link")).toBeFocused();
+  });
+});
+
+ succeeded in 1025ms:
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test } from "@playwright/test";
+
+/**
+ * I-f1-005 — F1 axe-core WCAG-AA compliance.
+ *
+ * Acceptance: zero serious/critical violations across F1 surfaces NOT
+ * already covered by landing_template_grid (closed palette) or
+ * accessibility (dashboard / inspector). Specifically:
+ *  - `/` with the command palette OPEN (Ctrl+K), backdrop + popup visible.
+ *  - `/intake?template=clinical` (target of F1 active cards).
+ */
+
+const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
+
+function critical_or_serious(v: { impact?: string | null }) {
+  return v.impact === "serious" || v.impact === "critical";
+}
+
+test.describe("F1 axe-core WCAG-AA — I-f1-005", () => {
+  test("/ with command palette OPEN is WCAG-AA clean", async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+    await page.keyboard.press("Control+k");
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_TAGS)
+      .analyze();
+    expect(results.violations.filter(critical_or_serious)).toEqual([]);
+  });
+
+  test("/intake?template=clinical initial render is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/intake?template=clinical", {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.getByTestId("intake-page")).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_TAGS)
+      .analyze();
+    expect(results.violations.filter(critical_or_serious)).toEqual([]);
+  });
+});
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\components\\ui\\card.tsx" in C:\POLARIS
+ succeeded in 778ms:
+import * as React from "react";
+
+import { cn } from "@/lib/utils";
+
+function Card({
+  className,
+  size = "default",
+  ...props
+}: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
+  return (
+    <div
+      data-slot="card"
+      data-size={size}
+      className={cn(
+        "group/card bg-card text-card-foreground ring-foreground/10 flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-header"
+      className={cn(
+        "group/card-header @container/card-header grid auto-rows-min items-start gap-1 rounded-t-xl px-4 group-data-[size=sm]/card:px-3 has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-4 group-data-[size=sm]/card:[.border-b]:pb-3",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-title"
+      className={cn(
+        "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-description"
+      className={cn("text-muted-foreground text-sm", className)}
+      {...props}
+    />
+  );
+}
+
+function CardAction({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-action"
+      className={cn(
+        "col-start-2 row-span-2 row-start-1 self-start justify-self-end",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function CardContent({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-content"
+      className={cn("px-4 group-data-[size=sm]/card:px-3", className)}
+      {...props}
+    />
+  );
+}
+
+function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-footer"
+      className={cn(
+        "bg-muted/50 flex items-center rounded-b-xl border-t p-4 group-data-[size=sm]/card:p-3",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export {
+  Card,
+  CardHeader,
+  CardFooter,
+  CardTitle,
+  CardAction,
+  CardDescription,
+  CardContent,
+};
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"f1_|command_palette|home_g1_g8|accessibility.spec\" .github\\workflows web\\tests\\e2e" in C:\POLARIS
+ succeeded in 832ms:
+.github\workflows\web_ci.yml:137:        run: npx playwright test --project=chromium tests/e2e/accessibility.spec.ts
+.github\workflows\web_ci.yml:167:      - name: run_e2e_home_g1_g8
+.github\workflows\web_ci.yml:171:        run: npx playwright test --project=chromium tests/e2e/home_g1_g8.spec.ts
+web\tests\e2e\inspector_route.spec.ts:11:// I-cd-013b will fold this into accessibility.spec.ts) · G7 design tokens
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "if (Test-Path web\\pages) { rg --files web\\pages } else { Write-Output 'NO_PAGES_DIR' }" in C:\POLARIS
+ succeeded in 1172ms:
+NO_PAGES_DIR
+
+codex
+The canonical patch hash matches the provided SHA. I’m going to run the new Playwright spec against a temporary dev server if the local browser install is available; this is only to catch runtime/hydration issues that static checks miss.
+2026-05-20T19:08:33.608883Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$ErrorActionPreference = '"'Stop'
+"'$repo = '"'C:\\POLARIS\\web'
+"'$out = Join-Path $env:TEMP '"'polaris-next-dev-i-cd-022.out.log'
+"'$err = Join-Path $env:TEMP '"'polaris-next-dev-i-cd-022.err.log'
+Remove-Item -LiteralPath "'$out,$err -ErrorAction SilentlyContinue
+$p = Start-Process -FilePath '"'npx.cmd' -ArgumentList @('next','dev','-p','3740','--hostname','127.0.0.1') -WorkingDirectory "'$repo -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden -PassThru
+try {
+  $ready = $false
+  for ($i = 0; $i -lt 45; $i++) {
+    try {
+      Invoke-WebRequest -UseBasicParsing -Uri '"'http://127.0.0.1:3740/' -TimeoutSec 2 | Out-Null
+      "'$ready = $true
+      break
+    } catch {
+      Start-Sleep -Seconds 1
+    }
+  }
+  if (-not $ready) {
+    Write-Output '"'DEV_SERVER_NOT_READY'
+    if (Test-Path "'$out) { Get-Content $out -Tail 60 }
+    if (Test-Path $err) { Get-Content $err -Tail 60 }
+    exit 1
+  }
+  $env:SCREENSHOT_BASE_URL = '"'http://127.0.0.1:3740'
+  "'$env:POLARIS_V6_BACKEND_URL = '"'http://127.0.0.1:8000'
+  npx playwright test --project=chromium tests/e2e/home_g1_g8.spec.ts
+} finally {
+  if ("'$p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+}'` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$ErrorActionPreference = '"'Stop'
+"'$repo = '"'C:\\POLARIS\\web'
+"'$out = Join-Path $env:TEMP '"'polaris-next-dev-i-cd-022.out.log'
+"'$err = Join-Path $env:TEMP '"'polaris-next-dev-i-cd-022.err.log'
+Remove-Item -LiteralPath "'$out,$err -ErrorAction SilentlyContinue
+$p = Start-Process -FilePath '"'npx.cmd' -ArgumentList @('next','dev','-p','3740','--hostname','127.0.0.1') -WorkingDirectory "'$repo -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden -PassThru
+try {
+  $ready = $false
+  for ($i = 0; $i -lt 45; $i++) {
+    try {
+      Invoke-WebRequest -UseBasicParsing -Uri '"'http://127.0.0.1:3740/' -TimeoutSec 2 | Out-Null
+      "'$ready = $true
+      break
+    } catch {
+      Start-Sleep -Seconds 1
+    }
+  }
+  if (-not $ready) {
+    Write-Output '"'DEV_SERVER_NOT_READY'
+    if (Test-Path "'$out) { Get-Content $out -Tail 60 }
+    if (Test-Path $err) { Get-Content $err -Tail 60 }
+    exit 1
+  }
+  $env:SCREENSHOT_BASE_URL = '"'http://127.0.0.1:3740'
+  "'$env:POLARIS_V6_BACKEND_URL = '"'http://127.0.0.1:8000'
+  npx playwright test --project=chromium tests/e2e/home_g1_g8.spec.ts
+} finally {
+  if ("'$p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+}' in C:\POLARIS\web
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$ErrorActionPreference = '"'Stop'
+"'$repo = '"'C:\\POLARIS\\web'
+"'$out = Join-Path $env:TEMP '"'polaris-next-dev-i-cd-022.out.log'
+"'$err = Join-Path $env:TEMP '"'polaris-next-dev-i-cd-022.err.log'
+Remove-Item -LiteralPath "'$out,$err -ErrorAction SilentlyContinue
+$p = Start-Process -FilePath '"'npx.cmd' -ArgumentList @('next','dev','-p','3740','--hostname','127.0.0.1') -WorkingDirectory "'$repo -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden -PassThru
+try {
+  $ready = $false
+  for ($i = 0; $i -lt 45; $i++) {
+    try {
+      Invoke-WebRequest -UseBasicParsing -Uri '"'http://127.0.0.1:3740/' -TimeoutSec 2 | Out-Null
+      "'$ready = $true
+      break
+    } catch {
+      Start-Sleep -Seconds 1
+    }
+  }
+  if (-not $ready) {
+    Write-Output '"'DEV_SERVER_NOT_READY'
+    if (Test-Path "'$out) { Get-Content $out -Tail 60 }
+    if (Test-Path $err) { Get-Content $err -Tail 60 }
+    exit 1
+  }
+  $env:SCREENSHOT_BASE_URL = '"'http://127.0.0.1:3740'
+  "'$env:POLARIS_V6_BACKEND_URL = '"'http://127.0.0.1:8000'
+  npx playwright test --project=chromium tests/e2e/home_g1_g8.spec.ts
+} finally {
+  if ("'$p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+}'` rejected: blocked by policy
+codex
+The temporary dev-server command was blocked by the sandbox policy before it started, so I’m not treating local Playwright as verified. Static checks and direct file review are enough for the P0/P1 call.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"<header|<main|<footer|HomeKeyboardShell|AppShellGate\" web\\app\\page.tsx web\\app\\layout.tsx web\\components\\app_shell_gate.tsx web\\app\\components\\home_keyboard_shell.tsx web\\components\\app_shell.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"slice|scaffold|placeholder|phase 0|post[- ]carney|i-cd-\" web\\app\\page.tsx web\\app\\components\\home_keyboard_shell.tsx web\\components\\app_shell_gate.tsx web\\tests\\e2e\\home_g1_g8.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"const PRIMARY_NAV|href:|label:\" web\\components\\app_shell.tsx web\\app\\components\\home_keyboard_shell.tsx" in C:\POLARIS
+ succeeded in 1155ms:
+web\tests\e2e\home_g1_g8.spec.ts:8:  /\bslice\b/i,
+web\tests\e2e\home_g1_g8.spec.ts:9:  /\bscaffold\b/i,
+web\tests\e2e\home_g1_g8.spec.ts:10:  /\bplaceholder\b/i,
+web\tests\e2e\home_g1_g8.spec.ts:11:  /\bphase 0\b/i,
+web\tests\e2e\home_g1_g8.spec.ts:13:  /\bi-cd-/i,
+
+ succeeded in 1283ms:
+web\components\app_shell.tsx:36:      <header className="border-border bg-background sticky top-0 z-40 border-b">
+web\components\app_shell.tsx:53:      <main className="flex-1">{children}</main>
+web\app\layout.tsx:4:import { AppShellGate } from "@/components/app_shell_gate";
+web\app\layout.tsx:36:        <AppShellGate>{children}</AppShellGate>
+web\components\app_shell_gate.tsx:2:// the AppShell header AND its <main> wrapper so the home route can
+web\components\app_shell_gate.tsx:3:// provide its own header (with the same primary nav) + its own <main>.
+web\components\app_shell_gate.tsx:14:interface AppShellGateProps {
+web\components\app_shell_gate.tsx:18:export function AppShellGate({ children }: AppShellGateProps) {
+web\app\components\home_keyboard_shell.tsx:25:// AppShellGate, the home page's <header> is THE app shell for this route.
+web\app\components\home_keyboard_shell.tsx:37:export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+web\app\components\home_keyboard_shell.tsx:55:      <header className="border-border bg-background border-b">
+web\app\page.tsx:3:import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+web\app\page.tsx:110:      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+web\app\page.tsx:111:        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12">
+web\app\page.tsx:212:        <footer className="border-border bg-background border-t">
+web\app\page.tsx:218:      </HomeKeyboardShell>
+
+ succeeded in 1328ms:
+web\app\components\home_keyboard_shell.tsx:26:const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+web\app\components\home_keyboard_shell.tsx:27:  { href: "/", label: "Home" },
+web\app\components\home_keyboard_shell.tsx:28:  { href: "/intake", label: "Intake" },
+web\app\components\home_keyboard_shell.tsx:29:  { href: "/dashboard", label: "Dashboard" },
+web\app\components\home_keyboard_shell.tsx:30:  { href: "/upload", label: "Upload" },
+web\app\components\home_keyboard_shell.tsx:31:  { href: "/benchmark", label: "Benchmark" },
+web\app\components\home_keyboard_shell.tsx:32:  { href: "/contracts", label: "Contracts" },
+web\app\components\home_keyboard_shell.tsx:33:  { href: "/pin_replay", label: "Pin Replay" },
+web\app\components\home_keyboard_shell.tsx:34:  { href: "/memory", label: "Memory" },
+web\components\app_shell.tsx:22:const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+web\components\app_shell.tsx:23:  { href: "/", label: "Home" },
+web\components\app_shell.tsx:24:  { href: "/intake", label: "Intake" },
+web\components\app_shell.tsx:25:  { href: "/dashboard", label: "Dashboard" },
+web\components\app_shell.tsx:26:  { href: "/upload", label: "Upload" },
+web\components\app_shell.tsx:27:  { href: "/benchmark", label: "Benchmark" },
+web\components\app_shell.tsx:28:  { href: "/contracts", label: "Contracts" },
+web\components\app_shell.tsx:29:  { href: "/pin_replay", label: "Pin Replay" },
+web\components\app_shell.tsx:30:  { href: "/memory", label: "Memory" },
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/tests/e2e/home_g1_g8.spec.ts:81 - G8 test only captures console errors, while the matrix also forbids warnings. Test-gap only."
+  - "web/tests/e2e/home_g1_g8.spec.ts:55 - G3 coverage checks the active template button-link, not every new home header nav link. Test-gap only."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+60,132
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/tests/e2e/home_g1_g8.spec.ts:81 - G8 test only captures console errors, while the matrix also forbids warnings. Test-gap only."
+  - "web/tests/e2e/home_g1_g8.spec.ts:55 - G3 coverage checks the active template button-link, not every new home header nav link. Test-gap only."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

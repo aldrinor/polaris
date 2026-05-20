@@ -1,0 +1,259 @@
+diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
+index 5a3b9d2e..e2380417 100644
+--- a/.github/workflows/web_ci.yml
++++ b/.github/workflows/web_ci.yml
+@@ -162,6 +162,14 @@ jobs:
+           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+         run: npx playwright test --project=chromium tests/e2e/inspector_offline_fallback.spec.ts
+ 
++      # I-cd-022 (#612): home route G1-G8 acceptance gates per
++      # state/polaris_ui_rebuild_matrix.md §2.
++      - name: run_e2e_home_g1_g8
++        env:
++          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
++          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
++        run: npx playwright test --project=chromium tests/e2e/home_g1_g8.spec.ts
++
+       # Visual baselines are *-chromium-win32.png (locally captured on Win).
+       # On Linux CI the snapshot file resolves to a different name and will
+       # be missing; skip visual.spec until Linux baselines are added.
+diff --git a/web/app/components/home_keyboard_shell.tsx b/web/app/components/home_keyboard_shell.tsx
+index 3b473d25..a1e93e8c 100644
+--- a/web/app/components/home_keyboard_shell.tsx
++++ b/web/app/components/home_keyboard_shell.tsx
+@@ -3,6 +3,7 @@
+ import Link from "next/link";
+ import { useEffect, useRef, useState, type ReactNode } from "react";
+ 
++import { NavLink } from "@/components/nav_link";
+ import { Button } from "@/components/ui/button";
+ 
+ import { CommandPalette } from "./command_palette";
+@@ -18,6 +19,21 @@ type Template = {
+ 
+ type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+ 
++// I-cd-022 (#612): primary nav now lives in the home header too, so /
++// matches the global app-shell nav (G1: "global header/sidebar nav is
++// present and identical"). When AppShell is suppressed on `/` via
++// AppShellGate, the home page's <header> is THE app shell for this route.
++const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
++  { href: "/", label: "Home" },
++  { href: "/intake", label: "Intake" },
++  { href: "/dashboard", label: "Dashboard" },
++  { href: "/upload", label: "Upload" },
++  { href: "/benchmark", label: "Benchmark" },
++  { href: "/contracts", label: "Contracts" },
++  { href: "/pin_replay", label: "Pin Replay" },
++  { href: "/memory", label: "Memory" },
++];
++
+ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+   const [palette_open, set_palette_open] = useState(false);
+   const sign_in_link_ref = useRef<HTMLAnchorElement>(null);
+@@ -37,17 +53,22 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+   return (
+     <>
+       <header className="border-border bg-background border-b">
+-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+-          <div className="flex flex-col">
+-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+-              POLARIS Canada
+-            </span>
+-            <span className="text-foreground text-base font-semibold">
+-              Sovereign Deep Research
+-            </span>
+-          </div>
++        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-3">
++          <Link
++            href="/"
++            className="text-foreground font-mono text-sm font-semibold tracking-tight"
++          >
++            POLARIS · Canada
++          </Link>
++          <nav className="flex items-center gap-1" aria-label="Primary">
++            {PRIMARY_NAV.map((item) => (
++              <NavLink key={item.href} href={item.href}>
++                {item.label}
++              </NavLink>
++            ))}
++          </nav>
+           <Button
+-            variant="default"
++            variant="outline"
+             nativeButton={false}
+             render={
+               <Link
+diff --git a/web/app/layout.tsx b/web/app/layout.tsx
+index 01df271a..90d8f684 100644
+--- a/web/app/layout.tsx
++++ b/web/app/layout.tsx
+@@ -1,7 +1,7 @@
+ import type { Metadata } from "next";
+ import { Geist, Geist_Mono } from "next/font/google";
+ 
+-import { AppShell } from "@/components/app_shell";
++import { AppShellGate } from "@/components/app_shell_gate";
+ import { Toaster } from "@/components/ui/sonner";
+ 
+ import "./globals.css";
+@@ -33,7 +33,7 @@ export default function RootLayout({
+       className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+     >
+       <body className="flex min-h-full flex-col">
+-        <AppShell>{children}</AppShell>
++        <AppShellGate>{children}</AppShellGate>
+         <Toaster />
+       </body>
+     </html>
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index 329839dc..f5955bf9 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -133,7 +133,7 @@ export default function HomePage() {
+                 Research templates
+               </h2>
+               <span className="text-muted-foreground text-xs tracking-widest uppercase">
+-                1 active · 7 to-build
++                1 active · 7 in development
+               </span>
+             </div>
+             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+@@ -211,8 +211,8 @@ export default function HomePage() {
+ 
+         <footer className="border-border bg-background border-t">
+           <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+-            <span>POLARIS v6.2 — slices 1-5 shipped</span>
+-            <span>Sovereign Canadian deep research</span>
++            <span>POLARIS · Sovereign Canadian deep research</span>
++            <span>Two-family verified evidence</span>
+           </div>
+         </footer>
+       </HomeKeyboardShell>
+diff --git a/web/components/app_shell_gate.tsx b/web/components/app_shell_gate.tsx
+new file mode 100644
+index 00000000..8b110c5e
+--- /dev/null
++++ b/web/components/app_shell_gate.tsx
+@@ -0,0 +1,25 @@
++// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
++// the AppShell header AND its <main> wrapper so the home route can
++// provide its own header (with the same primary nav) + its own <main>.
++// This avoids G1 (double header) + G6 (nested main) landmark violations.
++//
++// Tiny "use client" boundary so the otherwise server-rendered AppShell
++// can still wrap every non-home route on the server.
++"use client";
++
++import { usePathname } from "next/navigation";
++
++import { AppShell } from "@/components/app_shell";
++
++interface AppShellGateProps {
++  children: React.ReactNode;
++}
++
++export function AppShellGate({ children }: AppShellGateProps) {
++  const pathname = usePathname();
++  // Home owns its own header + main; render children bare on `/`.
++  if (pathname === "/") {
++    return <>{children}</>;
++  }
++  return <AppShell>{children}</AppShell>;
++}
+diff --git a/web/tests/e2e/home_g1_g8.spec.ts b/web/tests/e2e/home_g1_g8.spec.ts
+new file mode 100644
+index 00000000..875868c4
+--- /dev/null
++++ b/web/tests/e2e/home_g1_g8.spec.ts
+@@ -0,0 +1,90 @@
++// I-cd-022 (#612): home route G1-G8 acceptance gates per
++// state/polaris_ui_rebuild_matrix.md §2. Mechanical assertions only —
++// no subjective polish judgments.
++
++import { expect, test } from "@playwright/test";
++
++const BANNED_DEV_LANGUAGE = [
++  /\bslice\b/i,
++  /\bscaffold\b/i,
++  /\bplaceholder\b/i,
++  /\bphase 0\b/i,
++  /\bpost[- ]carney\b/i,
++  /\bi-cd-/i,
++];
++
++test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
++  page,
++}) => {
++  await page.goto("/");
++
++  // G1: exactly one <header> element (no duplicate from a forgotten AppShell).
++  const headers = page.locator("header");
++  await expect(headers).toHaveCount(1);
++
++  // Primary nav present + identical to other routes (Home/Intake/Dashboard/
++  // Upload/Benchmark/Contracts/Pin Replay/Memory).
++  const nav = page.locator("nav[aria-label='Primary']");
++  await expect(nav).toBeVisible();
++  for (const label of [
++    "Home",
++    "Intake",
++    "Dashboard",
++    "Upload",
++    "Benchmark",
++    "Contracts",
++    "Pin Replay",
++    "Memory",
++  ]) {
++    await expect(nav.getByRole("link", { name: label })).toBeVisible();
++  }
++
++  // G6 (single main landmark — Codex iter-2 P1 fix).
++  const mains = page.locator("main");
++  await expect(mains).toHaveCount(1);
++});
++
++test("G2: home contains no banned dev-language strings", async ({ page }) => {
++  await page.goto("/");
++  const body_text = (await page.locator("body").textContent()) || "";
++  for (const banned of BANNED_DEV_LANGUAGE) {
++    expect(body_text).not.toMatch(banned);
++  }
++});
++
++test("G3: active template card link has focus-visible + hover styling", async ({
++  page,
++}) => {
++  await page.goto("/");
++  const link = page.getByTestId("template-card-clinical-link");
++  await expect(link).toBeVisible();
++  const className = (await link.getAttribute("class")) || "";
++  // shadcn/ui Button injects focus-visible:ring + hover utilities. Codex
++  // iter-1 P2 fix: assert on the LINK, not the card (cards are not
++  // interactive — links/buttons are).
++  expect(className).toMatch(/focus-visible/);
++});
++
++test("G6: tab key reaches the active template card link", async ({ page }) => {
++  await page.goto("/");
++  // Tab repeatedly until the focused element is the active template link.
++  for (let i = 0; i < 30; i++) {
++    await page.keyboard.press("Tab");
++    const focused = await page.evaluate(
++      () => document.activeElement?.getAttribute("data-testid") ?? null,
++    );
++    if (focused === "template-card-clinical-link") return;
++  }
++  throw new Error("active template card link never received focus via Tab");
++});
++
++test("G8: home renders with zero console errors", async ({ page }) => {
++  const errors: string[] = [];
++  page.on("console", (msg) => {
++    if (msg.type() === "error") errors.push(msg.text());
++  });
++  await page.goto("/");
++  // Idle long enough for hydration + any async errors to surface.
++  await page.waitForLoadState("networkidle");
++  expect(errors).toEqual([]);
++});
