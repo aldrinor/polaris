@@ -621,3 +621,16 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
 - key iter-4 fold-in: `tests/polaris_graph/clinical_generator/test_real_completion.py:46-51` (NEW P1)
 - dropped from scope: `docker-compose.yml:56` (deferred to I-cd-038 — needs full vLLM `command:` wiring)
 - next: implement all 24 changes + smoke + diff review.
+
+## I-cd-009 diff — iter 1 APPROVE — 2026-05-19
+
+- doc: `.codex/I-cd-009/codex_diff.patch` (sha256 b0fa76d0...fac066)
+- gate: diff review
+- iter: 1 of 5 (clean APPROVE on first pass)
+- verdict: APPROVE
+- novel_p0: 0, continuing_p0: 0, p1: 0, p2: 0
+- convergence_call: accept_remaining
+- 22 files / +119 / -82 / +37 net LOC; well under 200-LOC PR cap.
+- Smoke: pytest test_real_completion.py 26 passed; test_cj_001 5 passed;
+  py_compile + bash -n + yaml.safe_load all clean.
+- next: push as sotaleung-wec, gh pr create --base polaris, auto-merge.
