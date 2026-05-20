@@ -257,10 +257,10 @@ index 00000000..7119267d
 +}
 diff --git a/web/lib/inspector_bundle_client_loader.ts b/web/lib/inspector_bundle_client_loader.ts
 new file mode 100644
-index 00000000..1425c9cf
+index 00000000..648741fd
 --- /dev/null
 +++ b/web/lib/inspector_bundle_client_loader.ts
-@@ -0,0 +1,342 @@
+@@ -0,0 +1,339 @@
 +/**
 + * I-cd-021 (#631) — Browser-side bundle loader.
 + *
@@ -398,10 +398,7 @@ index 00000000..1425c9cf
 +    inflator.push(compressed, true);
 +  } catch (exc) {
 +    if (exc instanceof _GzipBombAbort) {
-+      return new BundleClientLoaderError(
-+        "decompressed_too_large",
-+        exc.message,
-+      );
++      return new BundleClientLoaderError("decompressed_too_large", exc.message);
 +    }
 +    return new BundleClientLoaderError(
 +      "ungzip_failed",
@@ -1012,4 +1009,4 @@ index 00000000..6c4401d5
 +  );
 +});
 
-# canonical-diff-sha256: 5633064dbe6ee6fcc22ba58cf73b1ad08aa3759b9dceb41574b50c8f4324292f
+# canonical-diff-sha256: c50c40359faf781d47b50132b7345d7d558e3b668a695078745fa3d0983b2176
