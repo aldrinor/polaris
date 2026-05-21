@@ -186,7 +186,6 @@ def build_manifest_and_files(
     _assert_cited_spans_reachable(report, snapshot_entries)
     for source_id, entry in snapshot_entries.items():
         files_bytes[_safe_source_filename(source_id)] = entry.text.encode("utf-8")
-    snapshots = {sid: e.text for sid, e in snapshot_entries.items()}
 
     # 4b. REVIEWER_README ships verbatim in every bundle as metadata content_type.
     readme_path = Path(__file__).parent / "REVIEWER_README.md"
@@ -201,8 +200,11 @@ def build_manifest_and_files(
     # scope-consult 2026-05-20). NOT a BUNDLE_VERSION bump: the freeze
     # discipline governs BundleManifest/FileEntry (extra="forbid"), not
     # metadata.json.
+    # I-cd-682 (Codex diff P2): ONE shared timestamp for both signed files
+    # (metadata.json + manifest.yaml) so they cannot disagree by milliseconds.
+    bundle_created_at = datetime.now(timezone.utc)
     metadata = {
-        "bundle_created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "bundle_created_at_utc": bundle_created_at.isoformat(),
         "evaluator_model": report.evaluator_model,
         "generator_model": report.generator_model,
         "polaris_version": POLARIS_VERSION,
@@ -270,6 +272,7 @@ def build_manifest_and_files(
         generator_model=report.generator_model,
         polaris_version=POLARIS_VERSION,
         files=file_entries,
+        bundle_created_at_utc=bundle_created_at,
     )
     return manifest, files_bytes
 
