@@ -41,3 +41,14 @@ p1: [...]
 p2: [...]
 convergence_call: continue | accept_remaining
 ```
+
+---
+## Implementation plan (traced 2026-05-21 — exact, for a clean fresh pass)
+**loadBundle wiring (closes #728):**
+1. Refactor `web/lib/inspector_bundle_client_loader.ts`: extract `loadBundleFromTarGz(file)` body (lines 213→end: ungzip → _extractTarBytes → manifest parse → version/required-type checks → SHA/size verify → assemble) into `export async function loadBundleFromGzBytes(bytes: Uint8Array): Promise<LoadedBundle>`. Keep `loadBundleFromTarGz` as a thin File→bytes wrapper.
+2. `web/lib/inspector_bundle_loader.ts` (server): if `!KNOWN_FIXTURES[runId]`, fetch `${INTERNAL_API_URL}/runs/{id}/bundle.tar.gz`. 200 → arrayBuffer → `loadBundleFromGzBytes` → LoadedBundle. 404/422/parse-fail → null (→ honest CTA; ideally a typed reason: not-found vs aborted/release-blocked).
+3. **INTEGRATION RISK to verify:** `inspector_bundle_client_loader.ts` uses `pako` + `tar-stream` (browser build) + `crypto.subtle`. Confirm they run server-side in Next 16 RSC (node 20 has crypto.subtle; tar-stream "browser build" + pako must import cleanly in the server module — may need the node entrypoint, or move the shared parser to a runtime-neutral module). This is the main thing to smoke before building on it.
+
+**Proof Replay (on top of the wired loader):** read⇄audit toggle in inspector_view; verified_report_sections parses `[#ev:id:start-end]` → evidencePool[id].body[start:end] → highlight in SourcesPanel on sentence-lock; bundle_header adds sovereignty + Signed✓ + claim/unverified counts; no-synthetic-proof.
+
+**Verification (REQUIRED before "done"):** needs a real signed bundle → throwaway GPG key (POLARIS_GPG_KEY_ID) + seeded completed run + local stack (the same path used to verify #725) → screenshot the report rendering + click→span. Cannot be verified without GPG.
