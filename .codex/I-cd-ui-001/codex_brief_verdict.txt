@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief APPROVE iter 2. 2 P1 caught + fixed at design time (primary contrast L0.50; bearer authHeader strip). 2 P2 impl guardrails folded in.

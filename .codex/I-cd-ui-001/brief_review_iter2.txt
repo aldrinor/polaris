@@ -1,0 +1,3962 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e49a2-e316-7770-9ece-8257b59ad4ee
+--------
+user
+# Codex BRIEF review — I-cd-ui-001 (#704) UI visual identity overhaul
+
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+This is a BRIEF (design-spec) review — confirm the design is sound + safe BEFORE I implement. The brief IS the work for a UI task.
+
+## Operator context
+Deployed home (https://polarisresearch.ca) was flagged "fucking ugly as fuck" — pure-monochrome (every token `oklch(... 0 0)`, zero chroma). #704 operator-selected direction: Perplexity-style frontier-research-tool home + single cyan accent. Carney-demo visible surface.
+
+## Scope (this PR) — split confirmed
+**IN:** design tokens (globals.css) + home (page.tsx) redesign + IntakeForm `?q=` prefill + recent-runs strip component + home_g1_g8 Playwright spec update.
+**OUT (sibling #707):** /runs/[runId] staged-progress screen (consumes #706 SSE). Do NOT expand into it.
+
+## Verified facts (grounded, not guessed)
+1. `GET /api/v6/runs` is GLOBALLY auth-gated: `FastAPI(..., dependencies=[Depends(_require_auth)])` (src/polaris_v6/api/app.py:80). A logged-out home visitor's fetch returns **401**. ⇒ recent-runs strip MUST render `null` on 401/empty/error — NEVER show an error on the public home.
+2. `web/tests/e2e/home_g1_g8.spec.ts` (active CI gate, web_ci) asserts: exactly 1 `<header>`, `nav[aria-label='Primary']` visible + its 8 nav links, exactly 1 `<main>`, `template-card-clinical-link` testid visible + focus-visible, no banned dev strings, zero console errors. Redesign MUST preserve all of these; spec updated in THIS PR for any new/changed text.
+3. `useSearchParams` (Next 16, web/node_modules/.../use-search-params.md) = client hook, `searchParams.get('q')`; component must sit under a Suspense boundary for static routes. IntakeForm is already `"use client"`.
+4. Frontend → backend: `fetch("/api/v6/runs?status=completed&limit=5")` (web/lib/api.ts BACKEND_URL="/api/v6"; Next rewrites to backend). Cookie auth.
+5. Home renders its OWN header via HomeKeyboardShell (AppShell suppressed on `/` by AppShellGate). intake prefill target: IntakeForm `const [question,setQuestion]=useState("")` (intake_form.tsx:43).
+
+## Design tokens (globals.css) — EXACT values, light + dark
+Replace pure-monochrome with zinc-50 + single cyan accent. Foreground stays dark for text contrast.
+
+`:root` (light):
+- `--background: oklch(0.985 0.002 247.86)`  (zinc-50, faint cool tint)
+- `--foreground: oklch(0.21 0.006 285.9)`     (zinc-900, unchanged-ish dark text)
+- `--primary: oklch(0.50 0.20 200)`           (cyan accent — iter-1 P1: darkened L0.55→0.50 so white fg ≥4.5:1 after sRGB gamut clip)
+- `--primary-foreground: oklch(0.985 0 0)`    (white on cyan — now ≥4.5:1 at L0.50)
+- `--ring: oklch(0.50 0.20 200)`              (cyan focus ring — full strength; see focus-cue note below)
+- `--accent: oklch(0.95 0.03 200)`            (very light cyan tint, hover/active surface)
+- `--accent-foreground: oklch(0.40 0.13 200)` (deep cyan text on the light cyan tint — verify ≥4.5:1)
+- `--card: oklch(1 0 0)` (white card on zinc-50 bg — gives subtle separation)
+- LEAVE chart-1..5 ALONE (multi-series data palette is a separate decision; "single accent" interpreted minimally).
+
+`.dark`:
+- `--primary: oklch(0.65 0.17 200)` (slightly lighter cyan for dark bg contrast)
+- `--primary-foreground: oklch(0.21 0.006 285.9)` (dark text on lighter cyan)
+- `--ring: oklch(0.65 0.17 200)`
+- `--accent: oklch(0.32 0.05 200)` (muted cyan surface), `--accent-foreground: oklch(0.92 0.04 200)`
+- background/foreground/card stay near current dark monochrome (acceptable; demo is light-mode).
+
+## Home (page.tsx) layout — Perplexity-style
+Preserve: HomeKeyboardShell wrapper (1 header + Primary nav), 1 `<main>`, footer, template-card-clinical-link testid + focus-visible. Restructure `<main>`:
+1. **Hero** (centered, vertical rhythm py-16/20): h1 "What can POLARIS verify for you today?" (text-3xl/4xl, tracking-tight); a search form (max-w-2xl) = Input (placeholder "Ask a research question…") + cyan primary submit Button; on submit → `router.push('/intake?q=' + encodeURIComponent(value))` (client component for the hero, or a small `<form action="/intake" method="get">` with `name="q"` — prefer the form-GET so it works without JS; data-testid="home-hero-search"). Sub-line: the existing one-liner about two-family verified provenance.
+2. **Recent-runs strip** (new client component `recent_runs_strip.tsx`): on mount (useEffect, client-only — no SSR fetch), `fetch("/api/v6/runs?status=completed&limit=5", { headers: authHeader() })` where `authHeader` is imported from `@/lib/auth` (iter-1 P1: frontend uses BEARER-token sessionStorage, NOT cookie auth — a raw fetch 401s even for signed-in users; `authFetch` is wrong here because it redirects logged-out visitors to /sign-in, which must NEVER happen on the public home). Render `null` on ANY of: 401, non-ok status, JSON parse failure, network failure, OR empty list. ONLY render the strip when the parsed array is non-empty: (a) has-runs → horizontal row of compact run chips (template + question snippet + finished date) linking `/runs/{run_id}`.
+3. **Template cards**: keep the grid + all testids; restyle — active (clinical) card gets cyan accent (border-primary/40, cyan "Open" primary button); inactive stay muted; subtle hover lift (hover:shadow-sm transition). Heading "Research templates" kept.
+
+## IntakeForm `?q=` prefill
+`const sp = useSearchParams(); const [question,setQuestion]=useState(sp.get('q') ?? "")`. iter-1 P2: use the `<Suspense>` boundary pattern (the existing `web/app/sign-in/page.tsx` is the precedent — it wraps the useSearchParams client content in `<Suspense fallback={...}>`), NOT `dynamic = 'force-dynamic'`. Wrap the IntakeForm usage in the intake page in `<Suspense>` (or split the q-reading into a small inner client component under Suspense).
+
+## Focus-cue note (iter-1 P2)
+The cyan `--ring` at full strength is sufficient on zinc-50, but the repo's common `ring-ring/50` translucent halo alone is only ~1.58:1. Anywhere the focus indicator would rely ONLY on the translucent halo (hero search input, template links), keep a FULL-STRENGTH `border-ring` / full-strength ring so the focus cue meets the 3:1 non-text contrast minimum. Preserve the existing `focus-visible` on the clinical template link (home_g1_g8 asserts it).
+
+## Playwright spec update (home_g1_g8.spec.ts)
+Keep all structural asserts (1 header, nav, 1 main, clinical-link, focus-visible, no console errors). ADD: hero search testid visible. UPDATE any text assert that changed (the h1 text). Do NOT weaken existing asserts.
+
+## LOC exemption (documented)
+Est ~305 LOC (tokens ~20 + home ~200 + strip ~50 + intake wire ~5 + spec ~30). Exceeds the 200-LOC cap. Requesting exemption: the visual identity is ONE cohesive unit — splitting tokens from the home that consumes them is artificial, and the recent-runs strip's auth behavior is already verified. Per CLAUDE.md §3.0 the cap is a halt-condition unless exempted; documenting the exemption here.
+
+## Review focus
+1. Token values: contrast pairs WCAG-AA (primary-fg on primary; accent-fg on accent; cyan ring visible on zinc-50). Flag any pair < 4.5:1 (text) / 3:1 (UI).
+2. The 401/empty/error → null strip behavior — correct + safe for the public home?
+3. Next-16 correctness: form-GET vs router.push for the hero; useSearchParams Suspense requirement for IntakeForm prefill.
+4. Anything that would break the home_g1_g8 gate that I haven't accounted for.
+5. LOC exemption reasonable, or should the strip split to a follow-up?
+6. Any NOVEL P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+---
+## iter-2 changelog (addressing iter-1 REQUEST_CHANGES)
+- P1 contrast: `--primary` L0.55→**0.50** (white fg now ≥4.5:1).
+- P1 auth: recent-runs strip uses `fetch(url, { headers: authHeader() })` (bearer, NOT cookie, NOT authFetch) → null on 401/non-ok/parse-fail/network-fail/empty; never redirects.
+- P2 Suspense: IntakeForm prefill uses the sign-in `<Suspense>` precedent, not force-dynamic.
+- P2 focus-cue: full-strength ring/border-ring where halo-only would be <3:1.
+
+codex
+I’ll verify the contrast math and check the relevant existing files just enough to catch spec-level risks against the actual app/test contracts.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files web | rg \"(globals\\.css|home_g1_g8\\.spec\\.ts|intake_form\\.tsx|sign-in/page\\.tsx|app/.*/page\\.tsx|lib/auth|lib/api)\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web -Filter package.json | Select-Object -ExpandProperty FullName' in C:\POLARIS
+ succeeded in 1040ms:
+C:\POLARIS\web\package.json
+
+ succeeded in 1310ms:
+web\app\globals.css
+web\tests\e2e\home_g1_g8.spec.ts
+web\app\intake\components\intake_form.tsx
+
+codex
+I found the expected home test, globals, and intake form. I’m checking the surrounding route/component patterns now, including how auth headers and Suspense are handled locally.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"useSearchParams|Suspense|authHeader|authFetch|BACKEND_URL|template-card-clinical-link|aria-label=\\\"Primary\\\"|aria-label='Primary'\" web" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\intake\\components\\intake_form.tsx -Raw" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\package.json -Raw" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\home_g1_g8.spec.ts -Raw" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\globals.css -Raw" in C:\POLARIS
+2026-05-21T08:24:57.282028Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.4 seconds
+Output:
+rg: regex parse error:
+    (?:useSearchParams|Suspense|authHeader|authFetch|BACKEND_URL|template-card-clinical-link|aria-label=\)
+    ^
+error: unclosed group
+
+ exited 1 in 1359ms:
+rg: regex parse error:
+    (?:useSearchParams|Suspense|authHeader|authFetch|BACKEND_URL|template-card-clinical-link|aria-label=\)
+    ^
+error: unclosed group
+
+ succeeded in 1518ms:
+"use client";
+
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  IntakeBadRequestError,
+  runDisambiguation,
+  runIntake,
+  type DisambiguationCluster,
+  type IntakeScopeDecision,
+} from "@/lib/api";
+
+import { AmbiguityModal } from "./ambiguity_modal";
+import { DisambiguationModal } from "./disambiguation_modal";
+import { ScopeDecisionView } from "./scope_decision_view";
+
+type IntakeState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ok"; decision: IntakeScopeDecision }
+  | { kind: "error"; message: string };
+
+const SAMPLE_QUESTIONS = [
+  "Does aspirin reduce headaches in adults?",
+  "What are the safety risks of metformin in older adults?",
+  "Is physical therapy effective for chronic back pain in adults?",
+];
+
+const FRENCH_STOPWORD_RE =
+  /\b(le|la|les|de|des|du|que|qui|et|est|un|une|sont|pour|avec|sans|dans)\b/gi;
+const FRENCH_ACCENTED_RE = /[éèêëàâäçîïôöùûüÿñ]/i;
+
+function looksNonEnglish(s: string): boolean {
+  if (FRENCH_ACCENTED_RE.test(s)) return true;
+  const matches = s.match(FRENCH_STOPWORD_RE);
+  return (matches?.length ?? 0) >= 3;
+}
+
+export function IntakeForm() {
+  const [question, setQuestion] = useState("");
+  const [state, setState] = useState<IntakeState>({ kind: "idle" });
+  const [modalOpen, setModalOpen] = useState(false);
+  const [disambigClusters, setDisambigClusters] = useState<
+    DisambiguationCluster[]
+  >([]);
+  const [disambigOpen, setDisambigOpen] = useState(false);
+  const [pickedClusterLabel, setPickedClusterLabel] = useState<string | null>(
+    null,
+  );
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const trimmed = question.trim();
+    if (trimmed.length < 3) {
+      setState({
+        kind: "error",
+        message: "Please enter a question with at least 3 characters.",
+      });
+      return;
+    }
+    if (looksNonEnglish(trimmed)) {
+      setState({
+        kind: "error",
+        message: "POLARIS currently supports English questions only.",
+      });
+      return;
+    }
+
+    setState({ kind: "loading" });
+    try {
+      const result = await runIntake(trimmed);
+      setState({ kind: "ok", decision: result.decision });
+      if (result.decision.status === "ambiguous_needs_clarification") {
+        setModalOpen(true);
+      }
+      if (
+        result.decision.needs_disambiguation &&
+        result.decision.candidate_snippets &&
+        result.decision.candidate_snippets.length > 0
+      ) {
+        const dis = await runDisambiguation(result.decision.candidate_snippets);
+        if (dis.is_ambiguous && dis.clusters.length > 1) {
+          setDisambigClusters(dis.clusters);
+          setDisambigOpen(true);
+        }
+      }
+    } catch (err) {
+      if (err instanceof IntakeBadRequestError) {
+        setState({ kind: "error", message: err.message });
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Unknown error.";
+      setState({ kind: "error", message });
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-xl">
+            Ask POLARIS a clinical research question
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={submit}
+            className="flex flex-col gap-3"
+            data-testid="intake-form"
+          >
+            <label
+              htmlFor="intake-question"
+              className="text-foreground text-sm font-medium"
+            >
+              Your question
+            </label>
+            <Input
+              id="intake-question"
+              data-testid="intake-question-input"
+              placeholder="e.g. Does aspirin reduce headaches in adults?"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              maxLength={2000}
+              disabled={state.kind === "loading"}
+              autoComplete="off"
+            />
+            <p className="text-muted-foreground text-xs">
+              POLARIS only researches clinical evidence questions (efficacy,
+              safety, diagnosis, prognosis). Other domains will be marked out of
+              scope.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="submit"
+                variant="default"
+                disabled={state.kind === "loading"}
+                data-testid="intake-submit"
+              >
+                {state.kind === "loading" ? "Checking…" : "Check scope"}
+              </Button>
+              <span className="text-muted-foreground text-xs">or try:</span>
+              {SAMPLE_QUESTIONS.map((sample) => (
+                <button
+                  key={sample}
+                  type="button"
+                  onClick={() => setQuestion(sample)}
+                  className="text-muted-foreground hover:text-foreground border-border rounded-full border px-2 py-1 text-xs transition-colors"
+                >
+                  {sample}
+                </button>
+              ))}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {state.kind === "error" ? (
+        <Card
+          data-testid="intake-error"
+          className="border-rose-500/40 bg-rose-500/5"
+        >
+          <CardContent className="text-rose-700 dark:text-rose-300">
+            {state.message}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {state.kind === "ok" ? (
+        <ScopeDecisionView decision={state.decision} />
+      ) : null}
+
+      <AmbiguityModal
+        open={modalOpen}
+        decision={state.kind === "ok" ? state.decision : null}
+        onContinue={() => setModalOpen(false)}
+        onCancel={() => setModalOpen(false)}
+      />
+
+      <DisambiguationModal
+        open={disambigOpen}
+        clusters={disambigClusters}
+        onSelectCluster={(cid) => {
+          const found = disambigClusters.find((c) => c.cluster_id === cid);
+          setPickedClusterLabel(found?.label ?? null);
+          setDisambigOpen(false);
+        }}
+        onCancel={() => setDisambigOpen(false)}
+      />
+
+      <output data-testid="disambig-picked-label" className="sr-only">
+        {pickedClusterLabel ?? ""}
+      </output>
+    </div>
+  );
+}
+
+
+ succeeded in 1736ms:
+// I-cd-022 (#612): home route G1-G8 acceptance gates per
+// state/polaris_ui_rebuild_matrix.md §2. Mechanical assertions only —
+// no subjective polish judgments.
+
+import { expect, test } from "@playwright/test";
+
+const BANNED_DEV_LANGUAGE = [
+  /\bslice\b/i,
+  /\bscaffold\b/i,
+  /\bplaceholder\b/i,
+  /\bphase 0\b/i,
+  /\bpost[- ]carney\b/i,
+  /\bi-cd-/i,
+];
+
+test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  // G1: exactly one <header> element (no duplicate from a forgotten AppShell).
+  const headers = page.locator("header");
+  await expect(headers).toHaveCount(1);
+
+  // Primary nav present + identical to other routes (Home/Intake/Dashboard/
+  // Upload/Benchmark/Contracts/Pin Replay/Memory).
+  const nav = page.locator("nav[aria-label='Primary']");
+  await expect(nav).toBeVisible();
+  for (const label of [
+    "Home",
+    "Intake",
+    "Dashboard",
+    "Upload",
+    "Benchmark",
+    "Contracts",
+    "Pin Replay",
+    "Memory",
+  ]) {
+    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+  }
+
+  // G6 (single main landmark — Codex iter-2 P1 fix).
+  const mains = page.locator("main");
+  await expect(mains).toHaveCount(1);
+});
+
+test("G2: home contains no banned dev-language strings", async ({ page }) => {
+  await page.goto("/");
+  const body_text = (await page.locator("body").textContent()) || "";
+  for (const banned of BANNED_DEV_LANGUAGE) {
+    expect(body_text).not.toMatch(banned);
+  }
+});
+
+test("G3: active template card link has focus-visible + hover styling", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const link = page.getByTestId("template-card-clinical-link");
+  await expect(link).toBeVisible();
+  const className = (await link.getAttribute("class")) || "";
+  // shadcn/ui Button injects focus-visible:ring + hover utilities. Codex
+  // iter-1 P2 fix: assert on the LINK, not the card (cards are not
+  // interactive — links/buttons are).
+  expect(className).toMatch(/focus-visible/);
+});
+
+test("G6: tab key reaches the active template card link", async ({ page }) => {
+  await page.goto("/");
+  // Tab repeatedly until the focused element is the active template link.
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press("Tab");
+    const focused = await page.evaluate(
+      () => document.activeElement?.getAttribute("data-testid") ?? null,
+    );
+    if (focused === "template-card-clinical-link") return;
+  }
+  throw new Error("active template card link never received focus via Tab");
+});
+
+test("G8: home renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto("/");
+  // Idle long enough for hydration + any async errors to surface.
+  await page.waitForLoadState("networkidle");
+  expect(errors).toEqual([]);
+});
+
+
+ succeeded in 1895ms:
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+     White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+     fails WCAG-AA 4.5:1). Use near-black text instead — dark-on-light-warning is
+     the conventional inverse pattern. */
+  --destructive-foreground: oklch(0.145 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+
+ succeeded in 2114ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\auth.ts -Raw" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'useSearchParams|Suspense|authHeader|authFetch|BACKEND_URL|template-card-clinical-link|Primary' web" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\api.ts -Raw" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files web\\app | rg 'sign|intake|page\\.tsx|HomeKeyboardShell|AppShellGate|page.tsx"'$'"'" in C:\POLARIS
+ succeeded in 1151ms:
+/**
+ * I-rdy-004 (#500) — client-side auth: JWT store + login + header injection.
+ *
+ * Carney demo scope. The JWT is held in sessionStorage: survives a page
+ * refresh, cleared when the tab closes, not shared with a fresh tab —
+ * the safer browser-storage choice per the Codex I-rdy-004 brief review.
+ * 12h JWT expiry (matches the backend); cleared on any 401.
+ */
+
+const TOKEN_KEY = "polaris_jwt";
+const EXPIRY_KEY = "polaris_jwt_expiry_ms";
+const DEFAULT_EXPIRY_SECONDS = 12 * 60 * 60;
+
+export interface LoginResult {
+  ok: boolean;
+  status: number;
+  error?: string;
+}
+
+function store(): Storage | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage;
+}
+
+/** Current JWT, or null if absent or past its 12h expiry. */
+export function getToken(): string | null {
+  const s = store();
+  if (!s) return null;
+  const token = s.getItem(TOKEN_KEY);
+  const expiry = s.getItem(EXPIRY_KEY);
+  if (!token || !expiry) return null;
+  if (Date.now() >= Number(expiry)) {
+    clearToken();
+    return null;
+  }
+  return token;
+}
+
+export function setToken(token: string, expiresInSeconds: number): void {
+  const s = store();
+  if (!s) return;
+  const ttl = expiresInSeconds > 0 ? expiresInSeconds : DEFAULT_EXPIRY_SECONDS;
+  s.setItem(TOKEN_KEY, token);
+  s.setItem(EXPIRY_KEY, String(Date.now() + ttl * 1000));
+}
+
+export function clearToken(): void {
+  const s = store();
+  if (!s) return;
+  s.removeItem(TOKEN_KEY);
+  s.removeItem(EXPIRY_KEY);
+}
+
+export function isAuthenticated(): boolean {
+  return getToken() !== null;
+}
+
+/**
+ * POST credentials to the backend. On 200, store the JWT and report ok.
+ * A 401 here is invalid-credentials feedback for the sign-in form — it is
+ * NOT routed through the generic 401-redirect (that would loop the page).
+ */
+export async function login(
+  username: string,
+  password: string,
+): Promise<LoginResult> {
+  let response: Response;
+  try {
+    response = await fetch("/api/v6/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      error: "Could not reach POLARIS. Check the connection.",
+    };
+  }
+  if (response.status === 200) {
+    const body = (await response.json()) as {
+      access_token: string;
+      expires_in?: number;
+    };
+    setToken(body.access_token, body.expires_in ?? DEFAULT_EXPIRY_SECONDS);
+    return { ok: true, status: 200 };
+  }
+  if (response.status === 401) {
+    return { ok: false, status: 401, error: "Invalid username or password." };
+  }
+  return {
+    ok: false,
+    status: response.status,
+    error: `Sign-in failed (HTTP ${response.status}).`,
+  };
+}
+
+/** Authorization header for the current token, or {} if unauthenticated. */
+export function authHeader(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** Clear the token and route to /sign-in. Called on a generic 401. */
+export function redirectToSignIn(): void {
+  if (typeof window === "undefined") return;
+  clearToken();
+  if (window.location.pathname !== "/sign-in") {
+    window.location.href = "/sign-in";
+  }
+}
+
+
+ succeeded in 1429ms:
+web\Dockerfile:7:# Codex diff iter-1+2 P1-B: NEXT_PUBLIC_BACKEND_URL is intentionally NOT a
+web\playwright.config.ts:7: * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+web\next.config.ts:12:      process.env.NEXT_PUBLIC_BACKEND_URL ||
+web\lib\auth.ts:100:export function authHeader(): Record<string, string> {
+web\lib\api.ts:14: * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
+web\lib\api.ts:19:import { authHeader, redirectToSignIn } from "@/lib/auth";
+web\lib\api.ts:21:const BACKEND_URL = "/api/v6";
+web\lib\api.ts:30:async function authFetch(
+web\lib\api.ts:35:  for (const [key, value] of Object.entries(authHeader())) {
+web\lib\api.ts:51:  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+web\lib\api.ts:52:  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+web\lib\api.ts:132:  const response = await authFetch(`${BACKEND_URL}/runs`, {
+web\lib\api.ts:166:  const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
+web\lib\api.ts:174:  const response = await authFetch(
+web\lib\api.ts:175:    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/cancel`,
+web\lib\api.ts:196:  const response = await authFetch(
+web\lib\api.ts:197:    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/pins`,
+web\lib\api.ts:206:  const response = await authFetch(
+web\lib\api.ts:207:    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/pins/${encodeURIComponent(date)}`,
+web\lib\api.ts:232:  const response = await authFetch(
+web\lib\api.ts:233:    `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+web\lib\api.ts:245:  const response = await authFetch(`${BACKEND_URL}/upload`, {
+web\lib\api.ts:290:  const response = await authFetch(`${BACKEND_URL}/ambiguity`, {
+web\lib\api.ts:307:  const response = await authFetch(`${BACKEND_URL}/scope/check`, {
+web\lib\api.ts:329:  const response = await authFetch(`${BACKEND_URL}/templates`);
+web\lib\api.ts:383:  const response = await authFetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+web\lib\api.ts:408:  const response = await authFetch(
+web\lib\api.ts:409:    `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
+web\lib\api.ts:524:  const response = await authFetch(`${BACKEND_URL}/api/disambiguation`, {
+web\lib\api.ts:559:  const response = await authFetch(`${BACKEND_URL}/api/intake`, {
+web\lib\api.ts:583:  const response = await authFetch(`${BACKEND_URL}/api/intake/health`);
+web\lib\api.ts:657:  const response = await authFetch(`${BACKEND_URL}/api/retrieval`, {
+web\lib\api.ts:682:  const response = await authFetch(`${BACKEND_URL}/api/retrieval/health`);
+web\lib\api.ts:885:  const response = await authFetch(`${BACKEND_URL}/api/generation`, {
+web\lib\api.ts:910:  const response = await authFetch(`${BACKEND_URL}/api/generation/health`);
+web\lib\api.ts:968:  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle`, {
+web\lib\api.ts:1003:  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/preview`, {
+web\lib\api.ts:1027:  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/health`);
+web\lib\api.ts:1106:  const response = await authFetch(`${BACKEND_URL}/api/benchmark/health`);
+web\lib\api.ts:1113:  const response = await authFetch(
+web\lib\api.ts:1114:    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/scoreboard`,
+web\lib\api.ts:1122:  const response = await authFetch(
+web\lib\api.ts:1123:    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/summary`,
+web\lib\api.ts:1151:  `${BACKEND_URL}/workspaces/${encodeURIComponent(ws)}/memory`;
+web\lib\api.ts:1154:  return asJsonOrThrow<MemoryEntry[]>(await authFetch(_ws(ws)));
+web\lib\api.ts:1166:    await authFetch(_ws(ws), {
+web\lib\api.ts:1178:  const r = await authFetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
+web\lib\api.ts:1244:  const res = await authFetch(`${BACKEND_URL}/api/runs/${runId}/graph`);
+web\lib\api.ts:1490:  const response = await authFetch(
+web\lib\api.ts:1491:    `${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}`,
+web\lib\api.ts:1529:  const response = await authFetch(
+web\lib\api.ts:1530:    `${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}/evidence`,
+web\components\app_shell.tsx:44:          <nav className="flex items-center gap-1" aria-label="Primary">
+web\app\audit_live\page.tsx:1:import { Suspense } from "react";
+web\app\audit_live\page.tsx:7:    <Suspense fallback={<div>loading…</div>}>
+web\app\audit_live\page.tsx:9:    </Suspense>
+web\app\audit_live\_panels.tsx:4:import { useSearchParams } from "next/navigation";
+web\app\audit_live\_panels.tsx:18:  const sp = useSearchParams();
+web\app\sign-in\page.tsx:3:import { Suspense, useState } from "react";
+web\app\sign-in\page.tsx:4:import { useRouter, useSearchParams } from "next/navigation";
+web\app\sign-in\page.tsx:50: * I-cd-014 (GH#610): Next.js App Router requires `useSearchParams()` users
+web\app\sign-in\page.tsx:51: * to be wrapped in a Suspense boundary (or the route opts into dynamic
+web\app\sign-in\page.tsx:57:    <Suspense fallback={<SignInPageFallback />}>
+web\app\sign-in\page.tsx:59:    </Suspense>
+web\app\sign-in\page.tsx:78:  const searchParams = useSearchParams();
+web\app\components\home_keyboard_shell.tsx:63:          <nav className="flex items-center gap-1" aria-label="Primary">
+web\tests\e2e\benchmark_g1_g8.spec.ts:50:  const nav = page.locator("nav[aria-label='Primary']");
+web\app\sse\_harness.tsx:4:import { useSearchParams } from "next/navigation";
+web\app\sse\_harness.tsx:20:  const sp = useSearchParams();
+web\app\sse\page.tsx:1:import { Suspense } from "react";
+web\app\sse\page.tsx:7:    <Suspense fallback={<div>loading…</div>}>
+web\app\sse\page.tsx:9:    </Suspense>
+web\tests\e2e\contracts_g1_g8.spec.ts:52:  const nav = page.locator("nav[aria-label='Primary']");
+web\tests\e2e\demo_journey.spec.ts:19:  await expect(page.getByTestId("template-card-clinical-link")).toBeVisible();
+web\tests\e2e\demo_journey.spec.ts:20:  const intake_link = page.getByTestId("template-card-clinical-link").first();
+web\tests\e2e\demo_journey.spec.ts:75:    const nav = page.locator("nav[aria-label='Primary']");
+web\tests\e2e\dashboard_g1_g8.spec.ts:34:  const nav = page.locator("nav[aria-label='Primary']");
+web\tests\e2e\demo_walkthrough.spec.ts:30:    await page.getByTestId("template-card-clinical-link").click();
+web\tests\e2e\home_g1_g8.spec.ts:25:  // Primary nav present + identical to other routes (Home/Intake/Dashboard/
+web\tests\e2e\home_g1_g8.spec.ts:27:  const nav = page.locator("nav[aria-label='Primary']");
+web\tests\e2e\home_g1_g8.spec.ts:59:  const link = page.getByTestId("template-card-clinical-link");
+web\tests\e2e\home_g1_g8.spec.ts:76:    if (focused === "template-card-clinical-link") return;
+web\tests\e2e\intake_g1_g8.spec.ts:47:  const nav = page.locator("nav[aria-label='Primary']");
+web\tests\e2e\memory_g1_g8.spec.ts:49:  const nav = page.locator("nav[aria-label='Primary']");
+web\tests\e2e\pin_replay_g1_g8.spec.ts:52:  const nav = page.locator("nav[aria-label='Primary']");
+web\tests\e2e\runs_runid_g1_g8.spec.ts:71:  const nav = page.locator("nav[aria-label='Primary']");
+web\tests\e2e\upload_g1_g8.spec.ts:48:  const nav = page.locator("nav[aria-label='Primary']");
+
+ succeeded in 1515ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ *
+ * I-carney-005 (2026-05-13): all requests are browser-relative paths so the
+ * browser only ever talks to the webui origin. Next.js server-side rewrites
+ * (web/next.config.ts) forward `/api/v6/*` → `${INTERNAL_API_URL}/*`, which
+ * in production compose is `http://api:8000` (a Docker service name the
+ * browser cannot resolve directly). In local dev, INTERNAL_API_URL defaults
+ * to http://localhost:8000 so `npm run dev` against a host-port-mapped
+ * backend works without any client-side configuration.
+ *
+ * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
+ * runtime — baking an absolute http://api:8000 into the client bundle would
+ * make production browsers attempt direct Docker-network reach and fail.
+ */
+
+import { authHeader, redirectToSignIn } from "@/lib/auth";
+
+const BACKEND_URL = "/api/v6";
+
+/**
+ * I-rdy-004 (#500) — fetch wrapper for every v6 API call. Injects the
+ * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
+ * headers, and does NOT force a content-type (so `FormData` uploads keep
+ * their auto-generated multipart boundary). On a 401 it clears the token
+ * and routes to /sign-in.
+ */
+async function authFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers ?? {});
+  for (const [key, value] of Object.entries(authHeader())) {
+    headers.set(key, value);
+  }
+  const response = await globalThis.fetch(url, { ...init, headers });
+  if (response.status === 401) {
+    redirectToSignIn();
+  }
+  return response;
+}
+
+/**
+ * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
+ * set request headers, so the JWT rides as the `access_token` query param;
+ * the backend `require_auth` accepts it for `/stream/*` paths only.
+ */
+export function streamUrl(runId: string): string {
+  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}
+
+export type TemplateId =
+  | "clinical"
+  | "policy"
+  | "tech"
+  | "due_diligence"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce"
+  | "custom";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  // I-rdy-011 (#507): true once a cancel has been requested; lets the run
+  // page show a cancel as in-flight before an in-progress run transitions.
+  cancel_requested?: boolean;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+    ) as ApiError;
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+/**
+ * Thrown by createRun when POST /runs is rejected by the 1-concurrent-session
+ * constraint (I-rdy-013): a research run is already queued or in progress.
+ */
+export class ConcurrentRunError extends Error {
+  readonly activeRunId: string;
+  readonly activeStatus: string;
+  constructor(message: string, activeRunId: string, activeStatus: string) {
+    super(message);
+    this.name = "ConcurrentRunError";
+    this.activeRunId = activeRunId;
+    this.activeStatus = activeStatus;
+  }
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (response.status === 409) {
+    // Read the body exactly once, then unwrap FastAPI's { detail: {...} }
+    // envelope. The 1-concurrent-session reject carries a structured detail;
+    // any other 409 falls through to a generic ApiError.
+    const body = (await response.json().catch(() => null)) as {
+      detail?: unknown;
+    } | null;
+    const detail = (body?.detail ?? body) as {
+      code?: string;
+      message?: string;
+      active_run_id?: string;
+      active_status?: string;
+    } | null;
+    if (detail && detail.code === "concurrent_run_active") {
+      throw new ConcurrentRunError(
+        detail.message ?? "A research run is already in progress.",
+        detail.active_run_id ?? "",
+        detail.active_status ?? "in_progress",
+      );
+    }
+    const error = new Error("POLARIS backend returned 409") as ApiError;
+    error.status = 409;
+    error.body = body;
+    throw error;
+  }
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export async function getRun(runId: string): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+// I-rdy-011 (#507): request cancellation of a run. A queued run cancels
+// instantly; an in-progress run aborts cooperatively at the next pipeline
+// stage boundary. Already-terminal runs are an idempotent no-op.
+export async function cancelRun(runId: string): Promise<RunStatusResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/cancel`,
+    { method: "POST" },
+  );
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+// I-cd-017 (#627): pin-replay snapshot consumed by /pin_replay timeseries.
+// Mirrors PinSnapshot schema in src/polaris_v6/schemas/pin_snapshot.py.
+export interface PinSnapshot {
+  run_id: string;
+  pin_date: string;
+  query: string;
+  verdict: "success" | "abort_no_verified_sections";
+  section_count_kept: number;
+  section_count_dropped: number;
+  verified_sentence_count: number;
+  pass_rate: number;
+  retracted_source_ids?: string[] | null;
+}
+
+export async function fetchPinList(runId: string): Promise<PinSnapshot[]> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/pins`,
+  );
+  return asJsonOrThrow<PinSnapshot[]>(response);
+}
+
+export async function fetchPin(
+  runId: string,
+  date: string,
+): Promise<PinSnapshot> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/pins/${encodeURIComponent(date)}`,
+  );
+  return asJsonOrThrow<PinSnapshot>(response);
+}
+
+export type DataClassification =
+  | "PUBLIC_SYNTHETIC"
+  | "CAN_REAL"
+  | "PRIVATE"
+  | "CLIENT"
+  | "UNKNOWN";
+
+export interface UploadResponse {
+  document_id: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  classification: DataClassification;
+  parse_status: "queued" | "completed" | "failed";
+  chunk_preview: string[];
+  content?: string;
+  html?: string;
+}
+
+export async function getUpload(document_id: string): Promise<UploadResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+  );
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export async function uploadDocument(
+  file: File,
+  classification: DataClassification = "UNKNOWN",
+): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("classification", classification);
+  const response = await authFetch(`${BACKEND_URL}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export type ScopeVerdict = "accepted" | "needs_clarification" | "rejected";
+export type RefusalReason =
+  | "clinical_treatment_recommendation"
+  | "individual_legal_advice"
+  | "individual_financial_advice"
+  | "personal_political_endorsement"
+  | "out_of_template_scope";
+
+export interface ScopeDecision {
+  verdict: ScopeVerdict;
+  template: string;
+  question: string;
+  rationale: string;
+  refusals: RefusalReason[];
+  intended_source_tiers: ("T1" | "T2" | "T3")[];
+}
+
+export interface AmbiguityCluster {
+  cluster_id: number;
+  representative_text: string;
+  member_source_ids: string[];
+}
+
+export interface AmbiguityResult {
+  is_ambiguous: boolean;
+  clusters: AmbiguityCluster[];
+  fallback_used: boolean;
+}
+
+export interface AmbiguityCandidate {
+  source_id: string;
+  text: string;
+}
+
+export async function checkAmbiguity(
+  question: string,
+  candidates: AmbiguityCandidate[],
+): Promise<AmbiguityResult> {
+  const response = await authFetch(`${BACKEND_URL}/ambiguity`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      question,
+      candidates,
+      min_cluster_size: 2,
+      similarity_threshold: 0.5,
+    }),
+  });
+  return asJsonOrThrow<AmbiguityResult>(response);
+}
+
+export async function checkScope(
+  template: TemplateId,
+  question: string,
+): Promise<ScopeDecision> {
+  const response = await authFetch(`${BACKEND_URL}/scope/check`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template, question }),
+  });
+  return asJsonOrThrow<ScopeDecision>(response);
+}
+
+export interface TemplateContent {
+  template_id: string;
+  template_name: string;
+  summary: string;
+  primary_domains: string[];
+  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+  frame_manifest: { frame_id: string; frame_name: string }[];
+  refusal_patterns: string[];
+  sample_questions: string[];
+  out_of_scope_examples: string[];
+}
+
+export async function listTemplates(): Promise<TemplateContent[]> {
+  const response = await authFetch(`${BACKEND_URL}/templates`);
+  return asJsonOrThrow<TemplateContent[]>(response);
+}
+
+export interface SourceSpan {
+  evidence_id: string;
+  source_url: string;
+  source_tier: "T1" | "T2" | "T3";
+  span_start: number;
+  span_end: number;
+  span_text: string;
+}
+
+export interface VerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_local_pass: boolean;
+  verifier_global_pass: boolean;
+  drop_reason: string | null;
+}
+
+export interface EvidenceContract {
+  contract_version: "1.0";
+  run_id: string;
+  template: string;
+  question: string;
+  queued_at: string;
+  finished_at: string;
+  pipeline_status: string;
+  evidence_pool: SourceSpan[];
+  verified_sentences: VerifiedSentence[];
+  frame_coverage: {
+    frame_id: string;
+    frame_name: string;
+    sources_assigned: number;
+    coverage_percent: number;
+  }[];
+  contradictions: {
+    contradiction_id: string;
+    section_id: string;
+    claim_a: string;
+    claim_b: string;
+    evidence_a: string[];
+    evidence_b: string[];
+    resolution: string;
+  }[];
+  cost_usd: number;
+  generator_model: string;
+  verifier_model: string;
+  family_segregation_passed: boolean;
+}
+
+export async function getBundle(runId: string): Promise<EvidenceContract> {
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+  return asJsonOrThrow<EvidenceContract>(response);
+}
+
+export type ChartType = "forest_plot" | "comparison_table" | "timeline";
+
+export interface VegaLiteSpec {
+  $schema: string;
+  title?: string;
+  data: { values: Record<string, unknown>[] };
+  mark?: unknown;
+  encoding?: unknown;
+  layer?: unknown;
+  polaris_provenance: {
+    chart_type: ChartType;
+    evidence_ids: string[];
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+
+export async function getChart(
+  runId: string,
+  chartType: ChartType,
+): Promise<VegaLiteSpec> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
+  );
+  return asJsonOrThrow<VegaLiteSpec>(response);
+}
+
+export function downloadBundleAsJson(bundle: EvidenceContract): void {
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `polaris_bundle_${bundle.run_id}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export interface StreamEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Subscribe to /stream/{runId}. Returns the EventSource so the caller can
+ * close it. Per Phase 0 stub, the backend yields 5 deterministic events.
+ */
+export function subscribeToRun(
+  runId: string,
+  onEvent: (event: StreamEvent) => void,
+  onError?: (error: Event) => void,
+): EventSource {
+  const source = new EventSource(streamUrl(runId));
+
+  const handler = (event: MessageEvent<string>) => {
+    try {
+      const parsed = JSON.parse(event.data);
+      onEvent({ event: event.type, data: parsed });
+    } catch {
+      onEvent({ event: event.type, data: { raw: event.data } });
+    }
+  };
+
+  for (const eventName of [
+    "scope_decision",
+    "retrieval_progress",
+    "verifier_verdict",
+    "section_complete",
+    "run_complete",
+  ]) {
+    source.addEventListener(eventName, handler);
+  }
+
+  if (onError) {
+    source.onerror = onError;
+  }
+  return source;
+}
+
+// ---------------------------------------------------------------------------
+// Slice 001 — Clinical Scope Discovery + Ambiguity Detection
+// Mirrors src/polaris_graph/scope/scope_decision.py + api/intake_route.py.
+// ---------------------------------------------------------------------------
+
+export type IntakeStatus =
+  | "in_scope"
+  | "ambiguous_needs_clarification"
+  | "out_of_scope"
+  | "refused";
+
+export type IntakeScopeClass =
+  | "clinical_efficacy"
+  | "clinical_safety"
+  | "clinical_diagnosis"
+  | "clinical_prognosis"
+  | "out_of_scope";
+
+export type PicoAxisName = "population" | "intervention" | "outcome";
+
+export interface IntakeAmbiguityAxis {
+  axis: PicoAxisName;
+  plausible_interpretations: string[];
+  needs_clarification: boolean;
+}
+
+export interface IntakeScopeDecision {
+  status: IntakeStatus;
+  scope_class: IntakeScopeClass | null;
+  ambiguity_axes: IntakeAmbiguityAxis[];
+  clarifications_needed: string[];
+  provenance: Record<string, unknown>;
+  decision_id: string;
+  decided_at_utc: string;
+  latency_ms: number;
+  needs_disambiguation?: boolean;
+  candidate_snippets?: { text: string; embedding: number[] }[];
+}
+
+export type DisambiguationCluster = {
+  cluster_id: number;
+  label: string;
+  sample_snippets: string[];
+};
+
+export interface DisambiguationResponse {
+  is_ambiguous: boolean;
+  num_clusters: number;
+  clusters: DisambiguationCluster[];
+  server_time_utc: string;
+}
+
+export async function runDisambiguation(
+  candidates: { text: string; embedding: number[] }[],
+): Promise<DisambiguationResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/disambiguation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidates }),
+  });
+  return asJsonOrThrow<DisambiguationResponse>(response);
+}
+
+export interface IntakeSuccessResponse {
+  error: false;
+  decision: IntakeScopeDecision;
+  server_time_utc: string;
+}
+
+export interface IntakeErrorBody {
+  error: true;
+  code: "too_short" | "too_long" | "invalid_input";
+  message: string;
+  raw: string;
+}
+
+export class IntakeBadRequestError extends Error {
+  code: IntakeErrorBody["code"];
+  raw: string;
+  constructor(body: IntakeErrorBody) {
+    super(body.message);
+    this.name = "IntakeBadRequestError";
+    this.code = body.code;
+    this.raw = body.raw;
+  }
+}
+
+export async function runIntake(
+  question: string,
+): Promise<IntakeSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/intake`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as IntakeErrorBody | null;
+    if (body && body.error) {
+      throw new IntakeBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<IntakeSuccessResponse>(response);
+}
+
+export interface IntakeHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+}
+
+export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/intake/health`);
+  return asJsonOrThrow<IntakeHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 002 — Clinical Retrieval (verified clinical sources)
+// Mirrors src/polaris_graph/retrieval2/evidence_pool.py +
+// api/retrieval_route.py.
+// ---------------------------------------------------------------------------
+
+export type RetrievalSourceTier = "T1" | "T2" | "T3";
+
+export interface RetrievalSource {
+  source_id: string;
+  url: string;
+  domain: string;
+  tier: RetrievalSourceTier;
+  title: string;
+  publication_date: string | null;
+  authors: string[];
+  snippet: string;
+  full_text_available: boolean;
+  full_text: string | null;
+  fetched_at_utc: string;
+  provenance: Record<string, unknown>;
+  retracted?: boolean;
+}
+
+export interface RetrievalAdequacyVerdict {
+  is_adequate: boolean;
+  sources_per_tier: Record<RetrievalSourceTier, number>;
+  min_required_per_tier: Record<RetrievalSourceTier, number>;
+  failure_reason: string | null;
+}
+
+export interface EvidencePool {
+  pool_id: string;
+  decision_id: string;
+  sources: RetrievalSource[];
+  adequacy: RetrievalAdequacyVerdict;
+  queries_executed: string[];
+  retrieval_started_at_utc: string;
+  retrieval_finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface RetrievalSuccessResponse {
+  error: false;
+  pool: EvidencePool;
+  server_time_utc: string;
+}
+
+export interface RetrievalErrorBody {
+  error: true;
+  code: "wrong_status" | "wrong_scope_class" | "fetch_backend_unavailable";
+  message: string;
+  decision_id: string | null;
+}
+
+export class RetrievalBadRequestError extends Error {
+  code: RetrievalErrorBody["code"];
+  decision_id: string | null;
+  constructor(body: RetrievalErrorBody) {
+    super(body.message);
+    this.name = "RetrievalBadRequestError";
+    this.code = body.code;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runRetrieval(
+  decision: IntakeScopeDecision,
+): Promise<RetrievalSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/retrieval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as RetrievalErrorBody | null;
+    if (body && body.error) {
+      throw new RetrievalBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<RetrievalSuccessResponse>(response);
+}
+
+export interface RetrievalHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  fetch_backend: string;
+}
+
+export async function getRetrievalHealth(): Promise<RetrievalHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/retrieval/health`);
+  return asJsonOrThrow<RetrievalHealthResponse>(response);
+}
+
+/** Convenience: count sources matching a given tier. */
+export function countSourcesByTier(
+  pool: EvidencePool,
+  tier: RetrievalSourceTier,
+): number {
+  return pool.sources.filter((s) => s.tier === tier).length;
+}
+
+/** Convenience: dedupe + sort sources by tier (T1 first), then by domain. */
+export function sortSourcesByTier(
+  sources: RetrievalSource[],
+): RetrievalSource[] {
+  const tier_rank: Record<RetrievalSourceTier, number> = {
+    T1: 0,
+    T2: 1,
+    T3: 2,
+  };
+  return [...sources].sort((a, b) => {
+    const t = tier_rank[a.tier] - tier_rank[b.tier];
+    if (t !== 0) return t;
+    return a.domain.localeCompare(b.domain);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Slice 003 — Generator with strict-verify
+// Mirrors src/polaris_graph/generator2/verified_report.py +
+// api/generation_route.py.
+// ---------------------------------------------------------------------------
+
+export type SectionStatus = "verified" | "regenerated" | "dropped";
+
+export type PipelineVerdict = "success" | "abort_no_verified_sections";
+
+export type DropReason =
+  | "invalid_token"
+  | "span_out_of_range"
+  | "numeric_mismatch"
+  | "overlap_too_low"
+  | "no_provenance_token";
+
+export interface ReportVerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  drop_reason: DropReason | null;
+  evaluator_agrees: boolean | null;
+  is_synthesis_claim?: boolean;
+  assertion_surface?: AssertionSurface;
+  contradiction?: ContradictionSignal | null;
+  evaluator_disagreement?: EvaluatorDisagreement | null;
+}
+
+export interface EvaluatorDisagreement {
+  generator_reading: string;
+  evaluator_reading: string;
+  cited_sources: string[];
+  evaluator_model: string;
+}
+
+export type ContradictionEvidenceType =
+  | "trial"
+  | "guideline"
+  | "meta_analysis"
+  | "observational"
+  | "regulatory_label"
+  | "expert_opinion"
+  | "unspecified";
+
+export type Jurisdiction =
+  | "canada"
+  | "us"
+  | "eu"
+  | "uk"
+  | "who"
+  | "other"
+  | "unspecified";
+
+export interface ContradictionSide {
+  source_id: string;
+  source_tier: "T1" | "T2" | "T3";
+  sample_size?: number | null;
+  hedge_language: string;
+  pt08_flag?: string | null;
+  claim_excerpt: string;
+  evidence_type?: ContradictionEvidenceType;
+  jurisdiction?: Jurisdiction;
+}
+
+export type ContradictionKind = "multi_source" | "self_contradiction";
+
+export type ContradictionCategory =
+  | "numeric"
+  | "categorical"
+  | "regulatory"
+  | "temporal"
+  | "jurisdictional"
+  | "other";
+
+export interface ContradictionSignal {
+  disagreeing_source_count: number;
+  summary: string;
+  sides?: ContradictionSide[];
+  kind?: ContradictionKind;
+  category?: ContradictionCategory;
+}
+
+export type AssertionSurface =
+  | "prose"
+  | "table"
+  | "summary_bullet"
+  | "limitation"
+  | "caption"
+  | "heading";
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: ReportVerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export type GapReason =
+  | "paywalled"
+  | "no_oa"
+  | "source_tier_ineligible"
+  | "language_unavailable"
+  | "retracted_only"
+  | "jurisdiction_outside"
+  | "not_indexed"
+  | "embargoed"
+  | "other";
+
+export interface FrameGap {
+  entity_name: string;
+  reason: GapReason;
+  reason_detail?: string | null;
+}
+
+export interface FrameCoverage {
+  covered_entity_count: number;
+  total_entity_count: number;
+  gaps: FrameGap[];
+}
+
+export interface VerifiedReport {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSection[];
+  overall_verify_pass_rate: number;
+  pipeline_verdict: PipelineVerdict;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  verifier_pass_threshold: number;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+  frame_coverage?: FrameCoverage | null;
+}
+
+export interface GenerationSuccessResponse {
+  error: false;
+  report: VerifiedReport;
+  server_time_utc: string;
+}
+
+export interface GenerationErrorBody {
+  error: true;
+  code:
+    | "inadequate_pool"
+    | "completion_backend_unavailable"
+    | "malformed_output";
+  message: string;
+  pool_id: string | null;
+  decision_id: string | null;
+}
+
+export class GenerationBadRequestError extends Error {
+  code: GenerationErrorBody["code"];
+  pool_id: string | null;
+  decision_id: string | null;
+  constructor(body: GenerationErrorBody) {
+    super(body.message);
+    this.name = "GenerationBadRequestError";
+    this.code = body.code;
+    this.pool_id = body.pool_id;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runGeneration(
+  pool: EvidencePool,
+  scope_class?: string | null,
+): Promise<GenerationSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/generation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pool, scope_class: scope_class ?? null }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as GenerationErrorBody | null;
+    if (body && body.error) {
+      throw new GenerationBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<GenerationSuccessResponse>(response);
+}
+
+export interface GenerationHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  completion_backend: string;
+}
+
+export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/generation/health`);
+  return asJsonOrThrow<GenerationHealthResponse>(response);
+}
+
+/** Filter to non-dropped sections (verified + regenerated). */
+export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
+  return report.sections.filter((s) => s.section_status !== "dropped");
+}
+
+/** Filter sentences to those that passed strict_verify. */
+export function keptSentences(
+  section: VerifiedReportSection,
+): ReportVerifiedSentence[] {
+  return section.verified_sentences.filter((s) => s.verifier_pass);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 004 — Audit bundle (GPG-signed .tar.gz export)
+// Mirrors src/polaris_graph/api/audit_bundle_route.py.
+// ---------------------------------------------------------------------------
+
+export interface AuditBundleErrorBody {
+  error: true;
+  code:
+    | "fk_chain_mismatch"
+    | "verdict_not_success"
+    | "cited_span_unreachable_after_snapshot"
+    | "copyrighted_span_in_bundle"
+    | "gpg_unavailable"
+    | "sign_failed";
+  message: string;
+  report_id: string | null;
+}
+
+export class AuditBundleError extends Error {
+  code: AuditBundleErrorBody["code"];
+  report_id: string | null;
+  constructor(body: AuditBundleErrorBody) {
+    super(body.message);
+    this.name = "AuditBundleError";
+    this.code = body.code;
+    this.report_id = body.report_id;
+  }
+}
+
+/**
+ * Build + download a GPG-signed audit bundle for the given research chain.
+ *
+ * Returns a Blob of the audit_<id>.tar.gz on success. On HTTP 4xx/5xx
+ * with a structured error body, throws AuditBundleError with the .code
+ * field set so callers can show specific UX (e.g. "GPG signer not
+ * configured" vs "report verdict not success").
+ */
+export async function downloadAuditBundle(
+  decision: IntakeScopeDecision,
+  pool: EvidencePool,
+  report: VerifiedReport,
+): Promise<Blob> {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, pool, report }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as AuditBundleErrorBody | null;
+    if (body && body.error) {
+      throw new AuditBundleError(body);
+    }
+    throw new Error(`Audit bundle request failed: HTTP ${response.status}`);
+  }
+  return await response.blob();
+}
+
+export interface BundlePreviewByContentType {
+  count: number;
+  bytes: number;
+}
+
+export interface BundlePreviewResponse {
+  preview_bundle_id: string;
+  generator_model: string;
+  polaris_version: string;
+  file_count: number;
+  total_bytes: number;
+  content_type_breakdown: Record<string, BundlePreviewByContentType>;
+}
+
+export async function previewAuditBundle(
+  decision: IntakeScopeDecision,
+  pool: EvidencePool,
+  report: VerifiedReport,
+): Promise<BundlePreviewResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/preview`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, pool, report }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as AuditBundleErrorBody | null;
+    if (body && body.error) {
+      throw new AuditBundleError(body);
+    }
+    throw new Error(`Bundle preview request failed: HTTP ${response.status}`);
+  }
+  return (await response.json()) as BundlePreviewResponse;
+}
+
+export interface AuditBundleHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  signing_backend: string;
+}
+
+export async function getAuditBundleHealth(): Promise<AuditBundleHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/health`);
+  return asJsonOrThrow<AuditBundleHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 005 — BEAT-BOTH benchmark
+// Mirrors src/polaris_graph/api/benchmark_route.py +
+// src/polaris_graph/benchmark/beat_both_scorer.py.
+// ---------------------------------------------------------------------------
+
+export type BenchmarkDimension =
+  | "sourcing_tier_mix"
+  | "numeric_grounding"
+  | "provenance_density"
+  | "refusal_correctness"
+  | "coverage_completeness"
+  | "latency"
+  | "auditability";
+
+export interface BenchmarkSystemScores {
+  system: string;
+  by_dimension: Record<BenchmarkDimension, number | null>;
+  evidence: Record<BenchmarkDimension, string[]>;
+}
+
+export interface BenchmarkQuestionScores {
+  question_id: string;
+  question_text: string;
+  is_refusal_bait: boolean;
+  polaris: BenchmarkSystemScores;
+  chatgpt: BenchmarkSystemScores;
+  gemini: BenchmarkSystemScores;
+}
+
+export interface BenchmarkAggregateScoreboard {
+  polaris_mean: Record<BenchmarkDimension, number | null>;
+  chatgpt_mean: Record<BenchmarkDimension, number | null>;
+  gemini_mean: Record<BenchmarkDimension, number | null>;
+  n_questions: number;
+}
+
+export interface BenchmarkScoreboard {
+  benchmark_id: string;
+  ran_at_utc: string;
+  per_question: BenchmarkQuestionScores[];
+  aggregate: BenchmarkAggregateScoreboard;
+  polaris_wins: number;
+  external_wins: number;
+  ties: number;
+}
+
+export interface BenchmarkHealthResponse {
+  status: "ok";
+  slice: string;
+  results_root: string | null;
+  available_benchmarks: string[];
+}
+
+export const BENCHMARK_DIMENSION_LABELS: Record<BenchmarkDimension, string> = {
+  sourcing_tier_mix: "Sourcing tier mix",
+  numeric_grounding: "Numeric grounding",
+  provenance_density: "Provenance density",
+  refusal_correctness: "Refusal correctness",
+  coverage_completeness: "Coverage completeness",
+  latency: "Latency",
+  auditability: "Auditability",
+};
+
+export const ALL_BENCHMARK_DIMENSIONS: BenchmarkDimension[] = [
+  "sourcing_tier_mix",
+  "numeric_grounding",
+  "provenance_density",
+  "refusal_correctness",
+  "coverage_completeness",
+  "latency",
+  "auditability",
+];
+
+export async function getBenchmarkHealth(): Promise<BenchmarkHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/benchmark/health`);
+  return asJsonOrThrow<BenchmarkHealthResponse>(response);
+}
+
+export async function getBenchmarkScoreboard(
+  benchmark_id: string,
+): Promise<BenchmarkScoreboard> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/scoreboard`,
+  );
+  return asJsonOrThrow<BenchmarkScoreboard>(response);
+}
+
+export async function getBenchmarkSummary(
+  benchmark_id: string,
+): Promise<string> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/summary`,
+  );
+  if (!response.ok) {
+    throw new Error(`benchmark summary fetch failed: HTTP ${response.status}`);
+  }
+  return await response.text();
+}
+
+// I-f14-002 — workspace memory client. Mirrors src/polaris_v6/api/memory.py.
+export type MemoryKind =
+  | "user_preference"
+  | "domain_assumption"
+  | "prior_run_summary"
+  | "rejected_source"
+  | "preferred_source";
+
+export interface MemoryEntry {
+  entry_id: string;
+  workspace_id: string;
+  kind: MemoryKind;
+  content: string;
+  created_at: string;
+  last_used_at?: string | null;
+  use_count: number;
+  derived_from_run_ids: string[];
+}
+
+const _ws = (ws: string) =>
+  `${BACKEND_URL}/workspaces/${encodeURIComponent(ws)}/memory`;
+
+export async function listMemory(ws: string): Promise<MemoryEntry[]> {
+  return asJsonOrThrow<MemoryEntry[]>(await authFetch(_ws(ws)));
+}
+
+export async function rememberMemory(
+  ws: string,
+  payload: {
+    kind: MemoryKind;
+    content: string;
+    derived_from_run_ids?: string[];
+  },
+): Promise<MemoryEntry> {
+  return asJsonOrThrow<MemoryEntry>(
+    await authFetch(_ws(ws), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
+export async function forgetMemory(
+  ws: string,
+  entry_id: string,
+): Promise<void> {
+  const r = await authFetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
+    method: "DELETE",
+  });
+  if (!r.ok && r.status !== 404)
+    throw new Error(`forget memory failed: HTTP ${r.status}`);
+}
+
+// ---------------------------------------------------------------------------
+// F-snowball graph (I-snowball-002 backend + I-snowball-003a frontend).
+// Cytoscape-format graph payload mirroring src/polaris_graph/api/graph_route.py.
+// ---------------------------------------------------------------------------
+
+export type GraphNodeType = "sentence" | "source" | "section" | "frame";
+export type GraphEdgeType = "cites" | "contradicts" | "section_member";
+export type GraphTier = "T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7";
+export type GraphFrameStatus = "pass" | "partial" | "fail";
+
+export interface GraphNodeData {
+  id: string;
+  type: GraphNodeType;
+  label: string;
+  tier?: GraphTier;
+  sentence_text?: string;
+  source_url?: string;
+  section_title?: string;
+  frame_status?: GraphFrameStatus;
+  classes?: string;
+}
+
+export interface GraphPosition {
+  x: number;
+  y: number;
+}
+
+export interface GraphNode {
+  data: GraphNodeData;
+  position?: GraphPosition | null;
+}
+
+export interface GraphEdgeData {
+  id: string;
+  source: string;
+  target: string;
+  edge_type: GraphEdgeType;
+}
+
+export interface GraphEdge {
+  data: GraphEdgeData;
+}
+
+export interface GraphDiagnostics {
+  bibliography_count: number;
+  fallback_source_count: number;
+  missing_reference_occurrence_count: number;
+  referenced_unknown_evidence_ids: string[];
+}
+
+export interface GraphPayload {
+  elements: { nodes: GraphNode[]; edges: GraphEdge[] };
+  run_id: string;
+  elements_hash: string;
+  diagnostics: GraphDiagnostics;
+  schema_version: "1.0";
+}
+
+export async function getRunGraph(runId: string): Promise<GraphPayload> {
+  const res = await authFetch(`${BACKEND_URL}/api/runs/${runId}/graph`);
+  if (!res.ok) {
+    const body = await res.text();
+    const err = new Error(
+      `getRunGraph(${runId}) HTTP ${res.status}: ${body}`,
+    ) as ApiError;
+    err.status = res.status;
+    throw err;
+  }
+  return res.json() as Promise<GraphPayload>;
+}
+
+// ---------------------------------------------------------------------------
+// I-rdy-008 (#504) slice 2 — live-run AuditIR client.
+// Mirrors the to_json_dict() projection of the AuditIR dataclass tree in
+// src/polaris_graph/audit_ir/loader.py. The canonical faithful shape for the
+// rich UI surfaces (Option A, Codex arch-decision consult): raw T1-T7 tiers,
+// range-keyed evidence-span tokens, no EvidenceContract coercion. The UI
+// migration off getBundle()/EvidenceContract is slice 3.
+// ---------------------------------------------------------------------------
+
+export interface AuditIrEvidenceSpanToken {
+  evidence_id: string;
+  start: number;
+  end: number;
+}
+
+export interface AuditIrBibliographyEntry {
+  num: number;
+  evidence_id: string;
+  statement: string;
+  tier: string;
+  url: string;
+}
+
+export interface AuditIrSentence {
+  claim_id: string;
+  section: string;
+  text: string;
+  tokens: AuditIrEvidenceSpanToken[];
+  is_verified: boolean;
+  failure_reasons: string[];
+}
+
+export interface AuditIrSection {
+  title: string;
+  kept_count: number;
+  dropped_count: number;
+  total_in: number;
+  dropped_due_to_failure: number;
+  sentences: AuditIrSentence[];
+}
+
+export interface AuditIrVerifiedReport {
+  sections: AuditIrSection[];
+  sentences_verified: number;
+  sentences_dropped: number;
+  drop_reason_counts: Record<string, number>;
+}
+
+export interface AuditIrContradictionClaim {
+  evidence_id: string;
+  subject: string;
+  predicate: string;
+  arm: string;
+  dose: string;
+  value: number;
+  unit: string;
+  source_tier: string;
+  source_url: string;
+  context_snippet: string;
+  endpoint_phrase: string;
+}
+
+export interface AuditIrContradictionCluster {
+  cluster_id: number;
+  subject: string;
+  predicate: string;
+  severity: string;
+  absolute_difference: number;
+  relative_difference: number;
+  recommended_action: string;
+  claims: AuditIrContradictionClaim[];
+}
+
+export interface AuditIrRetrievalAttempt {
+  attempt_index: number;
+  source: string;
+  url: string;
+  outcome: string;
+  http_status: number | null;
+}
+
+export interface AuditIrFrameCoverageEntry {
+  entity_id: string;
+  entity_type: string;
+  section: string;
+  slot_id: string;
+  subsection_title: string;
+  status: string;
+  doi: string | null;
+  pmid: string | null;
+  failure_reason: string | null;
+  available_artifacts: string[];
+  required_fields: string[];
+  min_fields_for_completion: number;
+  provenance_class: string;
+  human_completion_eligible: boolean;
+  human_curated_provenance: string | null;
+  is_pipeline_fault: boolean;
+  retrieval_attempt_log: AuditIrRetrievalAttempt[];
+}
+
+export interface AuditIrFrameCoverageReport {
+  pass_count: number;
+  partial_count: number;
+  frame_gap_count: number;
+  pipeline_fault_count: number;
+  total_entities: number;
+  total_slots: number;
+  research_question: string;
+  schema_version: string;
+  semantics_warning: string | null;
+  entries: AuditIrFrameCoverageEntry[];
+}
+
+export interface AuditIrTierMix {
+  fractions: Record<string, number>;
+  corpus_count: number;
+  approved: boolean;
+  material_deviation: boolean;
+}
+
+export interface AuditIrEvaluatorGate {
+  gate_class: string;
+  release_allowed: boolean;
+  reasons: string[];
+  rule_blockers: string[];
+  judge_critical_axes: string[];
+  judge_parse_ok: boolean;
+}
+
+export interface AuditIrRetrievalStats {
+  pre_filter: number;
+  fetched: number;
+  failed: number;
+  by_provider: Record<string, number>;
+  queries: string[];
+}
+
+export interface AuditIrManifest {
+  run_id: string;
+  slug: string;
+  status: string;
+  question: string;
+  protocol_sha256: string;
+  cost_usd: number;
+  budget_cap_usd: number;
+  word_count: number;
+  sentences_verified: number;
+  sentences_dropped: number;
+  contradictions_found: number;
+  completeness_percent: number;
+  evaluator_gate: AuditIrEvaluatorGate;
+  release_allowed: boolean;
+  v30_enabled: boolean;
+  v30_warnings: string[];
+  retrieval_stats: AuditIrRetrievalStats | null;
+}
+
+export interface AuditIrRuleCheck {
+  item_id: string;
+  name: string;
+  passed: boolean;
+  details: string;
+}
+
+export interface AuditIrModelProvenance {
+  generator_family: string;
+  generator_model: string;
+  evaluator_family: string;
+  evaluator_model: string;
+  judge_model: string;
+  judge_parse_ok: boolean;
+  judge_input_tokens: number;
+  judge_output_tokens: number;
+  contradictions_disclosed: number;
+  contradictions_missing: string[];
+  rule_checks: AuditIrRuleCheck[];
+}
+
+export interface AuditIrTierExpectation {
+  tier: string;
+  min_fraction: number;
+  max_fraction: number;
+  rationale: string;
+}
+
+export interface AuditIrProtocolMetadata {
+  research_question: string;
+  created_at_iso: string;
+  created_at_unix: number;
+  scope_decision: string;
+  expected_tier_distribution: AuditIrTierExpectation[];
+}
+
+export interface AuditIrAdequacyGate {
+  decision: string;
+  findings_ok: number;
+  findings_total: number;
+  critical_count: number;
+}
+
+export interface AuditIrCorpusApprovalGate {
+  approved: boolean;
+  decision_at_iso: string;
+  user_note: string;
+  approved_count: number;
+  rejected_count: number;
+}
+
+/** The full faithful AuditIR for one completed run — the canonical shape. */
+export interface AuditIrRun {
+  ir_schema_version: string;
+  run_id: string;
+  artifact_dir: string;
+  report_md: string;
+  manifest: AuditIrManifest;
+  bibliography: AuditIrBibliographyEntry[];
+  contradictions: AuditIrContradictionCluster[];
+  frame_coverage: AuditIrFrameCoverageReport;
+  tier_mix: AuditIrTierMix;
+  verified_report: AuditIrVerifiedReport;
+  model_provenance: AuditIrModelProvenance | null;
+  protocol: AuditIrProtocolMetadata | null;
+  adequacy: AuditIrAdequacyGate | null;
+  corpus_approval: AuditIrCorpusApprovalGate | null;
+}
+
+/**
+ * Fetch the faithful AuditIR for a completed run from the v6 live-inspector
+ * route (I-rdy-008 slice 1, `GET /api/inspector/runs/{run_id}`). Throws an
+ * ApiError on 404 (unknown run), 409 (not completed), or 422 (abort/error run
+ * or unloadable artifact_dir).
+ */
+export async function getAuditRun(runId: string): Promise<AuditIrRun> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}`,
+  );
+  return asJsonOrThrow<AuditIrRun>(response);
+}
+
+/**
+ * I-rdy-008 (#504) slice 7a/7b — one verified evidence span cited by a run.
+ * The exact `body[start:end]` slice from `evidence_pool.json` (the auditable
+ * source text behind a claim). `tier` is the raw T1-T7/UNKNOWN string — not
+ * coerced. A single `evidence_id` may appear in multiple spans (ranges).
+ */
+export interface AuditIrEvidenceSpan {
+  evidence_id: string;
+  span_start: number;
+  span_end: number;
+  span_text: string;
+  tier: string;
+  source_url: string;
+  claim_ids: string[];
+}
+
+/** The verified evidence spans for one completed run. */
+export interface AuditIrEvidenceResponse {
+  run_id: string;
+  spans: AuditIrEvidenceSpan[];
+}
+
+/**
+ * Fetch the verified evidence spans for a completed run from the v6
+ * live-inspector route (I-rdy-008 slice 7a,
+ * `GET /api/inspector/runs/{run_id}/evidence`). Throws an ApiError on 404
+ * (unknown run), 409 (not completed), or 422 (abort/error run, unloadable
+ * artifact, or no evidence_pool.json — the route fails loud, never degrading
+ * to a bibliography statement).
+ */
+export async function getInspectorEvidence(
+  runId: string,
+): Promise<AuditIrEvidenceResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}/evidence`,
+  );
+  return asJsonOrThrow<AuditIrEvidenceResponse>(response);
+}
+
+
+ succeeded in 1752ms:
+web\app\upload\page.tsx
+web\app\sse\page.tsx
+web\app\sign-in\page.tsx
+web\app\sentence_hover_test\page.tsx
+web\app\intake\page.tsx
+web\app\memory\page.tsx
+web\app\sentence_hover_test\two_run_picker\page.tsx
+web\app\sentence_hover_test\memory_cite\page.tsx
+web\app\sentence_hover_test\evidence_tooltip\page.tsx
+web\app\retrieval\page.tsx
+web\app\inspector\[runId]\page.tsx
+web\app\benchmark\page.tsx
+web\app\audit_live\page.tsx
+web\app\sentence_hover_test\split_screen\page.tsx
+web\app\intake\components\scope_decision_view.tsx
+web\app\intake\components\pdf_drop_banner.tsx
+web\app\intake\components\intake_form.tsx
+web\app\intake\components\disambiguation_modal.tsx
+web\app\intake\components\ambiguity_modal.tsx
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx
+web\app\sentence_hover_test\stress\page.tsx
+web\app\sentence_hover_test\follow_up_append\page.tsx
+web\app\sentence_hover_test\evaluator_edge\page.tsx
+web\app\sentence_hover_test\perf\page.tsx
+web\app\dashboard\page.tsx
+web\app\inspector\offline\page.tsx
+web\app\page.tsx
+web\app\generation\page.tsx
+web\app\contracts\page.tsx
+web\app\sentence_hover_test\coverage\page.tsx
+web\app\pin_replay\page.tsx
+web\app\(test_harness)\disambiguation_modal_preview\page.tsx
+web\app\charts_test\page.tsx
+web\app\charts_test\timeline\page.tsx
+web\app\runs\[runId]\page.tsx
+web\app\charts_test\click_through\page.tsx
+web\app\charts_test\forest_plot\page.tsx
+web\app\charts_test\comparison_table\page.tsx
+web\app\runs\[runId]\graph\page.tsx
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\intake\\page.tsx -Raw" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\page.tsx -Raw" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\components\\home_keyboard_shell.tsx -Raw" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\next.config.ts -Raw" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\sign-in\\page.tsx -Raw" in C:\POLARIS
+ succeeded in 1632ms:
+import { IntakeForm } from "./components/intake_form";
+import { PdfDropBanner } from "./components/pdf_drop_banner";
+
+export const metadata = {
+  title: "Intake — POLARIS Canada",
+  description:
+    "Submit a clinical research question. POLARIS classifies scope and detects PICO ambiguity before any retrieval is run.",
+};
+
+// I-cd-023 (#613): /intake rebuild — G1/G6 fix. Page no longer renders
+// its own <header> or <main>; AppShell (via AppShellGate, I-cd-022) is
+// the single landmark provider for this route. G2 fix: removed
+// "POLARIS Canada — Slice 001" + "POLARIS v6.2 — Slice 001 (scope + intake)"
+// dev-language strings.
+export default function IntakePage() {
+  return (
+    <section
+      data-testid="intake-page"
+      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+    >
+      <div className="flex flex-col gap-2">
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          Clinical scope discovery
+        </h1>
+        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+          Type a clinical research question and POLARIS will run it through the
+          scope + intake: refusal-bait detection, scope classification (efficacy
+          / safety / diagnosis / prognosis), and PICO axis ambiguity detection.
+          No retrieval is run yet — this is the gate that decides if a question
+          is researchable as written.
+        </p>
+      </div>
+
+      <PdfDropBanner />
+
+      <IntakeForm />
+    </section>
+  );
+}
+
+
+ succeeded in 1806ms:
+import Link from "next/link";
+
+import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+const templates: Template[] = [
+  {
+    id: "clinical",
+    name: "Clinical drug audit",
+    summary:
+      "Drug safety signals, labelling deltas, and post-market surveillance evidence across Health Canada, FDA, EMA, and clinical trials.",
+    sample_question:
+      "What did the SELECT trial show on cardiovascular outcomes for semaglutide?",
+    out_of_scope: "Should I take ozempic for my diabetes?",
+    active: true,
+  },
+  {
+    id: "policy",
+    name: "Public policy",
+    summary:
+      "Regulatory decisions, reimbursement and health-technology-assessment policy, public-health guidance, and cross-jurisdiction access comparisons.",
+    sample_question:
+      "What did NICE and CADTH conclude on the cost-effectiveness of CAR-T therapies?",
+    out_of_scope: "Which political party has the better health platform?",
+    active: false,
+  },
+  {
+    id: "tech",
+    name: "Technology assessment",
+    summary:
+      "Assessment of a technology, algorithm, or engineering approach — grounded in peer-reviewed conference and journal papers, standards, and attributed preprints.",
+    sample_question:
+      "What does the peer-reviewed evidence show on mixture-of-experts vs dense transformers as of 2025?",
+    out_of_scope: "Which GPU should I buy for my gaming PC?",
+    active: false,
+  },
+  {
+    id: "ai_sovereignty",
+    name: "AI sovereignty",
+    summary:
+      "Canadian AI policy, sovereign compute, talent retention, IP and data residency, alignment posture, Bill C-27 / AIDA, federal AI strategy.",
+    sample_question:
+      "What sovereign compute capacity does Canada have for training frontier models as of 2025?",
+    out_of_scope:
+      "Should I take a job at a Canadian AI startup or move to San Francisco?",
+    active: false,
+  },
+  {
+    id: "canada_us",
+    name: "Canada–US relations",
+    summary:
+      "Bilateral relationship, CUSMA / USMCA renegotiation, IRA spillover, energy + critical minerals integration, defense interoperability.",
+    sample_question:
+      "What are the 2026 CUSMA review triggers and what does Canada's pre-position look like?",
+    out_of_scope: "Should I move to the US for tax reasons?",
+    active: false,
+  },
+  {
+    id: "due_diligence",
+    name: "Due diligence",
+    summary:
+      "Company, product, market, and competitive-landscape research for investment, M&A, or partnership decisions — every claim carries named, dated provenance.",
+    sample_question:
+      "What did the most recent 10-K disclose on customer-concentration risk for this company?",
+    out_of_scope: "Should I buy this stock?",
+    active: false,
+  },
+  {
+    id: "custom",
+    name: "Custom research",
+    summary:
+      "Operator-defined catch-all for research questions that do not match the clinical, policy, tech, or due-diligence templates; accepts any classified source tier.",
+    sample_question:
+      "Summarize the documented positions on this question with provenance for each claim.",
+    out_of_scope:
+      "Requests for individualized legal, medical, or financial advice.",
+    active: false,
+  },
+  {
+    id: "workforce",
+    name: "Workforce & productivity",
+    summary:
+      "Canadian labour productivity, immigration + skills mismatch, regional unemployment, federal-provincial training, demographic shifts.",
+    sample_question:
+      "What does StatCan's 2024 productivity series show for Canada vs US over the last decade?",
+    out_of_scope: "How do I apply for permanent residency?",
+    active: false,
+  },
+];
+
+export default function HomePage() {
+  return (
+    <div className="flex min-h-screen flex-col">
+      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12">
+          <section className="flex flex-col gap-3">
+            <h1 className="text-foreground text-3xl font-semibold tracking-tight sm:text-4xl">
+              POLARIS Canada — Sovereign Deep Research
+            </h1>
+            <p className="text-muted-foreground max-w-3xl text-base sm:text-lg">
+              Two-family verified evidence pipelines for Government of Canada
+              policy work. Every claim carries a provenance token tied to a
+              primary source.
+            </p>
+          </section>
+
+          <section
+            aria-labelledby="template_grid_heading"
+            className="flex flex-col gap-5"
+            data-testid="template-grid"
+          >
+            <div className="flex items-baseline justify-between">
+              <h2
+                id="template_grid_heading"
+                className="text-foreground text-xl font-semibold tracking-tight"
+              >
+                Research templates
+              </h2>
+              <span className="text-muted-foreground text-xs tracking-widest uppercase">
+                1 active · 7 in development
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {templates.map((tpl) => (
+                <Card
+                  key={tpl.id}
+                  aria-disabled={tpl.active ? undefined : true}
+                  className={
+                    tpl.active
+                      ? "flex flex-col"
+                      : "bg-muted/40 text-muted-foreground flex flex-col"
+                  }
+                  data-testid={`template-card-${tpl.id}`}
+                >
+                  <CardHeader>
+                    <div className="flex items-start justify-between gap-2">
+                      <CardTitle className="text-lg">{tpl.name}</CardTitle>
+                      {!tpl.active ? (
+                        <span
+                          aria-hidden="true"
+                          className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+                        >
+                          Coming soon
+                        </span>
+                      ) : null}
+                    </div>
+                    <CardDescription className="text-sm">
+                      {tpl.summary}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex flex-1 flex-col justify-between gap-4">
+                    <div className="flex flex-col gap-2 text-sm">
+                      <p>
+                        <span className="text-foreground font-medium">
+                          In scope:
+                        </span>{" "}
+                        {tpl.sample_question}
+                      </p>
+                      <p>
+                        <span className="text-foreground font-medium">
+                          Out of scope:
+                        </span>{" "}
+                        {tpl.out_of_scope}
+                      </p>
+                    </div>
+                    {tpl.active ? (
+                      <Button
+                        variant="outline"
+                        nativeButton={false}
+                        render={
+                          <Link
+                            data-testid={`template-card-${tpl.id}-link`}
+                            href={`/intake?template=${tpl.id}`}
+                          />
+                        }
+                      >
+                        Open {tpl.name}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        disabled
+                        tabIndex={-1}
+                        aria-disabled="true"
+                      >
+                        Coming soon
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
+        </main>
+
+        <footer className="border-border bg-background border-t">
+          <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+            <span>POLARIS · Sovereign Canadian deep research</span>
+            <span>Two-family verified evidence</span>
+          </div>
+        </footer>
+      </HomeKeyboardShell>
+    </div>
+  );
+}
+
+
+ succeeded in 1995ms:
+"use client";
+
+import Link from "next/link";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
+import { NavLink } from "@/components/nav_link";
+import { Button } from "@/components/ui/button";
+
+import { CommandPalette } from "./command_palette";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+
+// I-cd-022 (#612): primary nav now lives in the home header too, so /
+// matches the global app-shell nav (G1: "global header/sidebar nav is
+// present and identical"). When AppShell is suppressed on `/` via
+// AppShellGate, the home page's <header> is THE app shell for this route.
+const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+  { href: "/", label: "Home" },
+  { href: "/intake", label: "Intake" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/upload", label: "Upload" },
+  { href: "/benchmark", label: "Benchmark" },
+  { href: "/contracts", label: "Contracts" },
+  { href: "/pin_replay", label: "Pin Replay" },
+  { href: "/memory", label: "Memory" },
+];
+
+export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+  const [palette_open, set_palette_open] = useState(false);
+  const sign_in_link_ref = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    function on_keydown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+        event.preventDefault();
+        event.stopPropagation();
+        set_palette_open((p) => !p);
+      }
+    }
+    window.addEventListener("keydown", on_keydown);
+    return () => window.removeEventListener("keydown", on_keydown);
+  }, []);
+
+  return (
+    <>
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <nav className="flex items-center gap-1" aria-label="Primary">
+            {PRIMARY_NAV.map((item) => (
+              <NavLink key={item.href} href={item.href}>
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={
+              <Link
+                ref={sign_in_link_ref}
+                data-testid="header-sign-in-link"
+                href={signInHref}
+              />
+            }
+          >
+            Sign in
+          </Button>
+        </div>
+      </header>
+      {children}
+      <CommandPalette
+        open={palette_open}
+        onOpenChange={set_palette_open}
+        templates={templates}
+        signInLinkRef={sign_in_link_ref}
+      />
+    </>
+  );
+}
+
+
+ succeeded in 2218ms:
+import type { NextConfig } from "next";
+
+// I-carney-005 P1-004 + P1-005: standalone output for Docker runner +
+// server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
+// fetch only talks to the webui container (Next.js then proxies to the
+// api container by Docker service name, which the browser can't resolve).
+const nextConfig: NextConfig = {
+  output: "standalone",
+  async rewrites() {
+    const internal =
+      process.env.INTERNAL_API_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      "http://localhost:8000";
+    return [
+      {
+        source: "/api/v6/:path*",
+        destination: `${internal}/:path*`,
+      },
+      // I-carney-003 P1-001: expose FastAPI /transparency directly so
+      // reviewers (incl. Carney's office) can audit the deploy without
+      // going through /api/v6 prefix routing.
+      {
+        source: "/transparency",
+        destination: `${internal}/transparency`,
+      },
+      {
+        source: "/transparency/:path*",
+        destination: `${internal}/transparency/:path*`,
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+
+
+ succeeded in 2432ms:
+"use client";
+
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+
+import { login } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+
+/**
+ * I-cd-014 (GH#610): same-origin validation for `?next=` redirect.
+ *
+ * Rejects:
+ *   - non-string / empty values
+ *   - URL parse failures
+ *   - URLs that, when parsed against `window.location.origin`, resolve to
+ *     a different origin (protocol-relative `//evil.com`, absolute
+ *     `http://...`, backslash-as-separator `/\evil.com` — all caught by
+ *     the URL parser).
+ *   - fragment-only / hash-only navigation (e.g. `#frag`) — these are
+ *     same-origin but offer no real navigation, so we fall back to `/`.
+ *
+ * Returns the validated `pathname + search + hash` or `"/"`.
+ */
+function safeNextPath(next: string | null): string {
+  if (!next) return "/";
+  if (typeof window === "undefined") return "/";
+  try {
+    const parsed = new URL(next, window.location.origin);
+    if (parsed.origin !== window.location.origin) return "/";
+    // Reject fragment-only / hash-only / empty pathname — they leave the
+    // user on the sign-in route with just a fragment appended.
+    if (!parsed.pathname || parsed.pathname === "/sign-in") return "/";
+    return parsed.pathname + parsed.search + parsed.hash;
+  } catch {
+    return "/";
+  }
+}
+
+/**
+ * I-cd-014 (GH#610): Next.js App Router requires `useSearchParams()` users
+ * to be wrapped in a Suspense boundary (or the route opts into dynamic
+ * rendering). Wrapping the form here is the lighter-weight choice and
+ * matches the existing repo convention.
+ */
+export default function SignInPage() {
+  return (
+    <Suspense fallback={<SignInPageFallback />}>
+      <SignInPageContent />
+    </Suspense>
+  );
+}
+
+function SignInPageFallback() {
+  return (
+    <div className="bg-muted/40 flex min-h-screen flex-col items-center justify-center px-6 py-12">
+      <div
+        className="text-muted-foreground text-sm"
+        data-testid="sign-in-loading"
+      >
+        Loading sign-in…
+      </div>
+    </div>
+  );
+}
+
+function SignInPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setPending(true);
+    const result = await login(username.trim(), password);
+    setPending(false);
+    if (result.ok) {
+      const next = safeNextPath(searchParams.get("next"));
+      router.push(next);
+      router.refresh();
+    } else {
+      setError(result.error ?? "Sign-in failed.");
+    }
+  }
+
+  return (
+    <div className="bg-muted/40 flex min-h-screen flex-col items-center justify-center px-6 py-12">
+      <div className="flex w-full max-w-sm flex-col gap-6">
+        <div className="flex flex-col gap-1 text-center">
+          <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+            POLARIS Canada
+          </span>
+          <span className="text-foreground text-base font-semibold">
+            Sovereign Deep Research
+          </span>
+        </div>
+
+        <Card>
+          <form onSubmit={handleSubmit} data-testid="sign-in-form">
+            <CardHeader>
+              <CardTitle>Sign in</CardTitle>
+              <CardDescription>
+                Enter your POLARIS reviewer credentials.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="username"
+                  className="text-foreground text-sm font-medium"
+                >
+                  Username
+                </label>
+                <Input
+                  id="username"
+                  name="username"
+                  type="text"
+                  placeholder="reviewer"
+                  autoComplete="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="password"
+                  className="text-foreground text-sm font-medium"
+                >
+                  Password
+                </label>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+              {error ? (
+                <p
+                  role="alert"
+                  data-testid="sign-in-error"
+                  className="text-destructive text-sm font-medium"
+                >
+                  {error}
+                </p>
+              ) : null}
+            </CardContent>
+            <CardFooter className="flex flex-col gap-3">
+              <Button
+                type="submit"
+                data-testid="sign-in-submit"
+                className="w-full"
+                disabled={pending || !username || !password}
+              >
+                {pending ? "Signing in…" : "Continue"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full"
+                nativeButton={false}
+                render={<Link href="/" />}
+              >
+                Back to home
+              </Button>
+            </CardFooter>
+          </form>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+
+codex
+The repository matches the stated auth and Suspense precedents: `authHeader()` is sessionStorage/Bearer based, and `sign-in` wraps `useSearchParams()` client content in `Suspense`. I’m calculating the OKLCH pairs now rather than relying on intuition.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+function oklchToLinRgb(L,C,hdeg){
+  const h = hdeg*Math.PI/180;
+  const a = C*Math.cos(h);
+  const b = C*Math.sin(h);
+  const l_ = L + 0.3963377774*a + 0.2158037573*b;
+  const m_ = L - 0.1055613458*a - 0.0638541728*b;
+  const s_ = L - 0.0894841775*a - 1.2914855480*b;
+  const l = l_**3, m = m_**3, s = s_**3;
+  return [
+    4.0767416621*l - 3.3077115913*m + 0.2309699292*s,
+    -1.2684380046*l + 2.6097574011*m - 0.3413193965*s,
+    -0.0041960863*l - 0.7034186147*m + 1.7076147010*s,
+  ];
+}
+function clamp01(x){ return Math.min(1, Math.max(0, x)); }
+function lumLin(rgb){ const [r,g,b]=rgb.map(clamp01); return 0.2126*r + 0.7152*g + 0.0722*b; }
+function contrast(c1,c2){ const y1=lumLin(c1), y2=lumLin(c2); const L1=Math.max(y1,y2), L2=Math.min(y1,y2); return (L1+0.05)/(L2+0.05); }
+function rgb255(rgb){ return rgb.map(clamp01).map(x=>Math.round((x<=0.0031308?12.92*x:1.055*x**(1/2.4)-0.055)*255)); }
+function color(L,C,h){return {L,C,h,rgb:oklchToLinRgb(L,C,h)}}
+const colors={
+  bg: color(0.985,0.002,247.86),
+  fg: color(0.21,0.006,285.9),
+  primary: color(0.50,0.20,200),
+  pfg: color(0.985,0,0),
+  ring: color(0.50,0.20,200),
+  accent: color(0.95,0.03,200),
+  afg: color(0.40,0.13,200),
+  card: color(1,0,0),
+  darkBg: color(0.145,0,0),
+  darkFg: color(0.985,0,0),
+  darkCard: color(0.205,0,0),
+  darkPrimary: color(0.65,0.17,200),
+  darkPfg: color(0.21,0.006,285.9),
+  darkAccent: color(0.32,0.05,200),
+  darkAfg: color(0.92,0.04,200),
+};
+for (const [name,c] of Object.entries(colors)) console.log(name, 'rgb', rgb255(c.rgb), 'lin', c.rgb.map(x=>Number(clamp01(x).toFixed(6))), 'lum', lumLin(c.rgb).toFixed(6));
+const pairs=[['primary/pfg','primary','pfg'],['accent/afg','accent','afg'],['ring/bg','ring','bg'],['primary/bg','primary','bg'],['dark primary/pfg','darkPrimary','darkPfg'],['dark accent/afg','darkAccent','darkAfg'],['dark ring/darkBg','darkPrimary','darkBg'],['dark accent/darkBg','darkAccent','darkBg']];
+for (const [label,a,b] of pairs) console.log(label, contrast(colors[a].rgb, colors[b].rgb).toFixed(3));
+function composite(fg,bg,alpha){ return fg.map((v,i)=>clamp01(v)*alpha + clamp01(bg[i])*(1-alpha)); }
+const ring50OnBg = composite(colors.ring.rgb, colors.bg.rgb, 0.5);
+console.log('ring50 vs bg', contrast(ring50OnBg, colors.bg.rgb).toFixed(3), 'rgb', rgb255(ring50OnBg));
+'@ | node -" in C:\POLARIS
+ succeeded in 958ms:
+bg rgb [ 249, 250, 251 ] lin [ 0.947141, 0.957302, 0.967532 ] lum 0.955880
+fg rgb [ 24, 24, 27 ] lin [ 0.009087, 0.009086, 0.010952 ] lum 0.009221
+primary rgb [ 0, 127, 144 ] lin [ 0, 0.212384, 0.276827 ] lum 0.171884
+pfg rgb [ 250, 250, 250 ] lin [ 0.955672, 0.955672, 0.955672 ] lum 0.955672
+ring rgb [ 0, 127, 144 ] lin [ 0, 0.212384, 0.276827 ] lum 0.171884
+accent rgb [ 216, 245, 246 ] lin [ 0.689067, 0.913641, 0.92473 ] lum 0.866697
+afg rgb [ 0, 90, 99 ] lin [ 0, 0.10172, 0.124723 ] lum 0.081755
+card rgb [ 255, 255, 255 ] lin [ 1, 1, 1 ] lum 1.000000
+darkBg rgb [ 10, 10, 10 ] lin [ 0.003049, 0.003049, 0.003049 ] lum 0.003049
+darkFg rgb [ 250, 250, 250 ] lin [ 0.955672, 0.955672, 0.955672 ] lum 0.955672
+darkCard rgb [ 23, 23, 23 ] lin [ 0.008615, 0.008615, 0.008615 ] lum 0.008615
+darkPrimary rgb [ 0, 171, 184 ] lin [ 0, 0.408918, 0.477344 ] lum 0.326922
+darkPfg rgb [ 24, 24, 27 ] lin [ 0.009087, 0.009086, 0.010952 ] lum 0.009221
+darkAccent rgb [ 8, 58, 61 ] lin [ 0.002484, 0.042825, 0.046417 ] lum 0.034508
+darkAfg rgb [ 199, 237, 239 ] lin [ 0.569217, 0.848674, 0.863477 ] lum 0.790330
+primary/pfg 4.532
+accent/afg 6.958
+ring/bg 4.533
+primary/bg 4.533
+dark primary/pfg 6.365
+dark accent/afg 9.944
+dark ring/darkBg 7.105
+dark accent/darkBg 1.593
+ring50 vs bg 1.639 rgb [ 183, 201, 207 ]
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+function oklchToLinRgb(L,C,hdeg){
+  const h = hdeg*Math.PI/180; const a=C*Math.cos(h), b=C*Math.sin(h);
+  const l_=L+0.3963377774*a+0.2158037573*b;
+  const m_=L-0.1055613458*a-0.0638541728*b;
+  const s_=L-0.0894841775*a-1.2914855480*b;
+  const l=l_**3,m=m_**3,s=s_**3;
+  return [4.0767416621*l-3.3077115913*m+0.2309699292*s,-1.2684380046*l+2.6097574011*m-0.3413193965*s,-0.0041960863*l-0.7034186147*m+1.7076147010*s];
+}
+function ok(L,C,h){const r=oklchToLinRgb(L,C,h); return r.every(x=>x>=0&&x<=1);}
+function maxC(L,h){let lo=0, hi=0.4; for(let i=0;i<80;i++){let mid=(lo+hi)/2; if(ok(L,mid,h)) lo=mid; else hi=mid;} return lo;}
+function clamp01(x){return Math.min(1,Math.max(0,x));}
+function lum(rgb){const [r,g,b]=rgb.map(clamp01); return .2126*r+.7152*g+.0722*b;}
+function contrast(rgb1,rgb2){const a=lum(rgb1),b=lum(rgb2); return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)}
+const c=maxC(0.5,200); const rgb=oklchToLinRgb(0.5,c,200); const white=oklchToLinRgb(.985,0,0); console.log(c, rgb, lum(rgb), contrast(rgb,white));
+'@ | node -" in C:\POLARIS
+ succeeded in 946ms:
+0.0850028027417215 [ 6.938893903907228e-17, 0.16647754519905308, 0.18208043898095808 ] 0.13221094802078795 5.519271130103914
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\ui\\button.tsx -Raw" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"function listRuns|listRuns|RunStatusResponse\\[\\]|status=completed|limit\" web\\lib\\api.ts src\\polaris_v6\\api" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\ui\\input.tsx -Raw" in C:\POLARIS
+ succeeded in 1031ms:
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
+import { cva, type VariantProps } from "class-variance-authority";
+
+import { cn } from "@/lib/utils";
+
+const buttonVariants = cva(
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        outline:
+          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+        ghost:
+          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/80 focus-visible:ring-destructive/30",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        // Cycle-7 P3.2 follow-up: WCAG 2.5.8 target-size requires
+        // touch targets ≥24px. Bumped default from h-8 (32px) to h-9
+        // (36px) — the prior 32px reported as ~21px effective height
+        // by axe due to inner text-bounding-box measurement quirks.
+        // h-9 puts unambiguous clearance.
+        default:
+          "h-9 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        xs: "h-7 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-8 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-10 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        icon: "size-9",
+        "icon-xs":
+          "size-7 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm":
+          "size-8 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+        "icon-lg": "size-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  },
+);
+
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  ...props
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  );
+}
+
+export { Button, buttonVariants };
+
+
+ succeeded in 1234ms:
+web\lib\api.ts:798:  | "limitation"
+src\polaris_v6\api\runs.py:145:def list_runs(status: str = "completed", limit: int = 20) -> list[RunStatusResponse]:
+src\polaris_v6\api\runs.py:149:    recent-runs strip. Only `status=completed` is supported today; aborted
+src\polaris_v6\api\runs.py:151:    EvidenceContract-usable). `limit` is clamped to [1, 100].
+src\polaris_v6\api\runs.py:156:            detail="only status=completed is supported",
+src\polaris_v6\api\runs.py:158:    limit = max(1, min(limit, 100))
+src\polaris_v6\api\runs.py:159:    return run_store.list_completed_runs(limit=limit)
+src\polaris_v6\api\upload.py:113:            detail=f"File exceeds {MAX_BYTES // (1024 * 1024)} MB limit",
+
+ succeeded in 1425ms:
+import * as React from "react";
+import { Input as InputPrimitive } from "@base-ui/react/input";
+
+import { cn } from "@/lib/utils";
+
+function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+  return (
+    <InputPrimitive
+      type={type}
+      data-slot="input"
+      className={cn(
+        "border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export { Input };
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\api\\runs.py -Raw" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\api\\app.py -Raw" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class RunStatusResponse|RunStatusResponse" src web -g "*.py" -g "*.ts" -g "*.tsx"' in C:\POLARIS
+ succeeded in 1034ms:
+"""Runs router — POST /runs, GET /runs/{id}, POST /runs/{id}/cancel.
+
+I-phase0-005 (Codex APPROVE iter 4): persist runs to SQLite via
+polaris_v6.queue.run_store and enqueue the Dramatiq actor on POST.
+Replaces the previous in-memory `_run_table` dict.
+
+I-rdy-010 (#506): POST /runs resolves uploaded `document_ids` to content
+BEFORE inserting/enqueuing the run, so a missing or unparsed upload fails
+loud here rather than leaving a queued orphan run. The resolved content is
+embedded in the actor message because the Dramatiq worker is a separate
+process and cannot read the API process's in-memory upload table.
+
+I-rdy-011 (#507): POST /runs/{id}/cancel — a queued run cancels instantly;
+an in-progress run records the cancel request (the worker observes it at
+the next pipeline stage boundary). Already-terminal runs are an idempotent
+no-op.
+
+I-rdy-013 (#509): POST /runs enforces the 1-concurrent-session constraint
+via `run_store.insert_run_if_idle` — a 2nd concurrent request is cleanly
+rejected with HTTP 409 (never enqueued) and a structured detail the
+frontend renders as a link to the active run.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import uuid
+
+from fastapi import APIRouter, HTTPException
+
+from polaris_v6.api.upload import chunk_text, get_upload_record
+from polaris_v6.queue import run_store
+from polaris_v6.queue.actors import enqueue_research_run
+from polaris_v6.schemas.run_request import RunRequest
+from polaris_v6.schemas.run_status import RunStatusResponse
+
+router = APIRouter(prefix="/runs", tags=["runs"])
+
+
+def _resolve_uploaded_documents(document_ids: list[str]) -> list[dict]:
+    """Resolve uploaded document_ids → content for actor-message embedding.
+
+    Returns one dict per id: `{document_id, classification, filename,
+    chunks}`. `chunks` is `chunk_text(record.content)` — the full document
+    re-chunked (and capped), NOT the 3-chunk `chunk_preview`.
+
+    Fails loud (HTTP 400) per LAW II on:
+      * a document_id with no upload record;
+      * an upload that yields no extractable text (e.g. an unparsed
+        pdf/docx) — a silent zero-evidence run would mislead the operator.
+    """
+    resolved: list[dict] = []
+    for document_id in document_ids:
+        record = get_upload_record(document_id)
+        if record is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"uploaded document {document_id!r} not found",
+            )
+        chunks = chunk_text(record.content)
+        if not chunks:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"uploaded document {document_id!r} ({record.filename}) "
+                    "has no extractable text — pdf/docx parsing is not yet "
+                    "available; upload a .md or .txt document to ground a run."
+                ),
+            )
+        resolved.append(
+            {
+                "document_id": document_id,
+                "classification": record.classification,
+                "filename": record.filename,
+                "chunks": chunks,
+            }
+        )
+    return resolved
+
+
+@router.post("", response_model=RunStatusResponse, status_code=202)
+def create_run(payload: RunRequest) -> RunStatusResponse:
+    # I-rdy-010: resolve uploads BEFORE insert_run/enqueue so a bad
+    # document_id fails loud here instead of orphaning a queued run.
+    uploaded_documents = _resolve_uploaded_documents(payload.document_ids)
+
+    run_id = uuid.uuid4().hex
+    try:
+        # I-rdy-013: atomic 1-concurrent-session gate. Returns the blocking
+        # active run when rejected, None when this run was inserted.
+        active = run_store.insert_run_if_idle(
+            run_id, payload.template, payload.question
+        )
+    except sqlite3.IntegrityError as exc:
+        # uuid4 collision is theoretically impossible but defensive
+        raise HTTPException(status_code=409, detail=f"run {run_id!r} already exists") from exc
+    except RuntimeError as exc:
+        # init_db permission-denied or similar
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if active is not None:
+        # I-rdy-013: 1-concurrent-session constraint — a research run is
+        # already queued or in progress. Reject cleanly; the rejected run is
+        # never enqueued (insert_run_if_idle rolled back — no row to clean
+        # up). The structured `detail` lets the frontend render a specific
+        # UX with a link to the active run.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "concurrent_run_active",
+                "active_run_id": active.run_id,
+                "active_status": active.lifecycle_status,
+                "message": (
+                    "POLARIS runs one research session at a time. "
+                    f"Run {active.run_id[:8]} is currently {active.lifecycle_status}. "
+                    "Wait for it to finish before starting a new run."
+                ),
+            },
+        )
+
+    # The actor message carries the resolved upload content (the worker is
+    # a separate process — it cannot read the API process's upload table).
+    actor_payload = payload.model_dump()
+    actor_payload["uploaded_documents"] = uploaded_documents
+    try:
+        enqueue_research_run.send(run_id, actor_payload)
+    except Exception as exc:
+        # I-rdy-013 (Codex diff P1-001): the queued row is already committed.
+        # If enqueue fails it would never run yet would permanently hold the
+        # single-session slot. Mark it failed (terminal → frees the slot),
+        # then surface 503.
+        run_store.mark_failed(run_id, f"enqueue failed: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"failed to enqueue run {run_id!r}: {exc}",
+        ) from exc
+
+    record = run_store.get_run(run_id)
+    if record is None:  # pragma: no cover — insert just succeeded
+        raise HTTPException(status_code=500, detail="run row vanished after insert")
+    return record
+
+
+@router.get("", response_model=list[RunStatusResponse])
+def list_runs(status: str = "completed", limit: int = 20) -> list[RunStatusResponse]:
+    """List completed runs newest-first (I-cd-705 / #705).
+
+    Feeds the compare picker (#543), follow-up picker (#542), and the home
+    recent-runs strip. Only `status=completed` is supported today; aborted
+    runs are excluded by run_store.list_completed_runs (not
+    EvidenceContract-usable). `limit` is clamped to [1, 100].
+    """
+    if status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="only status=completed is supported",
+        )
+    limit = max(1, min(limit, 100))
+    return run_store.list_completed_runs(limit=limit)
+
+
+@router.get("/{run_id}", response_model=RunStatusResponse)
+def get_run(run_id: str) -> RunStatusResponse:
+    record = run_store.get_run(run_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
+    return record
+
+
+@router.post("/{run_id}/cancel", response_model=RunStatusResponse)
+def cancel_run(run_id: str) -> RunStatusResponse:
+    """Request cancellation of a run (I-rdy-011 / #507).
+
+    - Unknown run → 404.
+    - Already terminal (completed / failed / cancelled) → idempotent no-op,
+      returns the current record (200).
+    - queued → cancelled instantly; in_progress → cancel requested, the
+      worker aborts cooperatively at the next pipeline stage boundary.
+    """
+    record = run_store.get_run(run_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
+    if record.lifecycle_status in run_store.TERMINAL_STATUSES:
+        return record  # idempotent — nothing to cancel
+
+    run_store.request_cancel(run_id)
+
+    updated = run_store.get_run(run_id)
+    if updated is None:  # pragma: no cover — the row existed a line ago
+        raise HTTPException(status_code=500, detail="run row vanished after cancel")
+    return updated
+
+
+ succeeded in 1229ms:
+"""FastAPI app factory for POLARIS v6.
+
+Composes routers, wires OpenTelemetry instrumentation when configured,
+and exposes the ASGI app via `app = create_app()` for uvicorn.
+"""
+
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from polaris_v6 import __version__
+from polaris_v6.api.ambiguity import router as ambiguity_router
+from polaris_v6.api.auth import (
+    require_auth as _require_auth,
+    router as auth_router,
+    verify_app_startup as _verify_auth_startup,
+)
+from polaris_v6.api.bundle import router as bundle_router
+from polaris_v6.api.charts import router as charts_router
+from polaris_v6.api.compare import router as compare_router
+from polaris_v6.api.followup import router as followup_router
+from polaris_v6.api.health import router as health_router
+from polaris_v6.api.inspector import router as inspector_router
+from polaris_v6.api.memory import router as memory_router
+from polaris_v6.api.pins import router as pins_router
+from polaris_v6.api.runs import router as runs_router
+from polaris_v6.api.scope import router as scope_router
+from polaris_v6.api.stream import router as stream_router
+from polaris_v6.api.templates import router as templates_router
+from polaris_v6.api.transparency import router as transparency_router
+from polaris_v6.api.upload import router as upload_router
+
+# Slice 001 (clinical scope discovery + ambiguity) and slice 002 (clinical
+# retrieval). Each lives in polaris_graph.api per slice spec; we mount them
+# under /api alongside the v6 routers so the frontend at /intake + /retrieval
+# can call them without a separate origin.
+from polaris_graph.api.intake_route import router as slice001_intake_router
+from polaris_graph.api.retrieval_route import (
+    get_fetch_fn as slice002_get_fetch_fn,
+    router as slice002_retrieval_router,
+)
+from polaris_graph.api.generation_route import (
+    get_completion_fn as slice003_get_completion_fn,
+    router as slice003_generation_router,
+)
+from polaris_graph.api.audit_bundle_route import (
+    get_sign_fn as slice004_get_sign_fn,
+    router as slice004_audit_bundle_router,
+)
+from polaris_graph.api.benchmark_route import (
+    get_results_root as slice005_get_results_root,
+    router as slice005_benchmark_router,
+)
+from polaris_graph.api.disambiguation_route import router as disambiguation_router
+from polaris_graph.api.graph_route import router as graph_router
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    if os.environ.get("OTEL_SEMCONV_STABILITY_OPT_IN"):
+        from polaris_v6.observability.otel_init import init_otel
+
+        init_otel()
+    yield
+
+
+def create_app() -> FastAPI:
+    # I-carney-004 LAW II: fail-loud at app construction if auth substrate
+    # is misconfigured. Skipped via POLARIS_AUTH_DISABLED=1 in tests + dev.
+    _verify_auth_startup()
+    app = FastAPI(
+        title="POLARIS",
+        version=__version__,
+        description="Sovereign Canadian deep research AI",
+        lifespan=_lifespan,
+        dependencies=[Depends(_require_auth)],
+    )
+    cors_origins = os.environ.get(
+        "POLARIS_V6_CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:3737,http://localhost:3738,http://127.0.0.1:3000,http://127.0.0.1:3737,http://127.0.0.1:3738",
+    ).split(",")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in cors_origins if o.strip()],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(health_router)
+    app.include_router(auth_router)
+    app.include_router(runs_router)
+    app.include_router(stream_router)
+    app.include_router(ambiguity_router)
+    app.include_router(bundle_router)
+    app.include_router(pins_router)
+    app.include_router(scope_router)
+    app.include_router(upload_router)
+    app.include_router(charts_router)
+    app.include_router(followup_router)
+    app.include_router(compare_router)
+    app.include_router(inspector_router)
+    app.include_router(memory_router)
+    app.include_router(templates_router)
+    app.include_router(transparency_router)
+
+    # Slice 001 — POST /api/intake + GET /api/intake/health
+    app.include_router(slice001_intake_router, prefix="/api")
+
+    # Slice 002 — POST /api/retrieval + GET /api/retrieval/health.
+    # Inject the real Serper + Semantic-Scholar fetcher when keys are
+    # present; otherwise leave the dependency at the sentinel default
+    # (returns 400 fetch_backend_unavailable, never silently degrades).
+    if os.environ.get("SERPER_API_KEY", "").strip():
+        from polaris_graph.clinical_retrieval.real_fetcher import build_real_fetcher
+
+        # Build once at startup; fetcher reuses httpx connections per call.
+        _real_fetcher = build_real_fetcher()
+
+        def _inject_real_fetcher():
+            return _real_fetcher
+
+        app.dependency_overrides[slice002_get_fetch_fn] = _inject_real_fetcher
+    app.include_router(slice002_retrieval_router, prefix="/api")
+
+    # Slice 003 — POST /api/generation + GET /api/generation/health.
+    # When OPENROUTER_API_KEY is present, inject the real OpenRouter-backed
+    # completion_fn (PR 7); otherwise leave the sentinel default in place
+    # which returns 400 completion_backend_unavailable per LAW II.
+    if os.environ.get("OPENROUTER_API_KEY", "").strip():
+        from polaris_graph.clinical_generator.real_completion import build_real_completion
+
+        _real_completion = build_real_completion()
+
+        def _inject_real_completion():
+            return _real_completion
+
+        app.dependency_overrides[slice003_get_completion_fn] = _inject_real_completion
+    app.include_router(slice003_generation_router, prefix="/api")
+
+    # Slice 004 — POST /api/audit-bundle + GET /api/audit-bundle/health.
+    # When POLARIS_GPG_KEY_ID is set, build the real GPGSigner and inject
+    # it via dep override; otherwise leave sentinel default which yields
+    # HTTP 503 (LAW II fail-loud — never ship unsigned bundles).
+    if os.environ.get("POLARIS_GPG_KEY_ID", "").strip():
+        from polaris_graph.audit_bundle.gpg_signer import build_gpg_signer
+
+        _real_signer = build_gpg_signer()
+
+        def _inject_real_signer():
+            return _real_signer.sign
+
+        app.dependency_overrides[slice004_get_sign_fn] = _inject_real_signer
+    app.include_router(slice004_audit_bundle_router, prefix="/api")
+
+    # Slice 005 — GET /api/benchmark/{id}/{scoreboard,report,summary}.
+    # Reads pre-computed artifacts from POLARIS_BENCHMARK_RESULTS_DIR;
+    # operator runs scripts/run_benchmark.py to produce them.
+    benchmark_results_dir = os.environ.get(
+        "POLARIS_BENCHMARK_RESULTS_DIR", ""
+    ).strip()
+    if benchmark_results_dir:
+        from pathlib import Path as _Path
+
+        _benchmark_root = _Path(benchmark_results_dir)
+
+        def _inject_benchmark_root():
+            return _benchmark_root
+
+        app.dependency_overrides[slice005_get_results_root] = (
+            _inject_benchmark_root
+        )
+    app.include_router(slice005_benchmark_router, prefix="/api")
+
+    app.include_router(disambiguation_router, prefix="/api")
+
+    # F-snowball — GET /api/runs/{run_id}/graph (I-snowball-002).
+    app.include_router(graph_router, prefix="/api")
+
+    return app
+
+
+app = create_app()
+
+
+ succeeded in 1475ms:
+src\polaris_v6\schemas\run_status.py:48:class RunStatusResponse(BaseModel):
+web\lib\api.ts:83:export interface RunStatusResponse {
+web\lib\api.ts:131:): Promise<RunStatusResponse> {
+web\lib\api.ts:162:  return asJsonOrThrow<RunStatusResponse>(response);
+web\lib\api.ts:165:export async function getRun(runId: string): Promise<RunStatusResponse> {
+web\lib\api.ts:167:  return asJsonOrThrow<RunStatusResponse>(response);
+web\lib\api.ts:173:export async function cancelRun(runId: string): Promise<RunStatusResponse> {
+web\lib\api.ts:178:  return asJsonOrThrow<RunStatusResponse>(response);
+web\app\runs\[runId]\page.tsx:20:  type RunStatusResponse,
+web\app\runs\[runId]\page.tsx:34:  const [status, setStatus] = useState<RunStatusResponse | null>(null);
+src\polaris_v6\queue\run_store.py:8:- get_run returns the full RunStatusResponse with new optional fields
+src\polaris_v6\queue\run_store.py:38:from polaris_v6.schemas.run_status import RunStatusResponse
+src\polaris_v6\queue\run_store.py:175:) -> RunStatusResponse | None:
+src\polaris_v6\queue\run_store.py:185:    RunStatusResponse when rejected (caller raises HTTP 409).
+src\polaris_v6\queue\run_store.py:424:def _row_to_response(row: sqlite3.Row) -> RunStatusResponse:
+src\polaris_v6\queue\run_store.py:425:    return RunStatusResponse(
+src\polaris_v6\queue\run_store.py:445:def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None:
+src\polaris_v6\queue\run_store.py:491:def get_active_run(*, path: str | None = None) -> RunStatusResponse | None:
+src\polaris_v6\queue\run_store.py:529:) -> list[RunStatusResponse]:
+src\polaris_v6\queue\run_store.py:566:) -> list[RunStatusResponse]:
+src\polaris_v6\api\runs.py:35:from polaris_v6.schemas.run_status import RunStatusResponse
+src\polaris_v6\api\runs.py:81:@router.post("", response_model=RunStatusResponse, status_code=202)
+src\polaris_v6\api\runs.py:82:def create_run(payload: RunRequest) -> RunStatusResponse:
+src\polaris_v6\api\runs.py:144:@router.get("", response_model=list[RunStatusResponse])
+src\polaris_v6\api\runs.py:145:def list_runs(status: str = "completed", limit: int = 20) -> list[RunStatusResponse]:
+src\polaris_v6\api\runs.py:162:@router.get("/{run_id}", response_model=RunStatusResponse)
+src\polaris_v6\api\runs.py:163:def get_run(run_id: str) -> RunStatusResponse:
+src\polaris_v6\api\runs.py:170:@router.post("/{run_id}/cancel", response_model=RunStatusResponse)
+src\polaris_v6\api\runs.py:171:def cancel_run(run_id: str) -> RunStatusResponse:
+src\polaris_v6\api\pins.py:10:- Pipeline status: `RunStatusResponse.pipeline_status` from run_store
+src\polaris_v6\api\pins.py:35:from polaris_v6.schemas.run_status import RunStatusResponse
+src\polaris_v6\api\pins.py:64:    run: RunStatusResponse,
+src\polaris_v6\api\pins.py:67:    """Build a PinSnapshot from a completed-run RunStatusResponse + manifest.
+src\polaris_v6\api\pins.py:126:def _qualifies(run: RunStatusResponse) -> bool:
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\nav_link.tsx -Raw" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\schemas\\run_status.py -Raw" in C:\POLARIS
+ succeeded in 1052ms:
+"""Run-status response schema.
+
+I-arch-001a (2026-05-12): split lifecycle (operational) from pipeline_status
+(pipeline-A manifest verdict). Old `status` retained as computed alias for
+tests/v6/ backcompat — populated from lifecycle_status.
+
+I-rdy-011 (2026-05-16): `cancel_requested` surfaced so the UI can show a
+cancel as in-flight in <5s, before an in-progress run reaches the next
+pipeline stage boundary and transitions to terminal `cancelled`.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field, computed_field
+
+LifecycleStatus = Literal[
+    "queued",
+    "in_progress",
+    "completed",
+    "cancelled",
+    "failed",
+]
+
+PipelineStatus = Literal[
+    "success",
+    "partial_outline_fallback",
+    "partial_qwen_advisory",  # legacy alias (I-modref-004 #530) — historical manifests
+    "partial_evaluator_advisory",
+    "partial_thin_corpus",
+    "partial_incomplete_corpus",
+    "partial_rule_check_warnings",
+    "abort_scope_rejected",
+    "abort_corpus_inadequate",
+    "abort_corpus_approval_denied",
+    "abort_no_verified_sections",
+    "abort_no_sources",
+    "abort_evaluator_critical",
+    "error_unexpected",
+]
+
+# Backcompat alias used by older code/tests (tests/v6/ asserts body['status']
+# and record.status). Computed from lifecycle_status by the model.
+RunStatus = LifecycleStatus
+
+
+class RunStatusResponse(BaseModel):
+    run_id: str = Field(..., description="Server-assigned UUID hex.")
+    lifecycle_status: LifecycleStatus = Field(
+        ...,
+        description="Operational lifecycle: queued → in_progress → completed|failed|cancelled.",
+    )
+    pipeline_status: PipelineStatus | None = Field(
+        default=None,
+        description="Pipeline-A manifest verdict. NULL until run reaches a terminal pipeline state.",
+    )
+    template: str
+    question: str
+    queued_at: str = Field(..., description="ISO8601 UTC.")
+    started_at: str | None = None
+    finished_at: str | None = None
+    result_json: str | None = None
+    error_json: str | None = None
+    # I-arch-001a new optional fields for UUID/slug/artifact_dir mapping.
+    query_slug: str | None = None
+    manifest_run_id: str | None = None
+    artifact_dir: str | None = None
+    cost_usd: float | None = None
+    decision_id: str | None = None
+    # I-rdy-011: True once a cancel has been requested. For a queued run the
+    # request is applied atomically (lifecycle_status flips to 'cancelled');
+    # for an in_progress run this stays True while lifecycle_status is still
+    # 'in_progress', until the worker observes it at a stage boundary.
+    cancel_requested: bool = Field(
+        default=False,
+        description="True iff cancellation has been requested for this run.",
+    )
+
+    @computed_field  # serialized in JSON and readable as attr
+    @property
+    def status(self) -> LifecycleStatus:
+        """Deprecated alias for lifecycle_status (kept for tests/v6/ backcompat).
+
+        New code should use lifecycle_status. This computed field will be
+        removed once tests/v6/ migrate (post-Carney-demo cleanup).
+        """
+        return self.lifecycle_status
+
+
+ succeeded in 1276ms:
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+/**
+ * I-cd-004: client component for top-nav active-route highlight. Pure styling
+ * via the locked shadcn token set (accent / muted-foreground / foreground).
+ * Active when the pathname equals href, or starts with `${href}/` for nested
+ * routes (e.g. `/runs/abc` highlights "Dashboard" only if we want — by default
+ * an item is active for its own subtree).
+ */
+export function NavLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  const pathname = usePathname();
+  const is_active =
+    pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
+  return (
+    <Link
+      href={href}
+      aria-current={is_active ? "page" : undefined}
+      className={
+        "rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
+        (is_active
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground")
+      }
+    >
+      {children}
+    </Link>
+  );
+}
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\queue\\run_store.py -TotalCount 620 | Select-Object -Last 130" in C:\POLARIS
+ succeeded in 903ms:
+                init_db(path)
+                conn = _connect(path)
+                row = conn.execute(
+                    f"SELECT {_RUN_COLUMNS} FROM runs WHERE run_id=?",
+                    (run_id,),
+                ).fetchone()
+            else:
+                raise
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    return _row_to_response(row)
+
+
+def get_active_run(*, path: str | None = None) -> RunStatusResponse | None:
+    """Return the oldest run still queued or in_progress, else None.
+
+    I-rdy-013: read-side helper for the 1-concurrent-session constraint —
+    the run currently holding the session slot. At most one run is active
+    once `insert_run_if_idle` gates all inserts; the `ORDER BY queued_at`
+    is defensive (oldest first) for any pre-gate legacy rows.
+
+    Defensive against a missing/legacy table, mirroring `get_run`.
+    """
+    placeholders = ", ".join("?" for _ in _ACTIVE_STATUSES)
+    query = (
+        f"SELECT {_RUN_COLUMNS} FROM runs "
+        f"WHERE lifecycle_status IN ({placeholders}) "
+        "ORDER BY queued_at LIMIT 1"
+    )
+    conn = _connect(path)
+    try:
+        try:
+            row = conn.execute(query, _ACTIVE_STATUSES).fetchone()
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "no such table" in msg:
+                return None
+            if "no such column" in msg:
+                conn.close()
+                init_db(path)
+                conn = _connect(path)
+                row = conn.execute(query, _ACTIVE_STATUSES).fetchone()
+            else:
+                raise
+    finally:
+        conn.close()
+    return None if row is None else _row_to_response(row)
+
+
+def list_completed_runs_by_query_slug(
+    query_slug: str, *, path: str | None = None
+) -> list[RunStatusResponse]:
+    """List completed runs sharing a query_slug ordered by finished_at ASC.
+
+    I-cd-017 (#627): pin-replay timeseries source. Uses the existing
+    `idx_runs_query_slug` index. Returns `[]` (not None) when no rows
+    match — callers distinguish "anchor run exists but no completed
+    siblings" from "anchor run unknown" via get_run() before calling.
+
+    Defensive against missing-table / legacy-schema like get_run.
+    """
+    query = (
+        f"SELECT {_RUN_COLUMNS} FROM runs "
+        "WHERE query_slug=? AND lifecycle_status='completed' "
+        "ORDER BY finished_at ASC"
+    )
+    conn = _connect(path)
+    try:
+        try:
+            rows = conn.execute(query, (query_slug,)).fetchall()
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "no such table" in msg:
+                return []
+            if "no such column" in msg:
+                conn.close()
+                init_db(path)
+                conn = _connect(path)
+                rows = conn.execute(query, (query_slug,)).fetchall()
+            else:
+                raise
+    finally:
+        conn.close()
+    return [_row_to_response(row) for row in rows]
+
+
+def list_completed_runs(
+    limit: int = 20, *, path: str | None = None
+) -> list[RunStatusResponse]:
+    """List completed, non-aborted runs newest-first (finished_at DESC), capped.
+
+    I-cd-705 (#705): source for GET /api/v6/runs — the compare picker (#543),
+    follow-up picker (#542), and home recent-runs strip. Excludes
+    `abort_*` pipeline_status (not EvidenceContract-usable). release_allowed
+    is a per-run manifest flag (too heavy to read in a list query) and is
+    enforced DOWNSTREAM at bundle/followup/compare fetch time (#680), so a
+    release-blocked partial may appear here but 422s when actually opened.
+
+    Defensive against missing-table / legacy-schema like get_run.
+
+    Codex iter-1 P2: clamp limit to [1, 100] HERE too, so direct in-process
+    callers are safe even though the HTTP route also clamps.
+    """
+    limit = max(1, min(limit, 100))
+    query = (
+        f"SELECT {_RUN_COLUMNS} FROM runs "
+        "WHERE lifecycle_status='completed' "
+        "AND (pipeline_status IS NULL OR pipeline_status NOT LIKE 'abort\\_%' ESCAPE '\\') "
+        "ORDER BY finished_at DESC LIMIT ?"
+    )
+    conn = _connect(path)
+    try:
+        try:
+            rows = conn.execute(query, (limit,)).fetchall()
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "no such table" in msg:
+                return []
+            if "no such column" in msg:
+                conn.close()
+                init_db(path)
+                conn = _connect(path)
+                rows = conn.execute(query, (limit,)).fetchall()
+            else:
+                raise
+    finally:
+        conn.close()
+    return [_row_to_response(row) for row in rows]
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Implementation guardrail: recent-runs chip date formatting should tolerate null/malformed finished_at per item so a bad record does not throw and break the public home; render that chip without a date or skip it."
+  - "Optional hardening: if /intake search params can change while IntakeForm stays mounted, use an effect keyed on q or remount boundary; the proposed useState(sp.get('q') ?? '') is fine for the home GET flow."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+Contrast checks pass under sRGB clipping: primary/primary-foreground is ~4.53:1, accent/accent-foreground ~6.96:1, full-strength cyan ring on zinc-50 ~4.53:1. The known `ring-ring/50` halo alone remains below 3:1, but the brief explicitly requires full-strength `border-ring` / ring where needed.
+
+The 401/empty/error-to-null strip behavior is sound for a public home, and `authHeader()` rather than `authFetch()` is the correct choice here because it avoids logged-out redirects. The Next 16 plan is also correct: GET form for the hero is safe and progressive, and `useSearchParams()` belongs under a `Suspense` boundary on `/intake`.
+
+LOC exemption is reasonable for this cohesive visual pass.
+tokens used
+57,454
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Implementation guardrail: recent-runs chip date formatting should tolerate null/malformed finished_at per item so a bad record does not throw and break the public home; render that chip without a date or skip it."
+  - "Optional hardening: if /intake search params can change while IntakeForm stays mounted, use an effect keyed on q or remount boundary; the proposed useState(sp.get('q') ?? '') is fine for the home GET flow."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+Contrast checks pass under sRGB clipping: primary/primary-foreground is ~4.53:1, accent/accent-foreground ~6.96:1, full-strength cyan ring on zinc-50 ~4.53:1. The known `ring-ring/50` halo alone remains below 3:1, but the brief explicitly requires full-strength `border-ring` / ring where needed.
+
+The 401/empty/error-to-null strip behavior is sound for a public home, and `authHeader()` rather than `authFetch()` is the correct choice here because it avoids logged-out redirects. The Next 16 plan is also correct: GET form for the hero is safe and progressive, and `useSearchParams()` belongs under a `Suspense` boundary on `/intake`.
+
+LOC exemption is reasonable for this cohesive visual pass.
