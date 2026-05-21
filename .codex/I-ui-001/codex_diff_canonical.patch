@@ -1,9 +1,9 @@
 diff --git a/web/app/components/recent_runs_strip.tsx b/web/app/components/recent_runs_strip.tsx
 new file mode 100644
-index 00000000..9a5d0b65
+index 00000000..350da12b
 --- /dev/null
 +++ b/web/app/components/recent_runs_strip.tsx
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,96 @@
 +"use client";
 +
 +import Link from "next/link";
@@ -61,7 +61,10 @@ index 00000000..9a5d0b65
 +  if (runs.length === 0) return null;
 +
 +  return (
-+    <section aria-labelledby="recent_runs_heading" className="flex flex-col gap-3">
++    <section
++      aria-labelledby="recent_runs_heading"
++      className="flex flex-col gap-3"
++    >
 +      <h2
 +        id="recent_runs_heading"
 +        className="text-muted-foreground text-xs font-medium tracking-widest uppercase"
@@ -98,7 +101,7 @@ index 00000000..9a5d0b65
 +  );
 +}
 diff --git a/web/app/globals.css b/web/app/globals.css
-index 2fdb06f0..119d46d9 100644
+index 2fdb06f0..96ed2313 100644
 --- a/web/app/globals.css
 +++ b/web/app/globals.css
 @@ -50,25 +50,31 @@
@@ -122,7 +125,7 @@ index 2fdb06f0..119d46d9 100644
 -  --popover-foreground: oklch(0.145 0 0);
 -  --primary: oklch(0.205 0 0);
 +  --popover-foreground: oklch(0.21 0.006 285.9);
-+  --primary: oklch(0.50 0.20 200);
++  --primary: oklch(0.5 0.2 200);
    --primary-foreground: oklch(0.985 0 0);
    --secondary: oklch(0.97 0 0);
 -  --secondary-foreground: oklch(0.205 0 0);
@@ -132,13 +135,13 @@ index 2fdb06f0..119d46d9 100644
 -  --accent: oklch(0.97 0 0);
 -  --accent-foreground: oklch(0.205 0 0);
 +  --accent: oklch(0.95 0.03 200);
-+  --accent-foreground: oklch(0.40 0.13 200);
++  --accent-foreground: oklch(0.4 0.13 200);
    --destructive: oklch(0.577 0.245 27.325);
    --destructive-foreground: oklch(0.985 0 0);
    --border: oklch(0.922 0 0);
    --input: oklch(0.922 0 0);
 -  --ring: oklch(0.708 0 0);
-+  --ring: oklch(0.50 0.20 200);
++  --ring: oklch(0.5 0.2 200);
    --chart-1: oklch(0.87 0 0);
    --chart-2: oklch(0.556 0 0);
    --chart-3: oklch(0.439 0 0);
@@ -301,14 +304,16 @@ index f5955bf9..45a0b2fb 100644
                          render={
                            <Link
 diff --git a/web/tests/e2e/home_g1_g8.spec.ts b/web/tests/e2e/home_g1_g8.spec.ts
-index 875868c4..e7f10380 100644
+index 875868c4..3889e595 100644
 --- a/web/tests/e2e/home_g1_g8.spec.ts
 +++ b/web/tests/e2e/home_g1_g8.spec.ts
-@@ -44,6 +44,21 @@ test("G1 + G6: home has exactly one header outside <main>, primary nav visible",
+@@ -44,6 +44,23 @@ test("G1 + G6: home has exactly one header outside <main>, primary nav visible",
    await expect(mains).toHaveCount(1);
  });
  
-+test("I-cd-ui-001: home hero search submits to /intake?q=", async ({ page }) => {
++test("I-cd-ui-001: home hero search submits to /intake?q=", async ({
++  page,
++}) => {
 +  await page.goto("/");
 +  const form = page.getByTestId("home-hero-search");
 +  await expect(form).toBeVisible();
