@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { HomeHero } from "@/app/components/home_hero";
 import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
 import { Button } from "@/components/ui/button";
 import {
@@ -108,17 +109,8 @@ export default function HomePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <HomeKeyboardShell templates={templates} signInHref="/sign-in">
-        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12">
-          <section className="flex flex-col gap-3">
-            <h1 className="text-foreground text-3xl font-semibold tracking-tight sm:text-4xl">
-              POLARIS Canada — Sovereign Deep Research
-            </h1>
-            <p className="text-muted-foreground max-w-3xl text-base sm:text-lg">
-              Two-family verified evidence pipelines for Government of Canada
-              policy work. Every claim carries a provenance token tied to a
-              primary source.
-            </p>
-          </section>
+        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-14 px-6 pb-16 sm:gap-20">
+          <HomeHero />
 
           <section
             aria-labelledby="template_grid_heading"
@@ -128,60 +120,55 @@ export default function HomePage() {
             <div className="flex items-baseline justify-between">
               <h2
                 id="template_grid_heading"
-                className="text-foreground text-xl font-semibold tracking-tight"
+                className="text-foreground text-sm font-semibold tracking-[0.15em] uppercase"
               >
                 Research templates
               </h2>
-              <span className="text-muted-foreground text-xs tracking-widest uppercase">
+              <span className="text-muted-foreground text-xs">
                 1 active · 7 in development
               </span>
             </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {templates.map((tpl) => (
                 <Card
                   key={tpl.id}
                   aria-disabled={tpl.active ? undefined : true}
                   className={
                     tpl.active
-                      ? "flex flex-col"
-                      : "bg-muted/40 text-muted-foreground flex flex-col"
+                      ? "ring-border hover:ring-primary/40 hover:shadow-primary/5 group bg-card flex flex-col gap-2 rounded-xl p-4 ring-1 transition-all hover:-translate-y-0.5 hover:shadow-lg"
+                      : "ring-border bg-muted/30 text-muted-foreground flex flex-col gap-2 rounded-xl p-4 opacity-70 ring-1"
                   }
                   data-testid={`template-card-${tpl.id}`}
                 >
-                  <CardHeader>
+                  <CardHeader className="p-0 pb-1">
                     <div className="flex items-start justify-between gap-2">
-                      <CardTitle className="text-lg">{tpl.name}</CardTitle>
+                      <CardTitle className="text-foreground text-base font-semibold tracking-tight">
+                        {tpl.name}
+                      </CardTitle>
                       {!tpl.active ? (
                         <span
                           aria-hidden="true"
-                          className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+                          className="border-border text-muted-foreground rounded-full border px-2 py-0.5 text-[9px] font-medium tracking-widest uppercase"
                         >
-                          Coming soon
+                          Soon
                         </span>
-                      ) : null}
+                      ) : (
+                        <span
+                          aria-hidden="true"
+                          className="bg-primary/10 text-primary rounded-full px-2 py-0.5 text-[9px] font-medium tracking-widest uppercase"
+                        >
+                          Live
+                        </span>
+                      )}
                     </div>
-                    <CardDescription className="text-sm">
+                    <CardDescription className="text-muted-foreground line-clamp-3 text-xs leading-relaxed">
                       {tpl.summary}
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="flex flex-1 flex-col justify-between gap-4">
-                    <div className="flex flex-col gap-2 text-sm">
-                      <p>
-                        <span className="text-foreground font-medium">
-                          In scope:
-                        </span>{" "}
-                        {tpl.sample_question}
-                      </p>
-                      <p>
-                        <span className="text-foreground font-medium">
-                          Out of scope:
-                        </span>{" "}
-                        {tpl.out_of_scope}
-                      </p>
-                    </div>
+                  <CardContent className="flex flex-1 flex-col justify-end p-0">
                     {tpl.active ? (
                       <Button
-                        variant="outline"
+                        className="group-hover:bg-primary group-hover:text-primary-foreground w-full justify-between"
                         nativeButton={false}
                         render={
                           <Link
@@ -189,15 +176,17 @@ export default function HomePage() {
                             href={`/intake?template=${tpl.id}`}
                           />
                         }
+                        variant="outline"
                       >
-                        Open {tpl.name}
+                        Open <span aria-hidden="true">→</span>
                       </Button>
                     ) : (
                       <Button
-                        variant="outline"
+                        aria-disabled="true"
+                        className="w-full"
                         disabled
                         tabIndex={-1}
-                        aria-disabled="true"
+                        variant="ghost"
                       >
                         Coming soon
                       </Button>
@@ -210,9 +199,16 @@ export default function HomePage() {
         </main>
 
         <footer className="border-border bg-background border-t">
-          <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+          <div className="text-muted-foreground mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4 text-xs">
             <span>POLARIS · Sovereign Canadian deep research</span>
-            <span>Two-family verified evidence</span>
+            <span>
+              <Link
+                className="hover:text-foreground underline-offset-4 hover:underline"
+                href="/transparency"
+              >
+                Transparency
+              </Link>
+            </span>
           </div>
         </footer>
       </HomeKeyboardShell>
