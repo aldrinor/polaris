@@ -1,0 +1,198 @@
+diff --git a/src/polaris_v6/api/runs.py b/src/polaris_v6/api/runs.py
+index 4a0d6c05..5e0170bf 100644
+--- a/src/polaris_v6/api/runs.py
++++ b/src/polaris_v6/api/runs.py
+@@ -141,6 +141,24 @@ def create_run(payload: RunRequest) -> RunStatusResponse:
+     return record
+ 
+ 
++@router.get("", response_model=list[RunStatusResponse])
++def list_runs(status: str = "completed", limit: int = 20) -> list[RunStatusResponse]:
++    """List completed runs newest-first (I-cd-705 / #705).
++
++    Feeds the compare picker (#543), follow-up picker (#542), and the home
++    recent-runs strip. Only `status=completed` is supported today; aborted
++    runs are excluded by run_store.list_completed_runs (not
++    EvidenceContract-usable). `limit` is clamped to [1, 100].
++    """
++    if status != "completed":
++        raise HTTPException(
++            status_code=400,
++            detail="only status=completed is supported",
++        )
++    limit = max(1, min(limit, 100))
++    return run_store.list_completed_runs(limit=limit)
++
++
+ @router.get("/{run_id}", response_model=RunStatusResponse)
+ def get_run(run_id: str) -> RunStatusResponse:
+     record = run_store.get_run(run_id)
+diff --git a/src/polaris_v6/queue/run_store.py b/src/polaris_v6/queue/run_store.py
+index df265f98..05725da4 100644
+--- a/src/polaris_v6/queue/run_store.py
++++ b/src/polaris_v6/queue/run_store.py
+@@ -559,3 +559,47 @@ def list_completed_runs_by_query_slug(
+     finally:
+         conn.close()
+     return [_row_to_response(row) for row in rows]
++
++
++def list_completed_runs(
++    limit: int = 20, *, path: str | None = None
++) -> list[RunStatusResponse]:
++    """List completed, non-aborted runs newest-first (finished_at DESC), capped.
++
++    I-cd-705 (#705): source for GET /api/v6/runs — the compare picker (#543),
++    follow-up picker (#542), and home recent-runs strip. Excludes
++    `abort_*` pipeline_status (not EvidenceContract-usable). release_allowed
++    is a per-run manifest flag (too heavy to read in a list query) and is
++    enforced DOWNSTREAM at bundle/followup/compare fetch time (#680), so a
++    release-blocked partial may appear here but 422s when actually opened.
++
++    Defensive against missing-table / legacy-schema like get_run.
++
++    Codex iter-1 P2: clamp limit to [1, 100] HERE too, so direct in-process
++    callers are safe even though the HTTP route also clamps.
++    """
++    limit = max(1, min(limit, 100))
++    query = (
++        f"SELECT {_RUN_COLUMNS} FROM runs "
++        "WHERE lifecycle_status='completed' "
++        "AND (pipeline_status IS NULL OR pipeline_status NOT LIKE 'abort\\_%' ESCAPE '\\') "
++        "ORDER BY finished_at DESC LIMIT ?"
++    )
++    conn = _connect(path)
++    try:
++        try:
++            rows = conn.execute(query, (limit,)).fetchall()
++        except sqlite3.OperationalError as exc:
++            msg = str(exc).lower()
++            if "no such table" in msg:
++                return []
++            if "no such column" in msg:
++                conn.close()
++                init_db(path)
++                conn = _connect(path)
++                rows = conn.execute(query, (limit,)).fetchall()
++            else:
++                raise
++    finally:
++        conn.close()
++    return [_row_to_response(row) for row in rows]
+diff --git a/tests/v6/test_runs_list_endpoint.py b/tests/v6/test_runs_list_endpoint.py
+new file mode 100644
+index 00000000..f557ff9d
+--- /dev/null
++++ b/tests/v6/test_runs_list_endpoint.py
+@@ -0,0 +1,111 @@
++"""I-cd-705 (#705) — GET /api/v6/runs list endpoint + run_store.list_completed_runs.
++
++Feeds the compare picker (#543), follow-up picker (#542), and the home
++recent-runs strip. Completed + non-aborted only, newest-first, limit-clamped.
++"""
++
++from __future__ import annotations
++
++import sqlite3
++
++import pytest
++
++
++@pytest.fixture
++def db_path(tmp_path, monkeypatch):
++    from polaris_v6.queue import run_store
++
++    db = tmp_path / "runs.sqlite"
++    monkeypatch.setenv(run_store.ENV_DB_PATH, str(db))
++    run_store.init_db(str(db))
++    return str(db)
++
++
++def _seed(db_path, run_id, lifecycle, pipeline_status, finished_at):
++    conn = sqlite3.connect(db_path)
++    try:
++        conn.execute(
++            "INSERT INTO runs (run_id, template, question, lifecycle_status, "
++            "queued_at, started_at, finished_at, artifact_dir, "
++            "pipeline_status, cancel_requested) VALUES (?,?,?,?,?,?,?,?,?,0)",
++            (
++                run_id,
++                "clinical",
++                "Q",
++                lifecycle,
++                "2026-05-20T00:00:00Z",
++                "2026-05-20T00:00:00Z",
++                finished_at,
++                f"/tmp/{run_id}",
++                pipeline_status,
++            ),
++        )
++        conn.commit()
++    finally:
++        conn.close()
++
++
++def test_list_completed_runs_newest_first_excludes_abort_and_active(db_path):
++    from polaris_v6.queue import run_store
++
++    _seed(db_path, "older", "completed", "success", "2026-05-20T01:00:00Z")
++    _seed(db_path, "newer", "completed", "success", "2026-05-20T03:00:00Z")
++    _seed(db_path, "aborted", "completed", "abort_no_verified_sections", "2026-05-20T04:00:00Z")
++    _seed(db_path, "running", "in_progress", None, None)
++
++    runs = run_store.list_completed_runs(limit=20, path=db_path)
++    ids = [r.run_id for r in runs]
++    assert ids == ["newer", "older"]  # newest-first, abort + active excluded
++
++
++def test_list_completed_runs_respects_limit(db_path):
++    from polaris_v6.queue import run_store
++
++    for i in range(5):
++        _seed(db_path, f"run{i}", "completed", "success", f"2026-05-20T0{i}:00:00Z")
++    runs = run_store.list_completed_runs(limit=2, path=db_path)
++    assert len(runs) == 2
++    assert [r.run_id for r in runs] == ["run4", "run3"]
++
++
++def test_list_completed_runs_empty_when_none(db_path):
++    from polaris_v6.queue import run_store
++
++    assert run_store.list_completed_runs(limit=20, path=db_path) == []
++
++
++# ─── endpoint ──────────────────────────────────────────────────────────────
++
++
++@pytest.fixture
++def client(db_path, monkeypatch):
++    pytest.importorskip("fastapi")
++    monkeypatch.setenv("POLARIS_AUTH_DISABLED", "1")
++    from fastapi.testclient import TestClient
++    from polaris_v6.api.app import create_app
++
++    return TestClient(create_app())
++
++
++def test_get_runs_returns_completed_list(client, db_path):
++    _seed(db_path, "a", "completed", "success", "2026-05-20T01:00:00Z")
++    _seed(db_path, "b", "completed", "success", "2026-05-20T02:00:00Z")
++    resp = client.get("/runs?status=completed&limit=10")
++    assert resp.status_code == 200
++    body = resp.json()
++    assert isinstance(body, list)
++    assert [r["run_id"] for r in body] == ["b", "a"]
++
++
++def test_get_runs_rejects_non_completed_status(client):
++    resp = client.get("/runs?status=queued")
++    assert resp.status_code == 400
++
++
++def test_get_runs_clamps_limit(client, db_path):
++    for i in range(3):
++        _seed(db_path, f"r{i}", "completed", "success", f"2026-05-20T0{i}:00:00Z")
++    # limit far above the [1,100] clamp ceiling still returns (clamped, no error)
++    resp = client.get("/runs?limit=99999")
++    assert resp.status_code == 200
++    assert len(resp.json()) == 3
