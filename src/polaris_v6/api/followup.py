@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import json
-
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from polaris_v6.api.bundle import _FIXTURE_DIR, _GOLDEN_RUN_INDEX
+from polaris_v6.api.bundle import load_evidence_contract_for_run
 from polaris_v6.followup.agent import answer_followup
 from polaris_v6.followup.schema import FollowUpAnswer
-from polaris_v6.schemas.evidence_contract import EvidenceContract
 
 router = APIRouter(prefix="/runs", tags=["followup"])
 
@@ -21,12 +18,7 @@ class FollowUpHttpRequest(BaseModel):
 
 @router.post("/{run_id}/followup", response_model=FollowUpAnswer)
 def post_followup(run_id: str, payload: FollowUpHttpRequest) -> FollowUpAnswer:
-    fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
-    if fixture_name is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Bundle for run {run_id!r} not found.",
-        )
-    raw = json.loads((_FIXTURE_DIR / fixture_name).read_text())
-    bundle = EvidenceContract.model_validate(raw)
+    # I-cd-680: resolves golden fixtures AND real completed runs (was
+    # fixture-only → real runs 404).
+    bundle = load_evidence_contract_for_run(run_id)
     return answer_followup(parent=bundle, question=payload.question)
