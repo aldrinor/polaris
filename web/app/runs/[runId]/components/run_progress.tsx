@@ -120,21 +120,29 @@ export function RunProgress({ events, status }: RunProgressProps) {
   // `nowMs` ticks every 1s ONLY while the run is live; when it goes terminal
   // the effect stops the interval, so nowMs freezes at the last tick (≤1s of
   // the terminal moment). status.finished_at stays null after run_complete
-  // (iter-1 P1), so we never depend on it. `mountedTerminal` is captured once
-  // at mount: a run that was ALREADY terminal when this page opened has no
-  // trustworthy end timestamp (no per-event time, finished_at null), so we
-  // show "—" rather than a misleading now−start duration.
+  // (iter-1 P1), so we never depend on it.
+  // `tickedWhileLive` is set from the interval CALLBACK (async — not a
+  // synchronous setState in the effect body, so lint-clean). It is the
+  // honest signal that we actually watched the run progress live: only then
+  // is now−start a trustworthy elapsed. A run that was ALREADY terminal when
+  // this page opened (status loads terminal after mount, finished_at null)
+  // never ticks → elapsed shows "—" instead of a bogus page-open duration.
+  // (Codex diff iter-1 P2: replaces the mount-time isTerminal capture, which
+  // was always false because status is null at first render.)
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [mountedTerminal] = useState(isTerminal);
+  const [tickedWhileLive, setTickedWhileLive] = useState(false);
   useEffect(() => {
     if (isTerminal) return; // frozen — stop ticking
-    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    const id = setInterval(() => {
+      setNowMs(Date.now());
+      setTickedWhileLive(true);
+    }, 1000);
     return () => clearInterval(id);
   }, [isTerminal]);
 
   const startMs = parseMs(status?.started_at) ?? parseMs(status?.queued_at);
   const elapsedSec =
-    startMs === null || mountedTerminal
+    startMs === null || (isTerminal && !tickedWhileLive)
       ? null
       : Math.max(0, Math.floor((nowMs - startMs) / 1000));
 
@@ -192,6 +200,7 @@ export function RunProgress({ events, status }: RunProgressProps) {
               </div>
               <StageBody
                 stageKey={stage.key}
+                state={state}
                 scope={scope}
                 sources={sources}
                 sections={sections}
@@ -256,17 +265,31 @@ function StageChip({ state }: { state: StageState }) {
 
 function StageBody({
   stageKey,
+  state,
   scope,
   sources,
   sections,
   verifications,
 }: {
   stageKey: StageKey;
+  state: StageState;
   scope: Record<string, unknown> | null;
   sources: { id: string; url: string }[];
   sections: { section: string; verified: number; dropped: number }[];
   verifications: { section: string; local: boolean; global: boolean }[];
 }) {
+  // Codex diff iter-1 P2: a stage that did not run / was not observed at a
+  // terminal must NOT show active-sounding placeholder copy ("Drafting…").
+  if (state === "skipped") {
+    return <p className="text-muted-foreground text-xs">Did not run.</p>;
+  }
+  if (state === "degraded") {
+    return (
+      <p className="text-muted-foreground text-xs">
+        Not observed (stream lost).
+      </p>
+    );
+  }
   if (stageKey === "scope") {
     if (!scope)
       return (
