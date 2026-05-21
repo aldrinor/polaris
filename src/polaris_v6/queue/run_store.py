@@ -559,3 +559,43 @@ def list_completed_runs_by_query_slug(
     finally:
         conn.close()
     return [_row_to_response(row) for row in rows]
+
+
+def list_completed_runs(
+    limit: int = 20, *, path: str | None = None
+) -> list[RunStatusResponse]:
+    """List completed, non-aborted runs newest-first (finished_at DESC), capped.
+
+    I-cd-705 (#705): source for GET /api/v6/runs — the compare picker (#543),
+    follow-up picker (#542), and home recent-runs strip. Excludes
+    `abort_*` pipeline_status (not EvidenceContract-usable). release_allowed
+    is a per-run manifest flag (too heavy to read in a list query) and is
+    enforced DOWNSTREAM at bundle/followup/compare fetch time (#680), so a
+    release-blocked partial may appear here but 422s when actually opened.
+
+    Defensive against missing-table / legacy-schema like get_run.
+    """
+    query = (
+        f"SELECT {_RUN_COLUMNS} FROM runs "
+        "WHERE lifecycle_status='completed' "
+        "AND (pipeline_status IS NULL OR pipeline_status NOT LIKE 'abort\\_%' ESCAPE '\\') "
+        "ORDER BY finished_at DESC LIMIT ?"
+    )
+    conn = _connect(path)
+    try:
+        try:
+            rows = conn.execute(query, (limit,)).fetchall()
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "no such table" in msg:
+                return []
+            if "no such column" in msg:
+                conn.close()
+                init_db(path)
+                conn = _connect(path)
+                rows = conn.execute(query, (limit,)).fetchall()
+            else:
+                raise
+    finally:
+        conn.close()
+    return [_row_to_response(row) for row in rows]
