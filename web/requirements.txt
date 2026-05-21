@@ -1,0 +1,8 @@
+# Temporary CI shim (I-pip-001, Codex Option C 2026-05-21).
+# web_ci.yml verify_pip_resolution inherits the workflow-level
+# `working-directory: web` default and runs `pip install --dry-run -r
+# requirements.txt` from web/; the canonical file is at the repo ROOT.
+# This forwarding shim resolves the root file without a workflow-scope
+# edit (which Claude's token cannot push). Remove once web_ci.yml pins
+# `working-directory: .` on the pip steps.
+-r ../requirements.txt
