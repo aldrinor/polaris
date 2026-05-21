@@ -1,0 +1,2 @@
+# Claude audit — I-ui-010 (#730)
+Frontier Minimal design-system foundation. Brief Codex-validated; diff Codex APPROVE iter 1 + MERGE AUTHORIZED. Confident blue accent (operator-confirmed, AA-safe, replaces grey-cyan) + hairline + honest sovereign shell mark (no air-gap overclaim). Smoke green; screenshot-verified the accent renders. Token foundation for the rebuild (epic #729); page layouts #731+ next.
