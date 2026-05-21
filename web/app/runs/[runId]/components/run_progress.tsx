@@ -88,10 +88,20 @@ export function RunProgress({ events, status }: RunProgressProps) {
   const isTerminal = terminalFromEvent !== null || terminalFromStatus !== null;
   // Pipeline status string drives banner + unobserved-stage rendering.
   const terminalStatus = terminalFromEvent ?? terminalFromStatus ?? "";
+  // I-ui-bug-001 (#725): the run_store lifecycle status is AUTHORITATIVE over
+  // a synthetic stream-loss artifact. Opening a COMPLETED run has no live SSE
+  // stream to replay, so the #706 STREAM_LOST_GRACE backstop emits
+  // run_complete{status: stream_lost} — but the run genuinely succeeded. A
+  // completed run must render as success (stages done), NOT "connection lost".
+  const lifecycleCompleted = status?.status === "completed";
   const isSuccess =
-    terminalStatus === "success" || terminalStatus === "completed";
+    lifecycleCompleted ||
+    terminalStatus === "success" ||
+    terminalStatus === "completed";
   const isStreamLost =
-    terminalStatus === "stream_lost" || terminalStatus === "stream_unavailable";
+    !lifecycleCompleted &&
+    (terminalStatus === "stream_lost" ||
+      terminalStatus === "stream_unavailable");
 
   const observed: Record<StageKey, boolean> = {
     scope: scope !== null,
@@ -289,6 +299,20 @@ function StageBody({
         Not observed (stream lost).
       </p>
     );
+  }
+  // I-ui-bug-001 (#725): a stage resolved `done` but with no replayed event
+  // data — the common case when opening an ALREADY-completed run (no live SSE
+  // to replay) — must NOT show active-sounding placeholders ("Gathering
+  // evidence…"). Show "Completed." Live runs that finish while watching keep
+  // their real per-stage feed (data is present → falls through below).
+  if (state === "done") {
+    const hasData =
+      (stageKey === "scope" && scope) ||
+      (stageKey === "retrieval" && sources.length > 0) ||
+      (stageKey === "generation" && sections.length > 0) ||
+      (stageKey === "verification" && verifications.length > 0);
+    if (!hasData)
+      return <p className="text-muted-foreground text-xs">Completed.</p>;
   }
   if (stageKey === "scope") {
     if (!scope)
