@@ -239,10 +239,27 @@ def test_build_manifest_metadata_file_has_canonical_json():
     _manifest, files = build_manifest_and_files(_decision(), pool, _report())
     metadata_bytes = files[FILE_METADATA]
     metadata = json.loads(metadata_bytes.decode("utf-8"))
-    assert metadata["bundle_version"] == "1.0"
+    # I-cd-682: metadata.json is the exact 5-field v1.0 card matching the
+    # frozen fixture + frontend BundleMetadata. Provenance IDs live in
+    # manifest.yaml; source_snapshot_count is derivable from manifest.files.
+    assert metadata["schema_version"] == "1.0"
     assert metadata["polaris_version"] == POLARIS_VERSION
     assert metadata["generator_model"] == "deepseek/deepseek-v4-pro"
-    assert metadata["source_snapshot_count"] == 1
+    # The _report() helper sets evaluator_model="strict_verify_v1"; metadata
+    # must surface report.evaluator_model verbatim. (The real-evaluator-id
+    # population for live runs is #675, not this schema-reconciliation issue.)
+    assert metadata["evaluator_model"] == "strict_verify_v1"
+    assert "bundle_created_at_utc" in metadata
+    # Provenance IDs intentionally NOT in metadata.json (they're in manifest).
+    assert "decision_id" not in metadata
+    assert "source_snapshot_count" not in metadata
+    assert set(metadata.keys()) == {
+        "bundle_created_at_utc",
+        "evaluator_model",
+        "generator_model",
+        "polaris_version",
+        "schema_version",
+    }
 
 
 def test_build_manifest_dedupes_sources():

@@ -1,0 +1,89 @@
+diff --git a/src/polaris_graph/audit_bundle/manifest_builder.py b/src/polaris_graph/audit_bundle/manifest_builder.py
+index 186c6394..90946267 100644
+--- a/src/polaris_graph/audit_bundle/manifest_builder.py
++++ b/src/polaris_graph/audit_bundle/manifest_builder.py
+@@ -186,24 +186,29 @@ def build_manifest_and_files(
+     _assert_cited_spans_reachable(report, snapshot_entries)
+     for source_id, entry in snapshot_entries.items():
+         files_bytes[_safe_source_filename(source_id)] = entry.text.encode("utf-8")
+-    snapshots = {sid: e.text for sid, e in snapshot_entries.items()}
+ 
+     # 4b. REVIEWER_README ships verbatim in every bundle as metadata content_type.
+     readme_path = Path(__file__).parent / "REVIEWER_README.md"
+     files_bytes[FILE_REVIEWER_README] = readme_path.read_bytes()
+ 
+-    # 5. Bundle metadata (versions + creation timestamp)
++    # 5. Bundle metadata — the small human-facing card. I-cd-682: this is
++    # the EXACT 5-field v1.0 schema the frozen fixture + frontend
++    # BundleMetadata interface read. Provenance IDs (decision_id, pool_id,
++    # report_id) live in manifest.yaml (first-class BundleManifest fields);
++    # source_snapshot_count is derivable from manifest.files. Keeping them
++    # out of metadata.json avoids two signed files disagreeing (Codex
++    # scope-consult 2026-05-20). NOT a BUNDLE_VERSION bump: the freeze
++    # discipline governs BundleManifest/FileEntry (extra="forbid"), not
++    # metadata.json.
++    # I-cd-682 (Codex diff P2): ONE shared timestamp for both signed files
++    # (metadata.json + manifest.yaml) so they cannot disagree by milliseconds.
++    bundle_created_at = datetime.now(timezone.utc)
+     metadata = {
+-        "bundle_version": BUNDLE_VERSION,
+-        "polaris_version": POLARIS_VERSION,
+-        "created_at_utc": datetime.now(timezone.utc).isoformat().replace(
+-            "+00:00", "Z"
+-        ),
++        "bundle_created_at_utc": bundle_created_at.isoformat(),
++        "evaluator_model": report.evaluator_model,
+         "generator_model": report.generator_model,
+-        "decision_id": decision.decision_id,
+-        "pool_id": report.pool_id,
+-        "report_id": report.report_id,
+-        "source_snapshot_count": len(snapshots),
++        "polaris_version": POLARIS_VERSION,
++        "schema_version": BUNDLE_VERSION,
+     }
+     files_bytes[FILE_METADATA] = json.dumps(
+         metadata,
+@@ -267,6 +272,7 @@ def build_manifest_and_files(
+         generator_model=report.generator_model,
+         polaris_version=POLARIS_VERSION,
+         files=file_entries,
++        bundle_created_at_utc=bundle_created_at,
+     )
+     return manifest, files_bytes
+ 
+diff --git a/tests/polaris_graph/audit_bundle/test_manifest_builder.py b/tests/polaris_graph/audit_bundle/test_manifest_builder.py
+index f44d2b45..9538ffa8 100644
+--- a/tests/polaris_graph/audit_bundle/test_manifest_builder.py
++++ b/tests/polaris_graph/audit_bundle/test_manifest_builder.py
+@@ -239,10 +239,27 @@ def test_build_manifest_metadata_file_has_canonical_json():
+     _manifest, files = build_manifest_and_files(_decision(), pool, _report())
+     metadata_bytes = files[FILE_METADATA]
+     metadata = json.loads(metadata_bytes.decode("utf-8"))
+-    assert metadata["bundle_version"] == "1.0"
++    # I-cd-682: metadata.json is the exact 5-field v1.0 card matching the
++    # frozen fixture + frontend BundleMetadata. Provenance IDs live in
++    # manifest.yaml; source_snapshot_count is derivable from manifest.files.
++    assert metadata["schema_version"] == "1.0"
+     assert metadata["polaris_version"] == POLARIS_VERSION
+     assert metadata["generator_model"] == "deepseek/deepseek-v4-pro"
+-    assert metadata["source_snapshot_count"] == 1
++    # The _report() helper sets evaluator_model="strict_verify_v1"; metadata
++    # must surface report.evaluator_model verbatim. (The real-evaluator-id
++    # population for live runs is #675, not this schema-reconciliation issue.)
++    assert metadata["evaluator_model"] == "strict_verify_v1"
++    assert "bundle_created_at_utc" in metadata
++    # Provenance IDs intentionally NOT in metadata.json (they're in manifest).
++    assert "decision_id" not in metadata
++    assert "source_snapshot_count" not in metadata
++    assert set(metadata.keys()) == {
++        "bundle_created_at_utc",
++        "evaluator_model",
++        "generator_model",
++        "polaris_version",
++        "schema_version",
++    }
+ 
+ 
+ def test_build_manifest_dedupes_sources():
+
+# canonical-diff-sha256: c2f8d93e60cf4ed592dda1dd12d30072f82e868b1e1fed6a32cfac0eb2382c22
