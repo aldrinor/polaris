@@ -14,6 +14,7 @@ import {
   type StreamEvent,
 } from "@/lib/api";
 
+import { FollowupPanel } from "./components/followup_panel";
 import { RunProgress } from "./components/run_progress";
 
 interface RunPageProps {
@@ -209,14 +210,6 @@ export default function RunDetailPage({ params }: RunPageProps) {
             type="button"
             variant="outline"
             disabled
-            title="Ask a follow-up scoped to this run's evidence (coming soon)"
-          >
-            Ask follow-up
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled
             title="Pin this run for later replay (coming soon)"
           >
             Pin for replay
@@ -225,6 +218,11 @@ export default function RunDetailPage({ params }: RunPageProps) {
       </div>
 
       <RunProgress events={events} status={status} />
+
+      {/* I-ui-003 (#542): follow-up is meaningful only for a completed run
+          (it has an answerable, verified report). Failed/cancelled/in-progress
+          runs don't render it. */}
+      {status?.status === "completed" && <FollowupPanel runId={runId} />}
     </section>
   );
 }
