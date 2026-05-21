@@ -14,6 +14,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { loadBundleFromGzBytes } from "@/lib/inspector_bundle_client_loader";
 import {
   type BundleManifest,
   type BundleMetadata,
@@ -23,6 +24,29 @@ import {
 } from "@/lib/signed_bundle";
 
 const REPO_ROOT = path.resolve(process.cwd(), "..");
+
+// I-ui-014 (#734): backend base for server-side bundle fetch. next.config
+// rewrites /api/v6 for the browser; server code calls the backend directly.
+const INTERNAL_API_URL =
+  process.env.INTERNAL_API_URL || "http://127.0.0.1:8000";
+
+// I-ui-014 (#734): fetch + parse a real run's signed bundle.tar.gz from the
+// backend (closes #728). Returns null on 404/422/parse-fail → the page shows
+// the pending/unavailable CTA (no synthetic proof). Reuses the offline
+// parser (pako + tar-stream + crypto.subtle, all Node-capable).
+async function loadRealRunBundle(runId: string): Promise<LoadedBundle | null> {
+  try {
+    const res = await fetch(
+      `${INTERNAL_API_URL}/runs/${encodeURIComponent(runId)}/bundle.tar.gz`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    return await loadBundleFromGzBytes(bytes, runId);
+  } catch {
+    return null;
+  }
+}
 
 export interface LoadedBundle {
   runId: string;
@@ -77,7 +101,10 @@ const KNOWN_FIXTURES: Record<string, string> = {
 
 export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
   const relPath = KNOWN_FIXTURES[runId];
-  if (!relPath) return null;
+  // I-ui-014 (#734): non-fixture runId → fetch + parse the real signed
+  // bundle.tar.gz from the backend (closes #728: loadBundle was fixture-only,
+  // so every real completed run showed "not ready for inspection").
+  if (!relPath) return loadRealRunBundle(runId);
   const dir = path.join(REPO_ROOT, relPath);
 
   const manifestRaw = await fs.readFile(

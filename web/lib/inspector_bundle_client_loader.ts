@@ -210,11 +210,30 @@ export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
     );
   }
   const arrayBuffer = await file.arrayBuffer();
-  // Codex iter-2 P1.1 fix: streaming inflate via pako.Inflate, aborting as
-  // soon as cumulative decompressed bytes exceed MAX_DECOMPRESSED_BYTES.
-  // The previous one-shot pako.ungzip() materialized the full bomb before
-  // the size guard ran.
-  const tarBytes = _streamingUngzip(new Uint8Array(arrayBuffer));
+  const runId =
+    file.name.replace(/\.tar\.gz$/, "").replace(/\.tgz$/, "") ||
+    "offline-bundle";
+  return loadBundleFromGzBytes(new Uint8Array(arrayBuffer), runId);
+}
+
+// I-ui-014 (#734): shared bytes-based parser so the SERVER loader
+// (inspector_bundle_loader.ts) can parse a real run's signed bundle.tar.gz
+// fetched from the backend, reusing the exact same gunzip → extract → verify
+// path as the offline browser uploader. pako + tar-stream + crypto.subtle all
+// run under Node, so this is runtime-neutral.
+export async function loadBundleFromGzBytes(
+  gzBytes: Uint8Array,
+  runId: string,
+): Promise<LoadedBundle> {
+  if (gzBytes.length > MAX_TAR_GZ_BYTES) {
+    throw new BundleClientLoaderError(
+      "tar_gz_too_large",
+      `Bundle is ${gzBytes.length} bytes, exceeds ${MAX_TAR_GZ_BYTES} byte limit.`,
+    );
+  }
+  // Streaming inflate via pako.Inflate, aborting as soon as cumulative
+  // decompressed bytes exceed MAX_DECOMPRESSED_BYTES (gzip-bomb guard).
+  const tarBytes = _streamingUngzip(gzBytes);
   if (tarBytes instanceof BundleClientLoaderError) {
     throw tarBytes;
   }
@@ -318,12 +337,6 @@ export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
 
   const signatureFile = _findFile(files, "manifest.yaml.asc");
   const signaturePresent = !!signatureFile && signatureFile.bytes.length > 0;
-
-  // runId for offline mode: derive from filename (BundleMetadata doesn't
-  // carry run_id; it's a session-level field outside the v1.0 freeze).
-  const runId =
-    file.name.replace(/\.tar\.gz$/, "").replace(/\.tgz$/, "") ||
-    "offline-bundle";
 
   return {
     runId,
