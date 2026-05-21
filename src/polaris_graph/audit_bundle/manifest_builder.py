@@ -192,18 +192,21 @@ def build_manifest_and_files(
     readme_path = Path(__file__).parent / "REVIEWER_README.md"
     files_bytes[FILE_REVIEWER_README] = readme_path.read_bytes()
 
-    # 5. Bundle metadata (versions + creation timestamp)
+    # 5. Bundle metadata — the small human-facing card. I-cd-682: this is
+    # the EXACT 5-field v1.0 schema the frozen fixture + frontend
+    # BundleMetadata interface read. Provenance IDs (decision_id, pool_id,
+    # report_id) live in manifest.yaml (first-class BundleManifest fields);
+    # source_snapshot_count is derivable from manifest.files. Keeping them
+    # out of metadata.json avoids two signed files disagreeing (Codex
+    # scope-consult 2026-05-20). NOT a BUNDLE_VERSION bump: the freeze
+    # discipline governs BundleManifest/FileEntry (extra="forbid"), not
+    # metadata.json.
     metadata = {
-        "bundle_version": BUNDLE_VERSION,
-        "polaris_version": POLARIS_VERSION,
-        "created_at_utc": datetime.now(timezone.utc).isoformat().replace(
-            "+00:00", "Z"
-        ),
+        "bundle_created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "evaluator_model": report.evaluator_model,
         "generator_model": report.generator_model,
-        "decision_id": decision.decision_id,
-        "pool_id": report.pool_id,
-        "report_id": report.report_id,
-        "source_snapshot_count": len(snapshots),
+        "polaris_version": POLARIS_VERSION,
+        "schema_version": BUNDLE_VERSION,
     }
     files_bytes[FILE_METADATA] = json.dumps(
         metadata,
