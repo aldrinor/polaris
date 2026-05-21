@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief APPROVE iter 5. 5 iters caught: evidence_id-not-listened, elapsed-freeze-on-stale-status, out-of-order events, exhaustive run_complete taxonomy, success-path contradiction. 1 P2 impl note (terminal-first; active=most-recent-observed, done=earlier-observed).
