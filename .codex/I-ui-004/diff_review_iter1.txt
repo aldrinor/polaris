@@ -1,0 +1,3386 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4ba3-9611-76e0-88fa-b62b6382e3d6
+--------
+user
+# Codex DIFF review — I-ui-004 (#543) run-compare view
+
+HARD ITERATION CAP: 5. iter 1. Front-load ALL findings. P0/P1 for real execution risks only. APPROVE iff zero P0/P1. Final line MERGE AUTHORIZED if mergeable. web/ only.
+
+Canonical-diff-sha256: `350b5f29ec4e05104d162afd793869b7351245830a9ff74eb9ccde06c94be52f`. 4 files, 319+.
+
+## EMPIRICAL: typecheck clean, lint 0 errors, npm build SUCCEEDS (/compare prerendered). e2e pending #720.
+
+## Implements the brief you APPROVE'd (iter 1). Diff: .codex/I-ui-004/codex_diff.patch.
+- web/lib/api.ts — ReportComparison type + listCompletedRuns(limit) (GET /runs?status=completed) + compareRuns(l,r) (GET /runs/{l}/compare/{r}); both authFetch + asJsonOrThrow.
+- web/app/compare/page.tsx (NEW) — two run-pickers from listCompletedRuns; Compare disabled unless two distinct; renders ReportComparison (%shared, flags, evidence/frame columns, contradictions); error 400/404/422; empty-list → /intake.
+- nav: "Compare" added to both PRIMARY_NAVs (app_shell.tsx + home_keyboard_shell.tsx) after Benchmark.
+
+## Review focus
+1. Clients: authFetch + asJsonOrThrow correct; listCompletedRuns shape RunStatusResponse[] (matches #705 endpoint)?
+2. distinct-guard (UI disable) + backend 400 fallback + error mapping (400/404/422) correct?
+3. shared_evidence_pct (0..1) → Math.round(*100)%.
+4. Nav parity (both files) — G1 "identical nav across routes"; home_g1_g8 8-label loop still passes with the 9th link?
+5. Defensive rendering of arrays/counts.
+6. Any NOVEL P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll inspect the submitted patch plus the affected web files and nearby API/nav conventions, then verify the specific risks called out in the review focus.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-FileHash -Algorithm SHA256 .codex/I-ui-004/codex_diff.patch | Format-List' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "PRIMARY_NAV|Benchmark|Compare|listCompletedRuns|compareRuns|ReportComparison|RunStatusResponse|asJsonOrThrow|authFetch" web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content .codex/I-ui-004/codex_diff.patch' in C:\POLARIS
+ succeeded in 1315ms:
+
+[32;1mAlgorithm : [0mSHA256
+[32;1mHash      : [0m85B8FF83B668F3555CAB8A5DC98977CE176771C92E149089E786A84CC98587C3
+[32;1mPath      : [0mC:\POLARIS\.codex\I-ui-004\codex_diff.patch
+
+
+ succeeded in 1708ms:
+diff --git a/web/app/compare/page.tsx b/web/app/compare/page.tsx
+new file mode 100644
+index 00000000..599e473b
+--- /dev/null
++++ b/web/app/compare/page.tsx
+@@ -0,0 +1,277 @@
++"use client";
++
++import { useEffect, useState } from "react";
++
++import { Button } from "@/components/ui/button";
++import {
++  compareRuns,
++  listCompletedRuns,
++  type ReportComparison,
++  type RunStatusResponse,
++} from "@/lib/api";
++
++// I-ui-004 (#543): two-run compare. Pick two completed runs → GET
++// /runs/{l}/compare/{r}. Distinct from /benchmark (POLARIS-vs-external).
++
++function optionLabel(run: RunStatusResponse): string {
++  const q =
++    run.question.length > 60 ? `${run.question.slice(0, 60)}…` : run.question;
++  return `${run.template} · ${q} · ${run.run_id.slice(0, 8)}`;
++}
++
++function compareErrorMessage(err: unknown): string {
++  const status = (err as { status?: number })?.status;
++  if (status === 400) return "Pick two distinct runs.";
++  if (status === 404) return "One of the runs was not found.";
++  if (status === 422)
++    return "One of the runs has no shippable evidence (aborted or release-blocked).";
++  return "Couldn't compare those runs right now. Please retry shortly.";
++}
++
++export default function ComparePage() {
++  const [runs, setRuns] = useState<RunStatusResponse[] | null>(null);
++  const [left, setLeft] = useState("");
++  const [right, setRight] = useState("");
++  const [submitting, setSubmitting] = useState(false);
++  const [result, setResult] = useState<ReportComparison | null>(null);
++  const [error, setError] = useState<string | null>(null);
++
++  useEffect(() => {
++    let cancelled = false;
++    listCompletedRuns(50)
++      .then((value) => {
++        if (!cancelled) setRuns(value);
++      })
++      .catch(() => {
++        if (!cancelled) setRuns([]);
++      });
++    return () => {
++      cancelled = true;
++    };
++  }, []);
++
++  const distinct = left !== "" && right !== "" && left !== right;
++
++  async function onCompare() {
++    if (!distinct) return;
++    setSubmitting(true);
++    setError(null);
++    setResult(null);
++    try {
++      setResult(await compareRuns(left, right));
++    } catch (err) {
++      setError(compareErrorMessage(err));
++    } finally {
++      setSubmitting(false);
++    }
++  }
++
++  return (
++    <section
++      data-testid="compare-page"
++      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
++    >
++      <div className="flex flex-col gap-2">
++        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
++          Compare two runs
++        </h1>
++        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
++          Pick two completed runs to see shared vs unique evidence, frame
++          coverage overlap, and contradiction counts. This is run-vs-run — for
++          POLARIS-vs-external, use Benchmark.
++        </p>
++      </div>
++
++      {runs !== null && runs.length === 0 && (
++        <p className="text-muted-foreground text-sm">
++          No completed runs to compare yet.{" "}
++          <a className="text-primary underline" href="/intake">
++            Start a run
++          </a>
++          .
++        </p>
++      )}
++
++      {runs !== null && runs.length > 0 && (
++        <div className="flex flex-col gap-3">
++          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
++            <RunPicker
++              label="Left run"
++              testid="compare-left"
++              runs={runs}
++              value={left}
++              onChange={setLeft}
++            />
++            <RunPicker
++              label="Right run"
++              testid="compare-right"
++              runs={runs}
++              value={right}
++              onChange={setRight}
++            />
++          </div>
++          <div className="flex items-center gap-3">
++            <Button
++              type="button"
++              onClick={onCompare}
++              disabled={!distinct || submitting}
++            >
++              {submitting ? "Comparing…" : "Compare"}
++            </Button>
++            {left !== "" && right !== "" && left === right && (
++              <span className="text-muted-foreground text-xs">
++                Pick two distinct runs.
++              </span>
++            )}
++          </div>
++        </div>
++      )}
++
++      {error && (
++        <p
++          role="alert"
++          className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
++        >
++          {error}
++        </p>
++      )}
++
++      {result && <ComparisonView result={result} />}
++    </section>
++  );
++}
++
++function RunPicker({
++  label,
++  testid,
++  runs,
++  value,
++  onChange,
++}: {
++  label: string;
++  testid: string;
++  runs: RunStatusResponse[];
++  value: string;
++  onChange: (v: string) => void;
++}) {
++  return (
++    <label className="flex flex-col gap-1">
++      <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
++        {label}
++      </span>
++      <select
++        data-testid={testid}
++        value={value}
++        onChange={(e) => onChange(e.target.value)}
++        className="border-input focus-visible:border-ring focus-visible:ring-ring rounded-lg border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2"
++      >
++        <option value="">Select a run…</option>
++        {runs.map((run) => (
++          <option key={run.run_id} value={run.run_id}>
++            {optionLabel(run)}
++          </option>
++        ))}
++      </select>
++    </label>
++  );
++}
++
++function Flag({ label, ok }: { label: string; ok: boolean }) {
++  return (
++    <span className="text-muted-foreground flex items-center gap-1 text-xs">
++      <span className={ok ? "text-primary" : "text-muted-foreground"}>
++        {ok ? "✓" : "✗"}
++      </span>
++      {label}
++    </span>
++  );
++}
++
++function EvidenceColumn({ title, ids }: { title: string; ids: string[] }) {
++  return (
++    <div className="border-border bg-card flex flex-col gap-1 rounded-lg border p-3">
++      <span className="text-foreground text-xs font-semibold">
++        {title} ({ids.length})
++      </span>
++      <div className="flex flex-wrap gap-1">
++        {ids.slice(0, 20).map((id) => (
++          <span
++            key={id}
++            className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
++          >
++            {id}
++          </span>
++        ))}
++        {ids.length > 20 && (
++          <span className="text-muted-foreground text-[10px]">
++            + {ids.length - 20} more
++          </span>
++        )}
++        {ids.length === 0 && (
++          <span className="text-muted-foreground text-[10px]">—</span>
++        )}
++      </div>
++    </div>
++  );
++}
++
++function ComparisonView({ result }: { result: ReportComparison }) {
++  const pct = Math.round((result.shared_evidence_pct ?? 0) * 100);
++  return (
++    <div data-testid="comparison-result" className="flex flex-col gap-5">
++      <div className="border-border bg-card flex flex-wrap items-center gap-4 rounded-lg border p-4">
++        <span className="text-foreground text-sm font-semibold">
++          {pct}% shared evidence
++        </span>
++        <Flag label="Same template" ok={result.same_template} />
++        <Flag label="Same question" ok={result.same_question} />
++        <Flag label="Pipeline status match" ok={result.pipeline_status_match} />
++        <Flag
++          label="Two-family segregation (both)"
++          ok={result.family_segregation_both_pass}
++        />
++      </div>
++
++      <div className="flex flex-col gap-2">
++        <h2 className="text-foreground text-sm font-semibold">Evidence</h2>
++        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
++          <EvidenceColumn title="Shared" ids={result.shared_evidence_ids} />
++          <EvidenceColumn
++            title="Only left"
++            ids={result.only_left_evidence_ids}
++          />
++          <EvidenceColumn
++            title="Only right"
++            ids={result.only_right_evidence_ids}
++          />
++        </div>
++      </div>
++
++      <div className="flex flex-col gap-2">
++        <h2 className="text-foreground text-sm font-semibold">
++          Frame coverage
++        </h2>
++        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
++          <EvidenceColumn title="Overlap" ids={result.frame_coverage_overlap} />
++          <EvidenceColumn title="Only left" ids={result.only_left_frames} />
++          <EvidenceColumn title="Only right" ids={result.only_right_frames} />
++        </div>
++      </div>
++
++      <div className="border-border flex gap-6 rounded-lg border p-4 text-sm">
++        <span className="text-muted-foreground">
++          Left contradictions:{" "}
++          <span className="text-foreground font-mono">
++            {result.left_contradictions}
++          </span>
++        </span>
++        <span className="text-muted-foreground">
++          Right contradictions:{" "}
++          <span className="text-foreground font-mono">
++            {result.right_contradictions}
++          </span>
++        </span>
++      </div>
++    </div>
++  );
++}
+diff --git a/web/app/components/home_keyboard_shell.tsx b/web/app/components/home_keyboard_shell.tsx
+index a1e93e8c..fc1d2a47 100644
+--- a/web/app/components/home_keyboard_shell.tsx
++++ b/web/app/components/home_keyboard_shell.tsx
+@@ -29,6 +29,7 @@ const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+   { href: "/dashboard", label: "Dashboard" },
+   { href: "/upload", label: "Upload" },
+   { href: "/benchmark", label: "Benchmark" },
++  { href: "/compare", label: "Compare" },
+   { href: "/contracts", label: "Contracts" },
+   { href: "/pin_replay", label: "Pin Replay" },
+   { href: "/memory", label: "Memory" },
+diff --git a/web/components/app_shell.tsx b/web/components/app_shell.tsx
+index 73d00f62..a2033039 100644
+--- a/web/components/app_shell.tsx
++++ b/web/components/app_shell.tsx
+@@ -25,6 +25,7 @@ const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+   { href: "/dashboard", label: "Dashboard" },
+   { href: "/upload", label: "Upload" },
+   { href: "/benchmark", label: "Benchmark" },
++  { href: "/compare", label: "Compare" },
+   { href: "/contracts", label: "Contracts" },
+   { href: "/pin_replay", label: "Pin Replay" },
+   { href: "/memory", label: "Memory" },
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 740f23ae..8244c566 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -212,6 +212,46 @@ export async function askFollowup(
+   return asJsonOrThrow<FollowUpAnswer>(response);
+ }
+ 
++// I-ui-004 (#543): two-run compare. Mirrors ReportComparison in
++// src/polaris_v6/compare/differ.py. GET /runs/{l}/compare/{r}: 400 if same
++// run, 422 abort/release-blocked, 404 unknown (real-run wired #680).
++export interface ReportComparison {
++  left_run_id: string;
++  right_run_id: string;
++  same_template: boolean;
++  same_question: boolean;
++  shared_evidence_ids: string[];
++  only_left_evidence_ids: string[];
++  only_right_evidence_ids: string[];
++  shared_evidence_pct: number;
++  frame_coverage_overlap: string[];
++  only_left_frames: string[];
++  only_right_frames: string[];
++  left_contradictions: number;
++  right_contradictions: number;
++  pipeline_status_match: boolean;
++  family_segregation_both_pass: boolean;
++}
++
++export async function listCompletedRuns(
++  limit = 20,
++): Promise<RunStatusResponse[]> {
++  const response = await authFetch(
++    `${BACKEND_URL}/runs?status=completed&limit=${limit}`,
++  );
++  return asJsonOrThrow<RunStatusResponse[]>(response);
++}
++
++export async function compareRuns(
++  left: string,
++  right: string,
++): Promise<ReportComparison> {
++  const response = await authFetch(
++    `${BACKEND_URL}/runs/${encodeURIComponent(left)}/compare/${encodeURIComponent(right)}`,
++  );
++  return asJsonOrThrow<ReportComparison>(response);
++}
++
+ // I-cd-017 (#627): pin-replay snapshot consumed by /pin_replay timeseries.
+ // Mirrors PinSnapshot schema in src/polaris_v6/schemas/pin_snapshot.py.
+ export interface PinSnapshot {
+
+# canonical-diff-sha256: 350b5f29ec4e05104d162afd793869b7351245830a9ff74eb9ccde06c94be52f
+
+ succeeded in 1951ms:
+web\components\app_shell.tsx:9: *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+web\components\app_shell.tsx:22:const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+web\components\app_shell.tsx:27:  { href: "/benchmark", label: "Benchmark" },
+web\components\app_shell.tsx:28:  { href: "/compare", label: "Compare" },
+web\components\app_shell.tsx:46:            {PRIMARY_NAV.map((item) => (
+web\app\components\recent_runs_strip.tsx:12:// why it uses authHeader() directly, not authFetch which redirects).
+web\app\components\home_keyboard_shell.tsx:26:const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+web\app\components\home_keyboard_shell.tsx:31:  { href: "/benchmark", label: "Benchmark" },
+web\app\components\home_keyboard_shell.tsx:32:  { href: "/compare", label: "Compare" },
+web\app\components\home_keyboard_shell.tsx:65:            {PRIMARY_NAV.map((item) => (
+web\app\benchmark\page.tsx:1:import { BenchmarkBoard } from "./components/benchmark_board";
+web\app\benchmark\page.tsx:14:export default function BenchmarkPage() {
+web\app\benchmark\page.tsx:34:      <BenchmarkBoard />
+web\app\compare\page.tsx:7:  compareRuns,
+web\app\compare\page.tsx:8:  listCompletedRuns,
+web\app\compare\page.tsx:9:  type ReportComparison,
+web\app\compare\page.tsx:10:  type RunStatusResponse,
+web\app\compare\page.tsx:16:function optionLabel(run: RunStatusResponse): string {
+web\app\compare\page.tsx:31:export default function ComparePage() {
+web\app\compare\page.tsx:32:  const [runs, setRuns] = useState<RunStatusResponse[] | null>(null);
+web\app\compare\page.tsx:36:  const [result, setResult] = useState<ReportComparison | null>(null);
+web\app\compare\page.tsx:41:    listCompletedRuns(50)
+web\app\compare\page.tsx:55:  async function onCompare() {
+web\app\compare\page.tsx:61:      setResult(await compareRuns(left, right));
+web\app\compare\page.tsx:76:          Compare two runs
+web\app\compare\page.tsx:81:          POLARIS-vs-external, use Benchmark.
+web\app\compare\page.tsx:116:              onClick={onCompare}
+web\app\compare\page.tsx:119:              {submitting ? "Comparing…" : "Compare"}
+web\app\compare\page.tsx:153:  runs: RunStatusResponse[];
+web\app\compare\page.tsx:218:function ComparisonView({ result }: { result: ReportComparison }) {
+web\app\benchmark\components\benchmark_board.tsx:10:  getBenchmarkHealth,
+web\app\benchmark\components\benchmark_board.tsx:11:  getBenchmarkScoreboard,
+web\app\benchmark\components\benchmark_board.tsx:12:  type BenchmarkDimension,
+web\app\benchmark\components\benchmark_board.tsx:13:  type BenchmarkScoreboard,
+web\app\benchmark\components\benchmark_board.tsx:22:  | { kind: "loaded"; benchmark_id: string; scoreboard: BenchmarkScoreboard }
+web\app\benchmark\components\benchmark_board.tsx:42:export function BenchmarkBoard() {
+web\app\benchmark\components\benchmark_board.tsx:49:        const health = await getBenchmarkHealth();
+web\app\benchmark\components\benchmark_board.tsx:80:      const scoreboard = await getBenchmarkScoreboard(benchmark_id);
+web\app\benchmark\components\benchmark_board.tsx:103:          <strong className="block">Benchmark results not configured</strong>
+web\app\generation\components\evaluator_pane.tsx:34:            Two-family evaluator disagrees with generator&rsquo;s claim. Compare
+web\app\memory\page.tsx:46:    b.created_at.localeCompare(a.created_at),
+web\app\runs\[runId]\page.tsx:13:  type RunStatusResponse,
+web\app\runs\[runId]\page.tsx:30:  const [status, setStatus] = useState<RunStatusResponse | null>(null);
+web\app\generation\components\two_run_picker.tsx:14:  onCompare,
+web\app\generation\components\two_run_picker.tsx:17:  onCompare: (ids: [string, string]) => void;
+web\app\generation\components\two_run_picker.tsx:74:            onCompare([selected[0], selected[1]]);
+web\app\generation\components\two_run_picker.tsx:79:        Compare
+web\app\runs\[runId]\components\run_progress.tsx:5:import type { RunStatusResponse, StreamEvent } from "@/lib/api";
+web\app\runs\[runId]\components\run_progress.tsx:47:  status: RunStatusResponse | null;
+web\lib\api.ts:30:async function authFetch(
+web\lib\api.ts:83:export interface RunStatusResponse {
+web\lib\api.ts:101:async function asJsonOrThrow<T>(response: Response): Promise<T> {
+web\lib\api.ts:131:): Promise<RunStatusResponse> {
+web\lib\api.ts:132:  const response = await authFetch(`${BACKEND_URL}/runs`, {
+web\lib\api.ts:162:  return asJsonOrThrow<RunStatusResponse>(response);
+web\lib\api.ts:165:export async function getRun(runId: string): Promise<RunStatusResponse> {
+web\lib\api.ts:166:  const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
+web\lib\api.ts:167:  return asJsonOrThrow<RunStatusResponse>(response);
+web\lib\api.ts:173:export async function cancelRun(runId: string): Promise<RunStatusResponse> {
+web\lib\api.ts:174:  const response = await authFetch(
+web\lib\api.ts:178:  return asJsonOrThrow<RunStatusResponse>(response);
+web\lib\api.ts:204:  const response = await authFetch(
+web\lib\api.ts:212:  return asJsonOrThrow<FollowUpAnswer>(response);
+web\lib\api.ts:215:// I-ui-004 (#543): two-run compare. Mirrors ReportComparison in
+web\lib\api.ts:218:export interface ReportComparison {
+web\lib\api.ts:236:export async function listCompletedRuns(
+web\lib\api.ts:238:): Promise<RunStatusResponse[]> {
+web\lib\api.ts:239:  const response = await authFetch(
+web\lib\api.ts:242:  return asJsonOrThrow<RunStatusResponse[]>(response);
+web\lib\api.ts:245:export async function compareRuns(
+web\lib\api.ts:248:): Promise<ReportComparison> {
+web\lib\api.ts:249:  const response = await authFetch(
+web\lib\api.ts:252:  return asJsonOrThrow<ReportComparison>(response);
+web\lib\api.ts:270:  const response = await authFetch(
+web\lib\api.ts:273:  return asJsonOrThrow<PinSnapshot[]>(response);
+web\lib\api.ts:280:  const response = await authFetch(
+web\lib\api.ts:283:  return asJsonOrThrow<PinSnapshot>(response);
+web\lib\api.ts:306:  const response = await authFetch(
+web\lib\api.ts:309:  return asJsonOrThrow<UploadResponse>(response);
+web\lib\api.ts:319:  const response = await authFetch(`${BACKEND_URL}/upload`, {
+web\lib\api.ts:323:  return asJsonOrThrow<UploadResponse>(response);
+web\lib\api.ts:364:  const response = await authFetch(`${BACKEND_URL}/ambiguity`, {
+web\lib\api.ts:374:  return asJsonOrThrow<AmbiguityResult>(response);
+web\lib\api.ts:381:  const response = await authFetch(`${BACKEND_URL}/scope/check`, {
+web\lib\api.ts:386:  return asJsonOrThrow<ScopeDecision>(response);
+web\lib\api.ts:403:  const response = await authFetch(`${BACKEND_URL}/templates`);
+web\lib\api.ts:404:  return asJsonOrThrow<TemplateContent[]>(response);
+web\lib\api.ts:457:  const response = await authFetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+web\lib\api.ts:458:  return asJsonOrThrow<EvidenceContract>(response);
+web\lib\api.ts:482:  const response = await authFetch(
+web\lib\api.ts:485:  return asJsonOrThrow<VegaLiteSpec>(response);
+web\lib\api.ts:602:  const response = await authFetch(`${BACKEND_URL}/api/disambiguation`, {
+web\lib\api.ts:607:  return asJsonOrThrow<DisambiguationResponse>(response);
+web\lib\api.ts:637:  const response = await authFetch(`${BACKEND_URL}/api/intake`, {
+web\lib\api.ts:651:  return asJsonOrThrow<IntakeSuccessResponse>(response);
+web\lib\api.ts:661:  const response = await authFetch(`${BACKEND_URL}/api/intake/health`);
+web\lib\api.ts:662:  return asJsonOrThrow<IntakeHealthResponse>(response);
+web\lib\api.ts:735:  const response = await authFetch(`${BACKEND_URL}/api/retrieval`, {
+web\lib\api.ts:749:  return asJsonOrThrow<RetrievalSuccessResponse>(response);
+web\lib\api.ts:760:  const response = await authFetch(`${BACKEND_URL}/api/retrieval/health`);
+web\lib\api.ts:761:  return asJsonOrThrow<RetrievalHealthResponse>(response);
+web\lib\api.ts:784:    return a.domain.localeCompare(b.domain);
+web\lib\api.ts:963:  const response = await authFetch(`${BACKEND_URL}/api/generation`, {
+web\lib\api.ts:977:  return asJsonOrThrow<GenerationSuccessResponse>(response);
+web\lib\api.ts:988:  const response = await authFetch(`${BACKEND_URL}/api/generation/health`);
+web\lib\api.ts:989:  return asJsonOrThrow<GenerationHealthResponse>(response);
+web\lib\api.ts:1046:  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle`, {
+web\lib\api.ts:1081:  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/preview`, {
+web\lib\api.ts:1105:  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/health`);
+web\lib\api.ts:1106:  return asJsonOrThrow<AuditBundleHealthResponse>(response);
+web\lib\api.ts:1115:export type BenchmarkDimension =
+web\lib\api.ts:1124:export interface BenchmarkSystemScores {
+web\lib\api.ts:1126:  by_dimension: Record<BenchmarkDimension, number | null>;
+web\lib\api.ts:1127:  evidence: Record<BenchmarkDimension, string[]>;
+web\lib\api.ts:1130:export interface BenchmarkQuestionScores {
+web\lib\api.ts:1134:  polaris: BenchmarkSystemScores;
+web\lib\api.ts:1135:  chatgpt: BenchmarkSystemScores;
+web\lib\api.ts:1136:  gemini: BenchmarkSystemScores;
+web\lib\api.ts:1139:export interface BenchmarkAggregateScoreboard {
+web\lib\api.ts:1140:  polaris_mean: Record<BenchmarkDimension, number | null>;
+web\lib\api.ts:1141:  chatgpt_mean: Record<BenchmarkDimension, number | null>;
+web\lib\api.ts:1142:  gemini_mean: Record<BenchmarkDimension, number | null>;
+web\lib\api.ts:1146:export interface BenchmarkScoreboard {
+web\lib\api.ts:1149:  per_question: BenchmarkQuestionScores[];
+web\lib\api.ts:1150:  aggregate: BenchmarkAggregateScoreboard;
+web\lib\api.ts:1156:export interface BenchmarkHealthResponse {
+web\lib\api.ts:1163:export const BENCHMARK_DIMENSION_LABELS: Record<BenchmarkDimension, string> = {
+web\lib\api.ts:1173:export const ALL_BENCHMARK_DIMENSIONS: BenchmarkDimension[] = [
+web\lib\api.ts:1183:export async function getBenchmarkHealth(): Promise<BenchmarkHealthResponse> {
+web\lib\api.ts:1184:  const response = await authFetch(`${BACKEND_URL}/api/benchmark/health`);
+web\lib\api.ts:1185:  return asJsonOrThrow<BenchmarkHealthResponse>(response);
+web\lib\api.ts:1188:export async function getBenchmarkScoreboard(
+web\lib\api.ts:1190:): Promise<BenchmarkScoreboard> {
+web\lib\api.ts:1191:  const response = await authFetch(
+web\lib\api.ts:1194:  return asJsonOrThrow<BenchmarkScoreboard>(response);
+web\lib\api.ts:1197:export async function getBenchmarkSummary(
+web\lib\api.ts:1200:  const response = await authFetch(
+web\lib\api.ts:1232:  return asJsonOrThrow<MemoryEntry[]>(await authFetch(_ws(ws)));
+web\lib\api.ts:1243:  return asJsonOrThrow<MemoryEntry>(
+web\lib\api.ts:1244:    await authFetch(_ws(ws), {
+web\lib\api.ts:1256:  const r = await authFetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
+web\lib\api.ts:1322:  const res = await authFetch(`${BACKEND_URL}/api/runs/${runId}/graph`);
+web\lib\api.ts:1568:  const response = await authFetch(
+web\lib\api.ts:1571:  return asJsonOrThrow<AuditIrRun>(response);
+web\lib\api.ts:1607:  const response = await authFetch(
+web\lib\api.ts:1610:  return asJsonOrThrow<AuditIrEvidenceResponse>(response);
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:61:    return a.data.id.localeCompare(b.data.id);
+web\app\pin_replay\page.tsx:133:          Compare two completed run snapshots side-by-side; regressions in
+web\app\sentence_hover_test\two_run_picker\page.tsx:47:          onCompare={([a, b]) => setLast(`${a},${b}`)}
+web\app\pin_replay\components\pin_timeseries.tsx:10:    a.pin_date.localeCompare(b.pin_date),
+web\tests\e2e\benchmark_g1_g8.spec.ts:57:    "Benchmark",
+web\tests\e2e\contracts_g1_g8.spec.ts:59:    "Benchmark",
+web\tests\e2e\dashboard_g1_g8.spec.ts:41:    "Benchmark",
+web\tests\e2e\demo_journey.spec.ts:57:  const PRIMARY_NAV_LABELS = [
+web\tests\e2e\demo_journey.spec.ts:62:    "Benchmark",
+web\tests\e2e\demo_journey.spec.ts:77:    for (const label of PRIMARY_NAV_LABELS) {
+web\tests\e2e\home_g1_g8.spec.ts:26:  // Upload/Benchmark/Contracts/Pin Replay/Memory).
+web\tests\e2e\home_g1_g8.spec.ts:34:    "Benchmark",
+web\tests\e2e\intake_g1_g8.spec.ts:54:    "Benchmark",
+web\tests\e2e\memory_g1_g8.spec.ts:56:    "Benchmark",
+web\tests\e2e\pin_replay_g1_g8.spec.ts:59:    "Benchmark",
+web\tests\e2e\runs_runid_g1_g8.spec.ts:78:    "Benchmark",
+web\tests\e2e\upload_g1_g8.spec.ts:55:    "Benchmark",
+
+codex
+The patch footer’s canonical hash matches the value in your prompt, but the raw file hash on disk differs, likely because the footer is part of the file and/or line endings are not the canonical diff input. I’m continuing against the actual patch contents and applied files.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web/lib/api.ts | Select-Object -First 270 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web/app/components/home_keyboard_shell.tsx | Select-Object -First 100 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web/components/app_shell.tsx | Select-Object -First 90 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web/app/compare/page.tsx | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+ succeeded in 1426ms:
+   1: /**
+   2:  * POLARIS v6 API client.
+   3:  *
+   4:  * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+   5:  *
+   6:  * I-carney-005 (2026-05-13): all requests are browser-relative paths so the
+   7:  * browser only ever talks to the webui origin. Next.js server-side rewrites
+   8:  * (web/next.config.ts) forward `/api/v6/*` → `${INTERNAL_API_URL}/*`, which
+   9:  * in production compose is `http://api:8000` (a Docker service name the
+  10:  * browser cannot resolve directly). In local dev, INTERNAL_API_URL defaults
+  11:  * to http://localhost:8000 so `npm run dev` against a host-port-mapped
+  12:  * backend works without any client-side configuration.
+  13:  *
+  14:  * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
+  15:  * runtime — baking an absolute http://api:8000 into the client bundle would
+  16:  * make production browsers attempt direct Docker-network reach and fail.
+  17:  */
+  18: 
+  19: import { authHeader, redirectToSignIn } from "@/lib/auth";
+  20: 
+  21: const BACKEND_URL = "/api/v6";
+  22: 
+  23: /**
+  24:  * I-rdy-004 (#500) — fetch wrapper for every v6 API call. Injects the
+  25:  * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
+  26:  * headers, and does NOT force a content-type (so `FormData` uploads keep
+  27:  * their auto-generated multipart boundary). On a 401 it clears the token
+  28:  * and routes to /sign-in.
+  29:  */
+  30: async function authFetch(
+  31:   url: string,
+  32:   init: RequestInit = {},
+  33: ): Promise<Response> {
+  34:   const headers = new Headers(init.headers ?? {});
+  35:   for (const [key, value] of Object.entries(authHeader())) {
+  36:     headers.set(key, value);
+  37:   }
+  38:   const response = await globalThis.fetch(url, { ...init, headers });
+  39:   if (response.status === 401) {
+  40:     redirectToSignIn();
+  41:   }
+  42:   return response;
+  43: }
+  44: 
+  45: /**
+  46:  * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
+  47:  * set request headers, so the JWT rides as the `access_token` query param;
+  48:  * the backend `require_auth` accepts it for `/stream/*` paths only.
+  49:  */
+  50: export function streamUrl(runId: string): string {
+  51:   const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  52:   const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  53:   return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+  54: }
+  55: 
+  56: export type TemplateId =
+  57:   | "clinical"
+  58:   | "policy"
+  59:   | "tech"
+  60:   | "due_diligence"
+  61:   | "ai_sovereignty"
+  62:   | "canada_us"
+  63:   | "workforce"
+  64:   | "custom";
+  65: 
+  66: export type RunStatus =
+  67:   | "queued"
+  68:   | "in_progress"
+  69:   | "completed"
+  70:   | "cancelled"
+  71:   | "failed"
+  72:   | "abort_scope_rejected"
+  73:   | "abort_corpus_inadequate"
+  74:   | "abort_corpus_approval_denied"
+  75:   | "abort_no_verified_sections";
+  76: 
+  77: export interface RunRequest {
+  78:   template: TemplateId;
+  79:   question: string;
+  80:   document_ids?: string[];
+  81: }
+  82: 
+  83: export interface RunStatusResponse {
+  84:   run_id: string;
+  85:   status: RunStatus;
+  86:   // I-rdy-011 (#507): true once a cancel has been requested; lets the run
+  87:   // page show a cancel as in-flight before an in-progress run transitions.
+  88:   cancel_requested?: boolean;
+  89:   template: string;
+  90:   question: string;
+  91:   queued_at: string;
+  92:   started_at?: string | null;
+  93:   finished_at?: string | null;
+  94: }
+  95: 
+  96: export interface ApiError extends Error {
+  97:   status: number;
+  98:   body: unknown;
+  99: }
+ 100: 
+ 101: async function asJsonOrThrow<T>(response: Response): Promise<T> {
+ 102:   const body = await response.json().catch(() => null);
+ 103:   if (!response.ok) {
+ 104:     const error = new Error(
+ 105:       `POLARIS backend returned ${response.status}`,
+ 106:     ) as ApiError;
+ 107:     error.status = response.status;
+ 108:     error.body = body;
+ 109:     throw error;
+ 110:   }
+ 111:   return body as T;
+ 112: }
+ 113: 
+ 114: /**
+ 115:  * Thrown by createRun when POST /runs is rejected by the 1-concurrent-session
+ 116:  * constraint (I-rdy-013): a research run is already queued or in progress.
+ 117:  */
+ 118: export class ConcurrentRunError extends Error {
+ 119:   readonly activeRunId: string;
+ 120:   readonly activeStatus: string;
+ 121:   constructor(message: string, activeRunId: string, activeStatus: string) {
+ 122:     super(message);
+ 123:     this.name = "ConcurrentRunError";
+ 124:     this.activeRunId = activeRunId;
+ 125:     this.activeStatus = activeStatus;
+ 126:   }
+ 127: }
+ 128: 
+ 129: export async function createRun(
+ 130:   payload: RunRequest,
+ 131: ): Promise<RunStatusResponse> {
+ 132:   const response = await authFetch(`${BACKEND_URL}/runs`, {
+ 133:     method: "POST",
+ 134:     headers: { "content-type": "application/json" },
+ 135:     body: JSON.stringify(payload),
+ 136:   });
+ 137:   if (response.status === 409) {
+ 138:     // Read the body exactly once, then unwrap FastAPI's { detail: {...} }
+ 139:     // envelope. The 1-concurrent-session reject carries a structured detail;
+ 140:     // any other 409 falls through to a generic ApiError.
+ 141:     const body = (await response.json().catch(() => null)) as {
+ 142:       detail?: unknown;
+ 143:     } | null;
+ 144:     const detail = (body?.detail ?? body) as {
+ 145:       code?: string;
+ 146:       message?: string;
+ 147:       active_run_id?: string;
+ 148:       active_status?: string;
+ 149:     } | null;
+ 150:     if (detail && detail.code === "concurrent_run_active") {
+ 151:       throw new ConcurrentRunError(
+ 152:         detail.message ?? "A research run is already in progress.",
+ 153:         detail.active_run_id ?? "",
+ 154:         detail.active_status ?? "in_progress",
+ 155:       );
+ 156:     }
+ 157:     const error = new Error("POLARIS backend returned 409") as ApiError;
+ 158:     error.status = 409;
+ 159:     error.body = body;
+ 160:     throw error;
+ 161:   }
+ 162:   return asJsonOrThrow<RunStatusResponse>(response);
+ 163: }
+ 164: 
+ 165: export async function getRun(runId: string): Promise<RunStatusResponse> {
+ 166:   const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
+ 167:   return asJsonOrThrow<RunStatusResponse>(response);
+ 168: }
+ 169: 
+ 170: // I-rdy-011 (#507): request cancellation of a run. A queued run cancels
+ 171: // instantly; an in-progress run aborts cooperatively at the next pipeline
+ 172: // stage boundary. Already-terminal runs are an idempotent no-op.
+ 173: export async function cancelRun(runId: string): Promise<RunStatusResponse> {
+ 174:   const response = await authFetch(
+ 175:     `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/cancel`,
+ 176:     { method: "POST" },
+ 177:   );
+ 178:   return asJsonOrThrow<RunStatusResponse>(response);
+ 179: }
+ 180: 
+ 181: // I-ui-003 (#542): report-scoped follow-up. Mirrors FollowUpAnswer in
+ 182: // src/polaris_v6/followup/schema.py. POST /runs/{id}/followup is real-run
+ 183: // wired (#680): 422 for aborted/release-blocked, 404 for unknown id.
+ 184: export type FollowUpStatus =
+ 185:   | "answered"
+ 186:   | "out_of_scope"
+ 187:   | "needs_new_run"
+ 188:   | "evidence_insufficient";
+ 189: 
+ 190: export interface FollowUpAnswer {
+ 191:   parent_run_id: string;
+ 192:   question: string;
+ 193:   status: FollowUpStatus;
+ 194:   answer_text: string | null;
+ 195:   used_evidence_ids: string[];
+ 196:   provenance_tokens: string[];
+ 197:   rationale: string;
+ 198: }
+ 199: 
+ 200: export async function askFollowup(
+ 201:   runId: string,
+ 202:   question: string,
+ 203: ): Promise<FollowUpAnswer> {
+ 204:   const response = await authFetch(
+ 205:     `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/followup`,
+ 206:     {
+ 207:       method: "POST",
+ 208:       headers: { "content-type": "application/json" },
+ 209:       body: JSON.stringify({ question }),
+ 210:     },
+ 211:   );
+ 212:   return asJsonOrThrow<FollowUpAnswer>(response);
+ 213: }
+ 214: 
+ 215: // I-ui-004 (#543): two-run compare. Mirrors ReportComparison in
+ 216: // src/polaris_v6/compare/differ.py. GET /runs/{l}/compare/{r}: 400 if same
+ 217: // run, 422 abort/release-blocked, 404 unknown (real-run wired #680).
+ 218: export interface ReportComparison {
+ 219:   left_run_id: string;
+ 220:   right_run_id: string;
+ 221:   same_template: boolean;
+ 222:   same_question: boolean;
+ 223:   shared_evidence_ids: string[];
+ 224:   only_left_evidence_ids: string[];
+ 225:   only_right_evidence_ids: string[];
+ 226:   shared_evidence_pct: number;
+ 227:   frame_coverage_overlap: string[];
+ 228:   only_left_frames: string[];
+ 229:   only_right_frames: string[];
+ 230:   left_contradictions: number;
+ 231:   right_contradictions: number;
+ 232:   pipeline_status_match: boolean;
+ 233:   family_segregation_both_pass: boolean;
+ 234: }
+ 235: 
+ 236: export async function listCompletedRuns(
+ 237:   limit = 20,
+ 238: ): Promise<RunStatusResponse[]> {
+ 239:   const response = await authFetch(
+ 240:     `${BACKEND_URL}/runs?status=completed&limit=${limit}`,
+ 241:   );
+ 242:   return asJsonOrThrow<RunStatusResponse[]>(response);
+ 243: }
+ 244: 
+ 245: export async function compareRuns(
+ 246:   left: string,
+ 247:   right: string,
+ 248: ): Promise<ReportComparison> {
+ 249:   const response = await authFetch(
+ 250:     `${BACKEND_URL}/runs/${encodeURIComponent(left)}/compare/${encodeURIComponent(right)}`,
+ 251:   );
+ 252:   return asJsonOrThrow<ReportComparison>(response);
+ 253: }
+ 254: 
+ 255: // I-cd-017 (#627): pin-replay snapshot consumed by /pin_replay timeseries.
+ 256: // Mirrors PinSnapshot schema in src/polaris_v6/schemas/pin_snapshot.py.
+ 257: export interface PinSnapshot {
+ 258:   run_id: string;
+ 259:   pin_date: string;
+ 260:   query: string;
+ 261:   verdict: "success" | "abort_no_verified_sections";
+ 262:   section_count_kept: number;
+ 263:   section_count_dropped: number;
+ 264:   verified_sentence_count: number;
+ 265:   pass_rate: number;
+ 266:   retracted_source_ids?: string[] | null;
+ 267: }
+ 268: 
+ 269: export async function fetchPinList(runId: string): Promise<PinSnapshot[]> {
+ 270:   const response = await authFetch(
+
+ succeeded in 1569ms:
+   1: import Link from "next/link";
+   2: 
+   3: import { NavLink } from "@/components/nav_link";
+   4: 
+   5: /**
+   6:  * I-cd-004: the global app shell. A server component that wraps every prod
+   7:  * route with a single header + primary nav. The 8 primary nav entries are
+   8:  * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+   9:  *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+  10:  *
+  11:  * Out of scope for this issue (each its own later issue per the Seq-N order):
+  12:  *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+  13:  *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+  14:  *    /dashboard rather than top-nav entries.
+  15:  *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+  16:  *    retired at that point (not merely hidden — per Codex P2).
+  17:  *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+  18:  *    I-cd-015.
+  19:  *  - Auth gating of the nav itself is deferred to I-cd-014.
+  20:  *  - Per-page rebuilds happen in the I-cd-013..030 series.
+  21:  */
+  22: const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+  23:   { href: "/", label: "Home" },
+  24:   { href: "/intake", label: "Intake" },
+  25:   { href: "/dashboard", label: "Dashboard" },
+  26:   { href: "/upload", label: "Upload" },
+  27:   { href: "/benchmark", label: "Benchmark" },
+  28:   { href: "/compare", label: "Compare" },
+  29:   { href: "/contracts", label: "Contracts" },
+  30:   { href: "/pin_replay", label: "Pin Replay" },
+  31:   { href: "/memory", label: "Memory" },
+  32: ];
+  33: 
+  34: export function AppShell({ children }: { children: React.ReactNode }) {
+  35:   return (
+  36:     <>
+  37:       <header className="border-border bg-background sticky top-0 z-40 border-b">
+  38:         <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+  39:           <Link
+  40:             href="/"
+  41:             className="text-foreground font-mono text-sm font-semibold tracking-tight"
+  42:           >
+  43:             POLARIS · Canada
+  44:           </Link>
+  45:           <nav className="flex items-center gap-1" aria-label="Primary">
+  46:             {PRIMARY_NAV.map((item) => (
+  47:               <NavLink key={item.href} href={item.href}>
+  48:                 {item.label}
+  49:               </NavLink>
+  50:             ))}
+  51:           </nav>
+  52:         </div>
+  53:       </header>
+  54:       <main className="flex-1">{children}</main>
+  55:     </>
+  56:   );
+  57: }
+
+ succeeded in 1821ms:
+   1: "use client";
+   2: 
+   3: import Link from "next/link";
+   4: import { useEffect, useRef, useState, type ReactNode } from "react";
+   5: 
+   6: import { NavLink } from "@/components/nav_link";
+   7: import { Button } from "@/components/ui/button";
+   8: 
+   9: import { CommandPalette } from "./command_palette";
+  10: 
+  11: type Template = {
+  12:   id: string;
+  13:   name: string;
+  14:   summary: string;
+  15:   sample_question: string;
+  16:   out_of_scope: string;
+  17:   active: boolean;
+  18: };
+  19: 
+  20: type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+  21: 
+  22: // I-cd-022 (#612): primary nav now lives in the home header too, so /
+  23: // matches the global app-shell nav (G1: "global header/sidebar nav is
+  24: // present and identical"). When AppShell is suppressed on `/` via
+  25: // AppShellGate, the home page's <header> is THE app shell for this route.
+  26: const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+  27:   { href: "/", label: "Home" },
+  28:   { href: "/intake", label: "Intake" },
+  29:   { href: "/dashboard", label: "Dashboard" },
+  30:   { href: "/upload", label: "Upload" },
+  31:   { href: "/benchmark", label: "Benchmark" },
+  32:   { href: "/compare", label: "Compare" },
+  33:   { href: "/contracts", label: "Contracts" },
+  34:   { href: "/pin_replay", label: "Pin Replay" },
+  35:   { href: "/memory", label: "Memory" },
+  36: ];
+  37: 
+  38: export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+  39:   const [palette_open, set_palette_open] = useState(false);
+  40:   const sign_in_link_ref = useRef<HTMLAnchorElement>(null);
+  41: 
+  42:   useEffect(() => {
+  43:     function on_keydown(event: KeyboardEvent) {
+  44:       if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+  45:         event.preventDefault();
+  46:         event.stopPropagation();
+  47:         set_palette_open((p) => !p);
+  48:       }
+  49:     }
+  50:     window.addEventListener("keydown", on_keydown);
+  51:     return () => window.removeEventListener("keydown", on_keydown);
+  52:   }, []);
+  53: 
+  54:   return (
+  55:     <>
+  56:       <header className="border-border bg-background border-b">
+  57:         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-3">
+  58:           <Link
+  59:             href="/"
+  60:             className="text-foreground font-mono text-sm font-semibold tracking-tight"
+  61:           >
+  62:             POLARIS · Canada
+  63:           </Link>
+  64:           <nav className="flex items-center gap-1" aria-label="Primary">
+  65:             {PRIMARY_NAV.map((item) => (
+  66:               <NavLink key={item.href} href={item.href}>
+  67:                 {item.label}
+  68:               </NavLink>
+  69:             ))}
+  70:           </nav>
+  71:           <Button
+  72:             variant="outline"
+  73:             nativeButton={false}
+  74:             render={
+  75:               <Link
+  76:                 ref={sign_in_link_ref}
+  77:                 data-testid="header-sign-in-link"
+  78:                 href={signInHref}
+  79:               />
+  80:             }
+  81:           >
+  82:             Sign in
+  83:           </Button>
+  84:         </div>
+  85:       </header>
+  86:       {children}
+  87:       <CommandPalette
+  88:         open={palette_open}
+  89:         onOpenChange={set_palette_open}
+  90:         templates={templates}
+  91:         signInLinkRef={sign_in_link_ref}
+  92:       />
+  93:     </>
+  94:   );
+  95: }
+
+ succeeded in 2061ms:
+   1: "use client";
+   2: 
+   3: import { useEffect, useState } from "react";
+   4: 
+   5: import { Button } from "@/components/ui/button";
+   6: import {
+   7:   compareRuns,
+   8:   listCompletedRuns,
+   9:   type ReportComparison,
+  10:   type RunStatusResponse,
+  11: } from "@/lib/api";
+  12: 
+  13: // I-ui-004 (#543): two-run compare. Pick two completed runs → GET
+  14: // /runs/{l}/compare/{r}. Distinct from /benchmark (POLARIS-vs-external).
+  15: 
+  16: function optionLabel(run: RunStatusResponse): string {
+  17:   const q =
+  18:     run.question.length > 60 ? `${run.question.slice(0, 60)}…` : run.question;
+  19:   return `${run.template} · ${q} · ${run.run_id.slice(0, 8)}`;
+  20: }
+  21: 
+  22: function compareErrorMessage(err: unknown): string {
+  23:   const status = (err as { status?: number })?.status;
+  24:   if (status === 400) return "Pick two distinct runs.";
+  25:   if (status === 404) return "One of the runs was not found.";
+  26:   if (status === 422)
+  27:     return "One of the runs has no shippable evidence (aborted or release-blocked).";
+  28:   return "Couldn't compare those runs right now. Please retry shortly.";
+  29: }
+  30: 
+  31: export default function ComparePage() {
+  32:   const [runs, setRuns] = useState<RunStatusResponse[] | null>(null);
+  33:   const [left, setLeft] = useState("");
+  34:   const [right, setRight] = useState("");
+  35:   const [submitting, setSubmitting] = useState(false);
+  36:   const [result, setResult] = useState<ReportComparison | null>(null);
+  37:   const [error, setError] = useState<string | null>(null);
+  38: 
+  39:   useEffect(() => {
+  40:     let cancelled = false;
+  41:     listCompletedRuns(50)
+  42:       .then((value) => {
+  43:         if (!cancelled) setRuns(value);
+  44:       })
+  45:       .catch(() => {
+  46:         if (!cancelled) setRuns([]);
+  47:       });
+  48:     return () => {
+  49:       cancelled = true;
+  50:     };
+  51:   }, []);
+  52: 
+  53:   const distinct = left !== "" && right !== "" && left !== right;
+  54: 
+  55:   async function onCompare() {
+  56:     if (!distinct) return;
+  57:     setSubmitting(true);
+  58:     setError(null);
+  59:     setResult(null);
+  60:     try {
+  61:       setResult(await compareRuns(left, right));
+  62:     } catch (err) {
+  63:       setError(compareErrorMessage(err));
+  64:     } finally {
+  65:       setSubmitting(false);
+  66:     }
+  67:   }
+  68: 
+  69:   return (
+  70:     <section
+  71:       data-testid="compare-page"
+  72:       className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+  73:     >
+  74:       <div className="flex flex-col gap-2">
+  75:         <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+  76:           Compare two runs
+  77:         </h1>
+  78:         <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+  79:           Pick two completed runs to see shared vs unique evidence, frame
+  80:           coverage overlap, and contradiction counts. This is run-vs-run — for
+  81:           POLARIS-vs-external, use Benchmark.
+  82:         </p>
+  83:       </div>
+  84: 
+  85:       {runs !== null && runs.length === 0 && (
+  86:         <p className="text-muted-foreground text-sm">
+  87:           No completed runs to compare yet.{" "}
+  88:           <a className="text-primary underline" href="/intake">
+  89:             Start a run
+  90:           </a>
+  91:           .
+  92:         </p>
+  93:       )}
+  94: 
+  95:       {runs !== null && runs.length > 0 && (
+  96:         <div className="flex flex-col gap-3">
+  97:           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+  98:             <RunPicker
+  99:               label="Left run"
+ 100:               testid="compare-left"
+ 101:               runs={runs}
+ 102:               value={left}
+ 103:               onChange={setLeft}
+ 104:             />
+ 105:             <RunPicker
+ 106:               label="Right run"
+ 107:               testid="compare-right"
+ 108:               runs={runs}
+ 109:               value={right}
+ 110:               onChange={setRight}
+ 111:             />
+ 112:           </div>
+ 113:           <div className="flex items-center gap-3">
+ 114:             <Button
+ 115:               type="button"
+ 116:               onClick={onCompare}
+ 117:               disabled={!distinct || submitting}
+ 118:             >
+ 119:               {submitting ? "Comparing…" : "Compare"}
+ 120:             </Button>
+ 121:             {left !== "" && right !== "" && left === right && (
+ 122:               <span className="text-muted-foreground text-xs">
+ 123:                 Pick two distinct runs.
+ 124:               </span>
+ 125:             )}
+ 126:           </div>
+ 127:         </div>
+ 128:       )}
+ 129: 
+ 130:       {error && (
+ 131:         <p
+ 132:           role="alert"
+ 133:           className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+ 134:         >
+ 135:           {error}
+ 136:         </p>
+ 137:       )}
+ 138: 
+ 139:       {result && <ComparisonView result={result} />}
+ 140:     </section>
+ 141:   );
+ 142: }
+ 143: 
+ 144: function RunPicker({
+ 145:   label,
+ 146:   testid,
+ 147:   runs,
+ 148:   value,
+ 149:   onChange,
+ 150: }: {
+ 151:   label: string;
+ 152:   testid: string;
+ 153:   runs: RunStatusResponse[];
+ 154:   value: string;
+ 155:   onChange: (v: string) => void;
+ 156: }) {
+ 157:   return (
+ 158:     <label className="flex flex-col gap-1">
+ 159:       <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+ 160:         {label}
+ 161:       </span>
+ 162:       <select
+ 163:         data-testid={testid}
+ 164:         value={value}
+ 165:         onChange={(e) => onChange(e.target.value)}
+ 166:         className="border-input focus-visible:border-ring focus-visible:ring-ring rounded-lg border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2"
+ 167:       >
+ 168:         <option value="">Select a run…</option>
+ 169:         {runs.map((run) => (
+ 170:           <option key={run.run_id} value={run.run_id}>
+ 171:             {optionLabel(run)}
+ 172:           </option>
+ 173:         ))}
+ 174:       </select>
+ 175:     </label>
+ 176:   );
+ 177: }
+ 178: 
+ 179: function Flag({ label, ok }: { label: string; ok: boolean }) {
+ 180:   return (
+ 181:     <span className="text-muted-foreground flex items-center gap-1 text-xs">
+ 182:       <span className={ok ? "text-primary" : "text-muted-foreground"}>
+ 183:         {ok ? "✓" : "✗"}
+ 184:       </span>
+ 185:       {label}
+ 186:     </span>
+ 187:   );
+ 188: }
+ 189: 
+ 190: function EvidenceColumn({ title, ids }: { title: string; ids: string[] }) {
+ 191:   return (
+ 192:     <div className="border-border bg-card flex flex-col gap-1 rounded-lg border p-3">
+ 193:       <span className="text-foreground text-xs font-semibold">
+ 194:         {title} ({ids.length})
+ 195:       </span>
+ 196:       <div className="flex flex-wrap gap-1">
+ 197:         {ids.slice(0, 20).map((id) => (
+ 198:           <span
+ 199:             key={id}
+ 200:             className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
+ 201:           >
+ 202:             {id}
+ 203:           </span>
+ 204:         ))}
+ 205:         {ids.length > 20 && (
+ 206:           <span className="text-muted-foreground text-[10px]">
+ 207:             + {ids.length - 20} more
+ 208:           </span>
+ 209:         )}
+ 210:         {ids.length === 0 && (
+ 211:           <span className="text-muted-foreground text-[10px]">—</span>
+ 212:         )}
+ 213:       </div>
+ 214:     </div>
+ 215:   );
+ 216: }
+ 217: 
+ 218: function ComparisonView({ result }: { result: ReportComparison }) {
+ 219:   const pct = Math.round((result.shared_evidence_pct ?? 0) * 100);
+ 220:   return (
+ 221:     <div data-testid="comparison-result" className="flex flex-col gap-5">
+ 222:       <div className="border-border bg-card flex flex-wrap items-center gap-4 rounded-lg border p-4">
+ 223:         <span className="text-foreground text-sm font-semibold">
+ 224:           {pct}% shared evidence
+ 225:         </span>
+ 226:         <Flag label="Same template" ok={result.same_template} />
+ 227:         <Flag label="Same question" ok={result.same_question} />
+ 228:         <Flag label="Pipeline status match" ok={result.pipeline_status_match} />
+ 229:         <Flag
+ 230:           label="Two-family segregation (both)"
+ 231:           ok={result.family_segregation_both_pass}
+ 232:         />
+ 233:       </div>
+ 234: 
+ 235:       <div className="flex flex-col gap-2">
+ 236:         <h2 className="text-foreground text-sm font-semibold">Evidence</h2>
+ 237:         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+ 238:           <EvidenceColumn title="Shared" ids={result.shared_evidence_ids} />
+ 239:           <EvidenceColumn
+ 240:             title="Only left"
+ 241:             ids={result.only_left_evidence_ids}
+ 242:           />
+ 243:           <EvidenceColumn
+ 244:             title="Only right"
+ 245:             ids={result.only_right_evidence_ids}
+ 246:           />
+ 247:         </div>
+ 248:       </div>
+ 249: 
+ 250:       <div className="flex flex-col gap-2">
+ 251:         <h2 className="text-foreground text-sm font-semibold">
+ 252:           Frame coverage
+ 253:         </h2>
+ 254:         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+ 255:           <EvidenceColumn title="Overlap" ids={result.frame_coverage_overlap} />
+ 256:           <EvidenceColumn title="Only left" ids={result.only_left_frames} />
+ 257:           <EvidenceColumn title="Only right" ids={result.only_right_frames} />
+ 258:         </div>
+ 259:       </div>
+ 260: 
+ 261:       <div className="border-border flex gap-6 rounded-lg border p-4 text-sm">
+ 262:         <span className="text-muted-foreground">
+ 263:           Left contradictions:{" "}
+ 264:           <span className="text-foreground font-mono">
+ 265:             {result.left_contradictions}
+ 266:           </span>
+ 267:         </span>
+ 268:         <span className="text-muted-foreground">
+ 269:           Right contradictions:{" "}
+ 270:           <span className="text-foreground font-mono">
+ 271:             {result.right_contradictions}
+ 272:           </span>
+ 273:         </span>
+ 274:       </div>
+ 275:     </div>
+ 276:   );
+ 277: }
+
+codex
+The client wrapper uses the existing `authFetch`/`asJsonOrThrow` path, and the compare button has a real distinct guard before calling the API. I’m checking backend contract shape and the nav assertions now, since those are the places where a UI-only diff can still break execution.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"@.*runs|status=completed|compare/|def .*compare|ReportComparison|RunStatusResponse|list.*runs|/runs\" src tests web/tests -g '"'!web/node_modules'"'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web/tests/e2e/home_g1_g8.spec.ts | Select-Object -First 120 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"PRIMARY_NAV_LABELS|Benchmark|Contracts|Pin Replay|Memory|toHaveCount|for \\(const label|length|Compare\" web/tests/e2e -g '*.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web/tests/e2e/demo_journey.spec.ts | Select-Object -First 120 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+ succeeded in 1335ms:
+   1: // I-cd-022 (#612): home route G1-G8 acceptance gates per
+   2: // state/polaris_ui_rebuild_matrix.md §2. Mechanical assertions only —
+   3: // no subjective polish judgments.
+   4: 
+   5: import { expect, test } from "@playwright/test";
+   6: 
+   7: const BANNED_DEV_LANGUAGE = [
+   8:   /\bslice\b/i,
+   9:   /\bscaffold\b/i,
+  10:   /\bplaceholder\b/i,
+  11:   /\bphase 0\b/i,
+  12:   /\bpost[- ]carney\b/i,
+  13:   /\bi-cd-/i,
+  14: ];
+  15: 
+  16: test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
+  17:   page,
+  18: }) => {
+  19:   await page.goto("/");
+  20: 
+  21:   // G1: exactly one <header> element (no duplicate from a forgotten AppShell).
+  22:   const headers = page.locator("header");
+  23:   await expect(headers).toHaveCount(1);
+  24: 
+  25:   // Primary nav present + identical to other routes (Home/Intake/Dashboard/
+  26:   // Upload/Benchmark/Contracts/Pin Replay/Memory).
+  27:   const nav = page.locator("nav[aria-label='Primary']");
+  28:   await expect(nav).toBeVisible();
+  29:   for (const label of [
+  30:     "Home",
+  31:     "Intake",
+  32:     "Dashboard",
+  33:     "Upload",
+  34:     "Benchmark",
+  35:     "Contracts",
+  36:     "Pin Replay",
+  37:     "Memory",
+  38:   ]) {
+  39:     await expect(nav.getByRole("link", { name: label })).toBeVisible();
+  40:   }
+  41: 
+  42:   // G6 (single main landmark — Codex iter-2 P1 fix).
+  43:   const mains = page.locator("main");
+  44:   await expect(mains).toHaveCount(1);
+  45: });
+  46: 
+  47: test("I-cd-ui-001: home hero search submits to /intake?q=", async ({
+  48:   page,
+  49: }) => {
+  50:   await page.goto("/");
+  51:   const form = page.getByTestId("home-hero-search");
+  52:   await expect(form).toBeVisible();
+  53:   // The hero is a progressive GET form (works without JS): action=/intake,
+  54:   // input name=q. Submitting routes to /intake?q=<question>.
+  55:   await expect(form).toHaveAttribute("action", "/intake");
+  56:   const input = form.locator("input[name='q']");
+  57:   await expect(input).toBeVisible();
+  58:   await input.fill("does aspirin reduce headaches");
+  59:   await form.locator("button[type='submit']").click();
+  60:   await page.waitForURL(/\/intake\?q=/);
+  61:   expect(page.url()).toContain("q=does");
+  62: });
+  63: 
+  64: test("G2: home contains no banned dev-language strings", async ({ page }) => {
+  65:   await page.goto("/");
+  66:   const body_text = (await page.locator("body").textContent()) || "";
+  67:   for (const banned of BANNED_DEV_LANGUAGE) {
+  68:     expect(body_text).not.toMatch(banned);
+  69:   }
+  70: });
+  71: 
+  72: test("G3: active template card link has focus-visible + hover styling", async ({
+  73:   page,
+  74: }) => {
+  75:   await page.goto("/");
+  76:   const link = page.getByTestId("template-card-clinical-link");
+  77:   await expect(link).toBeVisible();
+  78:   const className = (await link.getAttribute("class")) || "";
+  79:   // shadcn/ui Button injects focus-visible:ring + hover utilities. Codex
+  80:   // iter-1 P2 fix: assert on the LINK, not the card (cards are not
+  81:   // interactive — links/buttons are).
+  82:   expect(className).toMatch(/focus-visible/);
+  83: });
+  84: 
+  85: test("G6: tab key reaches the active template card link", async ({ page }) => {
+  86:   await page.goto("/");
+  87:   // Tab repeatedly until the focused element is the active template link.
+  88:   for (let i = 0; i < 30; i++) {
+  89:     await page.keyboard.press("Tab");
+  90:     const focused = await page.evaluate(
+  91:       () => document.activeElement?.getAttribute("data-testid") ?? null,
+  92:     );
+  93:     if (focused === "template-card-clinical-link") return;
+  94:   }
+  95:   throw new Error("active template card link never received focus via Tab");
+  96: });
+  97: 
+  98: test("G8: home renders with zero console errors", async ({ page }) => {
+  99:   const errors: string[] = [];
+ 100:   page.on("console", (msg) => {
+ 101:     if (msg.type() === "error") errors.push(msg.text());
+ 102:   });
+ 103:   await page.goto("/");
+ 104:   // Idle long enough for hydration + any async errors to surface.
+ 105:   await page.waitForLoadState("networkidle");
+ 106:   expect(errors).toEqual([]);
+ 107: });
+
+ succeeded in 1736ms:
+tests\e2e\visual_regression_suite.py:51:def _compare_screenshots(
+tests\v6\conftest.py:54:    by an earlier test would otherwise make a later test's `POST /runs` return
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:1:"""I-arch-001d — GET /runs/{run_id}/bundle.tar.gz endpoint coverage.
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:41:    resp = client.get("/runs/no_such_run/bundle.tar.gz")
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:50:    resp = client.get("/runs/run_queued/bundle.tar.gz")
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:66:    resp = client.get("/runs/run_aborted/bundle.tar.gz")
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:99:    resp = client.get("/runs/run_completed/bundle.tar.gz")
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:141:    resp = client.get("/runs/run_release_blocked/bundle.tar.gz")
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:182:    resp = client.get("/runs/run_signed/bundle.tar.gz")
+tests\polaris_graph\api\test_graph_route.py:43:    r = client.get("/api/runs/no_such_run/graph")
+tests\polaris_graph\api\test_graph_route.py:56:    r = client.get(f"/api/runs/{small_ir.run_id}/graph")
+tests\polaris_graph\api\test_graph_route.py:63:    r = client.get(f"/api/runs/{small_ir.run_id}/graph")
+tests\polaris_graph\api\test_graph_route.py:136:    assert any("/api/runs/{run_id}/graph" in p for p in paths), \
+tests\polaris_graph\api\test_graph_route.py:137:        f"graph route not mounted; paths sample: {[p for p in paths if '/api/runs' in p][:5]}"
+tests\v6\acceptance\test_runs_db_integration.py:1:"""Integration tests for I-phase0-005 — POST /runs -> Dramatiq -> SQLite.
+tests\v6\acceptance\test_runs_db_integration.py:6:- POST /runs persists row + enqueues actor.
+tests\v6\acceptance\test_runs_db_integration.py:7:- GET /runs/{id} reads from store.
+tests\v6\acceptance\test_runs_db_integration.py:71:    """Acceptance #2: pre-inserted row reaches lifecycle_status=completed after broker drain.
+tests\v6\acceptance\test_runs_db_integration.py:128:    """Acceptance #3: POST /runs returns 202 with status='queued' and persists a row."""
+tests\v6\acceptance\test_runs_db_integration.py:138:    response = client.post("/runs", json={"template": "clinical", "question": "noop?"})
+tests\v6\acceptance\test_runs_db_integration.py:150:    """Acceptance #4: full POST + drain + GET loop returns lifecycle_status=completed.
+tests\v6\acceptance\test_runs_db_integration.py:182:    post_resp = client.post("/runs", json={"template": "clinical", "question": "noop?"})
+tests\v6\acceptance\test_runs_db_integration.py:196:    get_resp = client.get(f"/runs/{run_id}")
+tests\v3\test_react_agent.py:4421:def test_ws4_compare_configs_insufficient():
+tests\v6\test_end_to_end_arch_001f.py:3:POST /runs → simulate pipeline-A side-effects → GET /runs/{id} →
+tests\v6\test_end_to_end_arch_001f.py:5:GET /runs/{id}/bundle.tar.gz → extract tar → cross-validate manifest.yaml
+tests\v6\test_end_to_end_arch_001f.py:151:    """Capstone test pinning POST/runs → stream → resume → bundle chain."""
+tests\v6\test_end_to_end_arch_001f.py:156:    # ----- Step 1: POST /runs ---------------------------------------------
+tests\v6\test_end_to_end_arch_001f.py:158:        "/runs", json={"template": "clinical", "question": "synthetic question"}
+tests\v6\test_end_to_end_arch_001f.py:230:    # ----- Step 3: GET /runs/{id} -----------------------------------------
+tests\v6\test_end_to_end_arch_001f.py:231:    get_resp = client.get(f"/runs/{posted_run_id}")
+tests\v6\test_end_to_end_arch_001f.py:273:    # ----- Step 6: GET /runs/{id}/bundle.tar.gz ---------------------------
+tests\v6\test_end_to_end_arch_001f.py:275:    bundle_resp = client.get(f"/runs/{posted_run_id}/bundle.tar.gz")
+tests\v6\test_cancellation.py:7:* POST /runs/{id}/cancel (the `cancel_run` route function) — 404 / terminal
+tests\v6\test_cancellation.py:104:# POST /runs/{id}/cancel — the cancel_run route function
+tests\v6\test_api_health_and_runs.py:1:"""Tests for /health and /runs router contracts.
+tests\v6\test_api_health_and_runs.py:30:        "/runs",
+tests\v6\test_api_health_and_runs.py:42:        "/runs",
+tests\v6\test_api_health_and_runs.py:50:        "/runs",
+tests\v6\test_api_health_and_runs.py:57:    response = client.get("/runs/does_not_exist")
+tests\v6\test_api_health_and_runs.py:63:        "/runs",
+tests\v6\test_api_health_and_runs.py:68:    get_response = client.get(f"/runs/{run_id}")
+tests\v6\test_document_grounding.py:6:* `_resolve_uploaded_documents` (POST /runs) — resolves document_ids →
+tests\v6\test_document_grounding.py:100:# _resolve_uploaded_documents (POST /runs)
+tests\v6\test_document_grounding.py:137:    # later, in the actor; /runs only resolves content.
+tests\v6\test_concurrency.py:3:POST /runs admits at most one active (queued | in_progress) research run.
+tests\v6\test_concurrency.py:164:# --- POST /runs API level --------------------------------------------------
+tests\v6\test_concurrency.py:179:        "/runs",
+tests\v6\test_concurrency.py:185:        "/runs",
+tests\v6\test_concurrency.py:198:        "/runs",
+tests\v6\test_concurrency.py:205:        "/runs",
+tests\v6\test_concurrency.py:222:        "/runs",
+tests\v6\test_concurrency.py:234:        "/runs",
+tests\v6\test_api_followup_compare.py:19:        "/runs/golden_clinical_001/followup",
+tests\v6\test_api_followup_compare.py:31:        "/runs/golden_clinical_001/followup",
+tests\v6\test_api_followup_compare.py:41:        "/runs/does_not_exist/followup",
+tests\v6\test_api_followup_compare.py:49:        "/runs/golden_clinical_001/followup", json={"question": "x"}
+tests\v6\test_api_followup_compare.py:54:def test_compare_two_distinct_runs(client):
+tests\v6\test_api_followup_compare.py:56:        "/runs/golden_clinical_001/compare/golden_housing_002"
+tests\v6\test_api_followup_compare.py:66:def test_compare_same_run_400(client):
+tests\v6\test_api_followup_compare.py:68:        "/runs/golden_clinical_001/compare/golden_clinical_001"
+tests\v6\test_api_followup_compare.py:73:def test_compare_unknown_run_404(client):
+tests\v6\test_api_followup_compare.py:75:        "/runs/golden_clinical_001/compare/does_not_exist"
+tests\v6\test_api_followup_compare.py:80:def test_compare_defense_vs_climate_shared_zero(client):
+tests\v6\test_api_followup_compare.py:82:        "/runs/golden_defense_004/compare/golden_climate_005"
+tests\v6\test_api_charts.py:1:"""Tests for GET /runs/{run_id}/charts/{chart_type}.
+tests\v6\test_api_charts.py:73:    response = client.get("/runs/does_not_exist/charts/forest_plot")
+tests\v6\test_api_charts.py:80:    response = client.get("/runs/ct_run/charts/pie_chart")
+tests\v6\test_api_charts.py:91:    response = client.get("/runs/abort_run/charts/forest_plot")
+tests\v6\test_api_charts.py:107:    response = client.get(f"/runs/full_run/charts/{chart_type}")
+tests\v6\test_api_charts.py:126:    response = client.get("/runs/contra_run/charts/forest_plot")
+tests\v6\test_api_charts.py:144:    response = client.get("/runs/bib_run/charts/comparison_table")
+tests\v6\test_api_charts.py:157:    response = client.get("/runs/timeline_run/charts/timeline")
+tests\v6\test_api_charts.py:174:    response = client.get("/runs/rate_run/charts/forest_plot")
+tests\v6\test_api_charts.py:198:    response = client.get("/runs/zerotot_run/charts/forest_plot")
+tests\v6\test_api_bundle.py:18:    response = client.get("/runs/does_not_exist/bundle")
+tests\v6\test_api_bundle.py:23:    response = client.get("/runs/golden_clinical_001/bundle")
+tests\v6\test_api_bundle.py:35:    response = client.get("/runs/golden_housing_002/bundle")
+tests\v6\test_api_bundle.py:44:    response = client.get("/runs/golden_abort_003/bundle")
+tests\v6\test_api_bundle.py:115:    response = client.get(f"/runs/{run_id}/bundle")
+tests\v6\test_api_bundle.py:147:    response = client.get(f"/runs/{run_id}/bundle")
+tests\v6\test_api_bundle.py:162:    response = client.get("/runs/totally_unknown_id/bundle")
+tests\v6\test_pins_route.py:3:Covers: GET /runs/{run_id}/pins (list) + GET /runs/{run_id}/pins/{date}
+tests\v6\test_pins_route.py:113:    response = client.get("/runs/r_a/pins")
+tests\v6\test_pins_route.py:152:    response = client.get("/runs/r_abort/pins")
+tests\v6\test_pins_route.py:191:    response = client.get("/runs/r_mid/pins")
+tests\v6\test_pins_route.py:198:    response = client.get("/runs/missing/pins")
+tests\v6\test_pins_route.py:244:    response = client.get("/runs/r_anchor/pins")
+tests\v6\test_pins_route.py:270:    response = client.get("/runs/r_e/pins/2026-05-20")
+tests\v6\test_pins_route.py:295:    response = client.get("/runs/r_w/pins/2026-05-21")
+tests\v6\test_pins_route.py:300:    response = client.get("/runs/r_w/pins/not-a-date")
+tests\v6\test_pins_route.py:331:    response = client.get("/runs/r_qwen/pins")
+tests\v6\test_pins_route.py:339:    response = client.get("/runs/r_qwen/pins/2026-05-20")
+tests\v6\test_pins_route.py:366:    response = client.get("/runs/r_z/pins/2026-05-20")
+tests\v6\test_actors_upload_error_path.py:143:    """RunRequest.document_ids max_length=20 → POST /runs with 21 ids returns 422."""
+tests\v6\test_actors_upload_error_path.py:151:        "/runs",
+tests\v6\test_actors_upload_error_path.py:174:        "/runs",
+tests\v6\test_sse_query_auth.py:17:    test routes: a /stream/{id} (SSE-style) and a /runs/{id} (normal)."""
+tests\v6\test_sse_query_auth.py:31:    @app.get("/runs/{run_id}")
+tests\v6\test_sse_query_auth.py:70:    """The access_token query param must NOT authenticate /runs/* — only
+tests\v6\test_sse_query_auth.py:75:    resp = TestClient(auth_app).get(f"/runs/rid-1?access_token={token}")
+tests\v6\test_inspector_route.py:1:"""GET /api/inspector/runs/{run_id} — v6 live-inspector AuditIR route.
+tests\v6\test_inspector_route.py:71:    response = client.get("/api/inspector/runs/no_such_run")
+tests\v6\test_inspector_route.py:77:    response = client.get("/api/inspector/runs/queued_run")
+tests\v6\test_inspector_route.py:88:    response = client.get("/api/inspector/runs/abort_run")
+tests\v6\test_inspector_route.py:98:    response = client.get("/api/inspector/runs/nodir_run")
+tests\v6\test_inspector_route.py:108:    response = client.get("/api/inspector/runs/good_run")
+tests\v6\test_inspector_route.py:121:# I-rdy-008 (#504) slice 7a — GET /api/inspector/runs/{run_id}/evidence
+tests\v6\test_inspector_route.py:172:    response = client.get("/api/inspector/runs/no_such_run/evidence")
+tests\v6\test_inspector_route.py:196:    response = client.get("/api/inspector/runs/ev_run/evidence")
+tests\v6\test_inspector_route.py:229:    response = client.get("/api/inspector/runs/multi_run/evidence")
+tests\v6\test_inspector_route.py:251:    response = client.get("/api/inspector/runs/nopool_run/evidence")
+tests\v6\test_inspector_route.py:269:    response = client.get("/api/inspector/runs/badpool_run/evidence")
+tests\v6\test_inspector_route.py:286:    response = client.get("/api/inspector/runs/oob_run/evidence")
+tests\v6\test_inspector_route.py:305:    response = client.get("/api/inspector/runs/missing_ev_run/evidence")
+tests\v6\test_inspector_route.py:330:    response = client.get("/api/inspector/runs/nobody_run/evidence")
+tests\v6\test_inspector_route.py:345:    response = client.get("/api/inspector/runs/zerotok_run/evidence")
+tests\v6\test_inspector_route.py:374:    response = client.get("/api/inspector/runs/sources_run/evidence")
+tests\v6\test_runs_list_endpoint.py:1:"""I-cd-705 (#705) — GET /api/v6/runs list endpoint + run_store.list_completed_runs.
+tests\v6\test_runs_list_endpoint.py:48:def test_list_completed_runs_newest_first_excludes_abort_and_active(db_path):
+tests\v6\test_runs_list_endpoint.py:56:    runs = run_store.list_completed_runs(limit=20, path=db_path)
+tests\v6\test_runs_list_endpoint.py:61:def test_list_completed_runs_respects_limit(db_path):
+tests\v6\test_runs_list_endpoint.py:66:    runs = run_store.list_completed_runs(limit=2, path=db_path)
+tests\v6\test_runs_list_endpoint.py:71:def test_list_completed_runs_empty_when_none(db_path):
+tests\v6\test_runs_list_endpoint.py:74:    assert run_store.list_completed_runs(limit=20, path=db_path) == []
+tests\v6\test_runs_list_endpoint.py:93:    resp = client.get("/runs?status=completed&limit=10")
+tests\v6\test_runs_list_endpoint.py:101:    resp = client.get("/runs?status=queued")
+tests\v6\test_runs_list_endpoint.py:109:    resp = client.get("/runs?limit=99999")
+src\polaris_v6\schemas\run_status.py:48:class RunStatusResponse(BaseModel):
+src\polaris_v6\schemas\run_request.py:1:"""Run-request payload schema (POST /runs body)."""
+src\polaris_v6\queue\run_store.py:8:- get_run returns the full RunStatusResponse with new optional fields
+src\polaris_v6\queue\run_store.py:22:  POST /runs so a 2nd concurrent request cannot start a parallel session.
+src\polaris_v6\queue\run_store.py:38:from polaris_v6.schemas.run_status import RunStatusResponse
+src\polaris_v6\queue\run_store.py:44:# /runs/{id}/cancel endpoint shares one definition of "terminal".
+src\polaris_v6\queue\run_store.py:57:# in one of these blocks a new POST /runs (1-concurrent-session constraint).
+src\polaris_v6\queue\run_store.py:157:    constraint. POST /runs uses `insert_run_if_idle`; this remains for test
+src\polaris_v6\queue\run_store.py:175:) -> RunStatusResponse | None:
+src\polaris_v6\queue\run_store.py:180:    concurrent POST /runs cannot both pass the check. `BEGIN IMMEDIATE`
+src\polaris_v6\queue\run_store.py:185:    RunStatusResponse when rejected (caller raises HTTP 409).
+src\polaris_v6\queue\run_store.py:424:def _row_to_response(row: sqlite3.Row) -> RunStatusResponse:
+src\polaris_v6\queue\run_store.py:425:    return RunStatusResponse(
+src\polaris_v6\queue\run_store.py:445:def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None:
+src\polaris_v6\queue\run_store.py:491:def get_active_run(*, path: str | None = None) -> RunStatusResponse | None:
+src\polaris_v6\queue\run_store.py:527:def list_completed_runs_by_query_slug(
+src\polaris_v6\queue\run_store.py:529:) -> list[RunStatusResponse]:
+src\polaris_v6\queue\run_store.py:564:def list_completed_runs(
+src\polaris_v6\queue\run_store.py:566:) -> list[RunStatusResponse]:
+src\polaris_v6\queue\run_store.py:569:    I-cd-705 (#705): source for GET /api/v6/runs — the compare picker (#543),
+tests\polaris_graph\test_citation_health.py:557:    res = client.get("/api/inspector/runs/does_not_exist/health")
+tests\polaris_graph\test_citation_health.py:586:    res = client.get(f"/api/inspector/runs/{slug}/health")
+tests\polaris_graph\test_audit_ir_registry.py:23:    list_available_runs,
+tests\polaris_graph\test_audit_ir_registry.py:39:def test_list_available_runs_includes_canonical_demo() -> None:
+tests\polaris_graph\test_audit_ir_registry.py:40:    runs = list_available_runs()
+tests\polaris_graph\test_audit_ir_registry.py:46:    runs = list_available_runs()
+tests\polaris_graph\test_audit_ir_registry.py:69:    runs = list_available_runs()
+tests\polaris_graph\test_audit_ir_registry.py:83:    runs = list_available_runs()
+tests\polaris_graph\test_audit_ir_registry.py:90:    runs = list_available_runs()
+tests\polaris_graph\test_audit_ir_registry.py:98:    Before fix: list returned 90 runs, 75 of them failed strict load.
+tests\polaris_graph\test_audit_ir_registry.py:100:    for run in list_available_runs():
+tests\polaris_graph\test_audit_ir_registry.py:107:    runs = list_available_runs()
+tests\polaris_graph\test_audit_ir_registry.py:122:    runs = list_available_runs()
+src\polaris_graph\tools\react_agent.py:2047:        # multiple options to compare even without "compare/vs")
+tests\polaris_graph\test_inspector_router.py:22:def test_list_runs_endpoint() -> None:
+tests\polaris_graph\test_inspector_router.py:24:    resp = client.get("/api/inspector/runs")
+tests\polaris_graph\test_inspector_router.py:35:    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}")
+tests\polaris_graph\test_inspector_router.py:47:    resp = client.get("/api/inspector/runs/does_not_exist")
+tests\polaris_graph\test_inspector_router.py:53:    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/report.md")
+tests\polaris_graph\test_inspector_router.py:60:    resp = client.get("/api/inspector/runs/does_not_exist/report.md")
+tests\polaris_graph\test_inspector_router.py:101:    """Every run from /api/inspector/runs must be fetchable at /api/inspector/runs/{slug}.
+tests\polaris_graph\test_inspector_router.py:103:    Before the fix: list reported 90 runs, but 75 of them returned 500 on detail.
+tests\polaris_graph\test_inspector_router.py:106:    list_resp = client.get("/api/inspector/runs")
+tests\polaris_graph\test_inspector_router.py:112:        detail_resp = client.get(f"/api/inspector/runs/{slug}")
+tests\polaris_graph\test_inspector_router.py:143:    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}")
+tests\polaris_graph\test_inspector_router.py:187:    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/report.md")
+tests\polaris_graph\test_inspector_router.py:193:    detail = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}").json()
+tests\polaris_graph\test_inspector_router.py:306:    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}")
+tests\polaris_graph\test_inspector_router.py:403:    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}")
+tests\polaris_graph\test_inspector_router.py:495:    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}")
+tests\polaris_graph\test_inspector_router.py:582:    """M-6: the export button must point at /api/inspector/runs/{slug}/audit-bundle.zip."""
+tests\polaris_graph\test_inspector_router.py:616:    """M-6: /api/inspector/runs/{slug}/audit-bundle.zip returns a valid ZIP
+tests\polaris_graph\test_inspector_router.py:622:    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/audit-bundle.zip")
+tests\polaris_graph\test_inspector_router.py:657:    resp = client.get("/api/inspector/runs/does_not_exist/audit-bundle.zip")
+tests\polaris_graph\test_inspector_router.py:673:    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/audit-bundle.zip")
+tests\polaris_graph\test_inspector_router.py:704:    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/audit-bundle.zip")
+tests\polaris_graph\test_inspector_router.py:764:        resp = client.get("/api/inspector/runs/stub_incomplete/audit-bundle.zip")
+tests\polaris_graph\test_inspector_router.py:837:    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}")
+tests\polaris_graph\test_inspector_router.py:933:    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}")
+tests\polaris_graph\test_inspector_browser.py:366:    """M-6: the export button links to /api/inspector/runs/{slug}/audit-bundle.zip."""
+tests\polaris_graph\test_m18_dr_audit_fixes.py:76:def test_m18a_as_compared_to_also_works() -> None:
+src\polaris_graph\api\graph_route.py:3:`GET /api/runs/{run_id}/graph` returns a cytoscape-format `GraphPayload`
+src\polaris_graph\api\graph_route.py:234:@router.get("/runs/{run_id}/graph", response_model=GraphPayload)
+src\polaris_graph\api\audit_bundle_route.py:102:    GET /runs/{run_id}/bundle.tar.gz bridge. The bridge passes the run's
+src\polaris_graph\audit_ir\private_corpus_sync.py:470:    def list_sync_runs(
+src\polaris_graph\audit_ir\inspector_router.py:8:  GET  /api/inspector/runs                       -> list available runs
+src\polaris_graph\audit_ir\inspector_router.py:9:  GET  /api/inspector/runs/{slug}                -> full AuditIR JSON
+src\polaris_graph\audit_ir\inspector_router.py:10:  GET  /api/inspector/runs/{slug}/report.md      -> raw markdown
+src\polaris_graph\audit_ir\inspector_router.py:78:    list_available_runs,
+src\polaris_graph\audit_ir\inspector_router.py:476:@router.get("/api/inspector/runs")
+src\polaris_graph\audit_ir\inspector_router.py:477:async def list_runs() -> dict:
+src\polaris_graph\audit_ir\inspector_router.py:479:    runs = list_available_runs()
+src\polaris_graph\audit_ir\inspector_router.py:500:# Codex M-16 v2 review fix: /api/inspector/runs/diff MUST be
+src\polaris_graph\audit_ir\inspector_router.py:501:# declared BEFORE /api/inspector/runs/{slug}. FastAPI matches
+src\polaris_graph\audit_ir\inspector_router.py:504:@router.get("/api/inspector/runs/diff")
+src\polaris_graph\audit_ir\inspector_router.py:549:# /runs/diff. Must live above /runs/{slug} so FastAPI doesn't
+src\polaris_graph\audit_ir\inspector_router.py:551:@router.get("/api/inspector/runs/regression")
+src\polaris_graph\audit_ir\inspector_router.py:558:    Like `/runs/diff`, this endpoint is declared BEFORE the
+src\polaris_graph\audit_ir\inspector_router.py:559:    `/runs/{slug}` dynamic route to avoid path collision (FastAPI
+src\polaris_graph\audit_ir\inspector_router.py:594:@router.get("/api/inspector/runs/{slug}")
+src\polaris_graph\audit_ir\inspector_router.py:611:@router.get("/api/inspector/runs/{slug}/report.md", response_class=PlainTextResponse)
+src\polaris_graph\audit_ir\inspector_router.py:623:@router.get("/api/inspector/runs/{slug}/audit-bundle.zip")
+src\polaris_graph\audit_ir\inspector_router.py:824:@router.get("/api/inspector/runs/{slug}/health")
+src\polaris_graph\audit_ir\inspector_router.py:859:#   - /api/inspector/runs/{slug}/slide-deck → JSON deck dict
+src\polaris_graph\audit_ir\inspector_router.py:860:#   - /api/inspector/runs/{slug}/slide-deck.html → rendered HTML
+src\polaris_graph\audit_ir\inspector_router.py:871:# registry does a global allowlist scan. Cross-org access to runs
+src\polaris_graph\audit_ir\inspector_router.py:874:#   2. Updating all 5+ /api/inspector/runs/{slug}/* endpoints to
+src\polaris_graph\audit_ir\inspector_router.py:886:@router.get("/api/inspector/runs/{slug}/slide-deck")
+src\polaris_graph\audit_ir\inspector_router.py:931:    "/api/inspector/runs/{slug}/slide-deck.html",
+src\polaris_graph\audit_ir\inspector_router.py:1438:# Codex M-16 v2 review fix: /runs/diff was moved to a higher
+src\polaris_graph\audit_ir\inspector_router.py:1439:# position in the file (above /runs/{slug}) so FastAPI's path
+src\polaris_graph\audit_ir\inspector_router.py:1440:# matching reaches it first. v1 declared /runs/diff AFTER the
+src\polaris_graph\audit_ir\inspector_router.py:1441:# dynamic /runs/{slug} route, so requests matched as "slug=diff"
+src\polaris_v6\compare\differ.py:11:class ReportComparison:
+src\polaris_v6\compare\differ.py:29:def compare_reports(left: EvidenceContract, right: EvidenceContract) -> ReportComparison:
+src\polaris_v6\compare\differ.py:43:    return ReportComparison(
+src\polaris_graph\audit_ir\registry.py:164:def list_available_runs() -> list[RunSummary]:
+tests\polaris_graph\test_md1_auto_induction_harness.py:155:def test_compare_identical_contracts_score_one() -> None:
+tests\polaris_graph\test_md1_auto_induction_harness.py:174:def test_compare_inducer_returned_none() -> None:
+tests\polaris_graph\test_md1_auto_induction_harness.py:184:def test_compare_extra_section_in_induced() -> None:
+tests\polaris_graph\test_md1_auto_induction_harness.py:194:def test_compare_missing_entity() -> None:
+tests\polaris_graph\test_md1_auto_induction_harness.py:211:def test_compare_type_mismatch_penalized() -> None:
+tests\polaris_graph\test_md1_auto_induction_harness.py:229:def test_compare_required_fields_mismatch_penalized() -> None:
+tests\polaris_graph\test_md1_auto_induction_harness.py:251:def test_compare_partial_pseudocontract_does_not_hit_tau() -> None:
+tests\polaris_graph\test_md1_auto_induction_harness.py:278:def test_compare_weights_must_sum_to_one() -> None:
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:4:  1. Endpoint exists: GET /api/inspector/runs/{slug}/slide-deck (json)
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:5:                      GET /api/inspector/runs/{slug}/slide-deck.html (html)
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:56:        f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/slide-deck",
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:80:        f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/slide-deck.html",
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:96:        "/api/inspector/runs/nonexistent_slug/slide-deck",
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:109:        "/api/inspector/runs/nonexistent_slug/slide-deck.html",
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:122:        f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/slide-deck",
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:139:        f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/slide-deck",
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:236:    response = client.get("/api/inspector/runs/empty/slide-deck")
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:267:        "/api/inspector/runs/empty_html/slide-deck.html",
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:298:    response = client.get("/api/inspector/runs/missing_ir/slide-deck")
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:336:    response = client.get("/api/inspector/runs/build_fail/slide-deck")
+web/tests\e2e\runs_runid_g1_g8.spec.ts:1:// I-cd-025 (#615): /runs/[runId] route G1-G8 acceptance gates.
+web/tests\e2e\runs_runid_g1_g8.spec.ts:22:test("G1 + G6: /runs/[runId] has exactly one header + one main", async ({
+web/tests\e2e\runs_runid_g1_g8.spec.ts:25:  await page.goto(`/runs/${TEST_RUN_ID}`);
+web/tests\e2e\runs_runid_g1_g8.spec.ts:30:test("G2: /runs/[runId] contains no banned dev-language strings (body + titles + aria-labels)", async ({
+web/tests\e2e\runs_runid_g1_g8.spec.ts:33:  await page.goto(`/runs/${TEST_RUN_ID}`);
+web/tests\e2e\runs_runid_g1_g8.spec.ts:54:test("G8: /runs/[runId] renders with zero console errors", async ({ page }) => {
+web/tests\e2e\runs_runid_g1_g8.spec.ts:59:  await page.goto(`/runs/${TEST_RUN_ID}`);
+web/tests\e2e\runs_runid_g1_g8.spec.ts:67:test("G1 nav parity: primary nav visible on /runs/[runId]", async ({
+web/tests\e2e\runs_runid_g1_g8.spec.ts:70:  await page.goto(`/runs/${TEST_RUN_ID}`);
+web/tests\e2e\accessibility.spec.ts:290:// The /runs/<bad-runid> destructive-error test below stays here — it
+web/tests\e2e\accessibility.spec.ts:291:// targets the /runs/[runId] route which lands at I-cd-025 and uses a
+web/tests\e2e\accessibility.spec.ts:297:    // /runs/[runId] page also uses the destructive error pattern; verify it.
+web/tests\e2e\accessibility.spec.ts:298:    await page.goto("/runs/does_not_exist_runid_404", {
+tests\polaris_graph\test_md9_phase2_beat_both.py:356:def test_diff_only_common_dimensions_compared() -> None:
+web/tests\e2e\pin_replay.spec.ts:5:// after the rebuild fetches from `/api/v6/runs/{run_id}/pins`.
+src\polaris_v6\api\upload.py:13:I-rdy-010 (#506): `get_upload_record` + `chunk_text` let POST /runs
+src\polaris_v6\api\upload.py:16:process and cannot read it — so /runs (which runs in the API process)
+src\polaris_v6\api\upload.py:88:    Used by POST /runs (I-rdy-010) to resolve document_ids → content at
+src\polaris_v6\api\followup.py:1:"""POST /runs/{run_id}/followup — F11 report-scoped follow-up agent endpoint."""
+src\polaris_v6\api\followup.py:12:router = APIRouter(prefix="/runs", tags=["followup"])
+src\polaris_v6\api\runs.py:1:"""Runs router — POST /runs, GET /runs/{id}, POST /runs/{id}/cancel.
+src\polaris_v6\api\runs.py:7:I-rdy-010 (#506): POST /runs resolves uploaded `document_ids` to content
+src\polaris_v6\api\runs.py:13:I-rdy-011 (#507): POST /runs/{id}/cancel — a queued run cancels instantly;
+src\polaris_v6\api\runs.py:18:I-rdy-013 (#509): POST /runs enforces the 1-concurrent-session constraint
+src\polaris_v6\api\runs.py:35:from polaris_v6.schemas.run_status import RunStatusResponse
+src\polaris_v6\api\runs.py:37:router = APIRouter(prefix="/runs", tags=["runs"])
+src\polaris_v6\api\runs.py:81:@router.post("", response_model=RunStatusResponse, status_code=202)
+src\polaris_v6\api\runs.py:82:def create_run(payload: RunRequest) -> RunStatusResponse:
+src\polaris_v6\api\runs.py:144:@router.get("", response_model=list[RunStatusResponse])
+src\polaris_v6\api\runs.py:145:def list_runs(status: str = "completed", limit: int = 20) -> list[RunStatusResponse]:
+src\polaris_v6\api\runs.py:149:    recent-runs strip. Only `status=completed` is supported today; aborted
+src\polaris_v6\api\runs.py:150:    runs are excluded by run_store.list_completed_runs (not
+src\polaris_v6\api\runs.py:156:            detail="only status=completed is supported",
+src\polaris_v6\api\runs.py:159:    return run_store.list_completed_runs(limit=limit)
+src\polaris_v6\api\runs.py:162:@router.get("/{run_id}", response_model=RunStatusResponse)
+src\polaris_v6\api\runs.py:163:def get_run(run_id: str) -> RunStatusResponse:
+src\polaris_v6\api\runs.py:170:@router.post("/{run_id}/cancel", response_model=RunStatusResponse)
+src\polaris_v6\api\runs.py:171:def cancel_run(run_id: str) -> RunStatusResponse:
+src\polaris_v6\api\compare.py:1:"""GET /runs/{left}/compare/{right} — F12 side-by-side compare endpoint."""
+src\polaris_v6\api\compare.py:12:router = APIRouter(prefix="/runs", tags=["compare"])
+src\polaris_v6\api\compare.py:15:@router.get("/{left_run_id}/compare/{right_run_id}")
+src\polaris_v6\api\compare.py:16:def get_compare(left_run_id: str, right_run_id: str) -> dict:
+src\polaris_v6\api\pins.py:3:GET /runs/{run_id}/pins → list of PinSnapshot synthesized from all
+src\polaris_v6\api\pins.py:6:GET /runs/{run_id}/pins/{date} → single PinSnapshot for the exact
+src\polaris_v6\api\pins.py:10:- Pipeline status: `RunStatusResponse.pipeline_status` from run_store
+src\polaris_v6\api\pins.py:35:from polaris_v6.schemas.run_status import RunStatusResponse
+src\polaris_v6\api\pins.py:37:router = APIRouter(prefix="/runs", tags=["pins"])
+src\polaris_v6\api\pins.py:64:    run: RunStatusResponse,
+src\polaris_v6\api\pins.py:67:    """Build a PinSnapshot from a completed-run RunStatusResponse + manifest.
+src\polaris_v6\api\pins.py:126:def _qualifies(run: RunStatusResponse) -> bool:
+src\polaris_v6\api\pins.py:144:    siblings = run_store.list_completed_runs_by_query_slug(query_slug)
+src\polaris_v6\api\charts.py:1:"""GET /runs/{run_id}/charts/{chart_type} — Vega-Lite spec endpoint.
+src\polaris_v6\api\charts.py:22:router = APIRouter(prefix="/runs", tags=["charts"])
+src\polaris_v6\api\inspector.py:9:- `GET /api/inspector/runs/{run_id}` (slice 1) — the full faithful AuditIR.
+src\polaris_v6\api\inspector.py:10:- `GET /api/inspector/runs/{run_id}/evidence` (slice 7a) — the verified
+src\polaris_v6\api\inspector.py:99:@router.get("/runs/{run_id}")
+src\polaris_v6\api\inspector.py:130:@router.get("/runs/{run_id}/evidence")
+src\polaris_v6\api\bundle.py:1:"""GET /runs/{run_id}/bundle — F15 audit bundle export.
+src\polaris_v6\api\bundle.py:13:I-arch-001d (2026-05-13) adds GET /runs/{run_id}/bundle.tar.gz which
+src\polaris_v6\api\bundle.py:43:router = APIRouter(prefix="/runs", tags=["bundle"])
+tests\polaris_graph\test_regression_alerts.py:486:        "/api/inspector/runs/regression",
+tests\polaris_graph\test_regression_alerts.py:636:    """Critical M-16-style ordering check: /runs/regression must NOT
+tests\polaris_graph\test_regression_alerts.py:637:    be matched as /runs/{slug} with slug='regression'. Without the
+tests\polaris_graph\test_regression_alerts.py:648:    # Hit /runs/regression with NO baseline_slug param. If the route
+tests\polaris_graph\test_regression_alerts.py:650:    # query param). If it's mis-routed to /runs/{slug}, it returns
+tests\polaris_graph\test_regression_alerts.py:652:    res = client.get("/api/inspector/runs/regression")
+tests\polaris_graph\test_regression_alerts.py:655:        f"this likely means the route is being matched as /runs/{{slug}} "
+web/tests\e2e\graph_page_smoke.spec.ts:2: * I-snowball-006 — Playwright smoke for /runs/[runId]/graph.
+web/tests\e2e\graph_page_smoke.spec.ts:4: * Mocks the backend `/api/runs/<id>/graph` endpoint with a deterministic
+web/tests\e2e\graph_page_smoke.spec.ts:14:    await page.route("**/api/runs/*/graph", (route) => {
+web/tests\e2e\graph_page_smoke.spec.ts:24:    await page.goto("/runs/test_fixture_001/graph");
+web/tests\e2e\graph_page_smoke.spec.ts:30:    await page.goto("/runs/test_fixture_001/graph");
+web/tests\e2e\graph_page_smoke.spec.ts:41:    await page.goto("/runs/test_fixture_001/graph");
+web/tests\e2e\graph_page_smoke.spec.ts:52:    await page.goto("/runs/test_fixture_001/graph");
+web/tests\e2e\graph_page_smoke.spec.ts:60:    await page.route("**/api/runs/no_such_run/graph", (route) =>
+web/tests\e2e\graph_page_smoke.spec.ts:63:    await page.goto("/runs/no_such_run/graph");
+src\polaris_v6\api\artifact_to_evidence_contract.py:3:Reuses `build_slice_chain` (I-arch-001d, the same path `GET /runs/{id}/
+tests\polaris_graph\test_private_corpus_sync.py:352:    runs = store.list_sync_runs(
+tests\polaris_graph\test_private_corpus_sync.py:359:# list_sync_runs
+tests\polaris_graph\test_private_corpus_sync.py:363:def test_list_sync_runs_returns_newest_first(
+tests\polaris_graph\test_private_corpus_sync.py:381:    runs = store.list_sync_runs(
+tests\polaris_graph\test_private_corpus_sync.py:387:def test_list_sync_runs_cross_org_returns_empty(
+tests\polaris_graph\test_private_corpus_sync.py:398:    cross = store.list_sync_runs(
+tests\polaris_graph\test_private_corpus_sync.py:404:def test_list_sync_runs_limit_validation(
+tests\polaris_graph\test_private_corpus_sync.py:409:        store.list_sync_runs(
+tests\polaris_graph\test_private_corpus_sync.py:413:        store.list_sync_runs(
+tests\polaris_graph\test_private_corpus_sync.py:455:    runs = store.list_sync_runs(
+src\polaris_v6\api\app.py:180:    # F-snowball — GET /api/runs/{run_id}/graph (I-snowball-002).
+tests\polaris_graph\test_run_diff.py:566:    """Codex M-16 v2 review regression: the /api/inspector/runs/
+tests\polaris_graph\test_run_diff.py:567:    diff endpoint MUST be declared before /api/inspector/runs/
+tests\polaris_graph\test_run_diff.py:580:    # routed to /runs/{slug}=diff.
+tests\polaris_graph\test_run_diff.py:582:        "/api/inspector/runs/diff?a_slug=does_not_exist_a&b_slug=does_not_exist_b"
+src\polaris_graph\auto_induction\contract_compare.py:73:def compare_contracts(
+
+ succeeded in 1830ms:
+web/tests/e2e\audit_live_adversarial.spec.ts:21:    { length: 10 },
+web/tests/e2e\audit_live_adversarial.spec.ts:25:    { length: 8 },
+web/tests/e2e\audit_live_adversarial.spec.ts:39:    { length: 5 },
+web/tests/e2e\audit_live_adversarial.spec.ts:51:    { length: 10 },
+web/tests/e2e\audit_live_adversarial.spec.ts:56:    { length: 5 },
+web/tests/e2e\audit_live_adversarial.spec.ts:73:    { length: 100 },
+web/tests/e2e\audit_live_adversarial.spec.ts:77:    { length: 50 },
+web/tests/e2e\accessibility.spec.ts:28:  if (results.violations.length > 0) {
+web/tests/e2e\accessibility.spec.ts:44:      `axe-core found ${results.violations.length} WCAG-AA violation(s):${summary}`,
+web/tests/e2e\accessibility.spec.ts:195:    if (small.length > 0) {
+web/tests/e2e\accessibility.spec.ts:197:        `WCAG 2.5.8 failures (${small.length} target(s) < 24x24):\n` +
+web/tests/e2e\accessibility.spec.ts:224:    for (const label of tabLabels) {
+web/tests/e2e\accessibility.spec.ts:250:    if (small.length > 0) {
+web/tests/e2e\accessibility.spec.ts:252:        `WCAG 2.5.8 failures (${small.length} target(s) < 24x24):\n` +
+web/tests/e2e\benchmark_g1_g8.spec.ts:21:  await expect(page.locator("header")).toHaveCount(1);
+web/tests/e2e\benchmark_g1_g8.spec.ts:22:  await expect(page.locator("main")).toHaveCount(1);
+web/tests/e2e\benchmark_g1_g8.spec.ts:52:  for (const label of [
+web/tests/e2e\benchmark_g1_g8.spec.ts:57:    "Benchmark",
+web/tests/e2e\benchmark_g1_g8.spec.ts:58:    "Contracts",
+web/tests/e2e\benchmark_g1_g8.spec.ts:59:    "Pin Replay",
+web/tests/e2e\benchmark_g1_g8.spec.ts:60:    "Memory",
+web/tests/e2e\chart_click_through.spec.ts:36:  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+web/tests/e2e\cited_recall_badge.spec.ts:9:  await expect(kept).toHaveCount(2);
+web/tests/e2e\cited_recall_badge.spec.ts:28:  await expect(page.getByTestId(`prior-run-badge-${other_id}`)).toHaveCount(0);
+web/tests/e2e\command_palette_adversarial.spec.ts:61:      await expect(items).toHaveCount(0, { timeout: SUGGEST_BUDGET_MS });
+web/tests/e2e\command_palette_adversarial.spec.ts:76:      await expect(items).toHaveCount(1, { timeout: SUGGEST_BUDGET_MS });
+web/tests/e2e\command_palette_suggest.spec.ts:29:    await expect(items).toHaveCount(8);
+web/tests/e2e\command_palette_suggest.spec.ts:36:    await expect(items).toHaveCount(1, { timeout: SUGGEST_BUDGET_MS + 100 });
+web/tests/e2e\command_palette_suggest.spec.ts:51:    await expect(items).toHaveCount(0);
+web/tests/e2e\command_palette_suggest.spec.ts:62:    await expect(items).toHaveCount(8);
+web/tests/e2e\command_palette_suggest.spec.ts:66:    await expect(items).toHaveCount(1, { timeout: SUGGEST_BUDGET_MS + 100 });
+web/tests/e2e\demo_journey.spec.ts:57:  const PRIMARY_NAV_LABELS = [
+web/tests/e2e\demo_journey.spec.ts:62:    "Benchmark",
+web/tests/e2e\demo_journey.spec.ts:63:    "Contracts",
+web/tests/e2e\demo_journey.spec.ts:64:    "Pin Replay",
+web/tests/e2e\demo_journey.spec.ts:65:    "Memory",
+web/tests/e2e\demo_journey.spec.ts:74:    await expect(page.locator("header")).toHaveCount(1);
+web/tests/e2e\demo_journey.spec.ts:77:    for (const label of PRIMARY_NAV_LABELS) {
+web/tests/e2e\cross_browser_smoke.spec.ts:47:      await expect(page.getByTestId(err_id)).toHaveCount(0);
+web/tests/e2e\dashboard_g1_g8.spec.ts:18:  await expect(page.locator("header")).toHaveCount(1);
+web/tests/e2e\dashboard_g1_g8.spec.ts:19:  await expect(page.locator("main")).toHaveCount(1);
+web/tests/e2e\dashboard_g1_g8.spec.ts:36:  for (const label of [
+web/tests/e2e\dashboard_g1_g8.spec.ts:41:    "Benchmark",
+web/tests/e2e\dashboard_g1_g8.spec.ts:42:    "Contracts",
+web/tests/e2e\dashboard_g1_g8.spec.ts:43:    "Pin Replay",
+web/tests/e2e\dashboard_g1_g8.spec.ts:44:    "Memory",
+web/tests/e2e\disambiguation_modal.spec.ts:13:    await expect(cards).toHaveCount(n);
+web/tests/e2e\comparison_table_chart.spec.ts:26:  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+web/tests/e2e\evidence_tooltip_mobile.spec.ts:12:  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+web/tests/e2e\evidence_tooltip_mobile.spec.ts:30:  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0, {
+web/tests/e2e\evidence_tooltip_edges.spec.ts:21:      const target = popups[popups.length - 1] as HTMLElement | undefined;
+web/tests/e2e\evidence_tooltip.spec.ts:9:  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+web/tests/e2e\evidence_tooltip.spec.ts:16:  await expect(page.getByTestId("evidence-tooltip-popup")).toHaveCount(0);
+web/tests/e2e\contracts_g1_g8.spec.ts:23:  await expect(page.locator("header")).toHaveCount(1);
+web/tests/e2e\contracts_g1_g8.spec.ts:24:  await expect(page.locator("main")).toHaveCount(1);
+web/tests/e2e\contracts_g1_g8.spec.ts:54:  for (const label of [
+web/tests/e2e\contracts_g1_g8.spec.ts:59:    "Benchmark",
+web/tests/e2e\contracts_g1_g8.spec.ts:60:    "Contracts",
+web/tests/e2e\contracts_g1_g8.spec.ts:61:    "Pin Replay",
+web/tests/e2e\contracts_g1_g8.spec.ts:62:    "Memory",
+web/tests/e2e\evidence_tooltip_perf.spec.ts:18:  expect(timings.length).toBe(100);
+web/tests/e2e\evidence_tooltip_perf.spec.ts:22:  if (offending.length > 0) {
+web/tests/e2e\f1_multi_tab.spec.ts:54:  await expect(pageA.locator('[data-testid^="palette-item-"]')).toHaveCount(1);
+web/tests/e2e\f1_multi_tab.spec.ts:55:  await expect(pageB.locator('[data-testid^="palette-item-"]')).toHaveCount(1);
+web/tests/e2e\f1_multi_tab.spec.ts:56:  await expect(pageC.locator('[data-testid^="palette-item-"]')).toHaveCount(1);
+web/tests/e2e\f1_multi_tab.spec.ts:63:  await expect(pageB.locator('[data-testid^="palette-item-"]')).toHaveCount(8, {
+web/tests/e2e\f1_multi_tab.spec.ts:73:  await expect(pageA.locator('[data-testid^="palette-item-"]')).toHaveCount(8, {
+web/tests/e2e\f1_multi_tab.spec.ts:98:  await expect(pageC.locator('[data-testid^="palette-item-"]')).toHaveCount(1);
+web/tests/e2e\f2_walkthrough.spec.ts:45:        clusters: Array.from({ length: n }, (_, i) => ({
+web/tests/e2e\f2_walkthrough.spec.ts:78:    Array.from({ length: n }, (_, i) => ({ text: `s${i}`, embedding: [i, 0] }));
+web/tests/e2e\f2_walkthrough.spec.ts:99:      ).toHaveCount(n);
+web/tests/e2e\f2_walkthrough.spec.ts:220:      (await page.getByTestId("intake-question-input").inputValue()).length,
+web/tests/e2e\f2_walkthrough.spec.ts:257:  expect(transcript.length).toBe(22);
+web/tests/e2e\f2_walkthrough.spec.ts:263:  const passed = transcript.filter((r) => r.v === "PASS").length;
+web/tests/e2e\f2_walkthrough.spec.ts:267:    `Run: ${new Date().toISOString()} / ${passed}/${transcript.length} PASS`,
+web/tests/e2e\follow_up_append.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toHaveCount(2);
+web/tests/e2e\forest_plot_chart.spec.ts:43:  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+web/tests/e2e\frame_coverage_adversarial.spec.ts:20:  await expect(page.getByTestId("frame-coverage-gap-0")).toHaveCount(0);
+web/tests/e2e\frame_coverage_adversarial.spec.ts:33:  await expect(page.getByTestId("frame-coverage-gap-14")).toHaveCount(0);
+web/tests/e2e\graph_page_smoke.spec.ts:37:    ).toHaveCount(0);
+web/tests/e2e\home_g1_g8.spec.ts:23:  await expect(headers).toHaveCount(1);
+web/tests/e2e\home_g1_g8.spec.ts:26:  // Upload/Benchmark/Contracts/Pin Replay/Memory).
+web/tests/e2e\home_g1_g8.spec.ts:29:  for (const label of [
+web/tests/e2e\home_g1_g8.spec.ts:34:    "Benchmark",
+web/tests/e2e\home_g1_g8.spec.ts:35:    "Contracts",
+web/tests/e2e\home_g1_g8.spec.ts:36:    "Pin Replay",
+web/tests/e2e\home_g1_g8.spec.ts:37:    "Memory",
+web/tests/e2e\home_g1_g8.spec.ts:44:  await expect(mains).toHaveCount(1);
+web/tests/e2e\inspector_route.spec.ts:144:    await expect(page.getByTestId("inspector-view")).toHaveCount(0);
+web/tests/e2e\intake_disambiguation.spec.ts:77:  await expect(cards).toHaveCount(3);
+web/tests/e2e\inspector_offline_fallback.spec.ts:67:  await expect(page.getByTestId("inspector-offline-error")).toHaveCount(0);
+web/tests/e2e\intake_g1_g8.spec.ts:19:  await expect(page.locator("header")).toHaveCount(1);
+web/tests/e2e\intake_g1_g8.spec.ts:20:  await expect(page.locator("main")).toHaveCount(1);
+web/tests/e2e\intake_g1_g8.spec.ts:49:  for (const label of [
+web/tests/e2e\intake_g1_g8.spec.ts:54:    "Benchmark",
+web/tests/e2e\intake_g1_g8.spec.ts:55:    "Contracts",
+web/tests/e2e\landing_template_grid.spec.ts:76:      await expect(card.getByTestId(`template-card-${id}-link`)).toHaveCount(0);
+web/tests/e2e\memory_g1_g8.spec.ts:20:  await expect(page.locator("header")).toHaveCount(1);
+web/tests/e2e\memory_g1_g8.spec.ts:21:  await expect(page.locator("main")).toHaveCount(1);
+web/tests/e2e\memory_g1_g8.spec.ts:51:  for (const label of [
+web/tests/e2e\memory_g1_g8.spec.ts:56:    "Benchmark",
+web/tests/e2e\memory_g1_g8.spec.ts:57:    "Contracts",
+web/tests/e2e\memory_g1_g8.spec.ts:58:    "Pin Replay",
+web/tests/e2e\memory_g1_g8.spec.ts:59:    "Memory",
+web/tests/e2e\memory_page_controls.spec.ts:81:  await expect(page.getByTestId("memory-row-seed-2")).toHaveCount(0);
+web/tests/e2e\multi_source_panel.spec.ts:19:  ).toHaveCount(0);
+web/tests/e2e\multi_source_panel.spec.ts:24:  await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+web/tests/e2e\perf_core_web_vitals.spec.ts:37:    if (arr.length === 0) return null;
+web/tests/e2e\perf_core_web_vitals.spec.ts:38:    return arr[arr.length - 1].startTime;
+web/tests/e2e\perf_core_web_vitals.spec.ts:61:  const avg = timings.reduce((s, t) => s + t, 0) / timings.length;
+web/tests/e2e\perf_core_web_vitals.spec.ts:97:  if (entries.length === 0) {
+web/tests/e2e\pin_regression_alert.spec.ts:12:    await expect(page.getByTestId("regression-alert")).toHaveCount(0);
+web/tests/e2e\pin_regression_alert.spec.ts:30:    await expect(page.getByTestId("regression-alert")).toHaveCount(0);
+web/tests/e2e\pin_replay_g1_g8.spec.ts:23:  await expect(page.locator("header")).toHaveCount(1);
+web/tests/e2e\pin_replay_g1_g8.spec.ts:24:  await expect(page.locator("main")).toHaveCount(1);
+web/tests/e2e\pin_replay_g1_g8.spec.ts:54:  for (const label of [
+web/tests/e2e\pin_replay_g1_g8.spec.ts:59:    "Benchmark",
+web/tests/e2e\pin_replay_g1_g8.spec.ts:60:    "Contracts",
+web/tests/e2e\pin_replay_g1_g8.spec.ts:61:    "Pin Replay",
+web/tests/e2e\pin_replay_g1_g8.spec.ts:62:    "Memory",
+web/tests/e2e\pin_retraction_handled.spec.ts:24:    await expect(page.getByTestId("regression-alert-pass_rate")).toHaveCount(0);
+web/tests/e2e\pin_replay_diff.spec.ts:43:    await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+web/tests/e2e\runs_runid_g1_g8.spec.ts:26:  await expect(page.locator("header")).toHaveCount(1);
+web/tests/e2e\runs_runid_g1_g8.spec.ts:27:  await expect(page.locator("main")).toHaveCount(1);
+web/tests/e2e\runs_runid_g1_g8.spec.ts:73:  for (const label of [
+web/tests/e2e\runs_runid_g1_g8.spec.ts:78:    "Benchmark",
+web/tests/e2e\runs_runid_g1_g8.spec.ts:79:    "Contracts",
+web/tests/e2e\runs_runid_g1_g8.spec.ts:80:    "Pin Replay",
+web/tests/e2e\runs_runid_g1_g8.spec.ts:81:    "Memory",
+web/tests/e2e\sentence_inspector_adversarial.spec.ts:27:  // First span valid (0-30 within full_text length).
+web/tests/e2e\sentence_inspector_adversarial.spec.ts:29:  // Second span out-of-range (5000-5050 beyond full_text length).
+web/tests/e2e\sentence_inspector_adversarial.spec.ts:49:  await expect(row.getByTestId("inspector-t1-conflict")).toHaveCount(0);
+web/tests/e2e\sentence_inspector_ai_agent.spec.ts:9:  let h = 1779033703 ^ str.length;
+web/tests/e2e\sentence_inspector_ai_agent.spec.ts:10:  for (let i = 0; i < str.length; i++) {
+web/tests/e2e\sentence_inspector_ai_agent.spec.ts:43:  const all = Array.from({ length: N }, (_, i) => i);
+web/tests/e2e\sentence_inspector_ai_agent.spec.ts:56:  await expect(page.getByTestId("kept-sentence")).toHaveCount(N);
+web/tests/e2e\sentence_inspector_ai_agent.spec.ts:106:    await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+web/tests/e2e\sentence_inspector_contradiction.spec.ts:22:  await expect(row.getByTestId("inspector-contradiction-sec_x:5")).toHaveCount(
+web/tests/e2e\sentence_inspector_contradiction.spec.ts:56:  await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+web/tests/e2e\sentence_inspector_evaluator_edge.spec.ts:10:  await expect(page.getByTestId("kept-sentence")).toHaveCount(N);
+web/tests/e2e\sentence_inspector_evaluator_edge.spec.ts:11:  await expect(page.locator('[data-testid^="evaluator-flag-"]')).toHaveCount(0);
+web/tests/e2e\sentence_inspector_evaluator_edge.spec.ts:17:  await expect(page.getByTestId("kept-sentence")).toHaveCount(N);
+web/tests/e2e\sentence_inspector_evaluator_edge.spec.ts:18:  await expect(page.locator('[data-testid^="evaluator-flag-"]')).toHaveCount(N);
+web/tests/e2e\sentence_inspector_latency.spec.ts:11:    await expect(page.getByTestId("kept-sentence")).toHaveCount(n);
+web/tests/e2e\sentence_inspector_evaluator_flag.spec.ts:16:  await expect(page.getByTestId("evaluator-flag-sec_x:5")).toHaveCount(0);
+web/tests/e2e\sentence_inspector_evaluator_flag.spec.ts:23:  await expect(page.getByTestId("evaluator-flag-sec_x:12")).toHaveCount(0);
+web/tests/e2e\sentence_inspector_evaluator_flag.spec.ts:47:  await expect(page.getByTestId("sentence-inspector-sheet")).toHaveCount(0);
+web/tests/e2e\sentence_inspector_multispan.spec.ts:14:  await expect(page.getByTestId("inspector-source-1")).toHaveCount(0);
+web/tests/e2e\sentence_inspector_multispan.spec.ts:19:  await expect(page.getByTestId("inspector-source-url-0")).toHaveCount(1);
+web/tests/e2e\sentence_inspector_multispan.spec.ts:20:  await expect(page.getByTestId("inspector-trace-0")).toHaveCount(1);
+web/tests/e2e\sentence_inspector_multispan.spec.ts:35:  await expect(page.getByTestId("inspector-source-2")).toHaveCount(0);
+web/tests/e2e\sentence_inspector_multispan.spec.ts:39:  await expect(page.getByTestId("inspector-span-0-1")).toHaveCount(0);
+web/tests/e2e\sentence_inspector_retracted_stale.spec.ts:33:  await expect(page.getByTestId("inspector-retracted-0")).toHaveCount(0);
+web/tests/e2e\sentence_inspector_retracted_stale.spec.ts:34:  await expect(page.getByTestId("inspector-stale-0")).toHaveCount(0);
+web/tests/e2e\sentence_inspector_synthesis.spec.ts:24:  await expect(page.getByTestId("inspector-synthesis-claim")).toHaveCount(0);
+web/tests/e2e\timeline_chart.spec.ts:20:  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+web/tests/e2e\upload_dropzone.spec.ts:91:  await expect(page.locator('li[data-status="completed"]')).toHaveCount(2);
+web/tests/e2e\upload_evidence_toggle.spec.ts:52:  await expect(page.locator('[data-testid^="include-toggle-"]')).toHaveCount(2);
+web/tests/e2e\upload_evidence_toggle.spec.ts:63:  const idCount = (text.match(/doc-evidence-toggle-/g) ?? []).length;
+web/tests/e2e\upload_g1_g8.spec.ts:19:  await expect(page.locator("header")).toHaveCount(1);
+web/tests/e2e\upload_g1_g8.spec.ts:20:  await expect(page.locator("main")).toHaveCount(1);
+web/tests/e2e\upload_g1_g8.spec.ts:50:  for (const label of [
+web/tests/e2e\upload_g1_g8.spec.ts:55:    "Benchmark",
+web/tests/e2e\upload_g1_g8.spec.ts:56:    "Contracts",
+web/tests/e2e\upload_g1_g8.spec.ts:57:    "Pin Replay",
+web/tests/e2e\upload_g1_g8.spec.ts:58:    "Memory",
+web/tests/e2e\vega_lite_chart.spec.ts:22:  await expect(page.getByTestId("vega-chart-error")).toHaveCount(0);
+web/tests/e2e\visual_60_baselines.spec.ts:132:        await expect(svgs).toHaveCount(p.wait_svg_count, { timeout: 10_000 });
+
+ succeeded in 2090ms:
+   1: // I-cd-031 (#621): demo journey end-to-end — home → template → ask
+   2: // (intake) → run-step (dashboard) → inspector → claim-source.
+   3: //
+   4: // Verifies each step's landing page renders + links forward to the next
+   5: // step. The "run" step itself is hardware-bound (real pipeline-A), so the
+   6: // test pivots at /dashboard to /inspector/v1-canonical-success — the
+   7: // frozen I-A-02b fixture (I-cd-012) that the gold-route Inspector
+   8: // renders. That step's assertions cover the verified-report → claim →
+   9: // source provenance UI surface.
+  10: 
+  11: import { expect, test } from "@playwright/test";
+  12: 
+  13: test("demo journey: home → intake → dashboard → inspector (canonical fixture)", async ({
+  14:   page,
+  15: }) => {
+  16:   // Step 1: home renders + clinical template card present + linked.
+  17:   await page.goto("/");
+  18:   await expect(page.getByTestId("template-card-clinical")).toBeVisible();
+  19:   await expect(page.getByTestId("template-card-clinical-link")).toBeVisible();
+  20:   const intake_link = page.getByTestId("template-card-clinical-link").first();
+  21:   await intake_link.click();
+  22: 
+  23:   // Step 2: lands on /intake?template=clinical with the intake form.
+  24:   await expect(page).toHaveURL(/\/intake\?template=clinical/);
+  25:   await expect(page.getByTestId("intake-page")).toBeVisible();
+  26: 
+  27:   // Step 3: dashboard is reachable directly (the "ask a question" UX
+  28:   // entry). The intake page funnels here for clinical questions.
+  29:   await page.goto("/dashboard");
+  30:   await expect(page.getByTestId("dashboard-page")).toBeVisible();
+  31: 
+  32:   // Step 4: inspector renders the canonical v1.0 fixture (I-A-02b
+  33:   // frozen schema, the contract Carney's office reviews).
+  34:   await page.goto("/inspector/v1-canonical-success");
+  35:   await expect(page.getByTestId("inspector-view")).toBeVisible({
+  36:     timeout: 10_000,
+  37:   });
+  38: 
+  39:   // Step 5: claim → source UI surface — the family-segregation badge
+  40:   // proves the two-family invariant (CLAUDE.md §9.1 invariant 1)
+  41:   // surfaces to the reviewer. Tightened per Codex iter-1 P2: assert
+  42:   // the dedicated badge testid instead of a broad text match.
+  43:   await expect(
+  44:     page
+  45:       .getByTestId("family-segregation-badge")
+  46:       .or(page.locator("[data-testid*='family-segregation']").first()),
+  47:   ).toBeVisible({ timeout: 5_000 });
+  48: });
+  49: 
+  50: // Codex iter-1 P1 fix: the previous version had an
+  51: // `if (label === "Upload")` guard that silently skipped Home/Intake/
+  52: // Dashboard/etc — so a broken nav with most labels missing would still
+  53: // pass. This version unconditionally asserts every primary-nav label.
+  54: test("demo journey nav-parity: header + primary nav identical across journey routes", async ({
+  55:   page,
+  56: }) => {
+  57:   const PRIMARY_NAV_LABELS = [
+  58:     "Home",
+  59:     "Intake",
+  60:     "Dashboard",
+  61:     "Upload",
+  62:     "Benchmark",
+  63:     "Contracts",
+  64:     "Pin Replay",
+  65:     "Memory",
+  66:   ];
+  67:   for (const path of [
+  68:     "/",
+  69:     "/intake",
+  70:     "/dashboard",
+  71:     "/inspector/v1-canonical-success",
+  72:   ]) {
+  73:     await page.goto(path);
+  74:     await expect(page.locator("header")).toHaveCount(1);
+  75:     const nav = page.locator("nav[aria-label='Primary']");
+  76:     await expect(nav).toBeVisible();
+  77:     for (const label of PRIMARY_NAV_LABELS) {
+  78:       await expect(nav.getByRole("link", { name: label })).toBeVisible();
+  79:     }
+  80:   }
+  81: });
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_v6/api/runs.py | Select-Object -First 210 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_v6/compare/differ.py | Select-Object -First 120 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_v6/api/compare.py | Select-Object -First 140 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content tests/v6/test_api_followup_compare.py | Select-Object -First 120 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content tests/v6/test_runs_list_endpoint.py | Select-Object -First 140 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+ succeeded in 1396ms:
+   1: """Runs router — POST /runs, GET /runs/{id}, POST /runs/{id}/cancel.
+   2: 
+   3: I-phase0-005 (Codex APPROVE iter 4): persist runs to SQLite via
+   4: polaris_v6.queue.run_store and enqueue the Dramatiq actor on POST.
+   5: Replaces the previous in-memory `_run_table` dict.
+   6: 
+   7: I-rdy-010 (#506): POST /runs resolves uploaded `document_ids` to content
+   8: BEFORE inserting/enqueuing the run, so a missing or unparsed upload fails
+   9: loud here rather than leaving a queued orphan run. The resolved content is
+  10: embedded in the actor message because the Dramatiq worker is a separate
+  11: process and cannot read the API process's in-memory upload table.
+  12: 
+  13: I-rdy-011 (#507): POST /runs/{id}/cancel — a queued run cancels instantly;
+  14: an in-progress run records the cancel request (the worker observes it at
+  15: the next pipeline stage boundary). Already-terminal runs are an idempotent
+  16: no-op.
+  17: 
+  18: I-rdy-013 (#509): POST /runs enforces the 1-concurrent-session constraint
+  19: via `run_store.insert_run_if_idle` — a 2nd concurrent request is cleanly
+  20: rejected with HTTP 409 (never enqueued) and a structured detail the
+  21: frontend renders as a link to the active run.
+  22: """
+  23: 
+  24: from __future__ import annotations
+  25: 
+  26: import sqlite3
+  27: import uuid
+  28: 
+  29: from fastapi import APIRouter, HTTPException
+  30: 
+  31: from polaris_v6.api.upload import chunk_text, get_upload_record
+  32: from polaris_v6.queue import run_store
+  33: from polaris_v6.queue.actors import enqueue_research_run
+  34: from polaris_v6.schemas.run_request import RunRequest
+  35: from polaris_v6.schemas.run_status import RunStatusResponse
+  36: 
+  37: router = APIRouter(prefix="/runs", tags=["runs"])
+  38: 
+  39: 
+  40: def _resolve_uploaded_documents(document_ids: list[str]) -> list[dict]:
+  41:     """Resolve uploaded document_ids → content for actor-message embedding.
+  42: 
+  43:     Returns one dict per id: `{document_id, classification, filename,
+  44:     chunks}`. `chunks` is `chunk_text(record.content)` — the full document
+  45:     re-chunked (and capped), NOT the 3-chunk `chunk_preview`.
+  46: 
+  47:     Fails loud (HTTP 400) per LAW II on:
+  48:       * a document_id with no upload record;
+  49:       * an upload that yields no extractable text (e.g. an unparsed
+  50:         pdf/docx) — a silent zero-evidence run would mislead the operator.
+  51:     """
+  52:     resolved: list[dict] = []
+  53:     for document_id in document_ids:
+  54:         record = get_upload_record(document_id)
+  55:         if record is None:
+  56:             raise HTTPException(
+  57:                 status_code=400,
+  58:                 detail=f"uploaded document {document_id!r} not found",
+  59:             )
+  60:         chunks = chunk_text(record.content)
+  61:         if not chunks:
+  62:             raise HTTPException(
+  63:                 status_code=400,
+  64:                 detail=(
+  65:                     f"uploaded document {document_id!r} ({record.filename}) "
+  66:                     "has no extractable text — pdf/docx parsing is not yet "
+  67:                     "available; upload a .md or .txt document to ground a run."
+  68:                 ),
+  69:             )
+  70:         resolved.append(
+  71:             {
+  72:                 "document_id": document_id,
+  73:                 "classification": record.classification,
+  74:                 "filename": record.filename,
+  75:                 "chunks": chunks,
+  76:             }
+  77:         )
+  78:     return resolved
+  79: 
+  80: 
+  81: @router.post("", response_model=RunStatusResponse, status_code=202)
+  82: def create_run(payload: RunRequest) -> RunStatusResponse:
+  83:     # I-rdy-010: resolve uploads BEFORE insert_run/enqueue so a bad
+  84:     # document_id fails loud here instead of orphaning a queued run.
+  85:     uploaded_documents = _resolve_uploaded_documents(payload.document_ids)
+  86: 
+  87:     run_id = uuid.uuid4().hex
+  88:     try:
+  89:         # I-rdy-013: atomic 1-concurrent-session gate. Returns the blocking
+  90:         # active run when rejected, None when this run was inserted.
+  91:         active = run_store.insert_run_if_idle(
+  92:             run_id, payload.template, payload.question
+  93:         )
+  94:     except sqlite3.IntegrityError as exc:
+  95:         # uuid4 collision is theoretically impossible but defensive
+  96:         raise HTTPException(status_code=409, detail=f"run {run_id!r} already exists") from exc
+  97:     except RuntimeError as exc:
+  98:         # init_db permission-denied or similar
+  99:         raise HTTPException(status_code=503, detail=str(exc)) from exc
+ 100: 
+ 101:     if active is not None:
+ 102:         # I-rdy-013: 1-concurrent-session constraint — a research run is
+ 103:         # already queued or in progress. Reject cleanly; the rejected run is
+ 104:         # never enqueued (insert_run_if_idle rolled back — no row to clean
+ 105:         # up). The structured `detail` lets the frontend render a specific
+ 106:         # UX with a link to the active run.
+ 107:         raise HTTPException(
+ 108:             status_code=409,
+ 109:             detail={
+ 110:                 "code": "concurrent_run_active",
+ 111:                 "active_run_id": active.run_id,
+ 112:                 "active_status": active.lifecycle_status,
+ 113:                 "message": (
+ 114:                     "POLARIS runs one research session at a time. "
+ 115:                     f"Run {active.run_id[:8]} is currently {active.lifecycle_status}. "
+ 116:                     "Wait for it to finish before starting a new run."
+ 117:                 ),
+ 118:             },
+ 119:         )
+ 120: 
+ 121:     # The actor message carries the resolved upload content (the worker is
+ 122:     # a separate process — it cannot read the API process's upload table).
+ 123:     actor_payload = payload.model_dump()
+ 124:     actor_payload["uploaded_documents"] = uploaded_documents
+ 125:     try:
+ 126:         enqueue_research_run.send(run_id, actor_payload)
+ 127:     except Exception as exc:
+ 128:         # I-rdy-013 (Codex diff P1-001): the queued row is already committed.
+ 129:         # If enqueue fails it would never run yet would permanently hold the
+ 130:         # single-session slot. Mark it failed (terminal → frees the slot),
+ 131:         # then surface 503.
+ 132:         run_store.mark_failed(run_id, f"enqueue failed: {exc}")
+ 133:         raise HTTPException(
+ 134:             status_code=503,
+ 135:             detail=f"failed to enqueue run {run_id!r}: {exc}",
+ 136:         ) from exc
+ 137: 
+ 138:     record = run_store.get_run(run_id)
+ 139:     if record is None:  # pragma: no cover — insert just succeeded
+ 140:         raise HTTPException(status_code=500, detail="run row vanished after insert")
+ 141:     return record
+ 142: 
+ 143: 
+ 144: @router.get("", response_model=list[RunStatusResponse])
+ 145: def list_runs(status: str = "completed", limit: int = 20) -> list[RunStatusResponse]:
+ 146:     """List completed runs newest-first (I-cd-705 / #705).
+ 147: 
+ 148:     Feeds the compare picker (#543), follow-up picker (#542), and the home
+ 149:     recent-runs strip. Only `status=completed` is supported today; aborted
+ 150:     runs are excluded by run_store.list_completed_runs (not
+ 151:     EvidenceContract-usable). `limit` is clamped to [1, 100].
+ 152:     """
+ 153:     if status != "completed":
+ 154:         raise HTTPException(
+ 155:             status_code=400,
+ 156:             detail="only status=completed is supported",
+ 157:         )
+ 158:     limit = max(1, min(limit, 100))
+ 159:     return run_store.list_completed_runs(limit=limit)
+ 160: 
+ 161: 
+ 162: @router.get("/{run_id}", response_model=RunStatusResponse)
+ 163: def get_run(run_id: str) -> RunStatusResponse:
+ 164:     record = run_store.get_run(run_id)
+ 165:     if record is None:
+ 166:         raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
+ 167:     return record
+ 168: 
+ 169: 
+ 170: @router.post("/{run_id}/cancel", response_model=RunStatusResponse)
+ 171: def cancel_run(run_id: str) -> RunStatusResponse:
+ 172:     """Request cancellation of a run (I-rdy-011 / #507).
+ 173: 
+ 174:     - Unknown run → 404.
+ 175:     - Already terminal (completed / failed / cancelled) → idempotent no-op,
+ 176:       returns the current record (200).
+ 177:     - queued → cancelled instantly; in_progress → cancel requested, the
+ 178:       worker aborts cooperatively at the next pipeline stage boundary.
+ 179:     """
+ 180:     record = run_store.get_run(run_id)
+ 181:     if record is None:
+ 182:         raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
+ 183:     if record.lifecycle_status in run_store.TERMINAL_STATUSES:
+ 184:         return record  # idempotent — nothing to cancel
+ 185: 
+ 186:     run_store.request_cancel(run_id)
+ 187: 
+ 188:     updated = run_store.get_run(run_id)
+ 189:     if updated is None:  # pragma: no cover — the row existed a line ago
+ 190:         raise HTTPException(status_code=500, detail="run row vanished after cancel")
+ 191:     return updated
+
+ succeeded in 1648ms:
+   1: """Tests for F11 /followup and F12 /compare endpoints."""
+   2: 
+   3: from __future__ import annotations
+   4: 
+   5: import pytest
+   6: 
+   7: 
+   8: @pytest.fixture
+   9: def client():
+  10:     pytest.importorskip("fastapi")
+  11:     from fastapi.testclient import TestClient
+  12:     from polaris_v6.api.app import create_app
+  13: 
+  14:     return TestClient(create_app())
+  15: 
+  16: 
+  17: def test_followup_returns_answered_for_overlap(client):
+  18:     response = client.post(
+  19:         "/runs/golden_clinical_001/followup",
+  20:         json={"question": "What does the data show on cardiovascular outcomes?"},
+  21:     )
+  22:     assert response.status_code == 200
+  23:     body = response.json()
+  24:     assert body["parent_run_id"] == "golden_clinical_001"
+  25:     assert body["status"] == "answered"
+  26:     assert any(t.startswith("[#ev:") for t in body["provenance_tokens"])
+  27: 
+  28: 
+  29: def test_followup_out_of_scope(client):
+  30:     response = client.post(
+  31:         "/runs/golden_clinical_001/followup",
+  32:         json={"question": "Tell me about Renaissance painting techniques please"},
+  33:     )
+  34:     assert response.status_code == 200
+  35:     body = response.json()
+  36:     assert body["status"] == "out_of_scope"
+  37: 
+  38: 
+  39: def test_followup_404_unknown_run(client):
+  40:     response = client.post(
+  41:         "/runs/does_not_exist/followup",
+  42:         json={"question": "Anything question text"},
+  43:     )
+  44:     assert response.status_code == 404
+  45: 
+  46: 
+  47: def test_followup_422_short_question(client):
+  48:     response = client.post(
+  49:         "/runs/golden_clinical_001/followup", json={"question": "x"}
+  50:     )
+  51:     assert response.status_code == 422
+  52: 
+  53: 
+  54: def test_compare_two_distinct_runs(client):
+  55:     response = client.get(
+  56:         "/runs/golden_clinical_001/compare/golden_housing_002"
+  57:     )
+  58:     assert response.status_code == 200
+  59:     body = response.json()
+  60:     assert body["left_run_id"] == "golden_clinical_001"
+  61:     assert body["right_run_id"] == "golden_housing_002"
+  62:     assert body["same_template"] is False
+  63:     assert isinstance(body["shared_evidence_pct"], float)
+  64: 
+  65: 
+  66: def test_compare_same_run_400(client):
+  67:     response = client.get(
+  68:         "/runs/golden_clinical_001/compare/golden_clinical_001"
+  69:     )
+  70:     assert response.status_code == 400
+  71: 
+  72: 
+  73: def test_compare_unknown_run_404(client):
+  74:     response = client.get(
+  75:         "/runs/golden_clinical_001/compare/does_not_exist"
+  76:     )
+  77:     assert response.status_code == 404
+  78: 
+  79: 
+  80: def test_compare_defense_vs_climate_shared_zero(client):
+  81:     response = client.get(
+  82:         "/runs/golden_defense_004/compare/golden_climate_005"
+  83:     )
+  84:     assert response.status_code == 200
+  85:     body = response.json()
+  86:     assert body["shared_evidence_ids"] == []
+  87:     assert body["same_template"] is False
+
+ succeeded in 1876ms:
+   1: """GET /runs/{left}/compare/{right} — F12 side-by-side compare endpoint."""
+   2: 
+   3: from __future__ import annotations
+   4: 
+   5: from dataclasses import asdict
+   6: 
+   7: from fastapi import APIRouter, HTTPException
+   8: 
+   9: from polaris_v6.api.bundle import load_evidence_contract_for_run
+  10: from polaris_v6.compare.differ import compare_reports
+  11: 
+  12: router = APIRouter(prefix="/runs", tags=["compare"])
+  13: 
+  14: 
+  15: @router.get("/{left_run_id}/compare/{right_run_id}")
+  16: def get_compare(left_run_id: str, right_run_id: str) -> dict:
+  17:     if left_run_id == right_run_id:
+  18:         raise HTTPException(
+  19:             status_code=400, detail="compare requires two distinct run ids"
+  20:         )
+  21:     # I-cd-680: resolves golden fixtures AND real completed runs.
+  22:     left = load_evidence_contract_for_run(left_run_id)
+  23:     right = load_evidence_contract_for_run(right_run_id)
+  24:     return asdict(compare_reports(left, right))
+
+ succeeded in 2115ms:
+   1: """Compare two EvidenceContract bundles side-by-side."""
+   2: 
+   3: from __future__ import annotations
+   4: 
+   5: from dataclasses import dataclass
+   6: 
+   7: from polaris_v6.schemas.evidence_contract import EvidenceContract
+   8: 
+   9: 
+  10: @dataclass
+  11: class ReportComparison:
+  12:     left_run_id: str
+  13:     right_run_id: str
+  14:     same_template: bool
+  15:     same_question: bool
+  16:     shared_evidence_ids: list[str]
+  17:     only_left_evidence_ids: list[str]
+  18:     only_right_evidence_ids: list[str]
+  19:     shared_evidence_pct: float  # |shared| / |left ∪ right|
+  20:     frame_coverage_overlap: list[str]  # frame_ids present in both
+  21:     only_left_frames: list[str]
+  22:     only_right_frames: list[str]
+  23:     left_contradictions: int
+  24:     right_contradictions: int
+  25:     pipeline_status_match: bool
+  26:     family_segregation_both_pass: bool
+  27: 
+  28: 
+  29: def compare_reports(left: EvidenceContract, right: EvidenceContract) -> ReportComparison:
+  30:     if left.run_id == right.run_id:
+  31:         raise ValueError("compare_reports requires two distinct runs")
+  32: 
+  33:     left_ev = {s.evidence_id for s in left.evidence_pool}
+  34:     right_ev = {s.evidence_id for s in right.evidence_pool}
+  35:     shared = sorted(left_ev & right_ev)
+  36:     union = left_ev | right_ev
+  37:     shared_pct = len(shared) / len(union) if union else 0.0
+  38: 
+  39:     left_frames = {f.frame_id for f in left.frame_coverage}
+  40:     right_frames = {f.frame_id for f in right.frame_coverage}
+  41:     frame_overlap = sorted(left_frames & right_frames)
+  42: 
+  43:     return ReportComparison(
+  44:         left_run_id=left.run_id,
+  45:         right_run_id=right.run_id,
+  46:         same_template=left.template == right.template,
+  47:         same_question=left.question.strip() == right.question.strip(),
+  48:         shared_evidence_ids=shared,
+  49:         only_left_evidence_ids=sorted(left_ev - right_ev),
+  50:         only_right_evidence_ids=sorted(right_ev - left_ev),
+  51:         shared_evidence_pct=shared_pct,
+  52:         frame_coverage_overlap=frame_overlap,
+  53:         only_left_frames=sorted(left_frames - right_frames),
+  54:         only_right_frames=sorted(right_frames - left_frames),
+  55:         left_contradictions=len(left.contradictions),
+  56:         right_contradictions=len(right.contradictions),
+  57:         pipeline_status_match=left.pipeline_status == right.pipeline_status,
+  58:         family_segregation_both_pass=(
+  59:             left.family_segregation_passed and right.family_segregation_passed
+  60:         ),
+  61:     )
+
+ succeeded in 2428ms:
+   1: """I-cd-705 (#705) — GET /api/v6/runs list endpoint + run_store.list_completed_runs.
+   2: 
+   3: Feeds the compare picker (#543), follow-up picker (#542), and the home
+   4: recent-runs strip. Completed + non-aborted only, newest-first, limit-clamped.
+   5: """
+   6: 
+   7: from __future__ import annotations
+   8: 
+   9: import sqlite3
+  10: 
+  11: import pytest
+  12: 
+  13: 
+  14: @pytest.fixture
+  15: def db_path(tmp_path, monkeypatch):
+  16:     from polaris_v6.queue import run_store
+  17: 
+  18:     db = tmp_path / "runs.sqlite"
+  19:     monkeypatch.setenv(run_store.ENV_DB_PATH, str(db))
+  20:     run_store.init_db(str(db))
+  21:     return str(db)
+  22: 
+  23: 
+  24: def _seed(db_path, run_id, lifecycle, pipeline_status, finished_at):
+  25:     conn = sqlite3.connect(db_path)
+  26:     try:
+  27:         conn.execute(
+  28:             "INSERT INTO runs (run_id, template, question, lifecycle_status, "
+  29:             "queued_at, started_at, finished_at, artifact_dir, "
+  30:             "pipeline_status, cancel_requested) VALUES (?,?,?,?,?,?,?,?,?,0)",
+  31:             (
+  32:                 run_id,
+  33:                 "clinical",
+  34:                 "Q",
+  35:                 lifecycle,
+  36:                 "2026-05-20T00:00:00Z",
+  37:                 "2026-05-20T00:00:00Z",
+  38:                 finished_at,
+  39:                 f"/tmp/{run_id}",
+  40:                 pipeline_status,
+  41:             ),
+  42:         )
+  43:         conn.commit()
+  44:     finally:
+  45:         conn.close()
+  46: 
+  47: 
+  48: def test_list_completed_runs_newest_first_excludes_abort_and_active(db_path):
+  49:     from polaris_v6.queue import run_store
+  50: 
+  51:     _seed(db_path, "older", "completed", "success", "2026-05-20T01:00:00Z")
+  52:     _seed(db_path, "newer", "completed", "success", "2026-05-20T03:00:00Z")
+  53:     _seed(db_path, "aborted", "completed", "abort_no_verified_sections", "2026-05-20T04:00:00Z")
+  54:     _seed(db_path, "running", "in_progress", None, None)
+  55: 
+  56:     runs = run_store.list_completed_runs(limit=20, path=db_path)
+  57:     ids = [r.run_id for r in runs]
+  58:     assert ids == ["newer", "older"]  # newest-first, abort + active excluded
+  59: 
+  60: 
+  61: def test_list_completed_runs_respects_limit(db_path):
+  62:     from polaris_v6.queue import run_store
+  63: 
+  64:     for i in range(5):
+  65:         _seed(db_path, f"run{i}", "completed", "success", f"2026-05-20T0{i}:00:00Z")
+  66:     runs = run_store.list_completed_runs(limit=2, path=db_path)
+  67:     assert len(runs) == 2
+  68:     assert [r.run_id for r in runs] == ["run4", "run3"]
+  69: 
+  70: 
+  71: def test_list_completed_runs_empty_when_none(db_path):
+  72:     from polaris_v6.queue import run_store
+  73: 
+  74:     assert run_store.list_completed_runs(limit=20, path=db_path) == []
+  75: 
+  76: 
+  77: # ─── endpoint ──────────────────────────────────────────────────────────────
+  78: 
+  79: 
+  80: @pytest.fixture
+  81: def client(db_path, monkeypatch):
+  82:     pytest.importorskip("fastapi")
+  83:     monkeypatch.setenv("POLARIS_AUTH_DISABLED", "1")
+  84:     from fastapi.testclient import TestClient
+  85:     from polaris_v6.api.app import create_app
+  86: 
+  87:     return TestClient(create_app())
+  88: 
+  89: 
+  90: def test_get_runs_returns_completed_list(client, db_path):
+  91:     _seed(db_path, "a", "completed", "success", "2026-05-20T01:00:00Z")
+  92:     _seed(db_path, "b", "completed", "success", "2026-05-20T02:00:00Z")
+  93:     resp = client.get("/runs?status=completed&limit=10")
+  94:     assert resp.status_code == 200
+  95:     body = resp.json()
+  96:     assert isinstance(body, list)
+  97:     assert [r["run_id"] for r in body] == ["b", "a"]
+  98: 
+  99: 
+ 100: def test_get_runs_rejects_non_completed_status(client):
+ 101:     resp = client.get("/runs?status=queued")
+ 102:     assert resp.status_code == 400
+ 103: 
+ 104: 
+ 105: def test_get_runs_clamps_limit(client, db_path):
+ 106:     for i in range(3):
+ 107:         _seed(db_path, f"r{i}", "completed", "success", f"2026-05-20T0{i}:00:00Z")
+ 108:     # limit far above the [1,100] clamp ceiling still returns (clamped, no error)
+ 109:     resp = client.get("/runs?limit=99999")
+ 110:     assert resp.status_code == 200
+ 111:     assert len(resp.json()) == 3
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_v6/api/bundle.py | Select-Object -First 140 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"def load_evidence_contract_for_run|HTTPException\\(status_code=422|release-blocked|release_blocked|abort\" src/polaris_v6/api/bundle.py src/polaris_v6 -g '*.py'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_v6/schemas/run_status.py | Select-Object -First 110 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_v6/queue/run_store.py | Select-Object -Skip 420 -First 175 | ForEach-Object { '"'{0,4}: {1}' -f ("'$i+420), $_; $i++ }' in C:\POLARIS
+ succeeded in 1301ms:
+src/polaris_v6/api/bundle.py:50:    "golden_abort_003": "golden_run_abort_no_verified.json",
+src/polaris_v6/api/bundle.py:58:def load_evidence_contract_for_run(run_id: str) -> EvidenceContract:
+src/polaris_v6/api/bundle.py:95:    if run.pipeline_status and run.pipeline_status.startswith("abort_"):
+src/polaris_v6/api/bundle.py:98:            detail=f"Run {run_id!r} aborted: pipeline_status={run.pipeline_status}.",
+src/polaris_v6/api/bundle.py:106:    # release_allowed gate: a release-blocked partial (e.g.
+src/polaris_v6/api/bundle.py:120:                f"Run {run_id!r} is release-blocked "
+src/polaris_v6/api/bundle.py:173:        422: run aborted (pipeline_status=abort_*) or sovereignty cascade
+src/polaris_v6/api/bundle.py:186:    if info.pipeline_status and info.pipeline_status.startswith("abort_"):
+src/polaris_v6/api/bundle.py:189:            detail={"error": f"run aborted: pipeline_status={info.pipeline_status}", "bundleable": False},
+src/polaris_v6/api/bundle.py:205:    # but a release-blocked partial (e.g. partial_evaluator_advisory with
+src/polaris_v6/api/bundle.py:220:                    f"run release-blocked: pipeline_status={info.pipeline_status!r}, "
+src/polaris_v6/api/bundle.py:231:        raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
+src/polaris_v6\api\artifact_to_slice_chain.py:315:    # they're "success-with-degradation" not "no_verified_sections" aborts.
+src/polaris_v6\api\artifact_to_slice_chain.py:316:    # PipelineVerdict Literal accepts success | abort_no_verified_sections;
+src/polaris_v6\api\artifact_to_slice_chain.py:323:        pipeline_verdict = "abort_no_verified_sections"
+src/polaris_v6\api\charts.py:32:    not-completed -> 409 / abort_* / error_* -> 422 / missing artifact_dir
+src/polaris_v6\observability\otel_init.py:4:aborts at startup rather than ship a build with broken telemetry.
+src/polaris_v6\replay\differ.py:8:    "abort_scope_rejected",
+src/polaris_v6\replay\differ.py:9:    "abort_corpus_inadequate",
+src/polaris_v6\replay\differ.py:10:    "abort_corpus_approval_denied",
+src/polaris_v6\replay\differ.py:11:    "abort_no_verified_sections",
+src/polaris_v6\replay\differ.py:20:    swap as `warn`, pipeline-status going from success to abort as
+src/polaris_v6\api\bundle.py:50:    "golden_abort_003": "golden_run_abort_no_verified.json",
+src/polaris_v6\api\bundle.py:58:def load_evidence_contract_for_run(run_id: str) -> EvidenceContract:
+src/polaris_v6\api\bundle.py:95:    if run.pipeline_status and run.pipeline_status.startswith("abort_"):
+src/polaris_v6\api\bundle.py:98:            detail=f"Run {run_id!r} aborted: pipeline_status={run.pipeline_status}.",
+src/polaris_v6\api\bundle.py:106:    # release_allowed gate: a release-blocked partial (e.g.
+src/polaris_v6\api\bundle.py:120:                f"Run {run_id!r} is release-blocked "
+src/polaris_v6\api\bundle.py:173:        422: run aborted (pipeline_status=abort_*) or sovereignty cascade
+src/polaris_v6\api\bundle.py:186:    if info.pipeline_status and info.pipeline_status.startswith("abort_"):
+src/polaris_v6\api\bundle.py:189:            detail={"error": f"run aborted: pipeline_status={info.pipeline_status}", "bundleable": False},
+src/polaris_v6\api\bundle.py:205:    # but a release-blocked partial (e.g. partial_evaluator_advisory with
+src/polaris_v6\api\bundle.py:220:                    f"run release-blocked: pipeline_status={info.pipeline_status!r}, "
+src/polaris_v6\api\bundle.py:231:        raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
+src/polaris_v6\replay\schema.py:62:        "pipeline_status changed from success → abort_*.",
+src/polaris_v6\schemas\pin_snapshot.py:27:    verdict: str = Field(..., description="success | abort_no_verified_sections (partial_* collapsed to success).")
+src/polaris_v6\schemas\evidence_contract.py:94:        description="One of CLAUDE.md §9.3 statuses (success | abort_* | error_*).",
+src/polaris_v6\queue\actors.py:81:    mark_completed / mark_aborted / mark_failed per pipeline_status.
+src/polaris_v6\queue\actors.py:249:    # last cooperative checkpoint) must win over a success/partial/abort
+src/polaris_v6\queue\actors.py:265:    elif pipeline_status.startswith("abort_"):
+src/polaris_v6\queue\actors.py:266:        run_store.mark_aborted(
+src/polaris_v6\queue\actors.py:269:            abort_reason=manifest.get("error") or pipeline_status,
+src/polaris_v6\schemas\run_status.py:34:    "abort_scope_rejected",
+src/polaris_v6\schemas\run_status.py:35:    "abort_corpus_inadequate",
+src/polaris_v6\schemas\run_status.py:36:    "abort_corpus_approval_denied",
+src/polaris_v6\schemas\run_status.py:37:    "abort_no_verified_sections",
+src/polaris_v6\schemas\run_status.py:38:    "abort_no_sources",
+src/polaris_v6\schemas\run_status.py:39:    "abort_evaluator_critical",
+src/polaris_v6\queue\run_store.py:7:- New helpers: mark_failed, mark_aborted, set_pipeline_meta
+src/polaris_v6\queue\run_store.py:17:  abort path.
+src/polaris_v6\queue\run_store.py:293:    stage boundary (cooperative T2 abort), and as the actor's mapping for a
+src/polaris_v6\queue\run_store.py:357:def mark_aborted(
+src/polaris_v6\queue\run_store.py:361:    abort_reason: str,
+src/polaris_v6\queue\run_store.py:365:    """Pipeline ran to completion but hit a gate; lifecycle_status='completed', pipeline_status='abort_*'.
+src/polaris_v6\queue\run_store.py:367:    Per CLAUDE.md §9.3, abort_* are pipeline verdicts (not errors). The run
+src/polaris_v6\queue\run_store.py:378:                json.dumps({"abort_reason": abort_reason}, sort_keys=True),
+src/polaris_v6\queue\run_store.py:398:    Distinct from mark_aborted: failures are unplanned (exception or invariant
+src/polaris_v6\queue\run_store.py:399:    violation); aborts are planned (pipeline_status='abort_*' written by
+src/polaris_v6\queue\run_store.py:567:    """List completed, non-aborted runs newest-first (finished_at DESC), capped.
+src/polaris_v6\queue\run_store.py:571:    `abort_*` pipeline_status (not EvidenceContract-usable). release_allowed
+src/polaris_v6\queue\run_store.py:574:    release-blocked partial may appear here but 422s when actually opened.
+src/polaris_v6\queue\run_store.py:585:        "AND (pipeline_status IS NULL OR pipeline_status NOT LIKE 'abort\\_%' ESCAPE '\\') "
+src/polaris_v6\queue\run_events.py:99:    partial_* / abort_* / error_unexpected / stream_lost).
+src/polaris_v6\queue\run_events.py:108:# All terminal pipeline-A events (run.completed/aborted/failed) collapse to v6
+src/polaris_v6\api\inspector.py:19:Per `docs/live_run_artifact_contract.md` (#503) §2.3: `abort_*` / `error_*`
+src/polaris_v6\api\inspector.py:108:    - abort_* / error_* run -> 422 (no AuditIR-loadable artifacts)
+src/polaris_v6\api\inspector.py:148:    Resolution: unknown 404 / not-completed 409 / abort 422 / missing
+src/polaris_v6\api\pins.py:17:    * abort_no_verified_sections path → `sections_total`,
+src/polaris_v6\api\pins.py:52:        "abort_no_verified_sections",
+src/polaris_v6\api\pins.py:58:    if pipeline_status == "abort_no_verified_sections":
+src/polaris_v6\api\pins.py:59:        return "abort_no_verified_sections"
+src/polaris_v6\api\pins.py:71:    abort_no_verified_sections manifests carry `sections_total` +
+src/polaris_v6\api\pins.py:162:        raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+src/polaris_v6\api\runs.py:149:    recent-runs strip. Only `status=completed` is supported today; aborted
+src/polaris_v6\api\runs.py:178:      worker aborts cooperatively at the next pipeline stage boundary.
+src/polaris_v6\api\run_resolver.py:27:    - abort_* / error_* run -> 422 (no AuditIR-loadable artifacts)
+src/polaris_v6\api\run_resolver.py:44:    if status.startswith("abort_") or status.startswith("error_"):
+src/polaris_v6\api\upload.py:116:        raise HTTPException(status_code=422, detail="empty file")
+
+ succeeded in 1729ms:
+   1: """GET /runs/{run_id}/bundle — F15 audit bundle export.
+   2: 
+   3: This is the artifact Carney's office receives. Per docs/blockers.md §5,
+   4: real bundle redistribution policy is gated on Phase 1/2 legal IP review;
+   5: for COPYRIGHTED sources the bundle exports citations + DOI links only,
+   6: not verbatim spans.
+   7: 
+   8: Phase 0 ships the endpoint contract that returns an EvidenceContract
+   9: v1.0 JSON. Phase 1 wires it to the actual run-storage backend; here we
+  10: serve a synthetic bundle from the golden corpus when a known run_id
+  11: matches, otherwise 404.
+  12: 
+  13: I-arch-001d (2026-05-13) adds GET /runs/{run_id}/bundle.tar.gz which
+  14: resolves run_id → artifact_dir via run_store and returns a real
+  15: GPG-signed audit bundle via the build_slice_chain bridge.
+  16: """
+  17: 
+  18: from __future__ import annotations
+  19: 
+  20: import json  # noqa: F401 — used by release_allowed gate below
+  21: from pathlib import Path
+  22: 
+  23: from fastapi import APIRouter, Depends, HTTPException
+  24: 
+  25: # I-arch-001d Codex diff iter-1 P1-001 fix: import get_sign_fn at module top
+  26: # so FastAPI Depends() identity matches what app.dependency_overrides keys on.
+  27: # A lambda Depends would be a DIFFERENT callable than get_sign_fn — the
+  28: # create_app() override wouldn't fire and the endpoint would always 503.
+  29: from polaris_graph.api.audit_bundle_route import (
+  30:     build_audit_bundle_response,
+  31:     get_sign_fn,
+  32: )
+  33: from polaris_v6.api.artifact_to_evidence_contract import (
+  34:     build_evidence_contract_from_artifact,
+  35: )
+  36: from polaris_v6.api.artifact_to_slice_chain import (
+  37:     SovereigntyFilterEmptiedReportError,
+  38:     build_slice_chain,
+  39: )
+  40: from polaris_v6.queue import run_store
+  41: from polaris_v6.schemas.evidence_contract import EvidenceContract
+  42: 
+  43: router = APIRouter(prefix="/runs", tags=["bundle"])
+  44: 
+  45: _FIXTURE_DIR = Path(__file__).resolve().parents[3] / "tests" / "v6" / "fixtures" / "evidence_contract_v1"
+  46: 
+  47: _GOLDEN_RUN_INDEX = {
+  48:     "golden_clinical_001": "golden_run_clinical.json",
+  49:     "golden_housing_002": "golden_run_with_contradiction.json",
+  50:     "golden_abort_003": "golden_run_abort_no_verified.json",
+  51:     "golden_defense_004": "golden_run_defense.json",
+  52:     "golden_climate_005": "golden_run_climate.json",
+  53:     "golden_ai_006": "golden_run_ai_sovereignty.json",
+  54:     "golden_with_drop_reason": "golden_run_with_drop_reason.json",
+  55: }
+  56: 
+  57: 
+  58: def load_evidence_contract_for_run(run_id: str) -> EvidenceContract:
+  59:     """Resolve a run_id → EvidenceContract for golden fixtures AND real runs.
+  60: 
+  61:     I-cd-680 (Codex Option B): golden fixtures load from JSON; real completed
+  62:     runs resolve run_id → artifact_dir via run_store and build the contract
+  63:     from the slice-chain (the same proven path as bundle.tar.gz). Shared by
+  64:     the bundle, follow-up (#542), and compare (#543) endpoints so all three
+  65:     work on real runs, not just fixtures.
+  66: 
+  67:     Raises HTTPException(404) for unknown / not-completed / artifact-missing
+  68:     runs, HTTPException(422) when the sovereignty cascade empties the report.
+  69:     """
+  70:     fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
+  71:     if fixture_name is not None:
+  72:         raw = json.loads((_FIXTURE_DIR / fixture_name).read_text())
+  73:         return EvidenceContract.model_validate(raw)
+  74: 
+  75:     run = run_store.get_run(run_id)
+  76:     if run is None:
+  77:         raise HTTPException(
+  78:             status_code=404,
+  79:             detail=(
+  80:                 f"Run {run_id!r} not found. Available golden fixtures: "
+  81:                 f"{list(_GOLDEN_RUN_INDEX)}."
+  82:             ),
+  83:         )
+  84:     if run.lifecycle_status != "completed" or not run.artifact_dir:
+  85:         raise HTTPException(
+  86:             status_code=404,
+  87:             detail=(
+  88:                 f"Run {run_id!r} is not a completed run with artifacts "
+  89:                 f"(lifecycle_status={run.lifecycle_status!r})."
+  90:             ),
+  91:         )
+  92: 
+  93:     # I-cd-680 Codex iter-1 P1: mirror the /bundle.tar.gz gates so the JSON
+  94:     # path cannot leak non-shippable evidence the tar.gz path refuses.
+  95:     if run.pipeline_status and run.pipeline_status.startswith("abort_"):
+  96:         raise HTTPException(
+  97:             status_code=422,
+  98:             detail=f"Run {run_id!r} aborted: pipeline_status={run.pipeline_status}.",
+  99:         )
+ 100:     artifact_dir = Path(run.artifact_dir)
+ 101:     if not artifact_dir.is_dir():
+ 102:         raise HTTPException(
+ 103:             status_code=404,
+ 104:             detail=f"Run {run_id!r} artifact_dir does not exist on disk: {artifact_dir}.",
+ 105:         )
+ 106:     # release_allowed gate: a release-blocked partial (e.g.
+ 107:     # partial_evaluator_advisory with release_allowed=False) MUST NOT be
+ 108:     # served as a clean EvidenceContract (matches bundle.tar.gz).
+ 109:     try:
+ 110:         manifest_raw = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+ 111:     except (OSError, json.JSONDecodeError) as exc:
+ 112:         raise HTTPException(
+ 113:             status_code=404,
+ 114:             detail=f"Run {run_id!r} manifest.json missing or invalid: {exc}",
+ 115:         ) from exc
+ 116:     if not manifest_raw.get("release_allowed", False):
+ 117:         raise HTTPException(
+ 118:             status_code=422,
+ 119:             detail=(
+ 120:                 f"Run {run_id!r} is release-blocked "
+ 121:                 f"(pipeline_status={run.pipeline_status!r}, release_allowed=False); "
+ 122:                 f"EvidenceContract cannot ship until the release gate clears."
+ 123:             ),
+ 124:         )
+ 125: 
+ 126:     try:
+ 127:         return build_evidence_contract_from_artifact(
+ 128:             artifact_dir,
+ 129:             run_id=run.run_id,
+ 130:             template=run.template or "custom",
+ 131:             question=run.question or "",
+ 132:             queued_at=str(run.queued_at or ""),
+ 133:             finished_at=str(run.finished_at or ""),
+ 134:             pipeline_status=run.pipeline_status or "success",
+ 135:         )
+ 136:     except SovereigntyFilterEmptiedReportError as exc:
+ 137:         raise HTTPException(
+ 138:             status_code=422,
+ 139:             detail=f"Run {run_id!r} has no shippable sections after the "
+ 140:             f"sovereignty cascade: {exc}",
+
+ succeeded in 1825ms:
+   1: """Run-status response schema.
+   2: 
+   3: I-arch-001a (2026-05-12): split lifecycle (operational) from pipeline_status
+   4: (pipeline-A manifest verdict). Old `status` retained as computed alias for
+   5: tests/v6/ backcompat — populated from lifecycle_status.
+   6: 
+   7: I-rdy-011 (2026-05-16): `cancel_requested` surfaced so the UI can show a
+   8: cancel as in-flight in <5s, before an in-progress run reaches the next
+   9: pipeline stage boundary and transitions to terminal `cancelled`.
+  10: """
+  11: 
+  12: from __future__ import annotations
+  13: 
+  14: from typing import Literal
+  15: 
+  16: from pydantic import BaseModel, Field, computed_field
+  17: 
+  18: LifecycleStatus = Literal[
+  19:     "queued",
+  20:     "in_progress",
+  21:     "completed",
+  22:     "cancelled",
+  23:     "failed",
+  24: ]
+  25: 
+  26: PipelineStatus = Literal[
+  27:     "success",
+  28:     "partial_outline_fallback",
+  29:     "partial_qwen_advisory",  # legacy alias (I-modref-004 #530) — historical manifests
+  30:     "partial_evaluator_advisory",
+  31:     "partial_thin_corpus",
+  32:     "partial_incomplete_corpus",
+  33:     "partial_rule_check_warnings",
+  34:     "abort_scope_rejected",
+  35:     "abort_corpus_inadequate",
+  36:     "abort_corpus_approval_denied",
+  37:     "abort_no_verified_sections",
+  38:     "abort_no_sources",
+  39:     "abort_evaluator_critical",
+  40:     "error_unexpected",
+  41: ]
+  42: 
+  43: # Backcompat alias used by older code/tests (tests/v6/ asserts body['status']
+  44: # and record.status). Computed from lifecycle_status by the model.
+  45: RunStatus = LifecycleStatus
+  46: 
+  47: 
+  48: class RunStatusResponse(BaseModel):
+  49:     run_id: str = Field(..., description="Server-assigned UUID hex.")
+  50:     lifecycle_status: LifecycleStatus = Field(
+  51:         ...,
+  52:         description="Operational lifecycle: queued → in_progress → completed|failed|cancelled.",
+  53:     )
+  54:     pipeline_status: PipelineStatus | None = Field(
+  55:         default=None,
+  56:         description="Pipeline-A manifest verdict. NULL until run reaches a terminal pipeline state.",
+  57:     )
+  58:     template: str
+  59:     question: str
+  60:     queued_at: str = Field(..., description="ISO8601 UTC.")
+  61:     started_at: str | None = None
+  62:     finished_at: str | None = None
+  63:     result_json: str | None = None
+  64:     error_json: str | None = None
+  65:     # I-arch-001a new optional fields for UUID/slug/artifact_dir mapping.
+  66:     query_slug: str | None = None
+  67:     manifest_run_id: str | None = None
+  68:     artifact_dir: str | None = None
+  69:     cost_usd: float | None = None
+  70:     decision_id: str | None = None
+  71:     # I-rdy-011: True once a cancel has been requested. For a queued run the
+  72:     # request is applied atomically (lifecycle_status flips to 'cancelled');
+  73:     # for an in_progress run this stays True while lifecycle_status is still
+  74:     # 'in_progress', until the worker observes it at a stage boundary.
+  75:     cancel_requested: bool = Field(
+  76:         default=False,
+  77:         description="True iff cancellation has been requested for this run.",
+  78:     )
+  79: 
+  80:     @computed_field  # serialized in JSON and readable as attr
+  81:     @property
+  82:     def status(self) -> LifecycleStatus:
+  83:         """Deprecated alias for lifecycle_status (kept for tests/v6/ backcompat).
+  84: 
+  85:         New code should use lifecycle_status. This computed field will be
+  86:         removed once tests/v6/ migrate (post-Carney-demo cleanup).
+  87:         """
+  88:         return self.lifecycle_status
+
+ succeeded in 2075ms:
+ 421:         conn.close()
+ 422: 
+ 423: 
+ 424: def _row_to_response(row: sqlite3.Row) -> RunStatusResponse:
+ 425:     return RunStatusResponse(
+ 426:         run_id=row["run_id"],
+ 427:         template=row["template"],
+ 428:         question=row["question"],
+ 429:         lifecycle_status=row["lifecycle_status"],
+ 430:         pipeline_status=row["pipeline_status"],
+ 431:         queued_at=row["queued_at"],
+ 432:         started_at=row["started_at"],
+ 433:         finished_at=row["finished_at"],
+ 434:         result_json=row["result_json"],
+ 435:         error_json=row["error_json"],
+ 436:         query_slug=row["query_slug"],
+ 437:         manifest_run_id=row["manifest_run_id"],
+ 438:         artifact_dir=row["artifact_dir"],
+ 439:         cost_usd=row["cost_usd"],
+ 440:         decision_id=row["decision_id"],
+ 441:         cancel_requested=bool(row["cancel_requested"]),
+ 442:     )
+ 443: 
+ 444: 
+ 445: def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None:
+ 446:     """Return the run record or None if missing.
+ 447: 
+ 448:     Defensive against `OperationalError: no such table` so callers in stub
+ 449:     mode (e.g. `tests/v6/test_actors.py` direct `.fn()` invocation without
+ 450:     init_db) get None back, matching the actor's row-missing-stub-noop
+ 451:     contract.
+ 452: 
+ 453:     I-arch-001a Codex iter-2 P2-002: if a known DB exists with the legacy
+ 454:     schema, the first read-only `get_run` call would 500 on column-missing.
+ 455:     The defensive catch below detects "no such column" and triggers a
+ 456:     one-time migration via init_db before retrying.
+ 457:     """
+ 458:     conn = _connect(path)
+ 459:     try:
+ 460:         try:
+ 461:             row = conn.execute(
+ 462:                 f"SELECT {_RUN_COLUMNS} FROM runs WHERE run_id=?",
+ 463:                 (run_id,),
+ 464:             ).fetchone()
+ 465:         except sqlite3.OperationalError as exc:
+ 466:             msg = str(exc).lower()
+ 467:             # Narrow per Codex iter-1 P2-001: only the missing-table stub
+ 468:             # path returns None; surface other operational errors (schema
+ 469:             # corruption, migration faults) so they aren't masked as
+ 470:             # missing-row.
+ 471:             if "no such table" in msg:
+ 472:                 return None
+ 473:             # Codex iter-2 P2-002: legacy schema → migrate then retry once.
+ 474:             if "no such column" in msg:
+ 475:                 conn.close()
+ 476:                 init_db(path)
+ 477:                 conn = _connect(path)
+ 478:                 row = conn.execute(
+ 479:                     f"SELECT {_RUN_COLUMNS} FROM runs WHERE run_id=?",
+ 480:                     (run_id,),
+ 481:                 ).fetchone()
+ 482:             else:
+ 483:                 raise
+ 484:     finally:
+ 485:         conn.close()
+ 486:     if row is None:
+ 487:         return None
+ 488:     return _row_to_response(row)
+ 489: 
+ 490: 
+ 491: def get_active_run(*, path: str | None = None) -> RunStatusResponse | None:
+ 492:     """Return the oldest run still queued or in_progress, else None.
+ 493: 
+ 494:     I-rdy-013: read-side helper for the 1-concurrent-session constraint —
+ 495:     the run currently holding the session slot. At most one run is active
+ 496:     once `insert_run_if_idle` gates all inserts; the `ORDER BY queued_at`
+ 497:     is defensive (oldest first) for any pre-gate legacy rows.
+ 498: 
+ 499:     Defensive against a missing/legacy table, mirroring `get_run`.
+ 500:     """
+ 501:     placeholders = ", ".join("?" for _ in _ACTIVE_STATUSES)
+ 502:     query = (
+ 503:         f"SELECT {_RUN_COLUMNS} FROM runs "
+ 504:         f"WHERE lifecycle_status IN ({placeholders}) "
+ 505:         "ORDER BY queued_at LIMIT 1"
+ 506:     )
+ 507:     conn = _connect(path)
+ 508:     try:
+ 509:         try:
+ 510:             row = conn.execute(query, _ACTIVE_STATUSES).fetchone()
+ 511:         except sqlite3.OperationalError as exc:
+ 512:             msg = str(exc).lower()
+ 513:             if "no such table" in msg:
+ 514:                 return None
+ 515:             if "no such column" in msg:
+ 516:                 conn.close()
+ 517:                 init_db(path)
+ 518:                 conn = _connect(path)
+ 519:                 row = conn.execute(query, _ACTIVE_STATUSES).fetchone()
+ 520:             else:
+ 521:                 raise
+ 522:     finally:
+ 523:         conn.close()
+ 524:     return None if row is None else _row_to_response(row)
+ 525: 
+ 526: 
+ 527: def list_completed_runs_by_query_slug(
+ 528:     query_slug: str, *, path: str | None = None
+ 529: ) -> list[RunStatusResponse]:
+ 530:     """List completed runs sharing a query_slug ordered by finished_at ASC.
+ 531: 
+ 532:     I-cd-017 (#627): pin-replay timeseries source. Uses the existing
+ 533:     `idx_runs_query_slug` index. Returns `[]` (not None) when no rows
+ 534:     match — callers distinguish "anchor run exists but no completed
+ 535:     siblings" from "anchor run unknown" via get_run() before calling.
+ 536: 
+ 537:     Defensive against missing-table / legacy-schema like get_run.
+ 538:     """
+ 539:     query = (
+ 540:         f"SELECT {_RUN_COLUMNS} FROM runs "
+ 541:         "WHERE query_slug=? AND lifecycle_status='completed' "
+ 542:         "ORDER BY finished_at ASC"
+ 543:     )
+ 544:     conn = _connect(path)
+ 545:     try:
+ 546:         try:
+ 547:             rows = conn.execute(query, (query_slug,)).fetchall()
+ 548:         except sqlite3.OperationalError as exc:
+ 549:             msg = str(exc).lower()
+ 550:             if "no such table" in msg:
+ 551:                 return []
+ 552:             if "no such column" in msg:
+ 553:                 conn.close()
+ 554:                 init_db(path)
+ 555:                 conn = _connect(path)
+ 556:                 rows = conn.execute(query, (query_slug,)).fetchall()
+ 557:             else:
+ 558:                 raise
+ 559:     finally:
+ 560:         conn.close()
+ 561:     return [_row_to_response(row) for row in rows]
+ 562: 
+ 563: 
+ 564: def list_completed_runs(
+ 565:     limit: int = 20, *, path: str | None = None
+ 566: ) -> list[RunStatusResponse]:
+ 567:     """List completed, non-aborted runs newest-first (finished_at DESC), capped.
+ 568: 
+ 569:     I-cd-705 (#705): source for GET /api/v6/runs — the compare picker (#543),
+ 570:     follow-up picker (#542), and home recent-runs strip. Excludes
+ 571:     `abort_*` pipeline_status (not EvidenceContract-usable). release_allowed
+ 572:     is a per-run manifest flag (too heavy to read in a list query) and is
+ 573:     enforced DOWNSTREAM at bundle/followup/compare fetch time (#680), so a
+ 574:     release-blocked partial may appear here but 422s when actually opened.
+ 575: 
+ 576:     Defensive against missing-table / legacy-schema like get_run.
+ 577: 
+ 578:     Codex iter-1 P2: clamp limit to [1, 100] HERE too, so direct in-process
+ 579:     callers are safe even though the HTTP route also clamps.
+ 580:     """
+ 581:     limit = max(1, min(limit, 100))
+ 582:     query = (
+ 583:         f"SELECT {_RUN_COLUMNS} FROM runs "
+ 584:         "WHERE lifecycle_status='completed' "
+ 585:         "AND (pipeline_status IS NULL OR pipeline_status NOT LIKE 'abort\\_%' ESCAPE '\\') "
+ 586:         "ORDER BY finished_at DESC LIMIT ?"
+ 587:     )
+ 588:     conn = _connect(path)
+ 589:     try:
+ 590:         try:
+ 591:             rows = conn.execute(query, (limit,)).fetchall()
+ 592:         except sqlite3.OperationalError as exc:
+ 593:             msg = str(exc).lower()
+ 594:             if "no such table" in msg:
+ 595:                 return []
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=596; Get-Content src/polaris_v6/queue/run_store.py | Select-Object -Skip 595 -First 50 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+ succeeded in 1429ms:
+ 596:             if "no such column" in msg:
+ 597:                 conn.close()
+ 598:                 init_db(path)
+ 599:                 conn = _connect(path)
+ 600:                 rows = conn.execute(query, (limit,)).fetchall()
+ 601:             else:
+ 602:                 raise
+ 603:     finally:
+ 604:         conn.close()
+ 605:     return [_row_to_response(row) for row in rows]
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"include_router|compare|runs\\.router|bundle\\.router|followup\" src/polaris_v6/api/app.py web/next.config.ts web/app/layout.tsx web/app/components/app_shell_gate.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web/next.config.ts | Select-Object -First 120 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'if (Test-Path web/app/components/app_shell_gate.tsx) { $i=1; Get-Content web/app/components/app_shell_gate.tsx | Select-Object -First 120 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web/app/layout.tsx | Select-Object -First 120 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+2026-05-21T17:45:52.520275Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.7 seconds
+Output:
+src/polaris_v6/api/app.py:24:from polaris_v6.api.compare import router as compare_router
+src/polaris_v6/api/app.py:25:from polaris_v6.api.followup import router as followup_router
+src/polaris_v6/api/app.py:93:    app.include_router(health_router)
+src/polaris_v6/api/app.py:94:    app.include_router(auth_router)
+src/polaris_v6/api/app.py:95:    app.include_router(runs_router)
+src/polaris_v6/api/app.py:96:    app.include_router(stream_router)
+src/polaris_v6/api/app.py:97:    app.include_router(ambiguity_router)
+src/polaris_v6/api/app.py:98:    app.include_router(bundle_router)
+src/polaris_v6/api/app.py:99:    app.include_router(pins_router)
+src/polaris_v6/api/app.py:100:    app.include_router(scope_router)
+src/polaris_v6/api/app.py:101:    app.include_router(upload_router)
+src/polaris_v6/api/app.py:102:    app.include_router(charts_router)
+src/polaris_v6/api/app.py:103:    app.include_router(followup_router)
+src/polaris_v6/api/app.py:104:    app.include_router(compare_router)
+src/polaris_v6/api/app.py:105:    app.include_router(inspector_router)
+src/polaris_v6/api/app.py:106:    app.include_router(memory_router)
+src/polaris_v6/api/app.py:107:    app.include_router(templates_router)
+src/polaris_v6/api/app.py:108:    app.include_router(transparency_router)
+src/polaris_v6/api/app.py:111:    app.include_router(slice001_intake_router, prefix="/api")
+src/polaris_v6/api/app.py:127:    app.include_router(slice002_retrieval_router, prefix="/api")
+src/polaris_v6/api/app.py:142:    app.include_router(slice003_generation_router, prefix="/api")
+src/polaris_v6/api/app.py:157:    app.include_router(slice004_audit_bundle_router, prefix="/api")
+src/polaris_v6/api/app.py:176:    app.include_router(slice005_benchmark_router, prefix="/api")
+src/polaris_v6/api/app.py:178:    app.include_router(disambiguation_router, prefix="/api")
+src/polaris_v6/api/app.py:181:    app.include_router(graph_router, prefix="/api")
+rg: web/app/components/app_shell_gate.tsx: The system cannot find the file specified. (os error 2)
+
+ exited 1 in 1724ms:
+src/polaris_v6/api/app.py:24:from polaris_v6.api.compare import router as compare_router
+src/polaris_v6/api/app.py:25:from polaris_v6.api.followup import router as followup_router
+src/polaris_v6/api/app.py:93:    app.include_router(health_router)
+src/polaris_v6/api/app.py:94:    app.include_router(auth_router)
+src/polaris_v6/api/app.py:95:    app.include_router(runs_router)
+src/polaris_v6/api/app.py:96:    app.include_router(stream_router)
+src/polaris_v6/api/app.py:97:    app.include_router(ambiguity_router)
+src/polaris_v6/api/app.py:98:    app.include_router(bundle_router)
+src/polaris_v6/api/app.py:99:    app.include_router(pins_router)
+src/polaris_v6/api/app.py:100:    app.include_router(scope_router)
+src/polaris_v6/api/app.py:101:    app.include_router(upload_router)
+src/polaris_v6/api/app.py:102:    app.include_router(charts_router)
+src/polaris_v6/api/app.py:103:    app.include_router(followup_router)
+src/polaris_v6/api/app.py:104:    app.include_router(compare_router)
+src/polaris_v6/api/app.py:105:    app.include_router(inspector_router)
+src/polaris_v6/api/app.py:106:    app.include_router(memory_router)
+src/polaris_v6/api/app.py:107:    app.include_router(templates_router)
+src/polaris_v6/api/app.py:108:    app.include_router(transparency_router)
+src/polaris_v6/api/app.py:111:    app.include_router(slice001_intake_router, prefix="/api")
+src/polaris_v6/api/app.py:127:    app.include_router(slice002_retrieval_router, prefix="/api")
+src/polaris_v6/api/app.py:142:    app.include_router(slice003_generation_router, prefix="/api")
+src/polaris_v6/api/app.py:157:    app.include_router(slice004_audit_bundle_router, prefix="/api")
+src/polaris_v6/api/app.py:176:    app.include_router(slice005_benchmark_router, prefix="/api")
+src/polaris_v6/api/app.py:178:    app.include_router(disambiguation_router, prefix="/api")
+src/polaris_v6/api/app.py:181:    app.include_router(graph_router, prefix="/api")
+rg: web/app/components/app_shell_gate.tsx: The system cannot find the file specified. (os error 2)
+
+ succeeded in 1958ms:
+   1: import type { NextConfig } from "next";
+   2: 
+   3: // I-carney-005 P1-004 + P1-005: standalone output for Docker runner +
+   4: // server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
+   5: // fetch only talks to the webui container (Next.js then proxies to the
+   6: // api container by Docker service name, which the browser can't resolve).
+   7: const nextConfig: NextConfig = {
+   8:   output: "standalone",
+   9:   async rewrites() {
+  10:     const internal =
+  11:       process.env.INTERNAL_API_URL ||
+  12:       process.env.NEXT_PUBLIC_BACKEND_URL ||
+  13:       "http://localhost:8000";
+  14:     return [
+  15:       {
+  16:         source: "/api/v6/:path*",
+  17:         destination: `${internal}/:path*`,
+  18:       },
+  19:       // I-carney-003 P1-001: expose FastAPI /transparency directly so
+  20:       // reviewers (incl. Carney's office) can audit the deploy without
+  21:       // going through /api/v6 prefix routing.
+  22:       {
+  23:         source: "/transparency",
+  24:         destination: `${internal}/transparency`,
+  25:       },
+  26:       {
+  27:         source: "/transparency/:path*",
+  28:         destination: `${internal}/transparency/:path*`,
+  29:       },
+  30:     ];
+  31:   },
+  32: };
+  33: 
+  34: export default nextConfig;
+
+ succeeded in 2237ms:
+ succeeded in 2560ms:
+   1: import type { Metadata } from "next";
+   2: import { Geist, Geist_Mono } from "next/font/google";
+   3: 
+   4: import { AppShellGate } from "@/components/app_shell_gate";
+   5: import { Toaster } from "@/components/ui/sonner";
+   6: 
+   7: import "./globals.css";
+   8: 
+   9: const geist_sans = Geist({
+  10:   variable: "--font-geist-sans",
+  11:   subsets: ["latin"],
+  12: });
+  13: 
+  14: const geist_mono = Geist_Mono({
+  15:   variable: "--font-geist-mono",
+  16:   subsets: ["latin"],
+  17: });
+  18: 
+  19: export const metadata: Metadata = {
+  20:   title: "POLARIS Canada — Sovereign Deep Research",
+  21:   description:
+  22:     "Two-family verified evidence pipelines for Government of Canada policy work.",
+  23: };
+  24: 
+  25: export default function RootLayout({
+  26:   children,
+  27: }: Readonly<{
+  28:   children: React.ReactNode;
+  29: }>) {
+  30:   return (
+  31:     <html
+  32:       lang="en"
+  33:       className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+  34:     >
+  35:       <body className="flex min-h-full flex-col">
+  36:         <AppShellGate>{children}</AppShellGate>
+  37:         <Toaster />
+  38:       </body>
+  39:     </html>
+  40:   );
+  41: }
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "AppShellGate|pathname|AppShell" web/components web/app' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web/components/app_shell_gate.tsx | Select-Object -First 120 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+ succeeded in 1677ms:
+   1: // I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+   2: // the AppShell header AND its <main> wrapper so the home route can
+   3: // provide its own header (with the same primary nav) + its own <main>.
+   4: // This avoids G1 (double header) + G6 (nested main) landmark violations.
+   5: //
+   6: // Tiny "use client" boundary so the otherwise server-rendered AppShell
+   7: // can still wrap every non-home route on the server.
+   8: "use client";
+   9: 
+  10: import { usePathname } from "next/navigation";
+  11: 
+  12: import { AppShell } from "@/components/app_shell";
+  13: 
+  14: interface AppShellGateProps {
+  15:   children: React.ReactNode;
+  16: }
+  17: 
+  18: export function AppShellGate({ children }: AppShellGateProps) {
+  19:   const pathname = usePathname();
+  20:   // Home owns its own header + main; render children bare on `/`.
+  21:   if (pathname === "/") {
+  22:     return <>{children}</>;
+  23:   }
+  24:   return <AppShell>{children}</AppShell>;
+  25: }
+
+ succeeded in 1973ms:
+web/app\contracts\page.tsx:10:// AppShell's <main> via the wrapper <section data-testid="contracts-page">.
+web/app\benchmark\page.tsx:10:// its own <header>, <footer>, or <main>. AppShell (via AppShellGate from
+web/app\dashboard\page.tsx:321:  // renders its own <header>, <footer>, or <main>; AppShell (via
+web/app\dashboard\page.tsx:322:  // AppShellGate, I-cd-022) is the single landmark provider. G2 fix:
+web/components\auth_redirect.tsx:30:  const pathname = usePathname();
+web/components\auth_redirect.tsx:43:    const next = encodeURIComponent(pathname ?? "/");
+web/components\auth_redirect.tsx:45:  }, [authState, pathname, router]);
+web/app\components\home_keyboard_shell.tsx:24:// present and identical"). When AppShell is suppressed on `/` via
+web/app\components\home_keyboard_shell.tsx:25:// AppShellGate, the home page's <header> is THE app shell for this route.
+web/components\app_shell_gate.tsx:1:// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+web/components\app_shell_gate.tsx:2:// the AppShell header AND its <main> wrapper so the home route can
+web/components\app_shell_gate.tsx:6:// Tiny "use client" boundary so the otherwise server-rendered AppShell
+web/components\app_shell_gate.tsx:12:import { AppShell } from "@/components/app_shell";
+web/components\app_shell_gate.tsx:14:interface AppShellGateProps {
+web/components\app_shell_gate.tsx:18:export function AppShellGate({ children }: AppShellGateProps) {
+web/components\app_shell_gate.tsx:19:  const pathname = usePathname();
+web/components\app_shell_gate.tsx:21:  if (pathname === "/") {
+web/components\app_shell_gate.tsx:24:  return <AppShell>{children}</AppShell>;
+web/components\app_shell.tsx:34:export function AppShell({ children }: { children: React.ReactNode }) {
+web/components\nav_link.tsx:9: * Active when the pathname equals href, or starts with `${href}/` for nested
+web/components\nav_link.tsx:20:  const pathname = usePathname();
+web/components\nav_link.tsx:22:    pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
+web/app\intake\page.tsx:13:// its own <header> or <main>; AppShell (via AppShellGate, I-cd-022) is
+web/app\layout.tsx:4:import { AppShellGate } from "@/components/app_shell_gate";
+web/app\layout.tsx:36:        <AppShellGate>{children}</AppShellGate>
+web/app\memory\page.tsx:51:  // its own <main>; AppShell (via AppShellGate from I-cd-022) is the
+web/app\upload\page.tsx:10:// own <main>; AppShell (via AppShellGate, I-cd-022) is the single
+web/app\pin_replay\page.tsx:77:  // <main> dropped (AppShell provides it). G2 fix: removed Issue id
+web/app\pin_replay\page.tsx:121:  // dropped (AppShell provides it). G2 fix: removed "M-INT-0b
+web/app\sign-in\page.tsx:32: * Returns the validated `pathname + search + hash` or `"/"`.
+web/app\sign-in\page.tsx:40:    // Reject fragment-only / hash-only / empty pathname — they leave the
+web/app\sign-in\page.tsx:42:    if (!parsed.pathname || parsed.pathname === "/sign-in") return "/";
+web/app\sign-in\page.tsx:43:    return parsed.pathname + parsed.search + parsed.hash;
+web/app\runs\[runId]\page.tsx:106:  // renders its own <header>, <footer>, or <main>. AppShell (via
+web/app\runs\[runId]\page.tsx:107:  // AppShellGate, I-cd-022) is the single landmark provider on this
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web/lib/auth.ts | Select-Object -First 140 | ForEach-Object { '"'{0,4}: {1}' -f "'$i++, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"listCompletedRuns|getRun\\(|asJsonOrThrow<RunStatusResponse\\[\\]>|catch\\(\\(.*\\) => \\{\\s*set.*\\[\\]\" web/app web/components web/lib -g '*.tsx' -g '*.ts'" in C:\POLARIS
+ succeeded in 1788ms:
+   1: /**
+   2:  * I-rdy-004 (#500) — client-side auth: JWT store + login + header injection.
+   3:  *
+   4:  * Carney demo scope. The JWT is held in sessionStorage: survives a page
+   5:  * refresh, cleared when the tab closes, not shared with a fresh tab —
+   6:  * the safer browser-storage choice per the Codex I-rdy-004 brief review.
+   7:  * 12h JWT expiry (matches the backend); cleared on any 401.
+   8:  */
+   9: 
+  10: const TOKEN_KEY = "polaris_jwt";
+  11: const EXPIRY_KEY = "polaris_jwt_expiry_ms";
+  12: const DEFAULT_EXPIRY_SECONDS = 12 * 60 * 60;
+  13: 
+  14: export interface LoginResult {
+  15:   ok: boolean;
+  16:   status: number;
+  17:   error?: string;
+  18: }
+  19: 
+  20: function store(): Storage | null {
+  21:   if (typeof window === "undefined") return null;
+  22:   return window.sessionStorage;
+  23: }
+  24: 
+  25: /** Current JWT, or null if absent or past its 12h expiry. */
+  26: export function getToken(): string | null {
+  27:   const s = store();
+  28:   if (!s) return null;
+  29:   const token = s.getItem(TOKEN_KEY);
+  30:   const expiry = s.getItem(EXPIRY_KEY);
+  31:   if (!token || !expiry) return null;
+  32:   if (Date.now() >= Number(expiry)) {
+  33:     clearToken();
+  34:     return null;
+  35:   }
+  36:   return token;
+  37: }
+  38: 
+  39: export function setToken(token: string, expiresInSeconds: number): void {
+  40:   const s = store();
+  41:   if (!s) return;
+  42:   const ttl = expiresInSeconds > 0 ? expiresInSeconds : DEFAULT_EXPIRY_SECONDS;
+  43:   s.setItem(TOKEN_KEY, token);
+  44:   s.setItem(EXPIRY_KEY, String(Date.now() + ttl * 1000));
+  45: }
+  46: 
+  47: export function clearToken(): void {
+  48:   const s = store();
+  49:   if (!s) return;
+  50:   s.removeItem(TOKEN_KEY);
+  51:   s.removeItem(EXPIRY_KEY);
+  52: }
+  53: 
+  54: export function isAuthenticated(): boolean {
+  55:   return getToken() !== null;
+  56: }
+  57: 
+  58: /**
+  59:  * POST credentials to the backend. On 200, store the JWT and report ok.
+  60:  * A 401 here is invalid-credentials feedback for the sign-in form — it is
+  61:  * NOT routed through the generic 401-redirect (that would loop the page).
+  62:  */
+  63: export async function login(
+  64:   username: string,
+  65:   password: string,
+  66: ): Promise<LoginResult> {
+  67:   let response: Response;
+  68:   try {
+  69:     response = await fetch("/api/v6/auth/login", {
+  70:       method: "POST",
+  71:       headers: { "content-type": "application/json" },
+  72:       body: JSON.stringify({ username, password }),
+  73:     });
+  74:   } catch {
+  75:     return {
+  76:       ok: false,
+  77:       status: 0,
+  78:       error: "Could not reach POLARIS. Check the connection.",
+  79:     };
+  80:   }
+  81:   if (response.status === 200) {
+  82:     const body = (await response.json()) as {
+  83:       access_token: string;
+  84:       expires_in?: number;
+  85:     };
+  86:     setToken(body.access_token, body.expires_in ?? DEFAULT_EXPIRY_SECONDS);
+  87:     return { ok: true, status: 200 };
+  88:   }
+  89:   if (response.status === 401) {
+  90:     return { ok: false, status: 401, error: "Invalid username or password." };
+  91:   }
+  92:   return {
+  93:     ok: false,
+  94:     status: response.status,
+  95:     error: `Sign-in failed (HTTP ${response.status}).`,
+  96:   };
+  97: }
+  98: 
+  99: /** Authorization header for the current token, or {} if unauthenticated. */
+ 100: export function authHeader(): Record<string, string> {
+ 101:   const token = getToken();
+ 102:   return token ? { Authorization: `Bearer ${token}` } : {};
+ 103: }
+ 104: 
+ 105: /** Clear the token and route to /sign-in. Called on a generic 401. */
+ 106: export function redirectToSignIn(): void {
+ 107:   if (typeof window === "undefined") return;
+ 108:   clearToken();
+ 109:   if (window.location.pathname !== "/sign-in") {
+ 110:     window.location.href = "/sign-in";
+ 111:   }
+ 112: }
+
+ succeeded in 2099ms:
+web/lib\api.ts:165:export async function getRun(runId: string): Promise<RunStatusResponse> {
+web/lib\api.ts:236:export async function listCompletedRuns(
+web/lib\api.ts:242:  return asJsonOrThrow<RunStatusResponse[]>(response);
+web/app\compare\page.tsx:8:  listCompletedRuns,
+web/app\compare\page.tsx:41:    listCompletedRuns(50)
+web/app\runs\[runId]\page.tsx:37:    getRun(runId)
+web/app\runs\[runId]\page.tsx:56:        // I-ui-003 (#542) Codex diff P1: getRun() only populates `status`
+web/app\runs\[runId]\page.tsx:62:          getRun(runId)
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Nav parity tests still enumerate the old 8 labels, so they pass with the new 9th Compare link but do not assert it. Code parity is correct in both nav arrays."
+convergence_call: accept_remaining
+merge_decision: MERGE AUTHORIZED
+remaining_blockers_for_execution: []
+MERGE AUTHORIZED
+tokens used
+64,830
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Nav parity tests still enumerate the old 8 labels, so they pass with the new 9th Compare link but do not assert it. Code parity is correct in both nav arrays."
+convergence_call: accept_remaining
+merge_decision: MERGE AUTHORIZED
+remaining_blockers_for_execution: []
+MERGE AUTHORIZED
