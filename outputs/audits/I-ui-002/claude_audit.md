@@ -1,0 +1,2 @@
+# Claude audit — I-ui-002 (#707)
+4-stage run-progress UI consuming #706 SSE. Codex brief APPROVE iter 5 (5 iters caught evidence_id listener gap, elapsed-freeze, out-of-order events, exhaustive run_complete taxonomy, success-path contradiction). Codex diff APPROVE iter 1 + MERGE AUTHORIZED (2 P2 fixed). Smoke: typecheck clean, lint 0 errors, npm build succeeds. e2e validation pending #720 (jose backend-boot). LOC exemption (one cohesive component) accepted by Codex.
