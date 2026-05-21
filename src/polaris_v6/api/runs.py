@@ -141,6 +141,24 @@ def create_run(payload: RunRequest) -> RunStatusResponse:
     return record
 
 
+@router.get("", response_model=list[RunStatusResponse])
+def list_runs(status: str = "completed", limit: int = 20) -> list[RunStatusResponse]:
+    """List completed runs newest-first (I-cd-705 / #705).
+
+    Feeds the compare picker (#543), follow-up picker (#542), and the home
+    recent-runs strip. Only `status=completed` is supported today; aborted
+    runs are excluded by run_store.list_completed_runs (not
+    EvidenceContract-usable). `limit` is clamped to [1, 100].
+    """
+    if status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="only status=completed is supported",
+        )
+    limit = max(1, min(limit, 100))
+    return run_store.list_completed_runs(limit=limit)
+
+
 @router.get("/{run_id}", response_model=RunStatusResponse)
 def get_run(run_id: str) -> RunStatusResponse:
     record = run_store.get_run(run_id)
