@@ -1,0 +1,3 @@
+# Claude audit — I-cd-682 (#682)
+
+metadata.json producer (`manifest_builder.py`) reconciled to the frozen v1.0 5-field card (`bundle_created_at_utc, evaluator_model, generator_model, polaris_version, schema_version`) matching the fixture + frontend BundleMetadata. Provenance IDs kept in manifest.yaml (Codex Q2); evaluator_model from report.evaluator_model (Codex Q3); not a BUNDLE_VERSION bump (Codex Q1). Shared timestamp across both signed files + dead-var cleanup (Codex diff P2). 34 audit_bundle tests green. 2 pre-existing conformance failures unrelated, filed as #708. Codex scope-consult + diff APPROVE iter 1.
