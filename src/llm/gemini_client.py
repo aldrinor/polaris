@@ -25,7 +25,15 @@ from typing import Any, Dict, List, Optional, Type, TypeVar
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import google.generativeai as genai
+try:
+    import google.generativeai as genai
+except ImportError:
+    # I-pip-001: google-generativeai is EOL and forces protobuf<5, which
+    # collides with the protobuf 6.x stack (pip resolution-too-deep). It was
+    # dropped from requirements.txt. Importing this module stays cheap;
+    # constructing GeminiClient fails loud below. Gemini is covered by
+    # langchain-google-genai; port this client to google-genai if needed.
+    genai = None  # type: ignore[assignment]
 from pydantic import BaseModel
 from tenacity import (
     retry,
@@ -75,6 +83,13 @@ class GeminiClient:
             temperature: Generation temperature
             max_tokens: Maximum output tokens
         """
+        if genai is None:
+            raise ImportError(
+                "google-generativeai is not installed (dropped in I-pip-001 — "
+                "EOL + forces protobuf<5). Gemini is covered by "
+                "langchain-google-genai; port this client to google-genai to "
+                "restore direct google.generativeai usage."
+            )
         # Load from config
         config = get_config()
         self.api_key = api_key or config.env.gemini_api_key
