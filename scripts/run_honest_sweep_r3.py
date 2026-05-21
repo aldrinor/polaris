@@ -1623,6 +1623,18 @@ async def run_one_query(
                 _log(f"                {f.severity.upper():<8} {f.name}: "
                      f"{f.observed} vs threshold {f.threshold}")
 
+        # I-cd-706: SSE stage event (v6_mode only; emit_event is non-raising
+        # so a Redis outage cannot affect pipeline control flow).
+        if q.get("v6_mode") and q.get("external_run_id"):
+            emit_event(
+                q.get("external_run_id"),
+                "corpus_adequacy.completed",
+                {
+                    "pool_size": len(retrieval.evidence_rows),
+                    "tier_counts": dict(dist.tier_counts),
+                },
+            )
+
         # R-6 Gap-3: completeness check (before synthesis so gaps can
         # trigger expansion).
         completeness = check_completeness(
@@ -2196,6 +2208,21 @@ async def run_one_query(
             q.get("uploaded_documents_blocked_count", 0) or 0
         )
 
+        # I-cd-706: SSE evidence-id events over the FINAL evidence_for_gen set
+        # (NOT inside retrieval loops — bounded to the selected rows, tens to
+        # low-hundreds). Rows are dicts; guard for any object rows defensively.
+        if q.get("v6_mode") and q.get("external_run_id"):
+            _ext = q.get("external_run_id")
+            for _row in evidence_for_gen:
+                if isinstance(_row, dict):
+                    _eid = _row.get("evidence_id", "") or ""
+                    _eurl = _row.get("source_url") or _row.get("url") or ""
+                else:
+                    _eid = getattr(_row, "evidence_id", "") or ""
+                    _eurl = getattr(_row, "source_url", "") or getattr(_row, "url", "") or ""
+                if _eid:
+                    emit_event(_ext, "evidence.id_assigned", {"id": _eid, "url": _eurl})
+
         # I-rdy-011 (#507): cooperative cancel checkpoint — before the
         # generator stage (the most expensive stage).
         if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
@@ -2280,6 +2307,23 @@ async def run_one_query(
              f"verified={multi.total_sentences_verified}, "
              f"dropped={multi.total_sentences_dropped}, "
              f"limitations_words={len(multi.limitations_text.split())}")
+
+        # I-cd-706: per-section SSE events (ALL sections incl. dropped, so the
+        # staged-progress UI shows what was proposed + dropped). Emit the
+        # verifier verdict then the generator section-complete for each.
+        if q.get("v6_mode") and q.get("external_run_id"):
+            _ext = q.get("external_run_id")
+            for sr in multi.sections:
+                emit_event(_ext, "strict_verify.section_completed", {
+                    "section": sr.title,
+                    "local": sr.sentences_verified > 0,
+                    "global": (not sr.dropped_due_to_failure and bool(sr.verified_text)),
+                })
+                emit_event(_ext, "generator.section_completed", {
+                    "section": sr.title,
+                    "verified": sr.sentences_verified,
+                    "dropped": sr.sentences_dropped,
+                })
 
         # Assemble final report
         section_bodies = []

@@ -70,6 +70,40 @@ def test_translator_tolerates_malformed_payload():
     assert payload == {}
 
 
+# I-cd-706: the producer (scripts/run_honest_sweep_r3.py) emits these 4 stage
+# events with SPECIFIC payload keys. These assert the producer-payload →
+# translate contract: the keys the driver sends populate the v6 payload (not
+# blanked by a key mismatch). If the driver's emit keys drift, these fail.
+@pytest.mark.parametrize("pa_type,producer_payload,expected_v6", [
+    (
+        "corpus_adequacy.completed",
+        {"pool_size": 8, "tier_counts": {"T1": 3, "T3": 5}},
+        {"sources_found": 8, "tier_breakdown": {"T1": 3, "T3": 5}},
+    ),
+    (
+        "evidence.id_assigned",
+        {"id": "ev_001", "url": "https://oecd.ai/x"},
+        {"evidence_id": "ev_001", "source_url": "https://oecd.ai/x"},
+    ),
+    (
+        "strict_verify.section_completed",
+        {"section": "Regulatory", "local": True, "global": False},
+        {"section": "Regulatory", "local_pass": True, "global_pass": False},
+    ),
+    (
+        "generator.section_completed",
+        {"section": "Mechanism", "verified": 9, "dropped": 2},
+        {"section": "Mechanism", "verified_sentences": 9, "dropped": 2},
+    ),
+])
+def test_producer_payload_keys_populate_v6_payload(pa_type, producer_payload, expected_v6):
+    raw = {"event_type": pa_type, "payload": json.dumps(producer_payload)}
+    out = run_events.translate(raw)
+    assert out is not None
+    _name, payload = out
+    assert payload == expected_v6
+
+
 # ---------------------------------------------------------------------------
 # Integration: fakeredis sync emit + async read round-trip
 # ---------------------------------------------------------------------------
