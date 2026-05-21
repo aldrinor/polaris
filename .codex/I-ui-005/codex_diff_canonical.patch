@@ -1,0 +1,89 @@
+diff --git a/web/app/runs/[runId]/components/run_progress.tsx b/web/app/runs/[runId]/components/run_progress.tsx
+index 78e7f9e3..a8ffe076 100644
+--- a/web/app/runs/[runId]/components/run_progress.tsx
++++ b/web/app/runs/[runId]/components/run_progress.tsx
+@@ -85,13 +85,40 @@ export function RunProgress({ events, status }: RunProgressProps) {
+     : null;
+   const terminalFromStatus =
+     status && LIFECYCLE_TERMINAL.includes(status.status) ? status.status : null;
+-  const isTerminal = terminalFromEvent !== null || terminalFromStatus !== null;
+-  // Pipeline status string drives banner + unobserved-stage rendering.
+-  const terminalStatus = terminalFromEvent ?? terminalFromStatus ?? "";
++  // I-ui-bug-001 (#725, Codex diff iter-1 P1): a COMPLETED run has no live SSE
++  // to replay, so #706's STREAM_LOST_GRACE emits a SYNTHETIC
++  // run_complete{stream_lost}. That synthetic artifact must NOT drive the UI —
++  // but neither can lifecycle 'completed' alone, because mark_aborted() also
++  // stores lifecycle_status='completed' (an aborted run would wrongly show as
++  // success). The authoritative verdict for a completed run is the run_store
++  // PIPELINE status (success / abort_* / partial_* / error_*).
++  const syntheticLoss =
++    terminalFromEvent === "stream_lost" ||
++    terminalFromEvent === "stream_unavailable";
++  // A REAL run_complete event (genuine pipeline verdict, live-finished run) wins.
++  const realEventStatus =
++    terminalFromEvent && !syntheticLoss ? terminalFromEvent : null;
++  const lifecycleCompleted = status?.status === "completed";
++  const pipelineStatus = status?.pipeline_status ?? null;
++  const terminalStatus =
++    realEventStatus ??
++    (lifecycleCompleted
++      ? (pipelineStatus ?? "success")
++      : (terminalFromStatus ?? ""));
++  // terminal if: a real verdict event, a completed/failed/cancelled lifecycle,
++  // OR a genuinely-running run whose stream dropped (stream-loss degraded).
++  const isTerminal =
++    realEventStatus !== null ||
++    lifecycleCompleted ||
++    terminalFromStatus !== null ||
++    syntheticLoss;
+   const isSuccess =
+-    terminalStatus === "success" || terminalStatus === "completed";
+-  const isStreamLost =
+-    terminalStatus === "stream_lost" || terminalStatus === "stream_unavailable";
++    terminalStatus === "success" ||
++    terminalStatus === "completed" ||
++    terminalStatus.startsWith("partial_");
++  // Stream-loss is a REAL degradation only for a run that is NOT lifecycle-
++  // completed (i.e. genuinely still running and the live stream dropped).
++  const isStreamLost = syntheticLoss && !lifecycleCompleted;
+ 
+   const observed: Record<StageKey, boolean> = {
+     scope: scope !== null,
+@@ -290,6 +317,20 @@ function StageBody({
+       </p>
+     );
+   }
++  // I-ui-bug-001 (#725): a stage resolved `done` but with no replayed event
++  // data — the common case when opening an ALREADY-completed run (no live SSE
++  // to replay) — must NOT show active-sounding placeholders ("Gathering
++  // evidence…"). Show "Completed." Live runs that finish while watching keep
++  // their real per-stage feed (data is present → falls through below).
++  if (state === "done") {
++    const hasData =
++      (stageKey === "scope" && scope) ||
++      (stageKey === "retrieval" && sources.length > 0) ||
++      (stageKey === "generation" && sections.length > 0) ||
++      (stageKey === "verification" && verifications.length > 0);
++    if (!hasData)
++      return <p className="text-muted-foreground text-xs">Completed.</p>;
++  }
+   if (stageKey === "scope") {
+     if (!scope)
+       return (
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 8244c566..5913a65b 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -83,6 +83,12 @@ export interface RunRequest {
+ export interface RunStatusResponse {
+   run_id: string;
+   status: RunStatus;
++  // I-ui-bug-001 (#725): the pipeline-A verdict (success / abort_* / partial_*
++  // / error_*), distinct from the lifecycle `status`. mark_aborted() stores
++  // lifecycle_status='completed' for aborts, so lifecycle alone CANNOT tell a
++  // successful run from an aborted one — pipeline_status is required to render
++  // a completed run honestly (an aborted run must NOT show as success).
++  pipeline_status?: string | null;
+   // I-rdy-011 (#507): true once a cancel has been requested; lets the run
+   // page show a cancel as in-flight before an in-progress run transitions.
+   cancel_requested?: boolean;

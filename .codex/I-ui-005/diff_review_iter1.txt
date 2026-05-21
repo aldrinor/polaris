@@ -1,0 +1,2842 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4bcb-10cc-72d3-9196-66edf9be9e5c
+--------
+user
+# Codex DIFF review — I-ui-bug-001 (#725) completed-run render fix
+
+HARD ITERATION CAP: 5. iter 1. P0/P1 for real execution risks only. APPROVE iff zero P0/P1. Final line MERGE AUTHORIZED if mergeable. web/ only, 1 file.
+
+Canonical-diff-sha256: `9d4e3705e14591a7f5b99f01f352354f9157140c316f3bb4ffc2304eb9e8497c`. typecheck/build green. VISUALLY VERIFIED by re-screenshot (completed run: 4 cyan-check stages all "Completed.", no "connection lost" banner — qa_run_done.png).
+
+## Bug (found by visual QA, missed by code review + the 5-iter #707 brief review)
+Opening a COMPLETED run rendered as broken: "Live connection lost" + 4 stages "Not observed (stream lost)". A finished run has no live SSE to replay → #706 STREAM_LOST_GRACE emits synthetic run_complete{stream_lost} → it overrode run_store 'completed'.
+
+## Fix (run_progress.tsx only)
+- lifecycleCompleted = status?.status === "completed"; isSuccess includes it; isStreamLost = !lifecycleCompleted && stream_lost. → run_store status authoritative over the synthetic stream artifact.
+- StageBody: state==="done" with no replayed event data → "Completed." (not active placeholders). Live-finished runs with data fall through to the real feed.
+
+## Review focus
+1. Is lifecycle-completed-authoritative correct, and does it correctly NOT mask a genuinely-still-running run whose stream dropped (stream_lost only when !lifecycleCompleted)?
+2. Does the done-no-data → "Completed." guard preserve the live-run-with-data feed (falls through when data present)?
+3. Any regression to the live-watch path (non-terminal stages still active/pending; success terminal still all-done)?
+4. Any NOVEL P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll verify the single-file diff and read the surrounding render logic so the review is grounded in the actual patch, not just the summary.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web' in C:\POLARIS
+ succeeded in 1643ms:
+ succeeded in 2070ms:
+ M .claude/settings.json
+ M docs/todo_list.md
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-005/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+ succeeded in 2267ms:
+ .claude/settings.json                              |  33 +-
+ docs/todo_list.md                                  |  65 +-
+ logs/session_log.md                                |  22 +
+ .../clinical_tirzepatide_t2dm/bibliography.json    |  43 +-
+ .../clinical_tirzepatide_t2dm/contradictions.json  | 120 +--
+ .../clinical_tirzepatide_t2dm/corpus_approval.json |  77 +-
+ .../evaluator_rule_checks.json                     |  10 +-
+ .../live_corpus_dump.json                          | 153 ++--
+ .../clinical_tirzepatide_t2dm/manifest.json        | 886 ++++++++++++++++++--
+ .../clinical_tirzepatide_t2dm/protocol.json        |   6 +-
+ .../qwen_judge_output.json                         |  24 +-
+ .../clinical/clinical_tirzepatide_t2dm/report.md   | 106 ++-
+ .../clinical/clinical_tirzepatide_t2dm/run_log.txt |  56 +-
+ outputs/honest_sweep_r3/sweep_summary.json         | 897 +++++++++++++++++++--
+ outputs/honest_sweep_r3/sweep_summary.md           |   8 +-
+ state/restart_instructions.md                      | 141 ++--
+ .../signed_bundle/v1_canonical/evidence_pool.json  |   4 +-
+ .../signed_bundle/v1_canonical/manifest.yaml.asc   |   2 +-
+ 18 files changed, 2070 insertions(+), 583 deletions(-)
+warning: in the working copy of 'docs/todo_list.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'logs/session_log.md', LF will be replaced by CRLF the next time Git touches it
+
+codex
+The working tree is very dirty outside `web`, but `git diff -- web` is empty. I’m checking staged changes and recent commits to locate the reviewed one-file patch.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --stat' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git log --oneline -n 8 -- web' in C:\POLARIS
+ succeeded in 1703ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 2066ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 2307ms:
+600b2e3d I-ui-bug-001 (#725): completed runs render done, not 'connection lost'
+ee922d02 I-ui-004 (#543): run-compare view (/compare) (#724)
+b20d7931 I-ui-003 (#542): follow-up answer UI on completed runs (#723)
+ca69887a I-ui-002 (#707): Perplexity-style 4-stage run-progress UI (#721)
+d400663b I-ui-001 (#704): Perplexity-style home + cyan-accent visual identity (#719)
+bf52cdc7 I-pip-001: web/ forwarding-shim requirements (unblock merge protocol) (#717)
+a7db4320 I-cd-031 (GH#621): assemble demo journey — home → intake → dashboard → inspector (#693)
+3ad71448 I-cd-030 (GH#620): /memory rebuild — G1-G8 acceptance gates (#692)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --name-only --format=oneline HEAD -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --stat --oneline HEAD -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files web | rg \"run_progress\\.tsx"'$"' in C:\POLARIS
+ succeeded in 2184ms:
+600b2e3df02208e8ddb2119ab5ef718b6885f0fd I-ui-bug-001 (#725): completed runs render done, not 'connection lost'
+web/app/runs/[runId]/components/run_progress.tsx
+
+ succeeded in 2729ms:
+600b2e3d I-ui-bug-001 (#725): completed runs render done, not 'connection lost'
+ web/app/runs/[runId]/components/run_progress.tsx | 28 ++++++++++++++++++++++--
+ 1 file changed, 26 insertions(+), 2 deletions(-)
+
+ succeeded in 3097ms:
+web\app\runs\[runId]\components\run_progress.tsx
+
+codex
+The relevant change is the current `HEAD` commit: `600b2e3d`, one file under `web/app/runs/[runId]/components/run_progress.tsx`. I’m reading the diff and adjacent code paths for completed, failed, running, and stream-lost rendering.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --format=fuller --find-renames --find-copies HEAD -- "web/app/runs/[runId]/components/run_progress.tsx"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath "web/app/runs/[runId]/components/run_progress.tsx"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"stream_lost|run_complete|StageBody|lifecycleCompleted|isStreamLost|isSuccess|Completed\\.|Not observed|connection lost|Live connection\" web/app web/components web/lib" in C:\POLARIS
+ succeeded in 1794ms:
+commit 600b2e3df02208e8ddb2119ab5ef718b6885f0fd
+Author:     msn <msn@polaris.dev>
+AuthorDate: Thu May 21 11:27:11 2026 -0700
+Commit:     msn <msn@polaris.dev>
+CommitDate: Thu May 21 11:27:11 2026 -0700
+
+    I-ui-bug-001 (#725): completed runs render done, not 'connection lost'
+    
+    Visual QA (local auth-disabled stack + Playwright + vision) found the
+    /runs/[runId] page renders a COMPLETED run as broken: 'Live connection
+    lost', all 4 stages 'Not observed (stream lost)', because a finished run
+    has no live SSE to replay so #706's STREAM_LOST_GRACE emits synthetic
+    run_complete{stream_lost} which overrode the run_store 'completed' status.
+    
+    Fix (both verified by re-screenshot):
+    - run_store lifecycle 'completed' is AUTHORITATIVE over a synthetic
+      stream-loss artifact → isSuccess true, isStreamLost false → 4 stages
+      show done (cyan check), no 'connection lost' banner.
+    - StageBody: a done stage with no replayed event data shows 'Completed.'
+      not active placeholders ('Gathering evidence…'); live runs that finish
+      while watching keep their real feed.
+    
+    Follow-up (#725 deeper): completed runs should surface the report + real
+    sources/sentences counts from the bundle (counters still '—' for a
+    fresh-opened completed run). Tracked on the issue.
+    
+    Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+
+diff --git a/web/app/runs/[runId]/components/run_progress.tsx b/web/app/runs/[runId]/components/run_progress.tsx
+index 78e7f9e3..0f0b8fc5 100644
+--- a/web/app/runs/[runId]/components/run_progress.tsx
++++ b/web/app/runs/[runId]/components/run_progress.tsx
+@@ -88,10 +88,20 @@ export function RunProgress({ events, status }: RunProgressProps) {
+   const isTerminal = terminalFromEvent !== null || terminalFromStatus !== null;
+   // Pipeline status string drives banner + unobserved-stage rendering.
+   const terminalStatus = terminalFromEvent ?? terminalFromStatus ?? "";
++  // I-ui-bug-001 (#725): the run_store lifecycle status is AUTHORITATIVE over
++  // a synthetic stream-loss artifact. Opening a COMPLETED run has no live SSE
++  // stream to replay, so the #706 STREAM_LOST_GRACE backstop emits
++  // run_complete{status: stream_lost} — but the run genuinely succeeded. A
++  // completed run must render as success (stages done), NOT "connection lost".
++  const lifecycleCompleted = status?.status === "completed";
+   const isSuccess =
+-    terminalStatus === "success" || terminalStatus === "completed";
++    lifecycleCompleted ||
++    terminalStatus === "success" ||
++    terminalStatus === "completed";
+   const isStreamLost =
+-    terminalStatus === "stream_lost" || terminalStatus === "stream_unavailable";
++    !lifecycleCompleted &&
++    (terminalStatus === "stream_lost" ||
++      terminalStatus === "stream_unavailable");
+ 
+   const observed: Record<StageKey, boolean> = {
+     scope: scope !== null,
+@@ -290,6 +300,20 @@ function StageBody({
+       </p>
+     );
+   }
++  // I-ui-bug-001 (#725): a stage resolved `done` but with no replayed event
++  // data — the common case when opening an ALREADY-completed run (no live SSE
++  // to replay) — must NOT show active-sounding placeholders ("Gathering
++  // evidence…"). Show "Completed." Live runs that finish while watching keep
++  // their real per-stage feed (data is present → falls through below).
++  if (state === "done") {
++    const hasData =
++      (stageKey === "scope" && scope) ||
++      (stageKey === "retrieval" && sources.length > 0) ||
++      (stageKey === "generation" && sections.length > 0) ||
++      (stageKey === "verification" && verifications.length > 0);
++    if (!hasData)
++      return <p className="text-muted-foreground text-xs">Completed.</p>;
++  }
+   if (stageKey === "scope") {
+     if (!scope)
+       return (
+
+ succeeded in 2263ms:
+"use client";
+
+import { useEffect, useState } from "react";
+
+import type { RunStatusResponse, StreamEvent } from "@/lib/api";
+
+// I-ui-002 (#707): Perplexity-style 4-stage progress for the live run.
+// Consumes the #706 SSE sub-task events already accumulated by the parent
+// page. Pure rendering of (events, status) — no fetching here.
+
+type StageKey = "scope" | "retrieval" | "generation" | "verification";
+type StageState = "pending" | "active" | "done" | "skipped" | "degraded";
+
+const STAGES: { key: StageKey; label: string }[] = [
+  { key: "scope", label: "Scope" },
+  { key: "retrieval", label: "Retrieval" },
+  { key: "generation", label: "Generation" },
+  { key: "verification", label: "Verification" },
+];
+
+const LIFECYCLE_TERMINAL = ["completed", "failed", "cancelled"];
+
+function asNumber(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function parseMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const t = new Date(value).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+function formatElapsed(seconds: number | null): string {
+  if (seconds === null) return "—";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+interface RunProgressProps {
+  events: StreamEvent[];
+  status: RunStatusResponse | null;
+}
+
+export function RunProgress({ events, status }: RunProgressProps) {
+  // --- parse events into per-stage data -----------------------------------
+  const scope = events.find((e) => e.event === "scope_decision")?.data ?? null;
+  const retrievalProgress =
+    events.find((e) => e.event === "retrieval_progress")?.data ?? null;
+
+  const sources: { id: string; url: string }[] = [];
+  const seenIds = new Set<string>();
+  for (const e of events) {
+    if (e.event !== "evidence_id") continue;
+    const id = asString(e.data.id ?? e.data.evidence_id);
+    if (!id || seenIds.has(id)) continue; // defensive: skip blank/dup
+    seenIds.add(id);
+    sources.push({ id, url: asString(e.data.url ?? e.data.source_url) });
+  }
+
+  const sections = events
+    .filter((e) => e.event === "section_complete")
+    .map((e) => ({
+      section: asString(e.data.section),
+      verified: asNumber(e.data.verified ?? e.data.verified_sentences),
+      dropped: asNumber(e.data.dropped),
+    }));
+
+  const verifications = events
+    .filter((e) => e.event === "verifier_verdict")
+    .map((e) => ({
+      section: asString(e.data.section),
+      local: Boolean(e.data.local ?? e.data.local_pass),
+      global: Boolean(e.data.global ?? e.data.global_pass),
+    }));
+
+  const runCompleteEvent = events.find((e) => e.event === "run_complete");
+  const terminalFromEvent = runCompleteEvent
+    ? asString(runCompleteEvent.data.status) || "unknown"
+    : null;
+  const terminalFromStatus =
+    status && LIFECYCLE_TERMINAL.includes(status.status) ? status.status : null;
+  const isTerminal = terminalFromEvent !== null || terminalFromStatus !== null;
+  // Pipeline status string drives banner + unobserved-stage rendering.
+  const terminalStatus = terminalFromEvent ?? terminalFromStatus ?? "";
+  // I-ui-bug-001 (#725): the run_store lifecycle status is AUTHORITATIVE over
+  // a synthetic stream-loss artifact. Opening a COMPLETED run has no live SSE
+  // stream to replay, so the #706 STREAM_LOST_GRACE backstop emits
+  // run_complete{status: stream_lost} — but the run genuinely succeeded. A
+  // completed run must render as success (stages done), NOT "connection lost".
+  const lifecycleCompleted = status?.status === "completed";
+  const isSuccess =
+    lifecycleCompleted ||
+    terminalStatus === "success" ||
+    terminalStatus === "completed";
+  const isStreamLost =
+    !lifecycleCompleted &&
+    (terminalStatus === "stream_lost" ||
+      terminalStatus === "stream_unavailable");
+
+  const observed: Record<StageKey, boolean> = {
+    scope: scope !== null,
+    retrieval: retrievalProgress !== null || sources.length > 0,
+    generation: sections.length > 0,
+    verification: verifications.length > 0,
+  };
+
+  // --- stage state (ONE rule, per the Codex-APPROVE'd brief) --------------
+  function stageState(key: StageKey, idx: number): StageState {
+    if (isTerminal) {
+      if (isSuccess) return "done"; // success proves the full pipeline ran
+      if (observed[key]) return "done";
+      return isStreamLost ? "degraded" : "skipped"; // never green-check unobserved
+    }
+    // non-terminal: active = most-recent observed stage; earlier observed = done
+    const lastObserved = STAGES.reduce(
+      (acc, s, i) => (observed[s.key] ? i : acc),
+      -1,
+    );
+    if (!observed[key]) return "pending";
+    return idx < lastObserved ? "done" : "active";
+  }
+
+  // --- elapsed (tick + freeze on terminal) --------------------------------
+  // `nowMs` ticks every 1s ONLY while the run is live; when it goes terminal
+  // the effect stops the interval, so nowMs freezes at the last tick (≤1s of
+  // the terminal moment). status.finished_at stays null after run_complete
+  // (iter-1 P1), so we never depend on it.
+  // `tickedWhileLive` is set from the interval CALLBACK (async — not a
+  // synchronous setState in the effect body, so lint-clean). It is the
+  // honest signal that we actually watched the run progress live: only then
+  // is now−start a trustworthy elapsed. A run that was ALREADY terminal when
+  // this page opened (status loads terminal after mount, finished_at null)
+  // never ticks → elapsed shows "—" instead of a bogus page-open duration.
+  // (Codex diff iter-1 P2: replaces the mount-time isTerminal capture, which
+  // was always false because status is null at first render.)
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [tickedWhileLive, setTickedWhileLive] = useState(false);
+  useEffect(() => {
+    if (isTerminal) return; // frozen — stop ticking
+    const id = setInterval(() => {
+      setNowMs(Date.now());
+      setTickedWhileLive(true);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isTerminal]);
+
+  const startMs = parseMs(status?.started_at) ?? parseMs(status?.queued_at);
+  const elapsedSec =
+    startMs === null || (isTerminal && !tickedWhileLive)
+      ? null
+      : Math.max(0, Math.floor((nowMs - startMs) / 1000));
+
+  const sourcesRead =
+    sources.length > 0
+      ? sources.length
+      : retrievalProgress
+        ? asNumber(retrievalProgress.sources_found)
+        : null;
+  const sentencesVerified = sections.length
+    ? sections.reduce((acc, s) => acc + s.verified, 0)
+    : null;
+
+  return (
+    <section className="flex flex-col gap-4" data-testid="run-progress">
+      {/* counters */}
+      <div className="grid grid-cols-3 gap-3">
+        <Counter label="Elapsed" value={formatElapsed(elapsedSec)} />
+        <Counter
+          label="Sources read"
+          value={sourcesRead === null ? "—" : String(sourcesRead)}
+        />
+        <Counter
+          label="Sentences verified"
+          value={sentencesVerified === null ? "—" : String(sentencesVerified)}
+        />
+      </div>
+
+      {isStreamLost && (
+        <p
+          role="status"
+          className="border-border text-muted-foreground rounded-md border border-dashed p-3 text-sm"
+        >
+          Live connection lost — the run may still be progressing on the server.
+          Reload to reconnect.
+        </p>
+      )}
+
+      {/* stages */}
+      <ol className="flex flex-col gap-3">
+        {STAGES.map((stage, idx) => {
+          const state = stageState(stage.key, idx);
+          return (
+            <li
+              key={stage.key}
+              data-testid={`stage-${stage.key}`}
+              data-state={state}
+              className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4"
+            >
+              <div className="flex items-center gap-2">
+                <StageChip state={state} />
+                <h3 className="text-foreground text-sm font-semibold">
+                  {stage.label}
+                </h3>
+              </div>
+              <StageBody
+                stageKey={stage.key}
+                state={state}
+                scope={scope}
+                sources={sources}
+                sections={sections}
+                verifications={verifications}
+              />
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+function Counter({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-border bg-card flex flex-col gap-1 rounded-lg border px-3 py-2">
+      <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+        {label}
+      </span>
+      <span className="text-foreground font-mono text-lg">{value}</span>
+    </div>
+  );
+}
+
+function StageChip({ state }: { state: StageState }) {
+  if (state === "active") {
+    return (
+      <span
+        aria-label="in progress"
+        className="border-primary size-4 animate-spin rounded-full border-2 border-t-transparent"
+      />
+    );
+  }
+  if (state === "done") {
+    return (
+      <span
+        aria-label="done"
+        className="bg-primary text-primary-foreground flex size-4 items-center justify-center rounded-full text-[10px]"
+      >
+        ✓
+      </span>
+    );
+  }
+  if (state === "degraded") {
+    return (
+      <span
+        aria-label="connection lost"
+        className="border-muted-foreground text-muted-foreground flex size-4 items-center justify-center rounded-full border text-[10px]"
+      >
+        ?
+      </span>
+    );
+  }
+  // pending / skipped
+  return (
+    <span
+      aria-label={state === "skipped" ? "did not run" : "pending"}
+      className="bg-muted-foreground/30 size-4 rounded-full"
+    />
+  );
+}
+
+function StageBody({
+  stageKey,
+  state,
+  scope,
+  sources,
+  sections,
+  verifications,
+}: {
+  stageKey: StageKey;
+  state: StageState;
+  scope: Record<string, unknown> | null;
+  sources: { id: string; url: string }[];
+  sections: { section: string; verified: number; dropped: number }[];
+  verifications: { section: string; local: boolean; global: boolean }[];
+}) {
+  // Codex diff iter-1 P2: a stage that did not run / was not observed at a
+  // terminal must NOT show active-sounding placeholder copy ("Drafting…").
+  if (state === "skipped") {
+    return <p className="text-muted-foreground text-xs">Did not run.</p>;
+  }
+  if (state === "degraded") {
+    return (
+      <p className="text-muted-foreground text-xs">
+        Not observed (stream lost).
+      </p>
+    );
+  }
+  // I-ui-bug-001 (#725): a stage resolved `done` but with no replayed event
+  // data — the common case when opening an ALREADY-completed run (no live SSE
+  // to replay) — must NOT show active-sounding placeholders ("Gathering
+  // evidence…"). Show "Completed." Live runs that finish while watching keep
+  // their real per-stage feed (data is present → falls through below).
+  if (state === "done") {
+    const hasData =
+      (stageKey === "scope" && scope) ||
+      (stageKey === "retrieval" && sources.length > 0) ||
+      (stageKey === "generation" && sections.length > 0) ||
+      (stageKey === "verification" && verifications.length > 0);
+    if (!hasData)
+      return <p className="text-muted-foreground text-xs">Completed.</p>;
+  }
+  if (stageKey === "scope") {
+    if (!scope)
+      return (
+        <p className="text-muted-foreground text-xs">Awaiting scope gate…</p>
+      );
+    return (
+      <p className="text-muted-foreground text-xs">
+        <span className="text-foreground font-medium">
+          {asString(scope.verdict) || "decided"}
+        </span>
+        {asString(scope.reason) ? ` — ${asString(scope.reason)}` : ""}
+      </p>
+    );
+  }
+  if (stageKey === "retrieval") {
+    if (sources.length === 0)
+      return (
+        <p className="text-muted-foreground text-xs">Gathering evidence…</p>
+      );
+    return (
+      <ul className="flex flex-col gap-1">
+        {sources.slice(0, 12).map((s) => (
+          <li
+            key={s.id}
+            className="text-muted-foreground truncate text-xs"
+            title={s.url || s.id}
+          >
+            <span className="text-primary">✓</span> {s.url || s.id}
+          </li>
+        ))}
+        {sources.length > 12 && (
+          <li className="text-muted-foreground text-xs">
+            + {sources.length - 12} more
+          </li>
+        )}
+      </ul>
+    );
+  }
+  if (stageKey === "generation") {
+    if (sections.length === 0)
+      return (
+        <p className="text-muted-foreground text-xs">Drafting sections…</p>
+      );
+    return (
+      <ul className="flex flex-col gap-1">
+        {sections.map((s, i) => (
+          <li
+            key={`${s.section}-${i}`}
+            className="text-muted-foreground text-xs"
+          >
+            <span className="text-foreground font-medium">
+              {s.section || "section"}
+            </span>{" "}
+            — {s.verified} verified, {s.dropped} dropped
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  // verification
+  if (verifications.length === 0)
+    return <p className="text-muted-foreground text-xs">Verifying claims…</p>;
+  return (
+    <ul className="flex flex-col gap-1">
+      {verifications.map((v, i) => (
+        <li key={`${v.section}-${i}`} className="text-muted-foreground text-xs">
+          <span className="text-foreground font-medium">
+            {v.section || "section"}
+          </span>{" "}
+          — local {v.local ? "✓" : "✗"} · global {v.global ? "✓" : "✗"}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+ succeeded in 2597ms:
+web/lib\api.ts:536:    "run_complete",
+web/app\runs\[runId]\page.tsx:58:        // run watched live reaches `run_complete`, re-fetch the lifecycle
+web/app\runs\[runId]\page.tsx:61:        if (event.event === "run_complete") {
+web/app\runs\[runId]\page.tsx:70:        // SSE error: backend may have closed the stream after run_complete.
+web/app\runs\[runId]\components\run_progress.tsx:82:  const runCompleteEvent = events.find((e) => e.event === "run_complete");
+web/app\runs\[runId]\components\run_progress.tsx:94:  // run_complete{status: stream_lost} — but the run genuinely succeeded. A
+web/app\runs\[runId]\components\run_progress.tsx:95:  // completed run must render as success (stages done), NOT "connection lost".
+web/app\runs\[runId]\components\run_progress.tsx:96:  const lifecycleCompleted = status?.status === "completed";
+web/app\runs\[runId]\components\run_progress.tsx:97:  const isSuccess =
+web/app\runs\[runId]\components\run_progress.tsx:98:    lifecycleCompleted ||
+web/app\runs\[runId]\components\run_progress.tsx:101:  const isStreamLost =
+web/app\runs\[runId]\components\run_progress.tsx:102:    !lifecycleCompleted &&
+web/app\runs\[runId]\components\run_progress.tsx:103:    (terminalStatus === "stream_lost" ||
+web/app\runs\[runId]\components\run_progress.tsx:116:      if (isSuccess) return "done"; // success proves the full pipeline ran
+web/app\runs\[runId]\components\run_progress.tsx:118:      return isStreamLost ? "degraded" : "skipped"; // never green-check unobserved
+web/app\runs\[runId]\components\run_progress.tsx:132:  // the terminal moment). status.finished_at stays null after run_complete
+web/app\runs\[runId]\components\run_progress.tsx:184:      {isStreamLost && (
+web/app\runs\[runId]\components\run_progress.tsx:189:          Live connection lost — the run may still be progressing on the server.
+web/app\runs\[runId]\components\run_progress.tsx:211:              <StageBody
+web/app\runs\[runId]\components\run_progress.tsx:260:        aria-label="connection lost"
+web/app\runs\[runId]\components\run_progress.tsx:276:function StageBody({
+web/app\runs\[runId]\components\run_progress.tsx:299:        Not observed (stream lost).
+web/app\runs\[runId]\components\run_progress.tsx:306:  // evidence…"). Show "Completed." Live runs that finish while watching keep
+web/app\runs\[runId]\components\run_progress.tsx:315:      return <p className="text-muted-foreground text-xs">Completed.</p>;
+web/components\inspector\verified_report_sections.tsx:52:  const isSuccess = verdict === "success";
+web/components\inspector\verified_report_sections.tsx:56:      data-state={isSuccess ? "success" : "abort"}
+web/components\inspector\verified_report_sections.tsx:58:        isSuccess
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath "web/app/runs/[runId]/page.tsx"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath "web/lib/api.ts" | Select-Object -Skip 500 -First 80' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "type RunStatusResponse|interface RunStatusResponse|status:.*completed|StreamEvent|streamRun|openRunStream|runStatus" web/lib web/app/runs/[runId]' in C:\POLARIS
+ succeeded in 1874ms:
+
+export interface StreamEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Subscribe to /stream/{runId}. Returns the EventSource so the caller can
+ * close it. Per Phase 0 stub, the backend yields 5 deterministic events.
+ */
+export function subscribeToRun(
+  runId: string,
+  onEvent: (event: StreamEvent) => void,
+  onError?: (error: Event) => void,
+): EventSource {
+  const source = new EventSource(streamUrl(runId));
+
+  const handler = (event: MessageEvent<string>) => {
+    try {
+      const parsed = JSON.parse(event.data);
+      onEvent({ event: event.type, data: parsed });
+    } catch {
+      onEvent({ event: event.type, data: { raw: event.data } });
+    }
+  };
+
+  for (const eventName of [
+    "scope_decision",
+    "retrieval_progress",
+    // I-ui-002 (#707): evidence_id drives the retrieval source feed +
+    // sources-read counter; it was previously emitted by the backend but
+    // never listened for here, so those SSE events were silently dropped.
+    "evidence_id",
+    "verifier_verdict",
+    "section_complete",
+    "run_complete",
+  ]) {
+    source.addEventListener(eventName, handler);
+  }
+
+  if (onError) {
+    source.onerror = onError;
+  }
+  return source;
+}
+
+// ---------------------------------------------------------------------------
+// Slice 001 — Clinical Scope Discovery + Ambiguity Detection
+// Mirrors src/polaris_graph/scope/scope_decision.py + api/intake_route.py.
+// ---------------------------------------------------------------------------
+
+export type IntakeStatus =
+  | "in_scope"
+  | "ambiguous_needs_clarification"
+  | "out_of_scope"
+  | "refused";
+
+export type IntakeScopeClass =
+  | "clinical_efficacy"
+  | "clinical_safety"
+  | "clinical_diagnosis"
+  | "clinical_prognosis"
+  | "out_of_scope";
+
+export type PicoAxisName = "population" | "intervention" | "outcome";
+
+export interface IntakeAmbiguityAxis {
+  axis: PicoAxisName;
+  plausible_interpretations: string[];
+  needs_clarification: boolean;
+}
+
+export interface IntakeScopeDecision {
+  status: IntakeStatus;
+  scope_class: IntakeScopeClass | null;
+  ambiguity_axes: IntakeAmbiguityAxis[];
+  clarifications_needed: string[];
+  provenance: Record<string, unknown>;
+  decision_id: string;
+  decided_at_utc: string;
+
+ succeeded in 2487ms:
+"use client";
+
+import Link from "next/link";
+import { use, useEffect, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+  cancelRun,
+  downloadBundleAsJson,
+  getBundle,
+  getRun,
+  subscribeToRun,
+  type RunStatusResponse,
+  type StreamEvent,
+} from "@/lib/api";
+
+import { FollowupPanel } from "./components/followup_panel";
+import { RunProgress } from "./components/run_progress";
+
+interface RunPageProps {
+  params: Promise<{ runId: string }>;
+}
+
+// I-rdy-011 (#507): lifecycle states from which a run can no longer be
+// cancelled — the Cancel button is disabled for these.
+const TERMINAL_STATUSES = ["completed", "failed", "cancelled"];
+
+export default function RunDetailPage({ params }: RunPageProps) {
+  const { runId } = use(params);
+  const [status, setStatus] = useState<RunStatusResponse | null>(null);
+  const [events, setEvents] = useState<StreamEvent[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRun(runId)
+      .then((value) => {
+        if (!cancelled) setStatus(value);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          // G4 (Codex iter-1 P0): map raw API errors to friendly copy.
+          const raw = err instanceof Error ? err.message : String(err);
+          const friendly = raw.toLowerCase().includes("404")
+            ? "This run was not found. Check the URL or start a new run."
+            : "We couldn't load this run right now. Please retry shortly.";
+          setError(friendly);
+        }
+      });
+
+    const source = subscribeToRun(
+      runId,
+      (event) => {
+        setEvents((prev) => [...prev, event]);
+        // I-ui-003 (#542) Codex diff P1: getRun() only populates `status`
+        // once on mount; the SSE stream otherwise just appends events. When a
+        // run watched live reaches `run_complete`, re-fetch the lifecycle
+        // status so completed-only UI (the follow-up panel, the status line,
+        // the cancel button) updates without a manual reload.
+        if (event.event === "run_complete") {
+          getRun(runId)
+            .then((value) => {
+              if (!cancelled) setStatus(value);
+            })
+            .catch(() => {});
+        }
+      },
+      () => {
+        // SSE error: backend may have closed the stream after run_complete.
+        source.close();
+      },
+    );
+
+    return () => {
+      cancelled = true;
+      source.close();
+    };
+  }, [runId]);
+
+  // I-rdy-011 (#507): a queued run cancels instantly; an in-progress run
+  // aborts cooperatively at the next pipeline stage boundary. The button is
+  // disabled once the run is terminal (or its status is not yet loaded).
+  const isTerminal =
+    status !== null && TERMINAL_STATUSES.includes(status.status);
+  const cancelRequested = status?.cancel_requested ?? false;
+
+  const onCancel = async () => {
+    setCancelling(true);
+    setError(null);
+    try {
+      const updated = await cancelRun(runId);
+      setStatus(updated);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Cancel failed: ${err.message}`
+          : "Cancel failed",
+      );
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  // I-cd-025 (#615): /runs/[runId] rebuild — G1/G6 fix. Page no longer
+  // renders its own <header>, <footer>, or <main>. AppShell (via
+  // AppShellGate, I-cd-022) is the single landmark provider on this
+  // route. G2 fix: removed "POLARIS v6.2 — Phase 0 scaffold" footer
+  // dev-language. The header's Export-bundle + New-run buttons move
+  // into a page-level action row inside the <section>.
+  return (
+    <section
+      data-testid="runs-runid-page"
+      className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-12"
+    >
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          variant="outline"
+          onClick={async () => {
+            try {
+              const bundle = await getBundle(runId);
+              downloadBundleAsJson(bundle);
+            } catch (err) {
+              setError(
+                err instanceof Error
+                  ? `Bundle export failed: ${err.message}`
+                  : "Bundle export failed",
+              );
+            }
+          }}
+        >
+          Export bundle
+        </Button>
+        <Button
+          variant="default"
+          nativeButton={false}
+          render={<Link href="/dashboard" />}
+        >
+          New run
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-muted-foreground text-xs tracking-widest uppercase">
+          Run {runId}
+        </span>
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          {status?.question ?? "Loading…"}
+        </h1>
+        {status && (
+          <p className="text-muted-foreground text-sm">
+            Template: <span className="text-foreground">{status.template}</span>
+            {" · "}
+            Status:{" "}
+            <span className="text-foreground font-mono">{status.status}</span>
+            {" · "}
+            Queued at <time>{status.queued_at}</time>
+          </p>
+        )}
+        {error && (
+          <p
+            role="alert"
+            className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+          >
+            {error}
+          </p>
+        )}
+      </div>
+
+      <div className="border-border flex flex-col gap-2 rounded-md border p-4">
+        <h2 className="text-foreground text-sm font-semibold">
+          Affordances during this run
+        </h2>
+        <p className="text-muted-foreground text-xs">
+          Actions you can take while POLARIS works:
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/inspector/${runId}`} />}
+          >
+            Open Inspector
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={async () => {
+              try {
+                const bundle = await getBundle(runId);
+                downloadBundleAsJson(bundle);
+              } catch (err) {
+                setError(
+                  err instanceof Error
+                    ? `Bundle export failed: ${err.message}`
+                    : "Bundle export failed",
+                );
+              }
+            }}
+          >
+            Export current bundle
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={status === null || isTerminal || cancelling}
+            title={
+              cancelRequested
+                ? "Cancellation requested — the run is winding down"
+                : "Cancel this queued or in-progress run"
+            }
+            onClick={onCancel}
+          >
+            {cancelRequested
+              ? "Cancelling…"
+              : cancelling
+                ? "Requesting…"
+                : "Cancel run"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled
+            title="Pin this run for later replay (coming soon)"
+          >
+            Pin for replay
+          </Button>
+        </div>
+      </div>
+
+      <RunProgress events={events} status={status} />
+
+      {/* I-ui-003 (#542): follow-up is meaningful only for a completed run
+          (it has an answerable, verified report). Failed/cancelled/in-progress
+          runs don't render it. */}
+      {status?.status === "completed" && <FollowupPanel runId={runId} />}
+    </section>
+  );
+}
+
+ succeeded in 2495ms:
+web/lib\api.ts:83:export interface RunStatusResponse {
+web/lib\api.ts:299:  parse_status: "queued" | "completed" | "failed";
+web/lib\api.ts:502:export interface StreamEvent {
+web/lib\api.ts:513:  onEvent: (event: StreamEvent) => void,
+web/app/runs/[runId]\page.tsx:13:  type RunStatusResponse,
+web/app/runs/[runId]\page.tsx:14:  type StreamEvent,
+web/app/runs/[runId]\page.tsx:31:  const [events, setEvents] = useState<StreamEvent[]>([]);
+web/app/runs/[runId]\components\run_progress.tsx:5:import type { RunStatusResponse, StreamEvent } from "@/lib/api";
+web/app/runs/[runId]\components\run_progress.tsx:46:  events: StreamEvent[];
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath "web/lib/api.ts" | Select-Object -Skip 70 -First 35' in C:\POLARIS
+ succeeded in 1781ms:
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  // I-rdy-011 (#507): true once a cancel has been requested; lets the run
+  // page show a cancel as in-flight before an in-progress run transitions.
+  cancel_requested?: boolean;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath "web/lib/api.ts" | Select-Object -Skip 50 -First 25' in C:\POLARIS
+ succeeded in 1579ms:
+  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}
+
+export type TemplateId =
+  | "clinical"
+  | "policy"
+  | "tech"
+  | "due_diligence"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce"
+  | "custom";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --no-ext-diff HEAD''^ HEAD -- "web/app/runs/[runId]/components/run_progress.tsx" | sha256sum' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --no-ext-diff --binary HEAD''^ HEAD -- "web/app/runs/[runId]/components/run_progress.tsx" | sha256sum' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --format= --no-ext-diff HEAD -- "web/app/runs/[runId]/components/run_progress.tsx" | sha256sum' in C:\POLARIS
+2026-05-21T18:28:50.561650Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.1 seconds
+Output:
+      0 [main] sha256sum (48712) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mgit show --format= --no-ext-diff HEAD -- "web/app/runs/[runId]/compon[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:1[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ git show --format= --no-ext-diff HEAD -- "web/app/runs/[runId]/compon …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+ exited 1 in 3077ms:
+      0 [main] sha256sum (48712) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mgit show --format= --no-ext-diff HEAD -- "web/app/runs/[runId]/compon[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:1[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ git show --format= --no-ext-diff HEAD -- "web/app/runs/[runId]/compon …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+2026-05-21T18:28:50.937193Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.5 seconds
+Output:
+      0 [main] sha256sum (25044) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mgit diff --no-ext-diff HEAD^ HEAD -- "web/app/runs/[runId]/components[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:1[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ git diff --no-ext-diff HEAD^ HEAD -- "web/app/runs/[runId]/components …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+ exited 1 in 3488ms:
+      0 [main] sha256sum (25044) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mgit diff --no-ext-diff HEAD^ HEAD -- "web/app/runs/[runId]/components[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:1[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ git diff --no-ext-diff HEAD^ HEAD -- "web/app/runs/[runId]/components …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+2026-05-21T18:28:51.396463Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.9 seconds
+Output:
+      0 [main] sha256sum (50988) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mgit diff --no-ext-diff --binary HEAD^ HEAD -- "web/app/runs/[runId]/c[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:1[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ git diff --no-ext-diff --binary HEAD^ HEAD -- "web/app/runs/[runId]/c …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+ exited 1 in 3931ms:
+      0 [main] sha256sum (50988) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mgit diff --no-ext-diff --binary HEAD^ HEAD -- "web/app/runs/[runId]/c[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:1[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ git diff --no-ext-diff --binary HEAD^ HEAD -- "web/app/runs/[runId]/c …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$out = "C:'"\\tmp\\i_ui_bug_001_head_diff.patch\"; git diff --no-ext-diff HEAD~1 HEAD -- \"web/app/runs/[runId]/components/run_progress.tsx\" > "'$out; Get-FileHash -Algorithm SHA256 -LiteralPath $out | Select-Object -ExpandProperty Hash' in C:\POLARIS
+2026-05-21T18:29:02.485580Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.9 seconds
+Output:
+[31;1mOpenError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … iff.patch"; [36;1mgit diff --no-ext-diff HEAD~1 HEAD -- "web/app/runs/[runI[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAccess to the path 'C:\tmp\i_ui_bug_001_head_diff.patch' is denied.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … tsx" > $out; [36;1mGet-FileHash -Algorithm SHA256 -LiteralPath $out[0m | Selec …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCould not find file 'C:\tmp\i_ui_bug_001_head_diff.patch'.[0m
+
+ exited 1 in 1914ms:
+[31;1mOpenError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … iff.patch"; [36;1mgit diff --no-ext-diff HEAD~1 HEAD -- "web/app/runs/[runI[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAccess to the path 'C:\tmp\i_ui_bug_001_head_diff.patch' is denied.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … tsx" > $out; [36;1mGet-FileHash -Algorithm SHA256 -LiteralPath $out[0m | Selec …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCould not find file 'C:\tmp\i_ui_bug_001_head_diff.patch'.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "stream_lost|stream_unavailable|STREAM_LOST|run_complete|status.*completed|completed.*status|abort_no_verified_sections|abort_corpus|abort_scope" src web tests' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"RunProgress|run-progress|stage-retrieval|Completed\\.|Not observed|Live connection lost|stream lost\" web tests" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "run_store|RunStore|status.*in_progress|status.*failed|finished_at" src web tests | Select-Object -First 200' in C:\POLARIS
+ succeeded in 2310ms:
+src\polaris_v6\schemas\run_status.py:34:    "abort_scope_rejected",
+src\polaris_v6\schemas\run_status.py:35:    "abort_corpus_inadequate",
+src\polaris_v6\schemas\run_status.py:36:    "abort_corpus_approval_denied",
+src\polaris_v6\schemas\run_status.py:37:    "abort_no_verified_sections",
+src\polaris_v6\schemas\pin_snapshot.py:27:    verdict: str = Field(..., description="success | abort_no_verified_sections (partial_* collapsed to success).")
+tests\v6\test_concurrency.py:93:        pipeline_status="abort_corpus_inadequate",
+tests\v6\test_concurrency.py:196:def test_post_allowed_after_active_run_completes(client):
+tests\v6\test_cancellation.py:126:    assert rec.lifecycle_status == "completed"
+tests\v6\test_cancellation.py:180:    assert rec.lifecycle_status == "completed"
+tests\polaris_graph\clinical_generator\test_verified_report.py:646:            pipeline_verdict="abort_no_verified_sections",
+tests\polaris_graph\clinical_generator\test_verified_report.py:661:        pipeline_verdict="abort_no_verified_sections",
+tests\polaris_graph\clinical_generator\test_verified_report.py:673:    assert r.pipeline_verdict == "abort_no_verified_sections"
+tests\polaris_graph\clinical_generator\test_verified_report.py:679:        pipeline_verdict="abort_no_verified_sections",
+src\polaris_v6\replay\differ.py:8:    "abort_scope_rejected",
+src\polaris_v6\replay\differ.py:9:    "abort_corpus_inadequate",
+src\polaris_v6\replay\differ.py:10:    "abort_corpus_approval_denied",
+src\polaris_v6\replay\differ.py:11:    "abort_no_verified_sections",
+tests\polaris_graph\api\test_generation_route.py:161:    assert report["pipeline_verdict"] == "abort_no_verified_sections"
+tests\polaris_graph\benchmark\test_dimension_scorers.py:211:        pipeline_verdict="abort_no_verified_sections",
+tests\v6\test_actors.py:4:  - enqueue_research_run echoes payload + reports completed status
+tests\v6\test_actors.py:31:def test_enqueue_returns_completed_status_and_echoes_payload():
+tests\v6\test_actors.py:36:        "status": "completed",
+tests\v6\test_actors.py:44:    assert result["status"] == "completed"
+tests\polaris_graph\api\test_audit_bundle_route.py:215:        "/api/audit-bundle", json=_payload(verdict="abort_no_verified_sections")
+tests\polaris_graph\clinical_generator\test_generator.py:198:    assert result.pipeline_verdict == "abort_no_verified_sections"
+tests\polaris_graph\clinical_generator\test_generator.py:210:    assert result.pipeline_verdict == "abort_no_verified_sections"
+tests\v6\test_compare.py:106:    b = _bundle("r2", status="abort_no_verified_sections")
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:200:        pipeline_verdict="abort_no_verified_sections",
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:143:            _decision(), _pool([src]), _report([dropped], verdict="abort_no_verified_sections")
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:231:        message="cannot build bundle when verdict=abort_no_verified_sections",
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:170:        pipeline_verdict="abort_no_verified_sections",
+tests\v6\test_api_upload.py:33:    assert body["parse_status"] == "completed"
+tests\v6\test_api_stream.py:5:evidence_id, verifier_verdict, section_complete, run_complete) and honors
+tests\v6\test_api_stream.py:110:    assert names == ["scope_decision", "retrieval_progress", "verifier_verdict", "section_complete", "run_complete"]
+tests\v6\test_api_stream.py:117:def test_stream_run_complete_carries_pipeline_status(
+tests\v6\test_api_stream.py:137:    # Single run_complete event with abort status preserved.
+tests\v6\test_api_stream.py:138:    rc = [e for e in events if e["event"] == "run_complete"]
+tests\v6\test_api_stream.py:170:    # First event consumed → only retrieval_progress + run_complete left.
+tests\v6\test_api_stream.py:171:    assert names == ["retrieval_progress", "run_complete"]
+tests\v6\test_api_stream.py:174:def test_stream_redis_unreachable_emits_stream_unavailable_run_complete(
+tests\v6\test_api_stream.py:178:    run_complete with status='stream_unavailable' rather than hanging forever.
+tests\v6\test_api_stream.py:186:        yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_unavailable"})})
+tests\v6\test_api_stream.py:193:    rc = [e for e in events if e["event"] == "run_complete"]
+tests\v6\test_api_stream.py:195:    assert rc[0]["data"]["status"] == "stream_unavailable"
+tests\v6\test_document_grounding.py:50:        parse_status="completed" if content else "queued",
+tests\v6\test_end_to_end_arch_001f.py:234:    assert get_body["lifecycle_status"] == "completed"
+tests\v6\test_end_to_end_arch_001f.py:256:    assert names == ["scope_decision", "run_complete"]
+tests\v6\test_end_to_end_arch_001f.py:258:    run_complete_payload = events_seen[1]["data"]
+tests\v6\test_end_to_end_arch_001f.py:259:    assert run_complete_payload["run_id"] == posted_run_id
+tests\v6\test_end_to_end_arch_001f.py:260:    assert run_complete_payload["status"] == "success"
+tests\v6\test_end_to_end_arch_001f.py:265:    # return only run_complete (replay starts after the consumed event).
+tests\v6\test_end_to_end_arch_001f.py:271:    assert [e["event"] for e in resume_events] == ["run_complete"]
+tests\v6\test_api_charts.py:88:        pipeline_status="abort_corpus_inadequate",
+tests\v6\test_api_bundle.py:47:    assert body["pipeline_status"] == "abort_no_verified_sections"
+tests\integration\test_docx_export.py:87:        "status": "completed",
+tests\integration\test_docx_export.py:464:            "status": "completed",
+tests\integration\test_docx_export.py:562:            "status": "completed",
+tests\integration\test_docx_export.py:610:            "status": "completed",
+tests\integration\test_docx_export.py:688:            "status": "completed",
+tests\integration\test_docx_export.py:701:            "status": "completed",
+tests\polaris_graph\golden\test_slice_004_goldens.py:204:    if verdict == "abort_no_verified_sections":
+tests\integration\test_citation_chain_integration.py:32:    "status": "completed",
+tests\integration\test_campaign_persistence.py:146:    # 4. update_campaign_status to "completed" with results
+tests\integration\test_campaign_persistence.py:148:    async def test_update_status_completed_with_results(self, campaign_db):
+tests\integration\test_campaign_persistence.py:166:        await update_campaign_status("camp_done", "completed", results=results)
+tests\integration\test_campaign_persistence.py:170:        assert retrieved["status"] == "completed"
+tests\integration\test_campaign_persistence.py:382:        assert completed["status"] == "completed"
+tests\v6\test_evidence_contract_gate.py:11:   - abort_no_verified_sections artifacts have empty verified_sentences
+tests\v6\test_evidence_contract_gate.py:76:    assert contract.pipeline_status == "abort_no_verified_sections"
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:92:    assert "abort_corpus_approval_denied" in src, (
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:93:        "orchestrator must emit status=abort_corpus_approval_denied"
+src\polaris_v6\queue\run_store.py:344:    """Transition in_progress → completed; set finished_at + result_json + pipeline_status + cost_usd."""
+src\polaris_v6\queue\run_store.py:348:            "UPDATE runs SET lifecycle_status='completed', finished_at=?, result_json=?, "
+src\polaris_v6\queue\run_store.py:365:    """Pipeline ran to completion but hit a gate; lifecycle_status='completed', pipeline_status='abort_*'.
+src\polaris_v6\queue\run_store.py:373:            "UPDATE runs SET lifecycle_status='completed', finished_at=?, "
+src\polaris_v6\queue\run_store.py:541:        "WHERE query_slug=? AND lifecycle_status='completed' "
+src\polaris_v6\queue\run_store.py:584:        "WHERE lifecycle_status='completed' "
+src\polaris_v6\queue\run_events.py:97:    Emits a `run.completed` event that the translator maps to v6 `run_complete`
+src\polaris_v6\queue\run_events.py:99:    partial_* / abort_* / error_unexpected / stream_lost).
+src\polaris_v6\queue\run_events.py:109:# `run_complete` carrying the original status.
+src\polaris_v6\queue\run_events.py:133:    "run.completed": ("run_complete", lambda p: dict(p)),  # passthrough
+src\polaris_v6\queue\run_events.py:153:# `run_complete(status=stream_lost)` so the client gets a deterministic close
+src\polaris_v6\queue\run_events.py:155:STREAM_LOST_GRACE_SECONDS = 10.0
+src\polaris_v6\queue\run_events.py:163:    reader keeps emitting keepalives rather than synthesizing a stream_lost
+src\polaris_v6\queue\run_events.py:189:    return status in ("completed", "failed", "cancelled")
+src\polaris_v6\queue\run_events.py:193:    """Narrow stream_unavailable to actual Redis reachability failures.
+src\polaris_v6\queue\run_events.py:196:    stream_unavailable, masking schema bugs / corrupt entries as 'Redis down'.
+src\polaris_v6\queue\run_events.py:198:    other exceptions surface as stream_lost.
+src\polaris_v6\queue\run_events.py:229:    - lifecycle_status in {completed, failed} AND no terminal event seen in
+src\polaris_v6\queue\run_events.py:230:      the next STREAM_LOST_GRACE_SECONDS → emit a synthetic
+src\polaris_v6\queue\run_events.py:231:      run_complete(status=stream_lost) and close cleanly.
+src\polaris_v6\queue\run_events.py:233:      run_complete(status=stream_unavailable) and close.
+src\polaris_v6\queue\run_events.py:234:    - non-reachability XREAD exception → emit stream_lost and close (treat as
+src\polaris_v6\queue\run_events.py:249:        yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_unavailable"})})
+src\polaris_v6\queue\run_events.py:253:    # grace window before declaring stream_lost.
+src\polaris_v6\queue\run_events.py:268:                    yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_unavailable"})})
+src\polaris_v6\queue\run_events.py:270:                # Non-reachability failure — log and degrade to stream_lost.
+src\polaris_v6\queue\run_events.py:276:                yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_lost"})})
+src\polaris_v6\queue\run_events.py:286:                    elif now - lifecycle_terminal_first_seen >= STREAM_LOST_GRACE_SECONDS:
+src\polaris_v6\queue\run_events.py:289:                            "run_id=%s — emitting synthetic stream_lost",
+src\polaris_v6\queue\run_events.py:292:                        yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_lost"})})
+tests\v3\test_live_tools.py:675:        assert result["status"] == "completed"
+tests\v3\test_contracts.py:195:        for status in ("completed", "partial", "failed"):
+web\lib\api.ts:72:  | "abort_scope_rejected"
+web\lib\api.ts:73:  | "abort_corpus_inadequate"
+web\lib\api.ts:74:  | "abort_corpus_approval_denied"
+web\lib\api.ts:75:  | "abort_no_verified_sections";
+web\lib\api.ts:240:    `${BACKEND_URL}/runs?status=completed&limit=${limit}`,
+web\lib\api.ts:261:  verdict: "success" | "abort_no_verified_sections";
+web\lib\api.ts:299:  parse_status: "queued" | "completed" | "failed";
+web\lib\api.ts:536:    "run_complete",
+web\lib\api.ts:796:export type PipelineVerdict = "success" | "abort_no_verified_sections";
+tests\v3\test_assemble.py:230:        assert validated.status in ("completed", "partial")
+src\polaris_v6\queue\actors.py:81:    mark_completed / mark_aborted / mark_failed per pipeline_status.
+src\polaris_v6\queue\actors.py:85:        return {"run_id": run_id, "status": "completed", "echo": request_payload}
+tests\v6\test_inspector_route.py:85:        pipeline_status="abort_corpus_inadequate",
+tests\v6\test_inspector_route.py:97:    run_store.mark_completed("nodir_run", {}, pipeline_status="success")
+tests\v6\test_inspector_route.py:106:    run_store.mark_completed("good_run", {}, pipeline_status="success")
+tests\v6\test_inspector_route.py:166:    run_store.mark_completed(run_id, {}, pipeline_status="success")
+tests\v3\conftest.py:204:        status="completed",
+tests\fixtures\signed_bundle\v1_canonical\verified_report.json:10:  "pipeline_verdict": "abort_no_verified_sections",
+web\tests\e2e\upload_parse_status.spec.ts:23:test("watches parse-status progression queued → completed", async ({
+web\tests\e2e\upload_parse_status.spec.ts:56:        parse_status: isComplete ? "completed" : "queued",
+web\tests\e2e\upload_evidence_toggle.spec.ts:23:        parse_status: "completed",
+web\tests\e2e\upload_dropzone.spec.ts:18:        parse_status: "completed",
+web\tests\e2e\upload_dropzone.spec.ts:91:  await expect(page.locator('li[data-status="completed"]')).toHaveCount(2);
+web\tests\e2e\upload_doc_preview.spec.ts:19:        parse_status: "completed",
+web\tests\e2e\upload_doc_preview.spec.ts:37:        parse_status: "completed",
+web\app\upload\components\upload_drop_zone.tsx:65:      .filter((f) => f.included && f.parse_status === "completed" && f.response)
+web\app\upload\components\upload_drop_zone.tsx:115:                  status: "completed",
+web\app\upload\components\upload_drop_zone.tsx:187:                {f.status === "completed" && f.parse_status === "completed" && (
+web\app\upload\components\upload_drop_zone.tsx:200:                {f.status === "completed" && f.response && (
+web\app\upload\components\upload_drop_zone.tsx:211:                      {f.parse_status === "completed" &&
+web\app\upload\components\upload_drop_zone.tsx:215:                    {f.parse_status === "completed" &&
+src\polaris_v6\api\upload.py:57:    parse_status: Literal["queued", "completed", "failed"]
+src\polaris_v6\api\upload.py:140:        parse_status="completed" if chunks else "queued",
+src\polaris_v6\api\stream.py:7:clients resume cleanly. Terminates after a v6 `run_complete` event.
+src\polaris_v6\api\stream.py:11:section_complete, run_complete. Pipeline-A's stage events translate to
+src\polaris_v6\api\stream.py:35:    keepalive comment frame. Terminates after a v6 `run_complete`.
+src\polaris_v6\api\stream.py:54:        if v6_name == "run_complete":
+tests\v6\_audit_ir_fixtures.py:77:    run_store.mark_completed(run_id, {}, pipeline_status="success")
+tests\v6\fixtures\evidence_contract_v1\golden_run_abort_no_verified.json:8:  "pipeline_status": "abort_no_verified_sections",
+src\polaris_v6\api\run_resolver.py:34:    if record.lifecycle_status != "completed":
+src\polaris_v6\api\runs.py:145:def list_runs(status: str = "completed", limit: int = 20) -> list[RunStatusResponse]:
+src\polaris_v6\api\runs.py:149:    recent-runs strip. Only `status=completed` is supported today; aborted
+src\polaris_v6\api\runs.py:153:    if status != "completed":
+src\polaris_v6\api\runs.py:156:            detail="only status=completed is supported",
+src\polaris_v6\api\pins.py:17:    * abort_no_verified_sections path → `sections_total`,
+src\polaris_v6\api\pins.py:52:        "abort_no_verified_sections",
+src\polaris_v6\api\pins.py:58:    if pipeline_status == "abort_no_verified_sections":
+src\polaris_v6\api\pins.py:59:        return "abort_no_verified_sections"
+src\polaris_v6\api\pins.py:71:    abort_no_verified_sections manifests carry `sections_total` +
+src\polaris_v6\api\pins.py:127:    if run.lifecycle_status != "completed":
+tests\crown_jewels\test_cj_005_corpus_approval.py:5:(status = abort_corpus_approval_denied). The check_auto_approve_allowed
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:4:verdict MUST be 'abort_no_verified_sections' (not a pseudo-success
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:79:        pipeline_verdict="abort_no_verified_sections",
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:82:    assert rpt.pipeline_verdict == "abort_no_verified_sections"
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:89:        pipeline_verdict="abort_no_verified_sections",
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:92:    assert rpt.pipeline_verdict == "abort_no_verified_sections"
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:99:            pipeline_verdict="abort_no_verified_sections",
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:56:    assert row.lifecycle_status == "completed"
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:57:    assert row.status == "completed"  # computed_field alias preserved
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:79:    run_store.mark_completed("r1", {"k": "v"}, pipeline_status="success", cost_usd=0.42, path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:82:    assert row.lifecycle_status == "completed"
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:93:    """abort_* keeps lifecycle_status='completed' (the run finished operationally)."""
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:99:        pipeline_status="abort_corpus_inadequate",
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:106:    assert row.lifecycle_status == "completed"
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:107:    assert row.pipeline_status == "abort_corpus_inadequate"
+tests\polaris_v6\queue\test_run_events.py:48:    ("run.completed", "run_complete"),
+tests\polaris_v6\queue\test_run_events.py:69:    assert name == "run_complete"
+tests\polaris_v6\queue\test_run_events.py:239:    stream_unavailable terminal and stops. Per Codex diff iter-1 P1: only
+tests\polaris_v6\queue\test_run_events.py:240:    connection failures map to stream_unavailable.
+tests\polaris_v6\queue\test_run_events.py:259:    assert payload["status"] == "stream_unavailable"
+tests\polaris_v6\queue\test_run_events.py:263:async def test_read_events_non_connection_error_yields_stream_lost():
+tests\polaris_v6\queue\test_run_events.py:265:    are stream_lost (degraded), not stream_unavailable (Redis-down). This keeps
+tests\polaris_v6\queue\test_run_events.py:285:    assert payload["status"] == "stream_lost"
+tests\polaris_v6\queue\test_run_events.py:289:async def test_read_events_lifecycle_terminal_with_no_redis_event_emits_stream_lost(
+tests\polaris_v6\queue\test_run_events.py:293:    says lifecycle_status='completed' but no Redis terminal event arrives, the
+tests\polaris_v6\queue\test_run_events.py:295:    STREAM_LOST_GRACE_SECONDS elapses, emit synthetic stream_lost and close.
+tests\polaris_v6\queue\test_run_events.py:305:    monkeypatch.setattr(run_events, "STREAM_LOST_GRACE_SECONDS", 0.05)
+tests\polaris_v6\queue\test_run_events.py:335:    assert payload_seen_last["status"] == "stream_lost"
+tests\polaris_v6\queue\test_run_events.py:343:    emitting keepalives — never synthesize stream_lost — even after the grace
+tests\polaris_v6\queue\test_run_events.py:352:    monkeypatch.setattr(run_events, "STREAM_LOST_GRACE_SECONDS", 0.05)
+tests\polaris_v6\api\test_upload_adversarial.py:82:    assert body["parse_status"] == "completed"
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:60:        pipeline_status="abort_corpus_inadequate",
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:69:    assert "abort_corpus_inadequate" in body["error"]
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:83:    run_store.insert_run("run_completed", "clinical", "noop?", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:84:    run_store.mark_in_progress("run_completed", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:86:        "run_completed",
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:92:        "run_completed",
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:99:    resp = client.get("/runs/run_completed/bundle.tar.gz")
+src\polaris_v6\api\bundle.py:84:    if run.lifecycle_status != "completed" or not run.artifact_dir:
+src\polaris_v6\api\bundle.py:181:    if info.lifecycle_status != "completed":
+src\polaris_v6\api\bundle.py:184:            detail={"error": f"run not completed: lifecycle_status={info.lifecycle_status}"},
+src\polaris_v6\api\artifact_to_slice_chain.py:316:    # PipelineVerdict Literal accepts success | abort_no_verified_sections;
+src\polaris_v6\api\artifact_to_slice_chain.py:323:        pipeline_verdict = "abort_no_verified_sections"
+tests\unit\test_gemini_docx.py:358:        "status": "completed",
+tests\v6\test_scripts_v6_handover.py:116:        sealed_pipeline_status="abort_no_verified_sections",
+tests\v6\test_scripts_v6_handover.py:172:        sealed_pipeline_status="abort_no_verified_sections",
+tests\v6\acceptance\test_runs_db_integration.py:71:    """Acceptance #2: pre-inserted row reaches lifecycle_status=completed after broker drain.
+tests\v6\acceptance\test_runs_db_integration.py:119:    assert record.lifecycle_status == "completed"
+tests\v6\acceptance\test_runs_db_integration.py:121:    assert record.status == "completed"  # computed_field backcompat alias
+tests\v6\acceptance\test_runs_db_integration.py:150:    """Acceptance #4: full POST + drain + GET loop returns lifecycle_status=completed.
+tests\v6\acceptance\test_runs_db_integration.py:199:    assert body["status"] == "completed"  # alias
+tests\v6\acceptance\test_runs_db_integration.py:200:    assert body["lifecycle_status"] == "completed"
+tests\v6\acceptance\test_dramatiq_acceptance.py:43:    """Scenario 1: actor returns; lifecycle_status `completed`.
+tests\v6\acceptance\test_dramatiq_acceptance.py:84:    assert record.lifecycle_status == "completed"
+tests\v6\acceptance\test_dramatiq_acceptance.py:86:    assert record.status == "completed"  # computed_field backcompat alias
+tests\v6\test_runs_list_endpoint.py:53:    _seed(db_path, "aborted", "completed", "abort_no_verified_sections", "2026-05-20T04:00:00Z")
+tests\v6\test_runs_list_endpoint.py:93:    resp = client.get("/runs?status=completed&limit=10")
+tests\v6\test_runs_list_endpoint.py:100:def test_get_runs_rejects_non_completed_status(client):
+web\app\runs\[runId]\page.tsx:58:        // run watched live reaches `run_complete`, re-fetch the lifecycle
+web\app\runs\[runId]\page.tsx:59:        // status so completed-only UI (the follow-up panel, the status line,
+web\app\runs\[runId]\page.tsx:61:        if (event.event === "run_complete") {
+web\app\runs\[runId]\page.tsx:70:        // SSE error: backend may have closed the stream after run_complete.
+web\app\runs\[runId]\page.tsx:237:      {status?.status === "completed" && <FollowupPanel runId={runId} />}
+tests\v6\test_replay.py:78:        sealed_pipeline_status="abort_no_verified_sections",
+tests\v6\test_regression_lab.py:59:            status="abort_no_verified_sections",
+tests\v6\test_regression_lab.py:140:    success → abort_no_verified_sections produces a regression-severity field.
+tests\v6\test_regression_lab.py:147:            status="abort_no_verified_sections",
+tests\v6\test_pins_route.py:7:* abort_no_verified_sections generator block (sections_total +
+tests\v6\test_pins_route.py:46:    lifecycle_status: str = "completed",
+tests\v6\test_pins_route.py:128:    """Iter-2 P1.2: abort_no_verified_sections generator shape has
+tests\v6\test_pins_route.py:140:        status="abort_no_verified_sections",
+tests\v6\test_pins_route.py:148:        pipeline_status="abort_no_verified_sections",
+tests\v6\test_pins_route.py:156:    assert pins[0]["verdict"] == "abort_no_verified_sections"
+tests\v6\test_pins_route.py:205:    """Only completed × qualifying-pipeline-status runs are pin-eligible."""
+tests\v6\test_pins_route.py:240:        pipeline_status="abort_corpus_inadequate",
+tests\v6\test_pins_route.py:335:    # verdict is collapsed to "success" — only abort_no_verified_sections
+tests\v6\test_pins_route.py:354:        status="abort_no_verified_sections",
+tests\v6\test_pins_route.py:362:        pipeline_status="abort_no_verified_sections",
+web\app\components\recent_runs_strip.tsx:38:        const res = await fetch("/api/v6/runs?status=completed&limit=5", {
+src\auth\session_manager.py:24:    status: str  # queued | running | completed | failed | cancelled
+src\auth\session_manager.py:117:            s.status = "completed"
+src\polaris_graph\state_v3.py:60:    status: str                  # running | completed | partial | failed
+tests\polaris_graph\test_honest_sweep_job_runner.py:180:    assert completed.status == "completed", f"got {completed.status}: {completed.error}"
+tests\polaris_graph\test_honest_sweep_job_runner.py:204:    assert a is not None and a.status == "completed"
+tests\polaris_graph\test_honest_sweep_job_runner.py:205:    assert b is not None and b.status == "completed"
+tests\polaris_graph\test_honest_sweep_job_runner.py:233:            if current.status in {"completed", "cancelled", "failed"}:
+tests\polaris_graph\test_honest_sweep_job_runner.py:244:    assert completed.status == "completed"
+tests\polaris_graph\test_honest_sweep_job_runner.py:372:    assert completed.status == "completed"
+tests\polaris_graph\test_honest_sweep_job_runner.py:439:            if current and current.status in {"failed", "paused", "completed", "cancelled"}:
+web\app\generation\components\verified_report_view.tsx:66:  verdict: "success" | "abort_no_verified_sections";
+tests\polaris_graph\test_job_queue.py:266:    assert completed.status == "completed"
+web\app\runs\[runId]\components\run_progress.tsx:82:  const runCompleteEvent = events.find((e) => e.event === "run_complete");
+web\app\runs\[runId]\components\run_progress.tsx:93:  // stream to replay, so the #706 STREAM_LOST_GRACE backstop emits
+web\app\runs\[runId]\components\run_progress.tsx:94:  // run_complete{status: stream_lost} — but the run genuinely succeeded. A
+web\app\runs\[runId]\components\run_progress.tsx:96:  const lifecycleCompleted = status?.status === "completed";
+web\app\runs\[runId]\components\run_progress.tsx:103:    (terminalStatus === "stream_lost" ||
+web\app\runs\[runId]\components\run_progress.tsx:104:      terminalStatus === "stream_unavailable");
+web\app\runs\[runId]\components\run_progress.tsx:132:  // the terminal moment). status.finished_at stays null after run_complete
+tests\polaris_graph\test_job_router.py:82:    valid_statuses = {"pending", "running", "completed"}
+tests\polaris_graph\test_job_router.py:347:        assert resp.json()["status"] in {"pending", "running", "completed"}
+tests\polaris_graph\test_job_router.py:380:            if current and current.status in {"completed", "cancelled", "failed"}:
+tests\polaris_graph\test_job_router.py:383:        assert current.status == "completed", (
+tests\polaris_graph\test_job_router.py:433:            if current and current.status in {"running", "completed"}:
+tests\polaris_graph\test_job_router.py:436:        assert current.status in {"pending", "running", "completed"}, (
+tests\polaris_graph\test_job_router.py:519:            if current and current.status in {"completed", "cancelled", "failed"}:
+tests\polaris_graph\test_job_router.py:522:        assert current.status == "completed", (
+src\polaris_graph\generator\multi_section_generator.py:3429:            # abort_no_verified_sections downstream.
+src\polaris_graph\contracts_v3.py:318:    status: str = Field(description="completed|partial|failed")
+src\polaris_graph\clinical_generator\verified_report.py:38:PipelineVerdict = Literal["success", "abort_no_verified_sections"]
+src\polaris_graph\clinical_generator\verified_report.py:470:        regenerated. If verdict=abort_no_verified_sections, every section
+src\polaris_graph\clinical_generator\verified_report.py:481:        else:  # abort_no_verified_sections
+src\polaris_graph\clinical_generator\verified_report.py:485:                        "pipeline_verdict='abort_no_verified_sections' "
+tests\polaris_graph\test_job_worker.py:58:    assert completed.status == "completed"
+tests\polaris_graph\test_job_worker.py:212:    assert completed.status == "completed", (
+tests\polaris_graph\test_job_worker.py:213:        f"expected completed, got {completed.status}"
+tests\polaris_graph\test_job_worker.py:247:            if all(s in {"completed", "cancelled", "failed"} for s in statuses):
+tests\polaris_graph\test_job_worker.py:254:    assert all(s == "completed" for s in final_statuses)
+src\polaris_graph\clinical_generator\generator.py:21:    If every section dropped: VerifiedReport(verdict='abort_no_verified_sections')
+src\polaris_graph\clinical_generator\generator.py:290:        pipeline_verdict = "abort_no_verified_sections"
+src\polaris_graph\graph_v3.py:616:            "status": result.get("status", "completed"),
+src\polaris_graph\graph_v3.py:662:            "status": result.get("status", "completed"),
+src\polaris_graph\graph_v3.py:800:        "status": result_state.get("status", "completed"),
+src\polaris_graph\graph.py:1645:            "status": result.get("status", "completed"),
+src\polaris_graph\nodes\assemble.py:332:        status = "completed"
+src\polaris_graph\api\generation_route.py:121:    Note: a VerifiedReport with verdict='abort_no_verified_sections' is
+src\polaris_graph\nodes\scope_gate.py:330:    # abort BEFORE retrieval with manifest.status=abort_scope_rejected.
+src\polaris_graph\nodes\synthesize.py:490:    status = "completed"
+src\polaris_graph\llm\openrouter_client.py:403:    #     so a truncation degrades to an honest abort_no_verified_sections
+src\polaris_graph\audit_ir\job_queue.py:365:                "UPDATE jobs SET status='cancelled', cancel_requested=1, completed_at=? "
+src\polaris_graph\audit_ir\job_queue.py:420:                "UPDATE jobs SET status='completed', completed_at=?, artifact_dir=?, "
+src\polaris_graph\audit_ir\job_queue.py:430:                    f"mark_completed: job {job_id} status={job.status} not running"
+src\polaris_graph\audit_ir\job_queue.py:444:                "UPDATE jobs SET status='cancelled', completed_at=? "
+src\polaris_graph\audit_ir\job_queue.py:461:                "UPDATE jobs SET status='failed', completed_at=?, error=? "
+src\polaris_graph\audit_ir\regression_lab.py:600:    "abort_scope_rejected": 2,
+src\polaris_graph\audit_ir\regression_lab.py:602:    "abort_corpus_inadequate": 2,
+src\polaris_graph\audit_ir\regression_lab.py:603:    "abort_corpus_approval_denied": 2,
+src\polaris_graph\audit_ir\regression_lab.py:604:    "abort_no_verified_sections": 2,
+tests\polaris_graph\test_manifest_contract.py:44:        "abort_scope_rejected",
+tests\polaris_graph\test_manifest_contract.py:46:        "abort_corpus_inadequate",
+tests\polaris_graph\test_manifest_contract.py:47:        "abort_corpus_approval_denied",
+tests\polaris_graph\test_manifest_contract.py:48:        "abort_no_verified_sections",
+tests\polaris_graph\test_manifest_contract.py:67:        ("fail_no_verified_prose", "abort_no_verified_sections"),
+tests\polaris_graph\test_manifest_contract.py:68:        ("abort_corpus_inadequate", "abort_corpus_inadequate"),
+tests\polaris_graph\test_manifest_contract.py:69:        ("abort_corpus_approval_denied", "abort_corpus_approval_denied"),
+tests\polaris_graph\test_manifest_contract.py:70:        ("abort_no_verified_sections", "abort_no_verified_sections"),
+tests\polaris_graph\test_manifest_contract.py:353:        "abort_scope_rejected",
+tests\polaris_graph\test_manifest_contract.py:355:        "abort_corpus_inadequate",
+tests\polaris_graph\test_manifest_contract.py:356:        "abort_corpus_approval_denied",
+tests\polaris_graph\test_manifest_contract.py:357:        "abort_no_verified_sections",
+tests\polaris_graph\test_md9_regression_lab.py:171:    curr = _inputs(manifest={"status": "abort_no_verified_sections"})
+tests\polaris_graph\test_md9_regression_lab.py:192:    curr = _inputs(manifest={"status": "abort_corpus_inadequate"})
+tests\polaris_graph\test_md9_regression_lab.py:415:    curr = _inputs(manifest={"status": "abort_corpus_inadequate"})
+tests\polaris_graph\test_md9_regression_lab.py:422:    base = _inputs(manifest={"status": "abort_no_verified_sections"})
+tests\polaris_graph\test_scope_gate.py:287:    assert '"status": "abort_scope_rejected"' in after_check, (
+tests\polaris_graph\test_scope_gate.py:288:        "scope-rejected branch must write manifest.status=abort_scope_rejected"
+
+ succeeded in 2803ms:
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:11:from polaris_v6.queue import run_store
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:21:    run_store.init_db(path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:42:                started_at TEXT, finished_at TEXT, result_json TEXT, error_json TEXT
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:53:    run_store.init_db(path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:54:    row = run_store.get_run("r1", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:62:    run_store.init_db(path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:63:    run_store.init_db(path=db_path)  # second call must not raise
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:68:    run_store.init_db(path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:69:    run_store.insert_run("r1", "clinical", "q?", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:70:    run_store.mark_in_progress("r1", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:71:    run_store.set_pipeline_meta(
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:79:    run_store.mark_completed("r1", {"k": "v"}, pipeline_status="success", cost_usd=0.42, path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:80:    row = run_store.get_run("r1", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:94:    run_store.init_db(path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:95:    run_store.insert_run("r2", "clinical", "q?", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:96:    run_store.mark_in_progress("r2", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:97:    run_store.mark_aborted(
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:104:    row = run_store.get_run("r2", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:114:    """Operational failure: lifecycle_status='failed', pipeline_status='error_unexpected'."""
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:115:    run_store.init_db(path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:116:    run_store.insert_run("r3", "clinical", "q?", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:117:    run_store.mark_in_progress("r3", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:118:    run_store.mark_failed("r3", "pipeline_exception: RuntimeError: boom", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:119:    row = run_store.get_run("r3", path=db_path)
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:121:    assert row.lifecycle_status == "failed"
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:131:    assert run_store.get_run("anything", path=db_path) is None
+tests\polaris_v6\queue\test_run_events.py:292:    """Per Codex diff iter-1 P1 (continuing iter-2 brief P1-3): when run_store
+tests\polaris_v6\queue\test_run_events.py:297:    # Force the run_store lookup to report 'completed' so empty XREAD windows
+tests\polaris_v6\queue\test_run_events.py:342:    """While lifecycle_status is in_progress, empty XREAD windows must keep
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:70:        finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:18:from polaris_v6.queue import run_store
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:28:    run_store.init_db(str(db_path))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:47:    run_store.insert_run("run_queued", "clinical", "noop?", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:56:    run_store.insert_run("run_aborted", "clinical", "noop?", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:57:    run_store.mark_in_progress("run_aborted", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:58:    run_store.mark_aborted(
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:83:    run_store.insert_run("run_completed", "clinical", "noop?", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:84:    run_store.mark_in_progress("run_completed", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:85:    run_store.set_pipeline_meta(
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:91:    run_store.mark_completed(
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:125:    run_store.insert_run("run_release_blocked", "clinical", "noop?", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:126:    run_store.mark_in_progress("run_release_blocked", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:127:    run_store.set_pipeline_meta(
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:133:    run_store.mark_completed(
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:158:    run_store.insert_run("run_signed", "clinical", "noop?", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:159:    run_store.mark_in_progress("run_signed", path=str(isolated_db))
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:160:    run_store.set_pipeline_meta(
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:166:    run_store.mark_completed(
+tests\crown_jewels\test_cj_003_strict_verify.py:48:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\crown_jewels\test_cj_008_entailment_correctness.py:98:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_v6\api\test_artifact_to_slice_chain.py:82:            "finished_at": "2026-05-13T01:05:00+00:00",
+src\tools\access_bypass.py:2345:        # error status text are almost always failed fetches, not real
+tests\polaris_v6\api\test_artifact_to_evidence_contract.py:31:        finished_at="2026-05-20T00:10:00+00:00",
+tests\polaris_v6\api\test_artifact_to_evidence_contract.py:42:    # Run metadata threaded from the caller (run_store), not the artifact.
+tests\polaris_v6\api\test_app_slice_route_mount.py:142:        "retrieval_finished_at_utc": "2026-05-04T12:00:01+00:00",
+tests\polaris_v6\api\test_app_slice_route_mount.py:218:        "retrieval_finished_at_utc": iso,
+tests\polaris_v6\api\test_app_slice_route_mount.py:248:        "finished_at_utc": iso,
+tests\e2e\visual_audit.py:350:    {"type": "fetch", "url": "https://paywall-journal.com/study", "status": "failed", "content_len": 0, "method": "jina", "ts": "2026-03-01T10:00:22Z"},
+src\polaris_v6\schemas\run_status.py:62:    finished_at: str | None = None
+tests\polaris_graph\audit_bundle\test_sovereignty_ci.py:60:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\audit_bundle\test_sovereignty_ci.py:94:        finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:52:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:87:        finished_at_utc=datetime.now(timezone.utc),
+src\polaris_v6\schemas\pin_snapshot.py:4:Synthesized from `manifest.json` + run_store fields; NO separate
+src\polaris_v6\schemas\evidence_contract.py:91:    finished_at: str
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:59:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:95:        finished_at_utc=datetime.now(timezone.utc),
+tests\fixtures\signed_bundle\v1_canonical_success\verified_report.json:6:  "finished_at_utc": "2026-05-19T00:00:00+00:00",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:67:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:117:        finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:205:        finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:298:        finished_at_utc=datetime.now(timezone.utc),
+tests\fixtures\signed_bundle\v1_canonical_success\evidence_pool.json:19:  "retrieval_finished_at_utc": "2026-05-19T00:00:00+00:00",
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:59:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:92:        finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\golden\test_slice_005_goldens.py:100:            "retrieval_finished_at_utc": iso.isoformat(),
+tests\polaris_graph\golden\test_slice_005_goldens.py:133:            "finished_at_utc": iso.isoformat(),
+tests\polaris_graph\golden\test_slice_004_goldens.py:198:        retrieval_finished_at_utc=iso,
+tests\polaris_graph\golden\test_slice_004_goldens.py:277:        finished_at_utc=iso,
+tests\polaris_graph\audit_bundle\test_bundle_hash_chain.py:70:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\audit_bundle\test_bundle_hash_chain.py:118:        finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:60:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:106:        finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:175:        finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\golden\test_slice_003_goldens.py:107:            retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\golden\test_slice_003_goldens.py:137:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\fixtures\signed_bundle\v1_canonical\verified_report.json:6:  "finished_at_utc": "2026-05-19T00:00:00+00:00",
+tests\fixtures\signed_bundle\v1_canonical\evidence_pool.json:19:  "retrieval_finished_at_utc": "2026-05-19T00:00:00+00:00",
+tests\polaris_graph\api\test_audit_bundle_route.py:85:        "retrieval_finished_at_utc": iso,
+tests\polaris_graph\api\test_audit_bundle_route.py:135:        "finished_at_utc": iso,
+src\polaris_v6\queue\run_store.py:51:    "queued_at, started_at, finished_at, result_json, error_json, "
+src\polaris_v6\queue\run_store.py:109:            finished_at TEXT,
+src\polaris_v6\queue\run_store.py:226:            "UPDATE runs SET lifecycle_status='in_progress', started_at=? "
+src\polaris_v6\queue\run_store.py:245:    Returns the resulting lifecycle_status ('cancelled' or 'in_progress'),
+src\polaris_v6\queue\run_store.py:253:            "finished_at=? WHERE run_id=? AND lifecycle_status='queued'",
+src\polaris_v6\queue\run_store.py:262:            "WHERE run_id=? AND lifecycle_status='in_progress'",
+src\polaris_v6\queue\run_store.py:290:    """Terminal transition → lifecycle_status='cancelled' + finished_at.
+src\polaris_v6\queue\run_store.py:300:            "finished_at=? WHERE run_id=?",
+src\polaris_v6\queue\run_store.py:344:    """Transition in_progress → completed; set finished_at + result_json + pipeline_status + cost_usd."""
+src\polaris_v6\queue\run_store.py:348:            "UPDATE runs SET lifecycle_status='completed', finished_at=?, result_json=?, "
+src\polaris_v6\queue\run_store.py:373:            "UPDATE runs SET lifecycle_status='completed', finished_at=?, "
+src\polaris_v6\queue\run_store.py:415:            "UPDATE runs SET lifecycle_status='failed', finished_at=?, "
+src\polaris_v6\queue\run_store.py:433:        finished_at=row["finished_at"],
+src\polaris_v6\queue\run_store.py:530:    """List completed runs sharing a query_slug ordered by finished_at ASC.
+src\polaris_v6\queue\run_store.py:542:        "ORDER BY finished_at ASC"
+src\polaris_v6\queue\run_store.py:567:    """List completed, non-aborted runs newest-first (finished_at DESC), capped.
+src\polaris_v6\queue\run_store.py:586:        "ORDER BY finished_at DESC LIMIT ?"
+src\polaris_v6\queue\run_events.py:151:# Grace period (seconds) after run_store reports lifecycle_status terminal but
+src\polaris_v6\queue\run_events.py:159:    """Best-effort sync run_store lookup. Returns lifecycle_status or None.
+src\polaris_v6\queue\run_events.py:161:    Imported lazily so tests that don't touch run_store don't pay sqlite init.
+src\polaris_v6\queue\run_events.py:167:        from polaris_v6.queue import run_store  # noqa: PLC0415
+src\polaris_v6\queue\run_events.py:169:        row = run_store.get_run(external_run_id)
+src\polaris_v6\queue\run_events.py:175:            "[run_events] run_store lookup failed run_id=%s: %s",
+src\polaris_v6\queue\run_events.py:189:    return status in ("completed", "failed", "cancelled")
+src\polaris_v6\queue\run_events.py:227:      check run_store. While lifecycle_status is queued/in_progress, keep
+src\polaris_v6\queue\run_events.py:229:    - lifecycle_status in {completed, failed} AND no terminal event seen in
+src\polaris_v6\queue\run_events.py:280:                # Empty XREAD window — emit keepalive then consult run_store.
+tests\polaris_graph\api\test_retrieval_route.py:216:        "retrieval_finished_at_utc",
+tests\polaris_graph\api\test_generation_route.py:73:        "retrieval_finished_at_utc": datetime.now(timezone.utc).isoformat(),
+tests\polaris_graph\api\test_generation_route.py:205:        "finished_at_utc",
+src\polaris_v6\queue\actors.py:8:Stub-mode preserved: when no run_store row exists (existing test_actors.py
+src\polaris_v6\queue\actors.py:32:from polaris_v6.queue import run_store  # noqa: E402
+src\polaris_v6\queue\actors.py:74:    Stub-mode path: when run_store has no row for run_id (tests use
+src\polaris_v6\queue\actors.py:84:    if run_store.get_run(run_id) is None:
+src\polaris_v6\queue\actors.py:93:    if run_store.is_cancel_requested(run_id):
+src\polaris_v6\queue\actors.py:94:        run_store.mark_cancelled(run_id)
+src\polaris_v6\queue\actors.py:97:    run_store.mark_in_progress(run_id)
+src\polaris_v6\queue\actors.py:100:    if run_store.is_cancel_requested(run_id):
+src\polaris_v6\queue\actors.py:101:        run_store.mark_cancelled(run_id)
+src\polaris_v6\queue\actors.py:190:    run_store.set_pipeline_meta(
+src\polaris_v6\queue\actors.py:209:        run_store.mark_failed(
+src\polaris_v6\queue\actors.py:219:        run_store.mark_failed(
+src\polaris_v6\queue\actors.py:228:        run_store.mark_failed(
+src\polaris_v6\queue\actors.py:245:    run_store.set_pipeline_meta(run_id, manifest_run_id=manifest_run_id)
+src\polaris_v6\queue\actors.py:252:    if run_store.is_cancel_requested(run_id):
+src\polaris_v6\queue\actors.py:253:        run_store.mark_cancelled(run_id)
+src\polaris_v6\queue\actors.py:258:        run_store.mark_completed(
+src\polaris_v6\queue\actors.py:264:        run_store.mark_cancelled(run_id)
+src\polaris_v6\queue\actors.py:266:        run_store.mark_aborted(
+src\polaris_v6\queue\actors.py:273:        run_store.mark_failed(
+src\polaris_v6\queue\actors.py:277:        run_store.mark_failed(run_id, f"unknown_pipeline_status: {pipeline_status!r}")
+tests\polaris_graph\clinical_generator\test_real_completion.py:94:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\clinical_generator\test_provenance.py:169:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\clinical_generator\test_generator.py:72:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\clinical_generator\test_generator.py:93:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+src\polaris_v6\memory\sqlite_store.py:15:Storage pattern mirrors `polaris_v6.queue.run_store` (WAL, idempotent
+tests\polaris_graph\test_job_router.py:380:            if current and current.status in {"completed", "cancelled", "failed"}:
+tests\polaris_graph\test_job_router.py:519:            if current and current.status in {"completed", "cancelled", "failed"}:
+tests\polaris_graph\test_job_queue.py:276:    assert failed.status == "failed"
+tests\polaris_graph\test_honest_sweep_job_runner.py:233:            if current.status in {"completed", "cancelled", "failed"}:
+tests\polaris_graph\test_honest_sweep_job_runner.py:261:    assert failed.status == "failed"
+tests\polaris_graph\test_honest_sweep_job_runner.py:274:    assert failed.status == "failed"
+tests\polaris_graph\test_honest_sweep_job_runner.py:288:    assert failed.status == "failed"
+tests\polaris_graph\test_honest_sweep_job_runner.py:439:            if current and current.status in {"failed", "paused", "completed", "cancelled"}:
+tests\polaris_graph\test_honest_sweep_job_runner.py:443:        assert current.status == "failed", (
+tests\polaris_graph\clinical_generator\test_verified_report.py:614:        finished_at_utc=finished,
+tests\polaris_graph\clinical_generator\test_verified_report.py:688:    with pytest.raises(ValidationError, match="finished_at_utc must be"):
+tests\polaris_graph\clinical_generator\test_verified_report.py:691:            finished_at_utc=started - timedelta(seconds=1),
+tests\integration\test_performance_sla.py:95:        assert resp.status_code == 200, f"Health check failed: {resp.status_code}"
+tests\polaris_graph\benchmark\test_polaris_runner.py:74:            "retrieval_finished_at_utc": iso,
+tests\polaris_graph\benchmark\test_polaris_runner.py:97:            "finished_at_utc": iso,
+tests\polaris_graph\benchmark\test_dimension_scorers.py:82:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\benchmark\test_dimension_scorers.py:118:        finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\benchmark\test_dimension_scorers.py:216:        finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\benchmark\test_beat_both_scorer.py:67:            "retrieval_finished_at_utc": iso,
+tests\polaris_graph\benchmark\test_beat_both_scorer.py:98:            "finished_at_utc": iso,
+tests\polaris_graph\clinical_generator\test_strict_verify.py:53:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\clinical_generator\test_strict_verify_telemetry.py:69:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\test_corpus_brief.py:531:    store.transition_parser_status(failed.upload_id, "failed", parser_error="x")
+tests\polaris_graph\clinical_generator\test_strict_verify_entailment.py:65:        retrieval_finished_at_utc=datetime.now(timezone.utc),
+tests\polaris_graph\clinical_retrieval\test_evidence_pool.py:225:        retrieval_finished_at_utc=finished,
+tests\polaris_graph\clinical_retrieval\test_evidence_pool.py:242:            retrieval_finished_at_utc=finished,
+tests\polaris_graph\clinical_retrieval\test_evidence_pool.py:255:            retrieval_finished_at_utc=started,
+tests\polaris_graph\clinical_retrieval\test_evidence_pool.py:268:            retrieval_finished_at_utc=started,
+tests\polaris_graph\clinical_retrieval\test_evidence_pool.py:281:            retrieval_finished_at_utc=started,
+tests\polaris_graph\clinical_retrieval\test_evidence_pool.py:299:        retrieval_finished_at_utc=started,
+tests\polaris_graph\clinical_retrieval\test_evidence_pool.py:316:        retrieval_finished_at_utc=started,
+tests\v6\_audit_ir_fixtures.py:1:"""Shared run_store + AuditIR-artifact_dir fixtures for tests/v6 route tests.
+tests\v6\_audit_ir_fixtures.py:3:I-rdy-008 (#504) slice 8 (Codex brief iter-2 P2 6.5): the seeded-run_store +
+tests\v6\_audit_ir_fixtures.py:18:from polaris_v6.queue import run_store
+tests\v6\_audit_ir_fixtures.py:74:    """Seed run_store with a completed run pointing at ``artifact_dir``."""
+tests\v6\_audit_ir_fixtures.py:75:    run_store.insert_run(run_id, "clinical", QUESTION)
+tests\v6\_audit_ir_fixtures.py:76:    run_store.set_pipeline_meta(run_id, artifact_dir=str(artifact_dir))
+tests\v6\_audit_ir_fixtures.py:77:    run_store.mark_completed(run_id, {}, pipeline_status="success")
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:391:    assert result.retrieval_finished_at_utc >= result.retrieval_started_at_utc
+tests\polaris_graph\test_workspace_store.py:177:    assert failed.parser_status == "failed"
+tests\polaris_graph\test_workspace_store.py:188:    assert failed.parser_status == "failed"
+tests\polaris_graph\test_workspace_store.py:208:        store.transition_parser_status(up.upload_id, "failed")
+tests\polaris_graph\test_workspace_api.py:113:    assert body["parser_status"] == "failed"
+tests\v6\test_schemas.py:50:        finished_at="2026-05-01T10:08:00Z",
+tests\v6\test_runs_list_endpoint.py:1:"""I-cd-705 (#705) — GET /api/v6/runs list endpoint + run_store.list_completed_runs.
+tests\v6\test_runs_list_endpoint.py:16:    from polaris_v6.queue import run_store
+tests\v6\test_runs_list_endpoint.py:19:    monkeypatch.setenv(run_store.ENV_DB_PATH, str(db))
+tests\v6\test_runs_list_endpoint.py:20:    run_store.init_db(str(db))
+tests\v6\test_runs_list_endpoint.py:24:def _seed(db_path, run_id, lifecycle, pipeline_status, finished_at):
+tests\v6\test_runs_list_endpoint.py:29:            "queued_at, started_at, finished_at, artifact_dir, "
+tests\v6\test_runs_list_endpoint.py:38:                finished_at,
+tests\v6\test_runs_list_endpoint.py:49:    from polaris_v6.queue import run_store
+tests\v6\test_runs_list_endpoint.py:56:    runs = run_store.list_completed_runs(limit=20, path=db_path)
+tests\v6\test_runs_list_endpoint.py:62:    from polaris_v6.queue import run_store
+
+ succeeded in 3368ms:
+web\app\runs\[runId]\page.tsx:18:import { RunProgress } from "./components/run_progress";
+web\app\runs\[runId]\page.tsx:232:      <RunProgress events={events} status={status} />
+web\app\runs\[runId]\components\run_progress.tsx:45:interface RunProgressProps {
+web\app\runs\[runId]\components\run_progress.tsx:50:export function RunProgress({ events, status }: RunProgressProps) {
+web\app\runs\[runId]\components\run_progress.tsx:170:    <section className="flex flex-col gap-4" data-testid="run-progress">
+web\app\runs\[runId]\components\run_progress.tsx:189:          Live connection lost — the run may still be progressing on the server.
+web\app\runs\[runId]\components\run_progress.tsx:299:        Not observed (stream lost).
+web\app\runs\[runId]\components\run_progress.tsx:306:  // evidence…"). Show "Completed." Live runs that finish while watching keep
+web\app\runs\[runId]\components\run_progress.tsx:315:      return <p className="text-muted-foreground text-xs">Completed.</p>;
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath "tests/v6/test_api_stream.py" | Select-Object -Skip 100 -First 90' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath "src/polaris_v6/queue/actors.py" | Select-Object -Skip 245 -First 40' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath "src/polaris_v6/api/runs.py" | Select-Object -Skip 100 -First 80' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath "src/polaris_v6/schemas/run_status.py"' in C:\POLARIS
+ succeeded in 2139ms:
+    monkeypatch.setattr(stream_module, "read_events", _read_with_fake)
+
+    client = TestClient(app_with_stream_router)
+    resp = client.get("/stream/rid-xlate")
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers["content-type"]
+
+    events = _parse_sse(resp.text)
+    names = [e["event"] for e in events]
+    assert names == ["scope_decision", "retrieval_progress", "verifier_verdict", "section_complete", "run_complete"]
+    # Each event carries run_id + an id (stream_id).
+    for e in events:
+        assert e["data"]["run_id"] == "rid-xlate"
+        assert "id" in e
+
+
+def test_stream_run_complete_carries_pipeline_status(
+    app_with_stream_router, sync_fake, async_fake, monkeypatch
+):
+    from fastapi.testclient import TestClient
+    from polaris_v6.queue import run_events as re_mod
+
+    re_mod.emit_terminal_event("rid-abort", "abort_no_sources", error_msg="zero", redis_client=sync_fake)
+
+    real_read = re_mod.read_events
+
+    async def _read_with_fake(run_id, last_event_id="0-0", *, block_ms=5000, redis_client_async=None):
+        async for sid, raw in real_read(run_id, last_event_id=last_event_id, block_ms=100, redis_client_async=async_fake):
+            yield sid, raw
+
+    from polaris_v6.api import stream as stream_module
+    monkeypatch.setattr(stream_module, "read_events", _read_with_fake)
+
+    client = TestClient(app_with_stream_router)
+    resp = client.get("/stream/rid-abort")
+    events = _parse_sse(resp.text)
+    # Single run_complete event with abort status preserved.
+    rc = [e for e in events if e["event"] == "run_complete"]
+    assert len(rc) == 1
+    assert rc[0]["data"]["status"] == "abort_no_sources"
+    assert rc[0]["data"]["error"] == "zero"
+
+
+def test_stream_last_event_id_header_resumes(
+    app_with_stream_router, sync_fake, async_fake, monkeypatch
+):
+    from fastapi.testclient import TestClient
+    from polaris_v6.queue import run_events as re_mod
+
+    re_mod.emit_event("rid-resume", "scope_gate.completed", {}, redis_client=sync_fake)
+    re_mod.emit_event("rid-resume", "corpus_adequacy.completed", {}, redis_client=sync_fake)
+    re_mod.emit_terminal_event("rid-resume", "success", redis_client=sync_fake)
+
+    key = re_mod.EVENT_STREAM_KEY.format(run_id="rid-resume")
+    first_id = sync_fake.xrange(key)[0][0].decode()
+
+    real_read = re_mod.read_events
+
+    async def _read_with_fake(run_id, last_event_id="0-0", *, block_ms=5000, redis_client_async=None):
+        async for sid, raw in real_read(run_id, last_event_id=last_event_id, block_ms=100, redis_client_async=async_fake):
+            yield sid, raw
+
+    from polaris_v6.api import stream as stream_module
+    monkeypatch.setattr(stream_module, "read_events", _read_with_fake)
+
+    client = TestClient(app_with_stream_router)
+    resp = client.get("/stream/rid-resume", headers={"Last-Event-ID": first_id})
+    events = _parse_sse(resp.text)
+    names = [e["event"] for e in events]
+    # First event consumed → only retrieval_progress + run_complete left.
+    assert names == ["retrieval_progress", "run_complete"]
+
+
+def test_stream_redis_unreachable_emits_stream_unavailable_run_complete(
+    app_with_stream_router, monkeypatch
+):
+    """When the async reader can't connect, the endpoint still serves a terminal
+    run_complete with status='stream_unavailable' rather than hanging forever.
+    """
+    from fastapi.testclient import TestClient
+    from polaris_v6.api import stream as stream_module
+    from polaris_v6.queue import run_events as re_mod
+
+    async def _read_boom(run_id, last_event_id="0-0", *, block_ms=5000, redis_client_async=None):
+        # Single synthetic terminal — same shape as real read_events on redis fail
+        yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_unavailable"})})
+
+    monkeypatch.setattr(stream_module, "read_events", _read_boom)
+
+    client = TestClient(app_with_stream_router)
+
+ succeeded in 2492ms:
+    if active is not None:
+        # I-rdy-013: 1-concurrent-session constraint — a research run is
+        # already queued or in progress. Reject cleanly; the rejected run is
+        # never enqueued (insert_run_if_idle rolled back — no row to clean
+        # up). The structured `detail` lets the frontend render a specific
+        # UX with a link to the active run.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "concurrent_run_active",
+                "active_run_id": active.run_id,
+                "active_status": active.lifecycle_status,
+                "message": (
+                    "POLARIS runs one research session at a time. "
+                    f"Run {active.run_id[:8]} is currently {active.lifecycle_status}. "
+                    "Wait for it to finish before starting a new run."
+                ),
+            },
+        )
+
+    # The actor message carries the resolved upload content (the worker is
+    # a separate process — it cannot read the API process's upload table).
+    actor_payload = payload.model_dump()
+    actor_payload["uploaded_documents"] = uploaded_documents
+    try:
+        enqueue_research_run.send(run_id, actor_payload)
+    except Exception as exc:
+        # I-rdy-013 (Codex diff P1-001): the queued row is already committed.
+        # If enqueue fails it would never run yet would permanently hold the
+        # single-session slot. Mark it failed (terminal → frees the slot),
+        # then surface 503.
+        run_store.mark_failed(run_id, f"enqueue failed: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"failed to enqueue run {run_id!r}: {exc}",
+        ) from exc
+
+    record = run_store.get_run(run_id)
+    if record is None:  # pragma: no cover — insert just succeeded
+        raise HTTPException(status_code=500, detail="run row vanished after insert")
+    return record
+
+
+@router.get("", response_model=list[RunStatusResponse])
+def list_runs(status: str = "completed", limit: int = 20) -> list[RunStatusResponse]:
+    """List completed runs newest-first (I-cd-705 / #705).
+
+    Feeds the compare picker (#543), follow-up picker (#542), and the home
+    recent-runs strip. Only `status=completed` is supported today; aborted
+    runs are excluded by run_store.list_completed_runs (not
+    EvidenceContract-usable). `limit` is clamped to [1, 100].
+    """
+    if status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="only status=completed is supported",
+        )
+    limit = max(1, min(limit, 100))
+    return run_store.list_completed_runs(limit=limit)
+
+
+@router.get("/{run_id}", response_model=RunStatusResponse)
+def get_run(run_id: str) -> RunStatusResponse:
+    record = run_store.get_run(run_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
+    return record
+
+
+@router.post("/{run_id}/cancel", response_model=RunStatusResponse)
+def cancel_run(run_id: str) -> RunStatusResponse:
+    """Request cancellation of a run (I-rdy-011 / #507).
+
+    - Unknown run → 404.
+    - Already terminal (completed / failed / cancelled) → idempotent no-op,
+      returns the current record (200).
+    - queued → cancelled instantly; in_progress → cancel requested, the
+      worker aborts cooperatively at the next pipeline stage boundary.
+    """
+    record = run_store.get_run(run_id)
+
+ succeeded in 2803ms:
+
+    # I-rdy-011 (#507) — Codex diff-iter-2 P1: a cancel requested at ANY point
+    # during run_one_query (including the late evaluator/judge stage, past the
+    # last cooperative checkpoint) must win over a success/partial/abort
+    # manifest. This actor-side backstop guarantees the cooperative-cancel
+    # contract regardless of which pipeline stage the cancel landed in.
+    if run_store.is_cancel_requested(run_id):
+        run_store.mark_cancelled(run_id)
+        logger.info("[actor] run_id=%s cancelled during pipeline run", run_id)
+        return summary
+
+    if pipeline_status == "success" or pipeline_status.startswith("partial_"):
+        run_store.mark_completed(
+            run_id, summary, pipeline_status=pipeline_status, cost_usd=cost_usd_f
+        )
+    elif pipeline_status == "cancelled":
+        # I-rdy-011 (#507): pipeline-A wrote a cooperative-cancel manifest
+        # after observing cancel_requested at a stage boundary.
+        run_store.mark_cancelled(run_id)
+    elif pipeline_status.startswith("abort_"):
+        run_store.mark_aborted(
+            run_id,
+            pipeline_status=pipeline_status,
+            abort_reason=manifest.get("error") or pipeline_status,
+            cost_usd=cost_usd_f,
+        )
+    elif pipeline_status.startswith("error_"):
+        run_store.mark_failed(
+            run_id, f"pipeline_error: {pipeline_status}: {manifest.get('error', '')}"
+        )
+    else:
+        run_store.mark_failed(run_id, f"unknown_pipeline_status: {pipeline_status!r}")
+    return summary
+
+
+@dramatiq.actor(max_retries=0)
+def cancel_research_run(run_id: str) -> dict[str, Any]:
+    """Cancel an in-flight research run by run_id.
+
+    Implementation note: real cancellation is via Worker.send_signal on the
+
+ succeeded in 3246ms:
+"""Run-status response schema.
+
+I-arch-001a (2026-05-12): split lifecycle (operational) from pipeline_status
+(pipeline-A manifest verdict). Old `status` retained as computed alias for
+tests/v6/ backcompat — populated from lifecycle_status.
+
+I-rdy-011 (2026-05-16): `cancel_requested` surfaced so the UI can show a
+cancel as in-flight in <5s, before an in-progress run reaches the next
+pipeline stage boundary and transitions to terminal `cancelled`.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field, computed_field
+
+LifecycleStatus = Literal[
+    "queued",
+    "in_progress",
+    "completed",
+    "cancelled",
+    "failed",
+]
+
+PipelineStatus = Literal[
+    "success",
+    "partial_outline_fallback",
+    "partial_qwen_advisory",  # legacy alias (I-modref-004 #530) — historical manifests
+    "partial_evaluator_advisory",
+    "partial_thin_corpus",
+    "partial_incomplete_corpus",
+    "partial_rule_check_warnings",
+    "abort_scope_rejected",
+    "abort_corpus_inadequate",
+    "abort_corpus_approval_denied",
+    "abort_no_verified_sections",
+    "abort_no_sources",
+    "abort_evaluator_critical",
+    "error_unexpected",
+]
+
+# Backcompat alias used by older code/tests (tests/v6/ asserts body['status']
+# and record.status). Computed from lifecycle_status by the model.
+RunStatus = LifecycleStatus
+
+
+class RunStatusResponse(BaseModel):
+    run_id: str = Field(..., description="Server-assigned UUID hex.")
+    lifecycle_status: LifecycleStatus = Field(
+        ...,
+        description="Operational lifecycle: queued → in_progress → completed|failed|cancelled.",
+    )
+    pipeline_status: PipelineStatus | None = Field(
+        default=None,
+        description="Pipeline-A manifest verdict. NULL until run reaches a terminal pipeline state.",
+    )
+    template: str
+    question: str
+    queued_at: str = Field(..., description="ISO8601 UTC.")
+    started_at: str | None = None
+    finished_at: str | None = None
+    result_json: str | None = None
+    error_json: str | None = None
+    # I-arch-001a new optional fields for UUID/slug/artifact_dir mapping.
+    query_slug: str | None = None
+    manifest_run_id: str | None = None
+    artifact_dir: str | None = None
+    cost_usd: float | None = None
+    decision_id: str | None = None
+    # I-rdy-011: True once a cancel has been requested. For a queued run the
+    # request is applied atomically (lifecycle_status flips to 'cancelled');
+    # for an in_progress run this stays True while lifecycle_status is still
+    # 'in_progress', until the worker observes it at a stage boundary.
+    cancel_requested: bool = Field(
+        default=False,
+        description="True iff cancellation has been requested for this run.",
+    )
+
+    @computed_field  # serialized in JSON and readable as attr
+    @property
+    def status(self) -> LifecycleStatus:
+        """Deprecated alias for lifecycle_status (kept for tests/v6/ backcompat).
+
+        New code should use lifecycle_status. This computed field will be
+        removed once tests/v6/ migrate (post-Carney-demo cleanup).
+        """
+        return self.lifecycle_status
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath "src/polaris_v6/queue/run_events.py" | Select-Object -Skip 90 -First 220' in C:\POLARIS
+ succeeded in 2217ms:
+    error_msg: str | None = None,
+    *,
+    redis_client=None,
+) -> None:
+    """Single helper for the 7 pipeline-A exit paths.
+
+    Emits a `run.completed` event that the translator maps to v6 `run_complete`
+    with payload.status carrying the original pipeline_status (success /
+    partial_* / abort_* / error_unexpected / stream_lost).
+    """
+    payload: dict[str, Any] = {"status": pipeline_status}
+    if error_msg:
+        payload["error"] = error_msg
+    emit_event(external_run_id, "run.completed", payload, redis_client=redis_client)
+
+
+# Translator: pipeline-A event_type → (v6_event_name, transform_fn).
+# All terminal pipeline-A events (run.completed/aborted/failed) collapse to v6
+# `run_complete` carrying the original status.
+_TRANSLATOR: dict[str, tuple[str, Any]] = {
+    "scope_gate.completed": ("scope_decision", lambda p: {
+        "verdict": p.get("decision", "unknown"),
+        "reason": p.get("reason", ""),
+    }),
+    "corpus_adequacy.completed": ("retrieval_progress", lambda p: {
+        "sources_found": p.get("pool_size", 0),
+        "tier_breakdown": p.get("tier_counts", {}),
+    }),
+    "evidence.id_assigned": ("evidence_id", lambda p: {
+        "evidence_id": p.get("id", ""),
+        "source_url": p.get("url", ""),
+    }),
+    "strict_verify.section_completed": ("verifier_verdict", lambda p: {
+        "section": p.get("section", ""),
+        "local_pass": p.get("local", False),
+        "global_pass": p.get("global", False),
+    }),
+    "generator.section_completed": ("section_complete", lambda p: {
+        "section": p.get("section", ""),
+        "verified_sentences": p.get("verified", 0),
+        "dropped": p.get("dropped", 0),
+    }),
+    "run.completed": ("run_complete", lambda p: dict(p)),  # passthrough
+}
+
+
+def translate(pipeline_event: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """Translate a pipeline-A event payload to v6 (name, payload) or None."""
+    event_type = pipeline_event.get("event_type")
+    mapping = _TRANSLATOR.get(event_type or "")
+    if mapping is None:
+        return None
+    v6_name, payload_fn = mapping
+    try:
+        payload = json.loads(pipeline_event.get("payload", "{}"))
+    except json.JSONDecodeError:
+        payload = {}
+    return v6_name, payload_fn(payload)
+
+
+# Grace period (seconds) after run_store reports lifecycle_status terminal but
+# no Redis terminal event has been seen. After this elapses, emit a synthetic
+# `run_complete(status=stream_lost)` so the client gets a deterministic close
+# rather than hanging on keepalives forever. Per Codex iter-2 P1-3 + diff iter-1.
+STREAM_LOST_GRACE_SECONDS = 10.0
+
+
+def _get_lifecycle_status(external_run_id: str) -> str | None:
+    """Best-effort sync run_store lookup. Returns lifecycle_status or None.
+
+    Imported lazily so tests that don't touch run_store don't pay sqlite init.
+    Any failure (missing DB, import error, schema drift) returns None so the
+    reader keeps emitting keepalives rather than synthesizing a stream_lost
+    terminal on transient backend hiccups.
+    """
+    try:
+        from polaris_v6.queue import run_store  # noqa: PLC0415
+
+        row = run_store.get_run(external_run_id)
+        if row is None:
+            return None
+        return getattr(row, "lifecycle_status", None)
+    except Exception as exc:  # noqa: BLE001 — observability lookup never blocks SSE
+        logger.warning(
+            "[run_events] run_store lookup failed run_id=%s: %s",
+            external_run_id,
+            exc,
+        )
+        return None
+
+
+async def _check_lifecycle_terminal(external_run_id: str) -> bool:
+    """Async wrapper for the sync sqlite lookup."""
+    import asyncio  # noqa: PLC0415
+    status = await asyncio.to_thread(_get_lifecycle_status, external_run_id)
+    # I-rdy-011 (#507): `cancelled` is terminal — a queued-cancel writes no
+    # Redis terminal event, so without this an SSE consumer would hang on
+    # keepalives until the run is forgotten.
+    return status in ("completed", "failed", "cancelled")
+
+
+def _is_connection_failure(exc: BaseException) -> bool:
+    """Narrow stream_unavailable to actual Redis reachability failures.
+
+    Per Codex diff iter-1 P1: every XREAD exception was being mapped to
+    stream_unavailable, masking schema bugs / corrupt entries as 'Redis down'.
+    Now we treat ONLY connection/timeout/socket failures as unavailability;
+    other exceptions surface as stream_lost.
+    """
+    if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
+        return True
+    # redis.asyncio raises ConnectionError subclasses; check by class name
+    # to avoid a hard import dependency.
+    name = type(exc).__name__
+    return name in {
+        "ConnectionError",
+        "TimeoutError",
+        "BusyLoadingError",
+        "ConnectionResetError",
+        "RedisConnectionError",
+    }
+
+
+async def read_events(
+    external_run_id: str,
+    last_event_id: str = "0-0",
+    *,
+    block_ms: int = 5000,
+    redis_client_async=None,
+) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+    """Async generator yielding (stream_id, raw_pipeline_event_dict).
+
+    Terminates after emitting a `run.completed` event. Per Codex iter-2 P1-3
+    + diff iter-1 P1:
+
+    - empty XREAD window → keepalive (caller emits SSE comment frame), then
+      check run_store. While lifecycle_status is queued/in_progress, keep
+      emitting keepalives.
+    - lifecycle_status in {completed, failed} AND no terminal event seen in
+      the next STREAM_LOST_GRACE_SECONDS → emit a synthetic
+      run_complete(status=stream_lost) and close cleanly.
+    - actual Redis connection/timeout failure → emit
+      run_complete(status=stream_unavailable) and close.
+    - non-reachability XREAD exception → emit stream_lost and close (treat as
+      degraded stream rather than 'Redis down').
+    """
+    import asyncio  # noqa: PLC0415
+
+    last_id = _validate_last_event_id(last_event_id)
+    key = EVENT_STREAM_KEY.format(run_id=external_run_id)
+
+    try:
+        if redis_client_async is None:
+            import redis.asyncio as aredis  # noqa: PLC0415
+            client = aredis.from_url(_redis_url(), decode_responses=False)
+        else:
+            client = redis_client_async
+    except ImportError:
+        yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_unavailable"})})
+        return
+
+    # Tracks first-seen-at for lifecycle_status terminal so we can apply the
+    # grace window before declaring stream_lost.
+    lifecycle_terminal_first_seen: float | None = None
+    loop = asyncio.get_event_loop()
+
+    try:
+        while True:
+            try:
+                events = await client.xread({key: last_id}, count=100, block=block_ms)
+            except Exception as exc:  # noqa: BLE001
+                if _is_connection_failure(exc):
+                    logger.warning(
+                        "[run_events] redis unreachable run_id=%s: %s",
+                        external_run_id,
+                        exc,
+                    )
+                    yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_unavailable"})})
+                    return
+                # Non-reachability failure — log and degrade to stream_lost.
+                logger.warning(
+                    "[run_events] xread error run_id=%s: %s",
+                    external_run_id,
+                    exc,
+                )
+                yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_lost"})})
+                return
+
+            if not events:
+                # Empty XREAD window — emit keepalive then consult run_store.
+                yield ("__keepalive__", {})
+                if await _check_lifecycle_terminal(external_run_id):
+                    now = loop.time()
+                    if lifecycle_terminal_first_seen is None:
+                        lifecycle_terminal_first_seen = now
+                    elif now - lifecycle_terminal_first_seen >= STREAM_LOST_GRACE_SECONDS:
+                        logger.warning(
+                            "[run_events] lifecycle terminal without redis terminal "
+                            "run_id=%s — emitting synthetic stream_lost",
+                            external_run_id,
+                        )
+                        yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_lost"})})
+                        return
+                else:
+                    # Reset the grace window if the run un-terminals (shouldn't happen,
+                    # but the lifecycle is the source of truth).
+                    lifecycle_terminal_first_seen = None
+                continue
+
+            # Real events arrived → reset the grace window.
+            lifecycle_terminal_first_seen = None
+
+            for _stream_name, entries in events:
+                for entry_id, fields in entries:
+                    stream_id = entry_id.decode() if isinstance(entry_id, bytes) else entry_id
+                    last_id = stream_id
+                    event_type = fields.get(b"event_type") or fields.get("event_type")
+                    payload = fields.get(b"payload") or fields.get("payload")
+                    if isinstance(event_type, bytes):
+                        event_type = event_type.decode()
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath "src/polaris_v6/queue/run_events.py" | Select-Object -Skip 310 -First 50' in C:\POLARIS
+ succeeded in 1754ms:
+                    if isinstance(payload, bytes):
+                        payload = payload.decode()
+                    yield (stream_id, {"event_type": event_type, "payload": payload})
+                    if event_type == "run.completed":
+                        return
+    finally:
+        # aredis client lazy-closed via context if possible
+        try:
+            close = getattr(client, "aclose", None) or getattr(client, "close", None)
+            if close:
+                result = close()
+                if hasattr(result, "__await__"):
+                    await result
+        except Exception:  # noqa: BLE001 — defensive close
+            pass
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"emit_terminal_event|emit_event\\(\" src/polaris_v6/queue src/polaris_v6 -g\"*.py\"" in C:\POLARIS
+ succeeded in 1907ms:
+src/polaris_v6/queue\run_events.py:3:Pipeline-A emits stage events via sync `emit_event()` (non-raising). The SSE
+src/polaris_v6/queue\run_events.py:49:def emit_event(
+src/polaris_v6/queue\run_events.py:88:def emit_terminal_event(
+src/polaris_v6/queue\run_events.py:104:    emit_event(external_run_id, "run.completed", payload, redis_client=redis_client)
+src/polaris_v6\queue\run_events.py:3:Pipeline-A emits stage events via sync `emit_event()` (non-raising). The SSE
+src/polaris_v6\queue\run_events.py:49:def emit_event(
+src/polaris_v6\queue\run_events.py:88:def emit_terminal_event(
+src/polaris_v6\queue\run_events.py:104:    emit_event(external_run_id, "run.completed", payload, redis_client=redis_client)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath \"web/app/runs/[runId]/components/run_progress.tsx\" -Pattern \"lifecycleCompleted|const isSuccess|function stageState|if \\(isSuccess\\)\" | ForEach-Object { \""'$($_.LineNumber):$($_.Line.Trim())" }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -LiteralPath "src/polaris_v6/schemas/run_status.py" -Pattern "lifecycle_status|pipeline_status|computed_field|def status" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath \"src/polaris_v6/queue/actors.py\" -Pattern \"pipeline_status.startswith\\(\\\"abort_\\\"\\)|mark_aborted|mark_completed\" | ForEach-Object { \""'$($_.LineNumber):$($_.Line.Trim())" }' in C:\POLARIS
+2026-05-21T18:30:22.350527Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.4 seconds
+Output:
+[31;1mSelect-String: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mSelect-String -LiteralPath "src/polaris_v6/queue/actors.py" -Pattern [0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mA positional parameter cannot be found that accepts argument 'abort_\\)|mark_aborted|mark_completed'.[0m
+
+ exited 1 in 2377ms:
+[31;1mSelect-String: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mSelect-String -LiteralPath "src/polaris_v6/queue/actors.py" -Pattern [0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mA positional parameter cannot be found that accepts argument 'abort_\\)|mark_aborted|mark_completed'.[0m
+
+ succeeded in 2633ms:
+96:const lifecycleCompleted = status?.status === "completed";
+97:const isSuccess =
+98:lifecycleCompleted ||
+102:!lifecycleCompleted &&
+114:function stageState(key: StageKey, idx: number): StageState {
+116:if (isSuccess) return "done"; // success proves the full pipeline ran
+
+ succeeded in 3005ms:
+3:I-arch-001a (2026-05-12): split lifecycle (operational) from pipeline_status
+5:tests/v6/ backcompat — populated from lifecycle_status.
+16:from pydantic import BaseModel, Field, computed_field
+44:# and record.status). Computed from lifecycle_status by the model.
+50:lifecycle_status: LifecycleStatus = Field(
+54:pipeline_status: PipelineStatus | None = Field(
+72:# request is applied atomically (lifecycle_status flips to 'cancelled');
+73:# for an in_progress run this stays True while lifecycle_status is still
+80:@computed_field  # serialized in JSON and readable as attr
+82:def status(self) -> LifecycleStatus:
+83:"""Deprecated alias for lifecycle_status (kept for tests/v6/ backcompat).
+85:New code should use lifecycle_status. This computed field will be
+88:return self.lifecycle_status
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath \"src/polaris_v6/queue/actors.py\" -Pattern 'pipeline_status.startswith\\(\"abort_\"\\)|mark_aborted|mark_completed' | ForEach-Object { \""'$($_.LineNumber):$($_.Line.Trim())" }' in C:\POLARIS
+ succeeded in 1848ms:
+81:mark_completed / mark_aborted / mark_failed per pipeline_status.
+258:run_store.mark_completed(
+265:elif pipeline_status.startswith("abort_"):
+266:run_store.mark_aborted(
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath \"src/polaris_v6/queue/run_store.py\" -Pattern \"def mark_aborted|lifecycle_status='completed'|def mark_completed\" | ForEach-Object { \""'$($_.LineNumber):$($_.Line.Trim())" }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -LiteralPath "src/polaris_v6/queue/run_events.py" -Pattern "emit_terminal_event|payload.*status|run_complete.*status|original status|run.completed" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }' in C:\POLARIS
+ succeeded in 1887ms:
+88:def emit_terminal_event(
+97:Emits a `run.completed` event that the translator maps to v6 `run_complete`
+98:with payload.status carrying the original pipeline_status (success /
+101:payload: dict[str, Any] = {"status": pipeline_status}
+104:emit_event(external_run_id, "run.completed", payload, redis_client=redis_client)
+108:# All terminal pipeline-A events (run.completed/aborted/failed) collapse to v6
+109:# `run_complete` carrying the original status.
+133:"run.completed": ("run_complete", lambda p: dict(p)),  # passthrough
+153:# `run_complete(status=stream_lost)` so the client gets a deterministic close
+223:Terminates after emitting a `run.completed` event. Per Codex iter-2 P1-3
+231:run_complete(status=stream_lost) and close cleanly.
+233:run_complete(status=stream_unavailable) and close.
+249:yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_unavailable"})})
+268:yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_unavailable"})})
+276:yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_lost"})})
+292:yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_lost"})})
+314:if event_type == "run.completed":
+
+ succeeded in 2215ms:
+336:def mark_completed(
+348:"UPDATE runs SET lifecycle_status='completed', finished_at=?, result_json=?, "
+357:def mark_aborted(
+365:"""Pipeline ran to completion but hit a gate; lifecycle_status='completed', pipeline_status='abort_*'.
+373:"UPDATE runs SET lifecycle_status='completed', finished_at=?, "
+541:"WHERE query_slug=? AND lifecycle_status='completed' "
+584:"WHERE lifecycle_status='completed' "
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/app/runs/[runId]/components/run_progress.tsx:97: `lifecycleCompleted` now makes every lifecycle-completed run a UI success, even when the real `run_complete.status` is an abort/error pipeline verdict. Backend schemas split lifecycle from pipeline status, and `mark_aborted()` stores `lifecycle_status='completed'`, so a live `abort_scope_rejected`/`abort_no_verified_sections` run can flip to four green done stages after `getRun()` refreshes. Limit the override to synthetic `stream_lost`/`stream_unavailable` artifacts, not all terminal event statuses."
+p2: []
+convergence_call: continue
+merge_decision: DO NOT MERGE
+remaining_blockers_for_execution:
+  - "Do not let lifecycle `completed` override a real non-success `run_complete.status`; only suppress synthetic stream-loss terminal events for completed lifecycle runs."
+```
+tokens used
+89,460
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/app/runs/[runId]/components/run_progress.tsx:97: `lifecycleCompleted` now makes every lifecycle-completed run a UI success, even when the real `run_complete.status` is an abort/error pipeline verdict. Backend schemas split lifecycle from pipeline status, and `mark_aborted()` stores `lifecycle_status='completed'`, so a live `abort_scope_rejected`/`abort_no_verified_sections` run can flip to four green done stages after `getRun()` refreshes. Limit the override to synthetic `stream_lost`/`stream_unavailable` artifacts, not all terminal event statuses."
+p2: []
+convergence_call: continue
+merge_decision: DO NOT MERGE
+remaining_blockers_for_execution:
+  - "Do not let lifecycle `completed` override a real non-success `run_complete.status`; only suppress synthetic stream-loss terminal events for completed lifecycle runs."
+```

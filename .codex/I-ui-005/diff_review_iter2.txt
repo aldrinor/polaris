@@ -1,0 +1,2612 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4bd1-a6a4-7f33-a67c-4e69683651ef
+--------
+user
+# Codex DIFF review — I-ui-bug-001 (#725) iter 2
+
+HARD CAP 5. iter 2. APPROVE iff zero P0/P1. MERGE AUTHORIZED if mergeable.
+Canonical-diff-sha256: `133b074afaad1f1f49f7ea16dcef5bd6d17b1f71b5c92f2a44c3844e6e955db1`. typecheck/build green.
+
+## iter-1 P1 FIXED (your finding): lifecycle 'completed' no longer = success. Now uses run_store pipeline_status (exposed on the backend RunStatusResponse; added to the frontend TS type). VERIFIED BY VISION:
+- success run → 4 cyan-check stages "Completed." (qa_v_success)
+- abort_scope_rejected run → 4 grey "Did not run." NOT green (qa_v_abort)
+
+Logic: syntheticLoss (stream_lost/unavailable event) suppressed only when lifecycleCompleted; realEventStatus (a non-synthetic run_complete event) wins; else completed → pipeline_status (??'success'); isStreamLost = syntheticLoss && !lifecycleCompleted; isSuccess = success|completed|partial_*.
+
+2 files: web/lib/api.ts (+pipeline_status type), run_progress.tsx (terminal derivation + done-no-data "Completed.").
+
+## Review focus
+1. Does pipeline_status now correctly gate success vs abort/error for completed runs (verified both)?
+2. Does a genuinely-running run whose stream drops still show stream-loss degraded (syntheticLoss && !lifecycleCompleted)?
+3. Live-finished real run_complete event still authoritative?
+4. Any NOVEL P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue | accept_remaining
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+remaining_blockers_for_execution: []
+```
+
+codex
+I’ll inspect the current diff and the touched files with a review lens, then verify whether the terminal-status derivation matches the behavior described.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/lib/api.ts web/components/run_progress.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short --branch' in C:\POLARIS
+ succeeded in 1441ms:
+## bot/I-ui-005-completed-run-render...origin/bot/I-ui-005-completed-run-render
+ M .claude/settings.json
+ M docs/todo_list.md
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-005/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+ succeeded in 1626ms:
+ succeeded in 1876ms:
+ .claude/settings.json                              |  33 +-
+ docs/todo_list.md                                  |  65 +-
+ logs/session_log.md                                |  22 +
+ .../clinical_tirzepatide_t2dm/bibliography.json    |  43 +-
+ .../clinical_tirzepatide_t2dm/contradictions.json  | 120 +--
+ .../clinical_tirzepatide_t2dm/corpus_approval.json |  77 +-
+ .../evaluator_rule_checks.json                     |  10 +-
+ .../live_corpus_dump.json                          | 153 ++--
+ .../clinical_tirzepatide_t2dm/manifest.json        | 886 ++++++++++++++++++--
+ .../clinical_tirzepatide_t2dm/protocol.json        |   6 +-
+ .../qwen_judge_output.json                         |  24 +-
+ .../clinical/clinical_tirzepatide_t2dm/report.md   | 106 ++-
+ .../clinical/clinical_tirzepatide_t2dm/run_log.txt |  56 +-
+ outputs/honest_sweep_r3/sweep_summary.json         | 897 +++++++++++++++++++--
+ outputs/honest_sweep_r3/sweep_summary.md           |   8 +-
+ state/restart_instructions.md                      | 141 ++--
+ .../signed_bundle/v1_canonical/evidence_pool.json  |   4 +-
+ .../signed_bundle/v1_canonical/manifest.yaml.asc   |   2 +-
+ 18 files changed, 2070 insertions(+), 583 deletions(-)
+warning: in the working copy of 'docs/todo_list.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'logs/session_log.md', LF will be replaced by CRLF the next time Git touches it
+
+codex
+The working tree has a lot of unrelated local noise, but the two review-focus files are clean in the worktree. I’m switching to the branch diff against the likely base so I can review the committed PR changes rather than incidental local files.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git branch -vv' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git log --oneline --decorate -8' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat origin/main...HEAD' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files web | rg \"(run_progress|api\\.ts)"'$"' in C:\POLARIS
+ succeeded in 1457ms:
+17446f83 (HEAD -> bot/I-ui-005-completed-run-render, origin/bot/I-ui-005-completed-run-render) I-ui-bug-001 (#725): Codex diff P1 — use pipeline_status, not lifecycle, for completed-run verdict
+600b2e3d I-ui-bug-001 (#725): completed runs render done, not 'connection lost'
+ee922d02 (origin/polaris, polaris) I-ui-004 (#543): run-compare view (/compare) (#724)
+b20d7931 I-ui-003 (#542): follow-up answer UI on completed runs (#723)
+ca69887a I-ui-002 (#707): Perplexity-style 4-stage run-progress UI (#721)
+d400663b I-ui-001 (#704): Perplexity-style home + cyan-accent visual identity (#719)
+c71f7403 I-cd-705 (GH#705): GET /api/v6/runs?status=completed list endpoint (#712)
+9e1722d5 I-cd-680 (GH#680): real-run resolution for follow-up + compare (Codex Option B) (#711)
+
+2026-05-21T18:35:12.616080Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.7 seconds
+Output:
+fatal: origin/main...HEAD: no merge base
+
+ exited 1 in 1735ms:
+fatal: origin/main...HEAD: no merge base
+
+ succeeded in 2146ms:
+web\lib\api.ts
+
+ succeeded in 2223ms:
+  PL                                           d638446a PL: Patches C+D — bibliography-layer SOTA adoption (FDA/EMA setid + OpenAlex)
+  bot/I-anti-001                               9d4a12be [origin/bot/I-anti-001] I-anti-001: align canonical-diff-sha256 to CI
+  bot/I-anti-002                               91998562 [origin/bot/I-anti-002] I-anti-002: align canonical-diff-sha256 to CI
+  bot/I-anti-003                               ab0b5965 [origin/bot/I-anti-003] I-anti-003: CI gate at <5% mean stance-delta on 20 paired prompts
+  bot/I-anti-004                               6de4253c [origin/bot/I-anti-004] I-anti-004: Nightly anti-sycophancy eval as Dramatiq actor
+  bot/I-arch-001a-run-store-schema             0a502d00 [origin/bot/I-arch-001a-run-store-schema] I-arch-001a: Codex diff APPROVE iter 3 + claude_audit + canonical diff
+  bot/I-arch-001b-v30-contract-synthesizer     52b63b68 [origin/bot/I-arch-001b-v30-contract-synthesizer] I-arch-001b: Codex brief APPROVE iter 5 + diff APPROVE iter 1 artifacts
+  bot/I-arch-001c-scope-domain-mapping         cac58104 [origin/bot/I-arch-001c-scope-domain-mapping] I-arch-001c: Codex brief APPROVE iter 1 + diff APPROVE iter 1 artifacts
+  bot/I-arch-001d-slice-chain-bridge           8ec3c6e6 [origin/bot/I-arch-001d-slice-chain-bridge] I-arch-001d: Codex brief APPROVE iter 4 + diff APPROVE iter 3 artifacts
+  bot/I-arch-001e-sse-redis-streams            670d07d6 [origin/bot/I-arch-001e-sse-redis-streams] I-arch-001e — SSE Redis Streams + Last-Event-ID + terminal events
+  bot/I-arch-001f-e2e-pinned-fixture           639493f3 [origin/bot/I-arch-001f-e2e-pinned-fixture] I-arch-001f — e2e capstone test pinning POST → stream → resume → bundle
+  bot/I-bakeoff-A-001                          b968a013 [origin/bot/I-bakeoff-A-001] I-bakeoff-A-001: trailer (#365) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-beat-001                               c2eee661 [origin/bot/I-beat-001] I-beat-001 (#400): final codex_diff.patch after trajectory commit
+  bot/I-beat-001-q1-competitor-dr              bfbabd8b [origin/bot/I-beat-001-q1-competitor-dr] I-beat-001 Q1: first measured BEAT-BOTH datapoint
+  bot/I-beat-002-iter12                        9eec26d8 I-beat-002 iter12: cross-reviews 41-45 — 5/5 AGREE, POLARIS-Q5 at 93.3%
+  bot/I-beat-002-iter13                        48ffa670 I-beat-002 iter13: cross-reviews 46-50 — extend audit to all 5 Carney questions
+  bot/I-beat-002-iter14                        c25e8c04 I-beat-002 iter14: cross-reviews 51-55 — POLARIS 80% Codex-verified across 35 Carney claims, 0 fabrications
+  bot/I-bench-001                              0ffb80ac [origin/bot/I-bench-001] I-bench-001: align canonical-diff-sha256 to CI
+  bot/I-bench-002                              c60146f3 [origin/bot/I-bench-002] I-bench-002: trailer (#195) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-bug-084                                d7026ecb [origin/bot/I-bug-084] I-bug-084: align canonical-diff-sha256 to CI
+  bot/I-bug-086-deepseek-v4-pro                a347847a [origin/bot/I-bug-086-deepseek-v4-pro] I-bug-086: Default generator → DeepSeek V4 Pro on OpenRouter
+  bot/I-bug-087-gemma-4-31b-evaluator          7d0f390d [origin/bot/I-bug-087-gemma-4-31b-evaluator] I-bug-087: Default evaluator → Gemma 4 31B (Apache 2.0, dense, 256K ctx)
+  bot/I-bug-088-reasoning-first-normalize      1813272d [origin/bot/I-bug-088-reasoning-first-normalize] I-bug-088: add # prefix to canonical-diff-sha256 trailer (CI gate format)
+  bot/I-bug-089-token-budget-aware             d1cee8cb [origin/bot/I-bug-089-token-budget-aware] I-bug-089: add codex_diff.patch + diff review artifacts (CI gate triple)
+  bot/I-bug-090-reasoning-first-section-tokens 2b4ffd96 [origin/bot/I-bug-090-reasoning-first-section-tokens] I-bug-090: floor max_tokens to 6000 for reasoning-first models
+  bot/I-bug-091-revert-generator-v32-exp       ae2cb5eb [origin/bot/I-bug-091-revert-generator-v32-exp] I-bug-091: revert generator default V4 Pro -> V3.2-Exp
+  bot/I-bug-099                                87880b8b [origin/bot/I-bug-099] I-bug-099: codex review artifacts (#353)
+  bot/I-bug-100                                b24127a8 [origin/bot/I-bug-100] I-bug-100: canonical-diff-sha256 trailer for CI gate (#354)
+  bot/I-bug-101                                bd0c9983 [origin/bot/I-bug-101] I-bug-101: trailer (#355) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-bug-102                                55265b97 [origin/bot/I-bug-102] I-bug-102: trailer (#356) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-bug-103                                fdc9ba52 [origin/bot/I-bug-103] I-bug-103: canonical-diff-sha256 trailer (#357)
+  bot/I-bug-104                                14e9bfb1 [origin/bot/I-bug-104] I-bug-104: canonical-diff-sha256 trailer (#358)
+  bot/I-bug-106                                668f2be1 [origin/bot/I-bug-106] I-bug-106: canonical-diff-sha256 trailer (#359)
+  bot/I-bug-107                                61cf6492 [origin/bot/I-bug-107] I-bug-107: canonical-diff-sha256 trailer (#360)
+  bot/I-bug-109                                86d20b94 [origin/bot/I-bug-109] I-bug-109: trailer (#361) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-bug-110                                8bf2633a [origin/bot/I-bug-110] I-bug-110: canonical-diff-sha256 trailer (#362)
+  bot/I-bug-111                                1437b25f [origin/bot/I-bug-111] I-bug-111: canonical-diff-sha256 trailer (#363) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-bug-114-retrieval-timeout              3d3029d5 [origin/bot/I-bug-114-retrieval-timeout] I-bug-114: Codex review artifacts (brief APPROVE iter3, diff APPROVE iter1)
+  bot/I-bug-115-corpus-assembly-timeout        385a86fe [origin/bot/I-bug-115-corpus-assembly-timeout] I-bug-115 (#554): Codex-gated artifacts — brief + diff APPROVE
+  bot/I-bug-116-env-float-finite               d34a4240 [origin/bot/I-bug-116-env-float-finite] I-bug-116 (#556): codex_diff_audit APPROVE + final codex_diff.patch
+  bot/I-carney-002-aws-canada-central          4ebc4059 [origin/bot/I-carney-002-aws-canada-central] I-carney-002 — AWS Canada Central (ca-central-1) infrastructure
+  bot/I-carney-003-sovereignty-transparency    17d63588 [origin/bot/I-carney-003-sovereignty-transparency] I-carney-003 — Sovereignty + transparency endpoint + egress controls
+  bot/I-carney-004-auth-secrets                62f883d0 [origin/bot/I-carney-004-auth-secrets] I-carney-004 — Static_accounts auth + GPG demo signing + AWS Secrets Manager
+  bot/I-carney-005-deploy-substrate            b88cf3d9 [origin/bot/I-carney-005-deploy-substrate] I-carney-005 — Carney v6 deploy substrate (Dockerfile, compose, GPG, broker init)
+  bot/I-carney-007-demo-runbook-signoff        3c2f7a26 [origin/bot/I-carney-007-demo-runbook-signoff] I-carney-007 — Carney demo runbook + transparency + fallback + Codex sign-off
+  bot/I-cd-001-clean-docker-build              8b16b12b [origin/bot/I-cd-001-clean-docker-build] I-cd-001 (#623): add canonical-diff-sha256 trailer to codex_diff.patch
+  bot/I-cd-002                                 b49e1906 [origin/bot/I-cd-002] I-cd-002 (#606): final codex_diff.patch (canonical-diff-sha256 3e3f36f69d80)
+  bot/I-cd-002-followup                        4d7a2841 [origin/bot/I-cd-002-followup] I-cd-002-followup (#606): final codex_diff.patch (a3cfb36da659)
+  bot/I-cd-003                                 943f35e7 [origin/bot/I-cd-003] I-cd-003 (#622): final codex_diff.patch (0728cb69cd9a)
+  bot/I-cd-004                                 a0332750 [origin/bot/I-cd-004] I-cd-004 (#607): regenerate codex_diff.patch after prettier fixup
+  bot/I-cd-005                                 17da990c [origin/bot/I-cd-005] I-cd-005 (#637): final codex_diff.patch (dac083644f28)
+  bot/I-cd-005-followup                        2cb3ea7a [origin/bot/I-cd-005-followup] I-cd-005-followup: final codex_diff.patch (c918d0cb4023)
+  bot/I-cd-006                                 bd0f51cf [origin/bot/I-cd-006] I-cd-006 (#638): final codex_diff.patch (a69a5c55c0e9)
+  bot/I-cd-007                                 dd315f0c [origin/bot/I-cd-007] I-cd-007 (#639): final codex_diff.patch (0e525a6ca880)
+  bot/I-cd-008                                 af5e7819 [origin/bot/I-cd-008] I-cd-008 (#640): final codex_diff.patch (3626ef27bde9)
+  bot/I-cd-680-evidencecontract-real-runs      9f8229e1 [origin/bot/I-cd-680-evidencecontract-real-runs: behind 3] I-cd-680 (GH#680): pin Codex artifacts (APPROVE iter 2 + MERGE AUTHORIZED)
+  bot/I-cd-705-runs-list-endpoint              3fc1923a [origin/bot/I-cd-705-runs-list-endpoint: behind 3] I-cd-705 (GH#705): pin Codex artifacts (APPROVE iter 1 + MERGE AUTHORIZED)
+  bot/I-cd-ui-001-frontier-design-overhaul     93b98970 [origin/bot/I-cd-ui-001-frontier-design-overhaul] I-cd-ui-001 (GH#704): frontier-research-tool home redesign (Perplexity-style)
+  bot/I-cj-001                                 a6b19a08 [origin/bot/I-cj-001] I-cj-001: Crown Jewel binding test — two-family evaluator segregation
+  bot/I-cj-002                                 cc5f1061 [origin/bot/I-cj-002] I-cj-002: Crown Jewel binding test — provenance token format
+  bot/I-cj-003                                 e419e445 [origin/bot/I-cj-003] I-cj-003: Crown Jewel binding test — strict-verify per-sentence gate
+  bot/I-cj-004                                 2eb7c640 [origin/bot/I-cj-004] I-cj-004: Crown Jewel binding test — zero-verified abort verdict
+  bot/I-cj-005                                 ee42833a [origin/bot/I-cj-005] I-cj-005: Crown Jewel binding test — corpus approval rubber-stamp resistance
+  bot/I-cj-006                                 56596835 [origin/bot/I-cj-006] I-cj-006: Crown Jewel binding test — budget cap holds without usage.cost
+  bot/I-cj-007                                 c029d31d [origin/bot/I-cj-007] I-cj-007: Crown Jewel binding test — delimiter sanitization (terminal CJ)
+  bot/I-decompose-001                          9e89b0e0 [origin/bot/I-decompose-001] I-decompose-001: trailer (#366) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-doc-001                                440da8d6 [origin/bot/I-doc-001] I-doc-001: regenerate codex_diff.patch + canonical-diff-sha256 trailer (#376)
+  bot/I-doc-002-blocked-tracker                32ca4266 [origin/bot/I-doc-002-blocked-tracker] I-doc-002: trailer (#396) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-eval-002-tier1-pilot-q5                70e7f57d I-eval-002 Tier-1 pilot Q5: Codex batched pass + reconciliation (24V/4P)
+  bot/I-eval-003-tier1-extension               b0ada6ce [origin/bot/I-eval-003-tier1-extension] I-eval-003: 5-artifact triple + diff audit for CI gate
+  bot/I-eval-004-q1-beat-both-real             24cccdb8 [origin/bot/I-eval-004-q1-beat-both-real] I-eval-004 Q1: real §-1.1 BEAT-BOTH measured (Gemini 8.6% vs POLARIS 96.8%)
+  bot/I-f10-001                                7fd475c5 [origin/bot/I-f10-001] I-f10-001: 5-artifact triple (brief APPROVE iter 4, diff APPROVE iter 1)
+  bot/I-f10-002                                c1d8293a [origin/bot/I-f10-002] I-f10-002: 5-artifact triple (brief APPROVE iter 1, diff APPROVE iter 1)
+  bot/I-f10-003                                52b3f563 [origin/bot/I-f10-003] I-f10-003: 5-artifact triple (brief APPROVE iter 1, diff APPROVE iter 1)
+  bot/I-f10-004                                865d594c [origin/bot/I-f10-004] I-f10-004: 5-artifact triple (brief APPROVE iter 1, diff APPROVE iter 1)
+  bot/I-f10-005                                6deb2126 [origin/bot/I-f10-005] I-f10-005: 5-artifact triple (brief APPROVE iter 1, diff APPROVE iter 1)
+  bot/I-f10-006                                bde18862 [origin/bot/I-f10-006: ahead 1] I-f10-007: Sandboxed Python execution hardened — AST allowlist + reflection guard + socket monkey-patch + 26 sovereignty tests
+  bot/I-f10-007                                b3e85c08 [origin/bot/I-f10-007] I-f10-007: 5-artifact triple (brief force-APPROVE iter 5 cap, diff iter-3 fixes applied)
+  bot/I-f10-008                                7050cc25 [origin/bot/I-f10-008] I-f10-008: 5-artifact triple (brief APPROVE iter 2, diff APPROVE iter 1)
+  bot/I-f11-001                                b64407f1 [origin/bot/I-f11-001] I-f11-001: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-f11-002                                ef4f1f07 [origin/bot/I-f11-002] I-f11-002: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-f11-003                                6f993515 [origin/bot/I-f11-003] I-f11-003: update canonical-diff-sha256 trailer to CI-canonical hash
+  bot/I-f11-004                                8a31b86c [origin/bot/I-f11-004] I-f11-004: update canonical-diff-sha256 to CI-canonical hash
+  bot/I-f11-005                                5cc4d6f9 [origin/bot/I-f11-005] I-f11-005: update canonical-diff-sha256 to CI-canonical hash
+  bot/I-f12-001                                b5efa9c4 [origin/bot/I-f12-001] I-f12-001: align canonical-diff-sha256 to CI computation
+  bot/I-f12-002                                48163cb4 [origin/bot/I-f12-002] I-f12-002: align canonical-diff-sha256 to CI computation
+  bot/I-f12-003                                99710f1d [origin/bot/I-f12-003] I-f12-003: align canonical-diff-sha256 to CI computation
+  bot/I-f12-004                                ed9014a5 [origin/bot/I-f12-004] I-f12-004: align canonical-diff-sha256 to CI
+  bot/I-f13-001                                0c14bb19 [origin/bot/I-f13-001] I-f13-001: 5-artifact triple (brief APPROVE iter 1, diff APPROVE iter 1)
+  bot/I-f13-002                                71603b24 [origin/bot/I-f13-002] I-f13-002: 5-artifact triple (brief APPROVE iter 1, diff APPROVE iter 1)
+  bot/I-f13-003                                9567ca20 [origin/bot/I-f13-003] I-f13-003: 5-artifact triple (brief APPROVE iter 2, diff APPROVE iter 1)
+  bot/I-f13-004                                ecb668e2 [origin/bot/I-f13-004] I-f13-004: codex review artifacts (brief APPROVE iter 2 + diff APPROVE iter 1)
+  bot/I-f14-001                                cd2bd77c [origin/bot/I-f14-001] I-f14-001: codex review artifacts (brief APPROVE iter 3 + diff APPROVE iter 1)
+  bot/I-f14-002-api                            f87ca473 [origin/bot/I-f14-002-api] I-f14-002: rename codex artifacts dir from I-f14-002-api to I-f14-002 to match CI parsed issue id
+  bot/I-f14-002-page                           b78a0bec [origin/bot/I-f14-002-page] I-f14-002: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-f14-003                                ab1a573f [origin/bot/I-f14-003] I-f14-003: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-f14-004                                b9103194 [origin/bot/I-f14-004] I-f14-004: codex review artifacts (brief APPROVE iter 2 + diff APPROVE iter 1)
+  bot/I-f14-005                                57e4f2a0 [origin/bot/I-f14-005] I-f14-005: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-f5-003                                 f7f7f551 [origin/bot/I-f5-003] I-f5-003: Inspector renders source URL + tier + span + retrieval trace
+  bot/I-f5-004                                 95337c70 [origin/bot/I-f5-004] I-f5-004: Inspector two-family evaluator agreement signal
+  bot/I-f5-005                                 9c0a0d28 [origin/bot/I-f5-005] I-f5-005: Inspector multi-span grouping by source
+  bot/I-f5-006                                 842fc1ea [origin/bot/I-f5-006] I-f5-006: Inspector synthesis-claim badge
+  bot/I-f5-007                                 818778c9 [origin/bot/I-f5-007] I-f5-007: Inspector retracted + stale (>2y) badges
+  bot/I-f5-008                                 91a321be [origin/bot/I-f5-008] I-f5-008: F5 latency stress at 50/100/200/500 + CLAUDE.md §8.3.10
+  bot/I-f5-009                                 85a9f9af [origin/bot/I-f5-009] I-f5-009: assertion_surface field + 6-surface gating UI
+  bot/I-f5-010                                 c30786c8 [origin/bot/I-f5-010] I-f5-010: F5 adversarial paywalled/multi-span/T1-conflict heuristic
+  bot/I-f5-011                                 5a5b9c89 [origin/bot/I-f5-011] I-f5-011: F5 AI agent test (10 random sentences, <1s, evidence present)
+  bot/I-f6-001                                 38dbedec [origin/bot/I-f6-001] I-f6-001: EvidenceTooltip publishedDate + debounced harness
+  bot/I-f6-002                                 3ec97d0c [origin/bot/I-f6-002] I-f6-002: EvidenceTooltip side prop + edge-position viewport tests
+  bot/I-f6-005                                 47bcfb76 [origin/bot/I-f6-005] I-f6-005: 5-artifact triple (brief APPROVE iter 5, diff APPROVE iter 1)
+  bot/I-f7-001                                 7711f3dd [origin/bot/I-f7-001] I-f7-001: top-of-report frame coverage panel (schema + UI surface)
+  bot/I-f7-002                                 f2fe07f3 [origin/bot/I-f7-002] I-f7-002: gap reason taxonomy frozen as 9-value Literal + reason_detail
+  bot/I-f7-003                                 6c2cdcae [origin/bot/I-f7-003] I-f7-003: gap rows clickable → unblock-action Sheet + copy-to-clipboard
+  bot/I-f7-004                                 d7452942 [origin/bot/I-f7-004] I-f7-004: F7 adversarial coverage harness (0/15, 15/15, 1/15)
+  bot/I-f8-001                                 5765f823 [origin/bot/I-f8-001] I-f8-001: ContradictionSignal schema + inline ⚠ badge
+  bot/I-f8-002                                 b8f06f54 [origin/bot/I-f8-002] I-f8-002: ContradictionSide schema + ContradictionPane Sheet
+  bot/I-f8-003                                 cc9fbc35 [origin/bot/I-f8-003] I-f8-003: ContradictionKind discriminator + self-contradiction case
+  bot/I-f8-004                                 af0635af [origin/bot/I-f8-004] I-f8-004: ContradictionCategory enum + regulatory/categorical/temporal/jurisdictional
+  bot/I-f8-005                                 fcaea035 [origin/bot/I-f8-005] I-f8-005: ContradictionEvidenceType + per-side badge (trial/guideline/...)
+  bot/I-f8-006                                 3629c3a0 [origin/bot/I-f8-006] I-f8-006: Jurisdiction enum + per-side jurisdiction badge (closes F8)
+  bot/I-f9-001                                 8611ac62 [origin/bot/I-f9-001] I-f9-001: row-inline evaluator-flag badge when evaluator_agrees=false
+  bot/I-f9-002                                 2a9daa8f [origin/bot/I-f9-002] I-f9-002: EvaluatorDisagreement schema + EvaluatorPane (gen-vs-eval readings)
+  bot/I-f9-003                                 560bec19 [origin/bot/I-f9-003] I-f9-003: F9 edge harness (no/all disagreements; closes F9)
+  bot/I-gen-001-pbo-framing                    e084ff33 I-gen-001 GH#422 — section prompt rule 13: policy-scope disambiguation
+  bot/I-gen-002-fact-dedup                     2efd9692 I-gen-002 GH#423 — fact_dedup module + tests (Phase 1 of Path A)
+  bot/I-gen-002-manifest-telemetry             d234f85e I-gen-002 followup — persist fact_dedup_telemetry in manifest.json
+  bot/I-gen-002-phase2-wirein                  753e2eff I-gen-002 GH#423 Phase 2 — wire fact_dedup into multi_section orchestrator
+  bot/I-gen-002-phase3-overlap                 afd370e1 [origin/bot/I-gen-002-phase3-overlap] I-gen-002: 5-artifact triple for CI gate
+  bot/I-gen-004-reasoning-trace                df087fa8 [origin/bot/I-gen-004-reasoning-trace] I-gen-004 (#496): regenerate canonical-diff-sha256 at final HEAD
+  bot/I-gen-561                                3beb96fe [origin/bot/I-gen-561] I-gen-561 (#561): codex_diff_audit APPROVE + final codex_diff.patch
+  bot/I-hygiene-001                            047c296f [origin/bot/I-hygiene-001] I-hygiene-001 (#432): final codex_diff.patch after trajectory commit
+  bot/I-hygiene-001-root-folder-cleanup        fe1b2f4f [origin/bot/I-hygiene-001-root-folder-cleanup] I-hygiene-001 — revert .github/workflows/* patch (OAuth lacks workflow scope)
+  bot/I-lint-001                               93c4d521 [origin/bot/I-lint-001] I-lint-001 (#520): final codex_diff.patch after trajectory commit
+  bot/I-modref-002-models-yaml-doc             f967cfa8 [origin/bot/I-modref-002-models-yaml-doc] I-modref-002 (#528): regenerate canonical-diff-sha256 at final HEAD
+  bot/I-modref-004-judge-rename                ca1e86d6 [origin/bot/I-modref-004-judge-rename] I-modref-004 (#530): regenerate codex_diff.patch after diff-review commit
+  bot/I-modref-005-de-qwen-doc-prose           c5bddfa3 [origin/bot/I-modref-005-de-qwen-doc-prose] I-modref-005 (#564): codex_diff_audit APPROVE + final codex_diff.patch
+  bot/I-naming-002                             c37ce925 [origin/bot/I-naming-002] I-naming-002 (#436): codex_diff_audit APPROVE + final codex_diff.patch
+  bot/I-naming-003                             db102dd5 [origin/bot/I-naming-003] I-naming-003 (#437): codex_diff_audit APPROVE + final codex_diff.patch
+  bot/I-naming-004                             7818661f [origin/bot/I-naming-004] I-naming-004 (#438): final codex_diff.patch after docstring fix
+  bot/I-naming-005                             9d83fd83 [origin/bot/I-naming-005] I-naming-005 (#439): final codex_diff.patch after trajectory commit
+  bot/I-naming-006                             d6258be2 [origin/bot/I-naming-006] I-naming-006 (#440): final codex_diff.patch after trajectory commit
+  bot/I-naming-007                             cc88d5d7 [origin/bot/I-naming-007] I-naming-007 (#441): final codex_diff.patch after trajectory commit
+  bot/I-naming-008                             87d86a9d [origin/bot/I-naming-008] I-naming-008 (#442): final codex_diff.patch after trajectory commit
+  bot/I-naming-009                             52b23fd7 [origin/bot/I-naming-009] I-naming-009 (#443): final codex_diff.patch after trajectory commit
+  bot/I-naming-010                             be9f9e72 [origin/bot/I-naming-010] I-naming-010 (#444): final codex_diff.patch after trajectory commit
+  bot/I-p2c-001                                92fb7095 [origin/bot/I-p2c-001] I-p2c-001: codex review artifacts (brief APPROVE iter 3 + diff APPROVE iter 1)
+  bot/I-p2c-002                                56fd225e [origin/bot/I-p2c-002] I-p2c-002: codex review artifacts (brief APPROVE iter 5 + diff APPROVE iter 2)
+  bot/I-p2c-003                                c62eeb17 [origin/bot/I-p2c-003] I-p2c-003: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-p2c-004                                c8098821 [origin/bot/I-p2c-004] I-p2c-004: codex review artifacts (brief APPROVE iter 5 + diff APPROVE iter 1)
+  bot/I-p2c-005                                6b9a6bae [origin/bot/I-p2c-005] I-p2c-005: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-pin-001-canonical-pin-reconciliation   1b7e3e3c [origin/bot/I-pin-001-canonical-pin-reconciliation] I-pin-001: Codex review artifacts — brief + diff APPROVE iter 1 (#524)
+  bot/I-rdy-001-locked-scope                   8eb8daf8 [origin/bot/I-rdy-001-locked-scope] I-rdy-002 + I-rdy-003: Phase 1 gap verification + pin verified statuses (#498, #499)
+  bot/I-rdy-006-model-config-align             83798a55 [origin/bot/I-rdy-006-model-config-align] I-rdy-006: Codex diff review APPROVE iter-1 + audit artifacts
+  bot/I-rdy-007                                08612a0b [origin/bot/I-rdy-007] I-rdy-007 (#503): final codex_diff.patch after trajectory commit
+  bot/I-rdy-007-live-run-artifact-contract     8c48062e [origin/bot/I-rdy-007-live-run-artifact-contract] I-rdy-007: Codex diff review APPROVE iter-2 + audit artifacts
+  bot/I-rdy-008                                55f45988 [origin/bot/I-rdy-008] I-rdy-008 (#504) slice 1: final codex_diff.patch after trajectory commit
+  bot/I-rdy-008-live-run-rich-ui               70280a44 [origin/bot/I-rdy-008-live-run-rich-ui] I-rdy-008: Codex diff review APPROVE iter-1 + audit artifacts
+  bot/I-rdy-008-slice2                         7885a252 [origin/bot/I-rdy-008-slice2] I-rdy-008 (#504) slice 2: final codex_diff.patch after trajectory commit
+  bot/I-rdy-008-slice3                         efe18c2b [origin/bot/I-rdy-008-slice3] I-rdy-008 (#504) slice 3: regenerate codex_diff.patch after diff-review trailer
+  bot/I-rdy-008-slice4                         661fe465 [origin/bot/I-rdy-008-slice4] I-rdy-008 (#504) slice 4: regenerate codex_diff.patch after diff-review trailer
+  bot/I-rdy-008-slice5                         143d0668 [origin/bot/I-rdy-008-slice5] I-rdy-008 (#504) slice 5: regenerate codex_diff.patch after diff-review trailer
+  bot/I-rdy-008-slice6                         1c8f708e [origin/bot/I-rdy-008-slice6] I-rdy-008 (#504) slice 6: regenerate codex_diff.patch after diff-review trailer
+  bot/I-rdy-008-slice7a                        8f13c92d [origin/bot/I-rdy-008-slice7a] I-rdy-008 (#504) slice 7a: regenerate codex_diff.patch after diff-review trailer
+  bot/I-rdy-008-slice7b                        30420eb7 [origin/bot/I-rdy-008-slice7b] I-rdy-008 (#504) slice 7b: refresh canonical-diff-sha256 after diff-review commit
+  bot/I-rdy-008-slice7c                        d9ff87e5 [origin/bot/I-rdy-008-slice7c] I-rdy-008 (#504) slice 7c: refresh canonical-diff-sha256 after diff-review commit
+  bot/I-rdy-008-slice8                         76cd7f1c [origin/bot/I-rdy-008-slice8] I-rdy-008 (#504) slice 8: refresh canonical-diff-sha256 after diff-review commit
+  bot/I-rdy-009                                09f4601b [origin/bot/I-rdy-009] I-rdy-009 (#505): final canonical diff patch (post diff-review APPROVE)
+  bot/I-rdy-009-ambiguity-wiring               af2b3da6 [origin/bot/I-rdy-009-ambiguity-wiring] I-rdy-009 (#505): Codex artifacts — brief APPROVE iter-5, diff APPROVE iter-2
+  bot/I-rdy-010                                e4f2dbb4 [origin/bot/I-rdy-010] I-rdy-010 (#506): final canonical diff patch (post diff-review APPROVE)
+  bot/I-rdy-010-document-grounding             ce939417 [origin/bot/I-rdy-010-document-grounding] I-rdy-010 (#506): Codex artifacts — brief APPROVE iter-1, diff APPROVE iter-1
+  bot/I-rdy-011                                a67c6503 [origin/bot/I-rdy-011] I-rdy-011 (#507): final canonical diff patch (post diff-review APPROVE)
+  bot/I-rdy-011-cancellation-resume            6e4ab2b6 [origin/bot/I-rdy-011-cancellation-resume] I-rdy-011 (#507): Codex artifacts — brief APPROVE iter-1, diff APPROVE iter-3
+  bot/I-rdy-012                                eafc1dc9 [origin/bot/I-rdy-012] I-rdy-012 (#508): final canonical diff patch (post diff-review APPROVE)
+  bot/I-rdy-012-durable-workspace-memory       d9ed6c9f [origin/bot/I-rdy-012-durable-workspace-memory] I-rdy-012 (#508): Codex artifacts — brief APPROVE iter-1, diff APPROVE iter-1
+  bot/I-rdy-013                                e32f8123 [origin/bot/I-rdy-013] I-rdy-013 (#509): final canonical diff patch (post diff-review APPROVE)
+  bot/I-rdy-013-concurrent-session-limit       413ded06 [origin/bot/I-rdy-013-concurrent-session-limit] I-rdy-013: Codex review artifacts (brief iter3 APPROVE, diff iter2 APPROVE)
+  bot/I-rdy-014-demo-journey-nav               f37c626c [origin/bot/I-rdy-014-demo-journey-nav] I-rdy-014: Codex review artifacts (brief iter4 APPROVE, diff iter1 APPROVE)
+  bot/I-rdy-015-caddy-tls                      ae60c44d [origin/bot/I-rdy-015-caddy-tls] I-rdy-015: Codex review artifacts (brief iter2 APPROVE, diff iter1 APPROVE)
+  bot/I-rdy-016-state-backup                   210832a2 [origin/bot/I-rdy-016-state-backup] I-rdy-016: Codex review artifacts (brief iter2 APPROVE, diff iter1 APPROVE)
+  bot/I-rdy-017-bundle-verification            f7de1b7a [origin/bot/I-rdy-017-bundle-verification] I-rdy-017: Codex review artifacts (brief iter2 APPROVE, diff iter2 APPROVE)
+  bot/I-rdy-547                                7788e7ea [origin/bot/I-rdy-547] I-rdy-547 (#547): final codex_diff.patch after trajectory commit
+  bot/I-rdy-549                                fc326a8b [origin/bot/I-rdy-549] I-rdy-549 (#549): final codex_diff.patch after trajectory commit
+  bot/I-rdy-558-test-matrix                    45f73d35 [origin/bot/I-rdy-558-test-matrix] I-rdy-019-followup (#558): re-cut artifact dir I-rdy-019-followup -> I-rdy-558
+  bot/I-sec-001-codex-transcript-scrub         22025a29 [origin/bot/I-sec-001-codex-transcript-scrub] I-sec-001 (#535): codex_diff_audit APPROVE + final codex_diff.patch
+  bot/I-snowball-002-graph-endpoint            e9cb7ff7 [origin/bot/I-snowball-002-graph-endpoint: ahead 3] Merge branch 'polaris' of https://github.com/aldrinor/polaris into bot/I-snowball-002-graph-endpoint
+  bot/I-snowball-003-claim-graph-mvp           06b77d16 [origin/bot/I-snowball-003-claim-graph-mvp] I-snowball-003 — rename artifacts dir + branch (drop -003a suffix; CI regex schema)
+  bot/I-snowball-004-graph-interaction-a11y    befa128a [origin/bot/I-snowball-004-graph-interaction-a11y] I-snowball-004 — Codex diff APPROVE iter 2 artifacts
+  bot/I-snowball-005-bfs-expand-snowball       02038f81 [origin/bot/I-snowball-005-bfs-expand-snowball] I-snowball-005 — Codex diff APPROVE iter 1 artifacts
+  bot/I-snowball-006-export-and-tests          d7fa315b [origin/bot/I-snowball-006-export-and-tests] I-snowball-006 — Codex diff APPROVE iter 1 artifacts
+  bot/I-tests-001                              a0100294 [origin/bot/I-tests-001] I-tests-001: trailer (#364) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-tpl-006                                c5cd0ae4 [origin/bot/I-tpl-006] I-tpl-006: trailer (#196) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-tpl-007                                daccd732 [origin/bot/I-tpl-007] I-tpl-007: trailer (#197) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-tpl-008                                0bfa759b [origin/bot/I-tpl-008] I-tpl-008: trailer (#198) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-tpl-009-corpus-threshold               d7a97479 I-tpl-009 GH#405 — corpus-threshold calibration for emerging-policy domains
+* bot/I-ui-005-completed-run-render            17446f83 [origin/bot/I-ui-005-completed-run-render] I-ui-bug-001 (#725): Codex diff P1 — use pipeline_status, not lifecycle, for completed-run verdict
+  bot/canonical-pin-reconcile-20260512         5c5a7917 [origin/bot/canonical-pin-reconcile-20260512] chore: reconcile canonical pin SHA for carney_delivery_plan_v6_2.md
+  bot/pip-ci-workingdir-fix                    6dab1af6 fix(ci): pip dry-run runs from repo root, not web/ (unblocks all merges)
+  bot/setup-neutralize-precommit-hooks         1dab833f [origin/bot/setup-neutralize-precommit-hooks] SEC: neutralize .claude/hooks/precommit_codex_verdict.py (Plan v13 deprecated)
+  bot/setup-stop-hook-fix                      f75c5220 [origin/bot/setup-stop-hook-fix] SEC: stop_hook_v3 — schema fix + stop_hook_active + deprecate canonical_pin check
+  bot/setup-stop-hook-neutralize               6f1a5371 [origin/bot/setup-stop-hook-neutralize] SEC: stop_hook_v3 — fully neutralize Plan v13 enforcement (replaced by new cage)
+  bot/setup-verifier-script                    761a0d64 [origin/bot/setup-verifier-script] SEC: scripts/verify_cage.py — cage state verifier (Slice 0)
+  bot/slice-001-ambiguity-detector             76802f81 [origin/bot/slice-001-ambiguity-detector] slice 001 PR 5/8: ambiguity_detector_clinical (PICO axes) + 17 tests
+  bot/slice-001-architecture-proposal          16dc3cef [origin/bot/slice-001-architecture-proposal] SEC: slice 001 architecture proposal v1 (DRAFT for user review)
+  bot/slice-001-classifier-llm-fallback        be07c0b4 [origin/bot/slice-001-classifier-llm-fallback] slice 001 PR 4/8: clinical_classifier LLM fallback + 18 tests + classify() orchestrator
+  bot/slice-001-classifier-regex               10459493 [origin/bot/slice-001-classifier-regex] slice 001 PR 3/8: clinical_classifier regex layer + pattern YAML + 30 tests
+  bot/slice-001-golden-test-integration        1e67bd58 [origin/bot/slice-001-golden-test-integration] slice 001 PR 8/8: golden test integration + scope_class None alignment (5/5 PASS)
+  bot/slice-001-intake-http-route              d33707e6 [origin/bot/slice-001-intake-http-route] slice 001 PR 7a/8: FastAPI HTTP route exposing process_intake (POST /api/intake)
+  bot/slice-001-intake-orchestrator            03a1d9e2 [origin/bot/slice-001-intake-orchestrator] slice 001 PR 6/8: intake orchestrator + 13 end-to-end tests (ALL 5 GOLDENS PASS)
+  bot/slice-001-question-normalizer            3f84b51f [origin/bot/slice-001-question-normalizer] SEC: stop_hook_v3 — fully neutralize Plan v13 enforcement (replaced by new cage) (#8)
+  bot/slice-001-question-normalizer-v2         00084dde [origin/bot/slice-001-question-normalizer-v2] slice 001 PR 1/8: question_normalizer (intake) + 26 tests
+  bot/slice-001-scope-decision-schema          85893d36 [origin/bot/slice-001-scope-decision-schema] slice 001 PR 2/8: scope_decision schema + 25 tests
+  main                                         089da907 [origin/main] Initial commit
+  master                                       9d2bbe3c v3 pre-rewrite baseline: Sprint 1 fixes, architecture research, implementation plan
+  polaris                                      ee922d02 [origin/polaris] I-ui-004 (#543): run-compare view (/compare) (#724)
+  polaris-clean                                c2c7e4e5 [origin/polaris-clean] SEC: protection-drift workflow + morning handoff doc (Slice 0 cage)
+  task/0_5_stub_substrate/iter_3               43d76fbb task 0_5_stub_substrate: iter 3 APPROVE
+  task/0_6_hardware_decision_doc/iter_2        22b16704 task 0_6_hardware_decision_doc: iter 2 APPROVE
+  task/0_8_evaluator_doc/iter_2                8839abab task 0_8_evaluator_doc: iter 2 APPROVE
+  task/2a_7_prep_briefing_pack/iter_1          9bf7907a canonical reconciliation: blockers #3 #5 #8 → phase-staged (API-first)
+  v3-rewrite                                   0c0e7cb9 Fix broken table regex + prompt echo scrub on ACTUAL TEST_080 data
+  v4-simplify                                  05bffb55 v4-simplify: Pre-wiki checkpoint — 3 citation fixes, G-Eval, prompt fragments
+
+codex
+This branch is based on `polaris`, not `main` (`origin/main` has no merge base). I’ll review `polaris...HEAD`, which matches the visible PR ancestry.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat polaris...HEAD' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --name-only polaris...HEAD' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff polaris...HEAD -- web/lib/api.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files | rg \"run_progress\\.tsx"'$"' in C:\POLARIS
+ succeeded in 1156ms:
+ web/app/runs/[runId]/components/run_progress.tsx | 53 +++++++++++++++++++++---
+ web/lib/api.ts                                   |  6 +++
+ 2 files changed, 53 insertions(+), 6 deletions(-)
+
+ succeeded in 1432ms:
+web/app/runs/[runId]/components/run_progress.tsx
+web/lib/api.ts
+
+2026-05-21T18:35:20.506687Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.7 seconds
+Output:
+web\app\runs\[runId]\components\run_progress.tsx
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+
+ exited 1 in 1716ms:
+web\app\runs\[runId]\components\run_progress.tsx
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+
+ succeeded in 1885ms:
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 8244c566..5913a65b 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -83,6 +83,12 @@ export interface RunRequest {
+ export interface RunStatusResponse {
+   run_id: string;
+   status: RunStatus;
++  // I-ui-bug-001 (#725): the pipeline-A verdict (success / abort_* / partial_*
++  // / error_*), distinct from the lifecycle `status`. mark_aborted() stores
++  // lifecycle_status='completed' for aborts, so lifecycle alone CANNOT tell a
++  // successful run from an aborted one — pipeline_status is required to render
++  // a completed run honestly (an aborted run must NOT show as success).
++  pipeline_status?: string | null;
+   // I-rdy-011 (#507): true once a cancel has been requested; lets the run
+   // page show a cancel as in-flight before an in-progress run transitions.
+   cancel_requested?: boolean;
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff polaris...HEAD -- "web/app/runs/[runId]/components/run_progress.tsx"' in C:\POLARIS
+ succeeded in 991ms:
+diff --git a/web/app/runs/[runId]/components/run_progress.tsx b/web/app/runs/[runId]/components/run_progress.tsx
+index 78e7f9e3..a8ffe076 100644
+--- a/web/app/runs/[runId]/components/run_progress.tsx
++++ b/web/app/runs/[runId]/components/run_progress.tsx
+@@ -85,13 +85,40 @@ export function RunProgress({ events, status }: RunProgressProps) {
+     : null;
+   const terminalFromStatus =
+     status && LIFECYCLE_TERMINAL.includes(status.status) ? status.status : null;
+-  const isTerminal = terminalFromEvent !== null || terminalFromStatus !== null;
+-  // Pipeline status string drives banner + unobserved-stage rendering.
+-  const terminalStatus = terminalFromEvent ?? terminalFromStatus ?? "";
++  // I-ui-bug-001 (#725, Codex diff iter-1 P1): a COMPLETED run has no live SSE
++  // to replay, so #706's STREAM_LOST_GRACE emits a SYNTHETIC
++  // run_complete{stream_lost}. That synthetic artifact must NOT drive the UI —
++  // but neither can lifecycle 'completed' alone, because mark_aborted() also
++  // stores lifecycle_status='completed' (an aborted run would wrongly show as
++  // success). The authoritative verdict for a completed run is the run_store
++  // PIPELINE status (success / abort_* / partial_* / error_*).
++  const syntheticLoss =
++    terminalFromEvent === "stream_lost" ||
++    terminalFromEvent === "stream_unavailable";
++  // A REAL run_complete event (genuine pipeline verdict, live-finished run) wins.
++  const realEventStatus =
++    terminalFromEvent && !syntheticLoss ? terminalFromEvent : null;
++  const lifecycleCompleted = status?.status === "completed";
++  const pipelineStatus = status?.pipeline_status ?? null;
++  const terminalStatus =
++    realEventStatus ??
++    (lifecycleCompleted
++      ? (pipelineStatus ?? "success")
++      : (terminalFromStatus ?? ""));
++  // terminal if: a real verdict event, a completed/failed/cancelled lifecycle,
++  // OR a genuinely-running run whose stream dropped (stream-loss degraded).
++  const isTerminal =
++    realEventStatus !== null ||
++    lifecycleCompleted ||
++    terminalFromStatus !== null ||
++    syntheticLoss;
+   const isSuccess =
+-    terminalStatus === "success" || terminalStatus === "completed";
+-  const isStreamLost =
+-    terminalStatus === "stream_lost" || terminalStatus === "stream_unavailable";
++    terminalStatus === "success" ||
++    terminalStatus === "completed" ||
++    terminalStatus.startsWith("partial_");
++  // Stream-loss is a REAL degradation only for a run that is NOT lifecycle-
++  // completed (i.e. genuinely still running and the live stream dropped).
++  const isStreamLost = syntheticLoss && !lifecycleCompleted;
+ 
+   const observed: Record<StageKey, boolean> = {
+     scope: scope !== null,
+@@ -290,6 +317,20 @@ function StageBody({
+       </p>
+     );
+   }
++  // I-ui-bug-001 (#725): a stage resolved `done` but with no replayed event
++  // data — the common case when opening an ALREADY-completed run (no live SSE
++  // to replay) — must NOT show active-sounding placeholders ("Gathering
++  // evidence…"). Show "Completed." Live runs that finish while watching keep
++  // their real per-stage feed (data is present → falls through below).
++  if (state === "done") {
++    const hasData =
++      (stageKey === "scope" && scope) ||
++      (stageKey === "retrieval" && sources.length > 0) ||
++      (stageKey === "generation" && sections.length > 0) ||
++      (stageKey === "verification" && verifications.length > 0);
++    if (!hasData)
++      return <p className="text-muted-foreground text-xs">Completed.</p>;
++  }
+   if (stageKey === "scope") {
+     if (!scope)
+       return (
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/components/run_progress.tsx' | Select-Object -Skip 220 -First 220" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/components/run_progress.tsx' | Select-Object -First 220" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/lib/api.ts' | Select-Object -First 160" in C:\POLARIS
+ succeeded in 1134ms:
+            >
+              <div className="flex items-center gap-2">
+                <StageChip state={state} />
+                <h3 className="text-foreground text-sm font-semibold">
+                  {stage.label}
+                </h3>
+              </div>
+              <StageBody
+                stageKey={stage.key}
+                state={state}
+                scope={scope}
+                sources={sources}
+                sections={sections}
+                verifications={verifications}
+              />
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+function Counter({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-border bg-card flex flex-col gap-1 rounded-lg border px-3 py-2">
+      <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+        {label}
+      </span>
+      <span className="text-foreground font-mono text-lg">{value}</span>
+    </div>
+  );
+}
+
+function StageChip({ state }: { state: StageState }) {
+  if (state === "active") {
+    return (
+      <span
+        aria-label="in progress"
+        className="border-primary size-4 animate-spin rounded-full border-2 border-t-transparent"
+      />
+    );
+  }
+  if (state === "done") {
+    return (
+      <span
+        aria-label="done"
+        className="bg-primary text-primary-foreground flex size-4 items-center justify-center rounded-full text-[10px]"
+      >
+        ✓
+      </span>
+    );
+  }
+  if (state === "degraded") {
+    return (
+      <span
+        aria-label="connection lost"
+        className="border-muted-foreground text-muted-foreground flex size-4 items-center justify-center rounded-full border text-[10px]"
+      >
+        ?
+      </span>
+    );
+  }
+  // pending / skipped
+  return (
+    <span
+      aria-label={state === "skipped" ? "did not run" : "pending"}
+      className="bg-muted-foreground/30 size-4 rounded-full"
+    />
+  );
+}
+
+function StageBody({
+  stageKey,
+  state,
+  scope,
+  sources,
+  sections,
+  verifications,
+}: {
+  stageKey: StageKey;
+  state: StageState;
+  scope: Record<string, unknown> | null;
+  sources: { id: string; url: string }[];
+  sections: { section: string; verified: number; dropped: number }[];
+  verifications: { section: string; local: boolean; global: boolean }[];
+}) {
+  // Codex diff iter-1 P2: a stage that did not run / was not observed at a
+  // terminal must NOT show active-sounding placeholder copy ("Drafting…").
+  if (state === "skipped") {
+    return <p className="text-muted-foreground text-xs">Did not run.</p>;
+  }
+  if (state === "degraded") {
+    return (
+      <p className="text-muted-foreground text-xs">
+        Not observed (stream lost).
+      </p>
+    );
+  }
+  // I-ui-bug-001 (#725): a stage resolved `done` but with no replayed event
+  // data — the common case when opening an ALREADY-completed run (no live SSE
+  // to replay) — must NOT show active-sounding placeholders ("Gathering
+  // evidence…"). Show "Completed." Live runs that finish while watching keep
+  // their real per-stage feed (data is present → falls through below).
+  if (state === "done") {
+    const hasData =
+      (stageKey === "scope" && scope) ||
+      (stageKey === "retrieval" && sources.length > 0) ||
+      (stageKey === "generation" && sections.length > 0) ||
+      (stageKey === "verification" && verifications.length > 0);
+    if (!hasData)
+      return <p className="text-muted-foreground text-xs">Completed.</p>;
+  }
+  if (stageKey === "scope") {
+    if (!scope)
+      return (
+        <p className="text-muted-foreground text-xs">Awaiting scope gate…</p>
+      );
+    return (
+      <p className="text-muted-foreground text-xs">
+        <span className="text-foreground font-medium">
+          {asString(scope.verdict) || "decided"}
+        </span>
+        {asString(scope.reason) ? ` — ${asString(scope.reason)}` : ""}
+      </p>
+    );
+  }
+  if (stageKey === "retrieval") {
+    if (sources.length === 0)
+      return (
+        <p className="text-muted-foreground text-xs">Gathering evidence…</p>
+      );
+    return (
+      <ul className="flex flex-col gap-1">
+        {sources.slice(0, 12).map((s) => (
+          <li
+            key={s.id}
+            className="text-muted-foreground truncate text-xs"
+            title={s.url || s.id}
+          >
+            <span className="text-primary">✓</span> {s.url || s.id}
+          </li>
+        ))}
+        {sources.length > 12 && (
+          <li className="text-muted-foreground text-xs">
+            + {sources.length - 12} more
+          </li>
+        )}
+      </ul>
+    );
+  }
+  if (stageKey === "generation") {
+    if (sections.length === 0)
+      return (
+        <p className="text-muted-foreground text-xs">Drafting sections…</p>
+      );
+    return (
+      <ul className="flex flex-col gap-1">
+        {sections.map((s, i) => (
+          <li
+            key={`${s.section}-${i}`}
+            className="text-muted-foreground text-xs"
+          >
+            <span className="text-foreground font-medium">
+              {s.section || "section"}
+            </span>{" "}
+            — {s.verified} verified, {s.dropped} dropped
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  // verification
+  if (verifications.length === 0)
+    return <p className="text-muted-foreground text-xs">Verifying claims…</p>;
+  return (
+    <ul className="flex flex-col gap-1">
+      {verifications.map((v, i) => (
+        <li key={`${v.section}-${i}`} className="text-muted-foreground text-xs">
+          <span className="text-foreground font-medium">
+            {v.section || "section"}
+          </span>{" "}
+          — local {v.local ? "✓" : "✗"} · global {v.global ? "✓" : "✗"}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+ succeeded in 1419ms:
+"use client";
+
+import { useEffect, useState } from "react";
+
+import type { RunStatusResponse, StreamEvent } from "@/lib/api";
+
+// I-ui-002 (#707): Perplexity-style 4-stage progress for the live run.
+// Consumes the #706 SSE sub-task events already accumulated by the parent
+// page. Pure rendering of (events, status) — no fetching here.
+
+type StageKey = "scope" | "retrieval" | "generation" | "verification";
+type StageState = "pending" | "active" | "done" | "skipped" | "degraded";
+
+const STAGES: { key: StageKey; label: string }[] = [
+  { key: "scope", label: "Scope" },
+  { key: "retrieval", label: "Retrieval" },
+  { key: "generation", label: "Generation" },
+  { key: "verification", label: "Verification" },
+];
+
+const LIFECYCLE_TERMINAL = ["completed", "failed", "cancelled"];
+
+function asNumber(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function parseMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const t = new Date(value).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+function formatElapsed(seconds: number | null): string {
+  if (seconds === null) return "—";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+interface RunProgressProps {
+  events: StreamEvent[];
+  status: RunStatusResponse | null;
+}
+
+export function RunProgress({ events, status }: RunProgressProps) {
+  // --- parse events into per-stage data -----------------------------------
+  const scope = events.find((e) => e.event === "scope_decision")?.data ?? null;
+  const retrievalProgress =
+    events.find((e) => e.event === "retrieval_progress")?.data ?? null;
+
+  const sources: { id: string; url: string }[] = [];
+  const seenIds = new Set<string>();
+  for (const e of events) {
+    if (e.event !== "evidence_id") continue;
+    const id = asString(e.data.id ?? e.data.evidence_id);
+    if (!id || seenIds.has(id)) continue; // defensive: skip blank/dup
+    seenIds.add(id);
+    sources.push({ id, url: asString(e.data.url ?? e.data.source_url) });
+  }
+
+  const sections = events
+    .filter((e) => e.event === "section_complete")
+    .map((e) => ({
+      section: asString(e.data.section),
+      verified: asNumber(e.data.verified ?? e.data.verified_sentences),
+      dropped: asNumber(e.data.dropped),
+    }));
+
+  const verifications = events
+    .filter((e) => e.event === "verifier_verdict")
+    .map((e) => ({
+      section: asString(e.data.section),
+      local: Boolean(e.data.local ?? e.data.local_pass),
+      global: Boolean(e.data.global ?? e.data.global_pass),
+    }));
+
+  const runCompleteEvent = events.find((e) => e.event === "run_complete");
+  const terminalFromEvent = runCompleteEvent
+    ? asString(runCompleteEvent.data.status) || "unknown"
+    : null;
+  const terminalFromStatus =
+    status && LIFECYCLE_TERMINAL.includes(status.status) ? status.status : null;
+  // I-ui-bug-001 (#725, Codex diff iter-1 P1): a COMPLETED run has no live SSE
+  // to replay, so #706's STREAM_LOST_GRACE emits a SYNTHETIC
+  // run_complete{stream_lost}. That synthetic artifact must NOT drive the UI —
+  // but neither can lifecycle 'completed' alone, because mark_aborted() also
+  // stores lifecycle_status='completed' (an aborted run would wrongly show as
+  // success). The authoritative verdict for a completed run is the run_store
+  // PIPELINE status (success / abort_* / partial_* / error_*).
+  const syntheticLoss =
+    terminalFromEvent === "stream_lost" ||
+    terminalFromEvent === "stream_unavailable";
+  // A REAL run_complete event (genuine pipeline verdict, live-finished run) wins.
+  const realEventStatus =
+    terminalFromEvent && !syntheticLoss ? terminalFromEvent : null;
+  const lifecycleCompleted = status?.status === "completed";
+  const pipelineStatus = status?.pipeline_status ?? null;
+  const terminalStatus =
+    realEventStatus ??
+    (lifecycleCompleted
+      ? (pipelineStatus ?? "success")
+      : (terminalFromStatus ?? ""));
+  // terminal if: a real verdict event, a completed/failed/cancelled lifecycle,
+  // OR a genuinely-running run whose stream dropped (stream-loss degraded).
+  const isTerminal =
+    realEventStatus !== null ||
+    lifecycleCompleted ||
+    terminalFromStatus !== null ||
+    syntheticLoss;
+  const isSuccess =
+    terminalStatus === "success" ||
+    terminalStatus === "completed" ||
+    terminalStatus.startsWith("partial_");
+  // Stream-loss is a REAL degradation only for a run that is NOT lifecycle-
+  // completed (i.e. genuinely still running and the live stream dropped).
+  const isStreamLost = syntheticLoss && !lifecycleCompleted;
+
+  const observed: Record<StageKey, boolean> = {
+    scope: scope !== null,
+    retrieval: retrievalProgress !== null || sources.length > 0,
+    generation: sections.length > 0,
+    verification: verifications.length > 0,
+  };
+
+  // --- stage state (ONE rule, per the Codex-APPROVE'd brief) --------------
+  function stageState(key: StageKey, idx: number): StageState {
+    if (isTerminal) {
+      if (isSuccess) return "done"; // success proves the full pipeline ran
+      if (observed[key]) return "done";
+      return isStreamLost ? "degraded" : "skipped"; // never green-check unobserved
+    }
+    // non-terminal: active = most-recent observed stage; earlier observed = done
+    const lastObserved = STAGES.reduce(
+      (acc, s, i) => (observed[s.key] ? i : acc),
+      -1,
+    );
+    if (!observed[key]) return "pending";
+    return idx < lastObserved ? "done" : "active";
+  }
+
+  // --- elapsed (tick + freeze on terminal) --------------------------------
+  // `nowMs` ticks every 1s ONLY while the run is live; when it goes terminal
+  // the effect stops the interval, so nowMs freezes at the last tick (≤1s of
+  // the terminal moment). status.finished_at stays null after run_complete
+  // (iter-1 P1), so we never depend on it.
+  // `tickedWhileLive` is set from the interval CALLBACK (async — not a
+  // synchronous setState in the effect body, so lint-clean). It is the
+  // honest signal that we actually watched the run progress live: only then
+  // is now−start a trustworthy elapsed. A run that was ALREADY terminal when
+  // this page opened (status loads terminal after mount, finished_at null)
+  // never ticks → elapsed shows "—" instead of a bogus page-open duration.
+  // (Codex diff iter-1 P2: replaces the mount-time isTerminal capture, which
+  // was always false because status is null at first render.)
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [tickedWhileLive, setTickedWhileLive] = useState(false);
+  useEffect(() => {
+    if (isTerminal) return; // frozen — stop ticking
+    const id = setInterval(() => {
+      setNowMs(Date.now());
+      setTickedWhileLive(true);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isTerminal]);
+
+  const startMs = parseMs(status?.started_at) ?? parseMs(status?.queued_at);
+  const elapsedSec =
+    startMs === null || (isTerminal && !tickedWhileLive)
+      ? null
+      : Math.max(0, Math.floor((nowMs - startMs) / 1000));
+
+  const sourcesRead =
+    sources.length > 0
+      ? sources.length
+      : retrievalProgress
+        ? asNumber(retrievalProgress.sources_found)
+        : null;
+  const sentencesVerified = sections.length
+    ? sections.reduce((acc, s) => acc + s.verified, 0)
+    : null;
+
+  return (
+    <section className="flex flex-col gap-4" data-testid="run-progress">
+      {/* counters */}
+      <div className="grid grid-cols-3 gap-3">
+        <Counter label="Elapsed" value={formatElapsed(elapsedSec)} />
+        <Counter
+          label="Sources read"
+          value={sourcesRead === null ? "—" : String(sourcesRead)}
+        />
+        <Counter
+          label="Sentences verified"
+          value={sentencesVerified === null ? "—" : String(sentencesVerified)}
+        />
+      </div>
+
+      {isStreamLost && (
+        <p
+          role="status"
+          className="border-border text-muted-foreground rounded-md border border-dashed p-3 text-sm"
+        >
+          Live connection lost — the run may still be progressing on the server.
+          Reload to reconnect.
+        </p>
+      )}
+
+      {/* stages */}
+      <ol className="flex flex-col gap-3">
+        {STAGES.map((stage, idx) => {
+          const state = stageState(stage.key, idx);
+          return (
+            <li
+              key={stage.key}
+              data-testid={`stage-${stage.key}`}
+              data-state={state}
+              className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4"
+
+ succeeded in 1631ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ *
+ * I-carney-005 (2026-05-13): all requests are browser-relative paths so the
+ * browser only ever talks to the webui origin. Next.js server-side rewrites
+ * (web/next.config.ts) forward `/api/v6/*` → `${INTERNAL_API_URL}/*`, which
+ * in production compose is `http://api:8000` (a Docker service name the
+ * browser cannot resolve directly). In local dev, INTERNAL_API_URL defaults
+ * to http://localhost:8000 so `npm run dev` against a host-port-mapped
+ * backend works without any client-side configuration.
+ *
+ * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
+ * runtime — baking an absolute http://api:8000 into the client bundle would
+ * make production browsers attempt direct Docker-network reach and fail.
+ */
+
+import { authHeader, redirectToSignIn } from "@/lib/auth";
+
+const BACKEND_URL = "/api/v6";
+
+/**
+ * I-rdy-004 (#500) — fetch wrapper for every v6 API call. Injects the
+ * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
+ * headers, and does NOT force a content-type (so `FormData` uploads keep
+ * their auto-generated multipart boundary). On a 401 it clears the token
+ * and routes to /sign-in.
+ */
+async function authFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers ?? {});
+  for (const [key, value] of Object.entries(authHeader())) {
+    headers.set(key, value);
+  }
+  const response = await globalThis.fetch(url, { ...init, headers });
+  if (response.status === 401) {
+    redirectToSignIn();
+  }
+  return response;
+}
+
+/**
+ * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
+ * set request headers, so the JWT rides as the `access_token` query param;
+ * the backend `require_auth` accepts it for `/stream/*` paths only.
+ */
+export function streamUrl(runId: string): string {
+  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}
+
+export type TemplateId =
+  | "clinical"
+  | "policy"
+  | "tech"
+  | "due_diligence"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce"
+  | "custom";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  // I-ui-bug-001 (#725): the pipeline-A verdict (success / abort_* / partial_*
+  // / error_*), distinct from the lifecycle `status`. mark_aborted() stores
+  // lifecycle_status='completed' for aborts, so lifecycle alone CANNOT tell a
+  // successful run from an aborted one — pipeline_status is required to render
+  // a completed run honestly (an aborted run must NOT show as success).
+  pipeline_status?: string | null;
+  // I-rdy-011 (#507): true once a cancel has been requested; lets the run
+  // page show a cancel as in-flight before an in-progress run transitions.
+  cancel_requested?: boolean;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+    ) as ApiError;
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+/**
+ * Thrown by createRun when POST /runs is rejected by the 1-concurrent-session
+ * constraint (I-rdy-013): a research run is already queued or in progress.
+ */
+export class ConcurrentRunError extends Error {
+  readonly activeRunId: string;
+  readonly activeStatus: string;
+  constructor(message: string, activeRunId: string, activeStatus: string) {
+    super(message);
+    this.name = "ConcurrentRunError";
+    this.activeRunId = activeRunId;
+    this.activeStatus = activeStatus;
+  }
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (response.status === 409) {
+    // Read the body exactly once, then unwrap FastAPI's { detail: {...} }
+    // envelope. The 1-concurrent-session reject carries a structured detail;
+    // any other 409 falls through to a generic ApiError.
+    const body = (await response.json().catch(() => null)) as {
+      detail?: unknown;
+    } | null;
+    const detail = (body?.detail ?? body) as {
+      code?: string;
+      message?: string;
+      active_run_id?: string;
+      active_status?: string;
+    } | null;
+    if (detail && detail.code === "concurrent_run_active") {
+      throw new ConcurrentRunError(
+        detail.message ?? "A research run is already in progress.",
+        detail.active_run_id ?? "",
+        detail.active_status ?? "in_progress",
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "RunStatusResponse" -n src web | Select-Object -First 80' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "run_complete" -n web src | Select-Object -First 160' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "pipeline_status" -n src web tests | Select-Object -First 120' in C:\POLARIS
+ succeeded in 1139ms:
+web\app\compare\page.tsx:10:  type RunStatusResponse,
+web\app\compare\page.tsx:16:function optionLabel(run: RunStatusResponse): string {
+web\app\compare\page.tsx:32:  const [runs, setRuns] = useState<RunStatusResponse[] | null>(null);
+web\app\compare\page.tsx:153:  runs: RunStatusResponse[];
+web\lib\api.ts:83:export interface RunStatusResponse {
+web\lib\api.ts:137:): Promise<RunStatusResponse> {
+web\lib\api.ts:168:  return asJsonOrThrow<RunStatusResponse>(response);
+web\lib\api.ts:171:export async function getRun(runId: string): Promise<RunStatusResponse> {
+web\lib\api.ts:173:  return asJsonOrThrow<RunStatusResponse>(response);
+web\lib\api.ts:179:export async function cancelRun(runId: string): Promise<RunStatusResponse> {
+web\lib\api.ts:184:  return asJsonOrThrow<RunStatusResponse>(response);
+web\lib\api.ts:244:): Promise<RunStatusResponse[]> {
+web\lib\api.ts:248:  return asJsonOrThrow<RunStatusResponse[]>(response);
+web\app\runs\[runId]\page.tsx:13:  type RunStatusResponse,
+web\app\runs\[runId]\page.tsx:30:  const [status, setStatus] = useState<RunStatusResponse | null>(null);
+web\app\runs\[runId]\components\run_progress.tsx:5:import type { RunStatusResponse, StreamEvent } from "@/lib/api";
+web\app\runs\[runId]\components\run_progress.tsx:47:  status: RunStatusResponse | null;
+src\polaris_v6\queue\run_store.py:8:- get_run returns the full RunStatusResponse with new optional fields
+src\polaris_v6\queue\run_store.py:38:from polaris_v6.schemas.run_status import RunStatusResponse
+src\polaris_v6\queue\run_store.py:175:) -> RunStatusResponse | None:
+src\polaris_v6\queue\run_store.py:185:    RunStatusResponse when rejected (caller raises HTTP 409).
+src\polaris_v6\queue\run_store.py:424:def _row_to_response(row: sqlite3.Row) -> RunStatusResponse:
+src\polaris_v6\queue\run_store.py:425:    return RunStatusResponse(
+src\polaris_v6\queue\run_store.py:445:def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None:
+src\polaris_v6\queue\run_store.py:491:def get_active_run(*, path: str | None = None) -> RunStatusResponse | None:
+src\polaris_v6\queue\run_store.py:529:) -> list[RunStatusResponse]:
+src\polaris_v6\queue\run_store.py:566:) -> list[RunStatusResponse]:
+src\polaris_v6\api\pins.py:10:- Pipeline status: `RunStatusResponse.pipeline_status` from run_store
+src\polaris_v6\api\pins.py:35:from polaris_v6.schemas.run_status import RunStatusResponse
+src\polaris_v6\api\pins.py:64:    run: RunStatusResponse,
+src\polaris_v6\api\pins.py:67:    """Build a PinSnapshot from a completed-run RunStatusResponse + manifest.
+src\polaris_v6\api\pins.py:126:def _qualifies(run: RunStatusResponse) -> bool:
+src\polaris_v6\api\runs.py:35:from polaris_v6.schemas.run_status import RunStatusResponse
+src\polaris_v6\api\runs.py:81:@router.post("", response_model=RunStatusResponse, status_code=202)
+src\polaris_v6\api\runs.py:82:def create_run(payload: RunRequest) -> RunStatusResponse:
+src\polaris_v6\api\runs.py:144:@router.get("", response_model=list[RunStatusResponse])
+src\polaris_v6\api\runs.py:145:def list_runs(status: str = "completed", limit: int = 20) -> list[RunStatusResponse]:
+src\polaris_v6\api\runs.py:162:@router.get("/{run_id}", response_model=RunStatusResponse)
+src\polaris_v6\api\runs.py:163:def get_run(run_id: str) -> RunStatusResponse:
+src\polaris_v6\api\runs.py:170:@router.post("/{run_id}/cancel", response_model=RunStatusResponse)
+src\polaris_v6\api\runs.py:171:def cancel_run(run_id: str) -> RunStatusResponse:
+src\polaris_v6\schemas\run_status.py:48:class RunStatusResponse(BaseModel):
+
+ succeeded in 1382ms:
+src\polaris_v6\queue\run_events.py:97:    Emits a `run.completed` event that the translator maps to v6 `run_complete`
+src\polaris_v6\queue\run_events.py:109:# `run_complete` carrying the original status.
+src\polaris_v6\queue\run_events.py:133:    "run.completed": ("run_complete", lambda p: dict(p)),  # passthrough
+src\polaris_v6\queue\run_events.py:153:# `run_complete(status=stream_lost)` so the client gets a deterministic close
+src\polaris_v6\queue\run_events.py:231:      run_complete(status=stream_lost) and close cleanly.
+src\polaris_v6\queue\run_events.py:233:      run_complete(status=stream_unavailable) and close.
+web\app\runs\[runId]\page.tsx:58:        // run watched live reaches `run_complete`, re-fetch the lifecycle
+web\app\runs\[runId]\page.tsx:61:        if (event.event === "run_complete") {
+web\app\runs\[runId]\page.tsx:70:        // SSE error: backend may have closed the stream after run_complete.
+src\polaris_v6\api\stream.py:7:clients resume cleanly. Terminates after a v6 `run_complete` event.
+src\polaris_v6\api\stream.py:11:section_complete, run_complete. Pipeline-A's stage events translate to
+src\polaris_v6\api\stream.py:35:    keepalive comment frame. Terminates after a v6 `run_complete`.
+src\polaris_v6\api\stream.py:54:        if v6_name == "run_complete":
+web\lib\api.ts:542:    "run_complete",
+web\app\runs\[runId]\components\run_progress.tsx:82:  const runCompleteEvent = events.find((e) => e.event === "run_complete");
+web\app\runs\[runId]\components\run_progress.tsx:90:  // run_complete{stream_lost}. That synthetic artifact must NOT drive the UI —
+web\app\runs\[runId]\components\run_progress.tsx:98:  // A REAL run_complete event (genuine pipeline verdict, live-finished run) wins.
+web\app\runs\[runId]\components\run_progress.tsx:149:  // the terminal moment). status.finished_at stays null after run_complete
+
+ succeeded in 1625ms:
+web\lib\api.ts:89:  // successful run from an aborted one — pipeline_status is required to render
+web\lib\api.ts:91:  pipeline_status?: string | null;
+web\lib\api.ts:238:  pipeline_status_match: boolean;
+web\lib\api.ts:438:  pipeline_status: string;
+web\app\compare\page.tsx:228:        <Flag label="Pipeline status match" ok={result.pipeline_status_match} />
+tests\v6\_audit_ir_fixtures.py:77:    run_store.mark_completed(run_id, {}, pipeline_status="success")
+tests\v6\test_scripts_v6_handover.py:92:        "sealed_pipeline_status": "success",
+tests\v6\test_scripts_v6_handover.py:109:def test_replay_pin_pipeline_status_regression_exits_1(tmp_path: Path) -> None:
+tests\v6\test_scripts_v6_handover.py:112:    _write_pin(orig, pin_id="pin_a", sealed_pipeline_status="success")
+tests\v6\test_scripts_v6_handover.py:116:        sealed_pipeline_status="abort_no_verified_sections",
+tests\v6\test_scripts_v6_handover.py:166:        sealed_pipeline_status="success",
+tests\v6\test_scripts_v6_handover.py:172:        sealed_pipeline_status="abort_no_verified_sections",
+web\app\runs\[runId]\components\run_progress.tsx:102:  const pipelineStatus = status?.pipeline_status ?? null;
+tests\v6\test_schemas.py:51:        pipeline_status="success",
+tests\v6\test_runs_list_endpoint.py:24:def _seed(db_path, run_id, lifecycle, pipeline_status, finished_at):
+tests\v6\test_runs_list_endpoint.py:30:            "pipeline_status, cancel_requested) VALUES (?,?,?,?,?,?,?,?,?,0)",
+tests\v6\test_runs_list_endpoint.py:40:                pipeline_status,
+tests\v6\test_replay.py:25:        sealed_pipeline_status="success",
+tests\v6\test_replay.py:73:def test_pipeline_status_success_to_abort_is_regression():
+tests\v6\test_replay.py:74:    a = _pin(pin_id="pin_a", run_id="run_a", sealed_pipeline_status="success")
+tests\v6\test_replay.py:78:        sealed_pipeline_status="abort_no_verified_sections",
+tests\v6\test_replay.py:82:    assert diff.pipeline_status_changed is True
+tests\v6\test_replay.py:84:    statuses = [f for f in diff.fields_changed if f.field == "pipeline_status"]
+tests\v6\test_regression_lab.py:34:        sealed_pipeline_status=status,
+tests\v6\test_pins_route.py:43:    pipeline_status: str = "success",
+tests\v6\test_pins_route.py:55:            "pipeline_status, cancel_requested) VALUES (?,?,?,?,?,?,?,?,?,?,0)",
+tests\v6\test_pins_route.py:66:                pipeline_status,
+tests\v6\test_pins_route.py:148:        pipeline_status="abort_no_verified_sections",
+tests\v6\test_pins_route.py:231:        pipeline_status=None,
+tests\v6\test_pins_route.py:240:        pipeline_status="abort_corpus_inadequate",
+tests\v6\test_pins_route.py:327:        pipeline_status="partial_qwen_advisory",
+tests\v6\test_pins_route.py:362:        pipeline_status="abort_no_verified_sections",
+src\polaris_v6\schemas\run_status.py:3:I-arch-001a (2026-05-12): split lifecycle (operational) from pipeline_status
+src\polaris_v6\schemas\run_status.py:54:    pipeline_status: PipelineStatus | None = Field(
+src\polaris_v6\schemas\pin_snapshot.py:7:clarified manifest top-level uses `status` not `pipeline_status`).
+tests\v6\test_inspector_route.py:85:        pipeline_status="abort_corpus_inadequate",
+tests\v6\test_inspector_route.py:97:    run_store.mark_completed("nodir_run", {}, pipeline_status="success")
+tests\v6\test_inspector_route.py:106:    run_store.mark_completed("good_run", {}, pipeline_status="success")
+tests\v6\test_inspector_route.py:166:    run_store.mark_completed(run_id, {}, pipeline_status="success")
+src\polaris_v6\schemas\evidence_contract.py:92:    pipeline_status: str = Field(
+tests\v6\test_followup_agent.py:20:        pipeline_status="success",
+tests\v6\test_evidence_contract_gate.py:76:    assert contract.pipeline_status == "abort_no_verified_sections"
+tests\v6\test_end_to_end_arch_001f.py:225:        pipeline_status="success",
+tests\v6\test_end_to_end_arch_001f.py:235:    assert get_body["pipeline_status"] == "success"
+src\polaris_v6\replay\schema.py:35:    sealed_pipeline_status: str
+src\polaris_v6\replay\schema.py:58:    pipeline_status_changed: bool = False
+src\polaris_v6\replay\schema.py:62:        "pipeline_status changed from success → abort_*.",
+src\polaris_v6\replay\differ.py:65:    pipeline_status_changed = (
+src\polaris_v6\replay\differ.py:66:        original.sealed_pipeline_status != replay.sealed_pipeline_status
+src\polaris_v6\replay\differ.py:68:    if pipeline_status_changed:
+src\polaris_v6\replay\differ.py:72:                original.sealed_pipeline_status == "success"
+src\polaris_v6\replay\differ.py:73:                and replay.sealed_pipeline_status in _REGRESSION_STATUSES
+src\polaris_v6\replay\differ.py:79:                field="pipeline_status",
+src\polaris_v6\replay\differ.py:80:                original=original.sealed_pipeline_status,
+src\polaris_v6\replay\differ.py:81:                replay=replay.sealed_pipeline_status,
+src\polaris_v6\replay\differ.py:116:        pipeline_status_changed=pipeline_status_changed,
+tests\v6\test_concurrency.py:93:        pipeline_status="abort_corpus_inadequate",
+tests\v6\test_compare.py:33:        pipeline_status=status,
+tests\v6\test_compare.py:104:def test_pipeline_status_match():
+tests\v6\test_compare.py:108:    assert cmp.pipeline_status_match is False
+tests\v6\test_charts.py:202:        pipeline_status="success",
+src\polaris_v6\queue\run_events.py:90:    pipeline_status: str,
+src\polaris_v6\queue\run_events.py:98:    with payload.status carrying the original pipeline_status (success /
+src\polaris_v6\queue\run_events.py:101:    payload: dict[str, Any] = {"status": pipeline_status}
+src\polaris_v6\queue\actors.py:6:maps pipeline-A manifest verdict to lifecycle_status × pipeline_status.
+src\polaris_v6\queue\actors.py:81:    mark_completed / mark_aborted / mark_failed per pipeline_status.
+src\polaris_v6\queue\actors.py:235:    pipeline_status = manifest.get("status") or "error_unexpected"
+src\polaris_v6\queue\actors.py:257:    if pipeline_status == "success" or pipeline_status.startswith("partial_"):
+src\polaris_v6\queue\actors.py:259:            run_id, summary, pipeline_status=pipeline_status, cost_usd=cost_usd_f
+src\polaris_v6\queue\actors.py:261:    elif pipeline_status == "cancelled":
+src\polaris_v6\queue\actors.py:265:    elif pipeline_status.startswith("abort_"):
+src\polaris_v6\queue\actors.py:268:            pipeline_status=pipeline_status,
+src\polaris_v6\queue\actors.py:269:            abort_reason=manifest.get("error") or pipeline_status,
+src\polaris_v6\queue\actors.py:272:    elif pipeline_status.startswith("error_"):
+src\polaris_v6\queue\actors.py:274:            run_id, f"pipeline_error: {pipeline_status}: {manifest.get('error', '')}"
+src\polaris_v6\queue\actors.py:277:        run_store.mark_failed(run_id, f"unknown_pipeline_status: {pipeline_status!r}")
+tests\v6\test_api_stream.py:117:def test_stream_run_complete_carries_pipeline_status(
+src\polaris_v6\queue\run_store.py:5:- New columns: query_slug, manifest_run_id, artifact_dir, pipeline_status,
+src\polaris_v6\queue\run_store.py:50:    "run_id, template, question, lifecycle_status, pipeline_status, "
+src\polaris_v6\queue\run_store.py:124:        "pipeline_status": "TEXT",
+src\polaris_v6\queue\run_store.py:340:    pipeline_status: str = "success",
+src\polaris_v6\queue\run_store.py:344:    """Transition in_progress → completed; set finished_at + result_json + pipeline_status + cost_usd."""
+src\polaris_v6\queue\run_store.py:349:            "pipeline_status=?, cost_usd=? WHERE run_id=?",
+src\polaris_v6\queue\run_store.py:350:            (_now_iso(), json.dumps(result, sort_keys=True), pipeline_status, cost_usd, run_id),
+src\polaris_v6\queue\run_store.py:360:    pipeline_status: str,
+src\polaris_v6\queue\run_store.py:365:    """Pipeline ran to completion but hit a gate; lifecycle_status='completed', pipeline_status='abort_*'.
+src\polaris_v6\queue\run_store.py:374:            "pipeline_status=?, error_json=?, cost_usd=? WHERE run_id=?",
+src\polaris_v6\queue\run_store.py:377:                pipeline_status,
+src\polaris_v6\queue\run_store.py:399:    violation); aborts are planned (pipeline_status='abort_*' written by
+src\polaris_v6\queue\run_store.py:416:            "pipeline_status='error_unexpected', error_json=? WHERE run_id=?",
+src\polaris_v6\queue\run_store.py:430:        pipeline_status=row["pipeline_status"],
+src\polaris_v6\queue\run_store.py:571:    `abort_*` pipeline_status (not EvidenceContract-usable). release_allowed
+src\polaris_v6\queue\run_store.py:585:        "AND (pipeline_status IS NULL OR pipeline_status NOT LIKE 'abort\\_%' ESCAPE '\\') "
+src\polaris_v6\api\artifact_to_evidence_contract.py:90:    pipeline_status: str,
+src\polaris_v6\api\artifact_to_evidence_contract.py:145:        pipeline_status=pipeline_status,
+src\polaris_v6\api\bundle.py:95:    if run.pipeline_status and run.pipeline_status.startswith("abort_"):
+src\polaris_v6\api\bundle.py:98:            detail=f"Run {run_id!r} aborted: pipeline_status={run.pipeline_status}.",
+src\polaris_v6\api\bundle.py:121:                f"(pipeline_status={run.pipeline_status!r}, release_allowed=False); "
+src\polaris_v6\api\bundle.py:134:            pipeline_status=run.pipeline_status or "success",
+src\polaris_v6\api\bundle.py:173:        422: run aborted (pipeline_status=abort_*) or sovereignty cascade
+src\polaris_v6\api\bundle.py:186:    if info.pipeline_status and info.pipeline_status.startswith("abort_"):
+src\polaris_v6\api\bundle.py:189:            detail={"error": f"run aborted: pipeline_status={info.pipeline_status}", "bundleable": False},
+src\polaris_v6\api\bundle.py:220:                    f"run release-blocked: pipeline_status={info.pipeline_status!r}, "
+src\polaris_v6\api\bundle.py:224:                "pipeline_status": info.pipeline_status,
+tests\v6\acceptance\test_runs_db_integration.py:63:        "pipeline_status", "cost_usd", "decision_id",
+tests\v6\acceptance\test_runs_db_integration.py:120:    assert record.pipeline_status == "success"
+tests\v6\acceptance\test_runs_db_integration.py:201:    assert body["pipeline_status"] == "success"
+tests\v6\acceptance\test_dramatiq_acceptance.py:85:    assert record.pipeline_status == "success"
+tests\v6\test_api_charts.py:88:        pipeline_status="abort_corpus_inadequate",
+tests\v6\test_api_bundle.py:30:    assert body["pipeline_status"] == "success"
+tests\v6\test_api_bundle.py:47:    assert body["pipeline_status"] == "abort_no_verified_sections"
+tests\v6\test_api_bundle.py:77:            "pipeline_status, cancel_requested) VALUES (?,?,?,?,?,?,?,?,?,0)",
+src\polaris_v6\compare\differ.py:25:    pipeline_status_match: bool
+src\polaris_v6\compare\differ.py:57:        pipeline_status_match=left.pipeline_status == right.pipeline_status,
+src\polaris_v6\api\pins.py:10:- Pipeline status: `RunStatusResponse.pipeline_status` from run_store
+src\polaris_v6\api\pins.py:12:  `pipeline_status`).
+src\polaris_v6\api\pins.py:57:def _collapsed_verdict(pipeline_status: str) -> str:
+src\polaris_v6\api\pins.py:58:    if pipeline_status == "abort_no_verified_sections":
+src\polaris_v6\api\pins.py:105:        verdict=_collapsed_verdict(run.pipeline_status or "error_unexpected"),
+src\polaris_v6\api\pins.py:129:    pipeline_status = run.pipeline_status or ""
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'src/polaris_v6/schemas/run_status.py' | Select-Object -First 120" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'src/polaris_v6/queue/run_store.py' | Select-Object -Skip 415 -First 40" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'src/polaris_v6/queue/run_events.py' | Select-Object -Skip 80 -First 180" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/page.tsx' | Select-Object -First 140" in C:\POLARIS
+ succeeded in 1312ms:
+"""Run-status response schema.
+
+I-arch-001a (2026-05-12): split lifecycle (operational) from pipeline_status
+(pipeline-A manifest verdict). Old `status` retained as computed alias for
+tests/v6/ backcompat — populated from lifecycle_status.
+
+I-rdy-011 (2026-05-16): `cancel_requested` surfaced so the UI can show a
+cancel as in-flight in <5s, before an in-progress run reaches the next
+pipeline stage boundary and transitions to terminal `cancelled`.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field, computed_field
+
+LifecycleStatus = Literal[
+    "queued",
+    "in_progress",
+    "completed",
+    "cancelled",
+    "failed",
+]
+
+PipelineStatus = Literal[
+    "success",
+    "partial_outline_fallback",
+    "partial_qwen_advisory",  # legacy alias (I-modref-004 #530) — historical manifests
+    "partial_evaluator_advisory",
+    "partial_thin_corpus",
+    "partial_incomplete_corpus",
+    "partial_rule_check_warnings",
+    "abort_scope_rejected",
+    "abort_corpus_inadequate",
+    "abort_corpus_approval_denied",
+    "abort_no_verified_sections",
+    "abort_no_sources",
+    "abort_evaluator_critical",
+    "error_unexpected",
+]
+
+# Backcompat alias used by older code/tests (tests/v6/ asserts body['status']
+# and record.status). Computed from lifecycle_status by the model.
+RunStatus = LifecycleStatus
+
+
+class RunStatusResponse(BaseModel):
+    run_id: str = Field(..., description="Server-assigned UUID hex.")
+    lifecycle_status: LifecycleStatus = Field(
+        ...,
+        description="Operational lifecycle: queued → in_progress → completed|failed|cancelled.",
+    )
+    pipeline_status: PipelineStatus | None = Field(
+        default=None,
+        description="Pipeline-A manifest verdict. NULL until run reaches a terminal pipeline state.",
+    )
+    template: str
+    question: str
+    queued_at: str = Field(..., description="ISO8601 UTC.")
+    started_at: str | None = None
+    finished_at: str | None = None
+    result_json: str | None = None
+    error_json: str | None = None
+    # I-arch-001a new optional fields for UUID/slug/artifact_dir mapping.
+    query_slug: str | None = None
+    manifest_run_id: str | None = None
+    artifact_dir: str | None = None
+    cost_usd: float | None = None
+    decision_id: str | None = None
+    # I-rdy-011: True once a cancel has been requested. For a queued run the
+    # request is applied atomically (lifecycle_status flips to 'cancelled');
+    # for an in_progress run this stays True while lifecycle_status is still
+    # 'in_progress', until the worker observes it at a stage boundary.
+    cancel_requested: bool = Field(
+        default=False,
+        description="True iff cancellation has been requested for this run.",
+    )
+
+    @computed_field  # serialized in JSON and readable as attr
+    @property
+    def status(self) -> LifecycleStatus:
+        """Deprecated alias for lifecycle_status (kept for tests/v6/ backcompat).
+
+        New code should use lifecycle_status. This computed field will be
+        removed once tests/v6/ migrate (post-Carney-demo cleanup).
+        """
+        return self.lifecycle_status
+
+ succeeded in 1592ms:
+            "[run_events] emit failed run_id=%s event_type=%s: %s",
+            external_run_id,
+            event_type,
+            exc,
+        )
+
+
+def emit_terminal_event(
+    external_run_id: str | None,
+    pipeline_status: str,
+    error_msg: str | None = None,
+    *,
+    redis_client=None,
+) -> None:
+    """Single helper for the 7 pipeline-A exit paths.
+
+    Emits a `run.completed` event that the translator maps to v6 `run_complete`
+    with payload.status carrying the original pipeline_status (success /
+    partial_* / abort_* / error_unexpected / stream_lost).
+    """
+    payload: dict[str, Any] = {"status": pipeline_status}
+    if error_msg:
+        payload["error"] = error_msg
+    emit_event(external_run_id, "run.completed", payload, redis_client=redis_client)
+
+
+# Translator: pipeline-A event_type → (v6_event_name, transform_fn).
+# All terminal pipeline-A events (run.completed/aborted/failed) collapse to v6
+# `run_complete` carrying the original status.
+_TRANSLATOR: dict[str, tuple[str, Any]] = {
+    "scope_gate.completed": ("scope_decision", lambda p: {
+        "verdict": p.get("decision", "unknown"),
+        "reason": p.get("reason", ""),
+    }),
+    "corpus_adequacy.completed": ("retrieval_progress", lambda p: {
+        "sources_found": p.get("pool_size", 0),
+        "tier_breakdown": p.get("tier_counts", {}),
+    }),
+    "evidence.id_assigned": ("evidence_id", lambda p: {
+        "evidence_id": p.get("id", ""),
+        "source_url": p.get("url", ""),
+    }),
+    "strict_verify.section_completed": ("verifier_verdict", lambda p: {
+        "section": p.get("section", ""),
+        "local_pass": p.get("local", False),
+        "global_pass": p.get("global", False),
+    }),
+    "generator.section_completed": ("section_complete", lambda p: {
+        "section": p.get("section", ""),
+        "verified_sentences": p.get("verified", 0),
+        "dropped": p.get("dropped", 0),
+    }),
+    "run.completed": ("run_complete", lambda p: dict(p)),  # passthrough
+}
+
+
+def translate(pipeline_event: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """Translate a pipeline-A event payload to v6 (name, payload) or None."""
+    event_type = pipeline_event.get("event_type")
+    mapping = _TRANSLATOR.get(event_type or "")
+    if mapping is None:
+        return None
+    v6_name, payload_fn = mapping
+    try:
+        payload = json.loads(pipeline_event.get("payload", "{}"))
+    except json.JSONDecodeError:
+        payload = {}
+    return v6_name, payload_fn(payload)
+
+
+# Grace period (seconds) after run_store reports lifecycle_status terminal but
+# no Redis terminal event has been seen. After this elapses, emit a synthetic
+# `run_complete(status=stream_lost)` so the client gets a deterministic close
+# rather than hanging on keepalives forever. Per Codex iter-2 P1-3 + diff iter-1.
+STREAM_LOST_GRACE_SECONDS = 10.0
+
+
+def _get_lifecycle_status(external_run_id: str) -> str | None:
+    """Best-effort sync run_store lookup. Returns lifecycle_status or None.
+
+    Imported lazily so tests that don't touch run_store don't pay sqlite init.
+    Any failure (missing DB, import error, schema drift) returns None so the
+    reader keeps emitting keepalives rather than synthesizing a stream_lost
+    terminal on transient backend hiccups.
+    """
+    try:
+        from polaris_v6.queue import run_store  # noqa: PLC0415
+
+        row = run_store.get_run(external_run_id)
+        if row is None:
+            return None
+        return getattr(row, "lifecycle_status", None)
+    except Exception as exc:  # noqa: BLE001 — observability lookup never blocks SSE
+        logger.warning(
+            "[run_events] run_store lookup failed run_id=%s: %s",
+            external_run_id,
+            exc,
+        )
+        return None
+
+
+async def _check_lifecycle_terminal(external_run_id: str) -> bool:
+    """Async wrapper for the sync sqlite lookup."""
+    import asyncio  # noqa: PLC0415
+    status = await asyncio.to_thread(_get_lifecycle_status, external_run_id)
+    # I-rdy-011 (#507): `cancelled` is terminal — a queued-cancel writes no
+    # Redis terminal event, so without this an SSE consumer would hang on
+    # keepalives until the run is forgotten.
+    return status in ("completed", "failed", "cancelled")
+
+
+def _is_connection_failure(exc: BaseException) -> bool:
+    """Narrow stream_unavailable to actual Redis reachability failures.
+
+    Per Codex diff iter-1 P1: every XREAD exception was being mapped to
+    stream_unavailable, masking schema bugs / corrupt entries as 'Redis down'.
+    Now we treat ONLY connection/timeout/socket failures as unavailability;
+    other exceptions surface as stream_lost.
+    """
+    if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
+        return True
+    # redis.asyncio raises ConnectionError subclasses; check by class name
+    # to avoid a hard import dependency.
+    name = type(exc).__name__
+    return name in {
+        "ConnectionError",
+        "TimeoutError",
+        "BusyLoadingError",
+        "ConnectionResetError",
+        "RedisConnectionError",
+    }
+
+
+async def read_events(
+    external_run_id: str,
+    last_event_id: str = "0-0",
+    *,
+    block_ms: int = 5000,
+    redis_client_async=None,
+) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+    """Async generator yielding (stream_id, raw_pipeline_event_dict).
+
+    Terminates after emitting a `run.completed` event. Per Codex iter-2 P1-3
+    + diff iter-1 P1:
+
+    - empty XREAD window → keepalive (caller emits SSE comment frame), then
+      check run_store. While lifecycle_status is queued/in_progress, keep
+      emitting keepalives.
+    - lifecycle_status in {completed, failed} AND no terminal event seen in
+      the next STREAM_LOST_GRACE_SECONDS → emit a synthetic
+      run_complete(status=stream_lost) and close cleanly.
+    - actual Redis connection/timeout failure → emit
+      run_complete(status=stream_unavailable) and close.
+    - non-reachability XREAD exception → emit stream_lost and close (treat as
+      degraded stream rather than 'Redis down').
+    """
+    import asyncio  # noqa: PLC0415
+
+    last_id = _validate_last_event_id(last_event_id)
+    key = EVENT_STREAM_KEY.format(run_id=external_run_id)
+
+    try:
+        if redis_client_async is None:
+            import redis.asyncio as aredis  # noqa: PLC0415
+            client = aredis.from_url(_redis_url(), decode_responses=False)
+        else:
+            client = redis_client_async
+    except ImportError:
+        yield ("0-0", {"event_type": "run.completed", "payload": json.dumps({"status": "stream_unavailable"})})
+        return
+
+    # Tracks first-seen-at for lifecycle_status terminal so we can apply the
+    # grace window before declaring stream_lost.
+    lifecycle_terminal_first_seen: float | None = None
+    loop = asyncio.get_event_loop()
+
+    try:
+        while True:
+            try:
+                events = await client.xread({key: last_id}, count=100, block=block_ms)
+
+ succeeded in 1824ms:
+            "pipeline_status='error_unexpected', error_json=? WHERE run_id=?",
+            (_now_iso(), json.dumps(error_payload, sort_keys=True), run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _row_to_response(row: sqlite3.Row) -> RunStatusResponse:
+    return RunStatusResponse(
+        run_id=row["run_id"],
+        template=row["template"],
+        question=row["question"],
+        lifecycle_status=row["lifecycle_status"],
+        pipeline_status=row["pipeline_status"],
+        queued_at=row["queued_at"],
+        started_at=row["started_at"],
+        finished_at=row["finished_at"],
+        result_json=row["result_json"],
+        error_json=row["error_json"],
+        query_slug=row["query_slug"],
+        manifest_run_id=row["manifest_run_id"],
+        artifact_dir=row["artifact_dir"],
+        cost_usd=row["cost_usd"],
+        decision_id=row["decision_id"],
+        cancel_requested=bool(row["cancel_requested"]),
+    )
+
+
+def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None:
+    """Return the run record or None if missing.
+
+    Defensive against `OperationalError: no such table` so callers in stub
+    mode (e.g. `tests/v6/test_actors.py` direct `.fn()` invocation without
+    init_db) get None back, matching the actor's row-missing-stub-noop
+    contract.
+
+    I-arch-001a Codex iter-2 P2-002: if a known DB exists with the legacy
+    schema, the first read-only `get_run` call would 500 on column-missing.
+    The defensive catch below detects "no such column" and triggers a
+
+ succeeded in 1983ms:
+"use client";
+
+import Link from "next/link";
+import { use, useEffect, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+  cancelRun,
+  downloadBundleAsJson,
+  getBundle,
+  getRun,
+  subscribeToRun,
+  type RunStatusResponse,
+  type StreamEvent,
+} from "@/lib/api";
+
+import { FollowupPanel } from "./components/followup_panel";
+import { RunProgress } from "./components/run_progress";
+
+interface RunPageProps {
+  params: Promise<{ runId: string }>;
+}
+
+// I-rdy-011 (#507): lifecycle states from which a run can no longer be
+// cancelled — the Cancel button is disabled for these.
+const TERMINAL_STATUSES = ["completed", "failed", "cancelled"];
+
+export default function RunDetailPage({ params }: RunPageProps) {
+  const { runId } = use(params);
+  const [status, setStatus] = useState<RunStatusResponse | null>(null);
+  const [events, setEvents] = useState<StreamEvent[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRun(runId)
+      .then((value) => {
+        if (!cancelled) setStatus(value);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          // G4 (Codex iter-1 P0): map raw API errors to friendly copy.
+          const raw = err instanceof Error ? err.message : String(err);
+          const friendly = raw.toLowerCase().includes("404")
+            ? "This run was not found. Check the URL or start a new run."
+            : "We couldn't load this run right now. Please retry shortly.";
+          setError(friendly);
+        }
+      });
+
+    const source = subscribeToRun(
+      runId,
+      (event) => {
+        setEvents((prev) => [...prev, event]);
+        // I-ui-003 (#542) Codex diff P1: getRun() only populates `status`
+        // once on mount; the SSE stream otherwise just appends events. When a
+        // run watched live reaches `run_complete`, re-fetch the lifecycle
+        // status so completed-only UI (the follow-up panel, the status line,
+        // the cancel button) updates without a manual reload.
+        if (event.event === "run_complete") {
+          getRun(runId)
+            .then((value) => {
+              if (!cancelled) setStatus(value);
+            })
+            .catch(() => {});
+        }
+      },
+      () => {
+        // SSE error: backend may have closed the stream after run_complete.
+        source.close();
+      },
+    );
+
+    return () => {
+      cancelled = true;
+      source.close();
+    };
+  }, [runId]);
+
+  // I-rdy-011 (#507): a queued run cancels instantly; an in-progress run
+  // aborts cooperatively at the next pipeline stage boundary. The button is
+  // disabled once the run is terminal (or its status is not yet loaded).
+  const isTerminal =
+    status !== null && TERMINAL_STATUSES.includes(status.status);
+  const cancelRequested = status?.cancel_requested ?? false;
+
+  const onCancel = async () => {
+    setCancelling(true);
+    setError(null);
+    try {
+      const updated = await cancelRun(runId);
+      setStatus(updated);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Cancel failed: ${err.message}`
+          : "Cancel failed",
+      );
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  // I-cd-025 (#615): /runs/[runId] rebuild — G1/G6 fix. Page no longer
+  // renders its own <header>, <footer>, or <main>. AppShell (via
+  // AppShellGate, I-cd-022) is the single landmark provider on this
+  // route. G2 fix: removed "POLARIS v6.2 — Phase 0 scaffold" footer
+  // dev-language. The header's Export-bundle + New-run buttons move
+  // into a page-level action row inside the <section>.
+  return (
+    <section
+      data-testid="runs-runid-page"
+      className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-12"
+    >
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          variant="outline"
+          onClick={async () => {
+            try {
+              const bundle = await getBundle(runId);
+              downloadBundleAsJson(bundle);
+            } catch (err) {
+              setError(
+                err instanceof Error
+                  ? `Bundle export failed: ${err.message}`
+                  : "Bundle export failed",
+              );
+            }
+          }}
+        >
+          Export bundle
+        </Button>
+        <Button
+          variant="default"
+          nativeButton={false}
+          render={<Link href="/dashboard" />}
+        >
+          New run
+        </Button>
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/page.tsx' | Select-Object -Skip 140 -First 120" in C:\POLARIS
+ succeeded in 1226ms:
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-muted-foreground text-xs tracking-widest uppercase">
+          Run {runId}
+        </span>
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          {status?.question ?? "Loading…"}
+        </h1>
+        {status && (
+          <p className="text-muted-foreground text-sm">
+            Template: <span className="text-foreground">{status.template}</span>
+            {" · "}
+            Status:{" "}
+            <span className="text-foreground font-mono">{status.status}</span>
+            {" · "}
+            Queued at <time>{status.queued_at}</time>
+          </p>
+        )}
+        {error && (
+          <p
+            role="alert"
+            className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+          >
+            {error}
+          </p>
+        )}
+      </div>
+
+      <div className="border-border flex flex-col gap-2 rounded-md border p-4">
+        <h2 className="text-foreground text-sm font-semibold">
+          Affordances during this run
+        </h2>
+        <p className="text-muted-foreground text-xs">
+          Actions you can take while POLARIS works:
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/inspector/${runId}`} />}
+          >
+            Open Inspector
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={async () => {
+              try {
+                const bundle = await getBundle(runId);
+                downloadBundleAsJson(bundle);
+              } catch (err) {
+                setError(
+                  err instanceof Error
+                    ? `Bundle export failed: ${err.message}`
+                    : "Bundle export failed",
+                );
+              }
+            }}
+          >
+            Export current bundle
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={status === null || isTerminal || cancelling}
+            title={
+              cancelRequested
+                ? "Cancellation requested — the run is winding down"
+                : "Cancel this queued or in-progress run"
+            }
+            onClick={onCancel}
+          >
+            {cancelRequested
+              ? "Cancelling…"
+              : cancelling
+                ? "Requesting…"
+                : "Cancel run"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled
+            title="Pin this run for later replay (coming soon)"
+          >
+            Pin for replay
+          </Button>
+        </div>
+      </div>
+
+      <RunProgress events={events} status={status} />
+
+      {/* I-ui-003 (#542): follow-up is meaningful only for a completed run
+          (it has an answerable, verified report). Failed/cancelled/in-progress
+          runs don't render it. */}
+      {status?.status === "completed" && <FollowupPanel runId={runId} />}
+    </section>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "canonical-diff-sha256" -n .codex scripts .github | Select-Object -First 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --stat --oneline HEAD' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --format=fuller --no-patch HEAD' in C:\POLARIS
+ succeeded in 1146ms:
+.github\workflows\codex-required.yml:163:        # `# canonical-diff-sha256: <64-hex>` trailer line. Without this
+.github\workflows\codex-required.yml:227:          # trailer line `# canonical-diff-sha256: <64-hex>` ANYWHERE in
+.github\workflows\codex-required.yml:232:          declared_hash="$(grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' "$DIFF_PATCH" | tail -1 | awk '{print $3}' || true)"
+.github\workflows\codex-required.yml:234:            echo "ERROR: $DIFF_PATCH has no '# canonical-diff-sha256: <64-hex>' trailer line"
+.codex\autonomous_overnight_loop\verdict.txt:2895:.\codex_tmp_i_rdy005_review_040abd52\outputs\audits\I-bug-098\claude_audit.md:40:- [x] canonical-diff-sha256 = `2c9c36af090c27aac108eefaa4a969411c9234cd88e80cc25e71885947a321f9`
+.codex\autonomous_overnight_loop\verdict.txt:2906:.\codex_tmp_i_rdy005_review_040abd52\outputs\audits\I-bug-097\claude_audit.md:29:- [x] canonical-diff-sha256 = `abd3a438aecd0c836c016db9c75568f3b1d86236af440e56817e8eec9070ab17`
+.codex\autonomous_overnight_loop\verdict.txt:2919:.\codex_tmp_i_rdy005_review_040abd52\outputs\audits\I-bug-096\claude_audit.md:41:- [x] canonical-diff-sha256 = `a83de66764bc9ac03b8eb84d2017b4659886e4a829f471c6cd163847d62db032`
+.codex\autonomous_overnight_loop\verdict.txt:2933:.\codex_tmp_i_rdy005_review_040abd52\outputs\audits\I-bug-095\claude_audit.md:51:- [x] canonical-diff-sha256 = `5d4a0f9253a137d1fb67b57698c3b0fdd22ffcd1fa5c42c6fcb89452c723013d`
+.codex\autonomous_overnight_loop\verdict.txt:2936:.\codex_tmp_i_rdy005_review_040abd52\outputs\audits\I-bug-094\claude_audit.md:33:- [x] canonical-diff-sha256 = `60b6d60ca16557947c44cff46564c8c2c178686459c0d6babcbced974da067ed`
+.codex\autonomous_overnight_loop\verdict.txt:2944:.\codex_tmp_i_rdy005_review_040abd52\outputs\audits\I-audit-001\claude_audit.md:140:  - `.codex/I-audit-001/codex_diff.patch` (with canonical-diff-sha256 trailer) ✓
+.codex\autonomous_overnight_loop\verdict.txt:8955:.codex\I-cj-007\codex_diff_audit.txt:2736:state\polaris_restart\pr_e_issues_dryrun.txt:53:- `.codex/I-phase0-003/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8956:.codex\I-cj-007\codex_diff_audit.txt:2737:state\polaris_restart\pr_e_issues_dryrun.txt:115:- `.codex/I-phase0-005/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8957:.codex\I-cj-007\codex_diff_audit.txt:2738:state\polaris_restart\pr_e_issues_dryrun.txt:177:- `.codex/I-phase0-006/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8958:.codex\I-cj-007\codex_diff_audit.txt:2739:state\polaris_restart\pr_e_issues_dryrun.txt:239:- `.codex/I-phase0-007/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8959:.codex\I-cj-007\codex_diff_audit.txt:2740:state\polaris_restart\pr_e_issues_dryrun.txt:301:- `.codex/I-phase0-008/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8960:.codex\I-cj-007\codex_diff_audit.txt:2741:state\polaris_restart\pr_e_issues_dryrun.txt:363:- `.codex/I-phase0-009/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8961:.codex\I-cj-007\codex_diff_audit.txt:2742:state\polaris_restart\pr_e_issues_dryrun.txt:425:- `.codex/I-phase0-010/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8962:.codex\I-cj-007\codex_diff_audit.txt:2850:state\polaris_restart\pr_e_issues_dryrun.txt:7022:- `.codex/I-sov-001/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8963:.codex\I-cj-007\codex_diff_audit.txt:2851:state\polaris_restart\pr_e_issues_dryrun.txt:7083:- `.codex/I-sov-002/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8964:.codex\I-cj-007\codex_diff_audit.txt:2852:state\polaris_restart\pr_e_issues_dryrun.txt:7144:- `.codex/I-sov-003/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8965:.codex\I-cj-007\codex_diff_audit.txt:2853:state\polaris_restart\pr_e_issues_dryrun.txt:7205:- `.codex/I-sov-004/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8966:.codex\I-cj-007\codex_diff_audit.txt:2855:state\polaris_restart\pr_e_issues_dryrun.txt:7327:- `.codex/I-hand-001/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8967:.codex\I-cj-007\codex_diff_audit.txt:2856:state\polaris_restart\pr_e_issues_dryrun.txt:7388:- `.codex/I-hand-002/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8968:.codex\I-cj-007\codex_diff_audit.txt:2857:state\polaris_restart\pr_e_issues_dryrun.txt:7449:- `.codex/I-hand-003/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8976:.codex\I-cj-007\codex_diff_audit.txt:4282:.codex\I-f1-005\codex_diff_audit.txt:389:.codex\I-phase0-005\diff_review_brief_iter3.md:81:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25` trailer
+.codex\autonomous_overnight_loop\verdict.txt:8977:.codex\I-cj-007\codex_diff_audit.txt:4283:.codex\I-f1-005\codex_diff_audit.txt:390:.codex\I-phase0-005\diff_review_brief_iter2.md:84:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\autonomous_overnight_loop\verdict.txt:8978:.codex\I-cj-007\codex_diff_audit.txt:4284:.codex\I-f1-005\codex_diff_audit.txt:391:.codex\I-phase0-005\diff_review_brief_iter2.md:106:4. **`canonical-diff-sha256` trailer.** Trailer `a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` produced via `git diff --cached -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"`. Workflow extracts the hash via `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'`.
+.codex\autonomous_overnight_loop\verdict.txt:8979:.codex\I-cj-007\codex_diff_audit.txt:4285:.codex\I-f1-005\codex_diff_audit.txt:392:.codex\I-phase0-005\diff_review_brief.md:13:- `.codex/I-phase0-005/codex_diff.patch` — the canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\autonomous_overnight_loop\verdict.txt:8980:.codex\I-cj-007\codex_diff_audit.txt:4286:.codex\I-f1-005\codex_diff_audit.txt:393:.codex\I-phase0-005\diff_review_brief.md:46:4. **`canonical-diff-sha256` trailer correctness.** Trailer is appended AFTER the patch body. Workflow's `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'` extracts the hash. Verify: open the patch file, locate the trailer at line 477-ish, confirm 64-hex value matches what `git diff base...head -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"` would produce on the actual PR.
+.codex\autonomous_overnight_loop\verdict.txt:8981:.codex\I-cj-007\codex_diff_audit.txt:4289:.codex\I-f1-005\codex_diff_audit.txt:396:.codex\I-phase0-005\brief.md:122:- `.codex/I-phase0-005/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:8983:.codex\I-cj-007\codex_diff_audit.txt:4338:.codex\I-f1-005\codex_diff_audit.txt:484:.codex\I-phase0-005\diff_review_brief_iter3.md:81:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25` trailer
+.codex\autonomous_overnight_loop\verdict.txt:8984:.codex\I-cj-007\codex_diff_audit.txt:4339:.codex\I-f1-005\codex_diff_audit.txt:485:.codex\I-phase0-005\diff_review_brief_iter2.md:84:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\autonomous_overnight_loop\verdict.txt:8985:.codex\I-cj-007\codex_diff_audit.txt:4340:.codex\I-f1-005\codex_diff_audit.txt:486:.codex\I-phase0-005\diff_review_brief_iter2.md:106:4. **`canonical-diff-sha256` trailer.** Trailer `a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` produced via `git diff --cached -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"`. Workflow extracts the hash via `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'`.
+.codex\autonomous_overnight_loop\verdict.txt:11201:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2736:state\polaris_restart\pr_e_issues_dryrun.txt:53:- `.codex/I-phase0-003/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11202:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2737:state\polaris_restart\pr_e_issues_dryrun.txt:115:- `.codex/I-phase0-005/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11203:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2738:state\polaris_restart\pr_e_issues_dryrun.txt:177:- `.codex/I-phase0-006/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11204:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2739:state\polaris_restart\pr_e_issues_dryrun.txt:239:- `.codex/I-phase0-007/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11205:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2740:state\polaris_restart\pr_e_issues_dryrun.txt:301:- `.codex/I-phase0-008/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11206:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2741:state\polaris_restart\pr_e_issues_dryrun.txt:363:- `.codex/I-phase0-009/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11207:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2742:state\polaris_restart\pr_e_issues_dryrun.txt:425:- `.codex/I-phase0-010/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11208:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2850:state\polaris_restart\pr_e_issues_dryrun.txt:7022:- `.codex/I-sov-001/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11209:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2851:state\polaris_restart\pr_e_issues_dryrun.txt:7083:- `.codex/I-sov-002/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11210:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2852:state\polaris_restart\pr_e_issues_dryrun.txt:7144:- `.codex/I-sov-003/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11211:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2853:state\polaris_restart\pr_e_issues_dryrun.txt:7205:- `.codex/I-sov-004/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11212:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2855:state\polaris_restart\pr_e_issues_dryrun.txt:7327:- `.codex/I-hand-001/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11213:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2856:state\polaris_restart\pr_e_issues_dryrun.txt:7388:- `.codex/I-hand-002/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11214:.codex\I-cj-007\codex_diff_audit_iter_1.txt:2857:state\polaris_restart\pr_e_issues_dryrun.txt:7449:- `.codex/I-hand-003/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11222:.codex\I-cj-007\codex_diff_audit_iter_1.txt:4282:.codex\I-f1-005\codex_diff_audit.txt:389:.codex\I-phase0-005\diff_review_brief_iter3.md:81:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25` trailer
+.codex\autonomous_overnight_loop\verdict.txt:11223:.codex\I-cj-007\codex_diff_audit_iter_1.txt:4283:.codex\I-f1-005\codex_diff_audit.txt:390:.codex\I-phase0-005\diff_review_brief_iter2.md:84:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\autonomous_overnight_loop\verdict.txt:11224:.codex\I-cj-007\codex_diff_audit_iter_1.txt:4284:.codex\I-f1-005\codex_diff_audit.txt:391:.codex\I-phase0-005\diff_review_brief_iter2.md:106:4. **`canonical-diff-sha256` trailer.** Trailer `a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` produced via `git diff --cached -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"`. Workflow extracts the hash via `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'`.
+.codex\autonomous_overnight_loop\verdict.txt:11225:.codex\I-cj-007\codex_diff_audit_iter_1.txt:4285:.codex\I-f1-005\codex_diff_audit.txt:392:.codex\I-phase0-005\diff_review_brief.md:13:- `.codex/I-phase0-005/codex_diff.patch` — the canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\autonomous_overnight_loop\verdict.txt:11226:.codex\I-cj-007\codex_diff_audit_iter_1.txt:4286:.codex\I-f1-005\codex_diff_audit.txt:393:.codex\I-phase0-005\diff_review_brief.md:46:4. **`canonical-diff-sha256` trailer correctness.** Trailer is appended AFTER the patch body. Workflow's `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'` extracts the hash. Verify: open the patch file, locate the trailer at line 477-ish, confirm 64-hex value matches what `git diff base...head -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"` would produce on the actual PR.
+.codex\autonomous_overnight_loop\verdict.txt:11227:.codex\I-cj-007\codex_diff_audit_iter_1.txt:4289:.codex\I-f1-005\codex_diff_audit.txt:396:.codex\I-phase0-005\brief.md:122:- `.codex/I-phase0-005/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11229:.codex\I-cj-007\codex_diff_audit_iter_1.txt:4338:.codex\I-f1-005\codex_diff_audit.txt:484:.codex\I-phase0-005\diff_review_brief_iter3.md:81:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25` trailer
+.codex\autonomous_overnight_loop\verdict.txt:11230:.codex\I-cj-007\codex_diff_audit_iter_1.txt:4339:.codex\I-f1-005\codex_diff_audit.txt:485:.codex\I-phase0-005\diff_review_brief_iter2.md:84:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\autonomous_overnight_loop\verdict.txt:11231:.codex\I-cj-007\codex_diff_audit_iter_1.txt:4340:.codex\I-f1-005\codex_diff_audit.txt:486:.codex\I-phase0-005\diff_review_brief_iter2.md:106:4. **`canonical-diff-sha256` trailer.** Trailer `a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` produced via `git diff --cached -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"`. Workflow extracts the hash via `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'`.
+.codex\autonomous_overnight_loop\verdict.txt:11232:.codex\I-cj-007\codex_diff_audit_iter_1.txt:4341:.codex\I-f1-005\codex_diff_audit.txt:487:.codex\I-phase0-005\diff_review_brief.md:13:- `.codex/I-phase0-005/codex_diff.patch` — the canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\autonomous_overnight_loop\verdict.txt:11233:.codex\I-cj-007\codex_diff_audit_iter_1.txt:4342:.codex\I-f1-005\codex_diff_audit.txt:488:.codex\I-phase0-005\diff_review_brief.md:46:4. **`canonical-diff-sha256` trailer correctness.** Trailer is appended AFTER the patch body. Workflow's `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'` extracts the hash. Verify: open the patch file, locate the trailer at line 477-ish, confirm 64-hex value matches what `git diff base...head -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"` would produce on the actual PR.
+.codex\autonomous_overnight_loop\verdict.txt:11234:.codex\I-cj-007\codex_diff_audit_iter_1.txt:4345:.codex\I-f1-005\codex_diff_audit.txt:491:.codex\I-phase0-005\brief.md:122:- `.codex/I-phase0-005/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11266:.codex\I-cj-007\codex_diff_audit.txt:2736:state\polaris_restart\pr_e_issues_dryrun.txt:53:- `.codex/I-phase0-003/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11267:.codex\I-cj-007\codex_diff_audit.txt:2737:state\polaris_restart\pr_e_issues_dryrun.txt:115:- `.codex/I-phase0-005/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11268:.codex\I-cj-007\codex_diff_audit.txt:2738:state\polaris_restart\pr_e_issues_dryrun.txt:177:- `.codex/I-phase0-006/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11269:.codex\I-cj-007\codex_diff_audit.txt:2739:state\polaris_restart\pr_e_issues_dryrun.txt:239:- `.codex/I-phase0-007/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11270:.codex\I-cj-007\codex_diff_audit.txt:2740:state\polaris_restart\pr_e_issues_dryrun.txt:301:- `.codex/I-phase0-008/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11271:.codex\I-cj-007\codex_diff_audit.txt:2741:state\polaris_restart\pr_e_issues_dryrun.txt:363:- `.codex/I-phase0-009/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11272:.codex\I-cj-007\codex_diff_audit.txt:2742:state\polaris_restart\pr_e_issues_dryrun.txt:425:- `.codex/I-phase0-010/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11273:.codex\I-cj-007\codex_diff_audit.txt:2850:state\polaris_restart\pr_e_issues_dryrun.txt:7022:- `.codex/I-sov-001/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11274:.codex\I-cj-007\codex_diff_audit.txt:2851:state\polaris_restart\pr_e_issues_dryrun.txt:7083:- `.codex/I-sov-002/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11275:.codex\I-cj-007\codex_diff_audit.txt:2852:state\polaris_restart\pr_e_issues_dryrun.txt:7144:- `.codex/I-sov-003/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11276:.codex\I-cj-007\codex_diff_audit.txt:2853:state\polaris_restart\pr_e_issues_dryrun.txt:7205:- `.codex/I-sov-004/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11277:.codex\I-cj-007\codex_diff_audit.txt:2855:state\polaris_restart\pr_e_issues_dryrun.txt:7327:- `.codex/I-hand-001/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11278:.codex\I-cj-007\codex_diff_audit.txt:2856:state\polaris_restart\pr_e_issues_dryrun.txt:7388:- `.codex/I-hand-002/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11279:.codex\I-cj-007\codex_diff_audit.txt:2857:state\polaris_restart\pr_e_issues_dryrun.txt:7449:- `.codex/I-hand-003/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11287:.codex\I-cj-007\codex_diff_audit.txt:4282:.codex\I-f1-005\codex_diff_audit.txt:389:.codex\I-phase0-005\diff_review_brief_iter3.md:81:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25` trailer
+.codex\autonomous_overnight_loop\verdict.txt:11288:.codex\I-cj-007\codex_diff_audit.txt:4283:.codex\I-f1-005\codex_diff_audit.txt:390:.codex\I-phase0-005\diff_review_brief_iter2.md:84:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\autonomous_overnight_loop\verdict.txt:11289:.codex\I-cj-007\codex_diff_audit.txt:4284:.codex\I-f1-005\codex_diff_audit.txt:391:.codex\I-phase0-005\diff_review_brief_iter2.md:106:4. **`canonical-diff-sha256` trailer.** Trailer `a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` produced via `git diff --cached -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"`. Workflow extracts the hash via `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'`.
+.codex\autonomous_overnight_loop\verdict.txt:11290:.codex\I-cj-007\codex_diff_audit.txt:4285:.codex\I-f1-005\codex_diff_audit.txt:392:.codex\I-phase0-005\diff_review_brief.md:13:- `.codex/I-phase0-005/codex_diff.patch` — the canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\autonomous_overnight_loop\verdict.txt:11291:.codex\I-cj-007\codex_diff_audit.txt:4286:.codex\I-f1-005\codex_diff_audit.txt:393:.codex\I-phase0-005\diff_review_brief.md:46:4. **`canonical-diff-sha256` trailer correctness.** Trailer is appended AFTER the patch body. Workflow's `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'` extracts the hash. Verify: open the patch file, locate the trailer at line 477-ish, confirm 64-hex value matches what `git diff base...head -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"` would produce on the actual PR.
+.codex\autonomous_overnight_loop\verdict.txt:11292:.codex\I-cj-007\codex_diff_audit.txt:4289:.codex\I-f1-005\codex_diff_audit.txt:396:.codex\I-phase0-005\brief.md:122:- `.codex/I-phase0-005/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\autonomous_overnight_loop\verdict.txt:11294:.codex\I-cj-007\codex_diff_audit.txt:4338:.codex\I-f1-005\codex_diff_audit.txt:484:.codex\I-phase0-005\diff_review_brief_iter3.md:81:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25` trailer
+.codex\autonomous_overnight_loop\verdict.txt:11295:.codex\I-cj-007\codex_diff_audit.txt:4339:.codex\I-f1-005\codex_diff_audit.txt:485:.codex\I-phase0-005\diff_review_brief_iter2.md:84:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\autonomous_overnight_loop\verdict.txt:11296:.codex\I-cj-007\codex_diff_audit.txt:4340:.codex\I-f1-005\codex_diff_audit.txt:486:.codex\I-phase0-005\diff_review_brief_iter2.md:106:4. **`canonical-diff-sha256` trailer.** Trailer `a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` produced via `git diff --cached -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"`. Workflow extracts the hash via `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'`.
+.codex\carney-hardware-spec\codex_consult_response.txt:2407:**Diff iter 3** (in flight, `codex_diff_audit_iter3.txt`): one-line `requirements.txt` addition `redis>=4.0,<8.0` (matches dramatiq's `[redis]` extras pin). 13/13 tests still PASS in 2.29s. App import verified: `RedisBroker` returned + no ImportError. Brief addresses each P2 with classification (Codex iter-2 accepted P2-I2-001 already; P2-I2-002 already classified out-of-scope; P2-I2-003/4/5 → P3 follow-up). New canonical-diff-sha256: `fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25`. Total +348/-33 = +315 net.
+.codex\I-anti-003\diff_review_brief.md:16:- **Diff under review:** `.codex/I-anti-003/codex_diff.patch` (canonical-diff-sha256 in trailer).
+.codex\I-anti-003\codex_diff_audit.txt:28:- **Diff under review:** `.codex/I-anti-003/codex_diff.patch` (canonical-diff-sha256 in trailer).
+.codex\I-anti-003\codex_diff_audit.txt:1263:# canonical-diff-sha256: 58a885755a99c87b38f17a8db8b8779d671399063112e3eb4812b452bb13cd5d
+.codex\I-anti-003\codex_diff_audit.txt:2009:# canonical-diff-sha256: 58a885755a99c87b38f17a8db8b8779d671399063112e3eb4812b452bb13cd5d
+.codex\I-anti-003\codex_diff_audit.txt:2503:- **Diff under review:** `.codex/I-anti-003/codex_diff.patch` (canonical-diff-sha256 in trailer).
+.codex\I-anti-003\codex_diff_audit.txt:3491:marker=b'\\n# canonical-diff-sha256:'
+.codex\I-anti-002\diff_review_combined.md:235:# canonical-diff-sha256: 10919c3defc57bb7fa5c61d0e9a8891b77dfade4b6d995e08533a4c231d5829a
+.codex\I-anti-001\diff_review_combined.md:237:# canonical-diff-sha256: 03ed9bac53dac30a8626dc6fa62209f1b7c3bdf596879e65d88b8d8a5b918cfa
+.codex\I-anti-001\codex_diff.patch:189:# canonical-diff-sha256: d4e8ad0e915e68e3ac02fbcc0e27894da54ae51b4db4e9e834babda18be706d1
+.codex\I-anti-001\codex_diff_audit.txt:249:# canonical-diff-sha256: 03ed9bac53dac30a8626dc6fa62209f1b7c3bdf596879e65d88b8d8a5b918cfa
+.codex\I-anti-002\codex_diff_audit.txt:247:# canonical-diff-sha256: 10919c3defc57bb7fa5c61d0e9a8891b77dfade4b6d995e08533a4c231d5829a
+.codex\I-anti-002\codex_diff_audit.txt:13251:# canonical-diff-sha256: 10919c3defc57bb7fa5c61d0e9a8891b77dfade4b6d995e08533a4c231d5829a
+.codex\I-anti-002\codex_diff.patch:194:# canonical-diff-sha256: 88403be5d121c8cdd83296cf2ee0654bb42e85b06fc8541c362038bf5680adba
+.codex\I-anti-003\codex_brief_verdict.txt:9920:        # `# canonical-diff-sha256: <64-hex>` trailer line. Without this
+.codex\I-anti-003\codex_brief_verdict.txt:9984:          # trailer line `# canonical-diff-sha256: <64-hex>` ANYWHERE in
+.codex\I-anti-003\codex_brief_verdict.txt:9989:          declared_hash="$(grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' "$DIFF_PATCH" | tail -1 | awk '{print $3}' || true)"
+.codex\I-anti-003\codex_brief_verdict.txt:9991:            echo "ERROR: $DIFF_PATCH has no '# canonical-diff-sha256: <64-hex>' trailer line"
+.codex\I-anti-003\codex_brief_verdict.txt:11812:.codex\I-f13-001\codex_diff_audit_iter1.txt:5945:.codex/I-f8-002\codex_diff_audit.txt:4449:.codex\I-policy-001\codex_diff_audit.txt:2390:.codex/I-policy-001/codex_brief_verdict.txt:3028:.codex\pr_e_open_issues_review_verdict_iter_1.txt:1109:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "''^### I-|''^#### Issue|''^## Issue|''^TITLE:|''^Title:|''^Labels:|''^--label|label|Per-Issue artifacts|canonical-diff-sha256|Phase:|Feature:|Blocks|Blocked by|User-blocked|Foundation refs|Acceptance criteria|Out of scope|Adversarial inputs|LOC estimate|Scope" state/polaris_restart/pr_e_issues_dryrun.txt scripts/restart/open_github_issues.py .github/workflows/codex-required.yml' in C:\POLARIS
+.codex\I-anti-003\codex_brief_verdict.txt:11813:.codex\I-f13-001\codex_diff_audit_iter1.txt:5965:.codex/I-f8-002\codex_diff_audit.txt:4713:.codex\I-policy-001\codex_brief_verdict.txt:3028:.codex\pr_e_open_issues_review_verdict_iter_1.txt:1109:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "''^### I-|''^#### Issue|''^## Issue|''^TITLE:|''^Title:|''^Labels:|''^--label|label|Per-Issue artifacts|canonical-diff-sha256|Phase:|Feature:|Blocks|Blocked by|User-blocked|Foundation refs|Acceptance criteria|Out of scope|Adversarial inputs|LOC estimate|Scope" state/polaris_restart/pr_e_issues_dryrun.txt scripts/restart/open_github_issues.py .github/workflows/codex-required.yml' in C:\POLARIS
+.codex\I-anti-003\codex_brief_verdict.txt:11815:.codex\I-f13-001\codex_diff_audit_iter1.txt:6018:.codex/I-f8-002\codex_diff_audit.txt:5782:.codex\I-f5-004\diff_review_brief.md:7:- **P2 LOC accounting:** `.codex/I-f5-004/` artifacts are excluded from the canonical-diff-sha256 computation per CLAUDE.md §3.0 (`git diff --cached -- ":(exclude).codex/<id>/" ":(exclude)outputs/audits/<id>/"`); the 246-net LOC count above is computed against that exclusion.
+.codex\I-anti-003\codex_brief_verdict.txt:11816:.codex\I-f13-001\codex_diff_audit_iter1.txt:6019:.codex/I-f8-002\codex_diff_audit.txt:5790:.codex\I-f5-004\codex_diff_audit.txt:19:- **P2 LOC accounting:** `.codex/I-f5-004/` artifacts are excluded from the canonical-diff-sha256 computation per CLAUDE.md §3.0 (`git diff --cached -- ":(exclude).codex/<id>/" ":(exclude)outputs/audits/<id>/"`); the 246-net LOC count above is computed against that exclusion.
+.codex\I-anti-003\codex_brief_verdict.txt:11849:.codex\I-f13-001\codex_diff_audit_iter1.txt:6191:.codex/I-f9-002\codex_diff_audit.txt:7642:.codex\I-policy-001\codex_diff_audit.txt:2390:.codex/I-policy-001/codex_brief_verdict.txt:3028:.codex\pr_e_open_issues_review_verdict_iter_1.txt:1109:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "''^### I-|''^#### Issue|''^## Issue|''^TITLE:|''^Title:|''^Labels:|''^--label|label|Per-Issue artifacts|canonical-diff-sha256|Phase:|Feature:|Blocks|Blocked by|User-blocked|Foundation refs|Acceptance criteria|Out of scope|Adversarial inputs|LOC estimate|Scope" state/polaris_restart/pr_e_issues_dryrun.txt scripts/restart/open_github_issues.py .github/workflows/codex-required.yml' in C:\POLARIS
+.codex\I-anti-003\codex_brief_verdict.txt:11851:.codex\I-f13-001\codex_diff_audit_iter1.txt:6195:.codex/I-f9-002\codex_diff_audit.txt:7731:.codex\I-policy-001\codex_brief_verdict.txt:3028:.codex\pr_e_open_issues_review_verdict_iter_1.txt:1109:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "''^### I-|''^#### Issue|''^## Issue|''^TITLE:|''^Title:|''^Labels:|''^--label|label|Per-Issue artifacts|canonical-diff-sha256|Phase:|Feature:|Blocks|Blocked by|User-blocked|Foundation refs|Acceptance criteria|Out of scope|Adversarial inputs|LOC estimate|Scope" state/polaris_restart/pr_e_issues_dryrun.txt scripts/restart/open_github_issues.py .github/workflows/codex-required.yml' in C:\POLARIS
+.codex\I-anti-003\codex_brief_verdict.txt:11853:.codex\I-f13-001\codex_diff_audit_iter1.txt:6203:.codex/I-f9-002\codex_diff_audit.txt:8086:.codex\I-f5-004\diff_review_brief.md:7:- **P2 LOC accounting:** `.codex/I-f5-004/` artifacts are excluded from the canonical-diff-sha256 computation per CLAUDE.md §3.0 (`git diff --cached -- ":(exclude).codex/<id>/" ":(exclude)outputs/audits/<id>/"`); the 246-net LOC count above is computed against that exclusion.
+.codex\I-anti-003\codex_brief_verdict.txt:11854:.codex\I-f13-001\codex_diff_audit_iter1.txt:6204:.codex/I-f9-002\codex_diff_audit.txt:8094:.codex\I-f5-004\codex_diff_audit.txt:19:- **P2 LOC accounting:** `.codex/I-f5-004/` artifacts are excluded from the canonical-diff-sha256 computation per CLAUDE.md §3.0 (`git diff --cached -- ":(exclude).codex/<id>/" ":(exclude)outputs/audits/<id>/"`); the 246-net LOC count above is computed against that exclusion.
+.codex\I-anti-003\codex_brief_verdict.txt:11857:.codex\I-f13-001\codex_diff_audit_iter1.txt:6209:.codex/I-f9-002\codex_diff_audit.txt:8677:.codex\I-f8-002\codex_diff_audit.txt:4449:.codex\I-policy-001\codex_diff_audit.txt:2390:.codex/I-policy-001/codex_brief_verdict.txt:3028:.codex\pr_e_open_issues_review_verdict_iter_1.txt:1109:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "''^### I-|''^#### Issue|''^## Issue|''^TITLE:|''^Title:|''^Labels:|''^--label|label|Per-Issue artifacts|canonical-diff-sha256|Phase:|Feature:|Blocks|Blocked by|User-blocked|Foundation refs|Acceptance criteria|Out of scope|Adversarial inputs|LOC estimate|Scope" state/polaris_restart/pr_e_issues_dryrun.txt scripts/restart/open_github_issues.py .github/workflows/codex-required.yml' in C:\POLARIS
+.codex\I-anti-003\codex_brief_verdict.txt:11858:.codex\I-f13-001\codex_diff_audit_iter1.txt:6215:.codex/I-f9-002\codex_diff_audit.txt:8876:.codex\I-f8-002\codex_diff_audit.txt:4713:.codex\I-policy-001\codex_brief_verdict.txt:3028:.codex\pr_e_open_issues_review_verdict_iter_1.txt:1109:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "''^### I-|''^#### Issue|''^## Issue|''^TITLE:|''^Title:|''^Labels:|''^--label|label|Per-Issue artifacts|canonical-diff-sha256|Phase:|Feature:|Blocks|Blocked by|User-blocked|Foundation refs|Acceptance criteria|Out of scope|Adversarial inputs|LOC estimate|Scope" state/polaris_restart/pr_e_issues_dryrun.txt scripts/restart/open_github_issues.py .github/workflows/codex-required.yml' in C:\POLARIS
+.codex\I-anti-003\codex_brief_verdict.txt:11859:.codex\I-f13-001\codex_diff_audit_iter1.txt:6240:.codex/I-f9-002\codex_diff_audit.txt:9701:.codex\I-f8-002\codex_diff_audit.txt:5782:.codex\I-f5-004\diff_review_brief.md:7:- **P2 LOC accounting:** `.codex/I-f5-004/` artifacts are excluded from the canonical-diff-sha256 computation per CLAUDE.md §3.0 (`git diff --cached -- ":(exclude).codex/<id>/" ":(exclude)outputs/audits/<id>/"`); the 246-net LOC count above is computed against that exclusion.
+.codex\I-anti-003\codex_brief_verdict.txt:11860:.codex\I-f13-001\codex_diff_audit_iter1.txt:6241:.codex/I-f9-002\codex_diff_audit.txt:9709:.codex\I-f8-002\codex_diff_audit.txt:5790:.codex\I-f5-004\codex_diff_audit.txt:19:- **P2 LOC accounting:** `.codex/I-f5-004/` artifacts are excluded from the canonical-diff-sha256 computation per CLAUDE.md §3.0 (`git diff --cached -- ":(exclude).codex/<id>/" ":(exclude)outputs/audits/<id>/"`); the 246-net LOC count above is computed against that exclusion.
+.codex\I-anti-003\codex_brief_verdict.txt:11866:.codex\I-f13-001\codex_diff_audit_iter1.txt:6289:.codex/I-f9-002\codex_diff_audit.txt:11323:.codex\pr_e_open_issues_review_verdict_iter_1.txt:1109:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "''^### I-|''^#### Issue|''^## Issue|''^TITLE:|''^Title:|''^Labels:|''^--label|label|Per-Issue artifacts|canonical-diff-sha256|Phase:|Feature:|Blocks|Blocked by|User-blocked|Foundation refs|Acceptance criteria|Out of scope|Adversarial inputs|LOC estimate|Scope" state/polaris_restart/pr_e_issues_dryrun.txt scripts/restart/open_github_issues.py .github/workflows/codex-required.yml' in C:\POLARIS
+.codex\I-anti-003\codex_diff.patch:1194:# canonical-diff-sha256: 58a885755a99c87b38f17a8db8b8779d671399063112e3eb4812b452bb13cd5d
+.codex\I-bug-105\diff_review_brief.md:14:- Diff: `.codex/I-bug-105/codex_diff.patch` (canonical-diff-sha256: `3840897db1518ca9b822435c38b92a956cc4b28032bbf2dfffd523fedd43679d`)
+.codex\I-bug-084\diff_review_combined.md:145:# canonical-diff-sha256: 0585b7f7cb5f6b923d2e3425d0d1c2890bbba17e0402d75db8013e25848e4ad5
+.codex\I-bench-001\diff_review_combined.md:258:# canonical-diff-sha256: bad2f17aa5fc7b476b66108095ec8e7ed3f71a22bbfdd105beb56b7a7bcc7741
+.codex\I-bug-088\diff_review_brief_iter_2.md:19:- **Diff:** `.codex/I-bug-088/codex_diff.patch` (canonical-diff-sha256: `964660356321692e92a7b88f53d7cb08958386f5552765751a5ee2530ce9550a`).
+.codex\I-bug-114\diff_brief.md:31:(sha256 trailer `# canonical-diff-sha256: 2462e7fa0ba3e8bb859833e84d618eb910ae756fb1ab41afee5a6ef07ee503d4`).
+.codex\I-bug-105\codex_diff.patch:570:# canonical-diff-sha256: 3840897db1518ca9b822435c38b92a956cc4b28032bbf2dfffd523fedd43679d
+
+ succeeded in 1356ms:
+17446f83 I-ui-bug-001 (#725): Codex diff P1 — use pipeline_status, not lifecycle, for completed-run verdict
+ web/app/runs/[runId]/components/run_progress.tsx | 45 ++++++++++++++++--------
+ web/lib/api.ts                                   |  6 ++++
+ 2 files changed, 37 insertions(+), 14 deletions(-)
+
+ succeeded in 1596ms:
+commit 17446f83ec6fe8614445506474c12eb12a07afcd
+Author:     msn <msn@polaris.dev>
+AuthorDate: Thu May 21 11:34:48 2026 -0700
+Commit:     msn <msn@polaris.dev>
+CommitDate: Thu May 21 11:34:48 2026 -0700
+
+    I-ui-bug-001 (#725): Codex diff P1 — use pipeline_status, not lifecycle, for completed-run verdict
+    
+    iter-1 made every lifecycle-'completed' run a UI success — but
+    mark_aborted() stores lifecycle_status='completed', so an aborted run
+    would show 4 green 'done' stages (a clinically-dangerous misrepresentation).
+    
+    Fix: the frontend RunStatusResponse now carries pipeline_status (already on
+    the backend schema). The synthetic stream_lost SSE artifact is suppressed
+    only for lifecycle-completed runs; the authoritative verdict is the run_store
+    pipeline_status (success/partial_* → done; abort_*/error_* → did-not-run).
+    A real run_complete EVENT still wins (live-finished runs).
+    
+    Verified by vision on both cases:
+    - success run → 4 cyan-check stages 'Completed.'
+    - abort_scope_rejected run → 4 grey 'Did not run.' (NOT green)
+    
+    Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+
+codex
+The backend contract already serializes `pipeline_status` from `RunStatusResponse`, and the UI type addition matches it. I’m checking the event/lifecycle edge cases now, plus a local mergeability check against `polaris`.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git merge-base --is-ancestor polaris HEAD; if ($LASTEXITCODE -eq 0) { '"'polaris_is_ancestor=true' } else { \"polaris_is_ancestor=false exit="'$LASTEXITCODE" }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git merge-base polaris HEAD' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -LiteralPath '.codex/I-ui-005' -Force -ErrorAction SilentlyContinue" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --check polaris...HEAD' in C:\POLARIS
+ succeeded in 1313ms:
+ee922d02e17973c033c3d6a869ce65808b60ffb5
+
+ succeeded in 1666ms:
+polaris_is_ancestor=true
+
+ succeeded in 1875ms:
+ succeeded in 2271ms:
+
+    Directory: C:\POLARIS\.codex\I-ui-005
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m[32;1m         Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+-a---          2026-05-21 11:27 AM            233 brief.md
+-a---          2026-05-21 11:27 AM             82 codex_brief_verdict.txt
+-a---          2026-05-21 11:34 AM           4465 codex_diff_canonical.patch
+-a---          2026-05-21 11:34 AM           4556 codex_diff.patch
+-a---          2026-05-21 11:30 AM         162842 diff_review_iter1.txt
+-a---          2026-05-21 11:34 AM           1573 diff_review_iter2.md
+-a---          2026-05-21 11:34 AM              0 diff_review_iter2.txt
+-a---          2026-05-21 11:27 AM           1916 diff_review.md
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath '.codex/I-ui-005/codex_diff.patch' | Select-Object -Last 12" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath '.codex/I-ui-005/codex_diff_canonical.patch' | Select-Object -Last 8" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath '.codex/I-ui-005/diff_review_iter2.md' | Select-Object -First 120" in C:\POLARIS
+ succeeded in 1035ms:
++  // / error_*), distinct from the lifecycle `status`. mark_aborted() stores
++  // lifecycle_status='completed' for aborts, so lifecycle alone CANNOT tell a
++  // successful run from an aborted one — pipeline_status is required to render
++  // a completed run honestly (an aborted run must NOT show as success).
++  pipeline_status?: string | null;
+   // I-rdy-011 (#507): true once a cancel has been requested; lets the run
+   // page show a cancel as in-flight before an in-progress run transitions.
+   cancel_requested?: boolean;
+
+ succeeded in 1340ms:
+   status: RunStatus;
++  // I-ui-bug-001 (#725): the pipeline-A verdict (success / abort_* / partial_*
++  // / error_*), distinct from the lifecycle `status`. mark_aborted() stores
++  // lifecycle_status='completed' for aborts, so lifecycle alone CANNOT tell a
++  // successful run from an aborted one — pipeline_status is required to render
++  // a completed run honestly (an aborted run must NOT show as success).
++  pipeline_status?: string | null;
+   // I-rdy-011 (#507): true once a cancel has been requested; lets the run
+   // page show a cancel as in-flight before an in-progress run transitions.
+   cancel_requested?: boolean;
+
+# canonical-diff-sha256: 133b074afaad1f1f49f7ea16dcef5bd6d17b1f71b5c92f2a44c3844e6e955db1
+
+ succeeded in 1497ms:
+# Codex DIFF review — I-ui-bug-001 (#725) iter 2
+
+HARD CAP 5. iter 2. APPROVE iff zero P0/P1. MERGE AUTHORIZED if mergeable.
+Canonical-diff-sha256: `133b074afaad1f1f49f7ea16dcef5bd6d17b1f71b5c92f2a44c3844e6e955db1`. typecheck/build green.
+
+## iter-1 P1 FIXED (your finding): lifecycle 'completed' no longer = success. Now uses run_store pipeline_status (exposed on the backend RunStatusResponse; added to the frontend TS type). VERIFIED BY VISION:
+- success run → 4 cyan-check stages "Completed." (qa_v_success)
+- abort_scope_rejected run → 4 grey "Did not run." NOT green (qa_v_abort)
+
+Logic: syntheticLoss (stream_lost/unavailable event) suppressed only when lifecycleCompleted; realEventStatus (a non-synthetic run_complete event) wins; else completed → pipeline_status (??'success'); isStreamLost = syntheticLoss && !lifecycleCompleted; isSuccess = success|completed|partial_*.
+
+2 files: web/lib/api.ts (+pipeline_status type), run_progress.tsx (terminal derivation + done-no-data "Completed.").
+
+## Review focus
+1. Does pipeline_status now correctly gate success vs abort/error for completed runs (verified both)?
+2. Does a genuinely-running run whose stream drops still show stream-loss degraded (syntheticLoss && !lifecycleCompleted)?
+3. Live-finished real run_complete event still authoritative?
+4. Any NOVEL P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue | accept_remaining
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+remaining_blockers_for_execution: []
+```
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "(Get-FileHash -Algorithm SHA256 -LiteralPath '.codex/I-ui-005/codex_diff_canonical.patch').Hash.ToLowerInvariant()" in C:\POLARIS
+ succeeded in 959ms:
+133b074afaad1f1f49f7ea16dcef5bd6d17b1f71b5c92f2a44c3844e6e955db1
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+merge_decision: MERGE AUTHORIZED
+remaining_blockers_for_execution: []
+```
+tokens used
+118,753
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+merge_decision: MERGE AUTHORIZED
+remaining_blockers_for_execution: []
+```

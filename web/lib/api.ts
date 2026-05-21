@@ -83,6 +83,12 @@ export interface RunRequest {
 export interface RunStatusResponse {
   run_id: string;
   status: RunStatus;
+  // I-ui-bug-001 (#725): the pipeline-A verdict (success / abort_* / partial_*
+  // / error_*), distinct from the lifecycle `status`. mark_aborted() stores
+  // lifecycle_status='completed' for aborts, so lifecycle alone CANNOT tell a
+  // successful run from an aborted one — pipeline_status is required to render
+  // a completed run honestly (an aborted run must NOT show as success).
+  pipeline_status?: string | null;
   // I-rdy-011 (#507): true once a cancel has been requested; lets the run
   // page show a cancel as in-flight before an in-progress run transitions.
   cancel_requested?: boolean;
