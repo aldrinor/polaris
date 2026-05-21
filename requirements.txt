@@ -18,7 +18,6 @@
 #
 #   Known surplus (listed here but not obviously imported by live code):
 #     - neo4j  (knowledge-graph dep; pipeline C / archived)
-#     - google-generativeai  (Gemini; pipeline A uses OpenRouter, not Gemini)
 #     - ragas  (eval framework; scripts/run_ragas_v3.py is missing;
 #               pipeline C broken — see BUG-M-208)
 #
@@ -149,13 +148,9 @@ opentelemetry-exporter-otlp-proto-grpc==1.41.1  # OTLP exporter for src/polaris_
 # I-pip-001: protobuf is now pinned to 6.33.6 (matches requirements.lock +
 # requirements-v6.txt). The old protobuf<5.0.0 pin (for google-generativeai's
 # google-ai-generativelanguage 0.6.x) was dropped with google-generativeai.
-# Historical context (F-21 cycle-7 P1.1): protobuf is pulled transitively by the OTLP
-# exporter AND google-generativeai (line 99). The latter pins
-# protobuf<5.0.0dev via google-ai-generativelanguage. CVE-2026-0994 affects
-# protobuf 6.30.0rc1..6.33.4 — entirely above the <5.0.0 ceiling, so any
-# satisfiable version is automatically CVE-patched.
-# Cycle-6 P2.1 originally proposed >=6.33.5,<7.0.0 (F-17); cycle-7 caught
-# the ResolutionImpossible. Cycle-7 P1.1 fix.
+# Historical context (F-21 cycle-7 P1.1): protobuf is pulled transitively by
+# the OTLP exporter. 6.33.6 is CVE-2026-0994-patched (vulnerable range
+# 6.30.0rc1..6.33.4) and matches requirements.lock + requirements-v6.txt.
 protobuf==6.33.6  # CVE-2026-0994 patched (vulnerable range starts at 6.30.0rc1)
 
 # ===================
