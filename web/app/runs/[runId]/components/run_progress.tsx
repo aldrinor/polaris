@@ -85,23 +85,40 @@ export function RunProgress({ events, status }: RunProgressProps) {
     : null;
   const terminalFromStatus =
     status && LIFECYCLE_TERMINAL.includes(status.status) ? status.status : null;
-  const isTerminal = terminalFromEvent !== null || terminalFromStatus !== null;
-  // Pipeline status string drives banner + unobserved-stage rendering.
-  const terminalStatus = terminalFromEvent ?? terminalFromStatus ?? "";
-  // I-ui-bug-001 (#725): the run_store lifecycle status is AUTHORITATIVE over
-  // a synthetic stream-loss artifact. Opening a COMPLETED run has no live SSE
-  // stream to replay, so the #706 STREAM_LOST_GRACE backstop emits
-  // run_complete{status: stream_lost} — but the run genuinely succeeded. A
-  // completed run must render as success (stages done), NOT "connection lost".
+  // I-ui-bug-001 (#725, Codex diff iter-1 P1): a COMPLETED run has no live SSE
+  // to replay, so #706's STREAM_LOST_GRACE emits a SYNTHETIC
+  // run_complete{stream_lost}. That synthetic artifact must NOT drive the UI —
+  // but neither can lifecycle 'completed' alone, because mark_aborted() also
+  // stores lifecycle_status='completed' (an aborted run would wrongly show as
+  // success). The authoritative verdict for a completed run is the run_store
+  // PIPELINE status (success / abort_* / partial_* / error_*).
+  const syntheticLoss =
+    terminalFromEvent === "stream_lost" ||
+    terminalFromEvent === "stream_unavailable";
+  // A REAL run_complete event (genuine pipeline verdict, live-finished run) wins.
+  const realEventStatus =
+    terminalFromEvent && !syntheticLoss ? terminalFromEvent : null;
   const lifecycleCompleted = status?.status === "completed";
-  const isSuccess =
+  const pipelineStatus = status?.pipeline_status ?? null;
+  const terminalStatus =
+    realEventStatus ??
+    (lifecycleCompleted
+      ? (pipelineStatus ?? "success")
+      : (terminalFromStatus ?? ""));
+  // terminal if: a real verdict event, a completed/failed/cancelled lifecycle,
+  // OR a genuinely-running run whose stream dropped (stream-loss degraded).
+  const isTerminal =
+    realEventStatus !== null ||
     lifecycleCompleted ||
+    terminalFromStatus !== null ||
+    syntheticLoss;
+  const isSuccess =
     terminalStatus === "success" ||
-    terminalStatus === "completed";
-  const isStreamLost =
-    !lifecycleCompleted &&
-    (terminalStatus === "stream_lost" ||
-      terminalStatus === "stream_unavailable");
+    terminalStatus === "completed" ||
+    terminalStatus.startsWith("partial_");
+  // Stream-loss is a REAL degradation only for a run that is NOT lifecycle-
+  // completed (i.e. genuinely still running and the live stream dropped).
+  const isStreamLost = syntheticLoss && !lifecycleCompleted;
 
   const observed: Record<StageKey, boolean> = {
     scope: scope !== null,
