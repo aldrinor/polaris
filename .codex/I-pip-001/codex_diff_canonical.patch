@@ -1,3 +1,269 @@
+diff --git a/requirements.txt b/requirements.txt
+index 6e86c10b..75b896bb 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -18,7 +18,6 @@
+ #
+ #   Known surplus (listed here but not obviously imported by live code):
+ #     - neo4j  (knowledge-graph dep; pipeline C / archived)
+-#     - google-generativeai  (Gemini; pipeline A uses OpenRouter, not Gemini)
+ #     - ragas  (eval framework; scripts/run_ragas_v3.py is missing;
+ #               pipeline C broken — see BUG-M-208)
+ #
+@@ -32,58 +31,58 @@
+ # ===================
+ 
+ # LangChain & LangGraph (Agentic Framework)
+-langchain>=0.3.0,<0.4.0
+-langgraph>=0.2.0,<0.3.0
+-langchain-openai>=0.2.0,<0.3.0
+-langchain-google-genai>=2.0.0,<3.0.0  # Gemini integration
+-langchain-community>=0.3.0,<0.4.0
+-langchain-core>=0.3.0,<0.4.0
++langchain==0.3.30
++langgraph==0.2.76
++langchain-openai==0.2.14
++langchain-google-genai==2.1.12  # Gemini integration
++langchain-community==0.3.31
++langchain-core==0.3.86
+ 
+ # Graph Database (Knowledge Graph)
+-neo4j>=5.0
++neo4j==6.2.0
+ 
+ # OpenAI (for GPT-4o, GPT-4V)
+-openai>=1.0.0
++openai==1.109.1
+ 
+ # RAGAS (Evaluation)
+-ragas>=0.2.0
++ragas==0.4.3
+ 
+ # ===================
+ # POLARIS v3 - Text Processing
+ # ===================
+ 
+ # Sentence segmentation (FIX-047C: 97.92% accuracy, handles U.S./Dr./e.g.)
+-pysbd>=0.3.4
++pysbd==0.3.4
+ 
+ # Content extraction (FIX-047H: F1=0.958, best-in-class boilerplate removal)
+-trafilatura>=2.0.0
++trafilatura==2.0.0
+ 
+ # ===================
+ # POLARIS v2 - Core
+ # ===================
+ 
+ # Core
+-pydantic>=2.0.0
+-pydantic-settings>=2.0.0
+-pyyaml>=6.0
+-python-dotenv>=1.0.0
++pydantic==2.11.7
++pydantic-settings==2.14.1
++pyyaml==6.0.3
++python-dotenv==1.2.2
+ # slice 004 audit-bundle GPG signing (requires system gpg binary)
+-python-gnupg>=0.5.0
++python-gnupg==0.5.6
+ 
+ # Async & HTTP
+-aiohttp>=3.8.0
+-httpx>=0.24.0
+-tenacity>=8.2.0
++aiohttp==3.13.5
++httpx==0.28.1
++tenacity==8.5.0
+ 
+ # Vector Database
+-chromadb>=0.4.0
++chromadb==1.0.20
+ 
+ # Embeddings & NLI
+-sentence-transformers>=2.2.0
+-transformers>=4.30.0
+-torch>=2.0.0
+-semhash>=0.3.0  # FIX-048-K13: Semantic dedup via Model2Vec static embeddings
+-hdbscan>=0.8.40,<0.9  # I-f2-001: cluster top-K candidate embeddings for disambiguation modal
++sentence-transformers==5.5.0
++transformers==5.8.1
++torch==2.12.0
++semhash==0.4.1  # FIX-048-K13: Semantic dedup via Model2Vec static embeddings
++hdbscan==0.8.43  # I-f2-001: cluster top-K candidate embeddings for disambiguation modal
+ 
+ # RAG Verification (Sprint 2)
+ # WS-1: MiniCheck-FT5 (EMNLP 2024) — matches GPT-4 factuality at 400x lower cost
+@@ -92,47 +91,47 @@ hdbscan>=0.8.40,<0.9  # I-f2-001: cluster top-K candidate embeddings for disambi
+ # Set PG_NLI_MODEL=MiniCheck-Flan-T5-Large in .env to activate
+ 
+ # Search & Content
+-crawl4ai>=0.8.0  # Free Playwright-based web crawler (LLM-ready markdown)
+-beautifulsoup4>=4.12.0
+-lxml>=4.9.0
+-readability-lxml>=0.8.1  # A1.1: Article extraction from raw HTML (readability algorithm)
+-PyMuPDF>=1.22.0  # PDF extraction
++crawl4ai==0.8.5  # Free Playwright-based web crawler (LLM-ready markdown)
++beautifulsoup4==4.14.3
++lxml==5.4.0
++readability-lxml==0.8.4.1  # A1.1: Article extraction from raw HTML (readability algorithm)
++PyMuPDF==1.27.2.3  # PDF extraction
+ 
+ # LLM
+-google-generativeai>=0.3.0  # Gemini
++# google-generativeai DROPPED (I-pip-001): EOL, forces google-ai-generativelanguage==0.6.x → protobuf<5, which collides with the protobuf 6.x stack and causes pip resolution-too-deep. Gemini is covered by langchain-google-genai. Port src/llm/gemini_client.py to google-genai later.
+ 
+ # Testing
+-pytest>=7.0.0
+-pytest-asyncio>=0.21.0
+-playwright>=1.40.0  # Dashboard audit (headless browser)
++pytest==8.4.1
++pytest-asyncio==1.3.0
++playwright==1.60.0  # Dashboard audit (headless browser)
+ 
+ # Data Analysis & Visualization (GEMINI-ARCH: real Python charts)
+-pandas>=2.0
+-matplotlib>=3.8
+-numpy>=1.24
+-scipy>=1.11  # Statistical tests for data analysis (Fix 8)
++pandas==3.0.3
++matplotlib==3.10.9
++numpy==2.4.6
++scipy==1.17.1  # Statistical tests for data analysis (Fix 8)
+ 
+ # Utilities
+-tqdm>=4.65.0
+-rich>=13.0.0  # Console formatting
+-aiosqlite>=0.20.0  # Async SQLite for caches
++tqdm==4.67.3
++rich==13.9.4  # Console formatting
++aiosqlite==0.22.1  # Async SQLite for caches
+ 
+ # LangGraph Checkpointing
+-langgraph-checkpoint>=2.1.0,<3.0.0
+-langgraph-checkpoint-sqlite>=2.0.0,<3.0.0
++langgraph-checkpoint==2.1.2
++langgraph-checkpoint-sqlite==2.0.11
+ 
+ # SOTA: OAI-PMH for PMC metadata extraction
+-sickle>=0.7.0  # OAI-PMH harvesting
++sickle==0.7.0  # OAI-PMH harvesting
+ 
+ # ===================
+ # POLARIS Live Server
+ # ===================
+-fastapi>=0.100.0
+-uvicorn>=0.23.0
+-sse-starlette>=1.6.0
+-watchfiles>=0.20.0
+-python-multipart>=0.0.6  # Required by FastAPI for form parsing
+-slowapi>=0.1.8  # Rate limiting middleware
++fastapi==0.136.1
++uvicorn==0.36.0
++sse-starlette==2.4.1
++watchfiles==1.2.0
++python-multipart==0.0.20  # Required by FastAPI for form parsing
++slowapi==0.1.9  # Rate limiting middleware
+ 
+ # ===================
+ # POLARIS v6 — Dramatiq queue + OpenTelemetry GenAI semconv
+@@ -141,42 +140,41 @@ slowapi>=0.1.8  # Rate limiting middleware
+ # Per cycle-3 audit P1.2 (outputs/audits/continuous/bb60495_audit.md): the
+ # new test_*_middleware tests use pytest.importorskip against these — without
+ # pinning here CI silently SKIPS them (LAW II / CLAUDE.md §9.4 violation).
+-dramatiq>=2.1.0  # actors, brokers, middleware base class
+-redis>=4.0,<8.0  # I-phase0-005 P1-I2-001: dramatiq.get_broker() RabbitMQ->Redis fallback ImportErrors at app boot if absent
+-opentelemetry-api>=1.36.0  # tracer + propagate APIs
+-opentelemetry-sdk>=1.36.0  # TracerProvider + BatchSpanProcessor
+-opentelemetry-exporter-otlp-proto-grpc>=1.36.0  # OTLP exporter for src/polaris_v6/observability/otel_init.py
+-# F-21 (cycle-7 P1.1 fix): protobuf is pulled transitively by both the OTLP
+-# exporter AND google-generativeai (line 99). The latter pins
+-# protobuf<5.0.0dev via google-ai-generativelanguage. CVE-2026-0994 affects
+-# protobuf 6.30.0rc1..6.33.4 — entirely above the <5.0.0 ceiling, so any
+-# satisfiable version is automatically CVE-patched.
+-# Cycle-6 P2.1 originally proposed >=6.33.5,<7.0.0 (F-17); cycle-7 caught
+-# the ResolutionImpossible. Cycle-7 P1.1 fix.
+-protobuf<5.0.0  # CVE-2026-0994 patched (vulnerable range starts at 6.30.0rc1)
++dramatiq==2.1.0  # actors, brokers, middleware base class
++redis==7.4.0  # I-phase0-005 P1-I2-001: dramatiq.get_broker() RabbitMQ->Redis fallback ImportErrors at app boot if absent
++opentelemetry-api==1.41.1  # tracer + propagate APIs
++opentelemetry-sdk==1.41.1  # TracerProvider + BatchSpanProcessor
++opentelemetry-exporter-otlp-proto-grpc==1.41.1  # OTLP exporter for src/polaris_v6/observability/otel_init.py
++# I-pip-001: protobuf is now pinned to 6.33.6 (matches requirements.lock +
++# requirements-v6.txt). The old protobuf<5.0.0 pin (for google-generativeai's
++# google-ai-generativelanguage 0.6.x) was dropped with google-generativeai.
++# Historical context (F-21 cycle-7 P1.1): protobuf is pulled transitively by
++# the OTLP exporter. 6.33.6 is CVE-2026-0994-patched (vulnerable range
++# 6.30.0rc1..6.33.4) and matches requirements.lock + requirements-v6.txt.
++protobuf==6.33.6  # CVE-2026-0994 patched (vulnerable range starts at 6.30.0rc1)
+ 
+ # ===================
+ # Document Export
+ # ===================
+-weasyprint>=60.0  # Server-side PDF generation (requires system libs: pango, cairo)
+-python-docx>=1.1.0  # DOCX export for research reports
++weasyprint==68.1  # Server-side PDF generation (requires system libs: pango, cairo)
++python-docx==1.2.0  # DOCX export for research reports
+ 
+ # ===================
+ # Document Ingestion - Image & Audio
+ # ===================
+-pillow>=10.0.0          # Image processing (OCR image loading, metadata extraction)
+-pytesseract>=0.3.10     # OCR via Tesseract (requires Tesseract-OCR installed on system)
+-openai-whisper>=20231117  # Local audio transcription (requires ffmpeg on system)
++pillow==12.2.0  # Image processing (OCR image loading, metadata extraction)
++pytesseract==0.3.13  # OCR via Tesseract (requires Tesseract-OCR installed on system)
++openai-whisper==20250625  # Local audio transcription (requires ffmpeg on system)
+ 
+ # ===================
+ # Document Ingestion - YouTube Transcripts
+ # ===================
+-youtube-transcript-api>=1.0.0  # YouTube video transcript extraction
++youtube-transcript-api==1.2.4  # YouTube video transcript extraction
+ 
+ # ===================
+ # Process Monitoring
+ # ===================
+-psutil>=5.9.0  # FIX-5: Memory/resource monitoring for long pipeline runs
++psutil==7.2.2  # FIX-5: Memory/resource monitoring for long pipeline runs
+ 
+ # ===================
+ # Phase 3 - Entity Extraction (Future)
+diff --git a/src/llm/gemini_client.py b/src/llm/gemini_client.py
+index 25834f80..e886f471 100644
+--- a/src/llm/gemini_client.py
++++ b/src/llm/gemini_client.py
+@@ -25,7 +25,15 @@ from typing import Any, Dict, List, Optional, Type, TypeVar
+ PROJECT_ROOT = Path(__file__).parent.parent.parent
+ sys.path.insert(0, str(PROJECT_ROOT))
+ 
+-import google.generativeai as genai
++try:
++    import google.generativeai as genai
++except ImportError:
++    # I-pip-001: google-generativeai is EOL and forces protobuf<5, which
++    # collides with the protobuf 6.x stack (pip resolution-too-deep). It was
++    # dropped from requirements.txt. Importing this module stays cheap;
++    # constructing GeminiClient fails loud below. Gemini is covered by
++    # langchain-google-genai; port this client to google-genai if needed.
++    genai = None  # type: ignore[assignment]
+ from pydantic import BaseModel
+ from tenacity import (
+     retry,
+@@ -75,6 +83,13 @@ class GeminiClient:
+             temperature: Generation temperature
+             max_tokens: Maximum output tokens
+         """
++        if genai is None:
++            raise ImportError(
++                "google-generativeai is not installed (dropped in I-pip-001 — "
++                "EOL + forces protobuf<5). Gemini is covered by "
++                "langchain-google-genai; port this client to google-genai to "
++                "restore direct google.generativeai usage."
++            )
+         # Load from config
+         config = get_config()
+         self.api_key = api_key or config.env.gemini_api_key
 diff --git a/web/requirements-v6.txt b/web/requirements-v6.txt
 new file mode 100644
 index 00000000..aeec018c

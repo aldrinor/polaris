@@ -1,0 +1,2650 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4984-7232-7d30-9c70-8718adf2dfd7
+--------
+user
+# Codex DECISION — fix requirements.txt resolution-too-deep (operator asked Claude to resolve; blind to CI)
+
+The pip dry-run gate (blocks ALL src/polaris_v6 merges) fails with `error: resolution-too-deep` on legacy requirements.txt. Never caught before — the working-dir bug fast-failed first (file-not-found), masking this. The web/ shim (#717) fixed the working-dir; this is the SECOND fault now exposed.
+
+## Verified evidence
+- requirements.txt: 63 top-level pkgs, ~30 unbounded (`neo4j>=5.0`, `openai>=1.0.0`, `ragas>=0.2.0`, `torch>=2.0.0`, …) → combinatorial explosion.
+- pip thrashes on protobuf (downloads every 4.25.x→4.24.x) → resolution-too-deep.
+- ROOT CONFLICT: requirements.txt line 156 `protobuf<5.0.0` (+ `google-generativeai>=0.3.0` line 102 → google-ai-generativelanguage==0.6.9 → needs protobuf<5) VS the modern stack (otel 1.41, etc.) which wants protobuf 6.x.
+- `requirements.lock` (uv-compiled, what Dockerfile.v6 ACTUALLY installs, PROVEN to resolve) has: protobuf==6.33.6, langchain-google-genai==2.1.12, google-ai-generativelanguage==0.11.0, and DROPS google-generativeai entirely.
+- 62 of 63 requirements.txt pkgs are present in the lock at exact ==versions. The ONLY one not in the lock: google-generativeai.
+- google.generativeai is imported by src/llm/gemini_client.py:28. (Grep for who imports gemini_client: results above this brief — if empty, gemini_client is a dead module.)
+- requirements-v6.txt already uses protobuf==6.33.6 (resolves clean, fast).
+
+## The decision (operator delegated to you; Claude will execute + test locally with pip dry-run before pushing)
+A. Pin ALL 63 requirements.txt entries to their requirements.lock ==versions; set protobuf==6.33.6; and for google-generativeai (not in lock) — drop it IF gemini_client.py is dead (no importer), else bump to a protobuf-6-compatible version. Rationale: the lock is the proven-resolvable set Docker already installs; pinning collapses pip's search → no resolution-too-deep; aligns requirements.txt with the lock as single source of truth.
+B. Minimal: only pin/cap the few high-fanout culprits (protobuf, the unbounded ~30) without full lock-pinning.
+C. Other.
+
+My recommendation: A (full pin-to-lock, deterministic + matches production). For google-generativeai: if gemini_client.py has no importer (dead), drop both the dep line AND optionally leave the dead module (its import only fails if something imports it — nothing does). If it has a live importer, you decide: bump google-generativeai or port gemini_client off it.
+
+Give: DECISION (A/B/C), the google-generativeai call (drop vs bump-to-version-X vs port), and any guardrail. I will then pin requirements.txt, run `pip install --dry-run -r requirements.txt` LOCALLY to confirm it resolves fast, and only push if green.
+
+codex
+I’ll verify the local dependency files and whether `gemini_client.py` is actually imported before giving the decision, since the `google-generativeai` call hinges on that.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"gemini_client|google\\.generativeai|import google.generativeai|from src\\.llm\\.gemini_client|from llm\\.gemini_client\" ." in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "google-generativeai|google_ai_generativelanguage|google-generativelanguage|protobuf|langchain-google-genai" requirements.txt requirements.lock requirements-v6.txt pyproject.toml setup.cfg setup.py' in C:\POLARIS
+2026-05-21T07:51:30.523969Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+requirements-v6.txt:44:# Transitive pin: protobuf is pulled by opentelemetry-exporter-otlp; CVE-2026-0994
+requirements-v6.txt:46:protobuf==6.33.6
+requirements.txt:21:#     - google-generativeai  (Gemini; pipeline A uses OpenRouter, not Gemini)
+requirements.txt:38:langchain-google-genai>=2.0.0,<3.0.0  # Gemini integration
+requirements.txt:102:google-generativeai>=0.3.0  # Gemini
+requirements.txt:149:# F-21 (cycle-7 P1.1 fix): protobuf is pulled transitively by both the OTLP
+requirements.txt:150:# exporter AND google-generativeai (line 99). The latter pins
+requirements.txt:151:# protobuf<5.0.0dev via google-ai-generativelanguage. CVE-2026-0994 affects
+requirements.txt:152:# protobuf 6.30.0rc1..6.33.4 — entirely above the <5.0.0 ceiling, so any
+requirements.txt:156:protobuf<5.0.0  # CVE-2026-0994 patched (vulnerable range starts at 6.30.0rc1)
+requirements.lock:181:    # via langchain-google-genai
+requirements.lock:200:    # via langchain-google-genai
+requirements.lock:332:    #   langchain-google-genai
+requirements.lock:338:langchain-google-genai==2.1.12
+requirements.lock:628:protobuf==6.33.6
+requirements.lock:665:    #   langchain-google-genai
+rg: pyproject.toml: The system cannot find the file specified. (os error 2)
+rg: setup.cfg: The system cannot find the file specified. (os error 2)
+rg: setup.py: The system cannot find the file specified. (os error 2)
+
+ exited 1 in 1280ms:
+requirements-v6.txt:44:# Transitive pin: protobuf is pulled by opentelemetry-exporter-otlp; CVE-2026-0994
+requirements-v6.txt:46:protobuf==6.33.6
+requirements.txt:21:#     - google-generativeai  (Gemini; pipeline A uses OpenRouter, not Gemini)
+requirements.txt:38:langchain-google-genai>=2.0.0,<3.0.0  # Gemini integration
+requirements.txt:102:google-generativeai>=0.3.0  # Gemini
+requirements.txt:149:# F-21 (cycle-7 P1.1 fix): protobuf is pulled transitively by both the OTLP
+requirements.txt:150:# exporter AND google-generativeai (line 99). The latter pins
+requirements.txt:151:# protobuf<5.0.0dev via google-ai-generativelanguage. CVE-2026-0994 affects
+requirements.txt:152:# protobuf 6.30.0rc1..6.33.4 — entirely above the <5.0.0 ceiling, so any
+requirements.txt:156:protobuf<5.0.0  # CVE-2026-0994 patched (vulnerable range starts at 6.30.0rc1)
+requirements.lock:181:    # via langchain-google-genai
+requirements.lock:200:    # via langchain-google-genai
+requirements.lock:332:    #   langchain-google-genai
+requirements.lock:338:langchain-google-genai==2.1.12
+requirements.lock:628:protobuf==6.33.6
+requirements.lock:665:    #   langchain-google-genai
+rg: pyproject.toml: The system cannot find the file specified. (os error 2)
+rg: setup.cfg: The system cannot find the file specified. (os error 2)
+rg: setup.py: The system cannot find the file specified. (os error 2)
+
+ succeeded in 1623ms:
+ M .claude/settings.json
+ M docs/todo_list.md
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-pip-001/fix_strategy_consult.md
+?? .codex/I-pip-001/fix_strategy_output.txt
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+2026-05-21T07:51:31.364912Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.1 seconds
+Output:
+.\Dockerfile.v6:43:# src/llm/gemini_client.py + src/utils/atomic_decomposer.py import it,
+.\config\settings\models.yaml:7:# src/llm/gemini_client.py, src/utils/atomic_decomposer.py (GeminiClient
+.\config\settings\models.yaml:14:# or scripts/ imports src.config.core or src.llm.gemini_client.
+.\outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:7359:.\src\llm\gemini_client.py
+.\outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:8246:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m11_review\codex_stdout.log:446:src\llm\gemini_client.py
+.\outputs\codex_findings\m11_review\codex_stdout.log:1182:src\llm\gemini_client.py
+.\outputs\codex_findings\full_scale_pass_5\codex_stderr.log:1138:.\src\llm\gemini_client.py
+.\outputs\codex_findings\full_scale_pass_5\codex_stderr.log:1946:.\src\llm\gemini_client.py
+.\outputs\codex_findings\full_audit_pass_6\codex_stderr.log:5997:src\llm\gemini_client.py:209:            logger.debug(f"Raw response: {response[:500]}")
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3546:src\llm\__init__.py:13:from src.llm.gemini_client import GeminiClient, get_gemini_client
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3582:src\llm\gemini_client.py:3:POLARIS Gemini Client
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3583:src\llm\gemini_client.py:11:    from src.llm.gemini_client import GeminiClient, get_gemini_client
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3584:src\llm\gemini_client.py:51:class GeminiClient:
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3585:src\llm\gemini_client.py:113:            timeout=60.0
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3586:src\llm\gemini_client.py:145:        loop = asyncio.get_event_loop()
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3587:src\llm\gemini_client.py:271:_gemini_client: Optional[GeminiClient] = None
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3588:src\llm\gemini_client.py:274:def get_gemini_client() -> GeminiClient:
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3589:src\llm\gemini_client.py:276:    global _gemini_client
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3590:src\llm\gemini_client.py:278:        _gemini_client = GeminiClient()
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3591:src\llm\gemini_client.py:297:            client = GeminiClient()
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3592:src\llm\gemini_client.py:298:            print(f"  [PASS] Client initialized: {client.model_name}")
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:4448:src\utils\atomic_decomposer.py:133:                from src.llm.gemini_client import GeminiClient
+.\outputs\codex_findings\m14_review\codex_stdout.log:3117:src\llm\gemini_client.py:276:    global _gemini_client
+.\outputs\codex_findings\m19_review\codex_stdout.log:1188:src\llm\gemini_client.py:64:        api_key: Optional[str] = None,
+.\outputs\codex_findings\m19_review\codex_stdout.log:1189:src\llm\gemini_client.py:73:            api_key: Gemini API key (or from config/env)
+.\outputs\codex_findings\m19_review\codex_stdout.log:1190:src\llm\gemini_client.py:80:        self.api_key = api_key or config.env.gemini_api_key
+.\outputs\codex_findings\m19_review\codex_stdout.log:1191:src\llm\gemini_client.py:85:        if not self.api_key:
+.\outputs\codex_findings\m19_review\codex_stdout.log:1192:src\llm\gemini_client.py:89:        genai.configure(api_key=self.api_key)
+.\outputs\codex_findings\m15a_review\codex_stdout.log:1442:src\llm\gemini_client.py
+.\outputs\codex_findings\v30_joint_analysis_review\codex_stdout.log:2515:src\llm\gemini_client.py:289:    async def run_tests():
+.\outputs\audits\continuous\51c1bdb_audit.md:78:| B | Remove `langchain-google-genai` + `google-generativeai` from `requirements.txt` (already noted unused in line 21 comment: "pipeline A uses OpenRouter, not Gemini") | Drops 2 deps + their transitives ≈ ~30MB install. Only valid if Gemini integration is genuinely unused (verify with `grep -rn "google.generativeai\|langchain_google_genai" src/`). |
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5693:src\llm\gemini_client.py:56:    - Structured JSON output
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5694:src\llm\gemini_client.py:180:        Generate structured JSON output.
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5695:src\llm\gemini_client.py:183:            prompt: User prompt (should request JSON output)
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5696:src\llm\gemini_client.py:187:            Parsed JSON dict
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5697:src\llm\gemini_client.py:189:        # Add JSON instruction
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5698:src\llm\gemini_client.py:190:        json_instruction = "\n\nRespond with valid JSON only. No markdown, no explanation."
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5699:src\llm\gemini_client.py:207:        except json.JSONDecodeError as e:
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5700:src\llm\gemini_client.py:208:            logger.error(f"Failed to parse JSON response: {e}")
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5701:src\llm\gemini_client.py:210:            raise ValueError(f"Invalid JSON response: {e}")
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5702:src\llm\gemini_client.py:234:You must respond with JSON that matches this exact schema:
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5703:src\llm\gemini_client.py:306:            # Test 3: JSON generation
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5704:src\llm\gemini_client.py:307:            print("\n[TEST 3] JSON generation...")
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5705:src\llm\gemini_client.py:309:                "Return a JSON object with keys 'name' and 'value'. Name should be 'test' and value should be 42."
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5706:src\llm\gemini_client.py:313:            print(f"  [PASS] JSON: {json_response}")
+.\outputs\codex_findings\m9_v2_review\codex_stdout.log:1758:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m9_v2_review\codex_stdout.log:2654:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m6_v2_review\codex_stdout.log:217:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m6_v2_review\codex_stdout.log:1111:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m8_v3_review\codex_stdout.log:130:.\src\llm\gemini_client.py:275:    """Get the singleton Gemini client."""
+.\outputs\codex_findings\m8_v3_review\codex_stdout.log:243:.\src\llm\gemini_client.py:275:    """Get the singleton Gemini client."""
+.\outputs\codex_findings\md11_phase1_review\codex_stdout.log:126:src\llm\gemini_client.py
+.\outputs\codex_findings\test_failure_triage_round2\codex_stdout.log:1203:.\src\llm\gemini_client.py:145:        loop = asyncio.get_event_loop()
+.\outputs\codex_findings\test_failure_triage_round2\codex_stdout.log:1204:.\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\md2_llm_round3\codex_stdout.log:135:.\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\md2_llm_round3\codex_stdout.log:417:.\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\md2_llm_round3\codex_stdout.log:1177:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_llm_round3\codex_stdout.log:1777:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_llm_round5\codex_stdout.log:1931:.\src\llm\gemini_client.py
+.\outputs\codex_findings\test_failure_triage_review\codex_stdout.log:2839:C:\POLARIS\src\llm\gemini_client.py:145:        loop = asyncio.get_event_loop()
+.\outputs\codex_findings\test_failure_triage_review\codex_stdout.log:2840:C:\POLARIS\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:1300:.\src\llm\gemini_client.py:86:            raise ValueError("GEMINI_API_KEY not configured")
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:1301:.\src\llm\gemini_client.py:210:            raise ValueError(f"Invalid JSON response: {e}")
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:1302:.\src\llm\gemini_client.py:325:        except ValueError as e:
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:2212:src\llm\gemini_client.py
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:2701:src\llm\gemini_client.py:86:            raise ValueError("GEMINI_API_KEY not configured")
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:2702:src\llm\gemini_client.py:210:            raise ValueError(f"Invalid JSON response: {e}")
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:2703:src\llm\gemini_client.py:325:        except ValueError as e:
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:4093:src\llm\gemini_client.py:86:            raise ValueError("GEMINI_API_KEY not configured")
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:4094:src\llm\gemini_client.py:210:            raise ValueError(f"Invalid JSON response: {e}")
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:4095:src\llm\gemini_client.py:325:        except ValueError as e:
+.\outputs\codex_findings\md2_llm_review\codex_stdout.log:324:.\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\md2_llm_review\codex_stdout.log:729:.\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\md2_llm_round4\codex_stdout.log:2747:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_llm_round4\codex_stdout.log:3583:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_llm_round4\codex_stdout.log:10123:src\llm\gemini_client.py:39:from src.utils.cost_tracker import get_cost_tracker, BudgetExceededError
+.\outputs\codex_findings\md2_llm_round4\codex_stdout.log:10124:src\llm\gemini_client.py:168:        except BudgetExceededError:
+.\outputs\codex_findings\md2_stub_round4\codex_stdout.log:799:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_stub_round4\codex_stdout.log:1973:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_stub_round2\codex_stdout.log:607:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_stub_round2\codex_stdout.log:1781:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md9_phase2_v3_review\codex_stdout.log:377:src\llm\gemini_client.py
+.\outputs\codex_findings\m_live_2_v2_review\codex_stdout.log:5020:.\src\llm\gemini_client.py:146:        response = await loop.run_in_executor(
+.\outputs\codex_findings\m_live_2_v2_review\codex_stdout.log:5021:.\src\llm\gemini_client.py:289:    async def run_tests():
+.\outputs\codex_findings\m_live_2_v2_review\codex_stdout.log:5022:.\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\m_prod_1_v3_review\codex_stdout.log:4731:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md9_phase1_review\codex_stdout.log:1256:src\llm\gemini_client.py:166:            # Check budget after each call
+.\outputs\codex_findings\md9_phase1_review\codex_stdout.log:1257:src\llm\gemini_client.py:167:            cost_tracker.check_budget()
+.\outputs\codex_findings\m_prod_1_v2_review\codex_stdout.log:648:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m_prod_1_v2_review\codex_stdout.log:2103:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:1154:.\src\llm\gemini_client.py:32:    stop_after_attempt,
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:1155:.\src\llm\gemini_client.py:117:        stop=stop_after_attempt(3),
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:1156:.\src\llm\gemini_client.py:166:            # Check budget after each call
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:4309:src\llm\gemini_client.py:32:    stop_after_attempt,
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:4310:src\llm\gemini_client.py:117:        stop=stop_after_attempt(3),
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:4311:src\llm\gemini_client.py:166:            # Check budget after each call
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:7240:src\llm\gemini_client.py:64:        api_key: Optional[str] = None,
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:7241:src\llm\gemini_client.py:73:            api_key: Gemini API key (or from config/env)
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:7242:src\llm\gemini_client.py:80:        self.api_key = api_key or config.env.gemini_api_key
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:7243:src\llm\gemini_client.py:85:        if not self.api_key:
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:7244:src\llm\gemini_client.py:89:        genai.configure(api_key=self.api_key)
+.\outputs\codex_findings\m_prod_4_v3_review\codex_stdout.log:806:.\src\llm\gemini_client.py:256:            "estimated_cost_usd": self._estimate_cost(),
+.\outputs\codex_findings\m_prod_4_v3_review\codex_stdout.log:1719:.\src\llm\gemini_client.py:256:            "estimated_cost_usd": self._estimate_cost(),
+.\outputs\codex_findings\m_prod_4_v1_review\codex_stdout.log:2810:src\llm\gemini_client.py:112:            "generativelanguage.googleapis.com",
+.\outputs\codex_findings\m_prod_4_v1_review\codex_stdout.log:6851:src\llm\gemini_client.py:112:            "generativelanguage.googleapis.com",
+.\outputs\codex_findings\m_prod_4_v1_review\codex_stdout.log:12351:src\llm\gemini_client.py:112:            "generativelanguage.googleapis.com",
+.\outputs\codex_findings\m_prod_4_v2_review\codex_stdout.log:1624:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m_prod_4_v2_review\codex_stdout.log:2896:.\src\llm\gemini_client.py:261:        # Gemini 2.5 Flash pricing (approximate)
+.\outputs\audits\I-cd-010\claude_audit.md:53:| 3 | **APPROVE** | novel_p0=0 / continuing_p0=0 / p1=0; 2 P2 explicitly `accept_remaining` (gemini_client.py + live_deepseek_generator.py docstrings — non-blocking pipeline-C / no client-config default stale) |
+.\outputs\audits\I-cd-010\claude_audit.md:88:- `src/llm/gemini_client.py` + `src/llm/__init__.py` Gemini-package docstrings — Codex iter-3 P2 non-blocking (pipeline-C legacy).
+.\outputs\audits\v25\_codex_plan_pass3_stdout.txt:3215:src\llm\gemini_client.py:109:    async def _wait_for_rate_limit(self) -> None:
+.\outputs\audits\v25\_codex_plan_pass3_stdout.txt:3216:src\llm\gemini_client.py:121:    async def generate(
+.\outputs\audits\v25\_codex_plan_pass3_stdout.txt:3217:src\llm\gemini_client.py:174:    async def generate_json(
+.\outputs\audits\v25\_codex_plan_pass3_stdout.txt:3218:src\llm\gemini_client.py:212:    async def generate_structured(
+.\outputs\audits\v25\_codex_plan_pass3_stdout.txt:3219:src\llm\gemini_client.py:289:    async def run_tests():
+.\state\polaris_restart\iteration_trajectory.md:645:- p2: 2 (gemini_client.py docstrings + live_deepseek_generator.py V3.2 comments — both non-blocking pipeline-C)
+.\src\utils\atomic_decomposer.py:133:                from src.llm.gemini_client import GeminiClient
+.\outputs\audits\I-carney-005\claude_audit.md:42:- `Dockerfile.v6` sed-strips `google-generativeai` + `protobuf<` from requirements.txt before install. Verified `grep -rln "from src.llm.gemini_client\|atomic_decomposer" scripts/ src/polaris_v6 src/polaris_graph` returns no consumers — only pipeline-C-frozen code imports it.
+.\outputs\audits\I-modref-002\claude_audit.md:11:would break the file's only LLM consumer `src/llm/gemini_client.py` (a
+.\outputs\audits\I-modref-002\claude_audit.md:19:  (`load_models()`), `src/llm/gemini_client.py`,
+.\outputs\audits\I-modref-002\claude_audit.md:39:`src.config.core` nor `src.llm.gemini_client` → models.yaml is genuinely
+.\src\llm\__init__.py:13:from src.llm.gemini_client import GeminiClient, get_gemini_client
+.\src\llm\__init__.py:31:    "get_gemini_client",
+.\src\llm\gemini_client.py:11:    from src.llm.gemini_client import GeminiClient, get_gemini_client
+.\src\llm\gemini_client.py:13:    client = get_gemini_client()
+.\src\llm\gemini_client.py:28:import google.generativeai as genai
+.\src\llm\gemini_client.py:271:_gemini_client: Optional[GeminiClient] = None
+.\src\llm\gemini_client.py:274:def get_gemini_client() -> GeminiClient:
+.\src\llm\gemini_client.py:276:    global _gemini_client
+.\src\llm\gemini_client.py:277:    if _gemini_client is None:
+.\src\llm\gemini_client.py:278:        _gemini_client = GeminiClient()
+.\src\llm\gemini_client.py:279:    return _gemini_client
+rg: .\codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: .\codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: .\mode700_probe: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+
+ exited 1 in 2123ms:
+.\Dockerfile.v6:43:# src/llm/gemini_client.py + src/utils/atomic_decomposer.py import it,
+.\config\settings\models.yaml:7:# src/llm/gemini_client.py, src/utils/atomic_decomposer.py (GeminiClient
+.\config\settings\models.yaml:14:# or scripts/ imports src.config.core or src.llm.gemini_client.
+.\outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:7359:.\src\llm\gemini_client.py
+.\outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:8246:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m11_review\codex_stdout.log:446:src\llm\gemini_client.py
+.\outputs\codex_findings\m11_review\codex_stdout.log:1182:src\llm\gemini_client.py
+.\outputs\codex_findings\full_scale_pass_5\codex_stderr.log:1138:.\src\llm\gemini_client.py
+.\outputs\codex_findings\full_scale_pass_5\codex_stderr.log:1946:.\src\llm\gemini_client.py
+.\outputs\codex_findings\full_audit_pass_6\codex_stderr.log:5997:src\llm\gemini_client.py:209:            logger.debug(f"Raw response: {response[:500]}")
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3546:src\llm\__init__.py:13:from src.llm.gemini_client import GeminiClient, get_gemini_client
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3582:src\llm\gemini_client.py:3:POLARIS Gemini Client
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3583:src\llm\gemini_client.py:11:    from src.llm.gemini_client import GeminiClient, get_gemini_client
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3584:src\llm\gemini_client.py:51:class GeminiClient:
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3585:src\llm\gemini_client.py:113:            timeout=60.0
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3586:src\llm\gemini_client.py:145:        loop = asyncio.get_event_loop()
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3587:src\llm\gemini_client.py:271:_gemini_client: Optional[GeminiClient] = None
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3588:src\llm\gemini_client.py:274:def get_gemini_client() -> GeminiClient:
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3589:src\llm\gemini_client.py:276:    global _gemini_client
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3590:src\llm\gemini_client.py:278:        _gemini_client = GeminiClient()
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3591:src\llm\gemini_client.py:297:            client = GeminiClient()
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:3592:src\llm\gemini_client.py:298:            print(f"  [PASS] Client initialized: {client.model_name}")
+.\outputs\codex_findings\full_audit_pass_4\codex_stderr.log:4448:src\utils\atomic_decomposer.py:133:                from src.llm.gemini_client import GeminiClient
+.\outputs\codex_findings\m14_review\codex_stdout.log:3117:src\llm\gemini_client.py:276:    global _gemini_client
+.\outputs\codex_findings\m19_review\codex_stdout.log:1188:src\llm\gemini_client.py:64:        api_key: Optional[str] = None,
+.\outputs\codex_findings\m19_review\codex_stdout.log:1189:src\llm\gemini_client.py:73:            api_key: Gemini API key (or from config/env)
+.\outputs\codex_findings\m19_review\codex_stdout.log:1190:src\llm\gemini_client.py:80:        self.api_key = api_key or config.env.gemini_api_key
+.\outputs\codex_findings\m19_review\codex_stdout.log:1191:src\llm\gemini_client.py:85:        if not self.api_key:
+.\outputs\codex_findings\m19_review\codex_stdout.log:1192:src\llm\gemini_client.py:89:        genai.configure(api_key=self.api_key)
+.\outputs\codex_findings\m15a_review\codex_stdout.log:1442:src\llm\gemini_client.py
+.\outputs\codex_findings\v30_joint_analysis_review\codex_stdout.log:2515:src\llm\gemini_client.py:289:    async def run_tests():
+.\outputs\audits\continuous\51c1bdb_audit.md:78:| B | Remove `langchain-google-genai` + `google-generativeai` from `requirements.txt` (already noted unused in line 21 comment: "pipeline A uses OpenRouter, not Gemini") | Drops 2 deps + their transitives ≈ ~30MB install. Only valid if Gemini integration is genuinely unused (verify with `grep -rn "google.generativeai\|langchain_google_genai" src/`). |
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5693:src\llm\gemini_client.py:56:    - Structured JSON output
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5694:src\llm\gemini_client.py:180:        Generate structured JSON output.
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5695:src\llm\gemini_client.py:183:            prompt: User prompt (should request JSON output)
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5696:src\llm\gemini_client.py:187:            Parsed JSON dict
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5697:src\llm\gemini_client.py:189:        # Add JSON instruction
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5698:src\llm\gemini_client.py:190:        json_instruction = "\n\nRespond with valid JSON only. No markdown, no explanation."
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5699:src\llm\gemini_client.py:207:        except json.JSONDecodeError as e:
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5700:src\llm\gemini_client.py:208:            logger.error(f"Failed to parse JSON response: {e}")
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5701:src\llm\gemini_client.py:210:            raise ValueError(f"Invalid JSON response: {e}")
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5702:src\llm\gemini_client.py:234:You must respond with JSON that matches this exact schema:
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5703:src\llm\gemini_client.py:306:            # Test 3: JSON generation
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5704:src\llm\gemini_client.py:307:            print("\n[TEST 3] JSON generation...")
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5705:src\llm\gemini_client.py:309:                "Return a JSON object with keys 'name' and 'value'. Name should be 'test' and value should be 42."
+.\outputs\codex_findings\m48_code_audit\_codex_stdout.txt:5706:src\llm\gemini_client.py:313:            print(f"  [PASS] JSON: {json_response}")
+.\outputs\codex_findings\m9_v2_review\codex_stdout.log:1758:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m9_v2_review\codex_stdout.log:2654:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m6_v2_review\codex_stdout.log:217:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m6_v2_review\codex_stdout.log:1111:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m8_v3_review\codex_stdout.log:130:.\src\llm\gemini_client.py:275:    """Get the singleton Gemini client."""
+.\outputs\codex_findings\m8_v3_review\codex_stdout.log:243:.\src\llm\gemini_client.py:275:    """Get the singleton Gemini client."""
+.\outputs\codex_findings\md11_phase1_review\codex_stdout.log:126:src\llm\gemini_client.py
+.\outputs\codex_findings\test_failure_triage_round2\codex_stdout.log:1203:.\src\llm\gemini_client.py:145:        loop = asyncio.get_event_loop()
+.\outputs\codex_findings\test_failure_triage_round2\codex_stdout.log:1204:.\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\md2_llm_round3\codex_stdout.log:135:.\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\md2_llm_round3\codex_stdout.log:417:.\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\md2_llm_round3\codex_stdout.log:1177:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_llm_round3\codex_stdout.log:1777:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_llm_round5\codex_stdout.log:1931:.\src\llm\gemini_client.py
+.\outputs\codex_findings\test_failure_triage_review\codex_stdout.log:2839:C:\POLARIS\src\llm\gemini_client.py:145:        loop = asyncio.get_event_loop()
+.\outputs\codex_findings\test_failure_triage_review\codex_stdout.log:2840:C:\POLARIS\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:1300:.\src\llm\gemini_client.py:86:            raise ValueError("GEMINI_API_KEY not configured")
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:1301:.\src\llm\gemini_client.py:210:            raise ValueError(f"Invalid JSON response: {e}")
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:1302:.\src\llm\gemini_client.py:325:        except ValueError as e:
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:2212:src\llm\gemini_client.py
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:2701:src\llm\gemini_client.py:86:            raise ValueError("GEMINI_API_KEY not configured")
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:2702:src\llm\gemini_client.py:210:            raise ValueError(f"Invalid JSON response: {e}")
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:2703:src\llm\gemini_client.py:325:        except ValueError as e:
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:4093:src\llm\gemini_client.py:86:            raise ValueError("GEMINI_API_KEY not configured")
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:4094:src\llm\gemini_client.py:210:            raise ValueError(f"Invalid JSON response: {e}")
+.\outputs\codex_findings\md2_llm_round2\codex_stdout.log:4095:src\llm\gemini_client.py:325:        except ValueError as e:
+.\outputs\codex_findings\md2_llm_review\codex_stdout.log:324:.\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\md2_llm_review\codex_stdout.log:729:.\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\md2_llm_round4\codex_stdout.log:2747:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_llm_round4\codex_stdout.log:3583:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_llm_round4\codex_stdout.log:10123:src\llm\gemini_client.py:39:from src.utils.cost_tracker import get_cost_tracker, BudgetExceededError
+.\outputs\codex_findings\md2_llm_round4\codex_stdout.log:10124:src\llm\gemini_client.py:168:        except BudgetExceededError:
+.\outputs\codex_findings\md2_stub_round4\codex_stdout.log:799:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_stub_round4\codex_stdout.log:1973:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_stub_round2\codex_stdout.log:607:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md2_stub_round2\codex_stdout.log:1781:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md9_phase2_v3_review\codex_stdout.log:377:src\llm\gemini_client.py
+.\outputs\codex_findings\m_live_2_v2_review\codex_stdout.log:5020:.\src\llm\gemini_client.py:146:        response = await loop.run_in_executor(
+.\outputs\codex_findings\m_live_2_v2_review\codex_stdout.log:5021:.\src\llm\gemini_client.py:289:    async def run_tests():
+.\outputs\codex_findings\m_live_2_v2_review\codex_stdout.log:5022:.\src\llm\gemini_client.py:330:    asyncio.run(run_tests())
+.\outputs\codex_findings\m_prod_1_v3_review\codex_stdout.log:4731:.\src\llm\gemini_client.py
+.\outputs\codex_findings\md9_phase1_review\codex_stdout.log:1256:src\llm\gemini_client.py:166:            # Check budget after each call
+.\outputs\codex_findings\md9_phase1_review\codex_stdout.log:1257:src\llm\gemini_client.py:167:            cost_tracker.check_budget()
+.\outputs\codex_findings\m_prod_1_v2_review\codex_stdout.log:648:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m_prod_1_v2_review\codex_stdout.log:2103:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:1154:.\src\llm\gemini_client.py:32:    stop_after_attempt,
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:1155:.\src\llm\gemini_client.py:117:        stop=stop_after_attempt(3),
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:1156:.\src\llm\gemini_client.py:166:            # Check budget after each call
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:4309:src\llm\gemini_client.py:32:    stop_after_attempt,
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:4310:src\llm\gemini_client.py:117:        stop=stop_after_attempt(3),
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:4311:src\llm\gemini_client.py:166:            # Check budget after each call
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:7240:src\llm\gemini_client.py:64:        api_key: Optional[str] = None,
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:7241:src\llm\gemini_client.py:73:            api_key: Gemini API key (or from config/env)
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:7242:src\llm\gemini_client.py:80:        self.api_key = api_key or config.env.gemini_api_key
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:7243:src\llm\gemini_client.py:85:        if not self.api_key:
+.\outputs\codex_findings\m_live_3_v2_review\codex_stdout.log:7244:src\llm\gemini_client.py:89:        genai.configure(api_key=self.api_key)
+.\outputs\codex_findings\m_prod_4_v3_review\codex_stdout.log:806:.\src\llm\gemini_client.py:256:            "estimated_cost_usd": self._estimate_cost(),
+.\outputs\codex_findings\m_prod_4_v3_review\codex_stdout.log:1719:.\src\llm\gemini_client.py:256:            "estimated_cost_usd": self._estimate_cost(),
+.\outputs\codex_findings\m_prod_4_v1_review\codex_stdout.log:2810:src\llm\gemini_client.py:112:            "generativelanguage.googleapis.com",
+.\outputs\codex_findings\m_prod_4_v1_review\codex_stdout.log:6851:src\llm\gemini_client.py:112:            "generativelanguage.googleapis.com",
+.\outputs\codex_findings\m_prod_4_v1_review\codex_stdout.log:12351:src\llm\gemini_client.py:112:            "generativelanguage.googleapis.com",
+.\outputs\codex_findings\m_prod_4_v2_review\codex_stdout.log:1624:.\src\llm\gemini_client.py
+.\outputs\codex_findings\m_prod_4_v2_review\codex_stdout.log:2896:.\src\llm\gemini_client.py:261:        # Gemini 2.5 Flash pricing (approximate)
+.\outputs\audits\I-cd-010\claude_audit.md:53:| 3 | **APPROVE** | novel_p0=0 / continuing_p0=0 / p1=0; 2 P2 explicitly `accept_remaining` (gemini_client.py + live_deepseek_generator.py docstrings — non-blocking pipeline-C / no client-config default stale) |
+.\outputs\audits\I-cd-010\claude_audit.md:88:- `src/llm/gemini_client.py` + `src/llm/__init__.py` Gemini-package docstrings — Codex iter-3 P2 non-blocking (pipeline-C legacy).
+.\outputs\audits\v25\_codex_plan_pass3_stdout.txt:3215:src\llm\gemini_client.py:109:    async def _wait_for_rate_limit(self) -> None:
+.\outputs\audits\v25\_codex_plan_pass3_stdout.txt:3216:src\llm\gemini_client.py:121:    async def generate(
+.\outputs\audits\v25\_codex_plan_pass3_stdout.txt:3217:src\llm\gemini_client.py:174:    async def generate_json(
+.\outputs\audits\v25\_codex_plan_pass3_stdout.txt:3218:src\llm\gemini_client.py:212:    async def generate_structured(
+.\outputs\audits\v25\_codex_plan_pass3_stdout.txt:3219:src\llm\gemini_client.py:289:    async def run_tests():
+.\state\polaris_restart\iteration_trajectory.md:645:- p2: 2 (gemini_client.py docstrings + live_deepseek_generator.py V3.2 comments — both non-blocking pipeline-C)
+.\src\utils\atomic_decomposer.py:133:                from src.llm.gemini_client import GeminiClient
+.\outputs\audits\I-carney-005\claude_audit.md:42:- `Dockerfile.v6` sed-strips `google-generativeai` + `protobuf<` from requirements.txt before install. Verified `grep -rln "from src.llm.gemini_client\|atomic_decomposer" scripts/ src/polaris_v6 src/polaris_graph` returns no consumers — only pipeline-C-frozen code imports it.
+.\outputs\audits\I-modref-002\claude_audit.md:11:would break the file's only LLM consumer `src/llm/gemini_client.py` (a
+.\outputs\audits\I-modref-002\claude_audit.md:19:  (`load_models()`), `src/llm/gemini_client.py`,
+.\outputs\audits\I-modref-002\claude_audit.md:39:`src.config.core` nor `src.llm.gemini_client` → models.yaml is genuinely
+.\src\llm\__init__.py:13:from src.llm.gemini_client import GeminiClient, get_gemini_client
+.\src\llm\__init__.py:31:    "get_gemini_client",
+.\src\llm\gemini_client.py:11:    from src.llm.gemini_client import GeminiClient, get_gemini_client
+.\src\llm\gemini_client.py:13:    client = get_gemini_client()
+.\src\llm\gemini_client.py:28:import google.generativeai as genai
+.\src\llm\gemini_client.py:271:_gemini_client: Optional[GeminiClient] = None
+.\src\llm\gemini_client.py:274:def get_gemini_client() -> GeminiClient:
+.\src\llm\gemini_client.py:276:    global _gemini_client
+.\src\llm\gemini_client.py:277:    if _gemini_client is None:
+.\src\llm\gemini_client.py:278:        _gemini_client = GeminiClient()
+.\src\llm\gemini_client.py:279:    return _gemini_client
+rg: .\codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: .\codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: .\mode700_probe: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+
+codex
+The first pass confirms the dependency conflict shape, but `gemini_client.py` is not completely isolated: `src/llm/__init__.py` imports it at package import, and `src/utils/atomic_decomposer.py` has a local import. I’m narrowing that to active source paths, ignoring audit/output logs.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"gemini_client|GeminiClient|get_gemini_client|google\\.generativeai|src\\.llm|atomic_decomposer|AtomicDecomposer\" src scripts tests Dockerfile.v6 config -g \""'!*__pycache__*"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\llm\\__init__.py -TotalCount 120" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\utils\\atomic_decomposer.py -TotalCount 240" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path Dockerfile.v6 -TotalCount 100' in C:\POLARIS
+ succeeded in 1355ms:
+Dockerfile.v6:43:# src/llm/gemini_client.py + src/utils/atomic_decomposer.py import it,
+tests\integration\test_sota_compliance.py:89:            from src.llm.deberta_client import DeBERTaClient
+config\settings\models.yaml:7:# src/llm/gemini_client.py, src/utils/atomic_decomposer.py (GeminiClient
+config\settings\models.yaml:14:# or scripts/ imports src.config.core or src.llm.gemini_client.
+src\utils\atomic_decomposer.py:62:class AtomicDecomposer:
+src\utils\atomic_decomposer.py:125:            from src.llm.kimi_client import KIMIClient
+src\utils\atomic_decomposer.py:128:            logger.info("AtomicDecomposer initialized with KIMI client")
+src\utils\atomic_decomposer.py:133:                from src.llm.gemini_client import GeminiClient
+src\utils\atomic_decomposer.py:134:                self.llm_client = GeminiClient()
+src\utils\atomic_decomposer.py:136:                logger.info("AtomicDecomposer initialized with Gemini client")
+src\utils\atomic_decomposer.py:364:    decomposer = AtomicDecomposer(use_heuristic_fallback=True)
+src\utils\atomic_decomposer.py:382:_default_decomposer: Optional[AtomicDecomposer] = None
+src\utils\atomic_decomposer.py:385:def get_decomposer() -> AtomicDecomposer:
+src\utils\atomic_decomposer.py:389:        _default_decomposer = AtomicDecomposer()
+tests\unit\test_critical_fixes.py:25:        from src.llm.deberta_client import (
+tests\unit\test_critical_fixes.py:32:        with patch('src.llm.deberta_client._load_model', return_value=False):
+tests\unit\test_critical_fixes.py:40:        from src.llm.deberta_client import (
+tests\unit\test_critical_fixes.py:45:        with patch('src.llm.deberta_client._load_model', return_value=False):
+tests\unit\test_critical_fixes.py:53:        from src.llm.deberta_client import (
+tests\unit\test_critical_fixes.py:58:        with patch('src.llm.deberta_client._load_model', return_value=False):
+tests\unit\test_critical_fixes.py:64:        from src.llm.deberta_client import validate_nli_available
+tests\unit\test_critical_fixes.py:66:        with patch('src.llm.deberta_client._load_model', return_value=True):
+tests\unit\test_critical_fixes.py:72:        import src.llm.deberta_client as deberta_module
+tests\unit\test_critical_fixes.py:79:        """NLIModelUnavailableError must be exported from src.llm."""
+tests\unit\test_critical_fixes.py:80:        from src.llm import NLIModelUnavailableError
+tests\unit\test_critical_fixes.py:86:        """validate_nli_available must be exported from src.llm."""
+tests\unit\test_critical_fixes.py:87:        from src.llm import validate_nli_available
+tests\unit\test_critical_fixes.py:100:        from src.llm.deberta_client import predict_nli
+tests\unit\test_critical_fixes.py:116:            with patch('src.llm.deberta_client._load_model', return_value=True), \
+tests\unit\test_critical_fixes.py:117:                 patch('src.llm.deberta_client._model', mock_model), \
+tests\unit\test_critical_fixes.py:118:                 patch('src.llm.deberta_client._tokenizer', mock_tokenizer), \
+tests\unit\test_critical_fixes.py:119:                 patch('src.llm.deberta_client._model_available', True):
+tests\unit\test_critical_fixes.py:137:        from src.llm import deberta_client
+scripts\pg_sota_smoke_test.py:162:    """C1: AtomicDecomposer initialization code present."""
+scripts\pg_sota_smoke_test.py:165:    if "_init_atomic_decomposer" in text and "AtomicDecomposer" in text:
+scripts\pg_sota_smoke_test.py:166:        record("C1", "AtomicDecomposer init code", PASS, "Method and import found")
+scripts\pg_sota_smoke_test.py:168:        record("C1", "AtomicDecomposer init code", FAIL, "Missing init method or import")
+tests\unit\test_real_factscore.py:4:Tests the dispatch between real and heuristic FactScore, AtomicDecomposer
+tests\unit\test_real_factscore.py:42:    agent._atomic_decomposer = MagicMock()
+tests\unit\test_real_factscore.py:68:    agent._atomic_decomposer = MagicMock()
+tests\unit\test_real_factscore.py:94:    agent._atomic_decomposer = None
+tests\unit\test_real_factscore.py:119:    agent._atomic_decomposer = None
+tests\unit\test_real_factscore.py:146:    from src.utils.atomic_decomposer import AtomicDecomposer, DecompositionResult, AtomicFact
+tests\unit\test_real_factscore.py:151:    mock_decomposer = MagicMock(spec=AtomicDecomposer)
+tests\unit\test_real_factscore.py:160:    agent._atomic_decomposer = mock_decomposer
+tests\unit\test_real_factscore.py:181:    from src.utils.atomic_decomposer import AtomicDecomposer, DecompositionResult, AtomicFact
+tests\unit\test_real_factscore.py:193:    mock_decomposer = MagicMock(spec=AtomicDecomposer)
+tests\unit\test_real_factscore.py:202:    agent._atomic_decomposer = mock_decomposer
+tests\unit\test_real_factscore.py:230:    from src.utils.atomic_decomposer import AtomicDecomposer
+tests\unit\test_real_factscore.py:235:    mock_decomposer = MagicMock(spec=AtomicDecomposer)
+tests\unit\test_real_factscore.py:237:    agent._atomic_decomposer = mock_decomposer
+tests\unit\test_real_factscore.py:251:# Test 8: _init_atomic_decomposer respects feature flag
+tests\unit\test_real_factscore.py:255:def test_init_atomic_decomposer_disabled():
+tests\unit\test_real_factscore.py:260:    agent._atomic_decomposer = None
+tests\unit\test_real_factscore.py:263:        agent._init_atomic_decomposer()
+tests\unit\test_real_factscore.py:265:    assert agent._atomic_decomposer is None
+tests\unit\test_real_factscore.py:268:def test_init_atomic_decomposer_enabled():
+tests\unit\test_real_factscore.py:273:    agent._atomic_decomposer = None
+tests\unit\test_real_factscore.py:276:        agent._init_atomic_decomposer()
+tests\unit\test_real_factscore.py:278:    assert agent._atomic_decomposer is not None
+tests\unit\test_real_factscore.py:318:    from src.utils.atomic_decomposer import AtomicDecomposer, DecompositionResult, AtomicFact
+tests\unit\test_real_factscore.py:323:    mock_decomposer = MagicMock(spec=AtomicDecomposer)
+tests\unit\test_real_factscore.py:332:    agent._atomic_decomposer = mock_decomposer
+src\llm\__init__.py:8:- GeminiClient: Gemini API for generation (FALLBACK)
+src\llm\__init__.py:12:from src.llm.kimi_client import KimiClient, get_kimi_client, reset_kimi_clients
+src\llm\__init__.py:13:from src.llm.gemini_client import GeminiClient, get_gemini_client
+src\llm\__init__.py:14:from src.llm.deberta_client import (
+src\llm\__init__.py:22:from src.llm.factory import get_llm, LLMWrapper, reset_llm
+src\llm\__init__.py:30:    "GeminiClient",
+src\llm\__init__.py:31:    "get_gemini_client",
+src\llm\kimi_client.py:20:    from src.llm.kimi_client import KimiClient, get_kimi_client
+src\llm\gemini_client.py:11:    from src.llm.gemini_client import GeminiClient, get_gemini_client
+src\llm\gemini_client.py:13:    client = get_gemini_client()
+src\llm\gemini_client.py:28:import google.generativeai as genai
+src\llm\gemini_client.py:51:class GeminiClient:
+src\llm\gemini_client.py:271:_gemini_client: Optional[GeminiClient] = None
+src\llm\gemini_client.py:274:def get_gemini_client() -> GeminiClient:
+src\llm\gemini_client.py:276:    global _gemini_client
+src\llm\gemini_client.py:277:    if _gemini_client is None:
+src\llm\gemini_client.py:278:        _gemini_client = GeminiClient()
+src\llm\gemini_client.py:279:    return _gemini_client
+src\llm\gemini_client.py:297:            client = GeminiClient()
+src\agents\base_agent.py:39:    from src.llm.kimi_client import KimiClient
+src\agents\auditor_agent.py:176:        # AtomicDecomposer for real FactScore (BUG-069 fix)
+src\agents\auditor_agent.py:177:        self._atomic_decomposer = None
+src\agents\auditor_agent.py:178:        self._init_atomic_decomposer()
+src\agents\auditor_agent.py:221:    def _init_atomic_decomposer(self):
+src\agents\auditor_agent.py:222:        """Initialize AtomicDecomposer for real FactScore (BUG-069 fix).
+src\agents\auditor_agent.py:236:            from src.utils.atomic_decomposer import AtomicDecomposer
+src\agents\auditor_agent.py:237:            self._atomic_decomposer = AtomicDecomposer(
+src\agents\auditor_agent.py:241:            logger.info("[FIX-BUG069] AtomicDecomposer initialized for real FactScore")
+src\agents\auditor_agent.py:244:                "[FIX-BUG069] AtomicDecomposer import failed: %s — "
+src\agents\auditor_agent.py:249:                "[FIX-BUG069] AtomicDecomposer init failed: %s — "
+src\agents\auditor_agent.py:500:        state["factscore_method"] = "real_llm" if (_use_real and self._atomic_decomposer) else "heuristic"
+src\agents\auditor_agent.py:748:        if use_real and self._atomic_decomposer is not None:
+src\agents\auditor_agent.py:801:        1. Decompose each sentence into atomic facts via AtomicDecomposer
+src\agents\auditor_agent.py:819:                result = self._atomic_decomposer._heuristic_decompose(audit.sentence)
+src\agents\auditor_agent.py:834:                result = self._atomic_decomposer._heuristic_decompose(audit.sentence)
+src\agents\auditor_agent.py:1520:            from src.llm.kimi_client import get_kimi_client
+src\polaris_graph\schemas.py:443:        Pattern from atomic_decomposer.py:204.
+
+ succeeded in 1424ms:
+"""
+POLARIS LLM Clients
+===================
+Language model integrations for generation and reasoning.
+
+Includes:
+- KimiClient: KIMI K2.5 via Fireworks AI (PRIMARY - thinking mode support)
+- GeminiClient: Gemini API for generation (FALLBACK)
+- DeBERTaNLI: Local DeBERTa model for NLI (FREE)
+"""
+
+from src.llm.kimi_client import KimiClient, get_kimi_client, reset_kimi_clients
+from src.llm.gemini_client import GeminiClient, get_gemini_client
+from src.llm.deberta_client import (
+    DeBERTaNLI,
+    predict_nli,
+    predict_nli_batch,
+    is_available as deberta_available,
+    validate_nli_available,
+    NLIModelUnavailableError,
+)
+from src.llm.factory import get_llm, LLMWrapper, reset_llm
+
+__all__ = [
+    # Primary LLM (KIMI K2.5)
+    "KimiClient",
+    "get_kimi_client",
+    "reset_kimi_clients",
+    # Fallback LLM (Gemini)
+    "GeminiClient",
+    "get_gemini_client",
+    # NLI
+    "DeBERTaNLI",
+    "predict_nli",
+    "predict_nli_batch",
+    "deberta_available",
+    "validate_nli_available",
+    "NLIModelUnavailableError",
+    # Factory
+    "get_llm",
+    "LLMWrapper",
+    "reset_llm",
+]
+
+ succeeded in 1632ms:
+# I-carney-005 — POLARIS v6 backend image (api + worker share this image).
+#
+# Single image, two entrypoint commands:
+#   api    → uvicorn polaris_v6.api.app:app
+#   worker → dramatiq polaris_v6.queue.actors
+#
+# Pipeline B legacy image (Dockerfile + docker_entrypoint.sh + docker-compose.yml)
+# stays untouched per I-carney-005 acceptance criterion 8.
+
+# I-bug-112: pin to bookworm. `python:3.11-slim` floated to Debian trixie
+# (13), where `libgdk-pixbuf2.0-0` was renamed `libgdk-pixbuf-2.0-0` and the
+# apt block below fails with "no installation candidate" (exit 100). Pinning
+# the suite keeps the base deterministic + all current apt package names valid.
+FROM python:3.11-slim-bookworm
+
+# System deps:
+#   gnupg          — GPG signing of audit bundles
+#   curl           — healthcheck + diagnostic
+#   build-essential — wheel builds for pipeline-A native deps
+#   libpango/cairo + libffi/gdk-pixbuf — WeasyPrint (pipeline-A PDF export)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gnupg \
+    curl \
+    build-essential \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libgdk-pixbuf2.0-0 \
+    libffi-dev \
+    libcairo2 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install BOTH requirement files (P1-002 from Codex iter-2 brief):
+#   requirements.txt    — pipeline-A surface (langchain, numpy, openai,
+#                          aiohttp, python-gnupg, ...)
+#   requirements-v6.txt — v6 spine (fastapi, dramatiq, redis-py, OTLP, ...)
+#
+# Codex diff iter-1 P1-A: requirements.txt pins protobuf<5.0.0 because of
+# google-generativeai's transitive constraint; requirements-v6.txt pins
+# protobuf==6.33.6 for OTLP semconv. Conflict resolution: strip google-
+# generativeai (pipeline-C dead code per src/orchestration/FROZEN; only
+# src/llm/gemini_client.py + src/utils/atomic_decomposer.py import it,
+# neither reachable from pipeline-A or v6 backend) AND its protobuf<5
+# constraint from the v6 image only. Pipeline-B's separate `Dockerfile`
+# is untouched and retains both deps.
+COPY requirements.txt requirements-v6.txt requirements.lock ./
+# I-cd-001 / #494: install from the deterministic uv-compiled lockfile — no
+# build-time resolver runaway. requirements.lock is compiled from the v6
+# surface: requirements.txt minus google-generativeai + protobuf< (pipeline-C
+# dead code; its protobuf<5 constraint conflicts with v6's protobuf==6.33.6)
+# plus requirements-v6.txt. requirements.txt + requirements-v6.txt stay COPY'd
+# as the lock's provenance / source of truth.
+RUN pip install --no-cache-dir -r requirements.lock
+
+# Copy application code.
+COPY src/ src/
+COPY scripts/ scripts/
+COPY config/ config/
+COPY architecture.md ground_rules.md ./
+
+# PYTHONPATH so `from polaris_v6...` and `from polaris_graph...` resolve
+# without --app-dir flag (P2 from Codex iter-1 approved).
+ENV PYTHONPATH=/app/src:/app
+
+# Default broker URL points to the compose service `redis`. Override at
+# `docker run` / compose time with POLARIS_V6_REDIS_URL.
+ENV POLARIS_V6_REDIS_URL=redis://redis:6379/0
+
+# Dedicated writable GPG homedir (P1-006 from Codex iter-1).
+# `docker-compose.v6.yml` bind-mounts the operator's host keyring here.
+ENV GNUPGHOME=/app/gpg
+RUN mkdir -p /app/gpg && chmod 700 /app/gpg
+
+RUN mkdir -p /app/outputs /app/logs /app/state /app/data
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -fsS http://localhost:8000/health || exit 1
+
+COPY scripts/v6_entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["api"]
+
+ succeeded in 1817ms:
+"""
+POLARIS SOTA Validation Framework - LLM-Based Atomic Fact Decomposition
+
+Created: 2026-02-05
+Purpose: Replace heuristic atom counting with real LLM decomposition per Min et al. 2023
+
+This module implements proper atomic fact decomposition for honest FactScore calculation.
+Unlike the heuristic in auditor_agent.py:737-766 which counts conjunctions and numbers,
+this uses an LLM to semantically decompose sentences into verifiable atomic claims.
+
+Reference: Min et al. 2023 - "FacTool: Factuality Detection in Generative AI"
+"""
+
+import os
+import logging
+import asyncio
+from typing import List, Optional, Dict, Any
+from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class AtomicFact:
+    """A single atomic fact extracted from a sentence."""
+
+    fact: str
+    """The atomic fact statement."""
+
+    source_sentence: str
+    """The original sentence this fact was extracted from."""
+
+    fact_type: str = "claim"
+    """Type of fact: 'claim', 'definition', 'statistic', 'comparison'."""
+
+    verifiable: bool = True
+    """Whether this fact can be independently verified."""
+
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    """Additional metadata about the fact."""
+
+
+@dataclass
+class DecompositionResult:
+    """Result of atomic decomposition for a sentence."""
+
+    original_sentence: str
+    """The original sentence that was decomposed."""
+
+    atomic_facts: List[AtomicFact]
+    """List of atomic facts extracted."""
+
+    decomposition_method: str = "llm"
+    """Method used: 'llm' or 'heuristic' (fallback)."""
+
+    confidence: float = 1.0
+    """Confidence in the decomposition quality."""
+
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+class AtomicDecomposer:
+    """
+    LLM-based atomic fact decomposition for honest FactScore calculation.
+
+    Per Min et al. 2023, atomic facts are:
+    - Single, indivisible claims
+    - Can be verified independently
+    - Do not contain conjunctions that combine separate claims
+    - Each represents one piece of verifiable information
+
+    Example:
+        Input: "The iPhone 15 Pro costs $999 and has a titanium frame."
+        Output: [
+            "The iPhone 15 Pro costs $999.",
+            "The iPhone 15 Pro has a titanium frame."
+        ]
+    """
+
+    DECOMPOSITION_PROMPT = """Extract all atomic facts from this sentence.
+
+An atomic fact is:
+1. A single, indivisible claim that can be verified independently
+2. Contains exactly ONE piece of verifiable information
+3. Does not combine multiple claims with 'and', 'or', 'but', etc.
+
+Rules:
+- Split compound sentences into separate atomic facts
+- Preserve the meaning and context of each fact
+- Each fact should be a complete, standalone statement
+- Include implicit facts when they contain verifiable information
+- Exclude opinions, predictions, and speculation UNLESS they are attributed
+
+Sentence: {sentence}
+
+Extract atomic facts (one per line, no numbering):"""
+
+    def __init__(
+        self,
+        llm_client: Optional[Any] = None,
+        use_heuristic_fallback: bool = True,
+        max_facts_per_sentence: int = 10,
+    ):
+        """
+        Initialize the atomic decomposer.
+
+        Args:
+            llm_client: LLM client for decomposition. If None, will attempt to load.
+            use_heuristic_fallback: If True, fall back to heuristic if LLM fails.
+            max_facts_per_sentence: Maximum atomic facts to extract per sentence.
+        """
+        self.llm_client = llm_client
+        self.use_heuristic_fallback = use_heuristic_fallback
+        self.max_facts_per_sentence = max_facts_per_sentence
+        self._initialized = False
+
+    async def initialize(self) -> bool:
+        """Initialize LLM client if not provided."""
+        if self.llm_client is not None:
+            self._initialized = True
+            return True
+
+        try:
+            # Try to import KIMI client (primary)
+            from src.llm.kimi_client import KIMIClient
+            self.llm_client = KIMIClient()
+            self._initialized = True
+            logger.info("AtomicDecomposer initialized with KIMI client")
+            return True
+        except ImportError:
+            try:
+                # Fallback to Gemini
+                from src.llm.gemini_client import GeminiClient
+                self.llm_client = GeminiClient()
+                self._initialized = True
+                logger.info("AtomicDecomposer initialized with Gemini client")
+                return True
+            except ImportError:
+                logger.warning("No LLM client available for atomic decomposition")
+                self._initialized = False
+                return False
+
+    async def decompose(self, sentence: str) -> DecompositionResult:
+        """
+        Decompose a sentence into atomic facts.
+
+        Args:
+            sentence: The sentence to decompose.
+
+        Returns:
+            DecompositionResult with extracted atomic facts.
+        """
+        if not self._initialized:
+            await self.initialize()
+
+        # Try LLM decomposition first
+        if self._initialized and self.llm_client is not None:
+            try:
+                return await self._llm_decompose(sentence)
+            except Exception as e:
+                logger.warning(f"LLM decomposition failed: {e}")
+                if not self.use_heuristic_fallback:
+                    raise
+
+        # Fallback to heuristic
+        if self.use_heuristic_fallback:
+            return self._heuristic_decompose(sentence)
+
+        raise RuntimeError("LLM decomposition failed and heuristic fallback disabled")
+
+    async def _llm_decompose(self, sentence: str) -> DecompositionResult:
+        """Decompose using LLM."""
+        prompt = self.DECOMPOSITION_PROMPT.format(sentence=sentence)
+
+        # Call LLM
+        response = await self.llm_client.generate(
+            prompt=prompt,
+            max_tokens=500,
+            temperature=0.0,  # Deterministic for consistency
+        )
+
+        # Parse response into atomic facts
+        facts = []
+        lines = response.strip().split('\n')
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            # Skip numbering prefixes like "1.", "- ", "* "
+            if line[0].isdigit() and len(line) > 2 and line[1] in '.):':
+                line = line[2:].strip()
+            elif line[0] in '-*':
+                line = line[1:].strip()
+
+            if len(line) > 10:  # Minimum meaningful fact length
+                facts.append(AtomicFact(
+                    fact=line,
+                    source_sentence=sentence,
+                    fact_type=self._classify_fact(line),
+                ))
+
+        # Cap at maximum
+        facts = facts[:self.max_facts_per_sentence]
+
+        # Ensure at least one fact (the sentence itself if decomposition failed)
+        if not facts:
+            facts = [AtomicFact(
+                fact=sentence,
+                source_sentence=sentence,
+                fact_type="claim",
+            )]
+
+        return DecompositionResult(
+            original_sentence=sentence,
+            atomic_facts=facts,
+            decomposition_method="llm",
+            confidence=0.9 if len(facts) > 1 else 0.7,
+        )
+
+    def _heuristic_decompose(self, sentence: str) -> DecompositionResult:
+        """
+        Fallback heuristic decomposition.
+
+        This is similar to the original _estimate_atom_count but actually
+        attempts to split the sentence rather than just count.
+        """
+        import re
+
+        facts = []
+
+        # Split on conjunctions
+        conjunctions = [' and ', ' but ', ' while ', ' whereas ', ' however ', '; ']
+        parts = [sentence]
+
+        for conj in conjunctions:
+            new_parts = []
+            for part in parts:
+                splits = part.split(conj)
+                new_parts.extend(splits)
+
+codex
+The active source search shows Gemini is “legacy but still eager-imported”: even `from src.llm.deberta_client ...` executes `src/llm/__init__.py`, which currently imports `gemini_client.py`. That means dropping the dependency alone is not clean unless the eager package export is fixed or proven irrelevant to the gate scope.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"class KIMIClient|class KimiClient|KIMIClient\\s*=|KimiClient\\s*=\" src\\llm\\kimi_client.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path requirements.txt -TotalCount 190' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "FROZEN|pipeline-C|pipeline C|gemini|google-generativeai" src Dockerfile* docs config -g "!*__pycache__*"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path config\\settings\\models.yaml -TotalCount 80" in C:\POLARIS
+ succeeded in 1393ms:
+66:class KimiClient:
+
+2026-05-21T07:52:07.752902Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.6 seconds
+Output:
+src\agents\analyst_agent.py:553:        # FIX 36 (Gemini Audit): HARDCODE Analyst to "simple" tier (gemini-2.5-flash)
+src\agents\analyst_agent.py:585:            # I-cd-010 / GH#625: pipeline-C frozen — KIMI K2.5 hardcoding intentional
+src\agents\analyst_agent.py:605:            # I-cd-010 / GH#625: pipeline-C frozen — Gemini fallback per CLAUDE.md §5.
+src\agents\analyst_agent.py:608:            forced_model = "gemini-2.5-flash"
+src\agents\analyst_agent.py:614:                google_api_key=global_config.env.gemini_api_key,
+docs\benchmark\scoring_rubric.md:145:    aggregate[gemini_3_1_pro_dr][template=t]
+config\sota_baselines.json:15:    "gemini_3_pro_preview": {
+config\sota_baselines.json:55:        "gemini_deep_research": 48.88,
+config\sota_baselines.json:61:        "gemini_deep_research": 92.4,
+config\sota_baselines.json:67:        "gemini_deep_research": 85,
+config\sota_baselines.json:74:        "gemini_deep_research": 0.89,
+config\sota_baselines.json:86:    "gemini_deep_research": {
+config\sota_baselines.json:114:      "gemini_deep_research": {"min": 5, "max": 10, "median": 7},
+config\sota_baselines.json:119:      "gemini_deep_research": {"min": 80, "max": 150, "typical": 100},
+config\sota_baselines.json:124:      "gemini_deep_research": {"min": 80, "max": 160, "typical": 100},
+src\agents\base_agent.py:158:            # I-cd-010 / GH#625: pipeline-C frozen — KIMI K2.5 hardcoding intentional
+src\agents\base_agent.py:217:            # I-cd-010 / GH#625: pipeline-C frozen — Gemini fallback per CLAUDE.md §5.
+src\agents\base_agent.py:218:            if GEMINI_AVAILABLE and global_config.env.gemini_api_key:
+src\agents\base_agent.py:219:                fallback_model = llm_config.fallback_model if llm_config.fallback_model else "gemini-2.5-flash"
+src\agents\base_agent.py:226:                    google_api_key=global_config.env.gemini_api_key,
+src\agents\base_agent.py:233:        elif GEMINI_AVAILABLE and global_config.env.gemini_api_key:
+src\agents\base_agent.py:246:                google_api_key=global_config.env.gemini_api_key,
+src\agents\base_agent.py:262:                    google_api_key=global_config.env.gemini_api_key,
+src\agents\base_agent.py:514:        Called when the primary model (gemini-3-pro-preview) hits quota limits.
+src\agents\base_agent.py:515:        Uses the fallback model (gemini-2.5-flash) as a degraded alternative.
+config\settings\concurrency.yaml:44:  gemini:
+src\agents\citefirst_synthesizer.py:4685:                # I-cd-010 / GH#625: pipeline-C frozen — KIMI K2.5 hardcoding intentional
+docs\carney_demo_runbook.md:281:- Pipeline-A only (pipeline-B legacy + pipeline-C frozen per architecture.md §5)
+config\settings\models.yaml:7:# src/llm/gemini_client.py, src/utils/atomic_decomposer.py (GeminiClient
+config\settings\models.yaml:14:# or scripts/ imports src.config.core or src.llm.gemini_client.
+config\settings\models.yaml:24:# Simple tasks: gemini-2.5-flash (fast, cost-effective)
+config\settings\models.yaml:25:# Important tasks: gemini-3-pro-preview (best reasoning)
+config\settings\models.yaml:26:# Note: gemini-2.0-flash deprecated March 31, 2026
+config\settings\models.yaml:31:  provider: gemini
+config\settings\models.yaml:35:  # gemini-2.5-flash: works with thinking_budget=0
+config\settings\models.yaml:36:  # gemini-3-pro-preview: REQUIRES thinking mode (budget must be > 0)
+config\settings\models.yaml:40:      model: gemini-2.5-flash
+config\settings\models.yaml:46:    # SPRINT 1 FIX 1.2: Restored gemini-3-pro-preview for best reasoning quality
+config\settings\models.yaml:47:    # v3 failed with gemini-2.5-pro (28% faithfulness) - gemini-3-pro needed for SOTA
+config\settings\models.yaml:52:      model: gemini-3-pro-preview
+config\settings\models.yaml:58:  model: gemini-2.5-flash
+config\settings\models.yaml:64:  # gemini-2.5-pro is the best available fallback for reasoning-heavy tasks
+config\settings\models.yaml:65:  # when gemini-3-pro-preview quota is exhausted (limit: 0 on current plan)
+config\settings\models.yaml:66:  fallback_provider: gemini
+config\settings\models.yaml:67:  fallback_model: gemini-2.5-pro
+config\settings\retry.yaml:24:  gemini:
+config\settings\sota_parameters.yaml:5:# - https://gemini.google/overview/deep-research/
+config\settings\sota_parameters.yaml:6:# - https://blog.google/products/gemini/deep-research-gemini-2-5-pro-experimental/
+docs\full_online_plan.md:79:**From V19 onward, stop criterion = V_N beats ChatGPT DR + Gemini 3.1 Pro DR head-to-head on the 7 BEAT-BOTH dimensions.** Competitor extracts at `state/compare_chatgpt_dr.txt` and `state/compare_gemini_dr.txt`. Has never run end-to-end against actual extracts.
+docs\full_online_plan.md:226:- Extract `state/compare_chatgpt_dr.txt` + `state/compare_gemini_dr.txt` into M-D9 manifest shape
+docs\file_directory.md:73:| `src/orchestration/` | 2026-03-16 | FROZEN — see `src/orchestration/FROZEN_SINCE_2026-03-16.md`. Pipeline C. |
+docs\file_directory.md:102:| `full_cycle.py` | Legacy CLI research driver (has broken imports) | C — FROZEN |
+docs\file_directory.md:247:  by `scripts/full_cycle.py` (pipeline C). Do not exist; pipeline C
+src\utils\cot_post_filter.py:286:        # I-cd-010 / GH#625: pipeline-C COT classifier legacy; not under
+src\utils\cost_tracker.py:22:    tracker.add_cost("gemini-2.5-flash", tokens_in=1000, tokens_out=500)
+src\utils\cost_tracker.py:50:    "gemini-3-flash": {
+src\utils\cost_tracker.py:54:    "gemini-3-pro": {
+src\utils\cost_tracker.py:58:    # FIX 24: Add preview variant — same pricing as gemini-3-pro
+src\utils\cost_tracker.py:61:    "gemini-3-pro-preview": {
+src\utils\cost_tracker.py:66:    "gemini-2.5-flash": {
+src\utils\cost_tracker.py:70:    "gemini-2.5-pro": {
+src\utils\cost_tracker.py:75:    "gemini-1.5-flash": {
+src\utils\cost_tracker.py:79:    "gemini-1.5-pro": {
+src\utils\cost_tracker.py:266:            model: Model name (e.g., "gemini-2.5-flash")
+src\utils\cost_tracker.py:449:    cost = tracker.add_cost("gemini-2.5-flash", tokens_in=1_000_000, tokens_out=100_000)
+src\utils\cost_tracker.py:482:    tracker3.add_cost("gemini-2.5-flash", tokens_in=100_000, tokens_out=10_000)
+src\utils\cost_tracker.py:493:    tracker4.add_cost("gemini-2.5-flash", tokens_in=100_000, tokens_out=50_000)
+src\utils\cost_tracker.py:510:            tracker5.add_cost("gemini-2.5-flash", tokens_in=1000, tokens_out=100)
+src\utils\atomic_decomposer.py:133:                from src.llm.gemini_client import GeminiClient
+src\state\cost_ledger.json:8:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:17:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:26:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:35:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:44:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:53:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:62:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:71:      "name": "gemini-2.5-flash",
+src\config\core.py:132:# I-cd-010 / GH#625: pipeline-C frozen — Gemini TierConfig + LLMConfig
+src\config\core.py:133:# defaults below (gemini-2.5-flash / gemini-3-pro-preview / provider=gemini)
+src\config\core.py:143:    model: str = "gemini-2.5-flash"
+src\config\core.py:152:        model="gemini-2.5-flash",
+src\config\core.py:158:        model="gemini-3-pro-preview",
+src\config\core.py:167:    provider: str = "gemini"
+src\config\core.py:168:    model: str = "gemini-2.5-flash"
+src\config\core.py:286:    gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
+src\llm\__init__.py:13:from src.llm.gemini_client import GeminiClient, get_gemini_client
+src\llm\__init__.py:31:    "get_gemini_client",
+src\llm\gemini_client.py:11:    from src.llm.gemini_client import GeminiClient, get_gemini_client
+src\llm\gemini_client.py:13:    client = get_gemini_client()
+src\llm\gemini_client.py:74:            model: Model name (default: gemini-3-flash from config)
+src\llm\gemini_client.py:80:        self.api_key = api_key or config.env.gemini_api_key
+src\llm\gemini_client.py:271:_gemini_client: Optional[GeminiClient] = None
+src\llm\gemini_client.py:274:def get_gemini_client() -> GeminiClient:
+src\llm\gemini_client.py:276:    global _gemini_client
+src\llm\gemini_client.py:277:    if _gemini_client is None:
+src\llm\gemini_client.py:278:        _gemini_client = GeminiClient()
+src\llm\gemini_client.py:279:    return _gemini_client
+src\orchestration\FROZEN_SINCE_2026-03-16.md:1:# FROZEN / RETIRING: `src/orchestration/` subsystem
+src\orchestration\FROZEN_SINCE_2026-03-16.md:13:The "pipeline C" research orchestration: LangGraph-based `run_research()`
+src\orchestration\FROZEN_SINCE_2026-03-16.md:45:   dispatches to pipeline C. The `research` subcommand now returns a
+src\orchestration\FROZEN_SINCE_2026-03-16.md:50:   pipeline C as FROZEN with a pointer to this file.
+src\orchestration\FROZEN_SINCE_2026-03-16.md:59:    - Remove pipeline C entirely from README + architecture.md +
+docs\runbook.md:141:See `src/orchestration/FROZEN_SINCE_2026-03-16.md` for the retire /
+src\polaris_graph\benchmark\report_renderer.py:78:        g = scoreboard.aggregate.gemini_mean.get(dim)
+src\polaris_graph\benchmark\report_renderer.py:110:        g = scoreboard.aggregate.gemini_mean.get(dim)
+src\polaris_graph\benchmark\report_renderer.py:142:  .system-gemini { background: #e8f0fe; }
+src\polaris_graph\benchmark\report_renderer.py:196:        g = scoreboard.aggregate.gemini_mean.get(dim)
+src\polaris_graph\benchmark\report_renderer.py:227:            g = q.gemini.by_dimension.get(dim)
+src\polaris_graph\benchmark\external_loader.py:11:    external_outputs/gemini/Q01_aspirin_migraine_efficacy.txt
+src\polaris_graph\benchmark\external_loader.py:64:        system_name: e.g. 'chatgpt' or 'gemini' — used for diagnostics.
+src\polaris_graph\benchmark\beat_both_scorer.py:6:(polaris_result, chatgpt_text, gemini_text) and assembles a Scoreboard
+src\polaris_graph\benchmark\beat_both_scorer.py:46:    system: str  # 'polaris' | 'chatgpt' | 'gemini'
+src\polaris_graph\benchmark\beat_both_scorer.py:59:    gemini: SystemScores
+src\polaris_graph\benchmark\beat_both_scorer.py:67:    gemini_mean: dict[DimensionName, float | None]
+src\polaris_graph\benchmark\beat_both_scorer.py:198:    gemini_text: str | None,
+src\polaris_graph\benchmark\beat_both_scorer.py:207:    gemini_dim_scores = _external_dimension_scores(
+src\polaris_graph\benchmark\beat_both_scorer.py:208:        external_text=gemini_text, question=question
+src\polaris_graph\benchmark\beat_both_scorer.py:217:        gemini=_to_system_scores("gemini", gemini_dim_scores, use_external=True),
+src\polaris_graph\benchmark\beat_both_scorer.py:249:        gemini_mean=_means_for("gemini"),
+src\polaris_graph\benchmark\beat_both_scorer.py:263:            g = q.gemini.by_dimension.get(dim)
+src\polaris_graph\benchmark\beat_both_scorer.py:292:    gemini_outputs: dict[str, str],
+src\polaris_graph\benchmark\beat_both_scorer.py:308:                gemini_text=gemini_outputs.get(question.question_id),
+src\polaris_graph\llm\openrouter_client.py:268:    "google/gemini":   (1.25, 5.00),
+src\polaris_graph\llm\openrouter_client.py:431:    "google-closed": ("google/gemini",),
+src\polaris_v6\benchmark\schema.py:12:    "gemini_3_1_pro_dr",
+docs\pipeline_audit_context\10_pass_3_b102_review.md:13:- `ddcd1d4` deep-dive R12 pipeline C retire decision
+docs\pipeline_audit_context\05_known_failure_modes.md:30:in `src/orchestration/FROZEN_SINCE_2026-03-16.md`.
+docs\pipeline_audit_context\09_pass_2_brief.md:25:| R12 | M-208 pipeline C retire | DECIDED (staged) | `ddcd1d4` |
+docs\pipeline_audit_context\08_env_var_inventory.md:376:| `PG_HALLUCINATION_DETECT_ENABLED` | `scripts/deep_gemini_verify.py:312` |
+docs\pipeline_audit_context\07_audit_brief_for_codex.md:26:12. Frozen subsystem disposition (`src/orchestration/`, pipeline C)
+docs\pipeline_audit_context\07_audit_brief_for_codex.md:122:- Do NOT audit pipeline C's internal code — just confirm it's broken
+docs\pipeline_audit_context\01_three_pipelines_map.md:5:frozen pipeline C).
+docs\pipeline_audit_context\01_three_pipelines_map.md:64:## Pipeline C — legacy CLI research (FROZEN since 2026-03-16)
+docs\pipeline_audit_context\01_three_pipelines_map.md:77:`src/orchestration/FROZEN_SINCE_2026-03-16.md` contains the
+docs\pipeline_audit_context\00_README.md:58:12. **Frozen subsystem disposition** — `src/orchestration/`, pipeline C,
+docs\pipeline_audit_context\00_README.md:80:- Do not review pipeline C code for quality beyond confirming the
+src\polaris_graph\audit_ir\competitor_manifest_extractor.py:217:                "gemini_dr", "claude_dr"
+src\polaris_graph\audit_bundle\bundle_schema.py:5:**FROZEN at v1.0 per I-cd-012 (GH#608) 2026-05-19.** Field additions,
+src\polaris_graph\audit_bundle\bundle_schema.py:142:    **FROZEN v1.0 per I-cd-012 (GH#608).** Field changes require the full
+src\polaris_graph\audit_bundle\REVIEWER_README.md:63:This bundle schema is **FROZEN at v1.0**. The `BundleManifest` Pydantic
+rg: Dockerfile*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+ exited 1 in 1618ms:
+src\agents\analyst_agent.py:553:        # FIX 36 (Gemini Audit): HARDCODE Analyst to "simple" tier (gemini-2.5-flash)
+src\agents\analyst_agent.py:585:            # I-cd-010 / GH#625: pipeline-C frozen — KIMI K2.5 hardcoding intentional
+src\agents\analyst_agent.py:605:            # I-cd-010 / GH#625: pipeline-C frozen — Gemini fallback per CLAUDE.md §5.
+src\agents\analyst_agent.py:608:            forced_model = "gemini-2.5-flash"
+src\agents\analyst_agent.py:614:                google_api_key=global_config.env.gemini_api_key,
+docs\benchmark\scoring_rubric.md:145:    aggregate[gemini_3_1_pro_dr][template=t]
+config\sota_baselines.json:15:    "gemini_3_pro_preview": {
+config\sota_baselines.json:55:        "gemini_deep_research": 48.88,
+config\sota_baselines.json:61:        "gemini_deep_research": 92.4,
+config\sota_baselines.json:67:        "gemini_deep_research": 85,
+config\sota_baselines.json:74:        "gemini_deep_research": 0.89,
+config\sota_baselines.json:86:    "gemini_deep_research": {
+config\sota_baselines.json:114:      "gemini_deep_research": {"min": 5, "max": 10, "median": 7},
+config\sota_baselines.json:119:      "gemini_deep_research": {"min": 80, "max": 150, "typical": 100},
+config\sota_baselines.json:124:      "gemini_deep_research": {"min": 80, "max": 160, "typical": 100},
+src\agents\base_agent.py:158:            # I-cd-010 / GH#625: pipeline-C frozen — KIMI K2.5 hardcoding intentional
+src\agents\base_agent.py:217:            # I-cd-010 / GH#625: pipeline-C frozen — Gemini fallback per CLAUDE.md §5.
+src\agents\base_agent.py:218:            if GEMINI_AVAILABLE and global_config.env.gemini_api_key:
+src\agents\base_agent.py:219:                fallback_model = llm_config.fallback_model if llm_config.fallback_model else "gemini-2.5-flash"
+src\agents\base_agent.py:226:                    google_api_key=global_config.env.gemini_api_key,
+src\agents\base_agent.py:233:        elif GEMINI_AVAILABLE and global_config.env.gemini_api_key:
+src\agents\base_agent.py:246:                google_api_key=global_config.env.gemini_api_key,
+src\agents\base_agent.py:262:                    google_api_key=global_config.env.gemini_api_key,
+src\agents\base_agent.py:514:        Called when the primary model (gemini-3-pro-preview) hits quota limits.
+src\agents\base_agent.py:515:        Uses the fallback model (gemini-2.5-flash) as a degraded alternative.
+config\settings\concurrency.yaml:44:  gemini:
+src\agents\citefirst_synthesizer.py:4685:                # I-cd-010 / GH#625: pipeline-C frozen — KIMI K2.5 hardcoding intentional
+docs\carney_demo_runbook.md:281:- Pipeline-A only (pipeline-B legacy + pipeline-C frozen per architecture.md §5)
+config\settings\models.yaml:7:# src/llm/gemini_client.py, src/utils/atomic_decomposer.py (GeminiClient
+config\settings\models.yaml:14:# or scripts/ imports src.config.core or src.llm.gemini_client.
+config\settings\models.yaml:24:# Simple tasks: gemini-2.5-flash (fast, cost-effective)
+config\settings\models.yaml:25:# Important tasks: gemini-3-pro-preview (best reasoning)
+config\settings\models.yaml:26:# Note: gemini-2.0-flash deprecated March 31, 2026
+config\settings\models.yaml:31:  provider: gemini
+config\settings\models.yaml:35:  # gemini-2.5-flash: works with thinking_budget=0
+config\settings\models.yaml:36:  # gemini-3-pro-preview: REQUIRES thinking mode (budget must be > 0)
+config\settings\models.yaml:40:      model: gemini-2.5-flash
+config\settings\models.yaml:46:    # SPRINT 1 FIX 1.2: Restored gemini-3-pro-preview for best reasoning quality
+config\settings\models.yaml:47:    # v3 failed with gemini-2.5-pro (28% faithfulness) - gemini-3-pro needed for SOTA
+config\settings\models.yaml:52:      model: gemini-3-pro-preview
+config\settings\models.yaml:58:  model: gemini-2.5-flash
+config\settings\models.yaml:64:  # gemini-2.5-pro is the best available fallback for reasoning-heavy tasks
+config\settings\models.yaml:65:  # when gemini-3-pro-preview quota is exhausted (limit: 0 on current plan)
+config\settings\models.yaml:66:  fallback_provider: gemini
+config\settings\models.yaml:67:  fallback_model: gemini-2.5-pro
+config\settings\retry.yaml:24:  gemini:
+config\settings\sota_parameters.yaml:5:# - https://gemini.google/overview/deep-research/
+config\settings\sota_parameters.yaml:6:# - https://blog.google/products/gemini/deep-research-gemini-2-5-pro-experimental/
+docs\full_online_plan.md:79:**From V19 onward, stop criterion = V_N beats ChatGPT DR + Gemini 3.1 Pro DR head-to-head on the 7 BEAT-BOTH dimensions.** Competitor extracts at `state/compare_chatgpt_dr.txt` and `state/compare_gemini_dr.txt`. Has never run end-to-end against actual extracts.
+docs\full_online_plan.md:226:- Extract `state/compare_chatgpt_dr.txt` + `state/compare_gemini_dr.txt` into M-D9 manifest shape
+docs\file_directory.md:73:| `src/orchestration/` | 2026-03-16 | FROZEN — see `src/orchestration/FROZEN_SINCE_2026-03-16.md`. Pipeline C. |
+docs\file_directory.md:102:| `full_cycle.py` | Legacy CLI research driver (has broken imports) | C — FROZEN |
+docs\file_directory.md:247:  by `scripts/full_cycle.py` (pipeline C). Do not exist; pipeline C
+src\utils\cot_post_filter.py:286:        # I-cd-010 / GH#625: pipeline-C COT classifier legacy; not under
+src\utils\cost_tracker.py:22:    tracker.add_cost("gemini-2.5-flash", tokens_in=1000, tokens_out=500)
+src\utils\cost_tracker.py:50:    "gemini-3-flash": {
+src\utils\cost_tracker.py:54:    "gemini-3-pro": {
+src\utils\cost_tracker.py:58:    # FIX 24: Add preview variant — same pricing as gemini-3-pro
+src\utils\cost_tracker.py:61:    "gemini-3-pro-preview": {
+src\utils\cost_tracker.py:66:    "gemini-2.5-flash": {
+src\utils\cost_tracker.py:70:    "gemini-2.5-pro": {
+src\utils\cost_tracker.py:75:    "gemini-1.5-flash": {
+src\utils\cost_tracker.py:79:    "gemini-1.5-pro": {
+src\utils\cost_tracker.py:266:            model: Model name (e.g., "gemini-2.5-flash")
+src\utils\cost_tracker.py:449:    cost = tracker.add_cost("gemini-2.5-flash", tokens_in=1_000_000, tokens_out=100_000)
+src\utils\cost_tracker.py:482:    tracker3.add_cost("gemini-2.5-flash", tokens_in=100_000, tokens_out=10_000)
+src\utils\cost_tracker.py:493:    tracker4.add_cost("gemini-2.5-flash", tokens_in=100_000, tokens_out=50_000)
+src\utils\cost_tracker.py:510:            tracker5.add_cost("gemini-2.5-flash", tokens_in=1000, tokens_out=100)
+src\utils\atomic_decomposer.py:133:                from src.llm.gemini_client import GeminiClient
+src\state\cost_ledger.json:8:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:17:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:26:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:35:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:44:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:53:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:62:      "name": "gemini-2.5-flash",
+src\state\cost_ledger.json:71:      "name": "gemini-2.5-flash",
+src\config\core.py:132:# I-cd-010 / GH#625: pipeline-C frozen — Gemini TierConfig + LLMConfig
+src\config\core.py:133:# defaults below (gemini-2.5-flash / gemini-3-pro-preview / provider=gemini)
+src\config\core.py:143:    model: str = "gemini-2.5-flash"
+src\config\core.py:152:        model="gemini-2.5-flash",
+src\config\core.py:158:        model="gemini-3-pro-preview",
+src\config\core.py:167:    provider: str = "gemini"
+src\config\core.py:168:    model: str = "gemini-2.5-flash"
+src\config\core.py:286:    gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
+src\llm\__init__.py:13:from src.llm.gemini_client import GeminiClient, get_gemini_client
+src\llm\__init__.py:31:    "get_gemini_client",
+src\llm\gemini_client.py:11:    from src.llm.gemini_client import GeminiClient, get_gemini_client
+src\llm\gemini_client.py:13:    client = get_gemini_client()
+src\llm\gemini_client.py:74:            model: Model name (default: gemini-3-flash from config)
+src\llm\gemini_client.py:80:        self.api_key = api_key or config.env.gemini_api_key
+src\llm\gemini_client.py:271:_gemini_client: Optional[GeminiClient] = None
+src\llm\gemini_client.py:274:def get_gemini_client() -> GeminiClient:
+src\llm\gemini_client.py:276:    global _gemini_client
+src\llm\gemini_client.py:277:    if _gemini_client is None:
+src\llm\gemini_client.py:278:        _gemini_client = GeminiClient()
+src\llm\gemini_client.py:279:    return _gemini_client
+src\orchestration\FROZEN_SINCE_2026-03-16.md:1:# FROZEN / RETIRING: `src/orchestration/` subsystem
+src\orchestration\FROZEN_SINCE_2026-03-16.md:13:The "pipeline C" research orchestration: LangGraph-based `run_research()`
+src\orchestration\FROZEN_SINCE_2026-03-16.md:45:   dispatches to pipeline C. The `research` subcommand now returns a
+src\orchestration\FROZEN_SINCE_2026-03-16.md:50:   pipeline C as FROZEN with a pointer to this file.
+src\orchestration\FROZEN_SINCE_2026-03-16.md:59:    - Remove pipeline C entirely from README + architecture.md +
+docs\runbook.md:141:See `src/orchestration/FROZEN_SINCE_2026-03-16.md` for the retire /
+src\polaris_graph\benchmark\report_renderer.py:78:        g = scoreboard.aggregate.gemini_mean.get(dim)
+src\polaris_graph\benchmark\report_renderer.py:110:        g = scoreboard.aggregate.gemini_mean.get(dim)
+src\polaris_graph\benchmark\report_renderer.py:142:  .system-gemini { background: #e8f0fe; }
+src\polaris_graph\benchmark\report_renderer.py:196:        g = scoreboard.aggregate.gemini_mean.get(dim)
+src\polaris_graph\benchmark\report_renderer.py:227:            g = q.gemini.by_dimension.get(dim)
+src\polaris_graph\benchmark\external_loader.py:11:    external_outputs/gemini/Q01_aspirin_migraine_efficacy.txt
+src\polaris_graph\benchmark\external_loader.py:64:        system_name: e.g. 'chatgpt' or 'gemini' — used for diagnostics.
+src\polaris_graph\benchmark\beat_both_scorer.py:6:(polaris_result, chatgpt_text, gemini_text) and assembles a Scoreboard
+src\polaris_graph\benchmark\beat_both_scorer.py:46:    system: str  # 'polaris' | 'chatgpt' | 'gemini'
+src\polaris_graph\benchmark\beat_both_scorer.py:59:    gemini: SystemScores
+src\polaris_graph\benchmark\beat_both_scorer.py:67:    gemini_mean: dict[DimensionName, float | None]
+src\polaris_graph\benchmark\beat_both_scorer.py:198:    gemini_text: str | None,
+src\polaris_graph\benchmark\beat_both_scorer.py:207:    gemini_dim_scores = _external_dimension_scores(
+src\polaris_graph\benchmark\beat_both_scorer.py:208:        external_text=gemini_text, question=question
+src\polaris_graph\benchmark\beat_both_scorer.py:217:        gemini=_to_system_scores("gemini", gemini_dim_scores, use_external=True),
+src\polaris_graph\benchmark\beat_both_scorer.py:249:        gemini_mean=_means_for("gemini"),
+src\polaris_graph\benchmark\beat_both_scorer.py:263:            g = q.gemini.by_dimension.get(dim)
+src\polaris_graph\benchmark\beat_both_scorer.py:292:    gemini_outputs: dict[str, str],
+src\polaris_graph\benchmark\beat_both_scorer.py:308:                gemini_text=gemini_outputs.get(question.question_id),
+src\polaris_graph\llm\openrouter_client.py:268:    "google/gemini":   (1.25, 5.00),
+src\polaris_graph\llm\openrouter_client.py:431:    "google-closed": ("google/gemini",),
+src\polaris_v6\benchmark\schema.py:12:    "gemini_3_1_pro_dr",
+docs\pipeline_audit_context\10_pass_3_b102_review.md:13:- `ddcd1d4` deep-dive R12 pipeline C retire decision
+docs\pipeline_audit_context\05_known_failure_modes.md:30:in `src/orchestration/FROZEN_SINCE_2026-03-16.md`.
+docs\pipeline_audit_context\09_pass_2_brief.md:25:| R12 | M-208 pipeline C retire | DECIDED (staged) | `ddcd1d4` |
+docs\pipeline_audit_context\08_env_var_inventory.md:376:| `PG_HALLUCINATION_DETECT_ENABLED` | `scripts/deep_gemini_verify.py:312` |
+docs\pipeline_audit_context\07_audit_brief_for_codex.md:26:12. Frozen subsystem disposition (`src/orchestration/`, pipeline C)
+docs\pipeline_audit_context\07_audit_brief_for_codex.md:122:- Do NOT audit pipeline C's internal code — just confirm it's broken
+docs\pipeline_audit_context\01_three_pipelines_map.md:5:frozen pipeline C).
+docs\pipeline_audit_context\01_three_pipelines_map.md:64:## Pipeline C — legacy CLI research (FROZEN since 2026-03-16)
+docs\pipeline_audit_context\01_three_pipelines_map.md:77:`src/orchestration/FROZEN_SINCE_2026-03-16.md` contains the
+docs\pipeline_audit_context\00_README.md:58:12. **Frozen subsystem disposition** — `src/orchestration/`, pipeline C,
+docs\pipeline_audit_context\00_README.md:80:- Do not review pipeline C code for quality beyond confirming the
+src\polaris_graph\audit_ir\competitor_manifest_extractor.py:217:                "gemini_dr", "claude_dr"
+src\polaris_graph\audit_bundle\bundle_schema.py:5:**FROZEN at v1.0 per I-cd-012 (GH#608) 2026-05-19.** Field additions,
+src\polaris_graph\audit_bundle\bundle_schema.py:142:    **FROZEN v1.0 per I-cd-012 (GH#608).** Field changes require the full
+src\polaris_graph\audit_bundle\REVIEWER_README.md:63:This bundle schema is **FROZEN at v1.0**. The `BundleManifest` Pydantic
+rg: Dockerfile*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+ succeeded in 1798ms:
+# POLARIS Model Configurations
+# LLM, embedding, and NLI model settings
+#
+# -----------------------------------------------------------------------------
+# I-modref-002 (#528) — SCOPE: this file configures the LEGACY GEMINI agent
+# stack ONLY. Consumers: src/config/core.py (load_models()),
+# src/llm/gemini_client.py, src/utils/atomic_decomposer.py (GeminiClient
+# fallback), config/settings/extraction.yaml.
+#
+# It is INTENTIONALLY DISTINCT from POLARIS pipeline A (the honest-rebuild
+# sweep). Pipeline A's generator (DeepSeek V4 Pro) and evaluator (Gemma 4 31B)
+# are configured in src/polaris_graph/llm/openrouter_client.py (module
+# constants + environment), NOT this file. No code under src/polaris_graph/
+# or scripts/ imports src.config.core or src.llm.gemini_client.
+#
+# The `llm:` Gemini entries below are therefore NOT pipeline-A defaults and
+# are NOT stale relative to the operator-locked V4 Pro / Gemma topology — they
+# are the correct, separate config for the legacy Gemini stack. Editing them
+# does not change pipeline-A behavior.
+# -----------------------------------------------------------------------------
+
+# =============================================================================
+# PRIMARY LLM (Gemini - Tiered by Task Complexity)
+# Simple tasks: gemini-2.5-flash (fast, cost-effective)
+# Important tasks: gemini-3-pro-preview (best reasoning)
+# Note: gemini-2.0-flash deprecated March 31, 2026
+# =============================================================================
+llm:
+  # I-modref-002 (#528): legacy Gemini agent-stack config — see the SCOPE
+  # note in this file's header. NOT pipeline-A's generator/evaluator.
+  provider: gemini
+
+  # Tiered model selection for agents
+  # Note: Some models require thinking mode (thinking_budget > 0)
+  # gemini-2.5-flash: works with thinking_budget=0
+  # gemini-3-pro-preview: REQUIRES thinking mode (budget must be > 0)
+  tiers:
+    # Simple tasks: triage, search coordination
+    simple:
+      model: gemini-2.5-flash
+      temperature: 0.0
+      max_tokens: 4096
+      thinking_budget: 0  # Disable thinking for reliable structured output
+
+    # Important tasks: analysis, verification, synthesis, planning, supervision
+    # SPRINT 1 FIX 1.2: Restored gemini-3-pro-preview for best reasoning quality
+    # v3 failed with gemini-2.5-pro (28% faithfulness) - gemini-3-pro needed for SOTA
+    # P3.1 FIX: Increased max_tokens from 16000 to 32000 to handle extraction targets
+    # With thinking_budget=2048, this gives 29,952 tokens for output
+    #
+    important:
+      model: gemini-3-pro-preview
+      temperature: 0.1
+      max_tokens: 32000  # P3.1 FIX: Increased from 16000 (was budget mismatch)
+      thinking_budget: 2048  # Increased for better reasoning (was: 1024)
+
+  # Default (for phases, non-agent code)
+  model: gemini-2.5-flash
+  max_tokens: 65536
+  temperature: 0.7
+  timeout_seconds: 120
+
+  # Fallback (if primary fails - FIX 11)
+  # gemini-2.5-pro is the best available fallback for reasoning-heavy tasks
+  # when gemini-3-pro-preview quota is exhausted (limit: 0 on current plan)
+  fallback_provider: gemini
+  fallback_model: gemini-2.5-pro
+
+# =============================================================================
+# EMBEDDING MODEL
+# =============================================================================
+embedding:
+  provider: sentence_transformers
+  model: all-MiniLM-L6-v2
+  dimension: 384
+  batch_size: 32
+
+  # GPU settings
+  device: auto  # auto | cuda | cpu
+  max_seq_length: 512
+
+ succeeded in 1996ms:
+# POLARIS Dependencies
+# =====================
+# Last reviewed: 2026-04-18 (Phase E operational reconciliation)
+#
+# HONEST STATUS (2026-04-18):
+#   This file grew organically across the v2/v3/honest-rebuild arcs.
+#   It is NOT a minimal dep set. Static import analysis of the
+#   post-cleanup tree (docs/live_code_audit.md) shows ~100 external
+#   packages imported. Some deps here are for pipeline B (UI) only;
+#   some were used by now-archived code.
+#
+#   Known gaps (packages imported but NOT listed here):
+#     - duckduckgo_search  (retrieval fallback)
+#     - langchain_fireworks (historical generator)
+#     - openpyxl, pptx, pdfminer, pdfplumber, fpdf  (document ingestion)
+#     - sqlite_vec  (vector storage)
+#     - minicheck  (NLI verifier, installed via pip-install-git; see comment)
+#
+#   Known surplus (listed here but not obviously imported by live code):
+#     - neo4j  (knowledge-graph dep; pipeline C / archived)
+#     - google-generativeai  (Gemini; pipeline A uses OpenRouter, not Gemini)
+#     - ragas  (eval framework; scripts/run_ragas_v3.py is missing;
+#               pipeline C broken — see BUG-M-208)
+#
+#   A proper dep audit (pipeline A minimal, pipeline B minimal,
+#   remove archive-only deps, add missing imports) is queued in
+#   docs/todo_list.md. DO NOT remove lines below without a full
+#   regression run — some transitive imports are subtle.
+
+# ===================
+# POLARIS v3 - NEW
+# ===================
+
+# LangChain & LangGraph (Agentic Framework)
+langchain>=0.3.0,<0.4.0
+langgraph>=0.2.0,<0.3.0
+langchain-openai>=0.2.0,<0.3.0
+langchain-google-genai>=2.0.0,<3.0.0  # Gemini integration
+langchain-community>=0.3.0,<0.4.0
+langchain-core>=0.3.0,<0.4.0
+
+# Graph Database (Knowledge Graph)
+neo4j>=5.0
+
+# OpenAI (for GPT-4o, GPT-4V)
+openai>=1.0.0
+
+# RAGAS (Evaluation)
+ragas>=0.2.0
+
+# ===================
+# POLARIS v3 - Text Processing
+# ===================
+
+# Sentence segmentation (FIX-047C: 97.92% accuracy, handles U.S./Dr./e.g.)
+pysbd>=0.3.4
+
+# Content extraction (FIX-047H: F1=0.958, best-in-class boilerplate removal)
+trafilatura>=2.0.0
+
+# ===================
+# POLARIS v2 - Core
+# ===================
+
+# Core
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+# slice 004 audit-bundle GPG signing (requires system gpg binary)
+python-gnupg>=0.5.0
+
+# Async & HTTP
+aiohttp>=3.8.0
+httpx>=0.24.0
+tenacity>=8.2.0
+
+# Vector Database
+chromadb>=0.4.0
+
+# Embeddings & NLI
+sentence-transformers>=2.2.0
+transformers>=4.30.0
+torch>=2.0.0
+semhash>=0.3.0  # FIX-048-K13: Semantic dedup via Model2Vec static embeddings
+hdbscan>=0.8.40,<0.9  # I-f2-001: cluster top-K candidate embeddings for disambiguation modal
+
+# RAG Verification (Sprint 2)
+# WS-1: MiniCheck-FT5 (EMNLP 2024) — matches GPT-4 factuality at 400x lower cost
+# Install separately (not on PyPI):
+#   pip install "minicheck @ git+https://github.com/Liyan06/MiniCheck.git@main"
+# Set PG_NLI_MODEL=MiniCheck-Flan-T5-Large in .env to activate
+
+# Search & Content
+crawl4ai>=0.8.0  # Free Playwright-based web crawler (LLM-ready markdown)
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+readability-lxml>=0.8.1  # A1.1: Article extraction from raw HTML (readability algorithm)
+PyMuPDF>=1.22.0  # PDF extraction
+
+# LLM
+google-generativeai>=0.3.0  # Gemini
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+playwright>=1.40.0  # Dashboard audit (headless browser)
+
+# Data Analysis & Visualization (GEMINI-ARCH: real Python charts)
+pandas>=2.0
+matplotlib>=3.8
+numpy>=1.24
+scipy>=1.11  # Statistical tests for data analysis (Fix 8)
+
+# Utilities
+tqdm>=4.65.0
+rich>=13.0.0  # Console formatting
+aiosqlite>=0.20.0  # Async SQLite for caches
+
+# LangGraph Checkpointing
+langgraph-checkpoint>=2.1.0,<3.0.0
+langgraph-checkpoint-sqlite>=2.0.0,<3.0.0
+
+# SOTA: OAI-PMH for PMC metadata extraction
+sickle>=0.7.0  # OAI-PMH harvesting
+
+# ===================
+# POLARIS Live Server
+# ===================
+fastapi>=0.100.0
+uvicorn>=0.23.0
+sse-starlette>=1.6.0
+watchfiles>=0.20.0
+python-multipart>=0.0.6  # Required by FastAPI for form parsing
+slowapi>=0.1.8  # Rate limiting middleware
+
+# ===================
+# POLARIS v6 — Dramatiq queue + OpenTelemetry GenAI semconv
+# ===================
+# Tracked deps for v6 backend modernization (Phase 0 Task 0.5 + Task 0.10).
+# Per cycle-3 audit P1.2 (outputs/audits/continuous/bb60495_audit.md): the
+# new test_*_middleware tests use pytest.importorskip against these — without
+# pinning here CI silently SKIPS them (LAW II / CLAUDE.md §9.4 violation).
+dramatiq>=2.1.0  # actors, brokers, middleware base class
+redis>=4.0,<8.0  # I-phase0-005 P1-I2-001: dramatiq.get_broker() RabbitMQ->Redis fallback ImportErrors at app boot if absent
+opentelemetry-api>=1.36.0  # tracer + propagate APIs
+opentelemetry-sdk>=1.36.0  # TracerProvider + BatchSpanProcessor
+opentelemetry-exporter-otlp-proto-grpc>=1.36.0  # OTLP exporter for src/polaris_v6/observability/otel_init.py
+# F-21 (cycle-7 P1.1 fix): protobuf is pulled transitively by both the OTLP
+# exporter AND google-generativeai (line 99). The latter pins
+# protobuf<5.0.0dev via google-ai-generativelanguage. CVE-2026-0994 affects
+# protobuf 6.30.0rc1..6.33.4 — entirely above the <5.0.0 ceiling, so any
+# satisfiable version is automatically CVE-patched.
+# Cycle-6 P2.1 originally proposed >=6.33.5,<7.0.0 (F-17); cycle-7 caught
+# the ResolutionImpossible. Cycle-7 P1.1 fix.
+protobuf<5.0.0  # CVE-2026-0994 patched (vulnerable range starts at 6.30.0rc1)
+
+# ===================
+# Document Export
+# ===================
+weasyprint>=60.0  # Server-side PDF generation (requires system libs: pango, cairo)
+python-docx>=1.1.0  # DOCX export for research reports
+
+# ===================
+# Document Ingestion - Image & Audio
+# ===================
+pillow>=10.0.0          # Image processing (OCR image loading, metadata extraction)
+pytesseract>=0.3.10     # OCR via Tesseract (requires Tesseract-OCR installed on system)
+openai-whisper>=20231117  # Local audio transcription (requires ffmpeg on system)
+
+# ===================
+# Document Ingestion - YouTube Transcripts
+# ===================
+youtube-transcript-api>=1.0.0  # YouTube video transcript extraction
+
+# ===================
+# Process Monitoring
+# ===================
+psutil>=5.9.0  # FIX-5: Memory/resource monitoring for long pipeline runs
+
+# ===================
+# Phase 3 - Entity Extraction (Future)
+# ===================
+# spacy>=3.7.0       # NER extraction
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\agents\\base_agent.py -TotalCount 290" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "langchain_google_genai|ChatGoogleGenerativeAI|google_api_key|GEMINI_AVAILABLE|google.generativeai|google_genai|genai" src scripts tests -g "!*__pycache__*"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\llm\\gemini_client.py -TotalCount 340" in C:\POLARIS
+ succeeded in 1156ms:
+"""
+POLARIS v3 Base Agent
+
+Abstract base class for all POLARIS agents.
+Provides common functionality:
+- LLM client management
+- Tool binding
+- State reading/writing
+- Logging and tracing
+- Error handling
+
+Based on LangChain/LangGraph agent patterns.
+"""
+
+import os
+import json
+import logging
+import asyncio
+import time
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional, Type, Union
+from datetime import UTC, datetime
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, Field
+
+from src.orchestration.state import ResearchState
+from src.config import get_config
+try:
+    from src.callbacks.cost_tracking_callback import GeminiCostTrackingCallback
+except ImportError:
+    GeminiCostTrackingCallback = None  # Legacy module archived
+
+# FIX-220: KimiClient for structural reasoning/content separation
+try:
+    from src.llm.kimi_client import KimiClient
+    KIMI_CLIENT_AVAILABLE = True
+except ImportError:
+    KIMI_CLIENT_AVAILABLE = False
+
+# Import LLM providers - prefer KIMI (Fireworks), fallback to Gemini
+try:
+    from langchain_fireworks import ChatFireworks
+    FIREWORKS_AVAILABLE = True
+except ImportError:
+    FIREWORKS_AVAILABLE = False
+
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+
+try:
+    from langchain_openai import ChatOpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+
+class AgentConfig(BaseModel):
+    """Configuration for an agent instance."""
+    name: str
+    description: str
+    task_tier: str = "simple"  # "simple" or "important" - determines model selection
+    temperature: Optional[float] = None  # Override from config if set
+    max_tokens: Optional[int] = None  # Override from config if set
+    tools: List[str] = Field(default_factory=list)
+    system_prompt: Optional[str] = None
+    retry_attempts: int = 3
+    timeout_seconds: int = 120
+
+
+class AgentTrace(BaseModel):
+    """A single trace entry for agent execution."""
+    agent_name: str
+    action: str
+    timestamp: str
+    input_summary: str
+    output_summary: str
+    duration_ms: int
+    tokens_used: int = 0
+    error: Optional[str] = None
+
+
+class BaseAgent(ABC):
+    """
+    Abstract base class for all POLARIS v3 agents.
+
+    Each agent:
+    1. Reads from ResearchState
+    2. Performs specialized processing
+    3. Writes results back to ResearchState
+    4. Logs all actions for traceability
+
+    Subclasses must implement:
+    - process(): Main processing logic
+    - get_system_prompt(): Agent-specific system prompt
+    """
+
+    def __init__(
+        self,
+        config: AgentConfig,
+        tools: Optional[List[BaseTool]] = None
+    ):
+        """
+        Initialize the base agent.
+
+        Args:
+            config: Agent configuration
+            tools: Optional list of LangChain tools this agent can use
+        """
+        self.config = config
+        self.name = config.name
+        self.tools = tools or []
+
+        # Get global config for model settings
+        global_config = get_config()
+
+        # Get tiered model config based on task complexity
+        tier = config.task_tier  # "simple" or "important"
+        llm_config = global_config.models.llm
+
+        # Determine temperature and max_tokens from tier config
+        if llm_config.tiers:
+            tier_config = getattr(llm_config.tiers, tier, None)
+        else:
+            tier_config = None
+
+        if tier_config:
+            default_temp = tier_config.temperature
+            default_tokens = tier_config.max_tokens
+            thinking_budget = getattr(tier_config, 'thinking_budget', 0)
+        else:
+            default_temp = 0.0
+            default_tokens = 4096
+            thinking_budget = 0
+
+        temperature = config.temperature if config.temperature is not None else default_temp
+        max_tokens = config.max_tokens if config.max_tokens is not None else default_tokens
+
+        # PRIMARY LLM: KIMI K2.5 via Fireworks (preferred)
+        # FALLBACK: Gemini (if Fireworks unavailable or quota exceeded)
+        self.fallback_llm = None
+        self._fallback_model_name = None
+        self._is_fireworks = False  # FIX 91: Track LLM type for structured output method
+        self._structured_llm = None  # FIX 92: Separate LLM for structured output (non-thinking mode)
+
+        if FIREWORKS_AVAILABLE and global_config.env.fireworks_api_key:
+            # Use KIMI K2.5 as primary LLM.
+            # I-cd-010 / GH#625: pipeline-C frozen — KIMI K2.5 hardcoding intentional
+            # per CLAUDE.md §5 (Carney demo Pipeline-A uses src/polaris_graph/* + OpenRouter V4 Pro).
+            model_name = "accounts/fireworks/models/kimi-k2p5"
+            self._cost_callback = GeminiCostTrackingCallback(model_name=model_name)
+
+            # FIX 92: KIMI K2.5 has TWO modes with DIFFERENT temperature requirements:
+            #   - Thinking mode: temperature=1.0 (immutable) - for general reasoning
+            #   - Non-thinking mode: temperature=0.6 (immutable) - for structured output
+            # We need SEPARATE instances for each mode
+
+            # Primary LLM for general calls (thinking mode, temp=1.0)
+            # FIX-170: Fireworks KIMI K2.5 requires stream=true for max_tokens > 4096.
+            # Enable streaming automatically when token budget exceeds non-streaming limit.
+            use_streaming = max_tokens > 4096
+            self.llm = ChatFireworks(
+                model=model_name,
+                api_key=global_config.env.fireworks_api_key,
+                temperature=1.0,  # KIMI K2.5 thinking mode REQUIRES 1.0
+                max_tokens=max_tokens,
+                streaming=use_streaming,
+            )
+
+            # FIX 92: Structured output LLM (non-thinking mode, temp=0.6)
+            self._structured_llm = ChatFireworks(
+                model=model_name,
+                api_key=global_config.env.fireworks_api_key,
+                temperature=0.6,  # KIMI K2.5 non-thinking mode REQUIRES 0.6
+                max_tokens=min(max_tokens, 4096),  # Structured output stays non-streaming
+            )
+
+            self._is_fireworks = True  # FIX 91: Mark as Fireworks for structured output
+
+            # FIX-220: Initialize KimiClient for prose generation
+            # FIX-280: Use thinking_mode=False (instant mode) for prose generation.
+            # Root cause: Fireworks KIMI K2.5 does NOT return reasoning_content as a
+            # separate field — all output (thinking + prose) goes into content.
+            # With thinking_mode=True, meta-reasoning leaks into prose output.
+            # Instant mode (temp=0.6) produces clean prose without meta-commentary.
+            self._kimi_synthesis_client = None
+            self._kimi_fallback_count = 0  # FIX-230: Track ChatFireworks fallbacks
+            if KIMI_CLIENT_AVAILABLE:
+                try:
+                    synthesis_max_tokens = int(os.environ.get(
+                        "POLARIS_SYNTHESIS_MAX_TOKENS", "16000"
+                    ))
+                    self._kimi_synthesis_client = KimiClient(
+                        thinking_mode=False,
+                        max_tokens=synthesis_max_tokens,
+                    )
+                    logger.info(
+                        f"[FIX-280] KimiClient initialized for prose generation "
+                        f"(thinking=False/instant, max_tokens={synthesis_max_tokens})"
+                    )
+                except Exception as e:
+                    logger.warning(f"[FIX-220] KimiClient init failed, synthesis will use ChatFireworks: {e}")
+
+            logger.info(f"Initialized agent: {self.name} with KIMI K2.5 via Fireworks (tier={tier}, thinking=1.0, structured=0.6)")
+
+            # Setup Gemini as fallback if available.
+            # I-cd-010 / GH#625: pipeline-C frozen — Gemini fallback per CLAUDE.md §5.
+            if GEMINI_AVAILABLE and global_config.env.gemini_api_key:
+                fallback_model = llm_config.fallback_model if llm_config.fallback_model else "gemini-2.5-flash"
+                self._fallback_model_name = fallback_model
+                fallback_thinking = 1024 if "pro" in fallback_model else 0
+                self.fallback_llm = ChatGoogleGenerativeAI(
+                    model=fallback_model,
+                    temperature=temperature,
+                    max_output_tokens=max_tokens,
+                    google_api_key=global_config.env.gemini_api_key,
+                    thinking_budget=fallback_thinking,
+                    callbacks=[GeminiCostTrackingCallback(model_name=fallback_model)],
+
+                )
+                logger.info(f"Fallback LLM configured: Gemini {fallback_model}")
+
+        elif GEMINI_AVAILABLE and global_config.env.gemini_api_key:
+            # Fallback to Gemini if Fireworks unavailable
+            if tier_config:
+                model_name = tier_config.model
+            else:
+                model_name = llm_config.model
+
+            self._cost_callback = GeminiCostTrackingCallback(model_name=model_name)
+
+            self.llm = ChatGoogleGenerativeAI(
+                model=model_name,
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+                google_api_key=global_config.env.gemini_api_key,
+                thinking_budget=thinking_budget,
+                callbacks=[self._cost_callback],
+            )
+            thinking_status = "enabled" if thinking_budget > 0 else "disabled"
+            logger.info(f"Initialized agent: {self.name} with Gemini {model_name} (tier={tier}, thinking={thinking_status})")
+
+            # Setup secondary Gemini model as fallback
+            if tier == "important" and llm_config.fallback_model:
+                fallback_model_name = llm_config.fallback_model
+                self._fallback_model_name = fallback_model_name
+                fallback_thinking = 1024 if "pro" in fallback_model_name else 0
+                self.fallback_llm = ChatGoogleGenerativeAI(
+                    model=fallback_model_name,
+                    temperature=temperature,
+                    max_output_tokens=max_tokens,
+                    google_api_key=global_config.env.gemini_api_key,
+                    thinking_budget=fallback_thinking,
+                    callbacks=[GeminiCostTrackingCallback(model_name=fallback_model_name)],
+
+                )
+                logger.info(f"Fallback LLM configured: Gemini {fallback_model_name}")
+        else:
+            raise RuntimeError(
+                "No LLM provider available. Install langchain-fireworks and set FIREWORKS_API_KEY, "
+                "or install langchain-google-genai and set GEMINI_API_KEY."
+            )
+
+        # Bind tools if provided
+        if self.tools:
+            self.llm_with_tools = self.llm.bind_tools(self.tools)
+        else:
+            self.llm_with_tools = self.llm
+
+    @abstractmethod
+    def get_system_prompt(self) -> str:
+        """
+        Return the system prompt for this agent.
+
+        Each agent type has a specialized prompt defining its role,
+        capabilities, and output format.
+        """
+        pass
+
+    @abstractmethod
+
+ succeeded in 1532ms:
+src\agents\base_agent.py:52:    from langchain_google_genai import ChatGoogleGenerativeAI
+src\agents\base_agent.py:53:    GEMINI_AVAILABLE = True
+src\agents\base_agent.py:55:    GEMINI_AVAILABLE = False
+src\agents\base_agent.py:218:            if GEMINI_AVAILABLE and global_config.env.gemini_api_key:
+src\agents\base_agent.py:222:                self.fallback_llm = ChatGoogleGenerativeAI(
+src\agents\base_agent.py:226:                    google_api_key=global_config.env.gemini_api_key,
+src\agents\base_agent.py:233:        elif GEMINI_AVAILABLE and global_config.env.gemini_api_key:
+src\agents\base_agent.py:242:            self.llm = ChatGoogleGenerativeAI(
+src\agents\base_agent.py:246:                google_api_key=global_config.env.gemini_api_key,
+src\agents\base_agent.py:258:                self.fallback_llm = ChatGoogleGenerativeAI(
+src\agents\base_agent.py:262:                    google_api_key=global_config.env.gemini_api_key,
+src\agents\base_agent.py:271:                "or install langchain-google-genai and set GEMINI_API_KEY."
+src\agents\analyst_agent.py:606:            from langchain_google_genai import ChatGoogleGenerativeAI
+src\agents\analyst_agent.py:610:            self.llm = ChatGoogleGenerativeAI(
+src\agents\analyst_agent.py:614:                google_api_key=global_config.env.gemini_api_key,
+src\utils\cost_tracker.py:59:    # This model name is what ChatGoogleGenerativeAI actually uses.
+tests\v6\test_otel_init.py:3:Per CLAUDE.md LAW II + docs/opentelemetry_genai.md Errata E-2:
+src\polaris_v6\observability\__init__.py:3:Errata E-2 (docs/opentelemetry_genai.md): env var is `gen_ai_latest_experimental`,
+src\polaris_v6\observability\otel_init.py:6:Per docs/opentelemetry_genai.md (Errata E-2): the only correct env value is
+src\polaris_v6\observability\otel_init.py:35:            f"See docs/opentelemetry_genai.md for the rationale."
+scripts\autoloop\scan_for_secrets.py:42:    (re.compile(r"AIza[A-Za-z0-9_-]{30,}"), "google_api_key"),
+scripts\autoloop\backfill_pre_bootstrap_verdicts.py:65:            "docs/opentelemetry_genai.md",
+scripts\run_honest_sweep_r3.py:533:        "slug": "carney_workforce_genai_white_collar",
+src\llm\gemini_client.py:28:import google.generativeai as genai
+src\llm\gemini_client.py:89:        genai.configure(api_key=self.api_key)
+src\llm\gemini_client.py:92:        self.model = genai.GenerativeModel(
+src\llm\gemini_client.py:94:            generation_config=genai.GenerationConfig(
+scripts\v6\benchmark\api_benchmark_runner.py:167:    # from google import genai
+scripts\v6\benchmark\api_benchmark_runner.py:168:    # client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+scripts\v6\benchmark\api_benchmark_runner.py:182:    raise NotImplementedError("Phase 3 entry: wire google-genai client here (GOOGLE_API_KEY)")
+
+ succeeded in 1626ms:
+#!/usr/bin/env python3
+"""
+POLARIS Gemini Client
+=====================
+Wrapper for Google Gemini API with structured output support.
+
+Uses Gemini 3 Flash (default) for all generation tasks.
+Configurable via config/settings/models.yaml.
+
+Usage:
+    from src.llm.gemini_client import GeminiClient, get_gemini_client
+
+    client = get_gemini_client()
+    response = await client.generate("What is the capital of France?")
+"""
+
+import asyncio
+import json
+import logging
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Type, TypeVar
+
+# Add project root to path
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+import google.generativeai as genai
+from pydantic import BaseModel
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
+
+from src.config import get_config
+from src.utils.rate_limiter import get_rate_limiter
+from src.utils.cost_tracker import get_cost_tracker, BudgetExceededError
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
+
+
+# =============================================================================
+# GEMINI CLIENT
+# =============================================================================
+
+class GeminiClient:
+    """
+    Async-compatible Gemini API client.
+
+    Features:
+    - Structured JSON output
+    - Retry with exponential backoff
+    - Rate limiting
+    - Token tracking
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 65536,
+    ):
+        """
+        Initialize Gemini client.
+
+        Args:
+            api_key: Gemini API key (or from config/env)
+            model: Model name (default: gemini-3-flash from config)
+            temperature: Generation temperature
+            max_tokens: Maximum output tokens
+        """
+        # Load from config
+        config = get_config()
+        self.api_key = api_key or config.env.gemini_api_key
+        self.model_name = model or config.models.llm.model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+
+        if not self.api_key:
+            raise ValueError("GEMINI_API_KEY not configured")
+
+        # Configure API
+        genai.configure(api_key=self.api_key)
+
+        # Initialize model
+        self.model = genai.GenerativeModel(
+            model_name=self.model_name,
+            generation_config=genai.GenerationConfig(
+                temperature=self.temperature,
+                max_output_tokens=self.max_tokens,
+            ),
+        )
+
+        # Rate limiter
+        self._rate_limiter = get_rate_limiter()
+
+        # Token tracking
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+
+        logger.info(f"Gemini client initialized: {self.model_name}")
+
+    async def _wait_for_rate_limit(self) -> None:
+        """Wait for rate limit."""
+        await self._rate_limiter.acquire_async(
+            "generativelanguage.googleapis.com",
+            timeout=60.0
+        )
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        retry=retry_if_exception_type((Exception,)),
+    )
+    async def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+    ) -> str:
+        """
+        Generate text from a prompt.
+
+        Args:
+            prompt: User prompt
+            system_prompt: Optional system instruction
+
+        Returns:
+            Generated text
+        """
+        await self._wait_for_rate_limit()
+
+        # Build messages
+        if system_prompt:
+            full_prompt = f"{system_prompt}\n\n{prompt}"
+        else:
+            full_prompt = prompt
+
+        # Run in executor for async compatibility
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.model.generate_content(full_prompt)
+        )
+
+        # Track tokens (approximate based on words)
+        input_tokens = int(len(full_prompt.split()) * 1.3)
+        output_tokens = int(len(response.text.split()) * 1.3)
+
+        self.total_input_tokens += input_tokens
+        self.total_output_tokens += output_tokens
+
+        # Track costs with cost tracker
+        try:
+            cost_tracker = get_cost_tracker()
+            cost_tracker.add_cost(
+                model=self.model_name,
+                tokens_in=input_tokens,
+                tokens_out=output_tokens
+            )
+            # Check budget after each call
+            cost_tracker.check_budget()
+        except BudgetExceededError:
+            logger.error("Budget exceeded - stopping generation")
+            raise
+
+        return response.text
+
+    async def generate_json(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate structured JSON output.
+
+        Args:
+            prompt: User prompt (should request JSON output)
+            system_prompt: Optional system instruction
+
+        Returns:
+            Parsed JSON dict
+        """
+        # Add JSON instruction
+        json_instruction = "\n\nRespond with valid JSON only. No markdown, no explanation."
+        full_prompt = prompt + json_instruction
+
+        response = await self.generate(full_prompt, system_prompt)
+
+        # Clean response
+        cleaned = response.strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+        if cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            logger.debug(f"Raw response: {response[:500]}")
+            raise ValueError(f"Invalid JSON response: {e}")
+
+    async def generate_structured(
+        self,
+        prompt: str,
+        response_model: Type[T],
+        system_prompt: Optional[str] = None,
+    ) -> T:
+        """
+        Generate output conforming to a Pydantic model.
+
+        Args:
+            prompt: User prompt
+            response_model: Pydantic model class for response
+            system_prompt: Optional system instruction
+
+        Returns:
+            Validated Pydantic model instance
+        """
+        # Get model schema
+        schema = response_model.model_json_schema()
+
+        # Build schema prompt
+        schema_prompt = f"""
+You must respond with JSON that matches this exact schema:
+
+{json.dumps(schema, indent=2)}
+
+Important:
+- Include ALL required fields
+- Use correct data types
+- Do not add extra fields
+"""
+
+        full_system = (system_prompt or "") + schema_prompt
+        result = await self.generate_json(prompt, full_system)
+
+        # Validate with Pydantic
+        return response_model(**result)
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get usage statistics."""
+        return {
+            "model": self.model_name,
+            "total_input_tokens": int(self.total_input_tokens),
+            "total_output_tokens": int(self.total_output_tokens),
+            "estimated_cost_usd": self._estimate_cost(),
+        }
+
+    def _estimate_cost(self) -> float:
+        """Estimate cost in USD (approximate)."""
+        # Gemini 2.5 Flash pricing (approximate)
+        input_cost = self.total_input_tokens * 0.000001  # $1 per 1M tokens
+        output_cost = self.total_output_tokens * 0.000004  # $4 per 1M tokens
+        return input_cost + output_cost
+
+
+# =============================================================================
+# SINGLETON INSTANCE
+# =============================================================================
+
+_gemini_client: Optional[GeminiClient] = None
+
+
+def get_gemini_client() -> GeminiClient:
+    """Get the singleton Gemini client."""
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = GeminiClient()
+    return _gemini_client
+
+
+# =============================================================================
+# SELF-TEST
+# =============================================================================
+
+if __name__ == "__main__":
+    import asyncio
+
+    async def run_tests():
+        print("=" * 60)
+        print("GEMINI CLIENT SELF-TEST")
+        print("=" * 60)
+
+        try:
+            # Test 1: Initialize client
+            print("\n[TEST 1] Initialize client...")
+            client = GeminiClient()
+            print(f"  [PASS] Client initialized: {client.model_name}")
+
+            # Test 2: Simple generation
+            print("\n[TEST 2] Simple generation...")
+            response = await client.generate("What is 2+2? Answer with just the number.")
+            assert "4" in response
+            print(f"  [PASS] Response: {response.strip()[:50]}")
+
+            # Test 3: JSON generation
+            print("\n[TEST 3] JSON generation...")
+            json_response = await client.generate_json(
+                "Return a JSON object with keys 'name' and 'value'. Name should be 'test' and value should be 42."
+            )
+            assert json_response.get("name") == "test"
+            assert json_response.get("value") == 42
+            print(f"  [PASS] JSON: {json_response}")
+
+            # Test 4: Stats
+            print("\n[TEST 4] Usage stats...")
+            stats = client.get_stats()
+            assert stats["total_input_tokens"] > 0
+            print(f"  [PASS] Stats: {stats}")
+
+            print("\n" + "=" * 60)
+            print("ALL TESTS PASSED")
+            print("=" * 60)
+
+        except ValueError as e:
+            # LOW-098: Use logger instead of print (in self-test section)
+            logger.warning(f"API key not configured: {e}")
+            logger.warning("Set GEMINI_API_KEY in .env to run tests")
+
+    asyncio.run(run_tests())
+
+web search: 
+web search: PyPI google-generativeai protobuf requirements latest
+web search: 
+web search: https://pypi.org/project/google-generativeai/
+web search: 
+web search: https://pypi.org/pypi/google-generativeai/0.8.6/json
+web search: 
+web search: https://pypi.org/pypi/google-ai-generativelanguage/0.6.15/json
+web search: 
+web search: 'requires_dist' in https://pypi.org/pypi/google-genai/json
+web search: 
+web search: google-genai PyPI requires_dist protobuf version
+codex
+**DECISION: A.**
+
+Pin `requirements.txt` to the exact `requirements.lock` versions, set `protobuf==6.33.6`, and drop `google-generativeai`. Do not try to bump it. The current PyPI `google-generativeai==0.8.6` is legacy/EOL and still pins `google-ai-generativelanguage==0.6.15`, whose protobuf constraint is `<6.0.0dev`; the lock’s modern stack uses `google-ai-generativelanguage==0.11.0`, which allows protobuf 6.x. Sources: [google-generativeai PyPI](https://pypi.org/project/google-generativeai/), [0.6.15 metadata](https://pypi.org/pypi/google-ai-generativelanguage/0.6.15/json), [0.11.0 metadata](https://pypi.org/pypi/google-ai-generativelanguage/0.11.0/json).
+
+**Google-generativeai call:** drop it. If Gemini must remain live, port `src/llm/gemini_client.py` to `google-genai` later; do not keep `google-generativeai` in this resolver fix.
+
+**Guardrail:** dropping the dep alone can break imports because [src/llm/__init__.py](C:/POLARIS/src/llm/__init__.py:13) eagerly imports `gemini_client.py`. Before pushing, either remove/lazy-load that export or run a clean import smoke after the dry-run:
+
+```powershell
+python -c "from src.llm import NLIModelUnavailableError, validate_nli_available; import src.llm.deberta_client; import src.utils.atomic_decomposer"
+```
+
+If that smoke fails on `google.generativeai`, patch the eager import. Do not reintroduce `protobuf<5`.
+tokens used
+82,881
+**DECISION: A.**
+
+Pin `requirements.txt` to the exact `requirements.lock` versions, set `protobuf==6.33.6`, and drop `google-generativeai`. Do not try to bump it. The current PyPI `google-generativeai==0.8.6` is legacy/EOL and still pins `google-ai-generativelanguage==0.6.15`, whose protobuf constraint is `<6.0.0dev`; the lock’s modern stack uses `google-ai-generativelanguage==0.11.0`, which allows protobuf 6.x. Sources: [google-generativeai PyPI](https://pypi.org/project/google-generativeai/), [0.6.15 metadata](https://pypi.org/pypi/google-ai-generativelanguage/0.6.15/json), [0.11.0 metadata](https://pypi.org/pypi/google-ai-generativelanguage/0.11.0/json).
+
+**Google-generativeai call:** drop it. If Gemini must remain live, port `src/llm/gemini_client.py` to `google-genai` later; do not keep `google-generativeai` in this resolver fix.
+
+**Guardrail:** dropping the dep alone can break imports because [src/llm/__init__.py](C:/POLARIS/src/llm/__init__.py:13) eagerly imports `gemini_client.py`. Before pushing, either remove/lazy-load that export or run a clean import smoke after the dry-run:
+
+```powershell
+python -c "from src.llm import NLIModelUnavailableError, validate_nli_available; import src.llm.deberta_client; import src.utils.atomic_decomposer"
+```
+
+If that smoke fails on `google.generativeai`, patch the eager import. Do not reintroduce `protobuf<5`.
