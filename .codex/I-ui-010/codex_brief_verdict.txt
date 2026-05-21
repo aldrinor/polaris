@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Design decisions validated iter 2 (iter-1 P1s resolved: honest sovereignty wording + AA-measured full-pair accent candidates). Remaining findings = the implementation itself (build + screenshot), which proceeds at the diff stage.
