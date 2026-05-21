@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,11 @@ function looksNonEnglish(s: string): boolean {
 }
 
 export function IntakeForm() {
-  const [question, setQuestion] = useState("");
+  // I-cd-ui-001 (#704): prefill from the home hero search (/intake?q=...).
+  // useSearchParams requires a Suspense boundary — the intake page wraps
+  // this component in <Suspense> (mirroring web/app/sign-in/page.tsx).
+  const searchParams = useSearchParams();
+  const [question, setQuestion] = useState(searchParams.get("q") ?? "");
   const [state, setState] = useState<IntakeState>({ kind: "idle" });
   const [modalOpen, setModalOpen] = useState(false);
   const [disambigClusters, setDisambigClusters] = useState<

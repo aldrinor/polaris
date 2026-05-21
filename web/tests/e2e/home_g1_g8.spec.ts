@@ -44,6 +44,21 @@ test("G1 + G6: home has exactly one header outside <main>, primary nav visible",
   await expect(mains).toHaveCount(1);
 });
 
+test("I-cd-ui-001: home hero search submits to /intake?q=", async ({ page }) => {
+  await page.goto("/");
+  const form = page.getByTestId("home-hero-search");
+  await expect(form).toBeVisible();
+  // The hero is a progressive GET form (works without JS): action=/intake,
+  // input name=q. Submitting routes to /intake?q=<question>.
+  await expect(form).toHaveAttribute("action", "/intake");
+  const input = form.locator("input[name='q']");
+  await expect(input).toBeVisible();
+  await input.fill("does aspirin reduce headaches");
+  await form.locator("button[type='submit']").click();
+  await page.waitForURL(/\/intake\?q=/);
+  expect(page.url()).toContain("q=does");
+});
+
 test("G2: home contains no banned dev-language strings", async ({ page }) => {
   await page.goto("/");
   const body_text = (await page.locator("body").textContent()) || "";
