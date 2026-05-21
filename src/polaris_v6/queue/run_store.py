@@ -574,7 +574,11 @@ def list_completed_runs(
     release-blocked partial may appear here but 422s when actually opened.
 
     Defensive against missing-table / legacy-schema like get_run.
+
+    Codex iter-1 P2: clamp limit to [1, 100] HERE too, so direct in-process
+    callers are safe even though the HTTP route also clamps.
     """
+    limit = max(1, min(limit, 100))
     query = (
         f"SELECT {_RUN_COLUMNS} FROM runs "
         "WHERE lifecycle_status='completed' "
