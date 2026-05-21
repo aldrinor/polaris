@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import { IntakeForm } from "./components/intake_form";
 import { PdfDropBanner } from "./components/pdf_drop_banner";
 
@@ -33,7 +35,9 @@ export default function IntakePage() {
 
       <PdfDropBanner />
 
-      <IntakeForm />
+      <Suspense fallback={null}>
+        <IntakeForm />
+      </Suspense>
     </section>
   );
 }
