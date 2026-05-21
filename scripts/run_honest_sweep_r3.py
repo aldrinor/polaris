@@ -2213,6 +2213,7 @@ async def run_one_query(
         # low-hundreds). Rows are dicts; guard for any object rows defensively.
         if q.get("v6_mode") and q.get("external_run_id"):
             _ext = q.get("external_run_id")
+            _seen_evidence_ids: set[str] = set()
             for _row in evidence_for_gen:
                 if isinstance(_row, dict):
                     _eid = _row.get("evidence_id", "") or ""
@@ -2220,7 +2221,10 @@ async def run_one_query(
                 else:
                     _eid = getattr(_row, "evidence_id", "") or ""
                     _eurl = getattr(_row, "source_url", "") or getattr(_row, "url", "") or ""
-                if _eid:
+                # Codex iter-1 P2: dedup by evidence_id so the UI gets one
+                # event per unique source, not one per row.
+                if _eid and _eid not in _seen_evidence_ids:
+                    _seen_evidence_ids.add(_eid)
                     emit_event(_ext, "evidence.id_assigned", {"id": _eid, "url": _eurl})
 
         # I-rdy-011 (#507): cooperative cancel checkpoint — before the
