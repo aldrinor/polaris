@@ -55,7 +55,10 @@ export function RecentRunsStrip() {
   if (runs.length === 0) return null;
 
   return (
-    <section aria-labelledby="recent_runs_heading" className="flex flex-col gap-3">
+    <section
+      aria-labelledby="recent_runs_heading"
+      className="flex flex-col gap-3"
+    >
       <h2
         id="recent_runs_heading"
         className="text-muted-foreground text-xs font-medium tracking-widest uppercase"

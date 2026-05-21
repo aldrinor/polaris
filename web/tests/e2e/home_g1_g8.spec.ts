@@ -44,7 +44,9 @@ test("G1 + G6: home has exactly one header outside <main>, primary nav visible",
   await expect(mains).toHaveCount(1);
 });
 
-test("I-cd-ui-001: home hero search submits to /intake?q=", async ({ page }) => {
+test("I-cd-ui-001: home hero search submits to /intake?q=", async ({
+  page,
+}) => {
   await page.goto("/");
   const form = page.getByTestId("home-hero-search");
   await expect(form).toBeVisible();
