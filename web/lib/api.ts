@@ -178,6 +178,40 @@ export async function cancelRun(runId: string): Promise<RunStatusResponse> {
   return asJsonOrThrow<RunStatusResponse>(response);
 }
 
+// I-ui-003 (#542): report-scoped follow-up. Mirrors FollowUpAnswer in
+// src/polaris_v6/followup/schema.py. POST /runs/{id}/followup is real-run
+// wired (#680): 422 for aborted/release-blocked, 404 for unknown id.
+export type FollowUpStatus =
+  | "answered"
+  | "out_of_scope"
+  | "needs_new_run"
+  | "evidence_insufficient";
+
+export interface FollowUpAnswer {
+  parent_run_id: string;
+  question: string;
+  status: FollowUpStatus;
+  answer_text: string | null;
+  used_evidence_ids: string[];
+  provenance_tokens: string[];
+  rationale: string;
+}
+
+export async function askFollowup(
+  runId: string,
+  question: string,
+): Promise<FollowUpAnswer> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/followup`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ question }),
+    },
+  );
+  return asJsonOrThrow<FollowUpAnswer>(response);
+}
+
 // I-cd-017 (#627): pin-replay snapshot consumed by /pin_replay timeseries.
 // Mirrors PinSnapshot schema in src/polaris_v6/schemas/pin_snapshot.py.
 export interface PinSnapshot {

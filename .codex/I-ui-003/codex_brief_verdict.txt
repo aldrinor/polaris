@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief APPROVE iter 1, zero P0/P1. 4 P2 folded into impl: maxLength+trim, validation-422 vs no-evidence-422, full-width panel, rationale on answered too.

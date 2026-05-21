@@ -14,6 +14,7 @@ import {
   type StreamEvent,
 } from "@/lib/api";
 
+import { FollowupPanel } from "./components/followup_panel";
 import { RunProgress } from "./components/run_progress";
 
 interface RunPageProps {
@@ -52,6 +53,18 @@ export default function RunDetailPage({ params }: RunPageProps) {
       runId,
       (event) => {
         setEvents((prev) => [...prev, event]);
+        // I-ui-003 (#542) Codex diff P1: getRun() only populates `status`
+        // once on mount; the SSE stream otherwise just appends events. When a
+        // run watched live reaches `run_complete`, re-fetch the lifecycle
+        // status so completed-only UI (the follow-up panel, the status line,
+        // the cancel button) updates without a manual reload.
+        if (event.event === "run_complete") {
+          getRun(runId)
+            .then((value) => {
+              if (!cancelled) setStatus(value);
+            })
+            .catch(() => {});
+        }
       },
       () => {
         // SSE error: backend may have closed the stream after run_complete.
@@ -209,14 +222,6 @@ export default function RunDetailPage({ params }: RunPageProps) {
             type="button"
             variant="outline"
             disabled
-            title="Ask a follow-up scoped to this run's evidence (coming soon)"
-          >
-            Ask follow-up
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled
             title="Pin this run for later replay (coming soon)"
           >
             Pin for replay
@@ -225,6 +230,11 @@ export default function RunDetailPage({ params }: RunPageProps) {
       </div>
 
       <RunProgress events={events} status={status} />
+
+      {/* I-ui-003 (#542): follow-up is meaningful only for a completed run
+          (it has an answerable, verified report). Failed/cancelled/in-progress
+          runs don't render it. */}
+      {status?.status === "completed" && <FollowupPanel runId={runId} />}
     </section>
   );
 }
