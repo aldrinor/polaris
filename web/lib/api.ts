@@ -453,6 +453,10 @@ export function subscribeToRun(
   for (const eventName of [
     "scope_decision",
     "retrieval_progress",
+    // I-ui-002 (#707): evidence_id drives the retrieval source feed +
+    // sources-read counter; it was previously emitted by the backend but
+    // never listened for here, so those SSE events were silently dropped.
+    "evidence_id",
     "verifier_verdict",
     "section_complete",
     "run_complete",

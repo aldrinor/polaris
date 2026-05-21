@@ -5,13 +5,6 @@ import { use, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
   cancelRun,
   downloadBundleAsJson,
   getBundle,
@@ -20,6 +13,8 @@ import {
   type RunStatusResponse,
   type StreamEvent,
 } from "@/lib/api";
+
+import { RunProgress } from "./components/run_progress";
 
 interface RunPageProps {
   params: Promise<{ runId: string }>;
@@ -229,33 +224,7 @@ export default function RunDetailPage({ params }: RunPageProps) {
         </div>
       </div>
 
-      <div className="flex flex-col gap-3">
-        <h2 className="text-foreground text-lg font-semibold">
-          Live events ({events.length})
-        </h2>
-        <div className="flex flex-col gap-2">
-          {events.length === 0 && (
-            <p className="text-muted-foreground text-sm">
-              Waiting for the first event from the verifier pipeline…
-            </p>
-          )}
-          {events.map((evt, idx) => (
-            <Card key={idx}>
-              <CardHeader>
-                <CardDescription className="text-xs tracking-widest uppercase">
-                  Event {idx + 1}
-                </CardDescription>
-                <CardTitle className="font-mono text-sm">{evt.event}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <pre className="bg-muted text-foreground overflow-x-auto rounded-md p-3 text-xs">
-                  {JSON.stringify(evt.data, null, 2)}
-                </pre>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
+      <RunProgress events={events} status={status} />
     </section>
   );
 }
