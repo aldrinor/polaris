@@ -25,6 +25,7 @@ const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/upload", label: "Upload" },
   { href: "/benchmark", label: "Benchmark" },
+  { href: "/compare", label: "Compare" },
   { href: "/contracts", label: "Contracts" },
   { href: "/pin_replay", label: "Pin Replay" },
   { href: "/memory", label: "Memory" },
