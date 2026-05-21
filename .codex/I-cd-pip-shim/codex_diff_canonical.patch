@@ -1,0 +1,23 @@
+diff --git a/web/requirements-v6.txt b/web/requirements-v6.txt
+new file mode 100644
+index 00000000..f10edca3
+--- /dev/null
++++ b/web/requirements-v6.txt
+@@ -0,0 +1,3 @@
++# Temporary CI shim (I-cd-pip-shim, Codex-designed 2026-05-21). See
++# web/requirements.txt for rationale. Forwards to the root v6 requirements.
++-r ../requirements-v6.txt
+diff --git a/web/requirements.txt b/web/requirements.txt
+new file mode 100644
+index 00000000..7cba9efb
+--- /dev/null
++++ b/web/requirements.txt
+@@ -0,0 +1,8 @@
++# Temporary CI shim (I-cd-pip-shim, Codex-designed 2026-05-21).
++# web_ci.yml's verify_pip_resolution job inherits the workflow-level
++# `working-directory: web` default and runs `pip install --dry-run -r
++# requirements.txt` from web/. The canonical requirements file lives at the
++# repo ROOT. This forwarding shim makes the dry-run resolve the root file
++# without a workflow-scope edit (which Claude's token cannot push).
++# Remove once web_ci.yml pins `working-directory: .` on the pip steps.
++-r ../requirements.txt
