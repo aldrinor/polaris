@@ -43,15 +43,31 @@ def _read_contradictions(artifact_dir: Path) -> list[ContradictionRecord]:
     for i, item in enumerate(items if isinstance(items, list) else []):
         if not isinstance(item, dict):
             continue
+        # Codex iter-1 P2: real pipeline-A clusters use a `claims` list +
+        # `evidence` list rather than claim_a/claim_b/evidence_a/evidence_b.
+        # Map both shapes so real-run contradictions aren't blanked out.
+        claims = item.get("claims")
+        if isinstance(claims, list) and len(claims) >= 2:
+            claim_a, claim_b = str(claims[0]), str(claims[1])
+        else:
+            claim_a, claim_b = str(item.get("claim_a") or ""), str(item.get("claim_b") or "")
+        ev = item.get("evidence")
+        if isinstance(ev, list) and not item.get("evidence_a"):
+            # A flat evidence list — attribute it to side A (best available).
+            evidence_a = [str(x) for x in ev]
+            evidence_b: list[str] = []
+        else:
+            evidence_a = [str(x) for x in (item.get("evidence_a") or [])]
+            evidence_b = [str(x) for x in (item.get("evidence_b") or [])]
         try:
             records.append(
                 ContradictionRecord(
-                    contradiction_id=str(item.get("contradiction_id") or f"c{i}"),
+                    contradiction_id=str(item.get("contradiction_id") or item.get("id") or f"c{i}"),
                     section_id=str(item.get("section_id") or "unknown"),
-                    claim_a=str(item.get("claim_a") or ""),
-                    claim_b=str(item.get("claim_b") or ""),
-                    evidence_a=[str(x) for x in (item.get("evidence_a") or [])],
-                    evidence_b=[str(x) for x in (item.get("evidence_b") or [])],
+                    claim_a=claim_a,
+                    claim_b=claim_b,
+                    evidence_a=evidence_a,
+                    evidence_b=evidence_b,
                     resolution=item.get("resolution")
                     if item.get("resolution")
                     in ("unresolved", "claim_a_preferred", "claim_b_preferred", "noted_both")

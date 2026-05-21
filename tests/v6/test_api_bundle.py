@@ -116,7 +116,37 @@ def test_bundle_real_run_missing_artifacts_returns_404(
     assert response.status_code == 404
     detail = response.json()["detail"]
     assert run_id in detail
-    assert "missing required files" in detail
+    assert "manifest.json missing or invalid" in detail
+
+
+def test_bundle_real_run_release_blocked_returns_422(
+    auth_disabled, db_path, tmp_path,
+):
+    """I-cd-680 Codex iter-1 P1: the JSON resolver MUST mirror the
+    bundle.tar.gz release_allowed gate — a release-blocked run
+    (release_allowed=False) returns 422, NOT a clean 200, so non-shippable
+    evidence can't leak via /bundle (or follow-up/compare which share the
+    resolver).
+    """
+    import json as _json
+
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from polaris_v6.api.app import create_app
+
+    run_id = "release_blocked_run"
+    artifact_dir = tmp_path / run_id
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "manifest.json").write_text(
+        _json.dumps({"release_allowed": False, "status": "partial_evaluator_advisory"})
+    )
+    _seed_completed_run(db_path, run_id, str(artifact_dir))
+
+    client = TestClient(create_app())
+    response = client.get(f"/runs/{run_id}/bundle")
+    assert response.status_code == 422
+    assert "release-blocked" in response.json()["detail"]
 
 
 def test_bundle_unknown_run_returns_generic_404(auth_disabled, db_path):

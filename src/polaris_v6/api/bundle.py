@@ -30,6 +30,9 @@ from polaris_graph.api.audit_bundle_route import (
     build_audit_bundle_response,
     get_sign_fn,
 )
+from polaris_v6.api.artifact_to_evidence_contract import (
+    build_evidence_contract_from_artifact,
+)
 from polaris_v6.api.artifact_to_slice_chain import (
     SovereigntyFilterEmptiedReportError,
     build_slice_chain,
@@ -87,15 +90,42 @@ def load_evidence_contract_for_run(run_id: str) -> EvidenceContract:
             ),
         )
 
-    # Import here to avoid a heavy import at module load (build_slice_chain
-    # pulls in the audit_ir + clinical generator/retrieval stack).
-    from polaris_v6.api.artifact_to_evidence_contract import (
-        build_evidence_contract_from_artifact,
-    )
+    # I-cd-680 Codex iter-1 P1: mirror the /bundle.tar.gz gates so the JSON
+    # path cannot leak non-shippable evidence the tar.gz path refuses.
+    if run.pipeline_status and run.pipeline_status.startswith("abort_"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Run {run_id!r} aborted: pipeline_status={run.pipeline_status}.",
+        )
+    artifact_dir = Path(run.artifact_dir)
+    if not artifact_dir.is_dir():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Run {run_id!r} artifact_dir does not exist on disk: {artifact_dir}.",
+        )
+    # release_allowed gate: a release-blocked partial (e.g.
+    # partial_evaluator_advisory with release_allowed=False) MUST NOT be
+    # served as a clean EvidenceContract (matches bundle.tar.gz).
+    try:
+        manifest_raw = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Run {run_id!r} manifest.json missing or invalid: {exc}",
+        ) from exc
+    if not manifest_raw.get("release_allowed", False):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Run {run_id!r} is release-blocked "
+                f"(pipeline_status={run.pipeline_status!r}, release_allowed=False); "
+                f"EvidenceContract cannot ship until the release gate clears."
+            ),
+        )
 
     try:
         return build_evidence_contract_from_artifact(
-            Path(run.artifact_dir),
+            artifact_dir,
             run_id=run.run_id,
             template=run.template or "custom",
             question=run.question or "",
