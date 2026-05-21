@@ -68,6 +68,14 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
               </NavLink>
             ))}
           </nav>
+          {/* I-ui-010 (#730): sovereign mark — honest wording (no air-gap
+              overclaim). */}
+          <span
+            className="text-muted-foreground border-border mr-2 ml-auto hidden rounded-full border px-2.5 py-1 text-xs lg:inline-flex"
+            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+          >
+            ⬡ Canadian AI · no external AI vendor
+          </span>
           <Button
             variant="outline"
             nativeButton={false}
