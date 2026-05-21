@@ -53,6 +53,18 @@ export default function RunDetailPage({ params }: RunPageProps) {
       runId,
       (event) => {
         setEvents((prev) => [...prev, event]);
+        // I-ui-003 (#542) Codex diff P1: getRun() only populates `status`
+        // once on mount; the SSE stream otherwise just appends events. When a
+        // run watched live reaches `run_complete`, re-fetch the lifecycle
+        // status so completed-only UI (the follow-up panel, the status line,
+        // the cancel button) updates without a manual reload.
+        if (event.event === "run_complete") {
+          getRun(runId)
+            .then((value) => {
+              if (!cancelled) setStatus(value);
+            })
+            .catch(() => {});
+        }
       },
       () => {
         // SSE error: backend may have closed the stream after run_complete.
