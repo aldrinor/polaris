@@ -50,25 +50,31 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* I-cd-ui-001 (#704): zinc-50 surface + single cyan accent
+     oklch(0.50 0.20 200). Replaces the pure-monochrome (zero-chroma) set.
+     Foreground stays dark zinc for text contrast. Contrast (Codex-verified,
+     sRGB-clipped): primary/primary-foreground 4.53:1, accent/accent-foreground
+     6.96:1, full-strength cyan ring on zinc-50 4.53:1. chart-* left monochrome
+     intentionally (multi-series palette is a separate decision). */
+  --background: oklch(0.985 0.001 286.375);
+  --foreground: oklch(0.21 0.006 285.9);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  --primary: oklch(0.5 0.2 200);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
+  --secondary-foreground: oklch(0.21 0.006 285.9);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --accent: oklch(0.95 0.03 200);
+  --accent-foreground: oklch(0.4 0.13 200);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --ring: oklch(0.5 0.2 200);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -92,14 +98,16 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  /* I-cd-ui-001 (#704): cyan accent for dark mode (slightly lighter L0.65
+     for contrast on the dark surface; dark text on the lighter cyan). */
+  --primary: oklch(0.65 0.17 200);
+  --primary-foreground: oklch(0.21 0.006 285.9);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
   --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --accent: oklch(0.32 0.05 200);
+  --accent-foreground: oklch(0.92 0.04 200);
   --destructive: oklch(0.704 0.191 22.216);
   /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
      White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
@@ -108,7 +116,7 @@
   --destructive-foreground: oklch(0.145 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.65 0.17 200);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);

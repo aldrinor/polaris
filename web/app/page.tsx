@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -9,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
 type Template = {
   id: string;
@@ -108,17 +110,36 @@ export default function HomePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <HomeKeyboardShell templates={templates} signInHref="/sign-in">
-        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12">
-          <section className="flex flex-col gap-3">
-            <h1 className="text-foreground text-3xl font-semibold tracking-tight sm:text-4xl">
-              POLARIS Canada — Sovereign Deep Research
+        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-12 px-6 py-16">
+          <section className="flex flex-col items-center gap-6 pt-6 text-center">
+            <h1 className="text-foreground max-w-3xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
+              What can POLARIS verify for you today?
             </h1>
-            <p className="text-muted-foreground max-w-3xl text-base sm:text-lg">
-              Two-family verified evidence pipelines for Government of Canada
-              policy work. Every claim carries a provenance token tied to a
-              primary source.
+            <p className="text-muted-foreground max-w-2xl text-base sm:text-lg">
+              Sovereign Canadian deep research. Every claim carries a provenance
+              token tied to a primary source, checked by a two-family evidence
+              pipeline.
             </p>
+            <form
+              action="/intake"
+              method="get"
+              data-testid="home-hero-search"
+              className="flex w-full max-w-2xl items-center gap-2"
+            >
+              <Input
+                name="q"
+                type="search"
+                aria-label="Research question"
+                placeholder="Ask a research question…"
+                className="h-11 flex-1 text-base"
+              />
+              <Button type="submit" className="h-11 px-6">
+                Verify
+              </Button>
+            </form>
           </section>
+
+          <RecentRunsStrip />
 
           <section
             aria-labelledby="template_grid_heading"
@@ -143,7 +164,7 @@ export default function HomePage() {
                   aria-disabled={tpl.active ? undefined : true}
                   className={
                     tpl.active
-                      ? "flex flex-col"
+                      ? "border-primary/40 flex flex-col transition-shadow hover:shadow-sm"
                       : "bg-muted/40 text-muted-foreground flex flex-col"
                   }
                   data-testid={`template-card-${tpl.id}`}
@@ -181,7 +202,6 @@ export default function HomePage() {
                     </div>
                     {tpl.active ? (
                       <Button
-                        variant="outline"
                         nativeButton={false}
                         render={
                           <Link
