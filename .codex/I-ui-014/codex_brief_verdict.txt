@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Design validated iter 1 — no design P0/P1; all findings are the implementation itself (close #728 loadBundle, build Proof Replay click-to-span, header marks), which proceeds at the diff stage.
