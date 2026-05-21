@@ -1,0 +1,89 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e48db-eb8d-7462-9dbc-e162093c3b87
+--------
+user
+# Codex DECISION consult — I-cd-680 scope (PHASE 1)
+
+Operator delegates scope decisions to Codex, highest long-term quality. Decide the scope of #680.
+
+## The fork
+
+#680 as written = a 600-1000 LOC pipeline-A capability extension: thread per-sentence provenance + per-evidence-span char-offsets (span_start/span_end) through run_one_query + the verifier, emit a typed EvidenceContract JSON. Its OWN sequencing note says: "Defer to AFTER the demo. Inspector currently consumes the slice-chain bundle.tar.gz path which is sufficient for Carney delivery. EvidenceContract is a Phase-2 capability."
+
+BUT the 2026-05-20 re-prioritization (your APPROVE) put #680 in PHASE 1 as the foundation that unblocks #542 (follow-up UI) + #543 (compare view), which you flagged as fixture-only (404 on real runs).
+
+## Verified facts (grep, this branch)
+
+- `src/polaris_v6/api/followup.py:24` + `compare.py:18` resolve run_id ONLY via `_GOLDEN_RUN_INDEX` (golden fixtures) → real runs 404. THIS is the #542/#543 blocker.
+- `src/polaris_v6/api/bundle.py:89` `GET /runs/{run_id}/bundle.tar.gz` ALREADY resolves real run_id → artifact_dir → signed bundle via run_store (I-cd-020 Option D). Inspector (#631) consumes this and works on real runs.
+- So the inspector real-run path EXISTS; only followup + compare are fixture-locked.
+
+## The question
+
+For PHASE 1 (unblock #542/#543 for the demo), is the right scope:
+
+A. **Full #680** — build the 600-1000 LOC EvidenceContract char-offset capability now. (Issue says defer post-demo; LAW II fabrication risk on synthesizing offsets pipeline-A never recorded.)
+
+B. **Minimal real-run resolution** — make followup.py + compare.py resolve real run_id → artifact_dir → the EXISTING slice-chain data (same path bundle.tar.gz uses), so #542/#543 work on real completed runs WITHOUT the full char-offset EvidenceContract. Defer the full EvidenceContract capability (char offsets + per-sentence JSON) to a post-demo Phase-2 issue.
+
+C. Something else.
+
+My engineering read: B. The demo needs followup + compare to WORK on real runs (the operator's PHASE-2 UI goal), not the full Phase-2 EvidenceContract JSON. The full capability is genuinely post-demo per the issue's own note + carries fabrication risk. B unblocks #542/#543 with the data that already exists; A builds 1000 LOC the demo doesn't need + risks LAW II.
+
+Decide A/B/C. If B, confirm the deferred full-capability becomes a new post-demo issue. Highest long-term quality lens.
+
+codex
+Decision: **B**.
+
+For Phase 1, scope #680 to **minimal real-run resolution for followup + compare**:
+
+- Resolve `run_id -> artifact_dir` through the same `run_store` path already proven by `GET /runs/{run_id}/bundle.tar.gz`.
+- Load the existing slice-chain data that Inspector already consumes.
+- Preserve golden fixture support where needed.
+- Do **not** synthesize `span_start` / `span_end`.
+- Do **not** introduce the full typed `EvidenceContract` JSON in Phase 1.
+
+This is the higher-quality choice because the actual blocker for #542/#543 is not missing char-offset provenance; it is that `followup.py` and `compare.py` are fixture-locked via `_GOLDEN_RUN_INDEX`. Building full EvidenceContract now would expand scope, increase regression risk, and create LAW II risk if offsets are inferred rather than recorded by Pipeline A.
+
+I would frame the Phase 1 acceptance criteria as:
+
+1. Real completed runs no longer 404 in follow-up and compare.
+2. Both APIs resolve real `run_id` using `run_store`.
+3. They consume existing artifact/slice-chain data only.
+4. Golden fixture behavior remains intact.
+5. Tests cover real-run resolution and missing-artifact failure modes.
+6. No fabricated char offsets are emitted.
+
+Yes: the full capability should become a **new post-demo Phase 2 issue** or be explicitly split out from #680. That issue should cover the real EvidenceContract design: Pipeline A records offsets at source, verifier threads them through, and APIs emit typed evidence spans only when grounded offsets exist.
+tokens used
+2,932
+Decision: **B**.
+
+For Phase 1, scope #680 to **minimal real-run resolution for followup + compare**:
+
+- Resolve `run_id -> artifact_dir` through the same `run_store` path already proven by `GET /runs/{run_id}/bundle.tar.gz`.
+- Load the existing slice-chain data that Inspector already consumes.
+- Preserve golden fixture support where needed.
+- Do **not** synthesize `span_start` / `span_end`.
+- Do **not** introduce the full typed `EvidenceContract` JSON in Phase 1.
+
+This is the higher-quality choice because the actual blocker for #542/#543 is not missing char-offset provenance; it is that `followup.py` and `compare.py` are fixture-locked via `_GOLDEN_RUN_INDEX`. Building full EvidenceContract now would expand scope, increase regression risk, and create LAW II risk if offsets are inferred rather than recorded by Pipeline A.
+
+I would frame the Phase 1 acceptance criteria as:
+
+1. Real completed runs no longer 404 in follow-up and compare.
+2. Both APIs resolve real `run_id` using `run_store`.
+3. They consume existing artifact/slice-chain data only.
+4. Golden fixture behavior remains intact.
+5. Tests cover real-run resolution and missing-artifact failure modes.
+6. No fabricated char offsets are emitted.
+
+Yes: the full capability should become a **new post-demo Phase 2 issue** or be explicitly split out from #680. That issue should cover the real EvidenceContract design: Pipeline A records offsets at source, verifier threads them through, and APIs emit typed evidence spans only when grounded offsets exist.

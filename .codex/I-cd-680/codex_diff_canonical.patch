@@ -1,0 +1,534 @@
+diff --git a/src/polaris_v6/api/artifact_to_evidence_contract.py b/src/polaris_v6/api/artifact_to_evidence_contract.py
+new file mode 100644
+index 00000000..43454417
+--- /dev/null
++++ b/src/polaris_v6/api/artifact_to_evidence_contract.py
+@@ -0,0 +1,154 @@
++"""I-cd-680 — bridge a real pipeline-A artifact_dir to a typed EvidenceContract.
++
++Reuses `build_slice_chain` (I-arch-001d, the same path `GET /runs/{id}/
++bundle.tar.gz` already proves on real runs) and maps the slice-chain into the
++`EvidenceContract` v1.0 schema that the follow-up (#542) and compare (#543)
++endpoints consume.
++
++Scope (Codex Option B, 2026-05-20): real-run RESOLUTION only. We do NOT
++synthesize rich source-document char offsets — pipeline-A does not record
++them. `SourceSpan.span_start`/`span_end` are the truthful 0..len(span_text)
++offsets of the recorded evidence text within ITSELF (the recorded quote IS
++the span). Rich offsets into the original source body are the deferred
++Phase-2 capability (#710), NOT fabricated here (LAW II).
++"""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from typing import Any
++
++from polaris_v6.api.artifact_to_slice_chain import build_slice_chain
++from polaris_v6.schemas.evidence_contract import (
++    ContradictionRecord,
++    EvidenceContract,
++    SourceSpan,
++    VerifiedSentence,
++)
++
++
++def _read_contradictions(artifact_dir: Path) -> list[ContradictionRecord]:
++    """Load contradictions.json if present. Real pipeline-A runs write a list
++    of contradiction records; absent/empty → no contradictions."""
++    path = artifact_dir / "contradictions.json"
++    if not path.exists():
++        return []
++    try:
++        raw = json.loads(path.read_text(encoding="utf-8"))
++    except (json.JSONDecodeError, OSError):
++        return []
++    records: list[ContradictionRecord] = []
++    items = raw if isinstance(raw, list) else raw.get("contradictions", [])
++    for i, item in enumerate(items if isinstance(items, list) else []):
++        if not isinstance(item, dict):
++            continue
++        # Codex iter-1 P2: real pipeline-A clusters use a `claims` list +
++        # `evidence` list rather than claim_a/claim_b/evidence_a/evidence_b.
++        # Map both shapes so real-run contradictions aren't blanked out.
++        claims = item.get("claims")
++        if isinstance(claims, list) and len(claims) >= 2:
++            claim_a, claim_b = str(claims[0]), str(claims[1])
++        else:
++            claim_a, claim_b = str(item.get("claim_a") or ""), str(item.get("claim_b") or "")
++        ev = item.get("evidence")
++        if isinstance(ev, list) and not item.get("evidence_a"):
++            # A flat evidence list — attribute it to side A (best available).
++            evidence_a = [str(x) for x in ev]
++            evidence_b: list[str] = []
++        else:
++            evidence_a = [str(x) for x in (item.get("evidence_a") or [])]
++            evidence_b = [str(x) for x in (item.get("evidence_b") or [])]
++        try:
++            records.append(
++                ContradictionRecord(
++                    contradiction_id=str(item.get("contradiction_id") or item.get("id") or f"c{i}"),
++                    section_id=str(item.get("section_id") or "unknown"),
++                    claim_a=claim_a,
++                    claim_b=claim_b,
++                    evidence_a=evidence_a,
++                    evidence_b=evidence_b,
++                    resolution=item.get("resolution")
++                    if item.get("resolution")
++                    in ("unresolved", "claim_a_preferred", "claim_b_preferred", "noted_both")
++                    else "noted_both",
++                )
++            )
++        except Exception:  # noqa: BLE001 — a malformed record is skipped, not fatal
++            continue
++    return records
++
++
++def build_evidence_contract_from_artifact(
++    artifact_dir: Path,
++    *,
++    run_id: str,
++    template: str,
++    question: str,
++    queued_at: str,
++    finished_at: str,
++    pipeline_status: str,
++) -> EvidenceContract:
++    """Synthesize a fully-valid EvidenceContract from a REAL artifact_dir.
++
++    Run metadata (run_id/template/question/timestamps/status) is supplied by
++    the caller from run_store (the authoritative source); the evidence + the
++    verified sentences come from the slice-chain.
++
++    Raises FileNotFoundError / SovereigntyFilterEmptiedReportError from
++    build_slice_chain — the caller maps these to 404 / 422.
++    """
++    _decision, pool, report = build_slice_chain(artifact_dir)
++
++    evidence_pool: list[SourceSpan] = []
++    for src in pool.sources:
++        # The recorded evidence text. build_slice_chain only admits T1
++        # legal-cleared sources, so source_tier is within SourceSpan's
++        # T1/T2/T3 Literal.
++        span_text = src.full_text or src.snippet or src.title or "n/a"
++        evidence_pool.append(
++            SourceSpan(
++                evidence_id=src.source_id,
++                source_url=str(src.url),
++                source_tier=src.tier.value,
++                # Truthful self-offset of the recorded span; rich
++                # source-document offsets are deferred to #710.
++                span_start=0,
++                span_end=len(span_text),
++                span_text=span_text,
++            )
++        )
++
++    verified_sentences: list[VerifiedSentence] = []
++    for section in report.sections:
++        for sent in section.verified_sentences:
++            verified_sentences.append(
++                VerifiedSentence(
++                    section_id=sent.section_id,
++                    sentence_text=sent.sentence_text,
++                    provenance_tokens=list(sent.provenance_tokens),
++                    # The slice-chain records a single verifier_pass (Local AND
++                    # Global must both hold for a sentence to pass strict_verify),
++                    # so it maps to both EvidenceContract flags.
++                    verifier_local_pass=sent.verifier_pass,
++                    verifier_global_pass=sent.verifier_pass,
++                    drop_reason=sent.drop_reason,
++                )
++            )
++
++    return EvidenceContract(
++        run_id=run_id,
++        template=template,
++        question=question,
++        queued_at=queued_at,
++        finished_at=finished_at,
++        pipeline_status=pipeline_status,
++        evidence_pool=evidence_pool,
++        verified_sentences=verified_sentences,
++        frame_coverage=[],
++        contradictions=_read_contradictions(artifact_dir),
++        cost_usd=float(report.cost_usd or 0.0),
++        generator_model=report.generator_model,
++        verifier_model=report.evaluator_model,
++        family_segregation_passed=report.family_segregation_passed,
++    )
+diff --git a/src/polaris_v6/api/bundle.py b/src/polaris_v6/api/bundle.py
+index c7b95bb2..f43eb874 100644
+--- a/src/polaris_v6/api/bundle.py
++++ b/src/polaris_v6/api/bundle.py
+@@ -30,6 +30,9 @@ from polaris_graph.api.audit_bundle_route import (
+     build_audit_bundle_response,
+     get_sign_fn,
+ )
++from polaris_v6.api.artifact_to_evidence_contract import (
++    build_evidence_contract_from_artifact,
++)
+ from polaris_v6.api.artifact_to_slice_chain import (
+     SovereigntyFilterEmptiedReportError,
+     build_slice_chain,
+@@ -52,38 +55,103 @@ _GOLDEN_RUN_INDEX = {
+ }
+ 
+ 
+-@router.get("/{run_id}/bundle", response_model=EvidenceContract)
+-def get_bundle(run_id: str) -> EvidenceContract:
++def load_evidence_contract_for_run(run_id: str) -> EvidenceContract:
++    """Resolve a run_id → EvidenceContract for golden fixtures AND real runs.
++
++    I-cd-680 (Codex Option B): golden fixtures load from JSON; real completed
++    runs resolve run_id → artifact_dir via run_store and build the contract
++    from the slice-chain (the same proven path as bundle.tar.gz). Shared by
++    the bundle, follow-up (#542), and compare (#543) endpoints so all three
++    work on real runs, not just fixtures.
++
++    Raises HTTPException(404) for unknown / not-completed / artifact-missing
++    runs, HTTPException(422) when the sovereignty cascade empties the report.
++    """
+     fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
+     if fixture_name is not None:
+         raw = json.loads((_FIXTURE_DIR / fixture_name).read_text())
+         return EvidenceContract.model_validate(raw)
+ 
+-    # I-cd-020 (#630): real runs do NOT have an EvidenceContract JSON today.
+-    # The I-A-02b frozen schema is BundleManifest v1.0 (I-cd-012), served by
+-    # the companion `GET /runs/{run_id}/bundle.tar.gz` route via slice-chain
+-    # (I-arch-001d). The data gaps that block JSON-EvidenceContract for real
+-    # runs (span char-offsets, per-sentence provenance) are tracked in
+-    # I-cd-020-followup (#680).
+     run = run_store.get_run(run_id)
+-    if run is not None and run.lifecycle_status == "completed" and run.artifact_dir:
++    if run is None:
+         raise HTTPException(
+             status_code=404,
+             detail=(
+-                f"EvidenceContract JSON not available for real run {run_id!r}. "
+-                f"Fetch GET /runs/{run_id}/bundle.tar.gz instead — it returns "
+-                f"the signed BundleManifest v1.0 bundle (the I-A-02b frozen "
+-                f"schema). EvidenceContract for real runs requires pipeline-A "
+-                f"per-sentence-provenance JSON capability (tracked in #680)."
++                f"Run {run_id!r} not found. Available golden fixtures: "
++                f"{list(_GOLDEN_RUN_INDEX)}."
+             ),
+         )
+-    raise HTTPException(
+-        status_code=404,
+-        detail=(
+-            f"Bundle for run {run_id!r} not found. Available golden fixtures: "
+-            f"{list(_GOLDEN_RUN_INDEX)}."
+-        ),
+-    )
++    if run.lifecycle_status != "completed" or not run.artifact_dir:
++        raise HTTPException(
++            status_code=404,
++            detail=(
++                f"Run {run_id!r} is not a completed run with artifacts "
++                f"(lifecycle_status={run.lifecycle_status!r})."
++            ),
++        )
++
++    # I-cd-680 Codex iter-1 P1: mirror the /bundle.tar.gz gates so the JSON
++    # path cannot leak non-shippable evidence the tar.gz path refuses.
++    if run.pipeline_status and run.pipeline_status.startswith("abort_"):
++        raise HTTPException(
++            status_code=422,
++            detail=f"Run {run_id!r} aborted: pipeline_status={run.pipeline_status}.",
++        )
++    artifact_dir = Path(run.artifact_dir)
++    if not artifact_dir.is_dir():
++        raise HTTPException(
++            status_code=404,
++            detail=f"Run {run_id!r} artifact_dir does not exist on disk: {artifact_dir}.",
++        )
++    # release_allowed gate: a release-blocked partial (e.g.
++    # partial_evaluator_advisory with release_allowed=False) MUST NOT be
++    # served as a clean EvidenceContract (matches bundle.tar.gz).
++    try:
++        manifest_raw = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
++    except (OSError, json.JSONDecodeError) as exc:
++        raise HTTPException(
++            status_code=404,
++            detail=f"Run {run_id!r} manifest.json missing or invalid: {exc}",
++        ) from exc
++    if not manifest_raw.get("release_allowed", False):
++        raise HTTPException(
++            status_code=422,
++            detail=(
++                f"Run {run_id!r} is release-blocked "
++                f"(pipeline_status={run.pipeline_status!r}, release_allowed=False); "
++                f"EvidenceContract cannot ship until the release gate clears."
++            ),
++        )
++
++    try:
++        return build_evidence_contract_from_artifact(
++            artifact_dir,
++            run_id=run.run_id,
++            template=run.template or "custom",
++            question=run.question or "",
++            queued_at=str(run.queued_at or ""),
++            finished_at=str(run.finished_at or ""),
++            pipeline_status=run.pipeline_status or "success",
++        )
++    except SovereigntyFilterEmptiedReportError as exc:
++        raise HTTPException(
++            status_code=422,
++            detail=f"Run {run_id!r} has no shippable sections after the "
++            f"sovereignty cascade: {exc}",
++        ) from exc
++    except FileNotFoundError as exc:
++        raise HTTPException(
++            status_code=404,
++            detail=f"Run {run_id!r} artifact_dir is missing required files: {exc}",
++        ) from exc
++
++
++@router.get("/{run_id}/bundle", response_model=EvidenceContract)
++def get_bundle(run_id: str) -> EvidenceContract:
++    # I-cd-680: real runs now resolve to a typed EvidenceContract built from
++    # the slice-chain (was 404-with-pointer-to-bundle.tar.gz). Golden
++    # fixtures unchanged.
++    return load_evidence_contract_for_run(run_id)
+ 
+ 
+ @router.get("/{run_id}/bundle.tar.gz")
+diff --git a/src/polaris_v6/api/compare.py b/src/polaris_v6/api/compare.py
+index b9d9e82e..dd32a402 100644
+--- a/src/polaris_v6/api/compare.py
++++ b/src/polaris_v6/api/compare.py
+@@ -2,34 +2,23 @@
+ 
+ from __future__ import annotations
+ 
+-import json
+ from dataclasses import asdict
+ 
+ from fastapi import APIRouter, HTTPException
+ 
+-from polaris_v6.api.bundle import _FIXTURE_DIR, _GOLDEN_RUN_INDEX
++from polaris_v6.api.bundle import load_evidence_contract_for_run
+ from polaris_v6.compare.differ import compare_reports
+-from polaris_v6.schemas.evidence_contract import EvidenceContract
+ 
+ router = APIRouter(prefix="/runs", tags=["compare"])
+ 
+ 
+-def _load(run_id: str) -> EvidenceContract:
+-    fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
+-    if fixture_name is None:
+-        raise HTTPException(
+-            status_code=404, detail=f"Bundle for run {run_id!r} not found."
+-        )
+-    raw = json.loads((_FIXTURE_DIR / fixture_name).read_text())
+-    return EvidenceContract.model_validate(raw)
+-
+-
+ @router.get("/{left_run_id}/compare/{right_run_id}")
+ def get_compare(left_run_id: str, right_run_id: str) -> dict:
+     if left_run_id == right_run_id:
+         raise HTTPException(
+             status_code=400, detail="compare requires two distinct run ids"
+         )
+-    left = _load(left_run_id)
+-    right = _load(right_run_id)
++    # I-cd-680: resolves golden fixtures AND real completed runs.
++    left = load_evidence_contract_for_run(left_run_id)
++    right = load_evidence_contract_for_run(right_run_id)
+     return asdict(compare_reports(left, right))
+diff --git a/src/polaris_v6/api/followup.py b/src/polaris_v6/api/followup.py
+index 822e1007..f9dc03c4 100644
+--- a/src/polaris_v6/api/followup.py
++++ b/src/polaris_v6/api/followup.py
+@@ -2,15 +2,12 @@
+ 
+ from __future__ import annotations
+ 
+-import json
+-
+-from fastapi import APIRouter, HTTPException
++from fastapi import APIRouter
+ from pydantic import BaseModel, Field
+ 
+-from polaris_v6.api.bundle import _FIXTURE_DIR, _GOLDEN_RUN_INDEX
++from polaris_v6.api.bundle import load_evidence_contract_for_run
+ from polaris_v6.followup.agent import answer_followup
+ from polaris_v6.followup.schema import FollowUpAnswer
+-from polaris_v6.schemas.evidence_contract import EvidenceContract
+ 
+ router = APIRouter(prefix="/runs", tags=["followup"])
+ 
+@@ -21,12 +18,7 @@ class FollowUpHttpRequest(BaseModel):
+ 
+ @router.post("/{run_id}/followup", response_model=FollowUpAnswer)
+ def post_followup(run_id: str, payload: FollowUpHttpRequest) -> FollowUpAnswer:
+-    fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
+-    if fixture_name is None:
+-        raise HTTPException(
+-            status_code=404,
+-            detail=f"Bundle for run {run_id!r} not found.",
+-        )
+-    raw = json.loads((_FIXTURE_DIR / fixture_name).read_text())
+-    bundle = EvidenceContract.model_validate(raw)
++    # I-cd-680: resolves golden fixtures AND real completed runs (was
++    # fixture-only → real runs 404).
++    bundle = load_evidence_contract_for_run(run_id)
+     return answer_followup(parent=bundle, question=payload.question)
+diff --git a/tests/polaris_v6/api/test_artifact_to_evidence_contract.py b/tests/polaris_v6/api/test_artifact_to_evidence_contract.py
+new file mode 100644
+index 00000000..ada32f4e
+--- /dev/null
++++ b/tests/polaris_v6/api/test_artifact_to_evidence_contract.py
+@@ -0,0 +1,75 @@
++"""I-cd-680 — build_evidence_contract_from_artifact coverage (Codex Option B).
++
++Reuses the synthetic AuditIR-shape artifact builder from the slice-chain
++tests. Verifies a REAL artifact_dir maps to a valid EvidenceContract with
++NO fabricated source-document offsets (span_start=0, span_end=len of the
++recorded span text — the truthful self-offset; rich offsets are deferred
++to #710).
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from polaris_v6.api.artifact_to_evidence_contract import (
++    build_evidence_contract_from_artifact,
++)
++from polaris_v6.schemas.evidence_contract import EvidenceContract
++from tests.polaris_v6.api.test_artifact_to_slice_chain import (
++    _write_synthetic_artifact_dir,
++)
++
++
++def _build(tmp_path, **kw) -> EvidenceContract:
++    artifact_dir = _write_synthetic_artifact_dir(tmp_path, **kw)
++    return build_evidence_contract_from_artifact(
++        artifact_dir,
++        run_id="real_run_001",
++        template="ai_sovereignty",
++        question="What sovereign compute does Canada have?",
++        queued_at="2026-05-20T00:00:00+00:00",
++        finished_at="2026-05-20T00:10:00+00:00",
++        pipeline_status="success",
++    )
++
++
++def test_real_artifact_builds_valid_evidence_contract(tmp_path):
++    ec = _build(tmp_path)
++    assert isinstance(ec, EvidenceContract)
++    assert ec.run_id == "real_run_001"
++    assert ec.template == "ai_sovereignty"
++    assert ec.contract_version == "1.0"
++    # Run metadata threaded from the caller (run_store), not the artifact.
++    assert ec.question.startswith("What sovereign")
++    assert ec.pipeline_status == "success"
++
++
++def test_evidence_pool_offsets_are_truthful_self_offsets(tmp_path):
++    """No fabricated source-document offsets (Codex Option B). Each SourceSpan
++    has span_start=0 and span_end=len(span_text) — the recorded span IS the
++    text; rich offsets into the original source body are deferred (#710)."""
++    ec = _build(tmp_path)
++    assert ec.evidence_pool, "expected at least one cleared (T1) source"
++    for span in ec.evidence_pool:
++        assert span.span_start == 0
++        assert span.span_end == len(span.span_text)
++        assert span.span_text  # non-empty
++        assert span.source_tier in ("T1", "T2", "T3")
++
++
++def test_verified_sentences_carry_provenance(tmp_path):
++    ec = _build(tmp_path)
++    assert ec.verified_sentences, "expected verified sentences from the report"
++    for s in ec.verified_sentences:
++        assert s.section_id
++        assert s.sentence_text
++        # provenance_tokens is a list[str] mapped straight from the slice-chain.
++        assert isinstance(s.provenance_tokens, list)
++
++
++def test_models_and_cost_threaded_from_slice_chain(tmp_path):
++    ec = _build(tmp_path, cost_usd=1.23)
++    assert ec.cost_usd == pytest.approx(1.23)
++    assert ec.generator_model  # non-empty (from manifest models block / default)
++    assert ec.verifier_model
++    assert isinstance(ec.family_segregation_passed, bool)
+diff --git a/tests/v6/test_api_bundle.py b/tests/v6/test_api_bundle.py
+index 83f97c54..e456f5df 100644
+--- a/tests/v6/test_api_bundle.py
++++ b/tests/v6/test_api_bundle.py
+@@ -92,12 +92,14 @@ def _seed_completed_run(db_path, run_id: str, artifact_dir: str):
+         conn.close()
+ 
+ 
+-def test_bundle_real_run_returns_enriched_404_pointing_to_tar_gz(
++def test_bundle_real_run_missing_artifacts_returns_404(
+     auth_disabled, db_path, tmp_path,
+ ):
+-    """I-cd-020 (#630) Option D: real completed run UUID gets a 404 detail
+-    that points the caller to bundle.tar.gz + #680 follow-up — NOT silently
+-    confused with an unknown-id 404.
++    """I-cd-680 (Codex Option B): a real completed run is now resolved to a
++    typed EvidenceContract via the slice-chain — the old #630 '404 pointing
++    to bundle.tar.gz' behavior is replaced. A run whose artifact_dir is
++    missing the required canonical files (no manifest.json) → 404 'missing
++    required files', distinct from an unknown-id 404.
+     """
+     pytest.importorskip("fastapi")
+     from fastapi.testclient import TestClient
+@@ -106,16 +108,45 @@ def test_bundle_real_run_returns_enriched_404_pointing_to_tar_gz(
+ 
+     run_id = "real_run_uuid_xyz"
+     artifact_dir = tmp_path / run_id
+-    artifact_dir.mkdir(parents=True)
++    artifact_dir.mkdir(parents=True)  # empty — no manifest.json
+     _seed_completed_run(db_path, run_id, str(artifact_dir))
+ 
+     client = TestClient(create_app())
+     response = client.get(f"/runs/{run_id}/bundle")
+     assert response.status_code == 404
+     detail = response.json()["detail"]
+-    assert "bundle.tar.gz" in detail
+-    assert "#680" in detail
+-    assert "BundleManifest v1.0" in detail
++    assert run_id in detail
++    assert "manifest.json missing or invalid" in detail
++
++
++def test_bundle_real_run_release_blocked_returns_422(
++    auth_disabled, db_path, tmp_path,
++):
++    """I-cd-680 Codex iter-1 P1: the JSON resolver MUST mirror the
++    bundle.tar.gz release_allowed gate — a release-blocked run
++    (release_allowed=False) returns 422, NOT a clean 200, so non-shippable
++    evidence can't leak via /bundle (or follow-up/compare which share the
++    resolver).
++    """
++    import json as _json
++
++    pytest.importorskip("fastapi")
++    from fastapi.testclient import TestClient
++
++    from polaris_v6.api.app import create_app
++
++    run_id = "release_blocked_run"
++    artifact_dir = tmp_path / run_id
++    artifact_dir.mkdir(parents=True)
++    (artifact_dir / "manifest.json").write_text(
++        _json.dumps({"release_allowed": False, "status": "partial_evaluator_advisory"})
++    )
++    _seed_completed_run(db_path, run_id, str(artifact_dir))
++
++    client = TestClient(create_app())
++    response = client.get(f"/runs/{run_id}/bundle")
++    assert response.status_code == 422
++    assert "release-blocked" in response.json()["detail"]
+ 
+ 
+ def test_bundle_unknown_run_returns_generic_404(auth_disabled, db_path):
