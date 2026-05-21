@@ -49,6 +49,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </NavLink>
             ))}
           </nav>
+          {/* I-ui-010 (#730): sovereign mark — honest wording (NOT a false
+              air-gap claim; we retrieve public sources via logged Canadian
+              egress). Eye-level badge of strength, not fine print. */}
+          <span
+            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+          >
+            ⬡ Canadian AI · no external AI vendor
+          </span>
         </div>
       </header>
       <main className="flex-1">{children}</main>

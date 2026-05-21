@@ -1,0 +1,84 @@
+diff --git a/web/app/components/home_keyboard_shell.tsx b/web/app/components/home_keyboard_shell.tsx
+index fc1d2a47..4d6d9254 100644
+--- a/web/app/components/home_keyboard_shell.tsx
++++ b/web/app/components/home_keyboard_shell.tsx
+@@ -68,6 +68,14 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+               </NavLink>
+             ))}
+           </nav>
++          {/* I-ui-010 (#730): sovereign mark — honest wording (no air-gap
++              overclaim). */}
++          <span
++            className="text-muted-foreground border-border mr-2 ml-auto hidden rounded-full border px-2.5 py-1 text-xs lg:inline-flex"
++            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
++          >
++            ⬡ Canadian AI · no external AI vendor
++          </span>
+           <Button
+             variant="outline"
+             nativeButton={false}
+diff --git a/web/app/globals.css b/web/app/globals.css
+index 96ed2313..c6c3c1f0 100644
+--- a/web/app/globals.css
++++ b/web/app/globals.css
+@@ -50,31 +50,30 @@
+ }
+ 
+ :root {
+-  /* I-cd-ui-001 (#704): zinc-50 surface + single cyan accent
+-     oklch(0.50 0.20 200). Replaces the pure-monochrome (zero-chroma) set.
+-     Foreground stays dark zinc for text contrast. Contrast (Codex-verified,
+-     sRGB-clipped): primary/primary-foreground 4.53:1, accent/accent-foreground
+-     6.96:1, full-strength cyan ring on zinc-50 4.53:1. chart-* left monochrome
+-     intentionally (multi-series palette is a separate decision). */
++  /* I-ui-010 (#730): Frontier Minimal — near-monochrome zinc + ONE confident
++     accent (default = blue oklch(0.50 0.18 255); the prior cyan read grey).
++     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
++     border. Accent hue is operator-confirmable (one-token swap; alt indigo
++     oklch(0.50 0.16 270) / teal oklch(0.52 0.12 215)). chart-* left mono. */
+   --background: oklch(0.985 0.001 286.375);
+   --foreground: oklch(0.21 0.006 285.9);
+   --card: oklch(1 0 0);
+   --card-foreground: oklch(0.21 0.006 285.9);
+   --popover: oklch(1 0 0);
+   --popover-foreground: oklch(0.21 0.006 285.9);
+-  --primary: oklch(0.5 0.2 200);
++  --primary: oklch(0.5 0.18 255);
+   --primary-foreground: oklch(0.985 0 0);
+   --secondary: oklch(0.97 0 0);
+   --secondary-foreground: oklch(0.21 0.006 285.9);
+   --muted: oklch(0.97 0 0);
+   --muted-foreground: oklch(0.556 0 0);
+-  --accent: oklch(0.95 0.03 200);
+-  --accent-foreground: oklch(0.4 0.13 200);
++  --accent: oklch(0.96 0.02 255);
++  --accent-foreground: oklch(0.4 0.12 255);
+   --destructive: oklch(0.577 0.245 27.325);
+   --destructive-foreground: oklch(0.985 0 0);
+   --border: oklch(0.922 0 0);
+   --input: oklch(0.922 0 0);
+-  --ring: oklch(0.5 0.2 200);
++  --ring: oklch(0.5 0.18 255);
+   --chart-1: oklch(0.87 0 0);
+   --chart-2: oklch(0.556 0 0);
+   --chart-3: oklch(0.439 0 0);
+diff --git a/web/components/app_shell.tsx b/web/components/app_shell.tsx
+index a2033039..3d214dec 100644
+--- a/web/components/app_shell.tsx
++++ b/web/components/app_shell.tsx
+@@ -49,6 +49,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
+               </NavLink>
+             ))}
+           </nav>
++          {/* I-ui-010 (#730): sovereign mark — honest wording (NOT a false
++              air-gap claim; we retrieve public sources via logged Canadian
++              egress). Eye-level badge of strength, not fine print. */}
++          <span
++            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
++            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
++          >
++            ⬡ Canadian AI · no external AI vendor
++          </span>
+         </div>
+       </header>
+       <main className="flex-1">{children}</main>

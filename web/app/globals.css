@@ -50,31 +50,30 @@
 }
 
 :root {
-  /* I-cd-ui-001 (#704): zinc-50 surface + single cyan accent
-     oklch(0.50 0.20 200). Replaces the pure-monochrome (zero-chroma) set.
-     Foreground stays dark zinc for text contrast. Contrast (Codex-verified,
-     sRGB-clipped): primary/primary-foreground 4.53:1, accent/accent-foreground
-     6.96:1, full-strength cyan ring on zinc-50 4.53:1. chart-* left monochrome
-     intentionally (multi-series palette is a separate decision). */
+  /* I-ui-010 (#730): Frontier Minimal — near-monochrome zinc + ONE confident
+     accent (default = blue oklch(0.50 0.18 255); the prior cyan read grey).
+     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
+     border. Accent hue is operator-confirmable (one-token swap; alt indigo
+     oklch(0.50 0.16 270) / teal oklch(0.52 0.12 215)). chart-* left mono. */
   --background: oklch(0.985 0.001 286.375);
   --foreground: oklch(0.21 0.006 285.9);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.21 0.006 285.9);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.21 0.006 285.9);
-  --primary: oklch(0.5 0.2 200);
+  --primary: oklch(0.5 0.18 255);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.21 0.006 285.9);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.95 0.03 200);
-  --accent-foreground: oklch(0.4 0.13 200);
+  --accent: oklch(0.96 0.02 255);
+  --accent-foreground: oklch(0.4 0.12 255);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.5 0.2 200);
+  --ring: oklch(0.5 0.18 255);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
