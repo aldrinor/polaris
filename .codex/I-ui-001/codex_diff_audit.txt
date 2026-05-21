@@ -1,3 +1,3 @@
+# Codex diff APPROVE iter 1 + MERGE AUTHORIZED (rebranded I-cd-ui-001->I-ui-001; web identical). zinc-50 P2 fixed.
 verdict: APPROVE
 merge_decision: MERGE AUTHORIZED
-# Codex diff APPROVE iter 1 + MERGE AUTHORIZED (rebranded I-cd-ui-001→I-ui-001; web identical). zinc-50 P2 fixed. typecheck/lint/build green.
