@@ -212,6 +212,46 @@ export async function askFollowup(
   return asJsonOrThrow<FollowUpAnswer>(response);
 }
 
+// I-ui-004 (#543): two-run compare. Mirrors ReportComparison in
+// src/polaris_v6/compare/differ.py. GET /runs/{l}/compare/{r}: 400 if same
+// run, 422 abort/release-blocked, 404 unknown (real-run wired #680).
+export interface ReportComparison {
+  left_run_id: string;
+  right_run_id: string;
+  same_template: boolean;
+  same_question: boolean;
+  shared_evidence_ids: string[];
+  only_left_evidence_ids: string[];
+  only_right_evidence_ids: string[];
+  shared_evidence_pct: number;
+  frame_coverage_overlap: string[];
+  only_left_frames: string[];
+  only_right_frames: string[];
+  left_contradictions: number;
+  right_contradictions: number;
+  pipeline_status_match: boolean;
+  family_segregation_both_pass: boolean;
+}
+
+export async function listCompletedRuns(
+  limit = 20,
+): Promise<RunStatusResponse[]> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs?status=completed&limit=${limit}`,
+  );
+  return asJsonOrThrow<RunStatusResponse[]>(response);
+}
+
+export async function compareRuns(
+  left: string,
+  right: string,
+): Promise<ReportComparison> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(left)}/compare/${encodeURIComponent(right)}`,
+  );
+  return asJsonOrThrow<ReportComparison>(response);
+}
+
 // I-cd-017 (#627): pin-replay snapshot consumed by /pin_replay timeseries.
 // Mirrors PinSnapshot schema in src/polaris_v6/schemas/pin_snapshot.py.
 export interface PinSnapshot {
