@@ -92,12 +92,14 @@ def _seed_completed_run(db_path, run_id: str, artifact_dir: str):
         conn.close()
 
 
-def test_bundle_real_run_returns_enriched_404_pointing_to_tar_gz(
+def test_bundle_real_run_missing_artifacts_returns_404(
     auth_disabled, db_path, tmp_path,
 ):
-    """I-cd-020 (#630) Option D: real completed run UUID gets a 404 detail
-    that points the caller to bundle.tar.gz + #680 follow-up — NOT silently
-    confused with an unknown-id 404.
+    """I-cd-680 (Codex Option B): a real completed run is now resolved to a
+    typed EvidenceContract via the slice-chain — the old #630 '404 pointing
+    to bundle.tar.gz' behavior is replaced. A run whose artifact_dir is
+    missing the required canonical files (no manifest.json) → 404 'missing
+    required files', distinct from an unknown-id 404.
     """
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
@@ -106,16 +108,45 @@ def test_bundle_real_run_returns_enriched_404_pointing_to_tar_gz(
 
     run_id = "real_run_uuid_xyz"
     artifact_dir = tmp_path / run_id
-    artifact_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)  # empty — no manifest.json
     _seed_completed_run(db_path, run_id, str(artifact_dir))
 
     client = TestClient(create_app())
     response = client.get(f"/runs/{run_id}/bundle")
     assert response.status_code == 404
     detail = response.json()["detail"]
-    assert "bundle.tar.gz" in detail
-    assert "#680" in detail
-    assert "BundleManifest v1.0" in detail
+    assert run_id in detail
+    assert "manifest.json missing or invalid" in detail
+
+
+def test_bundle_real_run_release_blocked_returns_422(
+    auth_disabled, db_path, tmp_path,
+):
+    """I-cd-680 Codex iter-1 P1: the JSON resolver MUST mirror the
+    bundle.tar.gz release_allowed gate — a release-blocked run
+    (release_allowed=False) returns 422, NOT a clean 200, so non-shippable
+    evidence can't leak via /bundle (or follow-up/compare which share the
+    resolver).
+    """
+    import json as _json
+
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from polaris_v6.api.app import create_app
+
+    run_id = "release_blocked_run"
+    artifact_dir = tmp_path / run_id
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "manifest.json").write_text(
+        _json.dumps({"release_allowed": False, "status": "partial_evaluator_advisory"})
+    )
+    _seed_completed_run(db_path, run_id, str(artifact_dir))
+
+    client = TestClient(create_app())
+    response = client.get(f"/runs/{run_id}/bundle")
+    assert response.status_code == 422
+    assert "release-blocked" in response.json()["detail"]
 
 
 def test_bundle_unknown_run_returns_generic_404(auth_disabled, db_path):

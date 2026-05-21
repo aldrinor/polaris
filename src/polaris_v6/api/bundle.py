@@ -30,6 +30,9 @@ from polaris_graph.api.audit_bundle_route import (
     build_audit_bundle_response,
     get_sign_fn,
 )
+from polaris_v6.api.artifact_to_evidence_contract import (
+    build_evidence_contract_from_artifact,
+)
 from polaris_v6.api.artifact_to_slice_chain import (
     SovereigntyFilterEmptiedReportError,
     build_slice_chain,
@@ -52,38 +55,103 @@ _GOLDEN_RUN_INDEX = {
 }
 
 
-@router.get("/{run_id}/bundle", response_model=EvidenceContract)
-def get_bundle(run_id: str) -> EvidenceContract:
+def load_evidence_contract_for_run(run_id: str) -> EvidenceContract:
+    """Resolve a run_id → EvidenceContract for golden fixtures AND real runs.
+
+    I-cd-680 (Codex Option B): golden fixtures load from JSON; real completed
+    runs resolve run_id → artifact_dir via run_store and build the contract
+    from the slice-chain (the same proven path as bundle.tar.gz). Shared by
+    the bundle, follow-up (#542), and compare (#543) endpoints so all three
+    work on real runs, not just fixtures.
+
+    Raises HTTPException(404) for unknown / not-completed / artifact-missing
+    runs, HTTPException(422) when the sovereignty cascade empties the report.
+    """
     fixture_name = _GOLDEN_RUN_INDEX.get(run_id)
     if fixture_name is not None:
         raw = json.loads((_FIXTURE_DIR / fixture_name).read_text())
         return EvidenceContract.model_validate(raw)
 
-    # I-cd-020 (#630): real runs do NOT have an EvidenceContract JSON today.
-    # The I-A-02b frozen schema is BundleManifest v1.0 (I-cd-012), served by
-    # the companion `GET /runs/{run_id}/bundle.tar.gz` route via slice-chain
-    # (I-arch-001d). The data gaps that block JSON-EvidenceContract for real
-    # runs (span char-offsets, per-sentence provenance) are tracked in
-    # I-cd-020-followup (#680).
     run = run_store.get_run(run_id)
-    if run is not None and run.lifecycle_status == "completed" and run.artifact_dir:
+    if run is None:
         raise HTTPException(
             status_code=404,
             detail=(
-                f"EvidenceContract JSON not available for real run {run_id!r}. "
-                f"Fetch GET /runs/{run_id}/bundle.tar.gz instead — it returns "
-                f"the signed BundleManifest v1.0 bundle (the I-A-02b frozen "
-                f"schema). EvidenceContract for real runs requires pipeline-A "
-                f"per-sentence-provenance JSON capability (tracked in #680)."
+                f"Run {run_id!r} not found. Available golden fixtures: "
+                f"{list(_GOLDEN_RUN_INDEX)}."
             ),
         )
-    raise HTTPException(
-        status_code=404,
-        detail=(
-            f"Bundle for run {run_id!r} not found. Available golden fixtures: "
-            f"{list(_GOLDEN_RUN_INDEX)}."
-        ),
-    )
+    if run.lifecycle_status != "completed" or not run.artifact_dir:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Run {run_id!r} is not a completed run with artifacts "
+                f"(lifecycle_status={run.lifecycle_status!r})."
+            ),
+        )
+
+    # I-cd-680 Codex iter-1 P1: mirror the /bundle.tar.gz gates so the JSON
+    # path cannot leak non-shippable evidence the tar.gz path refuses.
+    if run.pipeline_status and run.pipeline_status.startswith("abort_"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Run {run_id!r} aborted: pipeline_status={run.pipeline_status}.",
+        )
+    artifact_dir = Path(run.artifact_dir)
+    if not artifact_dir.is_dir():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Run {run_id!r} artifact_dir does not exist on disk: {artifact_dir}.",
+        )
+    # release_allowed gate: a release-blocked partial (e.g.
+    # partial_evaluator_advisory with release_allowed=False) MUST NOT be
+    # served as a clean EvidenceContract (matches bundle.tar.gz).
+    try:
+        manifest_raw = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Run {run_id!r} manifest.json missing or invalid: {exc}",
+        ) from exc
+    if not manifest_raw.get("release_allowed", False):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Run {run_id!r} is release-blocked "
+                f"(pipeline_status={run.pipeline_status!r}, release_allowed=False); "
+                f"EvidenceContract cannot ship until the release gate clears."
+            ),
+        )
+
+    try:
+        return build_evidence_contract_from_artifact(
+            artifact_dir,
+            run_id=run.run_id,
+            template=run.template or "custom",
+            question=run.question or "",
+            queued_at=str(run.queued_at or ""),
+            finished_at=str(run.finished_at or ""),
+            pipeline_status=run.pipeline_status or "success",
+        )
+    except SovereigntyFilterEmptiedReportError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Run {run_id!r} has no shippable sections after the "
+            f"sovereignty cascade: {exc}",
+        ) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Run {run_id!r} artifact_dir is missing required files: {exc}",
+        ) from exc
+
+
+@router.get("/{run_id}/bundle", response_model=EvidenceContract)
+def get_bundle(run_id: str) -> EvidenceContract:
+    # I-cd-680: real runs now resolve to a typed EvidenceContract built from
+    # the slice-chain (was 404-with-pointer-to-bundle.tar.gz). Golden
+    # fixtures unchanged.
+    return load_evidence_contract_for_run(run_id)
 
 
 @router.get("/{run_id}/bundle.tar.gz")
