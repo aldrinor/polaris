@@ -1,0 +1,328 @@
+diff --git a/web/app/components/recent_runs_strip.tsx b/web/app/components/recent_runs_strip.tsx
+new file mode 100644
+index 00000000..9a5d0b65
+--- /dev/null
++++ b/web/app/components/recent_runs_strip.tsx
+@@ -0,0 +1,93 @@
++"use client";
++
++import Link from "next/link";
++import { useEffect, useState } from "react";
++
++import { authHeader } from "@/lib/auth";
++
++// I-cd-ui-001 (#704): home recent-runs strip. Consumes the GET /api/v6/runs
++// list endpoint (#705). The home is PUBLIC and the runs endpoint is
++// auth-gated (bearer token), so this MUST degrade to null on 401 / any
++// failure / empty — never an error and never a /sign-in redirect (that is
++// why it uses authHeader() directly, not authFetch which redirects).
++
++type RunRow = {
++  run_id: string;
++  template: string;
++  question: string;
++  finished_at: string | null;
++};
++
++function formatFinished(value: string | null): string | null {
++  if (!value) return null;
++  const d = new Date(value);
++  if (Number.isNaN(d.getTime())) return null; // tolerate malformed finished_at
++  return d.toLocaleDateString(undefined, {
++    month: "short",
++    day: "numeric",
++  });
++}
++
++export function RecentRunsStrip() {
++  const [runs, setRuns] = useState<RunRow[]>([]);
++
++  useEffect(() => {
++    let cancelled = false;
++    (async () => {
++      try {
++        const res = await fetch("/api/v6/runs?status=completed&limit=5", {
++          headers: authHeader(),
++        });
++        if (!res.ok) return; // 401 (logged-out) or any non-ok → render nothing
++        const data: unknown = await res.json();
++        if (!cancelled && Array.isArray(data)) {
++          setRuns(data as RunRow[]);
++        }
++      } catch {
++        // network / parse failure → render nothing
++      }
++    })();
++    return () => {
++      cancelled = true;
++    };
++  }, []);
++
++  if (runs.length === 0) return null;
++
++  return (
++    <section aria-labelledby="recent_runs_heading" className="flex flex-col gap-3">
++      <h2
++        id="recent_runs_heading"
++        className="text-muted-foreground text-xs font-medium tracking-widest uppercase"
++      >
++        Recent verifications
++      </h2>
++      <div className="flex flex-wrap gap-2" data-testid="recent-runs-strip">
++        {runs.map((run) => {
++          const finished = formatFinished(run.finished_at);
++          return (
++            <Link
++              key={run.run_id}
++              href={`/runs/${run.run_id}`}
++              data-testid={`recent-run-${run.run_id}`}
++              className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring group flex max-w-xs flex-col gap-1 rounded-lg border px-3 py-2 transition-colors focus-visible:ring-2 focus-visible:outline-none"
++            >
++              <span className="text-primary text-[10px] font-semibold tracking-widest uppercase">
++                {run.template}
++                {finished ? (
++                  <span className="text-muted-foreground font-normal">
++                    {" · "}
++                    {finished}
++                  </span>
++                ) : null}
++              </span>
++              <span className="text-foreground line-clamp-2 text-sm">
++                {run.question}
++              </span>
++            </Link>
++          );
++        })}
++      </div>
++    </section>
++  );
++}
+diff --git a/web/app/globals.css b/web/app/globals.css
+index 2fdb06f0..119d46d9 100644
+--- a/web/app/globals.css
++++ b/web/app/globals.css
+@@ -50,25 +50,31 @@
+ }
+ 
+ :root {
+-  --background: oklch(1 0 0);
+-  --foreground: oklch(0.145 0 0);
++  /* I-cd-ui-001 (#704): zinc-50 surface + single cyan accent
++     oklch(0.50 0.20 200). Replaces the pure-monochrome (zero-chroma) set.
++     Foreground stays dark zinc for text contrast. Contrast (Codex-verified,
++     sRGB-clipped): primary/primary-foreground 4.53:1, accent/accent-foreground
++     6.96:1, full-strength cyan ring on zinc-50 4.53:1. chart-* left monochrome
++     intentionally (multi-series palette is a separate decision). */
++  --background: oklch(0.985 0.001 286.375);
++  --foreground: oklch(0.21 0.006 285.9);
+   --card: oklch(1 0 0);
+-  --card-foreground: oklch(0.145 0 0);
++  --card-foreground: oklch(0.21 0.006 285.9);
+   --popover: oklch(1 0 0);
+-  --popover-foreground: oklch(0.145 0 0);
+-  --primary: oklch(0.205 0 0);
++  --popover-foreground: oklch(0.21 0.006 285.9);
++  --primary: oklch(0.50 0.20 200);
+   --primary-foreground: oklch(0.985 0 0);
+   --secondary: oklch(0.97 0 0);
+-  --secondary-foreground: oklch(0.205 0 0);
++  --secondary-foreground: oklch(0.21 0.006 285.9);
+   --muted: oklch(0.97 0 0);
+   --muted-foreground: oklch(0.556 0 0);
+-  --accent: oklch(0.97 0 0);
+-  --accent-foreground: oklch(0.205 0 0);
++  --accent: oklch(0.95 0.03 200);
++  --accent-foreground: oklch(0.40 0.13 200);
+   --destructive: oklch(0.577 0.245 27.325);
+   --destructive-foreground: oklch(0.985 0 0);
+   --border: oklch(0.922 0 0);
+   --input: oklch(0.922 0 0);
+-  --ring: oklch(0.708 0 0);
++  --ring: oklch(0.50 0.20 200);
+   --chart-1: oklch(0.87 0 0);
+   --chart-2: oklch(0.556 0 0);
+   --chart-3: oklch(0.439 0 0);
+@@ -92,14 +98,16 @@
+   --card-foreground: oklch(0.985 0 0);
+   --popover: oklch(0.205 0 0);
+   --popover-foreground: oklch(0.985 0 0);
+-  --primary: oklch(0.922 0 0);
+-  --primary-foreground: oklch(0.205 0 0);
++  /* I-cd-ui-001 (#704): cyan accent for dark mode (slightly lighter L0.65
++     for contrast on the dark surface; dark text on the lighter cyan). */
++  --primary: oklch(0.65 0.17 200);
++  --primary-foreground: oklch(0.21 0.006 285.9);
+   --secondary: oklch(0.269 0 0);
+   --secondary-foreground: oklch(0.985 0 0);
+   --muted: oklch(0.269 0 0);
+   --muted-foreground: oklch(0.708 0 0);
+-  --accent: oklch(0.269 0 0);
+-  --accent-foreground: oklch(0.985 0 0);
++  --accent: oklch(0.32 0.05 200);
++  --accent-foreground: oklch(0.92 0.04 200);
+   --destructive: oklch(0.704 0.191 22.216);
+   /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+      White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+@@ -108,7 +116,7 @@
+   --destructive-foreground: oklch(0.145 0 0);
+   --border: oklch(1 0 0 / 10%);
+   --input: oklch(1 0 0 / 15%);
+-  --ring: oklch(0.556 0 0);
++  --ring: oklch(0.65 0.17 200);
+   --chart-1: oklch(0.87 0 0);
+   --chart-2: oklch(0.556 0 0);
+   --chart-3: oklch(0.439 0 0);
+diff --git a/web/app/intake/components/intake_form.tsx b/web/app/intake/components/intake_form.tsx
+index cfb7b4c5..ae60d814 100644
+--- a/web/app/intake/components/intake_form.tsx
++++ b/web/app/intake/components/intake_form.tsx
+@@ -1,5 +1,6 @@
+ "use client";
+ 
++import { useSearchParams } from "next/navigation";
+ import { useState } from "react";
+ 
+ import { Button } from "@/components/ui/button";
+@@ -40,7 +41,11 @@ function looksNonEnglish(s: string): boolean {
+ }
+ 
+ export function IntakeForm() {
+-  const [question, setQuestion] = useState("");
++  // I-cd-ui-001 (#704): prefill from the home hero search (/intake?q=...).
++  // useSearchParams requires a Suspense boundary — the intake page wraps
++  // this component in <Suspense> (mirroring web/app/sign-in/page.tsx).
++  const searchParams = useSearchParams();
++  const [question, setQuestion] = useState(searchParams.get("q") ?? "");
+   const [state, setState] = useState<IntakeState>({ kind: "idle" });
+   const [modalOpen, setModalOpen] = useState(false);
+   const [disambigClusters, setDisambigClusters] = useState<
+diff --git a/web/app/intake/page.tsx b/web/app/intake/page.tsx
+index 8622060b..402fec61 100644
+--- a/web/app/intake/page.tsx
++++ b/web/app/intake/page.tsx
+@@ -1,3 +1,5 @@
++import { Suspense } from "react";
++
+ import { IntakeForm } from "./components/intake_form";
+ import { PdfDropBanner } from "./components/pdf_drop_banner";
+ 
+@@ -33,7 +35,9 @@ export default function IntakePage() {
+ 
+       <PdfDropBanner />
+ 
+-      <IntakeForm />
++      <Suspense fallback={null}>
++        <IntakeForm />
++      </Suspense>
+     </section>
+   );
+ }
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index f5955bf9..45a0b2fb 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -1,6 +1,7 @@
+ import Link from "next/link";
+ 
+ import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
++import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
+ import { Button } from "@/components/ui/button";
+ import {
+   Card,
+@@ -9,6 +10,7 @@ import {
+   CardHeader,
+   CardTitle,
+ } from "@/components/ui/card";
++import { Input } from "@/components/ui/input";
+ 
+ type Template = {
+   id: string;
+@@ -108,18 +110,37 @@ export default function HomePage() {
+   return (
+     <div className="flex min-h-screen flex-col">
+       <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+-        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12">
+-          <section className="flex flex-col gap-3">
+-            <h1 className="text-foreground text-3xl font-semibold tracking-tight sm:text-4xl">
+-              POLARIS Canada — Sovereign Deep Research
++        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-12 px-6 py-16">
++          <section className="flex flex-col items-center gap-6 pt-6 text-center">
++            <h1 className="text-foreground max-w-3xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
++              What can POLARIS verify for you today?
+             </h1>
+-            <p className="text-muted-foreground max-w-3xl text-base sm:text-lg">
+-              Two-family verified evidence pipelines for Government of Canada
+-              policy work. Every claim carries a provenance token tied to a
+-              primary source.
++            <p className="text-muted-foreground max-w-2xl text-base sm:text-lg">
++              Sovereign Canadian deep research. Every claim carries a provenance
++              token tied to a primary source, checked by a two-family evidence
++              pipeline.
+             </p>
++            <form
++              action="/intake"
++              method="get"
++              data-testid="home-hero-search"
++              className="flex w-full max-w-2xl items-center gap-2"
++            >
++              <Input
++                name="q"
++                type="search"
++                aria-label="Research question"
++                placeholder="Ask a research question…"
++                className="h-11 flex-1 text-base"
++              />
++              <Button type="submit" className="h-11 px-6">
++                Verify
++              </Button>
++            </form>
+           </section>
+ 
++          <RecentRunsStrip />
++
+           <section
+             aria-labelledby="template_grid_heading"
+             className="flex flex-col gap-5"
+@@ -143,7 +164,7 @@ export default function HomePage() {
+                   aria-disabled={tpl.active ? undefined : true}
+                   className={
+                     tpl.active
+-                      ? "flex flex-col"
++                      ? "border-primary/40 flex flex-col transition-shadow hover:shadow-sm"
+                       : "bg-muted/40 text-muted-foreground flex flex-col"
+                   }
+                   data-testid={`template-card-${tpl.id}`}
+@@ -181,7 +202,6 @@ export default function HomePage() {
+                     </div>
+                     {tpl.active ? (
+                       <Button
+-                        variant="outline"
+                         nativeButton={false}
+                         render={
+                           <Link
+diff --git a/web/tests/e2e/home_g1_g8.spec.ts b/web/tests/e2e/home_g1_g8.spec.ts
+index 875868c4..e7f10380 100644
+--- a/web/tests/e2e/home_g1_g8.spec.ts
++++ b/web/tests/e2e/home_g1_g8.spec.ts
+@@ -44,6 +44,21 @@ test("G1 + G6: home has exactly one header outside <main>, primary nav visible",
+   await expect(mains).toHaveCount(1);
+ });
+ 
++test("I-cd-ui-001: home hero search submits to /intake?q=", async ({ page }) => {
++  await page.goto("/");
++  const form = page.getByTestId("home-hero-search");
++  await expect(form).toBeVisible();
++  // The hero is a progressive GET form (works without JS): action=/intake,
++  // input name=q. Submitting routes to /intake?q=<question>.
++  await expect(form).toHaveAttribute("action", "/intake");
++  const input = form.locator("input[name='q']");
++  await expect(input).toBeVisible();
++  await input.fill("does aspirin reduce headaches");
++  await form.locator("button[type='submit']").click();
++  await page.waitForURL(/\/intake\?q=/);
++  expect(page.url()).toContain("q=does");
++});
++
+ test("G2: home contains no banned dev-language strings", async ({ page }) => {
+   await page.goto("/");
+   const body_text = (await page.locator("body").textContent()) || "";
