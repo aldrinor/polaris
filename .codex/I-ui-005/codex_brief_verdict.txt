@@ -1,0 +1,2 @@
+verdict: APPROVE
+# QA-found bug; analysis on #725; fix verified by re-screenshot.

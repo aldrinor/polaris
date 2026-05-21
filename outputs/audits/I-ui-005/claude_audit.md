@@ -1,0 +1,2 @@
+# Claude audit — I-ui-bug-001 (#725)
+Visual-QA-found bug: completed runs rendered as "connection lost". Fix: pipeline_status authoritative for completed runs (success→done, abort_*/error_*→did-not-run; synthetic stream_lost suppressed only when lifecycle-completed). Codex diff iter-1 P1 (aborts-as-success) caught + fixed. VERIFIED BY VISION (local stack + Playwright): success→4 green "Completed.", abort→4 grey "Did not run.". Deeper follow-up on #725: surface report+counts for completed runs.
