@@ -56,7 +56,7 @@
      sRGB-clipped): primary/primary-foreground 4.53:1, accent/accent-foreground
      6.96:1, full-strength cyan ring on zinc-50 4.53:1. chart-* left monochrome
      intentionally (multi-series palette is a separate decision). */
-  --background: oklch(0.985 0.002 247.86);
+  --background: oklch(0.985 0.001 286.375);
   --foreground: oklch(0.21 0.006 285.9);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.21 0.006 285.9);
