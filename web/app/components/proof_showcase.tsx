@@ -33,18 +33,26 @@ export async function ProofShowcase() {
 
   outer: for (const section of sections) {
     for (const s of section.verified_sentences ?? []) {
-      const token = (s.provenance_tokens ?? []).find(
+      // HONESTY (Codex P1): only feature a sentence the verifier actually
+      // passed — never present a dropped/failed sentence as "verified".
+      if (s.verifier_pass !== true) continue;
+      const tokens = (s.provenance_tokens ?? []).filter(
         (t): t is string => typeof t === "string",
       );
-      if (!token) continue;
-      const span = resolveSpan(token, bundle.evidencePool);
-      if (span?.quote && span.quote.trim().length > 40) {
-        claim = s.sentence_text;
-        quote = span.quote.trim();
-        sourceTitle = span.source?.title ?? null;
-        sourceUrl = span.source?.url ?? null;
-        tier = tierLabel(span.source?.tier);
-        break outer;
+      // Try every token, not just the first (Codex P2): a later token may
+      // resolve when an earlier one is malformed.
+      for (const token of tokens) {
+        const span = resolveSpan(token, bundle.evidencePool);
+        // Render the EXACT cited passage full_text[start:end] (Codex P2 —
+        // no trim); the length gate uses a trimmed copy only for the check.
+        if (span?.quote && span.quote.trim().length > 40) {
+          claim = s.sentence_text;
+          quote = span.quote;
+          sourceTitle = span.source?.title ?? null;
+          sourceUrl = span.source?.url ?? null;
+          tier = tierLabel(span.source?.tier);
+          break outer;
+        }
       }
     }
   }
