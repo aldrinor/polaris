@@ -47,7 +47,11 @@ export function CitationChip({
             data-testid="citation-chip"
             data-source-id={span?.sourceId}
             aria-label={`Source: ${label}`}
-            onClick={() => setOpen((o) => !o)}
+            onPointerDown={(e) => {
+              // Touch: toggle on pointerdown only (avoids the focus→open then
+              // click→toggle-closed race). Mouse/pen use hover + focus below.
+              if (e.pointerType === "touch") setOpen((o) => !o);
+            }}
             onMouseEnter={() => setOpen(true)}
             onMouseLeave={() => setOpen(false)}
             onFocus={() => setOpen(true)}
