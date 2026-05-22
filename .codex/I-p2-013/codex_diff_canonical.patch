@@ -1,0 +1,523 @@
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index 45a0b2fb..47aeb04e 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -1,15 +1,8 @@
+-import Link from "next/link";
++import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
+ 
+ import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+ import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
+ import { Button } from "@/components/ui/button";
+-import {
+-  Card,
+-  CardContent,
+-  CardDescription,
+-  CardHeader,
+-  CardTitle,
+-} from "@/components/ui/card";
+ import { Input } from "@/components/ui/input";
+ 
+ type Template = {
+@@ -106,131 +99,89 @@ const templates: Template[] = [
+   },
+ ];
+ 
++const PILLARS = [
++  {
++    icon: BadgeCheck,
++    title: "Provable",
++    body: "Click any claim and see the exact source passage it came from. Frontier tools hallucinate 3–13% of their citations — every POLARIS claim is span-anchored to a primary source.",
++  },
++  {
++    icon: ShieldCheck,
++    title: "Sovereign",
++    body: "Built for Canadian-hosted, sovereign deployment. Public sources are fetched via logged Canadian egress, and every brief is integrity-hashed and auditable.",
++  },
++  {
++    icon: Network,
++    title: "Snowball",
++    body: "Each run grows a connected knowledge graph of claims and sources you can explore, follow up on, and build the next question from.",
++  },
++] as const;
++
+ export default function HomePage() {
+   return (
+     <div className="flex min-h-screen flex-col">
+       <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+-        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-12 px-6 py-16">
+-          <section className="flex flex-col items-center gap-6 pt-6 text-center">
+-            <h1 className="text-foreground max-w-3xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
+-              What can POLARIS verify for you today?
++        <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-20 px-6 py-24">
++          {/* Hero — one primary action */}
++          <section className="flex flex-col items-center gap-6 text-center">
++            <span className="text-muted-foreground border-border inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
++              ⬡ Sovereign Canadian deep research
++            </span>
++            <h1 className="text-foreground max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
++              Deep research you can check, line by line.
+             </h1>
+-            <p className="text-muted-foreground max-w-2xl text-base sm:text-lg">
+-              Sovereign Canadian deep research. Every claim carries a provenance
+-              token tied to a primary source, checked by a two-family evidence
+-              pipeline.
++            <p className="text-muted-foreground max-w-2xl text-base text-pretty sm:text-lg">
++              Every sentence is tied to a primary source with a provenance token
++              and checked by an independent two-family evidence pipeline. Ask a
++              question — get a brief where you can click any claim and read the
++              exact passage behind it.
+             </p>
+             <form
+               action="/intake"
+               method="get"
+               data-testid="home-hero-search"
+-              className="flex w-full max-w-2xl items-center gap-2"
++              className="mt-2 flex w-full max-w-2xl items-center gap-2"
+             >
+               <Input
+                 name="q"
+                 type="search"
+                 aria-label="Research question"
+                 placeholder="Ask a research question…"
+-                className="h-11 flex-1 text-base"
++                className="h-12 flex-1 text-base"
+               />
+-              <Button type="submit" className="h-11 px-6">
++              <Button type="submit" className="h-12 px-7">
+                 Verify
+               </Button>
+             </form>
+           </section>
+ 
+-          <RecentRunsStrip />
+-
++          {/* Differentiator pillars — replaces the templates grid */}
+           <section
+-            aria-labelledby="template_grid_heading"
+-            className="flex flex-col gap-5"
+-            data-testid="template-grid"
++            aria-label="Why POLARIS"
++            className="grid gap-8 sm:grid-cols-3"
+           >
+-            <div className="flex items-baseline justify-between">
+-              <h2
+-                id="template_grid_heading"
+-                className="text-foreground text-xl font-semibold tracking-tight"
+-              >
+-                Research templates
+-              </h2>
+-              <span className="text-muted-foreground text-xs tracking-widest uppercase">
+-                1 active · 7 in development
+-              </span>
+-            </div>
+-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+-              {templates.map((tpl) => (
+-                <Card
+-                  key={tpl.id}
+-                  aria-disabled={tpl.active ? undefined : true}
+-                  className={
+-                    tpl.active
+-                      ? "border-primary/40 flex flex-col transition-shadow hover:shadow-sm"
+-                      : "bg-muted/40 text-muted-foreground flex flex-col"
+-                  }
+-                  data-testid={`template-card-${tpl.id}`}
+-                >
+-                  <CardHeader>
+-                    <div className="flex items-start justify-between gap-2">
+-                      <CardTitle className="text-lg">{tpl.name}</CardTitle>
+-                      {!tpl.active ? (
+-                        <span
+-                          aria-hidden="true"
+-                          className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+-                        >
+-                          Coming soon
+-                        </span>
+-                      ) : null}
+-                    </div>
+-                    <CardDescription className="text-sm">
+-                      {tpl.summary}
+-                    </CardDescription>
+-                  </CardHeader>
+-                  <CardContent className="flex flex-1 flex-col justify-between gap-4">
+-                    <div className="flex flex-col gap-2 text-sm">
+-                      <p>
+-                        <span className="text-foreground font-medium">
+-                          In scope:
+-                        </span>{" "}
+-                        {tpl.sample_question}
+-                      </p>
+-                      <p>
+-                        <span className="text-foreground font-medium">
+-                          Out of scope:
+-                        </span>{" "}
+-                        {tpl.out_of_scope}
+-                      </p>
+-                    </div>
+-                    {tpl.active ? (
+-                      <Button
+-                        nativeButton={false}
+-                        render={
+-                          <Link
+-                            data-testid={`template-card-${tpl.id}-link`}
+-                            href={`/intake?template=${tpl.id}`}
+-                          />
+-                        }
+-                      >
+-                        Open {tpl.name}
+-                      </Button>
+-                    ) : (
+-                      <Button
+-                        variant="outline"
+-                        disabled
+-                        tabIndex={-1}
+-                        aria-disabled="true"
+-                      >
+-                        Coming soon
+-                      </Button>
+-                    )}
+-                  </CardContent>
+-                </Card>
+-              ))}
+-            </div>
++            {PILLARS.map((pillar) => (
++              <div key={pillar.title} className="flex flex-col gap-2">
++                <pillar.icon
++                  aria-hidden
++                  className="text-primary h-5 w-5 shrink-0"
++                />
++                <h2 className="text-foreground text-sm font-semibold">
++                  {pillar.title}
++                </h2>
++                <p className="text-muted-foreground text-sm leading-relaxed">
++                  {pillar.body}
++                </p>
++              </div>
++            ))}
+           </section>
++
++          {/* Real recent verified briefs */}
++          <RecentRunsStrip />
+         </main>
+ 
+         <footer className="border-border bg-background border-t">
+-          <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
++          <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+             <span>POLARIS · Sovereign Canadian deep research</span>
+             <span>Two-family verified evidence</span>
+           </div>
+diff --git a/web/tests/e2e/demo_journey.spec.ts b/web/tests/e2e/demo_journey.spec.ts
+index 33b0af51..95fb7565 100644
+--- a/web/tests/e2e/demo_journey.spec.ts
++++ b/web/tests/e2e/demo_journey.spec.ts
+@@ -13,15 +13,21 @@ import { expect, test } from "@playwright/test";
+ test("demo journey: home → intake → dashboard → inspector (canonical fixture)", async ({
+   page,
+ }) => {
+-  // Step 1: home renders + clinical template card present + linked.
++  // Step 1: home renders the one-CTA hero (I-p2-013 replaced the template
++  // grid); the hero search funnels to /intake.
+   await page.goto("/");
+-  await expect(page.getByTestId("template-card-clinical")).toBeVisible();
+-  await expect(page.getByTestId("template-card-clinical-link")).toBeVisible();
+-  const intake_link = page.getByTestId("template-card-clinical-link").first();
+-  await intake_link.click();
++  await expect(page.getByTestId("home-hero-search")).toBeVisible();
++  await page
++    .getByTestId("home-hero-search")
++    .getByRole("searchbox")
++    .fill("What did the SELECT trial show on cardiovascular outcomes?");
++  await page
++    .getByTestId("home-hero-search")
++    .getByRole("button", { name: "Verify" })
++    .click();
+ 
+-  // Step 2: lands on /intake?template=clinical with the intake form.
+-  await expect(page).toHaveURL(/\/intake\?template=clinical/);
++  // Step 2: lands on /intake with the intake form.
++  await expect(page).toHaveURL(/\/intake/);
+   await expect(page.getByTestId("intake-page")).toBeVisible();
+ 
+   // Step 3: dashboard is reachable directly (the "ask a question" UX
+diff --git a/web/tests/e2e/demo_walkthrough.spec.ts b/web/tests/e2e/demo_walkthrough.spec.ts
+index e1d91409..9c83488c 100644
+--- a/web/tests/e2e/demo_walkthrough.spec.ts
++++ b/web/tests/e2e/demo_walkthrough.spec.ts
+@@ -1,34 +1,36 @@
+ import { expect, test } from "@playwright/test";
+ 
+ /**
+- * Slice 005 — full demo walkthrough (updated for I-f1-001 template grid).
++ * Slice 005 — full demo walkthrough.
+  *
+- * Drives the four-step flow in the same order a non-developer follows
+- * during the Sep 6 tracer demo:
+- *   home (clinical template card) → intake → retrieval → generation → benchmark
++ * Drives the flow a non-developer follows during the demo:
++ *   home (one-CTA hero) → intake → retrieval → generation → benchmark
+  *
+- * I-f1-001 replaced the demo-slice cards on `/` with the F1 template grid
+- * (3 active + 5 to-build). The home entry-point now clicks the clinical
+- * template card → /intake?template=clinical, instead of the legacy
+- * demo-slice-intake card.
++ * I-p2-013 (#752) replaced the home template grid with a one-CTA hero; the
++ * home entry-point now fills the hero search and submits → /intake.
+  *
+- * This is a STRUCTURAL test — it asserts that each page loads and exposes
+- * its core testid hooks. It does NOT validate content (which would require
+- * real OPENROUTER_API_KEY / SERPER_API_KEY at runtime). For content
+- * verification, use the runbook in docs/demo_runbook.md.
++ * STRUCTURAL test — asserts each page loads + exposes its core testid hooks.
++ * It does NOT validate content (which needs real API keys at runtime).
+  */
+ 
+ test.describe("Slice 005 — full demo walkthrough", () => {
+   test("home → intake → retrieval → generation → benchmark", async ({
+     page,
+   }) => {
+-    // Step 0 — home (template grid)
++    // Step 0 — home (one-CTA hero; I-p2-013 replaced the template grid)
+     await page.goto("/", { waitUntil: "networkidle" });
+-    await expect(page.getByTestId("template-grid")).toBeVisible();
++    await expect(page.getByTestId("home-hero-search")).toBeVisible();
+ 
+-    // Step 1 — intake (click the clinical template card)
+-    await page.getByTestId("template-card-clinical-link").click();
+-    await page.waitForURL("**/intake?template=clinical");
++    // Step 1 — intake (the hero search funnels to /intake)
++    await page
++      .getByTestId("home-hero-search")
++      .getByRole("searchbox")
++      .fill("What did the SELECT trial show on cardiovascular outcomes?");
++    await page
++      .getByTestId("home-hero-search")
++      .getByRole("button", { name: "Verify" })
++      .click();
++    await page.waitForURL("**/intake**");
+     await expect(page.getByTestId("intake-page")).toBeVisible();
+     await expect(page.getByTestId("intake-question-input")).toBeVisible();
+ 
+@@ -45,25 +47,24 @@ test.describe("Slice 005 — full demo walkthrough", () => {
+     await expect(page.getByTestId("benchmark-page")).toBeVisible();
+   });
+ 
+-  test("home template grid surfaces 1 active + 7 to-build cards", async ({
++  test("home surfaces the one-CTA hero + three differentiator pillars", async ({
+     page,
+   }) => {
+     await page.goto("/", { waitUntil: "networkidle" });
+-    const active = ["clinical"];
+-    const to_build = [
+-      "policy",
+-      "tech",
+-      "due_diligence",
+-      "ai_sovereignty",
+-      "canada_us",
+-      "workforce",
+-      "custom",
+-    ];
+-    for (const id of active) {
+-      await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+-    }
+-    for (const id of to_build) {
+-      await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
++    // One primary CTA (the hero search + Verify), not a grid of cards.
++    await expect(page.getByTestId("home-hero-search")).toBeVisible();
++    await expect(
++      page.getByTestId("home-hero-search").getByRole("button", {
++        name: "Verify",
++      }),
++    ).toBeVisible();
++    // The three differentiator pillars replace the old template grid.
++    for (const pillar of ["Provable", "Sovereign", "Snowball"]) {
++      await expect(
++        page.getByRole("heading", { name: pillar }),
++      ).toBeVisible();
+     }
++    // The old templates grid is gone.
++    await expect(page.getByTestId("template-grid")).toHaveCount(0);
+   });
+ });
+diff --git a/web/tests/e2e/f1_a11y.spec.ts b/web/tests/e2e/f1_a11y.spec.ts
+index d2f993dd..c8333994 100644
+--- a/web/tests/e2e/f1_a11y.spec.ts
++++ b/web/tests/e2e/f1_a11y.spec.ts
+@@ -4,11 +4,13 @@ import { expect, test } from "@playwright/test";
+ /**
+  * I-f1-005 — F1 axe-core WCAG-AA compliance.
+  *
+- * Acceptance: zero serious/critical violations across F1 surfaces NOT
+- * already covered by landing_template_grid (closed palette) or
+- * accessibility (dashboard / inspector). Specifically:
++ * Acceptance: zero serious/critical violations across the home + intake.
++ * (I-p2-013 #752 folded the closed-home axe check here after the
++ * template-grid spec was removed when the home became a one-CTA hero.)
++ * Specifically:
++ *  - `/` closed (the one-CTA hero home).
+  *  - `/` with the command palette OPEN (Ctrl+K), backdrop + popup visible.
+- *  - `/intake?template=clinical` (target of F1 active cards).
++ *  - `/intake?template=clinical`.
+  */
+ 
+ const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
+@@ -18,6 +20,17 @@ function critical_or_serious(v: { impact?: string | null }) {
+ }
+ 
+ test.describe("F1 axe-core WCAG-AA — I-f1-005", () => {
++  test("/ closed (one-CTA hero) is WCAG-AA clean", async ({ page }) => {
++    await page.setViewportSize({ width: 1024, height: 768 });
++    await page.goto("/", { waitUntil: "networkidle" });
++    await expect(page.getByTestId("home-hero-search")).toBeVisible();
++
++    const results = await new AxeBuilder({ page })
++      .withTags(WCAG_TAGS)
++      .analyze();
++    expect(results.violations.filter(critical_or_serious)).toEqual([]);
++  });
++
+   test("/ with command palette OPEN is WCAG-AA clean", async ({ page }) => {
+     await page.setViewportSize({ width: 1024, height: 768 });
+     await page.goto("/", { waitUntil: "networkidle" });
+diff --git a/web/tests/e2e/home_g1_g8.spec.ts b/web/tests/e2e/home_g1_g8.spec.ts
+index 3889e595..f698bee1 100644
+--- a/web/tests/e2e/home_g1_g8.spec.ts
++++ b/web/tests/e2e/home_g1_g8.spec.ts
+@@ -69,30 +69,29 @@ test("G2: home contains no banned dev-language strings", async ({ page }) => {
+   }
+ });
+ 
+-test("G3: active template card link has focus-visible + hover styling", async ({
+-  page,
+-}) => {
++test("G3: hero primary CTA has focus-visible styling", async ({ page }) => {
+   await page.goto("/");
+-  const link = page.getByTestId("template-card-clinical-link");
+-  await expect(link).toBeVisible();
+-  const className = (await link.getAttribute("class")) || "";
+-  // shadcn/ui Button injects focus-visible:ring + hover utilities. Codex
+-  // iter-1 P2 fix: assert on the LINK, not the card (cards are not
+-  // interactive — links/buttons are).
++  // I-p2-013 (#752): the one-CTA hero replaced the template grid. The primary
++  // interactive affordance is the hero "Verify" submit button.
++  const verify = page
++    .getByTestId("home-hero-search")
++    .locator("button[type='submit']");
++  await expect(verify).toBeVisible();
++  const className = (await verify.getAttribute("class")) || "";
+   expect(className).toMatch(/focus-visible/);
+ });
+ 
+-test("G6: tab key reaches the active template card link", async ({ page }) => {
++test("G6: tab key reaches the hero search input", async ({ page }) => {
+   await page.goto("/");
+-  // Tab repeatedly until the focused element is the active template link.
++  // I-p2-013 (#752): Tab until the hero search input (name=q) receives focus.
+   for (let i = 0; i < 30; i++) {
+     await page.keyboard.press("Tab");
+-    const focused = await page.evaluate(
+-      () => document.activeElement?.getAttribute("data-testid") ?? null,
++    const focusedName = await page.evaluate(
++      () => document.activeElement?.getAttribute("name") ?? null,
+     );
+-    if (focused === "template-card-clinical-link") return;
++    if (focusedName === "q") return;
+   }
+-  throw new Error("active template card link never received focus via Tab");
++  throw new Error("hero search input never received focus via Tab");
+ });
+ 
+ test("G8: home renders with zero console errors", async ({ page }) => {
+diff --git a/web/tests/e2e/landing_template_grid.spec.ts b/web/tests/e2e/landing_template_grid.spec.ts
+deleted file mode 100644
+index 932102c1..00000000
+--- a/web/tests/e2e/landing_template_grid.spec.ts
++++ /dev/null
+@@ -1,88 +0,0 @@
+-import AxeBuilder from "@axe-core/playwright";
+-import { expect, test } from "@playwright/test";
+-
+-/**
+- * I-f1-001 — Next.js landing page Card grid (8 templates).
+- *
+- * Replaces the slice-005 demo walkthrough cards with the F1 template-browse
+- * grid: 1 active template (clinical, linked to /intake)
+- * + 7 to-build templates (aria-disabled, "Coming soon" badge, no link).
+- *
+- * Acceptance per `.codex/I-f1-001/brief.md` (Codex APPROVE iter 2):
+- *  - 8 cards render at 4 viewports (1920/1024/768/375)
+- *  - Active cards link to /intake?template=<id>
+- *  - To-build cards are aria-disabled, no href, keyboard-skipped
+- *  - axe-core WCAG-AA clean at 1024px
+- */
+-
+-const ACTIVE_IDS = ["clinical"] as const;
+-const TO_BUILD_IDS = [
+-  "policy",
+-  "tech",
+-  "due_diligence",
+-  "ai_sovereignty",
+-  "canada_us",
+-  "workforce",
+-  "custom",
+-] as const;
+-
+-const VIEWPORTS = [
+-  { name: "1920", width: 1920, height: 1080 },
+-  { name: "1024", width: 1024, height: 768 },
+-  { name: "768", width: 768, height: 1024 },
+-  { name: "375", width: 375, height: 667 },
+-] as const;
+-
+-test.describe("Landing template grid — I-f1-001", () => {
+-  for (const vp of VIEWPORTS) {
+-    test(`renders 8 template cards at ${vp.name}px`, async ({ page }) => {
+-      await page.setViewportSize({ width: vp.width, height: vp.height });
+-      await page.goto("/", { waitUntil: "networkidle" });
+-
+-      await expect(page.getByTestId("template-grid")).toBeVisible();
+-
+-      for (const id of ACTIVE_IDS) {
+-        await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+-      }
+-      for (const id of TO_BUILD_IDS) {
+-        await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+-      }
+-
+-      // Visual regression artifact (CI does not enforce diff on Linux per
+-      // web_ci.yml policy; this captures the screenshot for local review).
+-      await page.screenshot({
+-        path: `web/tests/e2e/screenshots/landing_template_grid_${vp.name}.png`,
+-        fullPage: true,
+-      });
+-    });
+-  }
+-
+-  test("active cards link to /intake?template=<id>", async ({ page }) => {
+-    await page.goto("/", { waitUntil: "networkidle" });
+-    for (const id of ACTIVE_IDS) {
+-      const link = page.getByTestId(`template-card-${id}-link`);
+-      await expect(link).toHaveAttribute("href", `/intake?template=${id}`);
+-    }
+-  });
+-
+-  test("to-build cards are disabled and skip keyboard nav", async ({
+-    page,
+-  }) => {
+-    await page.goto("/", { waitUntil: "networkidle" });
+-    for (const id of TO_BUILD_IDS) {
+-      const card = page.getByTestId(`template-card-${id}`);
+-      await expect(card).toHaveAttribute("aria-disabled", "true");
+-      // No outbound link from disabled cards.
+-      await expect(card.getByTestId(`template-card-${id}-link`)).toHaveCount(0);
+-    }
+-  });
+-
+-  test("WCAG-AA axe-core clean at 1024px", async ({ page }) => {
+-    await page.setViewportSize({ width: 1024, height: 768 });
+-    await page.goto("/", { waitUntil: "networkidle" });
+-    const results = await new AxeBuilder({ page })
+-      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+-      .analyze();
+-    expect(results.violations).toEqual([]);
+-  });
+-});
