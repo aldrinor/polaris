@@ -4,11 +4,13 @@ import { expect, test } from "@playwright/test";
 /**
  * I-f1-005 — F1 axe-core WCAG-AA compliance.
  *
- * Acceptance: zero serious/critical violations across F1 surfaces NOT
- * already covered by landing_template_grid (closed palette) or
- * accessibility (dashboard / inspector). Specifically:
+ * Acceptance: zero serious/critical violations across the home + intake.
+ * (I-p2-013 #752 folded the closed-home axe check here after the
+ * template-grid spec was removed when the home became a one-CTA hero.)
+ * Specifically:
+ *  - `/` closed (the one-CTA hero home).
  *  - `/` with the command palette OPEN (Ctrl+K), backdrop + popup visible.
- *  - `/intake?template=clinical` (target of F1 active cards).
+ *  - `/intake?template=clinical`.
  */
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
@@ -18,6 +20,17 @@ function critical_or_serious(v: { impact?: string | null }) {
 }
 
 test.describe("F1 axe-core WCAG-AA — I-f1-005", () => {
+  test("/ closed (one-CTA hero) is WCAG-AA clean", async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("home-hero-search")).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_TAGS)
+      .analyze();
+    expect(results.violations.filter(critical_or_serious)).toEqual([]);
+  });
+
   test("/ with command palette OPEN is WCAG-AA clean", async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 768 });
     await page.goto("/", { waitUntil: "networkidle" });

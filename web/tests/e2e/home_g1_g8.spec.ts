@@ -69,30 +69,29 @@ test("G2: home contains no banned dev-language strings", async ({ page }) => {
   }
 });
 
-test("G3: active template card link has focus-visible + hover styling", async ({
-  page,
-}) => {
+test("G3: hero primary CTA has focus-visible styling", async ({ page }) => {
   await page.goto("/");
-  const link = page.getByTestId("template-card-clinical-link");
-  await expect(link).toBeVisible();
-  const className = (await link.getAttribute("class")) || "";
-  // shadcn/ui Button injects focus-visible:ring + hover utilities. Codex
-  // iter-1 P2 fix: assert on the LINK, not the card (cards are not
-  // interactive — links/buttons are).
+  // I-p2-013 (#752): the one-CTA hero replaced the template grid. The primary
+  // interactive affordance is the hero "Verify" submit button.
+  const verify = page
+    .getByTestId("home-hero-search")
+    .locator("button[type='submit']");
+  await expect(verify).toBeVisible();
+  const className = (await verify.getAttribute("class")) || "";
   expect(className).toMatch(/focus-visible/);
 });
 
-test("G6: tab key reaches the active template card link", async ({ page }) => {
+test("G6: tab key reaches the hero search input", async ({ page }) => {
   await page.goto("/");
-  // Tab repeatedly until the focused element is the active template link.
+  // I-p2-013 (#752): Tab until the hero search input (name=q) receives focus.
   for (let i = 0; i < 30; i++) {
     await page.keyboard.press("Tab");
-    const focused = await page.evaluate(
-      () => document.activeElement?.getAttribute("data-testid") ?? null,
+    const focusedName = await page.evaluate(
+      () => document.activeElement?.getAttribute("name") ?? null,
     );
-    if (focused === "template-card-clinical-link") return;
+    if (focusedName === "q") return;
   }
-  throw new Error("active template card link never received focus via Tab");
+  throw new Error("hero search input never received focus via Tab");
 });
 
 test("G8: home renders with zero console errors", async ({ page }) => {

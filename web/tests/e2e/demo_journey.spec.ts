@@ -13,15 +13,21 @@ import { expect, test } from "@playwright/test";
 test("demo journey: home → intake → dashboard → inspector (canonical fixture)", async ({
   page,
 }) => {
-  // Step 1: home renders + clinical template card present + linked.
+  // Step 1: home renders the one-CTA hero (I-p2-013 replaced the template
+  // grid); the hero search funnels to /intake.
   await page.goto("/");
-  await expect(page.getByTestId("template-card-clinical")).toBeVisible();
-  await expect(page.getByTestId("template-card-clinical-link")).toBeVisible();
-  const intake_link = page.getByTestId("template-card-clinical-link").first();
-  await intake_link.click();
+  await expect(page.getByTestId("home-hero-search")).toBeVisible();
+  await page
+    .getByTestId("home-hero-search")
+    .getByRole("searchbox")
+    .fill("What did the SELECT trial show on cardiovascular outcomes?");
+  await page
+    .getByTestId("home-hero-search")
+    .getByRole("button", { name: "Verify" })
+    .click();
 
-  // Step 2: lands on /intake?template=clinical with the intake form.
-  await expect(page).toHaveURL(/\/intake\?template=clinical/);
+  // Step 2: lands on /intake with the intake form.
+  await expect(page).toHaveURL(/\/intake/);
   await expect(page.getByTestId("intake-page")).toBeVisible();
 
   // Step 3: dashboard is reachable directly (the "ask a question" UX
