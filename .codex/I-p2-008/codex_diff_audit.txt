@@ -1,0 +1,3 @@
+verdict: APPROVE
+merge_decision: MERGE AUTHORIZED
+# Codex design+diff APPROVE iter1 + MERGE AUTHORIZED, 0 P0/P1. Thinking-Toggle additive on the #707/#725 checklist; collapsed state honest (compactStatus = same StageState source); no regression. Full page screenshot at #755.

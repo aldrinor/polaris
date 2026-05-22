@@ -1,0 +1,92 @@
+diff --git a/web/app/runs/[runId]/components/run_progress.tsx b/web/app/runs/[runId]/components/run_progress.tsx
+index a8ffe076..82db8ee7 100644
+--- a/web/app/runs/[runId]/components/run_progress.tsx
++++ b/web/app/runs/[runId]/components/run_progress.tsx
+@@ -42,6 +42,23 @@ function formatElapsed(seconds: number | null): string {
+   return `${m}:${s.toString().padStart(2, "0")}`;
+ }
+ 
++// I-p2-008 (#747): the honest one-line state shown per stage when the
++// Thinking-Toggle collapses the detail. Same source-of-truth as the chip.
++function compactStatus(state: StageState): string {
++  switch (state) {
++    case "active":
++      return "In progress";
++    case "done":
++      return "Done";
++    case "skipped":
++      return "Did not run";
++    case "degraded":
++      return "Not observed (stream lost)";
++    default:
++      return "Pending";
++  }
++}
++
+ interface RunProgressProps {
+   events: StreamEvent[];
+   status: RunStatusResponse | null;
+@@ -158,6 +175,9 @@ export function RunProgress({ events, status }: RunProgressProps) {
+   // was always false because status is null at first render.)
+   const [nowMs, setNowMs] = useState(() => Date.now());
+   const [tickedWhileLive, setTickedWhileLive] = useState(false);
++  // I-p2-008 (#747): Thinking-Toggle — depth visible-but-collapsible. ON =
++  // full per-stage feeds; OFF = compact checklist (chip + label + 1-line state).
++  const [showThinking, setShowThinking] = useState(true);
+   useEffect(() => {
+     if (isTerminal) return; // frozen — stop ticking
+     const id = setInterval(() => {
+@@ -208,8 +228,21 @@ export function RunProgress({ events, status }: RunProgressProps) {
+         </p>
+       )}
+ 
++      {/* Thinking-Toggle (#747): collapse/expand per-stage depth */}
++      <div className="flex justify-end">
++        <button
++          type="button"
++          aria-expanded={showThinking}
++          aria-controls="run-progress-stages"
++          onClick={() => setShowThinking((v) => !v)}
++          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/70 rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
++        >
++          {showThinking ? "Hide details" : "Show details"}
++        </button>
++      </div>
++
+       {/* stages */}
+-      <ol className="flex flex-col gap-3">
++      <ol id="run-progress-stages" className="flex flex-col gap-3">
+         {STAGES.map((stage, idx) => {
+           const state = stageState(stage.key, idx);
+           return (
+@@ -225,14 +258,20 @@ export function RunProgress({ events, status }: RunProgressProps) {
+                   {stage.label}
+                 </h3>
+               </div>
+-              <StageBody
+-                stageKey={stage.key}
+-                state={state}
+-                scope={scope}
+-                sources={sources}
+-                sections={sections}
+-                verifications={verifications}
+-              />
++              {showThinking ? (
++                <StageBody
++                  stageKey={stage.key}
++                  state={state}
++                  scope={scope}
++                  sources={sources}
++                  sections={sections}
++                  verifications={verifications}
++                />
++              ) : (
++                <p className="text-muted-foreground text-xs">
++                  {compactStatus(state)}
++                </p>
++              )}
+             </li>
+           );
+         })}
+
+# canonical-diff-sha256: 99cabd9cffe186ca661bee191664b0a5f45ef50e29904cc86898cd70de988945
