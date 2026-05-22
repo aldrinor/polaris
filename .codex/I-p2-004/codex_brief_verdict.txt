@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief APPROVE iter3 (resolver contract locked: array .find, null-on-unresolved).
