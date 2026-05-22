@@ -1,0 +1,267 @@
+diff --git a/web/app/sign-in/page.tsx b/web/app/sign-in/page.tsx
+index 025c5746..04066608 100644
+--- a/web/app/sign-in/page.tsx
++++ b/web/app/sign-in/page.tsx
+@@ -1,5 +1,6 @@
+ "use client";
+ 
++import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
+ import { Suspense, useState } from "react";
+ import { useRouter, useSearchParams } from "next/navigation";
+ import Link from "next/link";
+@@ -17,6 +18,15 @@ import {
+ } from "@/components/ui/card";
+ import { Input } from "@/components/ui/input";
+ 
++const TRUST_POINTS = [
++  { icon: BadgeCheck, text: "Every claim span-anchored to a primary source." },
++  {
++    icon: ShieldCheck,
++    text: "Sovereign Canadian processing, integrity-hashed.",
++  },
++  { icon: Network, text: "A connected, auditable evidence graph per run." },
++] as const;
++
+ /**
+  * I-cd-014 (GH#610): same-origin validation for `?next=` redirect.
+  *
+@@ -98,97 +108,131 @@ function SignInPageContent() {
+   }
+ 
+   return (
+-    <div className="bg-muted/40 flex min-h-screen flex-col items-center justify-center px-6 py-12">
+-      <div className="flex w-full max-w-sm flex-col gap-6">
+-        {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
+-        <div className="flex justify-center">
+-          <MapleLeafSignatureLazy />
+-        </div>
+-        <div className="flex flex-col gap-1 text-center">
+-          <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+-            POLARIS Canada
+-          </span>
+-          <span className="text-foreground text-base font-semibold">
+-            Sovereign Deep Research
++    <div className="grid min-h-screen lg:grid-cols-2">
++      {/* Left: institutional brand + trust panel (lg+ only) */}
++      <aside className="bg-muted/30 border-border relative hidden flex-col justify-between border-r p-12 lg:flex">
++        <div className="flex items-center gap-2">
++          <span className="text-foreground font-mono text-sm font-semibold tracking-tight">
++            POLARIS · Canada
+           </span>
+         </div>
+-
+-        <Card>
+-          <form onSubmit={handleSubmit} data-testid="sign-in-form">
+-            <CardHeader>
+-              <CardTitle>Sign in</CardTitle>
+-              <CardDescription>
+-                Enter your POLARIS reviewer credentials.
+-              </CardDescription>
+-            </CardHeader>
+-            <CardContent className="flex flex-col gap-4">
+-              <div className="flex flex-col gap-2">
+-                <label
+-                  htmlFor="username"
+-                  className="text-foreground text-sm font-medium"
+-                >
+-                  Username
+-                </label>
+-                <Input
+-                  id="username"
+-                  name="username"
+-                  type="text"
+-                  placeholder="reviewer"
+-                  autoComplete="username"
+-                  value={username}
+-                  onChange={(e) => setUsername(e.target.value)}
+-                  required
++        <div className="flex flex-col gap-8">
++          <div className="flex flex-col gap-3">
++            <MapleLeafSignatureLazy />
++            <h1 className="text-foreground max-w-md text-3xl font-semibold tracking-tight text-balance">
++              Deep research you can check, line by line.
++            </h1>
++          </div>
++          <ul className="flex flex-col gap-4">
++            {TRUST_POINTS.map((point) => (
++              <li key={point.text} className="flex items-start gap-3">
++                <point.icon
++                  aria-hidden
++                  className="text-primary mt-0.5 h-5 w-5 shrink-0"
+                 />
+-              </div>
+-              <div className="flex flex-col gap-2">
+-                <label
+-                  htmlFor="password"
+-                  className="text-foreground text-sm font-medium"
++                <span className="text-muted-foreground text-sm leading-relaxed">
++                  {point.text}
++                </span>
++              </li>
++            ))}
++          </ul>
++        </div>
++        <p className="text-muted-foreground text-xs">
++          Sovereign Canadian deep research · auditable evidence
++        </p>
++      </aside>
++
++      {/* Right: the sign-in form */}
++      <div className="flex flex-col items-center justify-center px-6 py-12">
++        <div className="flex w-full max-w-sm flex-col gap-6">
++          {/* Brand lockup — shown on small screens where the panel is hidden */}
++          <div className="flex flex-col items-center gap-1 text-center lg:hidden">
++            <MapleLeafSignatureLazy />
++            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
++              POLARIS Canada
++            </span>
++            <span className="text-foreground text-base font-semibold">
++              Sovereign Deep Research
++            </span>
++          </div>
++
++          <Card>
++            <form onSubmit={handleSubmit} data-testid="sign-in-form">
++              <CardHeader>
++                <CardTitle>Sign in</CardTitle>
++                <CardDescription>
++                  Enter your POLARIS reviewer credentials.
++                </CardDescription>
++              </CardHeader>
++              <CardContent className="flex flex-col gap-4">
++                <div className="flex flex-col gap-2">
++                  <label
++                    htmlFor="username"
++                    className="text-foreground text-sm font-medium"
++                  >
++                    Username
++                  </label>
++                  <Input
++                    id="username"
++                    name="username"
++                    type="text"
++                    placeholder="reviewer"
++                    autoComplete="username"
++                    value={username}
++                    onChange={(e) => setUsername(e.target.value)}
++                    required
++                  />
++                </div>
++                <div className="flex flex-col gap-2">
++                  <label
++                    htmlFor="password"
++                    className="text-foreground text-sm font-medium"
++                  >
++                    Password
++                  </label>
++                  <Input
++                    id="password"
++                    name="password"
++                    type="password"
++                    placeholder="••••••••"
++                    autoComplete="current-password"
++                    value={password}
++                    onChange={(e) => setPassword(e.target.value)}
++                    required
++                  />
++                </div>
++                {error ? (
++                  <p
++                    role="alert"
++                    data-testid="sign-in-error"
++                    className="text-destructive text-sm font-medium"
++                  >
++                    {error}
++                  </p>
++                ) : null}
++              </CardContent>
++              <CardFooter className="flex flex-col gap-3">
++                <Button
++                  type="submit"
++                  data-testid="sign-in-submit"
++                  className="w-full"
++                  disabled={pending || !username || !password}
+                 >
+-                  Password
+-                </label>
+-                <Input
+-                  id="password"
+-                  name="password"
+-                  type="password"
+-                  placeholder="••••••••"
+-                  autoComplete="current-password"
+-                  value={password}
+-                  onChange={(e) => setPassword(e.target.value)}
+-                  required
+-                />
+-              </div>
+-              {error ? (
+-                <p
+-                  role="alert"
+-                  data-testid="sign-in-error"
+-                  className="text-destructive text-sm font-medium"
++                  {pending ? "Signing in…" : "Continue"}
++                </Button>
++                <Button
++                  type="button"
++                  variant="ghost"
++                  className="w-full"
++                  nativeButton={false}
++                  render={<Link href="/" />}
+                 >
+-                  {error}
+-                </p>
+-              ) : null}
+-            </CardContent>
+-            <CardFooter className="flex flex-col gap-3">
+-              <Button
+-                type="submit"
+-                data-testid="sign-in-submit"
+-                className="w-full"
+-                disabled={pending || !username || !password}
+-              >
+-                {pending ? "Signing in…" : "Continue"}
+-              </Button>
+-              <Button
+-                type="button"
+-                variant="ghost"
+-                className="w-full"
+-                nativeButton={false}
+-                render={<Link href="/" />}
+-              >
+-                Back to home
+-              </Button>
+-            </CardFooter>
+-          </form>
+-        </Card>
++                  Back to home
++                </Button>
++              </CardFooter>
++            </form>
++          </Card>
++        </div>
+       </div>
+     </div>
+   );
+diff --git a/web/components/app_shell_gate.tsx b/web/components/app_shell_gate.tsx
+index 8b110c5e..7c4c3650 100644
+--- a/web/components/app_shell_gate.tsx
++++ b/web/components/app_shell_gate.tsx
+@@ -15,10 +15,15 @@ interface AppShellGateProps {
+   children: React.ReactNode;
+ }
+ 
++// Chromeless routes own their full viewport (no app header/nav):
++//  - `/`        : home owns its own header + main.
++//  - `/sign-in` : institutional full-screen auth (I-p2-021 #760); the primary
++//                 nav is auth-gated anyway, so it must not show pre-login.
++const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
++
+ export function AppShellGate({ children }: AppShellGateProps) {
+   const pathname = usePathname();
+-  // Home owns its own header + main; render children bare on `/`.
+-  if (pathname === "/") {
++  if (CHROMELESS_ROUTES.has(pathname)) {
+     return <>{children}</>;
+   }
+   return <AppShell>{children}</AppShell>;
