@@ -1,0 +1,181 @@
+// I-p2-028 (#767): the flying maple-leaf signature, rendered in fine-grained
+// Braille/Unicode density art (U+2800, 2×4 dots per glyph). three.js extrudes a
+// maple-leaf shape, renders it to an offscreen render target, and each frame the
+// luminance grid is mapped to Braille glyphs (dark-red leaf on white). Decorative
+// (aria-hidden); prefers-reduced-motion → one static frame; WebGL-unavailable →
+// graceful absence; lazy-loaded (this module + three live behind a dynamic import).
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
+
+// Offscreen render resolution → Braille grid (2px×4px per glyph).
+const PX_W = 120;
+const PX_H = 80;
+const GLYPH_W = PX_W / 2; // 60
+const GLYPH_H = PX_H / 4; // 20
+const LUMA_THRESHOLD = 200; // below = leaf pixel (dot set)
+const FRAME_MS = 1000 / 24; // cap ~24fps
+
+// Canonical Braille dot bitmask per [row][col=left,right]: rows 0-3 top→bottom.
+const DOT_BITS: readonly [number, number][] = [
+  [0x01, 0x08], // row 0: left, right
+  [0x02, 0x10], // row 1
+  [0x04, 0x20], // row 2
+  [0x40, 0x80], // row 3
+];
+
+// A symmetric, recognizable maple-leaf half-silhouette (x>=0, bottom→top),
+// mirrored to form the full leaf. Normalized to roughly [-1, 1].
+const MAPLE_HALF: readonly [number, number][] = [
+  [0.0, -1.0],
+  [0.05, -0.52],
+  [0.32, -0.46],
+  [0.18, -0.32],
+  [0.56, -0.18],
+  [0.3, -0.08],
+  [0.46, 0.12],
+  [0.22, 0.19],
+  [0.31, 0.46],
+  [0.12, 0.5],
+  [0.13, 0.92],
+  [0.0, 1.0],
+];
+
+function buildLeafShape(): THREE.Shape {
+  const shape = new THREE.Shape();
+  shape.moveTo(MAPLE_HALF[0][0], MAPLE_HALF[0][1]);
+  for (let i = 1; i < MAPLE_HALF.length; i++) {
+    shape.lineTo(MAPLE_HALF[i][0], MAPLE_HALF[i][1]);
+  }
+  // Mirror back down the left side (skip the shared top + bottom points).
+  for (let i = MAPLE_HALF.length - 2; i >= 1; i--) {
+    shape.lineTo(-MAPLE_HALF[i][0], MAPLE_HALF[i][1]);
+  }
+  shape.closePath();
+  return shape;
+}
+
+function pixelsToBraille(buf: Uint8Array): string {
+  const lines: string[] = [];
+  for (let gy = 0; gy < GLYPH_H; gy++) {
+    let line = "";
+    for (let gx = 0; gx < GLYPH_W; gx++) {
+      let mask = 0;
+      for (let dr = 0; dr < 4; dr++) {
+        for (let dc = 0; dc < 2; dc++) {
+          const px = gx * 2 + dc;
+          const py = gy * 4 + dr;
+          // WebGL readback is bottom-up → flip Y so the leaf is upright.
+          const bufRow = PX_H - 1 - py;
+          const idx = (bufRow * PX_W + px) * 4;
+          const luma =
+            0.299 * buf[idx] + 0.587 * buf[idx + 1] + 0.114 * buf[idx + 2];
+          if (luma < LUMA_THRESHOLD) mask |= DOT_BITS[dr][dc];
+        }
+      }
+      line += String.fromCodePoint(0x2800 + mask);
+    }
+    lines.push(line);
+  }
+  return lines.join("\n");
+}
+
+export default function MapleLeafSignature() {
+  const [art, setArt] = useState<string>("");
+  const preRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    let renderer: THREE.WebGLRenderer | null = null;
+    let target: THREE.WebGLRenderTarget | null = null;
+    let geometry: THREE.ExtrudeGeometry | null = null;
+    let material: THREE.MeshBasicMaterial | null = null;
+    let rafId = 0;
+    let lastFrame = 0;
+    let visible = true;
+    let cancelled = false;
+
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      renderer.setClearColor(0xffffff, 1); // white surface
+      renderer.setSize(PX_W, PX_H, false);
+      target = new THREE.WebGLRenderTarget(PX_W, PX_H);
+
+      const scene = new THREE.Scene();
+      const cam = new THREE.OrthographicCamera(-1.3, 1.3, 1.3, -1.3, 0.1, 10);
+      cam.position.z = 3;
+
+      geometry = new THREE.ExtrudeGeometry(buildLeafShape(), {
+        depth: 0.35,
+        bevelEnabled: false,
+      });
+      geometry.center();
+      material = new THREE.MeshBasicMaterial({ color: 0xc8102e }); // Canada red
+      const mesh = new THREE.Mesh(geometry, material);
+      scene.add(mesh);
+
+      const buf = new Uint8Array(PX_W * PX_H * 4);
+      const renderOnce = (t: number) => {
+        mesh.rotation.y = t * 0.0006;
+        mesh.rotation.z = Math.sin(t * 0.0004) * 0.25; // gentle float
+        renderer!.setRenderTarget(target!);
+        renderer!.render(scene, cam);
+        renderer!.readRenderTargetPixels(target!, 0, 0, PX_W, PX_H, buf);
+        renderer!.setRenderTarget(null);
+        if (!cancelled) setArt(pixelsToBraille(buf));
+      };
+
+      const reduce = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+
+      if (reduce) {
+        renderOnce(900); // a single, pleasing static frame
+      } else {
+        const loop = (t: number) => {
+          rafId = requestAnimationFrame(loop);
+          if (!visible || t - lastFrame < FRAME_MS) return;
+          lastFrame = t;
+          renderOnce(t);
+        };
+        rafId = requestAnimationFrame(loop);
+      }
+
+      // Pause the loop when the signature is scrolled offscreen.
+      const io = new IntersectionObserver(
+        (entries) => {
+          visible = entries[0]?.isIntersecting ?? true;
+        },
+        { threshold: 0 },
+      );
+      if (preRef.current) io.observe(preRef.current);
+
+      return () => {
+        cancelled = true;
+        cancelAnimationFrame(rafId);
+        io.disconnect();
+        geometry?.dispose();
+        material?.dispose();
+        target?.dispose();
+        renderer?.dispose();
+      };
+    } catch {
+      // WebGL unavailable → graceful absence (decorative only).
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, []);
+
+  if (!art) return null;
+  return (
+    <pre
+      ref={preRef}
+      aria-hidden
+      className="pointer-events-none overflow-hidden font-mono text-[6px] leading-[0.62] tracking-[-0.06em] select-none sm:text-[8px]"
+      style={{ color: "#c8102e" }}
+    >
+      {art}
+    </pre>
+  );
+}

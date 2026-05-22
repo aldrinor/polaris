@@ -2,6 +2,7 @@ import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
 
 import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
 import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
+import { MapleLeafSignatureLazy } from "@/components/signature/maple_leaf_signature_lazy";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -124,6 +125,8 @@ export default function HomePage() {
         <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-20 px-6 py-24">
           {/* Hero — one primary action */}
           <section className="flex flex-col items-center gap-6 text-center">
+            {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
+            <MapleLeafSignatureLazy />
             <span className="text-muted-foreground border-border inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
               ⬡ Sovereign Canadian deep research
             </span>
