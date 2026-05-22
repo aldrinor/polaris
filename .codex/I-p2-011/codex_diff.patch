@@ -1,0 +1,109 @@
+diff --git a/web/components/states/state_kit.tsx b/web/components/states/state_kit.tsx
+new file mode 100644
+index 00000000..8ff79e81
+--- /dev/null
++++ b/web/components/states/state_kit.tsx
+@@ -0,0 +1,101 @@
++// I-p2-011 (#750): empty / loading / error states kit. Consistent + honest
++// states every page adopts (G-CONTENT: no generic "Something went wrong" / bare
++// spinners). Reduced-motion handled locally; a11y role=status/alert.
++"use client";
++
++import { useEffect, type ReactNode } from "react";
++
++import type { LucideIcon } from "lucide-react";
++
++export function EmptyState({
++  title,
++  description,
++  icon: Icon,
++  action,
++}: {
++  title: string;
++  description?: string;
++  icon?: LucideIcon;
++  action?: ReactNode;
++}) {
++  return (
++    <div className="border-border text-muted-foreground flex flex-col items-center gap-2 rounded-md border border-dashed p-8 text-center">
++      {Icon && <Icon aria-hidden className="h-6 w-6" />}
++      <p className="text-foreground text-sm font-medium">{title}</p>
++      {description && <p className="max-w-sm text-xs">{description}</p>}
++      {action && <div className="mt-2">{action}</div>}
++    </div>
++  );
++}
++
++export function LoadingState({
++  label = "Loading…",
++  rows = 3,
++}: {
++  label?: string;
++  rows?: number;
++}) {
++  return (
++    <div
++      role="status"
++      aria-busy="true"
++      aria-label={label}
++      className="flex flex-col gap-2"
++    >
++      {Array.from({ length: rows }).map((_, i) => (
++        <div
++          key={i}
++          aria-hidden
++          className="bg-muted h-4 w-full animate-pulse rounded motion-reduce:animate-none"
++        />
++      ))}
++      <span className="sr-only">{label}</span>
++    </div>
++  );
++}
++
++// G-CONTENT guardrail: catch lazy generic error copy in dev (full enforcement
++// is the per-page G-CONTENT design audit).
++const GENERIC_MESSAGE =
++  /something went wrong|unknown error|failed to load|an error occurred/i;
++
++export function ErrorState({
++  title = "Couldn't load this",
++  message,
++  onRetry,
++}: {
++  title?: string;
++  /** REQUIRED — the specific, operational error (never generic). */
++  message: string;
++  onRetry?: () => void;
++}) {
++  useEffect(() => {
++    if (
++      process.env.NODE_ENV !== "production" &&
++      GENERIC_MESSAGE.test(message)
++    ) {
++      console.warn(
++        `[ErrorState] generic message "${message}" — G-CONTENT: use a specific, operational error.`,
++      );
++    }
++  }, [message]);
++
++  return (
++    <div
++      role="alert"
++      className="border-destructive/30 bg-destructive/5 flex flex-col gap-2 rounded-md border p-4"
++    >
++      <p className="text-foreground text-sm font-medium">{title}</p>
++      <p className="text-muted-foreground text-xs">{message}</p>
++      {onRetry && (
++        <button
++          type="button"
++          onClick={onRetry}
++          className="text-primary focus-visible:ring-ring/70 self-start rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
++        >
++          Try again
++        </button>
++      )}
++    </div>
++  );
++}
+
+# canonical-diff-sha256: 4b3437027c23741f146ed69c1ba9f297ab691b7f5860ac964d3759dace448928
