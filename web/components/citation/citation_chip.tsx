@@ -5,6 +5,7 @@
 "use client";
 
 import { Tooltip } from "@base-ui/react/tooltip";
+import { useState } from "react";
 
 import { resolveSpan } from "@/lib/evidence_span";
 
@@ -32,9 +33,12 @@ export function CitationChip({
   const span = resolveSpan(token, evidencePool);
   const tier = span?.source?.tier ?? null;
   const label = span?.source?.title ?? span?.sourceId ?? token;
+  // Controlled open so hover (mouse), focus (keyboard) AND tap (touch) all open
+  // the source card — base-ui hover alone is mouse-only (Codex iter-1 P1).
+  const [open, setOpen] = useState(false);
 
   return (
-    <Tooltip.Root>
+    <Tooltip.Root open={open} onOpenChange={setOpen}>
       <Tooltip.Trigger
         closeOnClick={false}
         render={
@@ -43,6 +47,11 @@ export function CitationChip({
             data-testid="citation-chip"
             data-source-id={span?.sourceId}
             aria-label={`Source: ${label}`}
+            onClick={() => setOpen((o) => !o)}
+            onMouseEnter={() => setOpen(true)}
+            onMouseLeave={() => setOpen(false)}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setOpen(false)}
             className="border-border text-muted-foreground hover:bg-muted focus-visible:ring-ring/70 mx-0.5 inline-flex min-h-[24px] min-w-[24px] items-center justify-center gap-1 rounded border px-1.5 align-baseline font-mono text-[11px] leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
           />
         }
@@ -82,7 +91,7 @@ export function CitationChip({
                 href={span.source.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-primary mt-1 inline-block truncate text-[11px] underline-offset-2 hover:underline"
+                className="text-primary mt-1 block max-w-full truncate text-[11px] underline-offset-2 hover:underline"
               >
                 {span.source.url}
               </a>
