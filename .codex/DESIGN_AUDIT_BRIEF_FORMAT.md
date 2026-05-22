@@ -4,15 +4,17 @@ Use this template for the DESIGN audit of every Phase-2 UI issue (I-p2-*), separ
 
 ---
 
-## 0. Iteration-cap directive (verbatim, MANDATORY first block — per CLAUDE.md §8.3.1)
+## 0. Iteration-cap directive (verbatim from CLAUDE.md §8.3.1, MANDATORY first block — copy byte-for-byte)
 ```
 HARD ITERATION CAP: 5 per document. This is iter N of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
 - Same quality bar regardless of iteration count.
-- "Don't pick bone from egg" — reserve P0/P1 for real top-tier-design failures; cosmetics are P2/P3.
-- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd on remaining-non-P0/P1; residuals → follow-up issues. Iter 6 does not exist; do not bank findings.
-- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1 across all 16 dimensions.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
 ```
+(For design audits: "Verdict APPROVE" additionally requires all 16 dimensions PASS.)
 
 ## 1. What you are auditing
 - Issue: `<I-p2-NNN (#GH)>` — `<page/component>`.
@@ -20,8 +22,8 @@ HARD ITERATION CAP: 5 per document. This is iter N of 5.
 - Locked design: WHITE background · dark Canada-flag red accent (by scarcity) · Frontier Minimal (Geist + Geist Mono, hairlines, whitespace) · Braille maple-leaf signature where present.
 
 ## 2. Rendered evidence ATTACHED (Codex cannot audit design from a diff)
-- Screenshot MATRIX (paths): desktop 1440 / tablet 768 / mobile 390 + 200% zoom + the key interaction states (default / hover / focus / loading / empty / error / the proof-replay-open state). Captured via the **production standalone harness** (`node web/.next/standalone/server.js`), NOT `next dev`.
-- Playwright interaction trace + `axe` output (accessibility) where applicable.
+- Screenshot MATRIX (paths): desktop 1440 / tablet 768 / mobile 390 + **200% AND 400% zoom** + **forced-colors mode** + **print/export view** + the key interaction states (default / hover / **focus-visible** / loading / empty / error / the proof-replay-open state). Captured via the **production standalone harness** (`node web/.next/standalone/server.js`), NOT `next dev`.
+- **REQUIRED (not optional):** Playwright interaction trace, `axe` accessibility output, a **keyboard-only** walkthrough, a **screen-reader** pass, and **evidence-click tests** (claim → exact source span renders).
 - The exact routes/fixtures used.
 
 ## 3. Audit ALL 16 dimensions → PASS / NEEDS-WORK (with specifics) per `state/polaris_phase2_ui_breakdown_2026_05_21.md`
@@ -36,7 +38,7 @@ dimensions:               # all 16, each PASS or NEEDS-WORK + note
   data_flow_ia: ...
   focus_cognitive_load: ...
   clarity: ...
-  frontier_head_to_head: AHEAD|PAR|BEHIND — <specifics>
+  frontier_head_to_head: PASS|NEEDS-WORK — AHEAD|PAR|BEHIND, <specifics>
   accessibility: ...
   provability_honesty: ...
   responsive_zoom: ...
