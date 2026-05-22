@@ -1,0 +1,16 @@
+{
+  "cost_usd": 0.0,
+  "decision_id": "decision_v1_canonical_0001",
+  "evaluator_model": "google/gemma-4-31b-it",
+  "family_segregation_passed": true,
+  "finished_at_utc": "2026-05-19T00:00:00+00:00",
+  "generator_model": "deepseek/deepseek-v4-pro",
+  "latency_ms": 1500,
+  "overall_verify_pass_rate": 0.0,
+  "pipeline_verdict": "abort_no_verified_sections",
+  "pool_id": "pool_v1_canonical_0001",
+  "report_id": "report_v1_canonical_0001",
+  "sections": [],
+  "started_at_utc": "2026-05-19T00:00:00+00:00",
+  "verifier_pass_threshold": 0.4
+}

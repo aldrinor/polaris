@@ -1,0 +1,41 @@
+{
+  "adequacy": {
+    "failure_reason": null,
+    "is_adequate": true,
+    "min_required_per_tier": {
+      "T1": 1
+    },
+    "sources_per_tier": {
+      "T1": 1
+    }
+  },
+  "cost_usd": 0.0,
+  "decision_id": "decision_v1_canonical_0001",
+  "latency_ms": 100,
+  "pool_id": "pool_v1_canonical_0001",
+  "queries_executed": [
+    "canonical fixture query"
+  ],
+  "retrieval_finished_at_utc": "2026-05-19T00:00:00+00:00",
+  "retrieval_started_at_utc": "2026-05-19T00:00:00+00:00",
+  "sources": [
+    {
+      "authors": [
+        "Test, A."
+      ],
+      "domain": "example.org",
+      "fetched_at_utc": "2026-05-19T00:00:00+00:00",
+      "full_text": "Full text body placeholder for the canonical fixture source.",
+      "full_text_available": true,
+      "provenance": {
+        "fetched_by": "canonical_fixture"
+      },
+      "retracted": false,
+      "snippet": "Snippet placeholder for the canonical fixture source.",
+      "source_id": "src_v1_canonical_0001",
+      "tier": "T1",
+      "title": "Canonical clinical evidence \u2014 v1 fixture source",
+      "url": "https://example.org/clinical/canonical_v1.html"
+    }
+  ]
+}
