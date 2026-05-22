@@ -29,6 +29,7 @@ HARD ITERATION CAP: 5 per document. This is iter N of 5.
 - The exact routes/fixtures used.
 
 ## 3. Audit ALL 16 dimensions → PASS / NEEDS-WORK (with specifics) per `state/polaris_phase2_ui_breakdown_2026_05_21.md`
+Dims 9-13 use the concrete measurable thresholds in `.codex/PHASE2_GATES.md` (G-RESP / G-I18N / G-CONTENT / G-PERF / G-SEC) — cite the gate ID + the measured value.
 1. Visual design  2. User flow  3. Data flow / IA  4. User focus / cognitive load  5. Clarity  6. Frontier head-to-head (AHEAD/PAR/BEHIND + specifics)  7. Accessibility (WCAG 2.2 AA)  8. Provability / honesty (no synthetic proof; uncertainty shown; click raises confidence)  9. Responsive / device / zoom  10. EN-FR i18n-readiness (EN-first waiver logged — check no hardcoded-string blockers, locale-safe formats, ~+30% expansion tolerance)  11. Content / microcopy  12. Security / privacy / sovereignty (verified, not badge)  13. Performance / resilience  14. Dense-table UX  15. Role / workflow governance  16. Independent rendered verification (the attached matrix/trace/axe actually prove the above).
 
 ## 4. Output schema
