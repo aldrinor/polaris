@@ -1,0 +1,120 @@
+diff --git a/web/components/contradiction/contradiction_panel.tsx b/web/components/contradiction/contradiction_panel.tsx
+new file mode 100644
+index 00000000..d437d0e1
+--- /dev/null
++++ b/web/components/contradiction/contradiction_panel.tsx
+@@ -0,0 +1,114 @@
++// I-p2-010 (#749): contradiction / refusal panel. Surfaces genuine source
++// disagreement AND honest pipeline refusals as FEATURES — POLARIS shows
++// conflict and declines rather than fabricating. Real fields only; refusal is
++// framed calmly (by design), not as an alarming error.
++import { TriangleAlert } from "lucide-react";
++
++import type { ContradictionSignal } from "@/lib/api";
++
++interface ContradictionPanelProps {
++  contradictions?: ContradictionSignal[];
++  /** An abort_* pipeline status, when the run honestly declined to answer. */
++  refusalStatus?: string | null;
++}
++
++const REFUSAL_MESSAGES: Record<string, string> = {
++  abort_scope_rejected: "The question is outside POLARIS's research scope.",
++  abort_corpus_inadequate:
++    "Not enough qualifying sources to answer responsibly.",
++  abort_corpus_approval_denied:
++    "The source set failed approval (material tier deviation).",
++  abort_no_verified_sections:
++    "No claim could be verified against a primary source.",
++};
++
++function RefusalCard({ status }: { status: string }) {
++  const reason =
++    REFUSAL_MESSAGES[status] ?? "Declined — see the run status for detail.";
++  return (
++    <div
++      data-testid="refusal-card"
++      data-status={status}
++      className="bg-refusal/10 border-refusal/30 flex flex-col gap-1 rounded-md border p-4"
++    >
++      <p className="text-foreground text-sm font-medium">
++        POLARIS declined to answer
++      </p>
++      <p className="text-muted-foreground text-xs">{reason}</p>
++      <p className="text-muted-foreground mt-1 text-[11px] italic">
++        By design — POLARIS refuses rather than fabricating an unverifiable
++        answer.
++      </p>
++    </div>
++  );
++}
++
++function ContradictionCard({ signal }: { signal: ContradictionSignal }) {
++  return (
++    <div
++      data-testid="contradiction-card"
++      className="bg-contradiction/10 border-contradiction/30 flex flex-col gap-2 rounded-md border p-4"
++    >
++      <div className="flex items-start gap-2">
++        <TriangleAlert
++          aria-hidden
++          className="text-contradiction-foreground mt-0.5 h-4 w-4 shrink-0"
++        />
++        <div>
++          <p className="text-foreground text-sm font-medium">
++            {signal.disagreeing_source_count} sources disagree
++            {signal.kind ? ` · ${signal.kind.replace(/_/g, " ")}` : ""}
++          </p>
++          <p className="text-muted-foreground text-xs">{signal.summary}</p>
++        </div>
++      </div>
++      {signal.sides && signal.sides.length > 0 && (
++        <ul className="border-border/60 flex flex-col gap-2 border-t pt-2">
++          {signal.sides.map((side, i) => (
++            <li key={`${side.source_id}-${i}`} className="text-xs">
++              <span className="text-muted-foreground font-mono">
++                {side.source_tier} · {side.source_id}
++              </span>
++              {side.jurisdiction ? (
++                <span className="text-muted-foreground">
++                  {" "}
++                  · {side.jurisdiction}
++                </span>
++              ) : null}
++              <p className="text-foreground/80 leading-snug">
++                {side.claim_excerpt}
++              </p>
++            </li>
++          ))}
++        </ul>
++      )}
++    </div>
++  );
++}
++
++export function ContradictionPanel({
++  contradictions,
++  refusalStatus,
++}: ContradictionPanelProps) {
++  const isRefusal =
++    typeof refusalStatus === "string" && refusalStatus.startsWith("abort_");
++  const hasContradictions = contradictions && contradictions.length > 0;
++
++  if (!isRefusal && !hasContradictions) {
++    return (
++      <p className="text-muted-foreground text-sm">
++        No contradictions or refusals for this run.
++      </p>
++    );
++  }
++
++  return (
++    <div className="flex flex-col gap-3" data-testid="contradiction-panel">
++      {isRefusal && <RefusalCard status={refusalStatus as string} />}
++      {hasContradictions &&
++        contradictions.map((signal, i) => (
++          <ContradictionCard key={i} signal={signal} />
++        ))}
++    </div>
++  );
++}

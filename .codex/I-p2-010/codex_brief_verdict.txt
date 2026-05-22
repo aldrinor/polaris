@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief APPROVE iter2 (plan sound; refusal mapping + real contradiction fields).
