@@ -80,8 +80,12 @@ const KNOWN_FIXTURES: Record<string, string> = {
 };
 
 export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+  // typeof guard (not `!relPath`): runId could be an Object.prototype name
+  // (toString / __proto__ / constructor) → KNOWN_FIXTURES[runId] returns a
+  // function/object → path.join would throw before the try → user-triggerable
+  // 500. A non-string lookup → null → BundlePendingCta. (Codex iter-2 P1.)
   const relPath = KNOWN_FIXTURES[runId];
-  if (!relPath) return null;
+  if (typeof relPath !== "string") return null;
   const dir = path.join(FIXTURE_ROOT, relPath);
 
   try {
