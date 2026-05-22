@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex APPROVE iter1 — responsive nav, a11y + positioning correct.
