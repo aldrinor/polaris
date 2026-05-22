@@ -1,0 +1,3 @@
+verdict: APPROVE
+merge_decision: MERGE AUTHORIZED
+# Codex diff APPROVE iter1 + MERGE AUTHORIZED, 0 P0/P1. States kit honest + a11y (role=status/alert, reduced-motion, dev-warn on generic copy). Pages adopt on rebuild #752-762.

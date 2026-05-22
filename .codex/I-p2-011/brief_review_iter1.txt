@@ -1,0 +1,1515 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4f00-99d6-7fa0-8dd1-2bdcd58cae83
+--------
+user
+# Codex BRIEF review — I-p2-011 (#750): empty / loading / error states kit
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; cosmetics → P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; do not bank for iter 6.
+- Surface held-back findings now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Task
+A reusable **empty / loading / error states kit** every page uses — so states are consistent + honest (G-CONTENT: no generic "Something went wrong" / bare spinners).
+
+## Verified current state (grounded)
+- NO existing EmptyState/LoadingState/ErrorState/Skeleton components (only sonner toast). Build from scratch.
+- #742 tokens; G-CONTENT gate (operational + specific copy); G-PERF (reduced-motion); G-RESP.
+
+## Acceptance criteria (diff implements; brief reviews the plan)
+1. `web/components/states/state_kit.tsx` exporting 3 components:
+   - `EmptyState`: props {title, description?, icon?: LucideIcon, action?: ReactNode}. Centered, hairline, muted — neutral (not an error). Specific title (caller supplies; no generic placeholder).
+   - `LoadingState`: props {label?: string, rows?: number}. Skeleton rows (animate-pulse) OR a labeled spinner; `role="status"` + `aria-busy` + an accessible label (default "Loading…", caller can specialise e.g. "Retrieving sources…"); **reduced-motion**: no pulse/spin under prefers-reduced-motion (static placeholder).
+   - `ErrorState`: props {title?: string, message: string (REQUIRED — the specific error), onRetry?: () => void}. `role="alert"`; the message is shown verbatim (no generic "Something went wrong"); optional Retry button (focus-visible). Uses --destructive sparingly (not full-red panel).
+2. Honest copy (G-CONTENT): ErrorState requires a specific message prop (the type makes generic impossible); LoadingState label is operational; EmptyState is neutral not alarming.
+3. Frontier-Minimal; WCAG 2.2 (role=status/alert, reduced-motion, focus-visible, AA); responsive.
+
+## Files I have ALSO checked and they're clean
+- web/app/globals.css (#742 tokens + the prefers-reduced-motion handling), web/components/ui/ (no existing state primitives — confirmed), web/components/verdict/verdict_chip.tsx (lucide usage pattern).
+
+## Review focus
+1. Does the API force honest states (ErrorState.message REQUIRED so generic copy is impossible; reduced-motion on the loader)?
+2. a11y: role=status/aria-busy on loading, role=alert on error, focus-visible on retry, reduced-motion?
+3. Right tokens (destructive sparingly; empty=neutral). Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+codex
+I’ll inspect the current diff and the proposed state kit against the acceptance criteria, focusing on execution risks and a11y/token issues rather than style nits.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/components/states/state_kit.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'if (Test-Path web/components/states/state_kit.tsx) { Get-Content web/components/states/state_kit.tsx }' in C:\POLARIS
+ succeeded in 1391ms:
+ succeeded in 1780ms:
+ succeeded in 2204ms:
+ M .claude/settings.json
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-p2-011/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+codex
+There is no tracked diff at `web/components/states/state_kit.tsx` in the worktree, so I’m checking the issue’s review bundle under `.codex/I-p2-011` for the actual proposed patch.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Force .codex/I-p2-011' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "state_kit|EmptyState|LoadingState|ErrorState|Something went wrong|animate-pulse|motion-reduce|role=|aria-busy" .codex/I-p2-011' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files .codex/I-p2-011' in C:\POLARIS
+ succeeded in 1348ms:
+
+    Directory: C:\POLARIS\.codex\I-p2-011
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m[32;1m         Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+-a---          2026-05-22  2:24 AM              0 brief_review_iter1.txt
+-a---          2026-05-22  2:24 AM           2863 brief.md
+
+
+ succeeded in 1652ms:
+.codex/I-p2-011\brief.md:12:A reusable **empty / loading / error states kit** every page uses — so states are consistent + honest (G-CONTENT: no generic "Something went wrong" / bare spinners).
+.codex/I-p2-011\brief.md:15:- NO existing EmptyState/LoadingState/ErrorState/Skeleton components (only sonner toast). Build from scratch.
+.codex/I-p2-011\brief.md:19:1. `web/components/states/state_kit.tsx` exporting 3 components:
+.codex/I-p2-011\brief.md:20:   - `EmptyState`: props {title, description?, icon?: LucideIcon, action?: ReactNode}. Centered, hairline, muted — neutral (not an error). Specific title (caller supplies; no generic placeholder).
+.codex/I-p2-011\brief.md:21:   - `LoadingState`: props {label?: string, rows?: number}. Skeleton rows (animate-pulse) OR a labeled spinner; `role="status"` + `aria-busy` + an accessible label (default "Loading…", caller can specialise e.g. "Retrieving sources…"); **reduced-motion**: no pulse/spin under prefers-reduced-motion (static placeholder).
+.codex/I-p2-011\brief.md:22:   - `ErrorState`: props {title?: string, message: string (REQUIRED — the specific error), onRetry?: () => void}. `role="alert"`; the message is shown verbatim (no generic "Something went wrong"); optional Retry button (focus-visible). Uses --destructive sparingly (not full-red panel).
+.codex/I-p2-011\brief.md:23:2. Honest copy (G-CONTENT): ErrorState requires a specific message prop (the type makes generic impossible); LoadingState label is operational; EmptyState is neutral not alarming.
+.codex/I-p2-011\brief.md:24:3. Frontier-Minimal; WCAG 2.2 (role=status/alert, reduced-motion, focus-visible, AA); responsive.
+.codex/I-p2-011\brief.md:30:1. Does the API force honest states (ErrorState.message REQUIRED so generic copy is impossible; reduced-motion on the loader)?
+.codex/I-p2-011\brief.md:31:2. a11y: role=status/aria-busy on loading, role=alert on error, focus-visible on retry, reduced-motion?
+.codex/I-p2-011\brief_review_iter1.txt:24:A reusable **empty / loading / error states kit** every page uses — so states are consistent + honest (G-CONTENT: no generic "Something went wrong" / bare spinners).
+.codex/I-p2-011\brief_review_iter1.txt:27:- NO existing EmptyState/LoadingState/ErrorState/Skeleton components (only sonner toast). Build from scratch.
+.codex/I-p2-011\brief_review_iter1.txt:31:1. `web/components/states/state_kit.tsx` exporting 3 components:
+.codex/I-p2-011\brief_review_iter1.txt:32:   - `EmptyState`: props {title, description?, icon?: LucideIcon, action?: ReactNode}. Centered, hairline, muted — neutral (not an error). Specific title (caller supplies; no generic placeholder).
+.codex/I-p2-011\brief_review_iter1.txt:33:   - `LoadingState`: props {label?: string, rows?: number}. Skeleton rows (animate-pulse) OR a labeled spinner; `role="status"` + `aria-busy` + an accessible label (default "Loading…", caller can specialise e.g. "Retrieving sources…"); **reduced-motion**: no pulse/spin under prefers-reduced-motion (static placeholder).
+.codex/I-p2-011\brief_review_iter1.txt:34:   - `ErrorState`: props {title?: string, message: string (REQUIRED — the specific error), onRetry?: () => void}. `role="alert"`; the message is shown verbatim (no generic "Something went wrong"); optional Retry button (focus-visible). Uses --destructive sparingly (not full-red panel).
+.codex/I-p2-011\brief_review_iter1.txt:35:2. Honest copy (G-CONTENT): ErrorState requires a specific message prop (the type makes generic impossible); LoadingState label is operational; EmptyState is neutral not alarming.
+.codex/I-p2-011\brief_review_iter1.txt:36:3. Frontier-Minimal; WCAG 2.2 (role=status/alert, reduced-motion, focus-visible, AA); responsive.
+.codex/I-p2-011\brief_review_iter1.txt:42:1. Does the API force honest states (ErrorState.message REQUIRED so generic copy is impossible; reduced-motion on the loader)?
+.codex/I-p2-011\brief_review_iter1.txt:43:2. a11y: role=status/aria-busy on loading, role=alert on error, focus-visible on retry, reduced-motion?
+.codex/I-p2-011\brief_review_iter1.txt:60:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/components/states/state_kit.tsx' in C:\POLARIS
+.codex/I-p2-011\brief_review_iter1.txt:62:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'if (Test-Path web/components/states/state_kit.tsx) { Get-Content web/components/states/state_kit.tsx }' in C:\POLARIS
+.codex/I-p2-011\brief_review_iter1.txt:568:There is no tracked diff at `web/components/states/state_kit.tsx` in the worktree, so I’m checking the issue’s review bundle under `.codex/I-p2-011` for the actual proposed patch.
+.codex/I-p2-011\brief_review_iter1.txt:572:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "state_kit|EmptyState|LoadingState|ErrorState|Something went wrong|animate-pulse|motion-reduce|role=|aria-busy" .codex/I-p2-011' in C:\POLARIS
+
+ succeeded in 2001ms:
+.codex/I-p2-011\brief_review_iter1.txt
+.codex/I-p2-011\brief.md
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content .codex/I-p2-011/brief.md' in C:\POLARIS
+ succeeded in 1118ms:
+# Codex BRIEF review — I-p2-011 (#750): empty / loading / error states kit
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; cosmetics → P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; do not bank for iter 6.
+- Surface held-back findings now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Task
+A reusable **empty / loading / error states kit** every page uses — so states are consistent + honest (G-CONTENT: no generic "Something went wrong" / bare spinners).
+
+## Verified current state (grounded)
+- NO existing EmptyState/LoadingState/ErrorState/Skeleton components (only sonner toast). Build from scratch.
+- #742 tokens; G-CONTENT gate (operational + specific copy); G-PERF (reduced-motion); G-RESP.
+
+## Acceptance criteria (diff implements; brief reviews the plan)
+1. `web/components/states/state_kit.tsx` exporting 3 components:
+   - `EmptyState`: props {title, description?, icon?: LucideIcon, action?: ReactNode}. Centered, hairline, muted — neutral (not an error). Specific title (caller supplies; no generic placeholder).
+   - `LoadingState`: props {label?: string, rows?: number}. Skeleton rows (animate-pulse) OR a labeled spinner; `role="status"` + `aria-busy` + an accessible label (default "Loading…", caller can specialise e.g. "Retrieving sources…"); **reduced-motion**: no pulse/spin under prefers-reduced-motion (static placeholder).
+   - `ErrorState`: props {title?: string, message: string (REQUIRED — the specific error), onRetry?: () => void}. `role="alert"`; the message is shown verbatim (no generic "Something went wrong"); optional Retry button (focus-visible). Uses --destructive sparingly (not full-red panel).
+2. Honest copy (G-CONTENT): ErrorState requires a specific message prop (the type makes generic impossible); LoadingState label is operational; EmptyState is neutral not alarming.
+3. Frontier-Minimal; WCAG 2.2 (role=status/alert, reduced-motion, focus-visible, AA); responsive.
+
+## Files I have ALSO checked and they're clean
+- web/app/globals.css (#742 tokens + the prefers-reduced-motion handling), web/components/ui/ (no existing state primitives — confirmed), web/components/verdict/verdict_chip.tsx (lucide usage pattern).
+
+## Review focus
+1. Does the API force honest states (ErrorState.message REQUIRED so generic copy is impossible; reduced-motion on the loader)?
+2. a11y: role=status/aria-busy on loading, role=alert on error, focus-visible on retry, reduced-motion?
+3. Right tokens (destructive sparingly; empty=neutral). Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+codex
+The brief itself is the only review artifact present. I’m doing one quick source scan for existing page-level loading/error/empty patterns because the task wording says “every page uses,” and that can be a real scope gap if the plan only creates primitives.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "Something went wrong|Loading|loading|spinner|animate-spin|animate-pulse|No .*found|Try again|Retry|error|Error" web/app web/components -g "*.tsx" -g "*.ts"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'if (Test-Path web/components/verdict/verdict_chip.tsx) { Get-Content web/components/verdict/verdict_chip.tsx }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'if (Test-Path web/app/globals.css) { Get-Content web/app/globals.css }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web/app web/components | Select-Object -First 200' in C:\POLARIS
+ succeeded in 1484ms:
+web/components\contradiction\contradiction_panel.tsx:4:// framed calmly (by design), not as an alarming error.
+web/app\dashboard\page.tsx:19:  ConcurrentRunError,
+web/app\dashboard\page.tsx:77:  const [error, setError] = useState<string | null>(null);
+web/app\dashboard\page.tsx:90:  const [uploading, setUploading] = useState(false);
+web/app\dashboard\page.tsx:168:    setUploading(true);
+web/app\dashboard\page.tsx:169:    setError(null);
+web/app\dashboard\page.tsx:179:      setError(err instanceof Error ? err.message : "Upload failed");
+web/app\dashboard\page.tsx:181:      setUploading(false);
+web/app\dashboard\page.tsx:196:    setError(null);
+web/app\dashboard\page.tsx:223:      setError(err instanceof Error ? err.message : "Scope check failed");
+web/app\dashboard\page.tsx:232:      setError("Question must be at least 4 characters.");
+web/app\dashboard\page.tsx:236:      setError("Scope gate rejected this question. Reframe before submitting.");
+web/app\dashboard\page.tsx:239:    setError(null);
+web/app\dashboard\page.tsx:272:          setError(
+web/app\dashboard\page.tsx:273:            err instanceof Error ? err.message : "Ambiguity check failed",
+web/app\dashboard\page.tsx:303:      if (err instanceof ConcurrentRunError) {
+web/app\dashboard\page.tsx:314:      const message = err instanceof Error ? err.message : "Unknown error";
+web/app\dashboard\page.tsx:315:      setError(message);
+web/app\dashboard\page.tsx:434:                disabled={uploading || submitting}
+web/app\dashboard\page.tsx:441:            {uploading && (
+web/app\dashboard\page.tsx:442:              <p className="text-muted-foreground text-xs">Uploading…</p>
+web/app\dashboard\page.tsx:589:        {error && (
+web/app\dashboard\page.tsx:594:            {error}
+web/app\api\inspector_bundle\[runId]\route.ts:17:      { error: "bundle_not_found", runId },
+web/app\compare\page.tsx:22:function compareErrorMessage(err: unknown): string {
+web/app\compare\page.tsx:37:  const [error, setError] = useState<string | null>(null);
+web/app\compare\page.tsx:58:    setError(null);
+web/app\compare\page.tsx:63:      setError(compareErrorMessage(err));
+web/app\compare\page.tsx:130:      {error && (
+web/app\compare\page.tsx:135:          {error}
+web/app\benchmark\components\benchmark_board.tsx:17:  | { kind: "loading_health" }
+web/app\benchmark\components\benchmark_board.tsx:21:  | { kind: "loading_scoreboard"; benchmark_id: string }
+web/app\benchmark\components\benchmark_board.tsx:23:  | { kind: "error"; message: string };
+web/app\benchmark\components\benchmark_board.tsx:43:  const [state, setState] = useState<BoardState>({ kind: "loading_health" });
+web/app\benchmark\components\benchmark_board.tsx:68:        const msg = err instanceof Error ? err.message : "Unknown error";
+web/app\benchmark\components\benchmark_board.tsx:69:        setState({ kind: "error", message: msg });
+web/app\benchmark\components\benchmark_board.tsx:78:    setState({ kind: "loading_scoreboard", benchmark_id });
+web/app\benchmark\components\benchmark_board.tsx:83:      const msg = err instanceof Error ? err.message : "Unknown error";
+web/app\benchmark\components\benchmark_board.tsx:84:      setState({ kind: "error", message: msg });
+web/app\benchmark\components\benchmark_board.tsx:88:  if (state.kind === "loading_health") {
+web/app\benchmark\components\benchmark_board.tsx:90:      <Card data-testid="benchmark-loading">
+web/app\benchmark\components\benchmark_board.tsx:91:        <CardContent>Loading benchmark catalog…</CardContent>
+web/app\benchmark\components\benchmark_board.tsx:134:  if (state.kind === "error") {
+web/app\benchmark\components\benchmark_board.tsx:137:        data-testid="benchmark-error"
+web/app\benchmark\components\benchmark_board.tsx:170:  if (state.kind === "loading_scoreboard") {
+web/app\benchmark\components\benchmark_board.tsx:172:      <Card data-testid="benchmark-loading-scoreboard">
+web/app\benchmark\components\benchmark_board.tsx:174:          Loading scoreboard for <code>{state.benchmark_id}</code>…
+web/app\audit_live\page.tsx:7:    <Suspense fallback={<div>loading…</div>}>
+web/app\contracts\_editor.tsx:318:          data-testid="contract-errors"
+web/app\components\recent_runs_strip.tsx:11:// failure / empty — never an error and never a /sign-in redirect (that is
+web/app\upload\components\document_preview.tsx:53:  const [loading, setLoading] = useState(true);
+web/app\upload\components\document_preview.tsx:62:          setLoading(false);
+web/app\upload\components\document_preview.tsx:66:        if (!cancelled) setLoading(false);
+web/app\upload\components\document_preview.tsx:80:  if (loading) return <div data-testid="preview-loading">Loading…</div>;
+web/app\upload\components\document_preview.tsx:81:  if (!response) return <div data-testid="preview-error">Failed to load</div>;
+web/app\upload\components\upload_drop_zone.tsx:12:type Status = "uploading" | "completed" | "error";
+web/app\upload\components\upload_drop_zone.tsx:18:  error?: string;
+web/app\upload\components\upload_drop_zone.tsx:88:            status: "error",
+web/app\upload\components\upload_drop_zone.tsx:89:            error: `unsupported extension ${ext}`,
+web/app\upload\components\upload_drop_zone.tsx:100:            status: "error",
+web/app\upload\components\upload_drop_zone.tsx:101:            error: `exceeds 50MB limit (${(f.size / 1024 / 1024).toFixed(1)}MB)`,
+web/app\upload\components\upload_drop_zone.tsx:106:      setFiles((p) => [...p, { id, name: f.name, status: "uploading" }]);
+web/app\upload\components\upload_drop_zone.tsx:136:        const msg = err instanceof Error ? err.message : "upload failed";
+web/app\upload\components\upload_drop_zone.tsx:139:            e.id === id ? { ...e, status: "error", error: msg } : e,
+web/app\upload\components\upload_drop_zone.tsx:199:                {f.status === "uploading" && "uploading…"}
+web/app\upload\components\upload_drop_zone.tsx:236:                {f.status === "error" && (
+web/app\upload\components\upload_drop_zone.tsx:237:                  <span className="text-rose-700">{f.error}</span>
+web/app\sse\_harness.tsx:14:      errors: { terminal: boolean; attempts: number }[];
+web/app\sse\_harness.tsx:29:      errors: [] as { terminal: boolean; attempts: number }[],
+web/app\sse\_harness.tsx:43:      onError: (e) => {
+web/app\sse\_harness.tsx:45:        state.errors.push(e);
+web/app\sse\page.tsx:7:    <Suspense fallback={<div>loading…</div>}>
+web/components\ui\vega-chart.tsx:23: * I-f10-001: surfaces vega-embed errors in an explicit `data-testid="vega-chart-error"`
+web/components\ui\vega-chart.tsx:29:  const [error, setError] = useState<string | null>(null);
+web/components\ui\vega-chart.tsx:36:    setError(null);
+web/components\ui\vega-chart.tsx:60:        console.error("vega-embed render failed", err);
+web/components\ui\vega-chart.tsx:62:          setError(err instanceof Error ? err.message : String(err));
+web/components\ui\vega-chart.tsx:74:      {error !== null ? (
+web/components\ui\vega-chart.tsx:76:          data-testid="vega-chart-error"
+web/components\ui\vega-chart.tsx:80:          Vega-Lite render failed: {error}
+web/app\inspector\offline\page.tsx:11:  BundleClientLoaderError,
+web/app\inspector\offline\page.tsx:18:  const [error, setError] = useState<string | null>(null);
+web/app\inspector\offline\page.tsx:19:  const [loading, setLoading] = useState(false);
+web/app\inspector\offline\page.tsx:23:    setLoading(true);
+web/app\inspector\offline\page.tsx:24:    setError(null);
+web/app\inspector\offline\page.tsx:31:        exc instanceof BundleClientLoaderError
+web/app\inspector\offline\page.tsx:33:          : (exc as Error).message;
+web/app\inspector\offline\page.tsx:34:      setError(message);
+web/app\inspector\offline\page.tsx:36:      setLoading(false);
+web/app\inspector\offline\page.tsx:103:            {loading
+web/app\inspector\offline\page.tsx:104:              ? "Loading bundle…"
+web/app\inspector\offline\page.tsx:115:          {error ? (
+web/app\inspector\offline\page.tsx:117:              data-testid="inspector-offline-error"
+web/app\inspector\offline\page.tsx:122:              <code className="mt-1 block text-xs">{error}</code>
+web/app\runs\[runId]\components\followup_panel.tsx:19:  | { kind: "error"; message: string };
+web/app\runs\[runId]\components\followup_panel.tsx:21:function errorMessage(err: unknown): string {
+web/app\runs\[runId]\components\followup_panel.tsx:26:    // FastAPI request-validation errors carry a list under `detail`; a
+web/app\runs\[runId]\components\followup_panel.tsx:60:      setState({ kind: "error", message: errorMessage(err) });
+web/app\runs\[runId]\components\followup_panel.tsx:94:      {state.kind === "error" && (
+web/app\runs\[runId]\components\run_progress.tsx:111:  // PIPELINE status (success / abort_* / partial_* / error_*).
+web/app\runs\[runId]\components\run_progress.tsx:299:        className="border-primary size-4 animate-spin rounded-full border-2 border-t-transparent"
+web/app\generation\components\BundlePreview.tsx:6:  AuditBundleError,
+web/app\generation\components\BundlePreview.tsx:15:  | { kind: "loading" }
+web/app\generation\components\BundlePreview.tsx:17:  | { kind: "error"; code: string; message: string };
+web/app\generation\components\BundlePreview.tsx:43:  const [s, set_s] = useState<State>({ kind: "loading" });
+web/app\generation\components\BundlePreview.tsx:52:        if (err instanceof AuditBundleError) {
+web/app\generation\components\BundlePreview.tsx:53:          set_s({ kind: "error", code: err.code, message: err.message });
+web/app\generation\components\BundlePreview.tsx:55:          const message = err instanceof Error ? err.message : "Unknown error.";
+web/app\generation\components\BundlePreview.tsx:56:          set_s({ kind: "error", code: "unknown", message });
+web/app\generation\components\BundlePreview.tsx:64:  if (s.kind === "loading")
+web/app\generation\components\BundlePreview.tsx:67:        data-testid="bundle-preview-loading"
+web/app\generation\components\BundlePreview.tsx:73:  if (s.kind === "error")
+web/app\generation\components\BundlePreview.tsx:76:        data-testid="bundle-preview-error"
+web/app\generation\components\BundlePreview.tsx:81:        <span data-testid="bundle-preview-error-code">{s.code}</span>
+web/components\ui\sonner.tsx:24:        error: <OctagonXIcon className="size-4" />,
+web/components\ui\sonner.tsx:25:        loading: <Loader2Icon className="size-4 animate-spin" />,
+web/app\runs\[runId]\page.tsx:32:  const [error, setError] = useState<string | null>(null);
+web/app\runs\[runId]\page.tsx:43:          // G4 (Codex iter-1 P0): map raw API errors to friendly copy.
+web/app\runs\[runId]\page.tsx:44:          const raw = err instanceof Error ? err.message : String(err);
+web/app\runs\[runId]\page.tsx:48:          setError(friendly);
+web/app\runs\[runId]\page.tsx:70:        // SSE error: backend may have closed the stream after run_complete.
+web/app\runs\[runId]\page.tsx:90:    setError(null);
+web/app\runs\[runId]\page.tsx:95:      setError(
+web/app\runs\[runId]\page.tsx:96:        err instanceof Error
+web/app\runs\[runId]\page.tsx:124:              setError(
+web/app\runs\[runId]\page.tsx:125:                err instanceof Error
+web/app\runs\[runId]\page.tsx:148:          {status?.question ?? "Loading…"}
+web/app\runs\[runId]\page.tsx:160:        {error && (
+web/app\runs\[runId]\page.tsx:165:            {error}
+web/app\runs\[runId]\page.tsx:194:                setError(
+web/app\runs\[runId]\page.tsx:195:                  err instanceof Error
+web/app\retrieval\components\retrieval_runner.tsx:8:  IntakeBadRequestError,
+web/app\retrieval\components\retrieval_runner.tsx:9:  RetrievalBadRequestError,
+web/app\retrieval\components\retrieval_runner.tsx:20:  | { kind: "scope_loading" }
+web/app\retrieval\components\retrieval_runner.tsx:28:      kind: "retrieval_loading";
+web/app\retrieval\components\retrieval_runner.tsx:55:    setState({ kind: "scope_loading" });
+web/app\retrieval\components\retrieval_runner.tsx:62:        err instanceof IntakeBadRequestError
+web/app\retrieval\components\retrieval_runner.tsx:64:          : err instanceof Error
+web/app\retrieval\components\retrieval_runner.tsx:80:    setState({ kind: "retrieval_loading", decision });
+web/app\retrieval\components\retrieval_runner.tsx:85:      if (err instanceof RetrievalBadRequestError) {
+web/app\retrieval\components\retrieval_runner.tsx:94:      const msg = err instanceof Error ? err.message : "Retrieval failed.";
+web/app\retrieval\components\retrieval_runner.tsx:132:                state.kind === "scope_loading" ||
+web/app\retrieval\components\retrieval_runner.tsx:133:                state.kind === "retrieval_loading"
+web/app\retrieval\components\retrieval_runner.tsx:147:                state.kind === "scope_loading" ||
+web/app\retrieval\components\retrieval_runner.tsx:148:                state.kind === "retrieval_loading"
+web/app\retrieval\components\retrieval_runner.tsx:151:              {state.kind === "scope_loading"
+web/app\retrieval\components\retrieval_runner.tsx:153:                : state.kind === "retrieval_loading"
+web/app\retrieval\components\retrieval_runner.tsx:163:          data-testid="retrieval-error"
+web/app\retrieval\components\retrieval_runner.tsx:185:          data-testid="retrieval-error"
+web/app\sign-in\page.tsx:68:        data-testid="sign-in-loading"
+web/app\sign-in\page.tsx:70:        Loading sign-in…
+web/app\sign-in\page.tsx:81:  const [error, setError] = useState<string | null>(null);
+web/app\sign-in\page.tsx:86:    setError(null);
+web/app\sign-in\page.tsx:95:      setError(result.error ?? "Sign-in failed.");
+web/app\sign-in\page.tsx:156:              {error ? (
+web/app\sign-in\page.tsx:159:                  data-testid="sign-in-error"
+web/app\sign-in\page.tsx:162:                  {error}
+web/app\intake\components\intake_form.tsx:10:  IntakeBadRequestError,
+web/app\intake\components\intake_form.tsx:23:  | { kind: "loading" }
+web/app\intake\components\intake_form.tsx:25:  | { kind: "error"; message: string };
+web/app\intake\components\intake_form.tsx:64:        kind: "error",
+web/app\intake\components\intake_form.tsx:71:        kind: "error",
+web/app\intake\components\intake_form.tsx:77:    setState({ kind: "loading" });
+web/app\intake\components\intake_form.tsx:96:      if (err instanceof IntakeBadRequestError) {
+web/app\intake\components\intake_form.tsx:97:        setState({ kind: "error", message: err.message });
+web/app\intake\components\intake_form.tsx:100:      const message = err instanceof Error ? err.message : "Unknown error.";
+web/app\intake\components\intake_form.tsx:101:      setState({ kind: "error", message });
+web/app\intake\components\intake_form.tsx:132:              disabled={state.kind === "loading"}
+web/app\intake\components\intake_form.tsx:145:                disabled={state.kind === "loading"}
+web/app\intake\components\intake_form.tsx:148:                {state.kind === "loading" ? "Checking…" : "Check scope"}
+web/app\intake\components\intake_form.tsx:166:      {state.kind === "error" ? (
+web/app\intake\components\intake_form.tsx:168:          data-testid="intake-error"
+web/app\runs\[runId]\graph\page.tsx:26:  const [error, setError] = useState<string | null>(null);
+web/app\runs\[runId]\graph\page.tsx:34:      .catch((e: Error) => {
+web/app\runs\[runId]\graph\page.tsx:35:        if (!cancelled) setError(e.message);
+web/app\runs\[runId]\graph\page.tsx:68:        {error && (
+web/app\runs\[runId]\graph\page.tsx:73:            Failed to load graph: {error}
+web/app\runs\[runId]\graph\page.tsx:77:        {!payload && !error && (
+web/app\runs\[runId]\graph\page.tsx:84:              className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
+web/app\runs\[runId]\graph\page.tsx:86:            Loading graph for run {runId}…
+web/app\generation\components\generation_runner.tsx:8:  AuditBundleError,
+web/app\generation\components\generation_runner.tsx:10:  GenerationBadRequestError,
+web/app\generation\components\generation_runner.tsx:11:  IntakeBadRequestError,
+web/app\generation\components\generation_runner.tsx:12:  RetrievalBadRequestError,
+web/app\generation\components\generation_runner.tsx:28:  | { kind: "loading"; stage: RunnerStage }
+web/app\generation\components\generation_runner.tsx:61:    setState({ kind: "loading", stage: "scope" });
+web/app\generation\components\generation_runner.tsx:67:      const code = err instanceof IntakeBadRequestError ? err.code : "unknown";
+web/app\generation\components\generation_runner.tsx:68:      const msg = err instanceof Error ? err.message : "Intake failed.";
+web/app\generation\components\generation_runner.tsx:82:    setState({ kind: "loading", stage: "retrieval" });
+web/app\generation\components\generation_runner.tsx:89:        err instanceof RetrievalBadRequestError ? err.code : "unknown";
+web/app\generation\components\generation_runner.tsx:90:      const msg = err instanceof Error ? err.message : "Retrieval failed.";
+web/app\generation\components\generation_runner.tsx:106:    setState({ kind: "loading", stage: "generation" });
+web/app\generation\components\generation_runner.tsx:112:        err instanceof GenerationBadRequestError ? err.code : "unknown";
+web/app\generation\components\generation_runner.tsx:113:      const msg = err instanceof Error ? err.message : "Generation failed.";
+web/app\generation\components\generation_runner.tsx:145:              disabled={state.kind === "loading"}
+web/app\generation\components\generation_runner.tsx:157:              disabled={state.kind === "loading"}
+web/app\generation\components\generation_runner.tsx:159:              {state.kind === "loading"
+web/app\generation\components\generation_runner.tsx:180:          data-testid="generation-error"
+web/app\generation\components\generation_runner.tsx:229:  | { kind: "loading" }
+web/app\generation\components\generation_runner.tsx:231:  | { kind: "error"; code: string; message: string };
+web/app\generation\components\generation_runner.tsx:245:    setDlState({ kind: "loading" });
+web/app\generation\components\generation_runner.tsx:258:      if (err instanceof AuditBundleError) {
+web/app\generation\components\generation_runner.tsx:259:        setDlState({ kind: "error", code: err.code, message: err.message });
+web/app\generation\components\generation_runner.tsx:261:        const msg = err instanceof Error ? err.message : "Unknown error.";
+web/app\generation\components\generation_runner.tsx:262:        setDlState({ kind: "error", code: "unknown", message: msg });
+web/app\generation\components\generation_runner.tsx:267:  if (dl_state.kind === "error") {
+web/app\generation\components\generation_runner.tsx:270:        data-testid="audit-bundle-error"
+web/app\generation\components\generation_runner.tsx:283:      disabled={dl_state.kind === "loading"}
+web/app\generation\components\generation_runner.tsx:287:      {dl_state.kind === "loading"
+
+ succeeded in 1773ms:
+web/components\app_shell_gate.tsx
+web/app\globals.css
+web/components\app_shell.tsx
+web/components\nav_link.tsx
+web/components\verdict\verdict_chip.tsx
+web/components\proof_replay\proof_replay.tsx
+web/components\ui\button.tsx
+web/components\ui\card.tsx
+web/components\source\source_card.tsx
+web/components\inspector\verified_report_sections.tsx
+web/components\inspector\sources_panel.tsx
+web/components\inspector\scope_decision_card.tsx
+web/components\inspector\reasoning_trace_timeline.tsx
+web/components\inspector\metadata_panel.tsx
+web/components\inspector\hash_chain_panel.tsx
+web/components\inspector\family_segregation_badge.tsx
+web/components\inspector\evidence_pool_table.tsx
+web/components\inspector\bundle_pending_cta.tsx
+web/components\inspector\bundle_header.tsx
+web/app\upload\page.tsx
+web/app\generation\page.tsx
+web/components\sovereignty\sovereignty_panel.tsx
+web/components\ui\vega-chart.tsx
+web/components\ui\tabs.tsx
+web/components\ui\sonner.tsx
+web/components\ui\sheet.tsx
+web/components\ui\input.tsx
+web/components\ui\evidence-tooltip.tsx
+web/components\citation\citation_chip.tsx
+web/components\auth_redirect.tsx
+web/app\contracts\_editor.tsx
+web/app\contracts\page.tsx
+web/components\contradiction\contradiction_panel.tsx
+web/app\audit_live\page.tsx
+web/app\audit_live\_panels.tsx
+web/app\dashboard\page.tsx
+web/app\benchmark\page.tsx
+web/app\charts_test\page.tsx
+web/app\generation\components\BundlePreview.tsx
+web/app\favicon.ico
+web/app\generation\components\contradiction_pane.tsx
+web/app\compare\page.tsx
+web/app\layout.tsx
+web/app\generation\components\verified_report_view.tsx
+web/app\generation\components\two_run_picker.tsx
+web/app\generation\components\split_screen.tsx
+web/app\generation\components\sentence_inspector.tsx
+web/app\generation\components\multi_source_panel.tsx
+web/app\generation\components\generation_runner.tsx
+web/app\generation\components\frame_coverage_panel.tsx
+web/app\generation\components\follow_up_append_view.tsx
+web/app\generation\components\evaluator_pane.tsx
+web/app\charts_test\timeline\page.tsx
+web/app\upload\components\upload_workspace.tsx
+web/app\upload\components\upload_drop_zone.tsx
+web/app\upload\components\selected_docs_indicator.tsx
+web/app\upload\components\document_preview.tsx
+web/app\components\recent_runs_strip.tsx
+web/app\components\home_keyboard_shell.tsx
+web/app\components\command_palette.tsx
+web/app\benchmark\components\benchmark_board.tsx
+web/app\charts_test\forest_plot\page.tsx
+web/app\api\inspector_bundle\[runId]\route.ts
+web/app\intake\page.tsx
+web/app\sign-in\page.tsx
+web/app\charts_test\components\chart_source_inspector.tsx
+web/app\pin_replay\page.tsx
+web/app\sse\_harness.tsx
+web/app\sse\page.tsx
+web/app\(test_harness)\disambiguation_modal_preview\page.tsx
+web/app\(test_harness)\disambiguation_modal_preview\_client.tsx
+web/app\page.tsx
+web/app\sentence_hover_test\_demo_stress.tsx
+web/app\sentence_hover_test\_demo_perf.tsx
+web/app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx
+web/app\sentence_hover_test\_demo_evidence_tooltip.tsx
+web/app\sentence_hover_test\_demo_evaluator_edge.tsx
+web/app\sentence_hover_test\_demo_coverage.tsx
+web/app\sentence_hover_test\_demo.tsx
+web/app\retrieval\page.tsx
+web/app\memory\page.tsx
+web/app\sentence_hover_test\page.tsx
+web/app\pin_replay\components\pin_timeseries.tsx
+web/app\pin_replay\components\diff_side_panel.tsx
+web/app\intake\components\scope_decision_view.tsx
+web/app\intake\components\pdf_drop_banner.tsx
+web/app\intake\components\intake_form.tsx
+web/app\intake\components\disambiguation_modal.tsx
+web/app\intake\components\ambiguity_modal.tsx
+web/app\runs\[runId]\page.tsx
+web/app\charts_test\comparison_table\page.tsx
+web/app\sentence_hover_test\two_run_picker\page.tsx
+web/app\retrieval\components\retrieval_runner.tsx
+web/app\retrieval\components\corpus_brief.tsx
+web/app\sentence_hover_test\memory_cite\page.tsx
+web/app\sentence_hover_test\perf\page.tsx
+web/app\inspector\[runId]\inspector_view.tsx
+web/app\inspector\[runId]\page.tsx
+web/app\sentence_hover_test\split_screen\page.tsx
+web/app\charts_test\click_through\page.tsx
+web/app\sentence_hover_test\evidence_tooltip_edges\page.tsx
+web/app\runs\[runId]\graph\page.tsx
+web/app\sentence_hover_test\follow_up_append\page.tsx
+web/app\sentence_hover_test\stress\page.tsx
+web/app\sentence_hover_test\evaluator_edge\page.tsx
+web/app\inspector\offline\page.tsx
+web/app\sentence_hover_test\evidence_tooltip\page.tsx
+web/app\runs\[runId]\components\followup_panel.tsx
+web/app\runs\[runId]\components\run_progress.tsx
+web/app\sentence_hover_test\coverage\page.tsx
+web/app\runs\[runId]\graph\components\use_graph_state.ts
+web/app\runs\[runId]\graph\components\snowball.ts
+web/app\runs\[runId]\graph\components\graph_styles.ts
+web/app\runs\[runId]\graph\components\graph_export_buttons.tsx
+web/app\runs\[runId]\graph\components\graph_export.ts
+web/app\runs\[runId]\graph\components\claim_graph.tsx
+web/app\runs\[runId]\graph\components\accessible_graph_list.tsx
+
+ succeeded in 2003ms:
+// I-p2-005 (#744): per-claim verdict chip. THREE signals (state color + icon +
+// label) so a verdict is never distinguished by color alone (WCAG 1.4.1).
+// Consumes the #742 state tokens. Display-only (non-interactive). Honest
+// labels — FABRICATED and UNREACHABLE are real, distinct, serious verdicts.
+import {
+  BadgeCheck,
+  Ban,
+  CircleHelp,
+  CircleSlash,
+  Minus,
+  TriangleAlert,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+
+export type VerdictKind =
+  | "VERIFIED"
+  | "PARTIAL"
+  | "UNSUPPORTED"
+  | "FABRICATED"
+  | "UNREACHABLE"
+  | "contradiction"
+  | "refusal";
+
+interface VerdictMeta {
+  label: string;
+  Icon: LucideIcon;
+  /** Tint bg + readable text + border, all AA from #742 tokens. */
+  className: string;
+}
+
+const VERDICT_META: Record<VerdictKind, VerdictMeta> = {
+  VERIFIED: {
+    label: "Verified",
+    Icon: BadgeCheck,
+    className: "bg-verified/10 text-verified border-verified/30",
+  },
+  PARTIAL: {
+    label: "Partial",
+    Icon: CircleSlash,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  UNSUPPORTED: {
+    label: "Unsupported",
+    Icon: Minus,
+    className: "bg-muted text-foreground border-border",
+  },
+  FABRICATED: {
+    label: "Fabricated",
+    Icon: X,
+    className: "bg-destructive/10 text-destructive border-destructive/40",
+  },
+  UNREACHABLE: {
+    label: "Unreachable",
+    Icon: CircleHelp,
+    className: "bg-muted text-foreground border-border border-dashed",
+  },
+  contradiction: {
+    label: "Contradiction",
+    Icon: TriangleAlert,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  refusal: {
+    label: "Refusal",
+    Icon: Ban,
+    className: "bg-refusal/10 text-refusal border-refusal/30",
+  },
+};
+
+export function VerdictChip({ verdict }: { verdict: VerdictKind }) {
+  const meta = VERDICT_META[verdict];
+  return (
+    <span
+      data-testid="verdict-chip"
+      data-verdict={verdict}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
+    >
+      <meta.Icon aria-hidden className="h-3 w-3 shrink-0" />
+      {meta.label}
+    </span>
+  );
+}
+
+ succeeded in 2324ms:
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-verified: var(--verified);
+  --color-verified-foreground: var(--verified-foreground);
+  --color-contradiction: var(--contradiction);
+  --color-contradiction-foreground: var(--contradiction-foreground);
+  --color-refusal: var(--refusal);
+  --color-refusal-foreground: var(--refusal-foreground);
+  --color-tier-1: var(--tier-1);
+  --color-tier-2: var(--tier-2);
+  --color-tier-3: var(--tier-3);
+  --color-proof-token: var(--proof-token);
+  --color-verified-bundle: var(--verified-bundle);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* I-ui-010 (#730): Frontier Minimal — near-monochrome zinc + ONE confident
+     accent (default = blue oklch(0.50 0.18 255); the prior cyan read grey).
+     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
+     border. Accent hue is operator-confirmable (one-token swap; alt indigo
+     oklch(0.50 0.16 270) / teal oklch(0.52 0.12 215)). chart-* left mono. */
+  --background: oklch(0.985 0.001 286.375);
+  --foreground: oklch(0.21 0.006 285.9);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  /* I-p2-003 (#742): white surface + ONE national accent = dark Canada-flag
+     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
+     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+     destructive=deep maroon distinct from the national red. + evidence-role
+     tokens (tiers + proof). Operator design lock 2026-05-21. */
+  --primary: #c8102e;
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.21 0.006 285.9);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.96 0.03 25);
+  --accent-foreground: oklch(0.45 0.16 26);
+  --destructive: oklch(0.42 0.13 18);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: #c8102e;
+  /* State colors — distinct from the national red (rubric: never red-only) */
+  --verified: oklch(0.48 0.14 152);
+  --verified-foreground: oklch(0.985 0 0);
+  --contradiction: oklch(0.72 0.15 75);
+  --contradiction-foreground: oklch(0.27 0.04 75);
+  --refusal: oklch(0.45 0.02 286);
+  --refusal-foreground: oklch(0.985 0 0);
+  /* Evidence-role tokens */
+  --tier-1: #c8102e;
+  --tier-2: oklch(0.556 0 0);
+  --tier-3: oklch(0.708 0 0);
+  --proof-token: oklch(0.45 0.16 26);
+  --verified-bundle: oklch(0.48 0.14 152);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  /* I-p2-003 (#742): dark-mode accent = Canada-red (NOT the old cyan, which
+     violated the operator lock). Lighter L0.62 for contrast on the dark
+     surface; white fg. NOTE: light mode is the demo target; dark mode reuses
+     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+     proof) — dark-specific tuning is a post-demo follow-up. */
+  --primary: oklch(0.62 0.2 26);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.32 0.06 26);
+  --accent-foreground: oklch(0.92 0.04 26);
+  --destructive: oklch(0.704 0.191 22.216);
+  /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+     White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+     fails WCAG-AA 4.5:1). Use near-black text instead — dark-on-light-warning is
+     the conventional inverse pattern. */
+  --destructive-foreground: oklch(0.145 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.62 0.2 26);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/components/ui/button.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "prefers-reduced-motion|motion-reduce|motion-safe|animate-spin|animate-pulse" web/app/globals.css web/app web/components -g "*.css" -g "*.tsx" -g "*.ts"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/components/ui/card.tsx' in C:\POLARIS
+ succeeded in 1308ms:
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
+import { cva, type VariantProps } from "class-variance-authority";
+
+import { cn } from "@/lib/utils";
+
+const buttonVariants = cva(
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/70 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        outline:
+          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+        ghost:
+          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/80 focus-visible:ring-destructive/30",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        // Cycle-7 P3.2 follow-up: WCAG 2.5.8 target-size requires
+        // touch targets ≥24px. Bumped default from h-8 (32px) to h-9
+        // (36px) — the prior 32px reported as ~21px effective height
+        // by axe due to inner text-bounding-box measurement quirks.
+        // h-9 puts unambiguous clearance.
+        default:
+          "h-9 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        xs: "h-7 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-8 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-10 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        icon: "size-9",
+        "icon-xs":
+          "size-7 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm":
+          "size-8 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+        "icon-lg": "size-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  },
+);
+
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  ...props
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  );
+}
+
+export { Button, buttonVariants };
+
+ succeeded in 1682ms:
+web/components\ui\sonner.tsx:25:        loading: <Loader2Icon className="size-4 animate-spin" />,
+web/app\runs\[runId]\components\run_progress.tsx:299:        className="border-primary size-4 animate-spin rounded-full border-2 border-t-transparent"
+web/app\runs\[runId]\graph\page.tsx:84:              className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
+
+ succeeded in 1979ms:
+import * as React from "react";
+
+import { cn } from "@/lib/utils";
+
+function Card({
+  className,
+  size = "default",
+  ...props
+}: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
+  return (
+    <div
+      data-slot="card"
+      data-size={size}
+      className={cn(
+        "group/card bg-card text-card-foreground ring-foreground/10 flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-header"
+      className={cn(
+        "group/card-header @container/card-header grid auto-rows-min items-start gap-1 rounded-t-xl px-4 group-data-[size=sm]/card:px-3 has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-4 group-data-[size=sm]/card:[.border-b]:pb-3",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-title"
+      className={cn(
+        "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-description"
+      className={cn("text-muted-foreground text-sm", className)}
+      {...props}
+    />
+  );
+}
+
+function CardAction({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-action"
+      className={cn(
+        "col-start-2 row-span-2 row-start-1 self-start justify-self-end",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function CardContent({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-content"
+      className={cn("px-4 group-data-[size=sm]/card:px-3", className)}
+      {...props}
+    />
+  );
+}
+
+function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-footer"
+      className={cn(
+        "bg-muted/50 flex items-center rounded-b-xl border-t p-4 group-data-[size=sm]/card:p-3",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export {
+  Card,
+  CardHeader,
+  CardFooter,
+  CardTitle,
+  CardAction,
+  CardDescription,
+  CardContent,
+};
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "export function EmptyState|interface EmptyState|type EmptyState|state_kit" . web -g "*.tsx" -g "*.ts" -g "*.md" -g "*.txt"' in C:\POLARIS
+2026-05-22T09:26:21.977064Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+rg: .\codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: .\codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: .\mode700_probe: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+
+ exited 1 in 1274ms:
+rg: .\codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: .\codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: .\mode700_probe: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Scope gap: the brief only requires creating `web/components/states/state_kit.tsx`, but the task says every page uses the kit. Existing page-level loading/error states remain in files like `web/app/audit_live/page.tsx`, `web/app/sse/page.tsx`, `web/app/upload/components/document_preview.tsx`, `web/app/runs/[runId]/graph/page.tsx`, and `web/app/benchmark/components/benchmark_board.tsx`; this would leave bare loading text/spinners and inconsistent errors after the diff."
+  - "`ErrorState.message: string` being required does not make generic copy impossible. Callers can still pass `Unknown error`, `Failed to load`, or `Something went wrong`; the plan needs caller migration/review or a stronger guardrail if G-CONTENT is part of this ticket."
+p2:
+  - "The brief claims `web/app/globals.css` already has prefers-reduced-motion handling, but the current file does not contain `prefers-reduced-motion` or `motion-reduce`. The kit should handle reduced motion locally with `motion-reduce:animate-none`/static skeleton behavior or add explicit global handling."
+```
+tokens used
+46,678
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Scope gap: the brief only requires creating `web/components/states/state_kit.tsx`, but the task says every page uses the kit. Existing page-level loading/error states remain in files like `web/app/audit_live/page.tsx`, `web/app/sse/page.tsx`, `web/app/upload/components/document_preview.tsx`, `web/app/runs/[runId]/graph/page.tsx`, and `web/app/benchmark/components/benchmark_board.tsx`; this would leave bare loading text/spinners and inconsistent errors after the diff."
+  - "`ErrorState.message: string` being required does not make generic copy impossible. Callers can still pass `Unknown error`, `Failed to load`, or `Something went wrong`; the plan needs caller migration/review or a stronger guardrail if G-CONTENT is part of this ticket."
+p2:
+  - "The brief claims `web/app/globals.css` already has prefers-reduced-motion handling, but the current file does not contain `prefers-reduced-motion` or `motion-reduce`. The kit should handle reduced motion locally with `motion-reduce:animate-none`/static skeleton behavior or add explicit global handling."
+```

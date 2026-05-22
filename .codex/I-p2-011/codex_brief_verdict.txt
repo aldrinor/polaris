@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief APPROVE iter2 (scope=kit-now/pages-adopt; dev-warn guardrail; reduced-motion local).
