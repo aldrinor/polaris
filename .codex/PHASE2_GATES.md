@@ -21,11 +21,13 @@ Demo ships EN-only (operator waiver logged), but new code MUST be FR-ready:
 - **Caveats present:** evidence grade, limitations, date-freshness, jurisdiction shown on every report.
 - **Refusal/contradiction wording** = a feature ("can't verify this honestly — here's why"), never a raw error.
 - **Empty/loading/error copy** is operational + specific (no generic spinners / "Something went wrong").
+- **Domain-specific copy:** labels/headings/templates speak the actual domain (clinical / regulatory / policy / legal — e.g. "evidence grade", "jurisdiction", "contraindication"), NOT generic SaaS boilerplate ("Dashboard", "Items", "Untitled"). Evidence: a copy pass confirming no generic placeholder/boilerplate strings in shipped UI.
 
 ## G-PERF — Performance / resilience (dim 13)
 - **LCP < 2.5s**, **CLS < 0.1**, **INP < 200ms** (Core Web Vitals, measured).
 - **Route JS budget < 250KB gzipped** per page (three.js maple-leaf chunk lazy-loaded + excluded from initial; KG lib lazy on the graph route only).
 - **Source-span open < 1s** after a sentence click (the proof-replay interaction).
+- **Export budget:** signed bundle / PDF / report export completes < 5s for a typical report (≤50 claims); progress shown for larger.
 - **Knowledge graph** renders ≥ 1k nodes at ~60fps (WebGL); degrades gracefully above.
 - **Resilience:** offline / backend-down / abort states render the honest empty/error UI, never a hang.
 
@@ -33,6 +35,8 @@ Demo ships EN-only (operator waiver logged), but new code MUST be FR-ready:
 - **RBAC:** each route/resource enforces the role model (analyst/counsel/clinical/records); unauthorized = 403, not a blank screen. Evidence: a denied-access test.
 - **Egress proof:** public-source retrieval shown as logged Canadian egress in the sovereignty panel (not an air-gap claim).
 - **Data classification:** PUBLIC/CAN_REAL/PRIVATE/CLIENT labels surfaced; PHI/PII never written to client console/logs.
+- **Redaction:** PHI/PII is redacted in shared/exported/screenshot-able views per data class. Evidence: a redaction test (a PRIVATE/CLIENT field is masked in export + in the shared link).
+- **Tamper-evident audit log:** the per-run audit log is signed / hash-chained (each entry references the prior hash); altering an entry breaks the chain. Evidence: a chain-verify check + a tamper-detection test.
 - **Signed artifacts:** report bundle + export are signed (sha256 + signature shown); "not used for training" stated.
 - **Evidence required:** each security claim is backed by an artifact (test, log, screenshot) — a badge alone fails the gate.
 
