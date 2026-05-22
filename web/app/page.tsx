@@ -1,6 +1,7 @@
 import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
 
 import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+import { ProofShowcase } from "@/app/components/proof_showcase";
 import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
 import { MapleLeafSignatureLazy } from "@/components/signature/maple_leaf_signature_lazy";
 import { Button } from "@/components/ui/button";
@@ -122,9 +123,9 @@ export default function HomePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <HomeKeyboardShell templates={templates} signInHref="/sign-in">
-        <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-20 px-6 py-24">
+        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-14 px-6 py-14 sm:py-16">
           {/* Hero — one primary action */}
-          <section className="flex flex-col items-center gap-6 text-center">
+          <section className="flex flex-col items-center gap-5 text-center">
             {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
             <MapleLeafSignatureLazy />
             <span className="text-muted-foreground border-border inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
@@ -143,7 +144,7 @@ export default function HomePage() {
               action="/intake"
               method="get"
               data-testid="home-hero-search"
-              className="mt-2 flex w-full max-w-2xl items-center gap-2"
+              className="mt-1 flex w-full max-w-2xl items-center gap-2"
             >
               <Input
                 name="q"
@@ -158,10 +159,13 @@ export default function HomePage() {
             </form>
           </section>
 
-          {/* Differentiator pillars — replaces the templates grid */}
+          {/* Proof-as-hero — a REAL verified claim + its real source span */}
+          <ProofShowcase />
+
+          {/* Differentiator pillars */}
           <section
             aria-label="Why POLARIS"
-            className="grid gap-8 sm:grid-cols-3"
+            className="border-border/60 grid gap-8 border-t pt-12 sm:grid-cols-3"
           >
             {PILLARS.map((pillar) => (
               <div key={pillar.title} className="flex flex-col gap-2">

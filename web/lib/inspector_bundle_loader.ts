@@ -57,6 +57,8 @@ export interface VerifiedReportShape {
   finished_at_utc: string;
   latency_ms: number;
   cost_usd: number;
+  /** The research question this brief answered (real-run bundles). */
+  research_question?: string;
 }
 
 export interface VerifiedReportSectionShape {
