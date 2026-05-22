@@ -2,6 +2,8 @@
 
 Use this template for the DESIGN audit of every Phase-2 UI issue (I-p2-*), separate from and in addition to the code-diff review. Copy this skeleton into `.codex/<id>/design_audit_brief.md`, fill the brackets, attach the screenshot matrix, run Codex.
 
+**AUTHORING RULE (per REVIEW_BRIEF_FORMAT §0):** the authored brief MUST begin with the §0 cap block as its very first content. When you copy this template, DROP this template's title + these two instruction paragraphs so the authored brief opens directly with `HARD ITERATION CAP: 5 ...`. The title/instructions above are template meta, not part of the authored brief.
+
 ---
 
 ## 0. Iteration-cap directive (verbatim from CLAUDE.md §8.3.1, MANDATORY first block — copy byte-for-byte)
