@@ -1,12 +1,14 @@
 diff --git a/.codex/DESIGN_AUDIT_BRIEF_FORMAT.md b/.codex/DESIGN_AUDIT_BRIEF_FORMAT.md
 new file mode 100644
-index 00000000..17853e6e
+index 00000000..5cef854e
 --- /dev/null
 +++ b/.codex/DESIGN_AUDIT_BRIEF_FORMAT.md
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,60 @@
 +# Codex DESIGN-AUDIT brief template (Phase-2 UI) — v1, 2026-05-21 (I-p2-002 / #741)
 +
 +Use this template for the DESIGN audit of every Phase-2 UI issue (I-p2-*), separate from and in addition to the code-diff review. Copy this skeleton into `.codex/<id>/design_audit_brief.md`, fill the brackets, attach the screenshot matrix, run Codex.
++
++**AUTHORING RULE (per REVIEW_BRIEF_FORMAT §0):** the authored brief MUST begin with the §0 cap block as its very first content. When you copy this template, DROP this template's title + these two instruction paragraphs so the authored brief opens directly with `HARD ITERATION CAP: 5 ...`. The title/instructions above are template meta, not part of the authored brief.
 +
 +---
 +
@@ -63,7 +65,7 @@ index 00000000..17853e6e
 +```
 +Convergence: APPROVE iff all 16 PASS (zero P0, zero P1).
 diff --git a/.codex/REVIEW_BRIEF_FORMAT.md b/.codex/REVIEW_BRIEF_FORMAT.md
-index 32d4f9b8..e2e8ac50 100644
+index 32d4f9b8..7c6af18a 100644
 --- a/.codex/REVIEW_BRIEF_FORMAT.md
 +++ b/.codex/REVIEW_BRIEF_FORMAT.md
 @@ -108,6 +108,14 @@ APPROVE | REQUEST_CHANGES | incomplete_review
@@ -73,7 +75,7 @@ index 32d4f9b8..e2e8ac50 100644
 +### 9. DESIGN AUDIT (Phase-2 UI tasks) — MANDATORY for any web/UI issue (I-p2-*)
 +Added 2026-05-21 (I-p2-002). Every Phase-2 UI task gets, IN ADDITION to the code-diff review, a separate **Codex DESIGN audit** at the top-tier bar, using the **16-dimension rubric** in `state/polaris_phase2_ui_breakdown_2026_05_21.md`. The design-audit brief MUST:
 +- Use the dedicated template `.codex/DESIGN_AUDIT_BRIEF_FORMAT.md`.
-+- **Attach rendered evidence in the loop** — Codex cannot audit design from a diff: a screenshot MATRIX (desktop/tablet/mobile + zoom + the key interaction states) captured via the **production standalone harness** (`node web/.next/standalone/server.js`, NOT `next dev`), plus Playwright trace + axe output where applicable.
++- **Attach rendered evidence in the loop** — Codex cannot audit design from a diff: a screenshot MATRIX (desktop/tablet/mobile + zoom + the key interaction states) captured via the **production standalone harness** (`node web/.next/standalone/server.js`, NOT `next dev`), plus REQUIRED Playwright trace + axe output + keyboard + screen-reader + evidence-click tests (per the dedicated template).
 +- Audit all 16 dimensions (visual, user-flow, data-flow, focus, clarity, frontier-head-to-head, accessibility/WCAG-2.2-AA, provability, responsive/zoom, EN-FR-i18n-ready [EN-first waiver logged], content/microcopy, security-verified, performance, dense-table UX, role governance, independent-rendered-verification) → PASS/NEEDS-WORK each.
 +- Verdict: APPROVE iff all 16 PASS. Artifacts: `outputs/audits/<id>/codex_design_audit.txt` + the screenshot matrix + Playwright traces + axe output.
 +- §8.3.1 cap applies; per the v3 standard verdict rule, iter-5 residual P0/P1 → force-APPROVE + follow-up issue (operator-confirmed 2026-05-21).
@@ -173,4 +175,4 @@ index acf1f942..c9f3b240 100644
 +
 +`docs/task_acceptance_matrix.yaml`, `state/polaris_restart/issue_breakdown.md` — superseded. The 2026-05-19 Seq order is superseded for ORDERING by the 2026-05-20 reprioritization (per-issue acceptance still valid).
 
-# canonical-diff-sha256: beefa5c2ee6839a3b9f222fd55d2702db3c5d3b4fae9e206b83cf9e21da046b1
+# canonical-diff-sha256: 3ec5b66da83c10c2bf524047c2d0e31bd3e17ab937f0c225e8d170efea6a81c5

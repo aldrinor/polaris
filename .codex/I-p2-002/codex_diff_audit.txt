@@ -1,3 +1,3 @@
 verdict: APPROVE
 merge_decision: MERGE AUTHORIZED
-# Codex diff APPROVE iter 2 + MERGE AUTHORIZED, 0 P0/P1. Design-audit protocol wired into templates. 2 non-blocking P2 (doc ordering, parent "where applicable" wording — dedicated template is stricter + mandatory).
+# Codex diff APPROVE iter 3 + MERGE AUTHORIZED, 0 P0/P1, on the FINAL diff (hash-matched). Design-audit protocol wired into templates; brief + diff both APPROVE.
