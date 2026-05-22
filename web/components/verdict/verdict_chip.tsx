@@ -44,7 +44,7 @@ const VERDICT_META: Record<VerdictKind, VerdictMeta> = {
   UNSUPPORTED: {
     label: "Unsupported",
     Icon: Minus,
-    className: "bg-muted text-muted-foreground border-border",
+    className: "bg-muted text-foreground border-border",
   },
   FABRICATED: {
     label: "Fabricated",
@@ -54,7 +54,7 @@ const VERDICT_META: Record<VerdictKind, VerdictMeta> = {
   UNREACHABLE: {
     label: "Unreachable",
     Icon: CircleHelp,
-    className: "bg-muted text-muted-foreground border-border border-dashed",
+    className: "bg-muted text-foreground border-border border-dashed",
   },
   contradiction: {
     label: "Contradiction",
