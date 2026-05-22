@@ -1,0 +1,1949 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4eec-3f8e-7801-b068-bd1c7b299bb8
+--------
+user
+# Codex DESIGN+DIFF review — I-p2-008 (#747): run-progress Thinking-Toggle
+
+HARD ITERATION CAP: 5. iter 1. APPROVE iff zero P0/P1 (code + design rubric). Final line MERGE AUTHORIZED if mergeable. Canonical-diff-sha256 `99cabd9cffe186ca661bee191664b0a5f45ef50e29904cc86898cd70de988945`. web/ only.
+
+## Design-audit note
+Additive toggle on the existing #707/#725 Codex-reviewed checklist (already screenshot-verified). The toggle is the only new affordance; full page screenshot at #755 (Run progress page). Audit code + a11y here.
+
+## Diff (single file: run_progress.tsx)
+- showThinking state (default ON). Toggle button: aria-expanded={showThinking} + aria-controls="run-progress-stages", focus-visible /70, "Hide/Show details".
+- <ol id="run-progress-stages">; per stage: showThinking ? <StageBody/> (full feed) : <p>{compactStatus(state)}</p> (honest 1-line from the SAME StageState source-of-truth as the chip).
+- compactStatus(): active→In progress, done→Done, skipped→Did not run, degraded→Not observed (stream lost), pending→Pending.
+- NO change to stageState/#725 honest-state logic or counters.
+
+## Review focus
+1. Collapsed state still HONEST: each stage's state visible (chip + compactStatus matches the chip's state)? No active-sounding copy on a skipped/degraded stage?
+2. Toggle a11y: aria-expanded/aria-controls correct + keyboard + focus-visible?
+3. No regression to #725 stage-state logic / counters / stream-loss handling. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+codex
+I’ll inspect the actual `web/` diff and the affected `run_progress.tsx` logic, then check the toggle behavior against the review points before giving the YAML verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "showThinking|compactStatus|run-progress-stages|StageBody|stageState|stream" web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+ succeeded in 1972ms:
+web\AGENTS.md:32:2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, tests. List them in the brief under "Files I have ALSO checked and they're clean: [...]".
+web\app\audit_live\_panels.tsx:19:  const url = sp.get("url") ?? "/api/audit/stream";
+web\lib\api.ts:4: * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+web\lib\api.ts:46: * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
+web\lib\api.ts:48: * the backend `require_auth` accepts it for `/stream/*` paths only.
+web\lib\api.ts:50:export function streamUrl(runId: string): string {
+web\lib\api.ts:52:  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+web\lib\api.ts:514: * Subscribe to /stream/{runId}. Returns the EventSource so the caller can
+web\lib\api.ts:522:  const source = new EventSource(streamUrl(runId));
+web\THIRD_PARTY_LICENSES.md:6:upstream registry at <https://ui.shadcn.com>. Per the shadcn project, scaffolded
+web\THIRD_PARTY_LICENSES.md:13:Verbatim text of the upstream `LICENSE.md`:
+web\lib\inspector_bundle_client_loader.ts:12: *   - extract files with tar-stream (browser build)
+web\lib\inspector_bundle_client_loader.ts:26:import { extract as tarExtract } from "tar-stream";
+web\lib\inspector_bundle_client_loader.ts:71:        stream: NodeJS.ReadableStream,
+web\lib\inspector_bundle_client_loader.ts:75:        stream.on("data", (c: Uint8Array) => chunks.push(c));
+web\lib\inspector_bundle_client_loader.ts:76:        stream.on("end", () => {
+web\lib\inspector_bundle_client_loader.ts:93:        stream.resume();
+web\lib\inspector_bundle_client_loader.ts:110:function _streamingUngzip(
+web\lib\inspector_bundle_client_loader.ts:116:  // the rest of the stream — bomb could still hang the thread).
+web\lib\inspector_bundle_client_loader.ts:213:  // Codex iter-2 P1.1 fix: streaming inflate via pako.Inflate, aborting as
+web\lib\inspector_bundle_client_loader.ts:217:  const tarBytes = _streamingUngzip(new Uint8Array(arrayBuffer));
+web\app\runs\[runId]\page.tsx:57:        // once on mount; the SSE stream otherwise just appends events. When a
+web\app\runs\[runId]\page.tsx:70:        // SSE error: backend may have closed the stream after run_complete.
+web\app\sse\_harness.tsx:21:  const url = sp.get("url") ?? "/api/audit/stream";
+web\app\runs\[runId]\components\run_progress.tsx:47:function compactStatus(state: StageState): string {
+web\app\runs\[runId]\components\run_progress.tsx:56:      return "Not observed (stream lost)";
+web\app\runs\[runId]\components\run_progress.tsx:107:  // run_complete{stream_lost}. That synthetic artifact must NOT drive the UI —
+web\app\runs\[runId]\components\run_progress.tsx:113:    terminalFromEvent === "stream_lost" ||
+web\app\runs\[runId]\components\run_progress.tsx:114:    terminalFromEvent === "stream_unavailable";
+web\app\runs\[runId]\components\run_progress.tsx:126:  // OR a genuinely-running run whose stream dropped (stream-loss degraded).
+web\app\runs\[runId]\components\run_progress.tsx:137:  // completed (i.e. genuinely still running and the live stream dropped).
+web\app\runs\[runId]\components\run_progress.tsx:148:  function stageState(key: StageKey, idx: number): StageState {
+web\app\runs\[runId]\components\run_progress.tsx:180:  const [showThinking, setShowThinking] = useState(true);
+web\app\runs\[runId]\components\run_progress.tsx:235:          aria-expanded={showThinking}
+web\app\runs\[runId]\components\run_progress.tsx:236:          aria-controls="run-progress-stages"
+web\app\runs\[runId]\components\run_progress.tsx:240:          {showThinking ? "Hide details" : "Show details"}
+web\app\runs\[runId]\components\run_progress.tsx:245:      <ol id="run-progress-stages" className="flex flex-col gap-3">
+web\app\runs\[runId]\components\run_progress.tsx:247:          const state = stageState(stage.key, idx);
+web\app\runs\[runId]\components\run_progress.tsx:261:              {showThinking ? (
+web\app\runs\[runId]\components\run_progress.tsx:262:                <StageBody
+web\app\runs\[runId]\components\run_progress.tsx:272:                  {compactStatus(state)}
+web\app\runs\[runId]\components\run_progress.tsx:332:function StageBody({
+web\app\runs\[runId]\components\run_progress.tsx:355:        Not observed (stream lost).
+web\components\ui\tabs.tsx:4:// downstream route that needs a tabbed layout. Each TabsContent
+web\tests\e2e\audit_live.spec.ts:14:      contentType: "text/event-stream",
+web\package-lock.json:28:        "tar-stream": "^3.2.0",
+web\package-lock.json:44:        "@types/tar-stream": "^3.1.4",
+web\package-lock.json:594:        "get-stream": "^6.0.0",
+web\package-lock.json:596:        "is-stream": "^2.0.0",
+web\package-lock.json:597:        "merge-stream": "^2.0.0",
+web\package-lock.json:627:    "node_modules/@dotenvx/dotenvx/node_modules/get-stream": {
+web\package-lock.json:629:      "resolved": "https://registry.npmjs.org/get-stream/-/get-stream-6.0.1.tgz",
+web\package-lock.json:648:    "node_modules/@dotenvx/dotenvx/node_modules/is-stream": {
+web\package-lock.json:650:      "resolved": "https://registry.npmjs.org/is-stream/-/is-stream-2.0.1.tgz",
+web\package-lock.json:1552:        "mute-stream": "^3.0.0",
+web\package-lock.json:2009:    "node_modules/@sec-ant/readable-stream": {
+web\package-lock.json:2011:      "resolved": "https://registry.npmjs.org/@sec-ant/readable-stream/-/readable-stream-0.4.1.tgz",
+web\package-lock.json:2015:    "node_modules/@sindresorhus/merge-streams": {
+web\package-lock.json:2017:      "resolved": "https://registry.npmjs.org/@sindresorhus/merge-streams/-/merge-streams-4.0.0.tgz",
+web\package-lock.json:2506:    "node_modules/@types/tar-stream": {
+web\package-lock.json:2508:      "resolved": "https://registry.npmjs.org/@types/tar-stream/-/tar-stream-3.1.4.tgz",
+web\package-lock.json:3498:        "bare-stream": "^2.6.4",
+web\package-lock.json:3532:    "node_modules/bare-stream": {
+web\package-lock.json:3534:      "resolved": "https://registry.npmjs.org/bare-stream/-/bare-stream-2.13.1.tgz",
+web\package-lock.json:3538:        "streamx": "^2.25.0",
+web\package-lock.json:5404:        "@sindresorhus/merge-streams": "^4.0.0",
+web\package-lock.json:5407:        "get-stream": "^9.0.0",
+web\package-lock.json:5410:        "is-stream": "^4.0.1",
+web\package-lock.json:5613:        "web-streams-polyfill": "^3.0.3"
+web\package-lock.json:5928:    "node_modules/get-stream": {
+web\package-lock.json:5930:      "resolved": "https://registry.npmjs.org/get-stream/-/get-stream-9.0.1.tgz",
+web\package-lock.json:5934:        "@sec-ant/readable-stream": "^0.4.1",
+web\package-lock.json:5935:        "is-stream": "^4.0.1"
+web\package-lock.json:6750:    "node_modules/is-stream": {
+web\package-lock.json:6752:      "resolved": "https://registry.npmjs.org/is-stream/-/is-stream-4.0.1.tgz",
+web\package-lock.json:7504:    "node_modules/merge-stream": {
+web\package-lock.json:7506:      "resolved": "https://registry.npmjs.org/merge-stream/-/merge-stream-2.0.0.tgz",
+web\package-lock.json:7663:    "node_modules/mute-stream": {
+web\package-lock.json:7665:      "resolved": "https://registry.npmjs.org/mute-stream/-/mute-stream-3.0.0.tgz",
+web\package-lock.json:9452:    "node_modules/streamx": {
+web\package-lock.json:9454:      "resolved": "https://registry.npmjs.org/streamx/-/streamx-2.25.0.tgz",
+web\package-lock.json:9763:    "node_modules/tar-stream": {
+web\package-lock.json:9765:      "resolved": "https://registry.npmjs.org/tar-stream/-/tar-stream-3.2.0.tgz",
+web\package-lock.json:9772:        "streamx": "^2.15.0"
+web\package-lock.json:9781:        "streamx": "^2.12.5"
+web\package-lock.json:10898:    "node_modules/web-streams-polyfill": {
+web\package-lock.json:10900:      "resolved": "https://registry.npmjs.org/web-streams-polyfill/-/web-streams-polyfill-3.3.3.tgz",
+web\package.json:35:    "tar-stream": "^3.2.0",
+web\package.json:51:    "@types/tar-stream": "^3.1.4",
+web\tests\e2e\audit_live_adversarial.spec.ts:10:      contentType: "text/event-stream",
+web\tests\e2e\audit_live_multitab.spec.ts:16:        contentType: "text/event-stream",
+web\tests\e2e\cross_browser_smoke.spec.ts:29:    // Stub /api/audit/stream so SSE harness doesn't hold the page open
+web\tests\e2e\cross_browser_smoke.spec.ts:31:    await page.route("**/api/audit/stream**", (route) => {
+web\tests\e2e\cross_browser_smoke.spec.ts:34:        contentType: "text/event-stream",
+web\tests\e2e\runs_runid_g1_g8.spec.ts:17:// Use a deterministic run id; the live route 404s the SSE stream and
+web\tests\e2e\p2c_001_chain.spec.ts:31:  // F4 — SSE harness (event-stream surface).
+web\tests\e2e\sse_client.spec.ts:9:      contentType: "text/event-stream",
+
+ succeeded in 2590ms:
+ M .claude/settings.json
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-p2-008/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+ succeeded in 3188ms:
+codex
+The worktree has unrelated dirty files outside `web/`; `web/` itself has no uncommitted diff, so I’m treating the reviewed change as already applied in the current tree and checking the committed file plus any supplied review artifacts.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\AGENTS.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git log --oneline --decorate -5 -- web/app/runs/[runId]/components/run_progress.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Force .codex\\I-p2-008 | Select-Object Mode,Length,Name" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\app\\runs\\[runId]\\components\\run_progress.tsx" in C:\POLARIS
+ succeeded in 1433ms:
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+
+<!-- END:nextjs-agent-rules -->
+
+<!-- BEGIN:polaris-evaluation-debug-standards-2026-05-09 -->
+
+# STANDING EVALUATION & DEBUG STANDARDS (binding)
+
+Per project `CLAUDE.md` §-1 (added 2026-05-09 per user directive).
+
+## §-1.1 Line-by-line audit standard (clinical-safety-critical)
+
+Every content/quality evaluation MUST be a **line-by-line, claim-by-claim, citation-by-citation, reasoning-step-by-reasoning-step** audit against the **actually-fetched source content** using the highest industrial benchmarks (PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE, ICH-GCP, Cochrane RoB 2 / ROBINS-I / QUADAS-2, jurisdiction-specific frameworks: FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+
+Both Claude AND Codex MUST run independent audits in parallel. Cross-review combines findings.
+
+Per-claim verdict required: VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE — with the specific evidence span quote that supports the verdict.
+
+**STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
+
+**Why:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. Length is liability, not advantage.
+
+## §-1.2 Standard debug workflow (no §3.0 bypass)
+
+Every task / bug / issue follows this sequence (§-1.2 governs _task-work_; the §3.1 boot ritual and §3.0 halt-marker checks always run first and can preempt this sequence):
+
+1. **GitHub Issue FIRST** (first _task-work_ call). `gh issue create` BEFORE any branch, code, or brief. Title `I-<prefix>-NNN — <one-line summary>`; body has acceptance criteria.
+2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, tests. List them in the brief under "Files I have ALSO checked and they're clean: [...]".
+3. **Smoke test offline** (single sentence/section), NOT a full sweep, before claiming the change works.
+4. **Codex brief** with the iter-1 cap directive verbatim + adjacent-file scan results so Codex VERIFIES rather than discovers.
+5. **Codex APPROVE → diff → Codex APPROVE on diff.** Goal: 1-2 iters per task, not 5. The 5-cap is a backstop, not a target.
+6. **If a big bug surfaces and cannot be resolved in 5 iters, mark URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+
+<!-- END:polaris-evaluation-debug-standards-2026-05-09 -->
+
+<!-- BEGIN:polaris-restart-2026-05-05 -->
+
+# POLARIS issue-driven workflow (mandatory)
+
+Per project `CLAUDE.md` §3.0 + `state/polaris_restart/plan.md`:
+
+- Every unit of work is a GitHub Issue from `state/polaris_restart/issue_breakdown.md`.
+- Per-Issue 5-artifact triple required (brief + verdict + diff + audit + claude_audit). CI enforcement lands at PR-D; pre-PR-D, Codex review enforces.
+- Per plan §7.A LOCKED A2 + §7.B LOCKED B1: Claude writes briefs + diffs; Codex reviews twice per Issue (brief + diff); CI required check `polaris/codex-required` gates GitHub auto-merge; user reads `git log` morning.
+- **HARD ITERATION CAP: 5 per Codex review** (added 2026-05-06 per CLAUDE.md §8.3.1). If Codex has not APPROVE'd by iter 5, Claude force-APPROVE's and ships, capturing residual concerns as follow-up Issues. Every brief MUST include the verbatim cap directive (see CLAUDE.md §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0).
+- **Resource discipline (CPU/RAM/GPU)** per CLAUDE.md §8.4 (added 2026-05-06): one `codex exec` at a time; kill leftover python/node/codex processes between iters; no heavy ML/CUDA processes in autonomous loops; track long-running dev servers and kill before next Issue; pre/post-task `Get-Process` inventory.
+- `gh pr merge --admin` REVOKED from Claude.
+
+Read project `CLAUDE.md` §3.0 + §10 boot ritual before any frontend work.
+
+<!-- END:polaris-restart-2026-05-05 -->
+
+
+ succeeded in 1991ms:
+9e6b8f1a (HEAD -> bot/I-p2-008-run-progress) I-p2-008 (#747): Thinking-Toggle on the run-progress checklist (depth visible-but-collapsible)
+4dd936d6 I-ui-bug-001 (#725): completed runs render their real verdict, not 'connection lost' (#726)
+ca69887a I-ui-002 (#707): Perplexity-style 4-stage run-progress UI (#721)
+
+2026-05-22T09:03:12.333160Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.1 seconds
+Output:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Raw web\app\runs\[runId]\components\run_progress.tsx[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAn object at the specified path web\app\runs\[runId]\components\run_progress.tsx does not exist, or has been filtered by the -Include or -Exclude parameter.[0m
+
+ exited 1 in 2114ms:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Raw web\app\runs\[runId]\components\run_progress.tsx[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAn object at the specified path web\app\runs\[runId]\components\run_progress.tsx does not exist, or has been filtered by the -Include or -Exclude parameter.[0m
+
+ succeeded in 2500ms:
+
+[32;1mMode [0m[32;1m Length[0m[32;1m Name[0m
+[32;1m---- [0m [32;1m------[0m [32;1m----[0m
+-a--- 696757 brief_review_iter1.txt
+-a---   3100 brief.md
+-a---   3476 codex_diff_canonical.patch
+-a---   3567 codex_diff.patch
+-a---      0 diff_review_iter1.txt
+-a---   1633 diff_review.md
+
+
+codex
+PowerShell treats `[runId]` as a wildcard pattern, so I’m switching to literal-path reads. I also found the branch commit for `I-p2-008`, which gives a clean base for reviewing the single-file change.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw -LiteralPath 'web\\app\\runs\\[runId]\\components\\run_progress.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw .codex\\I-p2-008\\diff_review.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"§3\\.0|§10|halt|HALT|boot\" CLAUDE.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw .codex\\I-p2-008\\codex_diff_canonical.patch" in C:\POLARIS
+ succeeded in 1479ms:
+"use client";
+
+import { useEffect, useState } from "react";
+
+import type { RunStatusResponse, StreamEvent } from "@/lib/api";
+
+// I-ui-002 (#707): Perplexity-style 4-stage progress for the live run.
+// Consumes the #706 SSE sub-task events already accumulated by the parent
+// page. Pure rendering of (events, status) — no fetching here.
+
+type StageKey = "scope" | "retrieval" | "generation" | "verification";
+type StageState = "pending" | "active" | "done" | "skipped" | "degraded";
+
+const STAGES: { key: StageKey; label: string }[] = [
+  { key: "scope", label: "Scope" },
+  { key: "retrieval", label: "Retrieval" },
+  { key: "generation", label: "Generation" },
+  { key: "verification", label: "Verification" },
+];
+
+const LIFECYCLE_TERMINAL = ["completed", "failed", "cancelled"];
+
+function asNumber(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function parseMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const t = new Date(value).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+function formatElapsed(seconds: number | null): string {
+  if (seconds === null) return "—";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+// I-p2-008 (#747): the honest one-line state shown per stage when the
+// Thinking-Toggle collapses the detail. Same source-of-truth as the chip.
+function compactStatus(state: StageState): string {
+  switch (state) {
+    case "active":
+      return "In progress";
+    case "done":
+      return "Done";
+    case "skipped":
+      return "Did not run";
+    case "degraded":
+      return "Not observed (stream lost)";
+    default:
+      return "Pending";
+  }
+}
+
+interface RunProgressProps {
+  events: StreamEvent[];
+  status: RunStatusResponse | null;
+}
+
+export function RunProgress({ events, status }: RunProgressProps) {
+  // --- parse events into per-stage data -----------------------------------
+  const scope = events.find((e) => e.event === "scope_decision")?.data ?? null;
+  const retrievalProgress =
+    events.find((e) => e.event === "retrieval_progress")?.data ?? null;
+
+  const sources: { id: string; url: string }[] = [];
+  const seenIds = new Set<string>();
+  for (const e of events) {
+    if (e.event !== "evidence_id") continue;
+    const id = asString(e.data.id ?? e.data.evidence_id);
+    if (!id || seenIds.has(id)) continue; // defensive: skip blank/dup
+    seenIds.add(id);
+    sources.push({ id, url: asString(e.data.url ?? e.data.source_url) });
+  }
+
+  const sections = events
+    .filter((e) => e.event === "section_complete")
+    .map((e) => ({
+      section: asString(e.data.section),
+      verified: asNumber(e.data.verified ?? e.data.verified_sentences),
+      dropped: asNumber(e.data.dropped),
+    }));
+
+  const verifications = events
+    .filter((e) => e.event === "verifier_verdict")
+    .map((e) => ({
+      section: asString(e.data.section),
+      local: Boolean(e.data.local ?? e.data.local_pass),
+      global: Boolean(e.data.global ?? e.data.global_pass),
+    }));
+
+  const runCompleteEvent = events.find((e) => e.event === "run_complete");
+  const terminalFromEvent = runCompleteEvent
+    ? asString(runCompleteEvent.data.status) || "unknown"
+    : null;
+  const terminalFromStatus =
+    status && LIFECYCLE_TERMINAL.includes(status.status) ? status.status : null;
+  // I-ui-bug-001 (#725, Codex diff iter-1 P1): a COMPLETED run has no live SSE
+  // to replay, so #706's STREAM_LOST_GRACE emits a SYNTHETIC
+  // run_complete{stream_lost}. That synthetic artifact must NOT drive the UI —
+  // but neither can lifecycle 'completed' alone, because mark_aborted() also
+  // stores lifecycle_status='completed' (an aborted run would wrongly show as
+  // success). The authoritative verdict for a completed run is the run_store
+  // PIPELINE status (success / abort_* / partial_* / error_*).
+  const syntheticLoss =
+    terminalFromEvent === "stream_lost" ||
+    terminalFromEvent === "stream_unavailable";
+  // A REAL run_complete event (genuine pipeline verdict, live-finished run) wins.
+  const realEventStatus =
+    terminalFromEvent && !syntheticLoss ? terminalFromEvent : null;
+  const lifecycleCompleted = status?.status === "completed";
+  const pipelineStatus = status?.pipeline_status ?? null;
+  const terminalStatus =
+    realEventStatus ??
+    (lifecycleCompleted
+      ? (pipelineStatus ?? "success")
+      : (terminalFromStatus ?? ""));
+  // terminal if: a real verdict event, a completed/failed/cancelled lifecycle,
+  // OR a genuinely-running run whose stream dropped (stream-loss degraded).
+  const isTerminal =
+    realEventStatus !== null ||
+    lifecycleCompleted ||
+    terminalFromStatus !== null ||
+    syntheticLoss;
+  const isSuccess =
+    terminalStatus === "success" ||
+    terminalStatus === "completed" ||
+    terminalStatus.startsWith("partial_");
+  // Stream-loss is a REAL degradation only for a run that is NOT lifecycle-
+  // completed (i.e. genuinely still running and the live stream dropped).
+  const isStreamLost = syntheticLoss && !lifecycleCompleted;
+
+  const observed: Record<StageKey, boolean> = {
+    scope: scope !== null,
+    retrieval: retrievalProgress !== null || sources.length > 0,
+    generation: sections.length > 0,
+    verification: verifications.length > 0,
+  };
+
+  // --- stage state (ONE rule, per the Codex-APPROVE'd brief) --------------
+  function stageState(key: StageKey, idx: number): StageState {
+    if (isTerminal) {
+      if (isSuccess) return "done"; // success proves the full pipeline ran
+      if (observed[key]) return "done";
+      return isStreamLost ? "degraded" : "skipped"; // never green-check unobserved
+    }
+    // non-terminal: active = most-recent observed stage; earlier observed = done
+    const lastObserved = STAGES.reduce(
+      (acc, s, i) => (observed[s.key] ? i : acc),
+      -1,
+    );
+    if (!observed[key]) return "pending";
+    return idx < lastObserved ? "done" : "active";
+  }
+
+  // --- elapsed (tick + freeze on terminal) --------------------------------
+  // `nowMs` ticks every 1s ONLY while the run is live; when it goes terminal
+  // the effect stops the interval, so nowMs freezes at the last tick (≤1s of
+  // the terminal moment). status.finished_at stays null after run_complete
+  // (iter-1 P1), so we never depend on it.
+  // `tickedWhileLive` is set from the interval CALLBACK (async — not a
+  // synchronous setState in the effect body, so lint-clean). It is the
+  // honest signal that we actually watched the run progress live: only then
+  // is now−start a trustworthy elapsed. A run that was ALREADY terminal when
+  // this page opened (status loads terminal after mount, finished_at null)
+  // never ticks → elapsed shows "—" instead of a bogus page-open duration.
+  // (Codex diff iter-1 P2: replaces the mount-time isTerminal capture, which
+  // was always false because status is null at first render.)
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [tickedWhileLive, setTickedWhileLive] = useState(false);
+  // I-p2-008 (#747): Thinking-Toggle — depth visible-but-collapsible. ON =
+  // full per-stage feeds; OFF = compact checklist (chip + label + 1-line state).
+  const [showThinking, setShowThinking] = useState(true);
+  useEffect(() => {
+    if (isTerminal) return; // frozen — stop ticking
+    const id = setInterval(() => {
+      setNowMs(Date.now());
+      setTickedWhileLive(true);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isTerminal]);
+
+  const startMs = parseMs(status?.started_at) ?? parseMs(status?.queued_at);
+  const elapsedSec =
+    startMs === null || (isTerminal && !tickedWhileLive)
+      ? null
+      : Math.max(0, Math.floor((nowMs - startMs) / 1000));
+
+  const sourcesRead =
+    sources.length > 0
+      ? sources.length
+      : retrievalProgress
+        ? asNumber(retrievalProgress.sources_found)
+        : null;
+  const sentencesVerified = sections.length
+    ? sections.reduce((acc, s) => acc + s.verified, 0)
+    : null;
+
+  return (
+    <section className="flex flex-col gap-4" data-testid="run-progress">
+      {/* counters */}
+      <div className="grid grid-cols-3 gap-3">
+        <Counter label="Elapsed" value={formatElapsed(elapsedSec)} />
+        <Counter
+          label="Sources read"
+          value={sourcesRead === null ? "—" : String(sourcesRead)}
+        />
+        <Counter
+          label="Sentences verified"
+          value={sentencesVerified === null ? "—" : String(sentencesVerified)}
+        />
+      </div>
+
+      {isStreamLost && (
+        <p
+          role="status"
+          className="border-border text-muted-foreground rounded-md border border-dashed p-3 text-sm"
+        >
+          Live connection lost — the run may still be progressing on the server.
+          Reload to reconnect.
+        </p>
+      )}
+
+      {/* Thinking-Toggle (#747): collapse/expand per-stage depth */}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          aria-expanded={showThinking}
+          aria-controls="run-progress-stages"
+          onClick={() => setShowThinking((v) => !v)}
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/70 rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+        >
+          {showThinking ? "Hide details" : "Show details"}
+        </button>
+      </div>
+
+      {/* stages */}
+      <ol id="run-progress-stages" className="flex flex-col gap-3">
+        {STAGES.map((stage, idx) => {
+          const state = stageState(stage.key, idx);
+          return (
+            <li
+              key={stage.key}
+              data-testid={`stage-${stage.key}`}
+              data-state={state}
+              className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4"
+            >
+              <div className="flex items-center gap-2">
+                <StageChip state={state} />
+                <h3 className="text-foreground text-sm font-semibold">
+                  {stage.label}
+                </h3>
+              </div>
+              {showThinking ? (
+                <StageBody
+                  stageKey={stage.key}
+                  state={state}
+                  scope={scope}
+                  sources={sources}
+                  sections={sections}
+                  verifications={verifications}
+                />
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  {compactStatus(state)}
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+function Counter({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-border bg-card flex flex-col gap-1 rounded-lg border px-3 py-2">
+      <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+        {label}
+      </span>
+      <span className="text-foreground font-mono text-lg">{value}</span>
+    </div>
+  );
+}
+
+function StageChip({ state }: { state: StageState }) {
+  if (state === "active") {
+    return (
+      <span
+        aria-label="in progress"
+        className="border-primary size-4 animate-spin rounded-full border-2 border-t-transparent"
+      />
+    );
+  }
+  if (state === "done") {
+    return (
+      <span
+        aria-label="done"
+        className="bg-primary text-primary-foreground flex size-4 items-center justify-center rounded-full text-[10px]"
+      >
+        ✓
+      </span>
+    );
+  }
+  if (state === "degraded") {
+    return (
+      <span
+        aria-label="connection lost"
+        className="border-muted-foreground text-muted-foreground flex size-4 items-center justify-center rounded-full border text-[10px]"
+      >
+        ?
+      </span>
+    );
+  }
+  // pending / skipped
+  return (
+    <span
+      aria-label={state === "skipped" ? "did not run" : "pending"}
+      className="bg-muted-foreground/30 size-4 rounded-full"
+    />
+  );
+}
+
+function StageBody({
+  stageKey,
+  state,
+  scope,
+  sources,
+  sections,
+  verifications,
+}: {
+  stageKey: StageKey;
+  state: StageState;
+  scope: Record<string, unknown> | null;
+  sources: { id: string; url: string }[];
+  sections: { section: string; verified: number; dropped: number }[];
+  verifications: { section: string; local: boolean; global: boolean }[];
+}) {
+  // Codex diff iter-1 P2: a stage that did not run / was not observed at a
+  // terminal must NOT show active-sounding placeholder copy ("Drafting…").
+  if (state === "skipped") {
+    return <p className="text-muted-foreground text-xs">Did not run.</p>;
+  }
+  if (state === "degraded") {
+    return (
+      <p className="text-muted-foreground text-xs">
+        Not observed (stream lost).
+      </p>
+    );
+  }
+  // I-ui-bug-001 (#725): a stage resolved `done` but with no replayed event
+  // data — the common case when opening an ALREADY-completed run (no live SSE
+  // to replay) — must NOT show active-sounding placeholders ("Gathering
+  // evidence…"). Show "Completed." Live runs that finish while watching keep
+  // their real per-stage feed (data is present → falls through below).
+  if (state === "done") {
+    const hasData =
+      (stageKey === "scope" && scope) ||
+      (stageKey === "retrieval" && sources.length > 0) ||
+      (stageKey === "generation" && sections.length > 0) ||
+      (stageKey === "verification" && verifications.length > 0);
+    if (!hasData)
+      return <p className="text-muted-foreground text-xs">Completed.</p>;
+  }
+  if (stageKey === "scope") {
+    if (!scope)
+      return (
+        <p className="text-muted-foreground text-xs">Awaiting scope gate…</p>
+      );
+    return (
+      <p className="text-muted-foreground text-xs">
+        <span className="text-foreground font-medium">
+          {asString(scope.verdict) || "decided"}
+        </span>
+        {asString(scope.reason) ? ` — ${asString(scope.reason)}` : ""}
+      </p>
+    );
+  }
+  if (stageKey === "retrieval") {
+    if (sources.length === 0)
+      return (
+        <p className="text-muted-foreground text-xs">Gathering evidence…</p>
+      );
+    return (
+      <ul className="flex flex-col gap-1">
+        {sources.slice(0, 12).map((s) => (
+          <li
+            key={s.id}
+            className="text-muted-foreground truncate text-xs"
+            title={s.url || s.id}
+          >
+            <span className="text-primary">✓</span> {s.url || s.id}
+          </li>
+        ))}
+        {sources.length > 12 && (
+          <li className="text-muted-foreground text-xs">
+            + {sources.length - 12} more
+          </li>
+        )}
+      </ul>
+    );
+  }
+  if (stageKey === "generation") {
+    if (sections.length === 0)
+      return (
+        <p className="text-muted-foreground text-xs">Drafting sections…</p>
+      );
+    return (
+      <ul className="flex flex-col gap-1">
+        {sections.map((s, i) => (
+          <li
+            key={`${s.section}-${i}`}
+            className="text-muted-foreground text-xs"
+          >
+            <span className="text-foreground font-medium">
+              {s.section || "section"}
+            </span>{" "}
+            — {s.verified} verified, {s.dropped} dropped
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  // verification
+  if (verifications.length === 0)
+    return <p className="text-muted-foreground text-xs">Verifying claims…</p>;
+  return (
+    <ul className="flex flex-col gap-1">
+      {verifications.map((v, i) => (
+        <li key={`${v.section}-${i}`} className="text-muted-foreground text-xs">
+          <span className="text-foreground font-medium">
+            {v.section || "section"}
+          </span>{" "}
+          — local {v.local ? "✓" : "✗"} · global {v.global ? "✓" : "✗"}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+
+ succeeded in 1802ms:
+# Codex DESIGN+DIFF review — I-p2-008 (#747): run-progress Thinking-Toggle
+
+HARD ITERATION CAP: 5. iter 1. APPROVE iff zero P0/P1 (code + design rubric). Final line MERGE AUTHORIZED if mergeable. Canonical-diff-sha256 `99cabd9cffe186ca661bee191664b0a5f45ef50e29904cc86898cd70de988945`. web/ only.
+
+## Design-audit note
+Additive toggle on the existing #707/#725 Codex-reviewed checklist (already screenshot-verified). The toggle is the only new affordance; full page screenshot at #755 (Run progress page). Audit code + a11y here.
+
+## Diff (single file: run_progress.tsx)
+- showThinking state (default ON). Toggle button: aria-expanded={showThinking} + aria-controls="run-progress-stages", focus-visible /70, "Hide/Show details".
+- <ol id="run-progress-stages">; per stage: showThinking ? <StageBody/> (full feed) : <p>{compactStatus(state)}</p> (honest 1-line from the SAME StageState source-of-truth as the chip).
+- compactStatus(): active→In progress, done→Done, skipped→Did not run, degraded→Not observed (stream lost), pending→Pending.
+- NO change to stageState/#725 honest-state logic or counters.
+
+## Review focus
+1. Collapsed state still HONEST: each stage's state visible (chip + compactStatus matches the chip's state)? No active-sounding copy on a skipped/degraded stage?
+2. Toggle a11y: aria-expanded/aria-controls correct + keyboard + focus-visible?
+3. No regression to #725 stage-state logic / counters / stream-loss handling. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+
+ succeeded in 2138ms:
+39:### §-1.2 Standard debug workflow (no §3.0 bypass)
+51:**Ordering vs §3.1 boot ritual + §3.0 halt gates:** §-1.2 governs *task-work* tool calls. The §3.1 step-0 canonical-pin verification, CHARTER+PLAN SHA pins (§10), halt-marker check (`state/halt_*`), and any active halt gate ALWAYS run first. Only after those pass does the issue-driven sequence below kick in.
+53:**Application:** for the assigned task, the FIRST *task-work* tool call (after boot ritual + halt checks) is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
+88:4. `state/polaris_restart/plan.md` (The Restart Plan): Codex APPROVE iter 4. Defines role split, halt conditions, mechanical gates.
+137:- `state/active_issue.json`: **The Active Work.** Currently in_progress GitHub Issue. Read at session boot per §10 ritual. Updated by user assignment (TaskCreate), NOT by Claude advancing autonomously.
+139:- `state/polaris_restart/plan.md`: **The Restart Plan.** Codex APPROVE iter 4. Role split, halt conditions, mechanical gates.
+169:## §3.0 Issue-driven workflow (mandatory, per polaris-restart Plan §9.1)
+187:**Halt conditions (each emits `state/halt_<utc>_<reason>.md`):**
+189:- CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+213:0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+238:11. **Determine Next Action:** Per APD § 1.1 hierarchy + `state/active_issue.json` (if in_progress, resume that issue ONLY) + halt-marker check (`state/halt_*` files). Do NOT pick a task autonomously — user assigns via TaskCreate per CLAUDE.md §3.0 + §10.
+241:**Intra-task drift defense (updated 2026-05-05 per polaris-restart §9.1):** Every 10 tool calls OR 15 min wall-clock within an issue, repeat step 0 (canonical-pin + CHARTER + PLAN SHA re-verify) and re-read `state/active_issue.json` + the active issue's row from `state/polaris_restart/issue_breakdown.md`. Detects and halts on intra-issue drift before substantial work compounds. (Pre-Issue Phase-0-task work may still reference task_acceptance_matrix.yaml; post-PR-E, all work is GitHub Issues.)
+420:**SUPERSEDED by §3.0 issue-driven workflow per plan §7.A LOCKED A2 + §7.B LOCKED B1.** Claude writes briefs + diffs; Codex reviews twice per Issue (brief + diff); GitHub auto-merge fires on Codex APPROVE via CI required check `polaris/codex-required`; user reads `git log` morning as after-the-fact human-at-merge surface. Claude does NOT click merge or run `gh pr merge --admin` (that authority is structurally revoked). The mid-batch closure-prose anti-pattern is structurally prevented: Claude no longer participates in the merge step.
+457:2. A genuine halt condition has fired: asymptoting / scope decision /
+475:**Updated 2026-05-05:** ALSO ban any `state/active_issue.json` transition (writing a new active_issue_id, advancing current_step) before user assignment. Per CLAUDE.md §3.0 + §10 boot ritual: Claude does NOT pick the next issue autonomously. User assigns via TaskCreate. `state/active_issue.json` is updated by user-assignment, not by Claude advancing through the queue.
+477:**§8.2 SUPERSEDED for the merge-prose rule** by §3.0 issue-driven workflow (Claude no longer merges). Preserved below for historical context.
+608:- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
+612:- "Natural cadence checkpoint" / "good place to pause for the user to check in" — NOT a halt condition.
+613:- "X PRs landed this session" recap framed as the stopping point — NOT a halt condition.
+614:- "User has not been notified during this autonomous run" — NOT a halt condition. The user reads `git log` in the morning per Plan §7.B LOCKED B1; "notification" is the merged-PR commit, not a Claude prose recap.
+615:- "Halfway through the slice; quality-gate stretch warrants a check-in" — NOT a halt condition. Slice/feature boundaries are internal milestones.
+616:- "Resource state is clean; appropriate stopping point" — NOT a halt condition. Clean resource state is the precondition for continuing, not the trigger for stopping.
+618:**Self-check before yielding the turn:** am I stopping because Codex/halt-condition/user told me to, OR because I'm projecting that the user "would want a checkpoint"? If the latter, that's the bug. The user's `feedback_dont_pause_keep_executing_2026_05_07.md` and CHARTER §1 both make Claude the executor and Codex the decision-maker; self-initiated cadence judgments belong to the latter, not the former.
+626:User directive 2026-05-06 (after Codex iter-cycle drove computer to needing reboot from RAM/CPU exhaustion): **be a careful steward of the user's local CPU / GPU / RAM. Run heavy processes only when necessary. Kill them when the task completes.**
+728:## §10 Session boot ritual (per polaris-restart Plan §9.1)
+
+ succeeded in 2425ms:
+diff --git a/web/app/runs/[runId]/components/run_progress.tsx b/web/app/runs/[runId]/components/run_progress.tsx
+index a8ffe076..82db8ee7 100644
+--- a/web/app/runs/[runId]/components/run_progress.tsx
++++ b/web/app/runs/[runId]/components/run_progress.tsx
+@@ -42,6 +42,23 @@ function formatElapsed(seconds: number | null): string {
+   return `${m}:${s.toString().padStart(2, "0")}`;
+ }
+ 
++// I-p2-008 (#747): the honest one-line state shown per stage when the
++// Thinking-Toggle collapses the detail. Same source-of-truth as the chip.
++function compactStatus(state: StageState): string {
++  switch (state) {
++    case "active":
++      return "In progress";
++    case "done":
++      return "Done";
++    case "skipped":
++      return "Did not run";
++    case "degraded":
++      return "Not observed (stream lost)";
++    default:
++      return "Pending";
++  }
++}
++
+ interface RunProgressProps {
+   events: StreamEvent[];
+   status: RunStatusResponse | null;
+@@ -158,6 +175,9 @@ export function RunProgress({ events, status }: RunProgressProps) {
+   // was always false because status is null at first render.)
+   const [nowMs, setNowMs] = useState(() => Date.now());
+   const [tickedWhileLive, setTickedWhileLive] = useState(false);
++  // I-p2-008 (#747): Thinking-Toggle — depth visible-but-collapsible. ON =
++  // full per-stage feeds; OFF = compact checklist (chip + label + 1-line state).
++  const [showThinking, setShowThinking] = useState(true);
+   useEffect(() => {
+     if (isTerminal) return; // frozen — stop ticking
+     const id = setInterval(() => {
+@@ -208,8 +228,21 @@ export function RunProgress({ events, status }: RunProgressProps) {
+         </p>
+       )}
+ 
++      {/* Thinking-Toggle (#747): collapse/expand per-stage depth */}
++      <div className="flex justify-end">
++        <button
++          type="button"
++          aria-expanded={showThinking}
++          aria-controls="run-progress-stages"
++          onClick={() => setShowThinking((v) => !v)}
++          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/70 rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
++        >
++          {showThinking ? "Hide details" : "Show details"}
++        </button>
++      </div>
++
+       {/* stages */}
+-      <ol className="flex flex-col gap-3">
++      <ol id="run-progress-stages" className="flex flex-col gap-3">
+         {STAGES.map((stage, idx) => {
+           const state = stageState(stage.key, idx);
+           return (
+@@ -225,14 +258,20 @@ export function RunProgress({ events, status }: RunProgressProps) {
+                   {stage.label}
+                 </h3>
+               </div>
+-              <StageBody
+-                stageKey={stage.key}
+-                state={state}
+-                scope={scope}
+-                sources={sources}
+-                sections={sections}
+-                verifications={verifications}
+-              />
++              {showThinking ? (
++                <StageBody
++                  stageKey={stage.key}
++                  state={state}
++                  scope={scope}
++                  sources={sources}
++                  sections={sections}
++                  verifications={verifications}
++                />
++              ) : (
++                <p className="text-muted-foreground text-xs">
++                  {compactStatus(state)}
++                </p>
++              )}
+             </li>
+           );
+         })}
+
+
+codex
+The canonical patch is confined to the toggle and compact text path. The core `stageState`, terminal status, stream-loss, and counter code are unchanged in the patch I’m reviewing.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-FileHash -Algorithm SHA256 .codex\\I-p2-008\\codex_diff_canonical.patch | Select-Object -ExpandProperty Hash" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "RunProgress|stage-|run-progress|Hide details|Show details" web/tests web/app web/components' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff 4dd936d6..HEAD -- web/app/runs/[runId]/components/run_progress.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath '"'web\\app\\runs\\[runId]\\components\\run_progress.tsx' | ForEach-Object { "'$i++; if ($i -ge 42 -and $i -le 275) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 1674ms:
+web/app\runs\[runId]\page.tsx:18:import { RunProgress } from "./components/run_progress";
+web/app\runs\[runId]\page.tsx:232:      <RunProgress events={events} status={status} />
+web/app\runs\[runId]\components\run_progress.tsx:62:interface RunProgressProps {
+web/app\runs\[runId]\components\run_progress.tsx:67:export function RunProgress({ events, status }: RunProgressProps) {
+web/app\runs\[runId]\components\run_progress.tsx:207:    <section className="flex flex-col gap-4" data-testid="run-progress">
+web/app\runs\[runId]\components\run_progress.tsx:236:          aria-controls="run-progress-stages"
+web/app\runs\[runId]\components\run_progress.tsx:240:          {showThinking ? "Hide details" : "Show details"}
+web/app\runs\[runId]\components\run_progress.tsx:245:      <ol id="run-progress-stages" className="flex flex-col gap-3">
+web/app\runs\[runId]\components\run_progress.tsx:251:              data-testid={`stage-${stage.key}`}
+
+ succeeded in 1863ms:
+99CABD9CFFE186CA661BEE191664B0A5F45EF50E29904CC86898CD70DE988945
+
+ succeeded in 2305ms:
+diff --git a/web/app/runs/[runId]/components/run_progress.tsx b/web/app/runs/[runId]/components/run_progress.tsx
+index a8ffe076..82db8ee7 100644
+--- a/web/app/runs/[runId]/components/run_progress.tsx
++++ b/web/app/runs/[runId]/components/run_progress.tsx
+@@ -42,6 +42,23 @@ function formatElapsed(seconds: number | null): string {
+   return `${m}:${s.toString().padStart(2, "0")}`;
+ }
+ 
++// I-p2-008 (#747): the honest one-line state shown per stage when the
++// Thinking-Toggle collapses the detail. Same source-of-truth as the chip.
++function compactStatus(state: StageState): string {
++  switch (state) {
++    case "active":
++      return "In progress";
++    case "done":
++      return "Done";
++    case "skipped":
++      return "Did not run";
++    case "degraded":
++      return "Not observed (stream lost)";
++    default:
++      return "Pending";
++  }
++}
++
+ interface RunProgressProps {
+   events: StreamEvent[];
+   status: RunStatusResponse | null;
+@@ -158,6 +175,9 @@ export function RunProgress({ events, status }: RunProgressProps) {
+   // was always false because status is null at first render.)
+   const [nowMs, setNowMs] = useState(() => Date.now());
+   const [tickedWhileLive, setTickedWhileLive] = useState(false);
++  // I-p2-008 (#747): Thinking-Toggle — depth visible-but-collapsible. ON =
++  // full per-stage feeds; OFF = compact checklist (chip + label + 1-line state).
++  const [showThinking, setShowThinking] = useState(true);
+   useEffect(() => {
+     if (isTerminal) return; // frozen — stop ticking
+     const id = setInterval(() => {
+@@ -208,8 +228,21 @@ export function RunProgress({ events, status }: RunProgressProps) {
+         </p>
+       )}
+ 
++      {/* Thinking-Toggle (#747): collapse/expand per-stage depth */}
++      <div className="flex justify-end">
++        <button
++          type="button"
++          aria-expanded={showThinking}
++          aria-controls="run-progress-stages"
++          onClick={() => setShowThinking((v) => !v)}
++          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/70 rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
++        >
++          {showThinking ? "Hide details" : "Show details"}
++        </button>
++      </div>
++
+       {/* stages */}
+-      <ol className="flex flex-col gap-3">
++      <ol id="run-progress-stages" className="flex flex-col gap-3">
+         {STAGES.map((stage, idx) => {
+           const state = stageState(stage.key, idx);
+           return (
+@@ -225,14 +258,20 @@ export function RunProgress({ events, status }: RunProgressProps) {
+                   {stage.label}
+                 </h3>
+               </div>
+-              <StageBody
+-                stageKey={stage.key}
+-                state={state}
+-                scope={scope}
+-                sources={sources}
+-                sections={sections}
+-                verifications={verifications}
+-              />
++              {showThinking ? (
++                <StageBody
++                  stageKey={stage.key}
++                  state={state}
++                  scope={scope}
++                  sources={sources}
++                  sections={sections}
++                  verifications={verifications}
++                />
++              ) : (
++                <p className="text-muted-foreground text-xs">
++                  {compactStatus(state)}
++                </p>
++              )}
+             </li>
+           );
+         })}
+
+ succeeded in 2590ms:
+  42:   return `${m}:${s.toString().padStart(2, "0")}`;
+  43: }
+  44: 
+  45: // I-p2-008 (#747): the honest one-line state shown per stage when the
+  46: // Thinking-Toggle collapses the detail. Same source-of-truth as the chip.
+  47: function compactStatus(state: StageState): string {
+  48:   switch (state) {
+  49:     case "active":
+  50:       return "In progress";
+  51:     case "done":
+  52:       return "Done";
+  53:     case "skipped":
+  54:       return "Did not run";
+  55:     case "degraded":
+  56:       return "Not observed (stream lost)";
+  57:     default:
+  58:       return "Pending";
+  59:   }
+  60: }
+  61: 
+  62: interface RunProgressProps {
+  63:   events: StreamEvent[];
+  64:   status: RunStatusResponse | null;
+  65: }
+  66: 
+  67: export function RunProgress({ events, status }: RunProgressProps) {
+  68:   // --- parse events into per-stage data -----------------------------------
+  69:   const scope = events.find((e) => e.event === "scope_decision")?.data ?? null;
+  70:   const retrievalProgress =
+  71:     events.find((e) => e.event === "retrieval_progress")?.data ?? null;
+  72: 
+  73:   const sources: { id: string; url: string }[] = [];
+  74:   const seenIds = new Set<string>();
+  75:   for (const e of events) {
+  76:     if (e.event !== "evidence_id") continue;
+  77:     const id = asString(e.data.id ?? e.data.evidence_id);
+  78:     if (!id || seenIds.has(id)) continue; // defensive: skip blank/dup
+  79:     seenIds.add(id);
+  80:     sources.push({ id, url: asString(e.data.url ?? e.data.source_url) });
+  81:   }
+  82: 
+  83:   const sections = events
+  84:     .filter((e) => e.event === "section_complete")
+  85:     .map((e) => ({
+  86:       section: asString(e.data.section),
+  87:       verified: asNumber(e.data.verified ?? e.data.verified_sentences),
+  88:       dropped: asNumber(e.data.dropped),
+  89:     }));
+  90: 
+  91:   const verifications = events
+  92:     .filter((e) => e.event === "verifier_verdict")
+  93:     .map((e) => ({
+  94:       section: asString(e.data.section),
+  95:       local: Boolean(e.data.local ?? e.data.local_pass),
+  96:       global: Boolean(e.data.global ?? e.data.global_pass),
+  97:     }));
+  98: 
+  99:   const runCompleteEvent = events.find((e) => e.event === "run_complete");
+ 100:   const terminalFromEvent = runCompleteEvent
+ 101:     ? asString(runCompleteEvent.data.status) || "unknown"
+ 102:     : null;
+ 103:   const terminalFromStatus =
+ 104:     status && LIFECYCLE_TERMINAL.includes(status.status) ? status.status : null;
+ 105:   // I-ui-bug-001 (#725, Codex diff iter-1 P1): a COMPLETED run has no live SSE
+ 106:   // to replay, so #706's STREAM_LOST_GRACE emits a SYNTHETIC
+ 107:   // run_complete{stream_lost}. That synthetic artifact must NOT drive the UI —
+ 108:   // but neither can lifecycle 'completed' alone, because mark_aborted() also
+ 109:   // stores lifecycle_status='completed' (an aborted run would wrongly show as
+ 110:   // success). The authoritative verdict for a completed run is the run_store
+ 111:   // PIPELINE status (success / abort_* / partial_* / error_*).
+ 112:   const syntheticLoss =
+ 113:     terminalFromEvent === "stream_lost" ||
+ 114:     terminalFromEvent === "stream_unavailable";
+ 115:   // A REAL run_complete event (genuine pipeline verdict, live-finished run) wins.
+ 116:   const realEventStatus =
+ 117:     terminalFromEvent && !syntheticLoss ? terminalFromEvent : null;
+ 118:   const lifecycleCompleted = status?.status === "completed";
+ 119:   const pipelineStatus = status?.pipeline_status ?? null;
+ 120:   const terminalStatus =
+ 121:     realEventStatus ??
+ 122:     (lifecycleCompleted
+ 123:       ? (pipelineStatus ?? "success")
+ 124:       : (terminalFromStatus ?? ""));
+ 125:   // terminal if: a real verdict event, a completed/failed/cancelled lifecycle,
+ 126:   // OR a genuinely-running run whose stream dropped (stream-loss degraded).
+ 127:   const isTerminal =
+ 128:     realEventStatus !== null ||
+ 129:     lifecycleCompleted ||
+ 130:     terminalFromStatus !== null ||
+ 131:     syntheticLoss;
+ 132:   const isSuccess =
+ 133:     terminalStatus === "success" ||
+ 134:     terminalStatus === "completed" ||
+ 135:     terminalStatus.startsWith("partial_");
+ 136:   // Stream-loss is a REAL degradation only for a run that is NOT lifecycle-
+ 137:   // completed (i.e. genuinely still running and the live stream dropped).
+ 138:   const isStreamLost = syntheticLoss && !lifecycleCompleted;
+ 139: 
+ 140:   const observed: Record<StageKey, boolean> = {
+ 141:     scope: scope !== null,
+ 142:     retrieval: retrievalProgress !== null || sources.length > 0,
+ 143:     generation: sections.length > 0,
+ 144:     verification: verifications.length > 0,
+ 145:   };
+ 146: 
+ 147:   // --- stage state (ONE rule, per the Codex-APPROVE'd brief) --------------
+ 148:   function stageState(key: StageKey, idx: number): StageState {
+ 149:     if (isTerminal) {
+ 150:       if (isSuccess) return "done"; // success proves the full pipeline ran
+ 151:       if (observed[key]) return "done";
+ 152:       return isStreamLost ? "degraded" : "skipped"; // never green-check unobserved
+ 153:     }
+ 154:     // non-terminal: active = most-recent observed stage; earlier observed = done
+ 155:     const lastObserved = STAGES.reduce(
+ 156:       (acc, s, i) => (observed[s.key] ? i : acc),
+ 157:       -1,
+ 158:     );
+ 159:     if (!observed[key]) return "pending";
+ 160:     return idx < lastObserved ? "done" : "active";
+ 161:   }
+ 162: 
+ 163:   // --- elapsed (tick + freeze on terminal) --------------------------------
+ 164:   // `nowMs` ticks every 1s ONLY while the run is live; when it goes terminal
+ 165:   // the effect stops the interval, so nowMs freezes at the last tick (≤1s of
+ 166:   // the terminal moment). status.finished_at stays null after run_complete
+ 167:   // (iter-1 P1), so we never depend on it.
+ 168:   // `tickedWhileLive` is set from the interval CALLBACK (async — not a
+ 169:   // synchronous setState in the effect body, so lint-clean). It is the
+ 170:   // honest signal that we actually watched the run progress live: only then
+ 171:   // is now−start a trustworthy elapsed. A run that was ALREADY terminal when
+ 172:   // this page opened (status loads terminal after mount, finished_at null)
+ 173:   // never ticks → elapsed shows "—" instead of a bogus page-open duration.
+ 174:   // (Codex diff iter-1 P2: replaces the mount-time isTerminal capture, which
+ 175:   // was always false because status is null at first render.)
+ 176:   const [nowMs, setNowMs] = useState(() => Date.now());
+ 177:   const [tickedWhileLive, setTickedWhileLive] = useState(false);
+ 178:   // I-p2-008 (#747): Thinking-Toggle — depth visible-but-collapsible. ON =
+ 179:   // full per-stage feeds; OFF = compact checklist (chip + label + 1-line state).
+ 180:   const [showThinking, setShowThinking] = useState(true);
+ 181:   useEffect(() => {
+ 182:     if (isTerminal) return; // frozen — stop ticking
+ 183:     const id = setInterval(() => {
+ 184:       setNowMs(Date.now());
+ 185:       setTickedWhileLive(true);
+ 186:     }, 1000);
+ 187:     return () => clearInterval(id);
+ 188:   }, [isTerminal]);
+ 189: 
+ 190:   const startMs = parseMs(status?.started_at) ?? parseMs(status?.queued_at);
+ 191:   const elapsedSec =
+ 192:     startMs === null || (isTerminal && !tickedWhileLive)
+ 193:       ? null
+ 194:       : Math.max(0, Math.floor((nowMs - startMs) / 1000));
+ 195: 
+ 196:   const sourcesRead =
+ 197:     sources.length > 0
+ 198:       ? sources.length
+ 199:       : retrievalProgress
+ 200:         ? asNumber(retrievalProgress.sources_found)
+ 201:         : null;
+ 202:   const sentencesVerified = sections.length
+ 203:     ? sections.reduce((acc, s) => acc + s.verified, 0)
+ 204:     : null;
+ 205: 
+ 206:   return (
+ 207:     <section className="flex flex-col gap-4" data-testid="run-progress">
+ 208:       {/* counters */}
+ 209:       <div className="grid grid-cols-3 gap-3">
+ 210:         <Counter label="Elapsed" value={formatElapsed(elapsedSec)} />
+ 211:         <Counter
+ 212:           label="Sources read"
+ 213:           value={sourcesRead === null ? "—" : String(sourcesRead)}
+ 214:         />
+ 215:         <Counter
+ 216:           label="Sentences verified"
+ 217:           value={sentencesVerified === null ? "—" : String(sentencesVerified)}
+ 218:         />
+ 219:       </div>
+ 220: 
+ 221:       {isStreamLost && (
+ 222:         <p
+ 223:           role="status"
+ 224:           className="border-border text-muted-foreground rounded-md border border-dashed p-3 text-sm"
+ 225:         >
+ 226:           Live connection lost — the run may still be progressing on the server.
+ 227:           Reload to reconnect.
+ 228:         </p>
+ 229:       )}
+ 230: 
+ 231:       {/* Thinking-Toggle (#747): collapse/expand per-stage depth */}
+ 232:       <div className="flex justify-end">
+ 233:         <button
+ 234:           type="button"
+ 235:           aria-expanded={showThinking}
+ 236:           aria-controls="run-progress-stages"
+ 237:           onClick={() => setShowThinking((v) => !v)}
+ 238:           className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/70 rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+ 239:         >
+ 240:           {showThinking ? "Hide details" : "Show details"}
+ 241:         </button>
+ 242:       </div>
+ 243: 
+ 244:       {/* stages */}
+ 245:       <ol id="run-progress-stages" className="flex flex-col gap-3">
+ 246:         {STAGES.map((stage, idx) => {
+ 247:           const state = stageState(stage.key, idx);
+ 248:           return (
+ 249:             <li
+ 250:               key={stage.key}
+ 251:               data-testid={`stage-${stage.key}`}
+ 252:               data-state={state}
+ 253:               className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4"
+ 254:             >
+ 255:               <div className="flex items-center gap-2">
+ 256:                 <StageChip state={state} />
+ 257:                 <h3 className="text-foreground text-sm font-semibold">
+ 258:                   {stage.label}
+ 259:                 </h3>
+ 260:               </div>
+ 261:               {showThinking ? (
+ 262:                 <StageBody
+ 263:                   stageKey={stage.key}
+ 264:                   state={state}
+ 265:                   scope={scope}
+ 266:                   sources={sources}
+ 267:                   sections={sections}
+ 268:                   verifications={verifications}
+ 269:                 />
+ 270:               ) : (
+ 271:                 <p className="text-muted-foreground text-xs">
+ 272:                   {compactStatus(state)}
+ 273:                 </p>
+ 274:               )}
+ 275:             </li>
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\package.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Force web | Select-Object Mode,Length,Name' in C:\POLARIS
+ succeeded in 1724ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+
+ succeeded in 2199ms:
+
+[32;1mMode [0m[32;1m Length[0m[32;1m Name[0m
+[32;1m---- [0m [32;1m------[0m [32;1m----[0m
+d----        .next
+d----        app
+d----        components
+d----        lib
+d----        node_modules
+d----        public
+d----        screenshots
+d----        scripts
+d----        test-results
+d----        tests
+d----        web
+-a--- 521    .gitignore
+-a--- 98     .prettierignore
+-a--- 231    .prettierrc.json
+-a--- 4705   AGENTS.md
+-a--- 12     CLAUDE.md
+-a--- 541    components.json
+-a--- 2605   Dockerfile
+-a--- 490    eslint.config.mjs
+-a--- 1451   middleware.ts
+-a--- 247    next-env.d.ts
+-a--- 1131   next.config.ts
+-a--- 412809 package-lock.json
+-a--- 1713   package.json
+-a--- 2061   playwright.config.ts
+-a--- 101    postcss.config.mjs
+-a--- 1486   README.md
+-a--- 155    requirements-v6.txt
+-a--- 480    requirements.txt
+-a--- 2045   THIRD_PARTY_LICENSES.md
+-a--- 700    tsconfig.json
+-a--- 268984 tsconfig.tsbuildinfo
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "focus-visible:ring-ring|/70" web/app web/components web/lib' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "button|aria-expanded|aria-controls" web/app web/components | Select-Object -First 80' in C:\POLARIS
+ succeeded in 2308ms:
+web/components\proof_replay\proof_replay.tsx:180:                className={`focus-visible:ring-ring/70 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs leading-snug transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+web/components\source\source_card.tsx:79:            className="text-foreground hover:text-primary focus-visible:ring-ring/70 inline-flex items-start gap-1 font-medium underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:outline-none"
+web/components\ui\button.tsx:7:  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/70 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+web/app\dashboard\page.tsx:366:                  className={`bg-card focus-visible:ring-ring/70 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+web/app\inspector\offline\page.tsx:99:            className={`border-border focus-visible:ring-ring flex min-h-32 cursor-pointer items-center justify-center rounded border-2 border-dashed px-6 py-8 text-center text-sm focus-visible:ring-2 focus-visible:outline-none ${
+web/app\components\recent_runs_strip.tsx:76:              className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring group flex max-w-xs flex-col gap-1 rounded-lg border px-3 py-2 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+web/app\generation\components\generation_runner.tsx:146:              className="border-input focus-visible:border-ring focus-visible:ring-ring/70 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+web/app\compare\page.tsx:166:        className="border-input focus-visible:border-ring focus-visible:ring-ring rounded-lg border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2"
+web/components\ui\input.tsx:12:        "border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/70 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm",
+web/components\ui\tabs.tsx:39:      "focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+web/components\ui\tabs.tsx:58:      "ring-offset-background focus-visible:ring-ring mt-4 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+web/app\retrieval\components\retrieval_runner.tsx:135:              className="border-input focus-visible:border-ring focus-visible:ring-ring/70 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+web/components\inspector\verified_report_sections.tsx:105:          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web/components\inspector\reasoning_trace_timeline.tsx:99:        className="focus-visible:ring-ring mt-2 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web/app\runs\[runId]\components\run_progress.tsx:238:          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/70 rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web/app\runs\[runId]\components\followup_panel.tsx:82:          className="border-input focus-visible:border-ring focus-visible:ring-ring w-full rounded-lg border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2"
+web/components\citation\citation_chip.tsx:59:            className="border-border text-muted-foreground hover:bg-muted focus-visible:ring-ring/70 mx-0.5 inline-flex min-h-[24px] min-w-[24px] items-center justify-center gap-1 rounded border px-1.5 align-baseline font-mono text-[11px] leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
+
+ succeeded in 3120ms:
+web/app\compare\page.tsx:5:import { Button } from "@/components/ui/button";
+web/app\compare\page.tsx:115:              type="button"
+web/app\audit_live\_panels.tsx:146:          <button
+web/app\audit_live\_panels.tsx:147:            type="button"
+web/app\audit_live\_panels.tsx:153:          </button>
+web/app\(test_harness)\disambiguation_modal_preview\_client.tsx:32:      <button
+web/app\(test_harness)\disambiguation_modal_preview\_client.tsx:33:        type="button"
+web/app\(test_harness)\disambiguation_modal_preview\_client.tsx:41:      </button>
+web/components\ui\sheet.tsx:7:import { Button } from "@/components/ui/button";
+web/components\ui\evidence-tooltip.tsx:142:          <button
+web/components\ui\evidence-tooltip.tsx:143:            type="button"
+web/app\contracts\_editor.tsx:192:              <button
+web/app\contracts\_editor.tsx:193:                type="button"
+web/app\contracts\_editor.tsx:199:              </button>
+web/app\contracts\_editor.tsx:203:        <button
+web/app\contracts\_editor.tsx:204:          type="button"
+web/app\contracts\_editor.tsx:215:        </button>
+web/app\contracts\_editor.tsx:286:              <button
+web/app\contracts\_editor.tsx:287:                type="button"
+web/app\contracts\_editor.tsx:293:              </button>
+web/app\contracts\_editor.tsx:297:        <button
+web/app\contracts\_editor.tsx:298:          type="button"
+web/app\contracts\_editor.tsx:314:        </button>
+web/app\contracts\_editor.tsx:326:      <button
+web/app\contracts\_editor.tsx:332:      </button>
+web/app\dashboard\page.tsx:7:import { Button } from "@/components/ui/button";
+web/app\dashboard\page.tsx:352:                // F-26 (cycle-8 P1.2 root_cause): native button + role=radio
+web/app\dashboard\page.tsx:357:                <button
+web/app\dashboard\page.tsx:359:                  type="button"
+web/app\dashboard\page.tsx:378:                </button>
+web/app\dashboard\page.tsx:462:                  <button
+web/app\dashboard\page.tsx:463:                    type="button"
+web/app\dashboard\page.tsx:473:                  </button>
+web/app\dashboard\page.tsx:563:                      type="button"
+web/app\dashboard\page.tsx:569:                      type="button"
+web/app\dashboard\page.tsx:626:            type="button"
+web/app\intake\components\pdf_drop_banner.tsx:57:      <button
+web/app\intake\components\pdf_drop_banner.tsx:58:        type="button"
+web/app\intake\components\pdf_drop_banner.tsx:64:      </button>
+web/components\ui\button.tsx:1:import { Button as ButtonPrimitive } from "@base-ui/react/button";
+web/components\ui\button.tsx:6:const buttonVariants = cva(
+web/components\ui\button.tsx:7:  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/70 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+web/components\ui\button.tsx:13:          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+web/components\ui\button.tsx:15:          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+web/components\ui\button.tsx:17:          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+web/components\ui\button.tsx:30:        xs: "h-7 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+web/components\ui\button.tsx:31:        sm: "h-8 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+web/components\ui\button.tsx:35:          "size-7 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+web/components\ui\button.tsx:37:          "size-8 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+web/components\ui\button.tsx:53:}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+web/components\ui\button.tsx:56:      data-slot="button"
+web/components\ui\button.tsx:57:      className={cn(buttonVariants({ variant, size, className }))}
+web/components\ui\button.tsx:63:export { Button, buttonVariants };
+web/app\intake\components\ambiguity_modal.tsx:5:import { Button } from "@/components/ui/button";
+web/app\intake\components\intake_form.tsx:6:import { Button } from "@/components/ui/button";
+web/app\intake\components\intake_form.tsx:152:                <button
+web/app\intake\components\intake_form.tsx:154:                  type="button"
+web/app\intake\components\intake_form.tsx:159:                </button>
+web/app\benchmark\components\benchmark_board.tsx:155:            <button
+web/app\benchmark\components\benchmark_board.tsx:157:              type="button"
+web/app\benchmark\components\benchmark_board.tsx:163:            </button>
+web/app\runs\[runId]\page.tsx:6:import { Button } from "@/components/ui/button";
+web/app\runs\[runId]\page.tsx:25:// cancelled — the Cancel button is disabled for these.
+web/app\runs\[runId]\page.tsx:60:        // the cancel button) updates without a manual reload.
+web/app\runs\[runId]\page.tsx:82:  // aborts cooperatively at the next pipeline stage boundary. The button is
+web/app\runs\[runId]\page.tsx:109:  // dev-language. The header's Export-bundle + New-run buttons move
+web/app\runs\[runId]\page.tsx:179:            type="button"
+web/app\runs\[runId]\page.tsx:187:            type="button"
+web/app\runs\[runId]\page.tsx:205:            type="button"
+web/app\runs\[runId]\page.tsx:222:            type="button"
+web/app\intake\components\disambiguation_modal.tsx:6:import { Button } from "@/components/ui/button";
+web/app\intake\components\disambiguation_modal.tsx:65:                  <button
+web/app\intake\components\disambiguation_modal.tsx:66:                    type="button"
+web/app\intake\components\disambiguation_modal.tsx:78:                  </button>
+web/components\proof_replay\proof_replay.tsx:175:              <button
+web/components\proof_replay\proof_replay.tsx:176:                type="button"
+web/components\proof_replay\proof_replay.tsx:193:              </button>
+web/app\upload\components\document_preview.tsx:99:            <button
+web/app\upload\components\document_preview.tsx:100:              type="button"
+web/app\upload\components\document_preview.tsx:106:            </button>
+
+codex
+I’m going to run the web typecheck only. It’s the lowest-cost verification for this React/ARIA change and should catch any TS/JSX typing regression from the added state and attributes.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck -- --pretty false' in C:\POLARIS\web
+ succeeded in 9937ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit --pretty false
+
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+merge_decision: MERGE AUTHORIZED
+tokens used
+106,950
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+merge_decision: MERGE AUTHORIZED
