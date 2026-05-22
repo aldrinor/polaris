@@ -91,7 +91,7 @@
   --input: oklch(0.922 0 0);
   --ring: #c8102e;
   /* State colors — distinct from the national red (rubric: never red-only) */
-  --verified: oklch(0.55 0.13 150);
+  --verified: oklch(0.48 0.14 152);
   --verified-foreground: oklch(0.985 0 0);
   --contradiction: oklch(0.72 0.15 75);
   --contradiction-foreground: oklch(0.27 0.04 75);
@@ -102,7 +102,7 @@
   --tier-2: oklch(0.556 0 0);
   --tier-3: oklch(0.708 0 0);
   --proof-token: oklch(0.45 0.16 26);
-  --verified-bundle: oklch(0.55 0.13 150);
+  --verified-bundle: oklch(0.48 0.14 152);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
