@@ -1,0 +1,1248 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4e9f-053f-75e3-9dcc-d47017b5782d
+--------
+user
+# Codex BRIEF review — I-p2-029 (#768): global app shell + role model + unified nav
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; cosmetics → P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; do not bank for iter 6.
+- Surface held-back findings now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Task (foundation — before pages, per the v3 sequence)
+Establish the global app shell + a role model + a SINGLE source-of-truth nav.
+
+## Verified current state (grounded)
+- TWO shells each with a DUPLICATED `PRIMARY_NAV` const: `web/components/app_shell.tsx:22` + `web/app/components/home_keyboard_shell.tsx:26` — drift risk.
+- NO role model exists in the frontend (grep for role/analyst/counsel found only bundle-loader false matches).
+- Sovereign mark already added to both shells (I-ui-010).
+
+## Acceptance criteria (the diff implements; this brief reviews the PLAN)
+1. **Single nav source:** extract `PRIMARY_NAV` into one shared module (`web/lib/nav.ts`), consumed by BOTH shells — no duplication. Same routes/labels render in both.
+2. **Role model:** `web/lib/roles.ts` — the 5 roles as a typed const + display labels: PMO analyst, policy advisor, legal counsel, clinical/regulatory reviewer, records/security officer. A `currentRole` mechanism (context/cookie, default = analyst) + a `navForRole(role)` filter so nav can be role-aware. (FULL per-route RBAC ENFORCEMENT is explicitly OUT OF SCOPE here → tracked under the security gate G-SEC / a follow-up; this issue ships the role MODEL + role-aware nav only.)
+3. Shell stays Frontier Minimal (white + Canada-red tokens from #742); 1 header / Primary nav / 1 main preserved (home_g1_g8); a11y (keyboard, focus order).
+
+## Files I have ALSO checked and they're clean
+- web/app/globals.css (the #742 red-on-white tokens — shell consumes them).
+- home_g1_g8 e2e (asserts 1 header / Primary nav / 1 main / focus-visible — the nav unify must preserve this).
+
+## Review focus
+1. Is "role MODEL + role-aware nav now, full RBAC enforcement later" the right scope split, or is shipping a role model without enforcement a security-theatre risk to flag?
+2. Single-nav-source approach sound (both shells consume it; no SSR/client hydration pitfall)?
+3. Anything that breaks home_g1_g8 or the Frontier-Minimal shell.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+codex
+I’ll check the current shell/nav/test shape so the review is grounded in the repo, then I’ll return only the requested YAML verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/components/home_keyboard_shell.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/app_shell.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "role|analyst|counsel|advisor|reviewer|officer|PRIMARY_NAV|navForRole|currentRole" web -g "*.ts" -g "*.tsx"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "home_g1_g8|Primary nav|focus-visible|1 header|header|main" web -g "*.ts" -g "*.tsx" -g "*.css"' in C:\POLARIS
+ succeeded in 1286ms:
+web\middleware.ts:22:      headers: { "x-harness-blocked": "1" },
+web\app\audit_live\_panels.tsx:143:      <header className="flex items-center justify-between">
+web\app\audit_live\_panels.tsx:155:      </header>
+web\app\audit_live\_panels.tsx:162:          <header className="mb-2 flex justify-between">
+web\app\audit_live\_panels.tsx:170:          </header>
+web\app\compare\page.tsx:166:        className="border-input focus-visible:border-ring focus-visible:ring-ring rounded-lg border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2"
+web\components\app_shell_gate.tsx:2:// the AppShell header AND its <main> wrapper so the home route can
+web\components\app_shell_gate.tsx:3:// provide its own header (with the same primary nav) + its own <main>.
+web\components\app_shell_gate.tsx:4:// This avoids G1 (double header) + G6 (nested main) landmark violations.
+web\components\app_shell_gate.tsx:20:  // Home owns its own header + main; render children bare on `/`.
+web\components\app_shell.tsx:7: * route with a single header + primary nav. The 8 primary nav entries are
+web\components\app_shell.tsx:37:      <header className="border-border bg-background sticky top-0 z-40 border-b">
+web\components\app_shell.tsx:62:      </header>
+web\components\app_shell.tsx:63:      <main className="flex-1">{children}</main>
+web\app\generation\page.tsx:16:      <header className="border-border bg-background border-b">
+web\app\generation\page.tsx:50:      </header>
+web\app\generation\page.tsx:52:      <main
+web\app\generation\page.tsx:87:      </main>
+web\app\dashboard\page.tsx:34:const FALLBACK_TEMPLATES: { id: TemplateId; title: string; domain: string }[] =
+web\app\dashboard\page.tsx:39:      domain: "Health Canada / FDA",
+web\app\dashboard\page.tsx:41:    { id: "policy", title: "Public policy", domain: "Health Canada / NICE" },
+web\app\dashboard\page.tsx:45:      domain: "arXiv / IEEE / ACM",
+web\app\dashboard\page.tsx:50:      domain: "SEC EDGAR / USPTO",
+web\app\dashboard\page.tsx:52:    { id: "ai_sovereignty", title: "AI sovereignty", domain: "ISED / CIFAR" },
+web\app\dashboard\page.tsx:53:    { id: "canada_us", title: "Canada–US relations", domain: "GAC / DFAIT" },
+web\app\dashboard\page.tsx:57:      domain: "ESDC / IRCC",
+web\app\dashboard\page.tsx:59:    { id: "custom", title: "Custom research", domain: "Operator-defined" },
+web\app\dashboard\page.tsx:64:): { id: TemplateId; title: string; domain: string }[] {
+web\app\dashboard\page.tsx:68:    domain: t.primary_domains.slice(0, 2).join(" / "),
+web\app\dashboard\page.tsx:321:  // renders its own <header>, <footer>, or <main>; AppShell (via
+web\app\dashboard\page.tsx:366:                  className={`bg-card focus-visible:ring-ring/70 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+web\app\dashboard\page.tsx:373:                    {t.domain}
+web\app\memory\page.tsx:17:  "domain_assumption",
+web\app\memory\page.tsx:51:  // its own <main>; AppShell (via AppShellGate from I-cd-022) is the
+web\app\charts_test\timeline\page.tsx:70:    <main className="bg-background text-foreground min-h-screen">
+web\app\charts_test\timeline\page.tsx:99:    </main>
+web\tests\e2e\accessibility.spec.ts:177:      // hidden file input directly) so it remains in scope.
+web\app\charts_test\page.tsx:28:    <main className="bg-background text-foreground min-h-screen">
+web\app\charts_test\page.tsx:41:    </main>
+web\app\upload\page.tsx:10:// own <main>; AppShell (via AppShellGate, I-cd-022) is the single
+web\tests\e2e\audit_live.spec.ts:15:      headers: { "cache-control": "no-cache" },
+web\app\components\recent_runs_strip.tsx:39:          headers: authHeader(),
+web\app\components\recent_runs_strip.tsx:76:              className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring group flex max-w-xs flex-col gap-1 rounded-lg border px-3 py-2 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+web\app\intake\page.tsx:13:// its own <header> or <main>; AppShell (via AppShellGate, I-cd-022) is
+web\tests\e2e\audit_live_adversarial.spec.ts:11:      headers: { "cache-control": "no-cache" },
+web\app\charts_test\forest_plot\page.tsx:37:    <main className="bg-background text-foreground min-h-screen">
+web\app\charts_test\forest_plot\page.tsx:51:    </main>
+web\tests\e2e\audit_live_multitab.spec.ts:17:        headers: { "cache-control": "no-cache" },
+web\app\contracts\page.tsx:10:// AppShell's <main> via the wrapper <section data-testid="contracts-page">.
+web\app\components\home_keyboard_shell.tsx:22:// I-cd-022 (#612): primary nav now lives in the home header too, so /
+web\app\components\home_keyboard_shell.tsx:23:// matches the global app-shell nav (G1: "global header/sidebar nav is
+web\app\components\home_keyboard_shell.tsx:25:// AppShellGate, the home page's <header> is THE app shell for this route.
+web\app\components\home_keyboard_shell.tsx:56:      <header className="border-border bg-background border-b">
+web\app\components\home_keyboard_shell.tsx:85:                data-testid="header-sign-in-link"
+web\app\components\home_keyboard_shell.tsx:93:      </header>
+web\tests\e2e\benchmark_g1_g8.spec.ts:17:test("G1 + G6: /benchmark has exactly one header + one main", async ({
+web\tests\e2e\benchmark_g1_g8.spec.ts:21:  await expect(page.locator("header")).toHaveCount(1);
+web\tests\e2e\benchmark_g1_g8.spec.ts:22:  await expect(page.locator("main")).toHaveCount(1);
+web\components\inspector\evidence_pool_table.tsx:7:  domain: string;
+web\components\inspector\evidence_pool_table.tsx:54:                  <th className="px-2 py-2">Domain</th>
+web\components\inspector\evidence_pool_table.tsx:71:                      {s.domain}
+web\tests\e2e\bundle_preview.spec.ts:64:        headers: {
+web\tests\e2e\bundle_preview.spec.ts:67:          "access-control-allow-headers": "content-type",
+web\app\generation\components\BundlePreview.tsx:90:      <header className="mb-2 flex flex-wrap gap-x-4 gap-y-1">
+web\app\generation\components\BundlePreview.tsx:102:      </header>
+web\components\inspector\bundle_pending_cta.tsx:21:    <main
+web\components\inspector\bundle_pending_cta.tsx:55:    </main>
+web\components\inspector\bundle_header.tsx:1:// I-cd-013a (GH#609) — Bundle header (top-level manifest summary).
+web\components\inspector\bundle_header.tsx:16:    <Card data-testid="bundle-header">
+web\app\intake\components\disambiguation_modal.tsx:70:                    className="border-border bg-muted/30 hover:bg-muted/60 flex w-full flex-col gap-1 rounded-lg border p-3 text-left focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+web\components\inspector\verified_report_sections.tsx:105:          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\components\auth_redirect.tsx:13:// headers (real-data wiring at I-B-08).
+web\app\generation\components\generation_runner.tsx:146:              className="border-input focus-visible:border-ring focus-visible:ring-ring/70 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+web\lib\timeline_spec.ts:3: * for client-side visualization demos. Canonical spec generator remains the
+web\components\ui\vega-chart.tsx:24: * pane (LAW II — fail loudly, no silent empty chart). Mount div remains
+web\components\ui\tabs.tsx:39:      "focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+web\components\ui\tabs.tsx:58:      "ring-offset-background focus-visible:ring-ring mt-4 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+web\app\generation\components\multi_source_panel.tsx:68:          <code>{source.source_id}</code> · {source.domain}
+web\tests\e2e\command_palette_adversarial.spec.ts:55:      await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette_adversarial.spec.ts:70:      await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\app\charts_test\comparison_table\page.tsx:103:    <main className="bg-background text-foreground min-h-screen">
+web\app\charts_test\comparison_table\page.tsx:135:    </main>
+web\app\intake\components\intake_form.tsx:137:              safety, diagnosis, prognosis). Other domains will be marked out of
+web\components\inspector\reasoning_trace_timeline.tsx:99:        className="focus-visible:ring-ring mt-2 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\app\generation\components\sentence_inspector.tsx:166:          {source.domain}
+web\components\ui\sheet.tsx:85:      data-slot="sheet-header"
+web\components\ui\card.tsx:26:      data-slot="card-header"
+web\components\ui\card.tsx:28:        "group/card-header @container/card-header grid auto-rows-min items-start gap-1 rounded-t-xl px-4 group-data-[size=sm]/card:px-3 has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-4 group-data-[size=sm]/card:[.border-b]:pb-3",
+web\app\inspector\[runId]\inspector_view.tsx:5:import { BundleHeader } from "@/components/inspector/bundle_header";
+web\app\inspector\[runId]\inspector_view.tsx:26:    <main
+web\app\inspector\[runId]\inspector_view.tsx:71:    </main>
+web\app\charts_test\click_through\page.tsx:73:    <main className="bg-background text-foreground min-h-screen">
+web\app\charts_test\click_through\page.tsx:105:    </main>
+web\tests\e2e\command_palette.spec.ts:9: *  - Esc closes palette + restores focus to header Sign in link.
+web\tests\e2e\command_palette.spec.ts:11: * Hydration race avoidance: every test waits for the header Sign in link
+web\tests\e2e\command_palette.spec.ts:20:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette.spec.ts:35:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette.spec.ts:51:  test("Esc closes palette + restores focus to header Sign in link", async ({
+web\tests\e2e\command_palette.spec.ts:55:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette.spec.ts:62:    await expect(page.getByTestId("header-sign-in-link")).toBeFocused();
+web\components\ui\input.tsx:12:        "border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/70 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm",
+web\components\ui\button.tsx:7:  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/70 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+web\components\ui\button.tsx:19:          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/80 focus-visible:ring-destructive/30",
+web\app\page.tsx:113:        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-12 px-6 py-16">
+web\app\page.tsx:230:        </main>
+web\tests\e2e\contracts_g1_g8.spec.ts:19:test("G1 + G6: /contracts has exactly one header + one main", async ({
+web\tests\e2e\contracts_g1_g8.spec.ts:23:  await expect(page.locator("header")).toHaveCount(1);
+web\tests\e2e\contracts_g1_g8.spec.ts:24:  await expect(page.locator("main")).toHaveCount(1);
+web\app\pin_replay\page.tsx:77:  // <main> dropped (AppShell provides it). G2 fix: removed Issue id
+web\app\pin_replay\page.tsx:120:  // I-cd-029 (#619): /pin_replay populated-state. G1+G6 fix: <main>
+web\app\inspector\offline\page.tsx:62:    <main
+web\app\inspector\offline\page.tsx:99:            className={`border-border focus-visible:ring-ring flex min-h-32 cursor-pointer items-center justify-center rounded border-2 border-dashed px-6 py-8 text-center text-sm focus-visible:ring-2 focus-visible:outline-none ${
+web\app\inspector\offline\page.tsx:127:    </main>
+web\app\runs\[runId]\page.tsx:106:  // renders its own <header>, <footer>, or <main>. AppShell (via
+web\app\runs\[runId]\page.tsx:109:  // dev-language. The header's Export-bundle + New-run buttons move
+web\app\retrieval\page.tsx:10:    "Retrieve verified clinical sources for a research question. POLARIS runs the slice 001 scope gate, then retrieves T1/T2/T3 sources from approved clinical domains.",
+web\app\retrieval\page.tsx:16:      <header className="border-border bg-background border-b">
+web\app\retrieval\page.tsx:43:      </header>
+web\app\retrieval\page.tsx:45:      <main
+web\app\retrieval\page.tsx:75:      </main>
+web\tests\e2e\command_palette_suggest.spec.ts:11: * Each test waits for header-sign-in-link visible after networkidle to
+web\tests\e2e\command_palette_suggest.spec.ts:22:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette_suggest.spec.ts:42:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\command_palette_suggest.spec.ts:58:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\app\benchmark\page.tsx:10:// its own <header>, <footer>, or <main>. AppShell (via AppShellGate from
+web\app\benchmark\page.tsx:13:// benchmark)" dev-language strings via header/footer removal.
+web\tests\e2e\dashboard_g1_g8.spec.ts:14:test("G1 + G6: /dashboard has exactly one header + one main", async ({
+web\tests\e2e\dashboard_g1_g8.spec.ts:18:  await expect(page.locator("header")).toHaveCount(1);
+web\tests\e2e\dashboard_g1_g8.spec.ts:19:  await expect(page.locator("main")).toHaveCount(1);
+web\app\runs\[runId]\graph\page.tsx:44:      <header className="border-border bg-background border-b">
+web\app\runs\[runId]\graph\page.tsx:62:      </header>
+web\app\runs\[runId]\graph\page.tsx:64:      <main
+web\app\runs\[runId]\graph\page.tsx:91:      </main>
+web\app\retrieval\components\corpus_brief.tsx:129:                    {source.domain}
+web\app\runs\[runId]\components\followup_panel.tsx:82:          className="border-input focus-visible:border-ring focus-visible:ring-ring w-full rounded-lg border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2"
+web\lib\forest_plot_spec.ts:3: * for client-side visualization demos. Canonical spec generator remains the
+web\app\retrieval\components\retrieval_runner.tsx:135:              className="border-input focus-visible:border-ring focus-visible:ring-ring/70 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+web\lib\comparison_table_spec.ts:3: * for client-side visualization demos. Canonical spec generator remains the
+web\lib\auth.ts:2: * I-rdy-004 (#500) — client-side auth: JWT store + login + header injection.
+web\lib\auth.ts:71:      headers: { "content-type": "application/json" },
+web\lib\auth.ts:99:/** Authorization header for the current token, or {} if unauthenticated. */
+web\lib\api.ts:25: * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
+web\lib\api.ts:26: * headers, and does NOT force a content-type (so `FormData` uploads keep
+web\lib\api.ts:34:  const headers = new Headers(init.headers ?? {});
+web\lib\api.ts:36:    headers.set(key, value);
+web\lib\api.ts:38:  const response = await globalThis.fetch(url, { ...init, headers });
+web\lib\api.ts:47: * set request headers, so the JWT rides as the `access_token` query param;
+web\lib\api.ts:140:    headers: { "content-type": "application/json" },
+web\lib\api.ts:214:      headers: { "content-type": "application/json" },
+web\lib\api.ts:372:    headers: { "content-type": "application/json" },
+web\lib\api.ts:389:    headers: { "content-type": "application/json" },
+web\lib\api.ts:399:  primary_domains: string[];
+web\lib\api.ts:610:    headers: { "content-type": "application/json" },
+web\lib\api.ts:645:    headers: { "content-type": "application/json" },
+web\lib\api.ts:682:  domain: string;
+web\lib\api.ts:743:    headers: { "content-type": "application/json" },
+web\lib\api.ts:778:/** Convenience: dedupe + sort sources by tier (T1 first), then by domain. */
+web\lib\api.ts:790:    return a.domain.localeCompare(b.domain);
+web\lib\api.ts:971:    headers: { "content-type": "application/json" },
+web\lib\api.ts:1054:    headers: { "content-type": "application/json" },
+web\lib\api.ts:1089:    headers: { "content-type": "application/json" },
+web\lib\api.ts:1218:  | "domain_assumption"
+web\lib\api.ts:1252:      headers: { "content-type": "application/json" },
+web\lib\inspector_bundle_client_loader.ts:70:        header: { name: string; type?: string },
+web\lib\inspector_bundle_client_loader.ts:77:          if (header.type === "file") {
+web\lib\inspector_bundle_client_loader.ts:87:              name: header.name.replace(/^\.\//, ""),
+web\app\sentence_hover_test\memory_cite\page.tsx:54:    <main className="bg-background text-foreground mx-auto max-w-3xl px-6 py-8">
+web\app\sentence_hover_test\memory_cite\page.tsx:61:    </main>
+web\app\sentence_hover_test\follow_up_append\page.tsx:52:    <main className="bg-background text-foreground mx-auto max-w-3xl px-6 py-8">
+web\app\sentence_hover_test\follow_up_append\page.tsx:59:    </main>
+web\tests\e2e\f1_a11y.spec.ts:24:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\tests\e2e\demo_journey.spec.ts:54:test("demo journey nav-parity: header + primary nav identical across journey routes", async ({
+web\tests\e2e\demo_journey.spec.ts:74:    await expect(page.locator("header")).toHaveCount(1);
+web\app\sentence_hover_test\_demo.tsx:25:    domain: "cochrane.org",
+web\app\sentence_hover_test\_demo.tsx:41:  domain: "cochrane.org",
+web\app\sentence_hover_test\_demo.tsx:57:  domain: "nejm.org",
+web\app\sentence_hover_test\_demo.tsx:72:  domain: "cochrane.org",
+web\app\sentence_hover_test\split_screen\page.tsx:7:    <main
+web\app\sentence_hover_test\split_screen\page.tsx:26:    </main>
+web\app\sentence_hover_test\_demo_coverage.tsx:34:  domain: "cochrane.org",
+web\tests\e2e\f1_multi_tab.spec.ts:12: *    they remain independent (tab A's leak would push tab B's active).
+web\tests\e2e\f1_multi_tab.spec.ts:20:  await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web\app\sentence_hover_test\two_run_picker\page.tsx:40:    <main className="bg-background text-foreground mx-auto max-w-2xl px-6 py-8">
+web\app\sentence_hover_test\two_run_picker\page.tsx:56:    </main>
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:20:    domain: "cochrane.org",
+web\tests\e2e\home_g1_g8.spec.ts:16:test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
+web\tests\e2e\home_g1_g8.spec.ts:21:  // G1: exactly one <header> element (no duplicate from a forgotten AppShell).
+web\tests\e2e\home_g1_g8.spec.ts:22:  const headers = page.locator("header");
+web\tests\e2e\home_g1_g8.spec.ts:23:  await expect(headers).toHaveCount(1);
+web\tests\e2e\home_g1_g8.spec.ts:25:  // Primary nav present + identical to other routes (Home/Intake/Dashboard/
+web\tests\e2e\home_g1_g8.spec.ts:42:  // G6 (single main landmark — Codex iter-2 P1 fix).
+web\tests\e2e\home_g1_g8.spec.ts:43:  const mains = page.locator("main");
+web\tests\e2e\home_g1_g8.spec.ts:44:  await expect(mains).toHaveCount(1);
+web\tests\e2e\home_g1_g8.spec.ts:72:test("G3: active template card link has focus-visible + hover styling", async ({
+web\tests\e2e\home_g1_g8.spec.ts:79:  // shadcn/ui Button injects focus-visible:ring + hover utilities. Codex
+web\tests\e2e\home_g1_g8.spec.ts:82:  expect(className).toMatch(/focus-visible/);
+web\tests\e2e\inspector_offline_fallback.spec.ts:50:  // Bundle header + verified report visible.
+web\tests\e2e\inspector_route.spec.ts:43:  test("app shell + bundle header render (G1)", async ({ page }) => {
+web\tests\e2e\inspector_route.spec.ts:46:    await expect(page.getByTestId("bundle-header")).toBeVisible();
+web\tests\e2e\inspector_route.spec.ts:172:        mask: [page.locator('[data-testid="bundle-header"]')],
+web\tests\e2e\inspector_route.spec.ts:181:      mask: [page.locator('[data-testid="bundle-header"]')],
+web\app\sentence_hover_test\_demo_stress.tsx:18:    domain: "cochrane.org",
+web\tests\e2e\intake_g1_g8.spec.ts:2:// state/polaris_ui_rebuild_matrix.md §2. Pattern mirrors home_g1_g8.spec.ts.
+web\tests\e2e\intake_g1_g8.spec.ts:15:test("G1 + G6: /intake has exactly one header + one main (AppShell-provided)", async ({
+web\tests\e2e\intake_g1_g8.spec.ts:19:  await expect(page.locator("header")).toHaveCount(1);
+web\tests\e2e\intake_g1_g8.spec.ts:20:  await expect(page.locator("main")).toHaveCount(1);
+web\tests\e2e\memory_g1_g8.spec.ts:18:test("G1 + G6: /memory has exactly one header + one main", async ({ page }) => {
+web\tests\e2e\memory_g1_g8.spec.ts:20:  await expect(page.locator("header")).toHaveCount(1);
+web\tests\e2e\memory_g1_g8.spec.ts:21:  await expect(page.locator("main")).toHaveCount(1);
+web\tests\e2e\pin_replay_g1_g8.spec.ts:19:test("G1 + G6: /pin_replay has exactly one header + one main", async ({
+web\tests\e2e\pin_replay_g1_g8.spec.ts:23:  await expect(page.locator("header")).toHaveCount(1);
+web\tests\e2e\pin_replay_g1_g8.spec.ts:24:  await expect(page.locator("main")).toHaveCount(1);
+web\tests\e2e\runs_runid_g1_g8.spec.ts:22:test("G1 + G6: /runs/[runId] has exactly one header + one main", async ({
+web\tests\e2e\runs_runid_g1_g8.spec.ts:26:  await expect(page.locator("header")).toHaveCount(1);
+web\tests\e2e\runs_runid_g1_g8.spec.ts:27:  await expect(page.locator("main")).toHaveCount(1);
+web\tests\e2e\sentence_inspector_agreement.spec.ts:36:test("Report header shows family-segregated badge", async ({ page }) => {
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:7:// xmur3 string-hash → 32-bit seed (public-domain implementation).
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:22:// sfc32 PRNG (public-domain) seeded from 4 32-bit ints.
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:11:test("Report header shows assertion-surface legend", async ({ page }) => {
+web\tests\e2e\sse_client.spec.ts:10:      headers: { "cache-control": "no-cache" },
+web\tests\e2e\upload_g1_g8.spec.ts:17:test("G1 + G6: /upload has exactly one header + one main", async ({ page }) => {
+web\tests\e2e\upload_g1_g8.spec.ts:19:  await expect(page.locator("header")).toHaveCount(1);
+web\tests\e2e\upload_g1_g8.spec.ts:20:  await expect(page.locator("main")).toHaveCount(1);
+
+ succeeded in 1620ms:
+"use client";
+
+import Link from "next/link";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
+import { NavLink } from "@/components/nav_link";
+import { Button } from "@/components/ui/button";
+
+import { CommandPalette } from "./command_palette";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+
+// I-cd-022 (#612): primary nav now lives in the home header too, so /
+// matches the global app-shell nav (G1: "global header/sidebar nav is
+// present and identical"). When AppShell is suppressed on `/` via
+// AppShellGate, the home page's <header> is THE app shell for this route.
+const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+  { href: "/", label: "Home" },
+  { href: "/intake", label: "Intake" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/upload", label: "Upload" },
+  { href: "/benchmark", label: "Benchmark" },
+  { href: "/compare", label: "Compare" },
+  { href: "/contracts", label: "Contracts" },
+  { href: "/pin_replay", label: "Pin Replay" },
+  { href: "/memory", label: "Memory" },
+];
+
+export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+  const [palette_open, set_palette_open] = useState(false);
+  const sign_in_link_ref = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    function on_keydown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+        event.preventDefault();
+        event.stopPropagation();
+        set_palette_open((p) => !p);
+      }
+    }
+    window.addEventListener("keydown", on_keydown);
+    return () => window.removeEventListener("keydown", on_keydown);
+  }, []);
+
+  return (
+    <>
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <nav className="flex items-center gap-1" aria-label="Primary">
+            {PRIMARY_NAV.map((item) => (
+              <NavLink key={item.href} href={item.href}>
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+          {/* I-ui-010 (#730): sovereign mark — honest wording (no air-gap
+              overclaim). */}
+          <span
+            className="text-muted-foreground border-border mr-2 ml-auto hidden rounded-full border px-2.5 py-1 text-xs lg:inline-flex"
+            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+          >
+            ⬡ Canadian AI · no external AI vendor
+          </span>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={
+              <Link
+                ref={sign_in_link_ref}
+                data-testid="header-sign-in-link"
+                href={signInHref}
+              />
+            }
+          >
+            Sign in
+          </Button>
+        </div>
+      </header>
+      {children}
+      <CommandPalette
+        open={palette_open}
+        onOpenChange={set_palette_open}
+        templates={templates}
+        signInLinkRef={sign_in_link_ref}
+      />
+    </>
+  );
+}
+
+ succeeded in 1963ms:
+web\middleware.ts:6:// return 404 so reviewers + Carney's office don't reach internal test
+web\next.config.ts:20:      // reviewers (incl. Carney's office) can audit the deploy without
+web\components\app_shell.tsx:22:const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+web\components\app_shell.tsx:46:            {PRIMARY_NAV.map((item) => (
+web\app\dashboard\page.tsx:345:            role="radiogroup"
+web\app\dashboard\page.tsx:352:                // F-26 (cycle-8 P1.2 root_cause): native button + role=radio
+web\app\dashboard\page.tsx:360:                  role="radio"
+web\app\dashboard\page.tsx:482:            role="status"
+web\app\dashboard\page.tsx:518:            role="status"
+web\app\dashboard\page.tsx:591:            role="alert"
+web\app\dashboard\page.tsx:600:            role="alert"
+web\components\ui\vega-chart.tsx:77:          role="alert"
+web\app\pin_replay\page.tsx:139:            role="alert"
+web\app\compare\page.tsx:132:          role="alert"
+web\app\components\home_keyboard_shell.tsx:26:const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+web\app\components\home_keyboard_shell.tsx:65:            {PRIMARY_NAV.map((item) => (
+web\app\components\command_palette.tsx:124:            role="listbox"
+web\app\components\command_palette.tsx:130:                role="option"
+web\app\generation\components\frame_coverage_panel.tsx:120:                role="button"
+web\app\upload\components\upload_drop_zone.tsx:150:        role="button"
+web\tests\e2e\accessibility.spec.ts:161:  // P1.4 surfaced multiple <button>/<label>/<a role="button"> surfaces
+web\tests\e2e\accessibility.spec.ts:179:        'button, label:not([for]), [role="button"], [role="radio"], a[href]';
+web\tests\e2e\accessibility.spec.ts:234:      const sel = 'button, label, [role="button"], [role="tab"], a[href]';
+web\tests\e2e\accessibility.spec.ts:269:    // The radiogroup should expose role="radiogroup".
+web\tests\e2e\accessibility.spec.ts:270:    const group = page.locator('[role="radiogroup"]');
+web\tests\e2e\accessibility.spec.ts:272:    // Each template option should expose role="radio" with aria-checked.
+web\tests\e2e\accessibility.spec.ts:273:    const radios = page.locator('[role="radio"]');
+web\tests\e2e\accessibility.spec.ts:277:      .locator('[role="radio"][aria-checked="true"]')
+web\app\sign-in\page.tsx:116:                Enter your POLARIS reviewer credentials.
+web\app\sign-in\page.tsx:131:                  placeholder="reviewer"
+web\app\sign-in\page.tsx:158:                  role="alert"
+web\app\runs\[runId]\page.tsx:162:            role="alert"
+web\lib\inspector_bundle_client_loader.ts:5: * reviewer (no backend, no GPU). Same `LoadedBundle` shape as the
+web\app\generation\components\verified_report_view.tsx:140:      role="button"
+web\app\generation\components\split_screen.tsx:5:// emits its own data-testid + role="separator" + aria-orientation so we
+web\app\generation\components\split_screen.tsx:7:// divider itself is queried by role="separator".
+web\app\inspector\offline\page.tsx:2:// in-browser from a `.tar.gz` file dropped by a disconnected reviewer.
+web\app\inspector\offline\page.tsx:81:            role="button"
+web\app\inspector\offline\page.tsx:118:              role="alert"
+web\tests\e2e\comparison_table_chart.spec.ts:19:    // role-aware mark count: at least N graphics-symbol marks per chart
+web\tests\e2e\comparison_table_chart.spec.ts:21:    const marks = chart.locator('svg [role="graphics-symbol"]');
+web\app\runs\[runId]\graph\page.tsx:70:            role="alert"
+web\app\runs\[runId]\graph\page.tsx:79:            role="status"
+web\tests\e2e\chart_click_through.spec.ts:13:  // Prefer Vega's role-aware symbol mark container per I-f10-002 pattern.
+web\tests\e2e\chart_click_through.spec.ts:16:      'g[role="graphics-object"][aria-roledescription="symbol mark container"] [role="graphics-symbol"]',
+web\tests\e2e\chart_click_through.spec.ts:20:    mark = chart.locator('svg [role="graphics-symbol"]').first();
+web\app\runs\[runId]\components\run_progress.tsx:203:          role="status"
+web\app\runs\[runId]\components\followup_panel.tsx:96:          role="alert"
+web\tests\e2e\demo_journey.spec.ts:41:  // surfaces to the reviewer. Tightened per Codex iter-1 P2: assert
+web\tests\e2e\demo_journey.spec.ts:57:  const PRIMARY_NAV_LABELS = [
+web\tests\e2e\demo_journey.spec.ts:77:    for (const label of PRIMARY_NAV_LABELS) {
+web\app\runs\[runId]\graph\components\claim_graph.tsx:181:            role="tooltip"
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:128:      role="region"
+web\tests\e2e\forest_plot_chart.spec.ts:15:  // role="graphics-object". We narrow further by aria-roledescription which
+web\tests\e2e\forest_plot_chart.spec.ts:19:    'g[role="graphics-object"][aria-roledescription="rule mark container"]',
+web\tests\e2e\forest_plot_chart.spec.ts:22:    'g[role="graphics-object"][aria-roledescription="symbol mark container"]',
+web\tests\e2e\forest_plot_chart.spec.ts:25:  // If Vega's exact aria-roledescription strings differ at runtime, fall back
+web\tests\e2e\forest_plot_chart.spec.ts:26:  // to counting graphics-symbol descendants under each role-aware container.
+web\tests\e2e\forest_plot_chart.spec.ts:37:    // SVG (axes/gridlines/background) by role.
+web\tests\e2e\forest_plot_chart.spec.ts:38:    const graphics_symbols = chart.locator('svg [role="graphics-symbol"]');
+web\tests\e2e\inspector_offline_fallback.spec.ts:1:// I-cd-021 (#631) — Disconnected reviewer drops a v1.0 .tar.gz on the
+web\tests\e2e\performance.spec.ts:20: * mouseenter → [role="tooltip"] visible).
+web\tests\e2e\sign_in.spec.ts:71:    await expect(errorBanner).toHaveAttribute("role", "alert");
+web\tests\e2e\timeline_chart.spec.ts:16:    const marks = chart.locator('svg [role="graphics-symbol"]');
+
+ succeeded in 2098ms:
+import Link from "next/link";
+
+import { NavLink } from "@/components/nav_link";
+
+/**
+ * I-cd-004: the global app shell. A server component that wraps every prod
+ * route with a single header + primary nav. The 8 primary nav entries are
+ * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+ *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+ *
+ * Out of scope for this issue (each its own later issue per the Seq-N order):
+ *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+ *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+ *    /dashboard rather than top-nav entries.
+ *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+ *    retired at that point (not merely hidden — per Codex P2).
+ *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+ *    I-cd-015.
+ *  - Auth gating of the nav itself is deferred to I-cd-014.
+ *  - Per-page rebuilds happen in the I-cd-013..030 series.
+ */
+const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
+  { href: "/", label: "Home" },
+  { href: "/intake", label: "Intake" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/upload", label: "Upload" },
+  { href: "/benchmark", label: "Benchmark" },
+  { href: "/compare", label: "Compare" },
+  { href: "/contracts", label: "Contracts" },
+  { href: "/pin_replay", label: "Pin Replay" },
+  { href: "/memory", label: "Memory" },
+];
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <header className="border-border bg-background sticky top-0 z-40 border-b">
+        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <nav className="flex items-center gap-1" aria-label="Primary">
+            {PRIMARY_NAV.map((item) => (
+              <NavLink key={item.href} href={item.href}>
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+          {/* I-ui-010 (#730): sovereign mark — honest wording (NOT a false
+              air-gap claim; we retrieve public sources via logged Canadian
+              egress). Eye-level badge of strength, not fine print. */}
+          <span
+            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+          >
+            ⬡ Canadian AI · no external AI vendor
+          </span>
+        </div>
+      </header>
+      <main className="flex-1">{children}</main>
+    </>
+  );
+}
+
+codex
+The current repo matches the brief: both shells hardcode the same nav array, with home suppressing the global shell to avoid duplicate landmarks. I’m checking the exact e2e expectations and the server/client boundary now, because that’s where this plan can fail.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/home_g1_g8.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/demo_journey.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/layout.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/nav_link.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/app_shell_gate.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tsconfig.json' in C:\POLARIS
+ succeeded in 1372ms:
+// I-cd-031 (#621): demo journey end-to-end — home → template → ask
+// (intake) → run-step (dashboard) → inspector → claim-source.
+//
+// Verifies each step's landing page renders + links forward to the next
+// step. The "run" step itself is hardware-bound (real pipeline-A), so the
+// test pivots at /dashboard to /inspector/v1-canonical-success — the
+// frozen I-A-02b fixture (I-cd-012) that the gold-route Inspector
+// renders. That step's assertions cover the verified-report → claim →
+// source provenance UI surface.
+
+import { expect, test } from "@playwright/test";
+
+test("demo journey: home → intake → dashboard → inspector (canonical fixture)", async ({
+  page,
+}) => {
+  // Step 1: home renders + clinical template card present + linked.
+  await page.goto("/");
+  await expect(page.getByTestId("template-card-clinical")).toBeVisible();
+  await expect(page.getByTestId("template-card-clinical-link")).toBeVisible();
+  const intake_link = page.getByTestId("template-card-clinical-link").first();
+  await intake_link.click();
+
+  // Step 2: lands on /intake?template=clinical with the intake form.
+  await expect(page).toHaveURL(/\/intake\?template=clinical/);
+  await expect(page.getByTestId("intake-page")).toBeVisible();
+
+  // Step 3: dashboard is reachable directly (the "ask a question" UX
+  // entry). The intake page funnels here for clinical questions.
+  await page.goto("/dashboard");
+  await expect(page.getByTestId("dashboard-page")).toBeVisible();
+
+  // Step 4: inspector renders the canonical v1.0 fixture (I-A-02b
+  // frozen schema, the contract Carney's office reviews).
+  await page.goto("/inspector/v1-canonical-success");
+  await expect(page.getByTestId("inspector-view")).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // Step 5: claim → source UI surface — the family-segregation badge
+  // proves the two-family invariant (CLAUDE.md §9.1 invariant 1)
+  // surfaces to the reviewer. Tightened per Codex iter-1 P2: assert
+  // the dedicated badge testid instead of a broad text match.
+  await expect(
+    page
+      .getByTestId("family-segregation-badge")
+      .or(page.locator("[data-testid*='family-segregation']").first()),
+  ).toBeVisible({ timeout: 5_000 });
+});
+
+// Codex iter-1 P1 fix: the previous version had an
+// `if (label === "Upload")` guard that silently skipped Home/Intake/
+// Dashboard/etc — so a broken nav with most labels missing would still
+// pass. This version unconditionally asserts every primary-nav label.
+test("demo journey nav-parity: header + primary nav identical across journey routes", async ({
+  page,
+}) => {
+  const PRIMARY_NAV_LABELS = [
+    "Home",
+    "Intake",
+    "Dashboard",
+    "Upload",
+    "Benchmark",
+    "Contracts",
+    "Pin Replay",
+    "Memory",
+  ];
+  for (const path of [
+    "/",
+    "/intake",
+    "/dashboard",
+    "/inspector/v1-canonical-success",
+  ]) {
+    await page.goto(path);
+    await expect(page.locator("header")).toHaveCount(1);
+    const nav = page.locator("nav[aria-label='Primary']");
+    await expect(nav).toBeVisible();
+    for (const label of PRIMARY_NAV_LABELS) {
+      await expect(nav.getByRole("link", { name: label })).toBeVisible();
+    }
+  }
+});
+
+ succeeded in 1603ms:
+// I-cd-022 (#612): home route G1-G8 acceptance gates per
+// state/polaris_ui_rebuild_matrix.md §2. Mechanical assertions only —
+// no subjective polish judgments.
+
+import { expect, test } from "@playwright/test";
+
+const BANNED_DEV_LANGUAGE = [
+  /\bslice\b/i,
+  /\bscaffold\b/i,
+  /\bplaceholder\b/i,
+  /\bphase 0\b/i,
+  /\bpost[- ]carney\b/i,
+  /\bi-cd-/i,
+];
+
+test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  // G1: exactly one <header> element (no duplicate from a forgotten AppShell).
+  const headers = page.locator("header");
+  await expect(headers).toHaveCount(1);
+
+  // Primary nav present + identical to other routes (Home/Intake/Dashboard/
+  // Upload/Benchmark/Contracts/Pin Replay/Memory).
+  const nav = page.locator("nav[aria-label='Primary']");
+  await expect(nav).toBeVisible();
+  for (const label of [
+    "Home",
+    "Intake",
+    "Dashboard",
+    "Upload",
+    "Benchmark",
+    "Contracts",
+    "Pin Replay",
+    "Memory",
+  ]) {
+    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+  }
+
+  // G6 (single main landmark — Codex iter-2 P1 fix).
+  const mains = page.locator("main");
+  await expect(mains).toHaveCount(1);
+});
+
+test("I-cd-ui-001: home hero search submits to /intake?q=", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const form = page.getByTestId("home-hero-search");
+  await expect(form).toBeVisible();
+  // The hero is a progressive GET form (works without JS): action=/intake,
+  // input name=q. Submitting routes to /intake?q=<question>.
+  await expect(form).toHaveAttribute("action", "/intake");
+  const input = form.locator("input[name='q']");
+  await expect(input).toBeVisible();
+  await input.fill("does aspirin reduce headaches");
+  await form.locator("button[type='submit']").click();
+  await page.waitForURL(/\/intake\?q=/);
+  expect(page.url()).toContain("q=does");
+});
+
+test("G2: home contains no banned dev-language strings", async ({ page }) => {
+  await page.goto("/");
+  const body_text = (await page.locator("body").textContent()) || "";
+  for (const banned of BANNED_DEV_LANGUAGE) {
+    expect(body_text).not.toMatch(banned);
+  }
+});
+
+test("G3: active template card link has focus-visible + hover styling", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const link = page.getByTestId("template-card-clinical-link");
+  await expect(link).toBeVisible();
+  const className = (await link.getAttribute("class")) || "";
+  // shadcn/ui Button injects focus-visible:ring + hover utilities. Codex
+  // iter-1 P2 fix: assert on the LINK, not the card (cards are not
+  // interactive — links/buttons are).
+  expect(className).toMatch(/focus-visible/);
+});
+
+test("G6: tab key reaches the active template card link", async ({ page }) => {
+  await page.goto("/");
+  // Tab repeatedly until the focused element is the active template link.
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press("Tab");
+    const focused = await page.evaluate(
+      () => document.activeElement?.getAttribute("data-testid") ?? null,
+    );
+    if (focused === "template-card-clinical-link") return;
+  }
+  throw new Error("active template card link never received focus via Tab");
+});
+
+test("G8: home renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto("/");
+  // Idle long enough for hydration + any async errors to surface.
+  await page.waitForLoadState("networkidle");
+  expect(errors).toEqual([]);
+});
+
+ succeeded in 1782ms:
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+
+import { AppShellGate } from "@/components/app_shell_gate";
+import { Toaster } from "@/components/ui/sonner";
+
+import "./globals.css";
+
+const geist_sans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geist_mono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "POLARIS Canada — Sovereign Deep Research",
+  description:
+    "Two-family verified evidence pipelines for Government of Canada policy work.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+    >
+      <body className="flex min-h-full flex-col">
+        <AppShellGate>{children}</AppShellGate>
+        <Toaster />
+      </body>
+    </html>
+  );
+}
+
+ succeeded in 2079ms:
+// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+// the AppShell header AND its <main> wrapper so the home route can
+// provide its own header (with the same primary nav) + its own <main>.
+// This avoids G1 (double header) + G6 (nested main) landmark violations.
+//
+// Tiny "use client" boundary so the otherwise server-rendered AppShell
+// can still wrap every non-home route on the server.
+"use client";
+
+import { usePathname } from "next/navigation";
+
+import { AppShell } from "@/components/app_shell";
+
+interface AppShellGateProps {
+  children: React.ReactNode;
+}
+
+export function AppShellGate({ children }: AppShellGateProps) {
+  const pathname = usePathname();
+  // Home owns its own header + main; render children bare on `/`.
+  if (pathname === "/") {
+    return <>{children}</>;
+  }
+  return <AppShell>{children}</AppShell>;
+}
+
+ succeeded in 2325ms:
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+/**
+ * I-cd-004: client component for top-nav active-route highlight. Pure styling
+ * via the locked shadcn token set (accent / muted-foreground / foreground).
+ * Active when the pathname equals href, or starts with `${href}/` for nested
+ * routes (e.g. `/runs/abc` highlights "Dashboard" only if we want — by default
+ * an item is active for its own subtree).
+ */
+export function NavLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  const pathname = usePathname();
+  const is_active =
+    pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
+  return (
+    <Link
+      href={href}
+      aria-current={is_active ? "page" : undefined}
+      className={
+        "rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
+        (is_active
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground")
+      }
+    >
+      {children}
+    </Link>
+  );
+}
+
+ succeeded in 2588ms:
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "AppShell|HomeKeyboardShell|CommandPalette|signInHref" web/app web/components -g "*.tsx"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/package.json' in C:\POLARIS
+ succeeded in 1122ms:
+import Link from "next/link";
+
+import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+const templates: Template[] = [
+  {
+    id: "clinical",
+    name: "Clinical drug audit",
+    summary:
+      "Drug safety signals, labelling deltas, and post-market surveillance evidence across Health Canada, FDA, EMA, and clinical trials.",
+    sample_question:
+      "What did the SELECT trial show on cardiovascular outcomes for semaglutide?",
+    out_of_scope: "Should I take ozempic for my diabetes?",
+    active: true,
+  },
+  {
+    id: "policy",
+    name: "Public policy",
+    summary:
+      "Regulatory decisions, reimbursement and health-technology-assessment policy, public-health guidance, and cross-jurisdiction access comparisons.",
+    sample_question:
+      "What did NICE and CADTH conclude on the cost-effectiveness of CAR-T therapies?",
+    out_of_scope: "Which political party has the better health platform?",
+    active: false,
+  },
+  {
+    id: "tech",
+    name: "Technology assessment",
+    summary:
+      "Assessment of a technology, algorithm, or engineering approach — grounded in peer-reviewed conference and journal papers, standards, and attributed preprints.",
+    sample_question:
+      "What does the peer-reviewed evidence show on mixture-of-experts vs dense transformers as of 2025?",
+    out_of_scope: "Which GPU should I buy for my gaming PC?",
+    active: false,
+  },
+  {
+    id: "ai_sovereignty",
+    name: "AI sovereignty",
+    summary:
+      "Canadian AI policy, sovereign compute, talent retention, IP and data residency, alignment posture, Bill C-27 / AIDA, federal AI strategy.",
+    sample_question:
+      "What sovereign compute capacity does Canada have for training frontier models as of 2025?",
+    out_of_scope:
+      "Should I take a job at a Canadian AI startup or move to San Francisco?",
+    active: false,
+  },
+  {
+    id: "canada_us",
+    name: "Canada–US relations",
+    summary:
+      "Bilateral relationship, CUSMA / USMCA renegotiation, IRA spillover, energy + critical minerals integration, defense interoperability.",
+    sample_question:
+      "What are the 2026 CUSMA review triggers and what does Canada's pre-position look like?",
+    out_of_scope: "Should I move to the US for tax reasons?",
+    active: false,
+  },
+  {
+    id: "due_diligence",
+    name: "Due diligence",
+    summary:
+      "Company, product, market, and competitive-landscape research for investment, M&A, or partnership decisions — every claim carries named, dated provenance.",
+    sample_question:
+      "What did the most recent 10-K disclose on customer-concentration risk for this company?",
+    out_of_scope: "Should I buy this stock?",
+    active: false,
+  },
+  {
+    id: "custom",
+    name: "Custom research",
+    summary:
+      "Operator-defined catch-all for research questions that do not match the clinical, policy, tech, or due-diligence templates; accepts any classified source tier.",
+    sample_question:
+      "Summarize the documented positions on this question with provenance for each claim.",
+    out_of_scope:
+      "Requests for individualized legal, medical, or financial advice.",
+    active: false,
+  },
+  {
+    id: "workforce",
+    name: "Workforce & productivity",
+    summary:
+      "Canadian labour productivity, immigration + skills mismatch, regional unemployment, federal-provincial training, demographic shifts.",
+    sample_question:
+      "What does StatCan's 2024 productivity series show for Canada vs US over the last decade?",
+    out_of_scope: "How do I apply for permanent residency?",
+    active: false,
+  },
+];
+
+export default function HomePage() {
+  return (
+    <div className="flex min-h-screen flex-col">
+      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-12 px-6 py-16">
+          <section className="flex flex-col items-center gap-6 pt-6 text-center">
+            <h1 className="text-foreground max-w-3xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
+              What can POLARIS verify for you today?
+            </h1>
+            <p className="text-muted-foreground max-w-2xl text-base sm:text-lg">
+              Sovereign Canadian deep research. Every claim carries a provenance
+              token tied to a primary source, checked by a two-family evidence
+              pipeline.
+            </p>
+            <form
+              action="/intake"
+              method="get"
+              data-testid="home-hero-search"
+              className="flex w-full max-w-2xl items-center gap-2"
+            >
+              <Input
+                name="q"
+                type="search"
+                aria-label="Research question"
+                placeholder="Ask a research question…"
+                className="h-11 flex-1 text-base"
+              />
+              <Button type="submit" className="h-11 px-6">
+                Verify
+              </Button>
+            </form>
+          </section>
+
+          <RecentRunsStrip />
+
+          <section
+            aria-labelledby="template_grid_heading"
+            className="flex flex-col gap-5"
+            data-testid="template-grid"
+          >
+            <div className="flex items-baseline justify-between">
+              <h2
+                id="template_grid_heading"
+                className="text-foreground text-xl font-semibold tracking-tight"
+              >
+                Research templates
+              </h2>
+              <span className="text-muted-foreground text-xs tracking-widest uppercase">
+                1 active · 7 in development
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {templates.map((tpl) => (
+                <Card
+                  key={tpl.id}
+                  aria-disabled={tpl.active ? undefined : true}
+                  className={
+                    tpl.active
+                      ? "border-primary/40 flex flex-col transition-shadow hover:shadow-sm"
+                      : "bg-muted/40 text-muted-foreground flex flex-col"
+                  }
+                  data-testid={`template-card-${tpl.id}`}
+                >
+                  <CardHeader>
+                    <div className="flex items-start justify-between gap-2">
+                      <CardTitle className="text-lg">{tpl.name}</CardTitle>
+                      {!tpl.active ? (
+                        <span
+                          aria-hidden="true"
+                          className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+                        >
+                          Coming soon
+                        </span>
+                      ) : null}
+                    </div>
+                    <CardDescription className="text-sm">
+                      {tpl.summary}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex flex-1 flex-col justify-between gap-4">
+                    <div className="flex flex-col gap-2 text-sm">
+                      <p>
+                        <span className="text-foreground font-medium">
+                          In scope:
+                        </span>{" "}
+                        {tpl.sample_question}
+                      </p>
+                      <p>
+                        <span className="text-foreground font-medium">
+                          Out of scope:
+                        </span>{" "}
+                        {tpl.out_of_scope}
+                      </p>
+                    </div>
+                    {tpl.active ? (
+                      <Button
+                        nativeButton={false}
+                        render={
+                          <Link
+                            data-testid={`template-card-${tpl.id}-link`}
+                            href={`/intake?template=${tpl.id}`}
+                          />
+                        }
+                      >
+                        Open {tpl.name}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        disabled
+                        tabIndex={-1}
+                        aria-disabled="true"
+                      >
+                        Coming soon
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
+        </main>
+
+        <footer className="border-border bg-background border-t">
+          <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+            <span>POLARIS · Sovereign Canadian deep research</span>
+            <span>Two-family verified evidence</span>
+          </div>
+        </footer>
+      </HomeKeyboardShell>
+    </div>
+  );
+}
+
+ succeeded in 1346ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 1589ms:
+web/components\app_shell_gate.tsx:1:// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+web/components\app_shell_gate.tsx:2:// the AppShell header AND its <main> wrapper so the home route can
+web/components\app_shell_gate.tsx:6:// Tiny "use client" boundary so the otherwise server-rendered AppShell
+web/components\app_shell_gate.tsx:12:import { AppShell } from "@/components/app_shell";
+web/components\app_shell_gate.tsx:14:interface AppShellGateProps {
+web/components\app_shell_gate.tsx:18:export function AppShellGate({ children }: AppShellGateProps) {
+web/components\app_shell_gate.tsx:24:  return <AppShell>{children}</AppShell>;
+web/components\app_shell.tsx:34:export function AppShell({ children }: { children: React.ReactNode }) {
+web/app\benchmark\page.tsx:10:// its own <header>, <footer>, or <main>. AppShell (via AppShellGate from
+web/app\pin_replay\page.tsx:77:  // <main> dropped (AppShell provides it). G2 fix: removed Issue id
+web/app\pin_replay\page.tsx:121:  // dropped (AppShell provides it). G2 fix: removed "M-INT-0b
+web/app\layout.tsx:4:import { AppShellGate } from "@/components/app_shell_gate";
+web/app\layout.tsx:36:        <AppShellGate>{children}</AppShellGate>
+web/app\upload\page.tsx:10:// own <main>; AppShell (via AppShellGate, I-cd-022) is the single
+web/app\page.tsx:3:import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+web/app\page.tsx:112:      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+web/app\page.tsx:238:      </HomeKeyboardShell>
+web/app\intake\page.tsx:13:// its own <header> or <main>; AppShell (via AppShellGate, I-cd-022) is
+web/app\components\home_keyboard_shell.tsx:9:import { CommandPalette } from "./command_palette";
+web/app\components\home_keyboard_shell.tsx:20:type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+web/app\components\home_keyboard_shell.tsx:24:// present and identical"). When AppShell is suppressed on `/` via
+web/app\components\home_keyboard_shell.tsx:25:// AppShellGate, the home page's <header> is THE app shell for this route.
+web/app\components\home_keyboard_shell.tsx:38:export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+web/app\components\home_keyboard_shell.tsx:86:                href={signInHref}
+web/app\components\home_keyboard_shell.tsx:95:      <CommandPalette
+web/app\memory\page.tsx:51:  // its own <main>; AppShell (via AppShellGate from I-cd-022) is the
+web/app\contracts\page.tsx:10:// AppShell's <main> via the wrapper <section data-testid="contracts-page">.
+web/app\dashboard\page.tsx:321:  // renders its own <header>, <footer>, or <main>; AppShell (via
+web/app\dashboard\page.tsx:322:  // AppShellGate, I-cd-022) is the single landmark provider. G2 fix:
+web/app\components\command_palette.tsx:18:type CommandPaletteProps = {
+web/app\components\command_palette.tsx:46:export function CommandPalette({
+web/app\components\command_palette.tsx:51:}: CommandPaletteProps) {
+web/app\runs\[runId]\page.tsx:106:  // renders its own <header>, <footer>, or <main>. AppShell (via
+web/app\runs\[runId]\page.tsx:107:  // AppShellGate, I-cd-022) is the single landmark provider on this
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Role model + role-aware nav without RBAC is acceptable scope for this foundation issue, but the UI role must be treated as presentation-only until G-SEC lands. Avoid naming/comments that imply authorization enforcement."
+  - "Keep web/lib/nav.ts and the pure role/nav filter code isomorphic. Cookie/context access should live at the shell/provider boundary so HomeKeyboardShell and AppShell do not trip server/client import or hydration issues."
+  - "Existing e2e nav assertions hard-code labels and omit Compare while PRIMARY_NAV includes it. Add/update coverage so default analyst nav matches the shared source and future drift is caught."
+```
+tokens used
+27,718
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Role model + role-aware nav without RBAC is acceptable scope for this foundation issue, but the UI role must be treated as presentation-only until G-SEC lands. Avoid naming/comments that imply authorization enforcement."
+  - "Keep web/lib/nav.ts and the pure role/nav filter code isomorphic. Cookie/context access should live at the shell/provider boundary so HomeKeyboardShell and AppShell do not trip server/client import or hydration issues."
+  - "Existing e2e nav assertions hard-code labels and omit Compare while PRIMARY_NAV includes it. Add/update coverage so default analyst nav matches the shared source and future drift is caught."
+```

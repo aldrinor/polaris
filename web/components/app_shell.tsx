@@ -1,6 +1,8 @@
 import Link from "next/link";
 
 import { NavLink } from "@/components/nav_link";
+import { PRIMARY_NAV, navForRole } from "@/lib/nav";
+import { DEFAULT_ROLE } from "@/lib/roles";
 
 /**
  * I-cd-004: the global app shell. A server component that wraps every prod
@@ -19,17 +21,8 @@ import { NavLink } from "@/components/nav_link";
  *  - Auth gating of the nav itself is deferred to I-cd-014.
  *  - Per-page rebuilds happen in the I-cd-013..030 series.
  */
-const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
-  { href: "/", label: "Home" },
-  { href: "/intake", label: "Intake" },
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/upload", label: "Upload" },
-  { href: "/benchmark", label: "Benchmark" },
-  { href: "/compare", label: "Compare" },
-  { href: "/contracts", label: "Contracts" },
-  { href: "/pin_replay", label: "Pin Replay" },
-  { href: "/memory", label: "Memory" },
-];
+// I-p2-029 (#768): PRIMARY_NAV now lives in @/lib/nav (single source of truth,
+// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
@@ -43,7 +36,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             POLARIS · Canada
           </Link>
           <nav className="flex items-center gap-1" aria-label="Primary">
-            {PRIMARY_NAV.map((item) => (
+            {navForRole(PRIMARY_NAV, DEFAULT_ROLE).map((item) => (
               <NavLink key={item.href} href={item.href}>
                 {item.label}
               </NavLink>
