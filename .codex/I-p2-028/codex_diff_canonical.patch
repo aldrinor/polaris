@@ -1,0 +1,412 @@
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index 47aeb04e..f009a274 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -2,6 +2,7 @@ import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
+ 
+ import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+ import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
++import { MapleLeafSignatureLazy } from "@/components/signature/maple_leaf_signature_lazy";
+ import { Button } from "@/components/ui/button";
+ import { Input } from "@/components/ui/input";
+ 
+@@ -124,6 +125,8 @@ export default function HomePage() {
+         <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-20 px-6 py-24">
+           {/* Hero — one primary action */}
+           <section className="flex flex-col items-center gap-6 text-center">
++            {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
++            <MapleLeafSignatureLazy />
+             <span className="text-muted-foreground border-border inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
+               ⬡ Sovereign Canadian deep research
+             </span>
+diff --git a/web/app/sign-in/page.tsx b/web/app/sign-in/page.tsx
+index 2afe22ba..025c5746 100644
+--- a/web/app/sign-in/page.tsx
++++ b/web/app/sign-in/page.tsx
+@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
+ import Link from "next/link";
+ 
+ import { login } from "@/lib/auth";
++import { MapleLeafSignatureLazy } from "@/components/signature/maple_leaf_signature_lazy";
+ import { Button } from "@/components/ui/button";
+ import {
+   Card,
+@@ -99,6 +100,10 @@ function SignInPageContent() {
+   return (
+     <div className="bg-muted/40 flex min-h-screen flex-col items-center justify-center px-6 py-12">
+       <div className="flex w-full max-w-sm flex-col gap-6">
++        {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
++        <div className="flex justify-center">
++          <MapleLeafSignatureLazy />
++        </div>
+         <div className="flex flex-col gap-1 text-center">
+           <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+             POLARIS Canada
+diff --git a/web/components/signature/maple_leaf_signature.tsx b/web/components/signature/maple_leaf_signature.tsx
+new file mode 100644
+index 00000000..d92e7d3a
+--- /dev/null
++++ b/web/components/signature/maple_leaf_signature.tsx
+@@ -0,0 +1,189 @@
++// I-p2-028 (#767): the flying maple-leaf signature, rendered in fine-grained
++// Braille/Unicode density art (U+2800, 2×4 dots per glyph). three.js extrudes a
++// maple-leaf shape, renders it to an offscreen render target, and each frame the
++// luminance grid is mapped to Braille glyphs (dark-red leaf on white). Decorative
++// (aria-hidden); prefers-reduced-motion → one static frame; WebGL-unavailable →
++// graceful absence; lazy-loaded (this module + three live behind a dynamic import).
++"use client";
++
++import { useEffect, useRef, useState } from "react";
++import * as THREE from "three";
++
++// Offscreen render resolution → Braille grid (2px×4px per glyph).
++const PX_W = 120;
++const PX_H = 80;
++const GLYPH_W = PX_W / 2; // 60
++const GLYPH_H = PX_H / 4; // 20
++const LUMA_THRESHOLD = 200; // below = leaf pixel (dot set)
++const FRAME_MS = 1000 / 24; // cap ~24fps
++
++// Canonical Braille dot bitmask per [row][col=left,right]: rows 0-3 top→bottom.
++const DOT_BITS: readonly [number, number][] = [
++  [0x01, 0x08], // row 0: left, right
++  [0x02, 0x10], // row 1
++  [0x04, 0x20], // row 2
++  [0x40, 0x80], // row 3
++];
++
++// A symmetric, recognizable maple-leaf half-silhouette (x>=0, bottom→top),
++// mirrored to form the full leaf. Normalized to roughly [-1, 1].
++const MAPLE_HALF: readonly [number, number][] = [
++  [0.0, -1.0],
++  [0.05, -0.52],
++  [0.32, -0.46],
++  [0.18, -0.32],
++  [0.56, -0.18],
++  [0.3, -0.08],
++  [0.46, 0.12],
++  [0.22, 0.19],
++  [0.31, 0.46],
++  [0.12, 0.5],
++  [0.13, 0.92],
++  [0.0, 1.0],
++];
++
++function buildLeafShape(): THREE.Shape {
++  const shape = new THREE.Shape();
++  shape.moveTo(MAPLE_HALF[0][0], MAPLE_HALF[0][1]);
++  for (let i = 1; i < MAPLE_HALF.length; i++) {
++    shape.lineTo(MAPLE_HALF[i][0], MAPLE_HALF[i][1]);
++  }
++  // Mirror back down the left side (skip the shared top + bottom points).
++  for (let i = MAPLE_HALF.length - 2; i >= 1; i--) {
++    shape.lineTo(-MAPLE_HALF[i][0], MAPLE_HALF[i][1]);
++  }
++  shape.closePath();
++  return shape;
++}
++
++function pixelsToBraille(buf: Uint8Array): string {
++  const lines: string[] = [];
++  for (let gy = 0; gy < GLYPH_H; gy++) {
++    let line = "";
++    for (let gx = 0; gx < GLYPH_W; gx++) {
++      let mask = 0;
++      for (let dr = 0; dr < 4; dr++) {
++        for (let dc = 0; dc < 2; dc++) {
++          const px = gx * 2 + dc;
++          const py = gy * 4 + dr;
++          // WebGL readback is bottom-up → flip Y so the leaf is upright.
++          const bufRow = PX_H - 1 - py;
++          const idx = (bufRow * PX_W + px) * 4;
++          const luma =
++            0.299 * buf[idx] + 0.587 * buf[idx + 1] + 0.114 * buf[idx + 2];
++          if (luma < LUMA_THRESHOLD) mask |= DOT_BITS[dr][dc];
++        }
++      }
++      line += String.fromCodePoint(0x2800 + mask);
++    }
++    lines.push(line);
++  }
++  return lines.join("\n");
++}
++
++export default function MapleLeafSignature() {
++  const [art, setArt] = useState<string>("");
++  const preRef = useRef<HTMLPreElement>(null);
++
++  useEffect(() => {
++    let renderer: THREE.WebGLRenderer | null = null;
++    let target: THREE.WebGLRenderTarget | null = null;
++    let geometry: THREE.ExtrudeGeometry | null = null;
++    let material: THREE.MeshBasicMaterial | null = null;
++    let rafId = 0;
++    let lastFrame = 0;
++    let visible = true;
++    let cancelled = false;
++
++    try {
++      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
++      renderer.setClearColor(0xffffff, 1); // white surface
++      renderer.setSize(PX_W, PX_H, false);
++      target = new THREE.WebGLRenderTarget(PX_W, PX_H);
++
++      const scene = new THREE.Scene();
++      const cam = new THREE.OrthographicCamera(-1.3, 1.3, 1.3, -1.3, 0.1, 10);
++      cam.position.z = 3;
++
++      geometry = new THREE.ExtrudeGeometry(buildLeafShape(), {
++        depth: 0.35,
++        bevelEnabled: false,
++      });
++      geometry.center();
++      material = new THREE.MeshBasicMaterial({ color: 0xc8102e }); // Canada red
++      const mesh = new THREE.Mesh(geometry, material);
++      scene.add(mesh);
++
++      const buf = new Uint8Array(PX_W * PX_H * 4);
++      const renderOnce = (t: number) => {
++        mesh.rotation.y = t * 0.0006;
++        mesh.rotation.z = Math.sin(t * 0.0004) * 0.25; // gentle float
++        renderer!.setRenderTarget(target!);
++        renderer!.render(scene, cam);
++        renderer!.readRenderTargetPixels(target!, 0, 0, PX_W, PX_H, buf);
++        renderer!.setRenderTarget(null);
++        if (!cancelled) setArt(pixelsToBraille(buf));
++      };
++
++      const reduce = window.matchMedia(
++        "(prefers-reduced-motion: reduce)",
++      ).matches;
++
++      if (reduce) {
++        renderOnce(900); // a single, pleasing static frame
++      } else {
++        const loop = (t: number) => {
++          rafId = requestAnimationFrame(loop);
++          if (!visible || t - lastFrame < FRAME_MS) return;
++          lastFrame = t;
++          renderOnce(t);
++        };
++        rafId = requestAnimationFrame(loop);
++      }
++
++      // Pause the loop when the signature is scrolled offscreen.
++      const io = new IntersectionObserver(
++        (entries) => {
++          visible = entries[0]?.isIntersecting ?? true;
++        },
++        { threshold: 0 },
++      );
++      if (preRef.current) io.observe(preRef.current);
++
++      return () => {
++        cancelled = true;
++        cancelAnimationFrame(rafId);
++        io.disconnect();
++        geometry?.dispose();
++        material?.dispose();
++        target?.dispose();
++        renderer?.dispose();
++      };
++    } catch {
++      // WebGL unavailable / setup failure → dispose anything allocated +
++      // graceful absence (decorative only). (Codex iter-1 P2.)
++      geometry?.dispose();
++      material?.dispose();
++      target?.dispose();
++      renderer?.dispose();
++      return () => {
++        cancelled = true;
++      };
++    }
++  }, []);
++
++  // Always render the <pre> (even before the first frame) so the
++  // IntersectionObserver in the effect has a stable element to observe — the
++  // offscreen perf-pause depends on it (Codex iter-1 P1). It's empty (0 lines)
++  // until the first frame fills `art`.
++  return (
++    <pre
++      ref={preRef}
++      aria-hidden
++      className="pointer-events-none overflow-hidden font-mono text-[6px] leading-[0.62] tracking-[-0.06em] select-none sm:text-[8px]"
++      style={{ color: "#c8102e" }}
++    >
++      {art}
++    </pre>
++  );
++}
+diff --git a/web/components/signature/maple_leaf_signature_lazy.tsx b/web/components/signature/maple_leaf_signature_lazy.tsx
+new file mode 100644
+index 00000000..f07cf037
+--- /dev/null
++++ b/web/components/signature/maple_leaf_signature_lazy.tsx
+@@ -0,0 +1,16 @@
++// I-p2-028 (#767): client lazy boundary for the maple-leaf signature. The heavy
++// module (three.js + the Braille renderer) loads ONLY here, as a dynamic chunk,
++// so it never enters the initial route bundle (G-PERF). Decorative; ssr:false
++// because it needs WebGL + window.
++"use client";
++
++import dynamic from "next/dynamic";
++
++const MapleLeafSignature = dynamic(() => import("./maple_leaf_signature"), {
++  ssr: false,
++  loading: () => null,
++});
++
++export function MapleLeafSignatureLazy() {
++  return <MapleLeafSignature />;
++}
+diff --git a/web/package-lock.json b/web/package-lock.json
+index 4c05f285..43ec6438 100644
+--- a/web/package-lock.json
++++ b/web/package-lock.json
+@@ -9,6 +9,7 @@
+       "version": "0.1.0",
+       "dependencies": {
+         "@base-ui/react": "^1.4.1",
++        "@types/three": "^0.184.1",
+         "class-variance-authority": "^0.7.1",
+         "clsx": "^2.1.1",
+         "cytoscape": "^3.30.4",
+@@ -26,6 +27,7 @@
+         "sonner": "^2.0.7",
+         "tailwind-merge": "^3.5.0",
+         "tar-stream": "^3.2.0",
++        "three": "^0.184.0",
+         "tw-animate-css": "^1.4.0",
+         "vega-embed": "^7.1.0"
+       },
+@@ -551,6 +553,12 @@
+         }
+       }
+     },
++    "node_modules/@dimforge/rapier3d-compat": {
++      "version": "0.12.0",
++      "resolved": "https://registry.npmjs.org/@dimforge/rapier3d-compat/-/rapier3d-compat-0.12.0.tgz",
++      "integrity": "sha512-uekIGetywIgopfD97oDL5PfeezkFpNhwlzlaEYNOA0N6ghdsOvh/HYjSMek5Q2O1PYvRSDFcqFVJl4r4ZBwOow==",
++      "license": "Apache-2.0"
++    },
+     "node_modules/@dotenvx/dotenvx": {
+       "version": "1.64.0",
+       "resolved": "https://registry.npmjs.org/@dotenvx/dotenvx/-/dotenvx-1.64.0.tgz",
+@@ -2379,6 +2387,12 @@
+         "url": "https://github.com/sponsors/isaacs"
+       }
+     },
++    "node_modules/@tweenjs/tween.js": {
++      "version": "23.1.3",
++      "resolved": "https://registry.npmjs.org/@tweenjs/tween.js/-/tween.js-23.1.3.tgz",
++      "integrity": "sha512-vJmvvwFxYuGnF2axRtPYocag6Clbb5YS7kLL+SO/TeVFzHqDIWrNKYtcsPMibjDx9O+bu+psAy9NKfWklassUA==",
++      "license": "MIT"
++    },
+     "node_modules/@tybys/wasm-util": {
+       "version": "0.10.1",
+       "resolved": "https://registry.npmjs.org/@tybys/wasm-util/-/wasm-util-0.10.1.tgz",
+@@ -2497,6 +2511,12 @@
+         "@types/node": "*"
+       }
+     },
++    "node_modules/@types/stats.js": {
++      "version": "0.17.4",
++      "resolved": "https://registry.npmjs.org/@types/stats.js/-/stats.js-0.17.4.tgz",
++      "integrity": "sha512-jIBvWWShCvlBqBNIZt0KAshWpvSjhkwkEu4ZUcASoAvhmrgAUI2t1dXrjSL4xXVLB4FznPrIsX3nKXFl/Dt4vA==",
++      "license": "MIT"
++    },
+     "node_modules/@types/statuses": {
+       "version": "2.0.6",
+       "resolved": "https://registry.npmjs.org/@types/statuses/-/statuses-2.0.6.tgz",
+@@ -2513,12 +2533,32 @@
+         "@types/node": "*"
+       }
+     },
++    "node_modules/@types/three": {
++      "version": "0.184.1",
++      "resolved": "https://registry.npmjs.org/@types/three/-/three-0.184.1.tgz",
++      "integrity": "sha512-6q4VdiqVsrTRqmk62/BnlcAvIrnDM0zf2ZDVKI5kZiniWrSaOHaQzmbp+BNzoggc/8tgW412pL//wZIxu2PPTA==",
++      "license": "MIT",
++      "dependencies": {
++        "@dimforge/rapier3d-compat": "~0.12.0",
++        "@tweenjs/tween.js": "~23.1.3",
++        "@types/stats.js": "*",
++        "@types/webxr": ">=0.5.17",
++        "fflate": "~0.8.2",
++        "meshoptimizer": "~1.1.1"
++      }
++    },
+     "node_modules/@types/validate-npm-package-name": {
+       "version": "4.0.2",
+       "resolved": "https://registry.npmjs.org/@types/validate-npm-package-name/-/validate-npm-package-name-4.0.2.tgz",
+       "integrity": "sha512-lrpDziQipxCEeK5kWxvljWYhUvOiB2A9izZd9B2AFarYAkqZshb4lPbRs7zKEic6eGtH8V/2qJW+dPp9OtF6bw==",
+       "license": "MIT"
+     },
++    "node_modules/@types/webxr": {
++      "version": "0.5.24",
++      "resolved": "https://registry.npmjs.org/@types/webxr/-/webxr-0.5.24.tgz",
++      "integrity": "sha512-h8fgEd/DpoS9CBrjEQXR+dIDraopAEfu4wYVNY2tEPwk60stPWhvZMf4Foo5FakuQ7HFZoa8WceaWFervK2Ovg==",
++      "license": "MIT"
++    },
+     "node_modules/@typescript-eslint/eslint-plugin": {
+       "version": "8.59.1",
+       "resolved": "https://registry.npmjs.org/@typescript-eslint/eslint-plugin/-/eslint-plugin-8.59.1.tgz",
+@@ -5616,6 +5656,12 @@
+         "node": "^12.20 || >= 14.13"
+       }
+     },
++    "node_modules/fflate": {
++      "version": "0.8.3",
++      "resolved": "https://registry.npmjs.org/fflate/-/fflate-0.8.3.tgz",
++      "integrity": "sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==",
++      "license": "MIT"
++    },
+     "node_modules/figures": {
+       "version": "6.1.0",
+       "resolved": "https://registry.npmjs.org/figures/-/figures-6.1.0.tgz",
+@@ -7516,6 +7562,12 @@
+         "node": ">= 8"
+       }
+     },
++    "node_modules/meshoptimizer": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/meshoptimizer/-/meshoptimizer-1.1.1.tgz",
++      "integrity": "sha512-oRFNWJRDA/WTrVj7NWvqa5HqE1t9MYDj2VaWirQCzCCrAd2GHrqR/sQezCxiWATPNlKTcRaPRHPJwIRoPBAp5g==",
++      "license": "MIT"
++    },
+     "node_modules/micromatch": {
+       "version": "4.0.8",
+       "resolved": "https://registry.npmjs.org/micromatch/-/micromatch-4.0.8.tgz",
+@@ -9790,6 +9842,12 @@
+         "b4a": "^1.6.4"
+       }
+     },
++    "node_modules/three": {
++      "version": "0.184.0",
++      "resolved": "https://registry.npmjs.org/three/-/three-0.184.0.tgz",
++      "integrity": "sha512-wtTRjG92pM5eUg/KuUnHsqSAlPM296brTOcLgMRqEeylYTh/CdtvKUvCyyCQTzFuStieWxvZb8mVTMvdPyUpxg==",
++      "license": "MIT"
++    },
+     "node_modules/tiny-invariant": {
+       "version": "1.3.3",
+       "resolved": "https://registry.npmjs.org/tiny-invariant/-/tiny-invariant-1.3.3.tgz",
+diff --git a/web/package.json b/web/package.json
+index b656d45b..bfca24c0 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -16,6 +16,7 @@
+   },
+   "dependencies": {
+     "@base-ui/react": "^1.4.1",
++    "@types/three": "^0.184.1",
+     "class-variance-authority": "^0.7.1",
+     "clsx": "^2.1.1",
+     "cytoscape": "^3.30.4",
+@@ -33,6 +34,7 @@
+     "sonner": "^2.0.7",
+     "tailwind-merge": "^3.5.0",
+     "tar-stream": "^3.2.0",
++    "three": "^0.184.0",
+     "tw-animate-css": "^1.4.0",
+     "vega-embed": "^7.1.0"
+   },

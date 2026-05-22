@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 import { login } from "@/lib/auth";
+import { MapleLeafSignatureLazy } from "@/components/signature/maple_leaf_signature_lazy";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -99,6 +100,10 @@ function SignInPageContent() {
   return (
     <div className="bg-muted/40 flex min-h-screen flex-col items-center justify-center px-6 py-12">
       <div className="flex w-full max-w-sm flex-col gap-6">
+        {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
+        <div className="flex justify-center">
+          <MapleLeafSignatureLazy />
+        </div>
         <div className="flex flex-col gap-1 text-center">
           <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
             POLARIS Canada
