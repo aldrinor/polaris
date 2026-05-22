@@ -108,7 +108,7 @@ const PILLARS = [
   {
     icon: ShieldCheck,
     title: "Sovereign",
-    body: "Canadian AI processing, no external AI vendor. Public sources are fetched via logged Canadian egress, and every brief is integrity-hashed and auditable.",
+    body: "Built for Canadian-hosted, sovereign deployment. Public sources are fetched via logged Canadian egress, and every brief is integrity-hashed and auditable.",
   },
   {
     icon: Network,
