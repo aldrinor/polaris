@@ -1,34 +1,36 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * Slice 005 — full demo walkthrough (updated for I-f1-001 template grid).
+ * Slice 005 — full demo walkthrough.
  *
- * Drives the four-step flow in the same order a non-developer follows
- * during the Sep 6 tracer demo:
- *   home (clinical template card) → intake → retrieval → generation → benchmark
+ * Drives the flow a non-developer follows during the demo:
+ *   home (one-CTA hero) → intake → retrieval → generation → benchmark
  *
- * I-f1-001 replaced the demo-slice cards on `/` with the F1 template grid
- * (3 active + 5 to-build). The home entry-point now clicks the clinical
- * template card → /intake?template=clinical, instead of the legacy
- * demo-slice-intake card.
+ * I-p2-013 (#752) replaced the home template grid with a one-CTA hero; the
+ * home entry-point now fills the hero search and submits → /intake.
  *
- * This is a STRUCTURAL test — it asserts that each page loads and exposes
- * its core testid hooks. It does NOT validate content (which would require
- * real OPENROUTER_API_KEY / SERPER_API_KEY at runtime). For content
- * verification, use the runbook in docs/demo_runbook.md.
+ * STRUCTURAL test — asserts each page loads + exposes its core testid hooks.
+ * It does NOT validate content (which needs real API keys at runtime).
  */
 
 test.describe("Slice 005 — full demo walkthrough", () => {
   test("home → intake → retrieval → generation → benchmark", async ({
     page,
   }) => {
-    // Step 0 — home (template grid)
+    // Step 0 — home (one-CTA hero; I-p2-013 replaced the template grid)
     await page.goto("/", { waitUntil: "networkidle" });
-    await expect(page.getByTestId("template-grid")).toBeVisible();
+    await expect(page.getByTestId("home-hero-search")).toBeVisible();
 
-    // Step 1 — intake (click the clinical template card)
-    await page.getByTestId("template-card-clinical-link").click();
-    await page.waitForURL("**/intake?template=clinical");
+    // Step 1 — intake (the hero search funnels to /intake)
+    await page
+      .getByTestId("home-hero-search")
+      .getByRole("searchbox")
+      .fill("What did the SELECT trial show on cardiovascular outcomes?");
+    await page
+      .getByTestId("home-hero-search")
+      .getByRole("button", { name: "Verify" })
+      .click();
+    await page.waitForURL("**/intake**");
     await expect(page.getByTestId("intake-page")).toBeVisible();
     await expect(page.getByTestId("intake-question-input")).toBeVisible();
 
@@ -45,25 +47,24 @@ test.describe("Slice 005 — full demo walkthrough", () => {
     await expect(page.getByTestId("benchmark-page")).toBeVisible();
   });
 
-  test("home template grid surfaces 1 active + 7 to-build cards", async ({
+  test("home surfaces the one-CTA hero + three differentiator pillars", async ({
     page,
   }) => {
     await page.goto("/", { waitUntil: "networkidle" });
-    const active = ["clinical"];
-    const to_build = [
-      "policy",
-      "tech",
-      "due_diligence",
-      "ai_sovereignty",
-      "canada_us",
-      "workforce",
-      "custom",
-    ];
-    for (const id of active) {
-      await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+    // One primary CTA (the hero search + Verify), not a grid of cards.
+    await expect(page.getByTestId("home-hero-search")).toBeVisible();
+    await expect(
+      page.getByTestId("home-hero-search").getByRole("button", {
+        name: "Verify",
+      }),
+    ).toBeVisible();
+    // The three differentiator pillars replace the old template grid.
+    for (const pillar of ["Provable", "Sovereign", "Snowball"]) {
+      await expect(
+        page.getByRole("heading", { name: pillar }),
+      ).toBeVisible();
     }
-    for (const id of to_build) {
-      await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
-    }
+    // The old templates grid is gone.
+    await expect(page.getByTestId("template-grid")).toHaveCount(0);
   });
 });

@@ -1,5 +1,4 @@
 import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
-import Link from "next/link";
 
 import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
 import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
