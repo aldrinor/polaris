@@ -47,7 +47,10 @@ export function InspectorView({
           <TabsTrigger value="metadata">Metadata</TabsTrigger>
         </TabsList>
         <TabsContent value="report" tabId="report">
-          <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
+          <VerifiedReportSections
+            verifiedReport={bundle.verifiedReport}
+            evidencePool={bundle.evidencePool}
+          />
         </TabsContent>
         <TabsContent value="scope" tabId="scope">
           <ScopeDecisionCard value={bundle.scopeDecision} />
