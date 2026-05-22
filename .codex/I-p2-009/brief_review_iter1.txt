@@ -1,0 +1,2445 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4ef0-1b0f-7cd3-85a5-62cb9f94f798
+--------
+user
+# Codex BRIEF review — I-p2-009 (#748): sovereignty proof panel + signed-bundle mark
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; cosmetics → P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; do not bank for iter 6.
+- Surface held-back findings now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Task
+A reusable **sovereignty proof panel + signed-bundle mark** — surfaces POLARIS's sovereignty + integrity story as VERIFIABLE facts (not a marketing badge).
+
+## Verified current state (grounded — REAL fields only; HONESTY is P0-critical here)
+- Sovereign mark wording already in shell (app_shell.tsx:50,52): "Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor" — HONEST (NOT air-gapped; public sources fetched via logged Canadian egress). Reuse this exact framing.
+- Real signed-bundle data (signed_bundle.ts): BundleMetadata {polaris_version, generator_model, evaluator_model, bundle_created_at_utc, schema_version "1.0"}; BundleManifest {bundle_id, decision_id, pool_id, report_id, generator_model, polaris_version, files[] each with sha256, bundle_created_at_utc}.
+- There is NO top-level cryptographic SIGNATURE field in the manifest — integrity is content-addressed (per-file sha256 in the manifest). So the mark is "integrity-hashed / tamper-evident" — do NOT claim "cryptographically signed" unless a signature is explicitly passed in.
+- Two-family invariant: generator_model vs evaluator_model are different lineages (existing family_segregation_badge.tsx renders this).
+- #742 tokens; copy discipline: "verified provenance"/"integrity-hashed", NEVER "guaranteed true"/"cryptographically signed" without a real signature.
+
+## Acceptance criteria (diff implements; brief reviews the plan)
+1. `web/components/sovereignty/sovereignty_panel.tsx`: props = metadata (generator_model, evaluator_model, polaris_version, bundle_created_at_utc) + OPTIONAL manifest (bundle_id, files for the integrity hash) + OPTIONAL signature (rendered as "cryptographically signed" ONLY when present).
+2. Renders three honest sections: (a) Sovereignty — the exact shell wording (Canadian processing, logged egress, no external AI vendor); (b) Two-family — generator vs evaluator model (different lineages); (c) Bundle integrity — bundle_id, schema 1.0, created_at, polaris_version, + "integrity-hashed (N files, sha256)" or, if signature passed, "cryptographically signed".
+3. HONESTY: render only fields present; NO "cryptographically signed" without a signature; NO "air-gapped"; NO fabricated counts. Missing fields omitted.
+4. Frontier-Minimal (white, Canada-red, mono for ids/hashes); WCAG 2.2 AA.
+
+## Files I have ALSO checked and they're clean
+- web/lib/signed_bundle.ts (BundleManifest/BundleMetadata real fields), web/components/inspector/family_segregation_badge.tsx (two-family render to reuse/mirror), web/components/app_shell.tsx (the honest sovereign wording), web/app/globals.css (#742 tokens).
+
+## Review focus
+1. HONESTY (P0/P1 if violated): any overclaim — "cryptographically signed" without a signature, "air-gapped", fabricated hash/count? The mark must match what the bundle actually proves (content-addressed integrity).
+2. Real-field grounding (no invented manifest fields)?
+3. Two-family render correct (generator vs evaluator lineage)? a11y/tokens.
+4. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+codex
+I’ll inspect the current diff and the specific sovereignty/signed-bundle files against the honesty criteria, then return only the review findings in the requested YAML shape.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "sovereignty_panel|SovereigntyPanel|cryptographically signed|air-gapped|air gapped|integrity-hashed|signed bundle|sha256|bundle_id|schema_version|generator_model|evaluator_model" web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/components/sovereignty/sovereignty_panel.tsx web/lib/signed_bundle.ts web/components/inspector/family_segregation_badge.tsx web/components/app_shell.tsx web/app/globals.css' in C:\POLARIS
+ succeeded in 1466ms:
+ M .claude/settings.json
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-p2-009/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+ succeeded in 1597ms:
+ succeeded in 1895ms:
+web\lib\api.ts:303:  sha256: string;
+web\lib\api.ts:457:  generator_model: string;
+web\lib\api.ts:828:  evaluator_model: string;
+web\lib\api.ts:924:  generator_model: string;
+web\lib\api.ts:925:  evaluator_model: string;
+web\lib\api.ts:1074:  preview_bundle_id: string;
+web\lib\api.ts:1075:  generator_model: string;
+web\lib\api.ts:1324:  schema_version: "1.0";
+web\lib\api.ts:1449:  schema_version: string;
+web\lib\api.ts:1483:  protocol_sha256: string;
+web\lib\api.ts:1507:  generator_model: string;
+web\lib\api.ts:1509:  evaluator_model: string;
+web\lib\api.ts:1551:  ir_schema_version: string;
+web\lib\inspector_bundle_client_loader.ts:163:async function _sha256Hex(bytes: Uint8Array): Promise<string> {
+web\lib\inspector_bundle_client_loader.ts:268:    const actualSha = await _sha256Hex(candidate.bytes);
+web\lib\inspector_bundle_client_loader.ts:269:    if (actualSha !== entry.sha256) {
+web\lib\inspector_bundle_client_loader.ts:271:        "sha256_mismatch",
+web\lib\inspector_bundle_client_loader.ts:272:        `${JSON.stringify(entry.path)}: manifest sha256=${JSON.stringify(entry.sha256)}, actual=${JSON.stringify(actualSha)}.`,
+web\lib\inspector_bundle_loader.ts:49:  generator_model: string;
+web\lib\inspector_bundle_loader.ts:50:  evaluator_model: string;
+web\tests\fixtures\graph_payload.json:147:  "schema_version": "1.0"
+web\lib\signed_bundle.ts:9://   - Offline fallback Inspector that renders a signed bundle in-browser
+web\lib\signed_bundle.ts:50:  sha256: string; // lowercase hex SHA256
+web\lib\signed_bundle.ts:60:  bundle_id: string;
+web\lib\signed_bundle.ts:65:  generator_model: string;
+web\lib\signed_bundle.ts:102:  generator_model: string;
+web\lib\signed_bundle.ts:103:  evaluator_model: string;
+web\lib\signed_bundle.ts:105:  schema_version: typeof BUNDLE_VERSION;
+web\lib\signed_bundle.ts:129:    "bundle_id",
+web\lib\signed_bundle.ts:133:    "generator_model",
+web\components\source\source_card.tsx:104:          sha256 {contentHash}
+web\app\inspector\offline\page.tsx:1:// I-cd-021 (#631) — Offline Inspector page. Renders a v1.0 signed bundle
+web\components\proof_replay\proof_replay.tsx:108:                  in this bundle — verify via the signed bundle.
+web\components\citation\citation_chip.tsx:90:                signed bundle.
+web\components\inspector\bundle_header.tsx:21:        <KeyValue label="Bundle ID" value={manifest.bundle_id} mono />
+web\components\inspector\bundle_header.tsx:29:          value={manifest.generator_model}
+web\app\generation\components\evaluator_pane.tsx:75:                {disagreement.evaluator_model}
+web\app\sentence_hover_test\_demo_stress.tsx:73:    generator_model: "test/stress",
+web\app\sentence_hover_test\_demo_stress.tsx:74:    evaluator_model: "strict_verify_v1",
+web\app\generation\components\BundlePreview.tsx:92:          Preview ID: {p.preview_bundle_id.slice(0, 8)}…
+web\app\generation\components\BundlePreview.tsx:94:        <span>Generator: {p.generator_model}</span>
+web\components\inspector\family_segregation_badge.tsx:2:// Source of truth: verified_report.evaluator_model + verified_report.family_segregation_passed
+web\components\inspector\family_segregation_badge.tsx:40:          <p className="font-mono text-sm">{manifest.generator_model}</p>
+web\components\inspector\family_segregation_badge.tsx:46:          <p className="font-mono text-sm">{verifiedReport.evaluator_model}</p>
+web\app\sentence_hover_test\memory_cite\page.tsx:42:  generator_model: "demo-generator",
+web\app\sentence_hover_test\memory_cite\page.tsx:43:  evaluator_model: "demo-evaluator",
+web\components\inspector\hash_chain_panel.tsx:1:// I-cd-013a (GH#609) — manifest.files[] table (path + content_type + size + sha256 head).
+web\components\inspector\hash_chain_panel.tsx:46:                    {f.sha256.slice(0, 16)}&hellip;
+web\app\sentence_hover_test\_demo_coverage.tsx:99:    generator_model: "test/cov",
+web\app\sentence_hover_test\_demo_coverage.tsx:100:    evaluator_model: "strict_verify_v1",
+web\app\sentence_hover_test\_demo.tsx:154:            evaluator_model: "qwen-3.5-plus",
+web\app\sentence_hover_test\_demo.tsx:461:  generator_model: "test/model",
+web\app\sentence_hover_test\_demo.tsx:462:  evaluator_model: "strict_verify_v1",
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:73:                  evaluator_model: "qwen-3.5-plus",
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:84:    generator_model: "test/edge",
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:85:    evaluator_model: "strict_verify_v1",
+web\components\inspector\metadata_panel.tsx:32:            {metadata.generator_model}
+web\components\inspector\metadata_panel.tsx:39:            {metadata.evaluator_model}
+web\components\inspector\metadata_panel.tsx:53:            {metadata.schema_version}
+web\app\sentence_hover_test\follow_up_append\page.tsx:33:    generator_model: "demo-generator",
+web\app\sentence_hover_test\follow_up_append\page.tsx:34:    evaluator_model: "demo-evaluator",
+web\app\generation\components\verified_report_view.tsx:413:              {report.generator_model}
+web\app\generation\components\verified_report_view.tsx:420:              {report.evaluator_model}
+web\tests\e2e\bundle_preview.spec.ts:34:  generator_model: "test-gen",
+web\tests\e2e\bundle_preview.spec.ts:35:  evaluator_model: "strict_verify_v1",
+web\tests\e2e\bundle_preview.spec.ts:44:  preview_bundle_id: "abcdef0123456789-aaaa",
+web\tests\e2e\bundle_preview.spec.ts:45:  generator_model: "test-gen",
+web\tests\e2e\upload_doc_preview.spec.ts:17:        sha256: "stub",
+web\tests\e2e\upload_doc_preview.spec.ts:35:        sha256: "stub",
+web\tests\e2e\upload_dropzone.spec.ts:16:        sha256: "stub",
+web\tests\e2e\upload_evidence_toggle.spec.ts:21:        sha256: "stub",
+web\tests\e2e\upload_parse_status.spec.ts:36:        sha256: "stub",
+web\tests\e2e\upload_parse_status.spec.ts:54:        sha256: "stub",
+
+codex
+The tracked diff for the target web files is empty, and `rg` did not find a `sovereignty_panel` implementation under `web`. I’m checking the task-specific `.codex/I-p2-009` inputs now, because the actual proposed patch may be staged there rather than applied to the worktree.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Recurse -Force .codex\\I-p2-009 | Select-Object FullName,Length" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"sovereignty|SovereigntyPanel|cryptographically signed|air-gapped|integrity-hashed|Bundle integrity|Canadian AI processing|public-source retrieval|logged Canadian egress|no external AI vendor|signature\" .codex\\I-p2-009 web" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short -- web/components/sovereignty web/components/sovereignty/sovereignty_panel.tsx' in C:\POLARIS
+ succeeded in 1328ms:
+
+[32;1mFullName                                         [0m[32;1m Length[0m
+[32;1m--------                                         [0m [32;1m------[0m
+C:\POLARIS\.codex\I-p2-009\brief_review_iter1.txt      0
+C:\POLARIS\.codex\I-p2-009\brief.md                 3714
+
+
+ succeeded in 1581ms:
+web\package-lock.json:3972:    "node_modules/cookie-signature": {
+web\package-lock.json:3974:      "resolved": "https://registry.npmjs.org/cookie-signature/-/cookie-signature-1.2.2.tgz",
+web\package-lock.json:5435:        "cookie-signature": "^1.2.1",
+web\lib\api.ts:61:  | "ai_sovereignty"
+web\components\app_shell.tsx:50:            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+web\components\app_shell.tsx:52:            ⬡ Canadian AI · no external AI vendor
+.codex\I-p2-009\brief.md:1:# Codex BRIEF review — I-p2-009 (#748): sovereignty proof panel + signed-bundle mark
+.codex\I-p2-009\brief.md:12:A reusable **sovereignty proof panel + signed-bundle mark** — surfaces POLARIS's sovereignty + integrity story as VERIFIABLE facts (not a marketing badge).
+.codex\I-p2-009\brief.md:15:- Sovereign mark wording already in shell (app_shell.tsx:50,52): "Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor" — HONEST (NOT air-gapped; public sources fetched via logged Canadian egress). Reuse this exact framing.
+.codex\I-p2-009\brief.md:17:- There is NO top-level cryptographic SIGNATURE field in the manifest — integrity is content-addressed (per-file sha256 in the manifest). So the mark is "integrity-hashed / tamper-evident" — do NOT claim "cryptographically signed" unless a signature is explicitly passed in.
+.codex\I-p2-009\brief.md:19:- #742 tokens; copy discipline: "verified provenance"/"integrity-hashed", NEVER "guaranteed true"/"cryptographically signed" without a real signature.
+.codex\I-p2-009\brief.md:22:1. `web/components/sovereignty/sovereignty_panel.tsx`: props = metadata (generator_model, evaluator_model, polaris_version, bundle_created_at_utc) + OPTIONAL manifest (bundle_id, files for the integrity hash) + OPTIONAL signature (rendered as "cryptographically signed" ONLY when present).
+.codex\I-p2-009\brief.md:23:2. Renders three honest sections: (a) Sovereignty — the exact shell wording (Canadian processing, logged egress, no external AI vendor); (b) Two-family — generator vs evaluator model (different lineages); (c) Bundle integrity — bundle_id, schema 1.0, created_at, polaris_version, + "integrity-hashed (N files, sha256)" or, if signature passed, "cryptographically signed".
+.codex\I-p2-009\brief.md:24:3. HONESTY: render only fields present; NO "cryptographically signed" without a signature; NO "air-gapped"; NO fabricated counts. Missing fields omitted.
+.codex\I-p2-009\brief.md:31:1. HONESTY (P0/P1 if violated): any overclaim — "cryptographically signed" without a signature, "air-gapped", fabricated hash/count? The mark must match what the bundle actually proves (content-addressed integrity).
+.codex\I-p2-009\brief_review_iter1.txt:13:# Codex BRIEF review — I-p2-009 (#748): sovereignty proof panel + signed-bundle mark
+.codex\I-p2-009\brief_review_iter1.txt:24:A reusable **sovereignty proof panel + signed-bundle mark** — surfaces POLARIS's sovereignty + integrity story as VERIFIABLE facts (not a marketing badge).
+.codex\I-p2-009\brief_review_iter1.txt:27:- Sovereign mark wording already in shell (app_shell.tsx:50,52): "Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor" — HONEST (NOT air-gapped; public sources fetched via logged Canadian egress). Reuse this exact framing.
+.codex\I-p2-009\brief_review_iter1.txt:29:- There is NO top-level cryptographic SIGNATURE field in the manifest — integrity is content-addressed (per-file sha256 in the manifest). So the mark is "integrity-hashed / tamper-evident" — do NOT claim "cryptographically signed" unless a signature is explicitly passed in.
+.codex\I-p2-009\brief_review_iter1.txt:31:- #742 tokens; copy discipline: "verified provenance"/"integrity-hashed", NEVER "guaranteed true"/"cryptographically signed" without a real signature.
+.codex\I-p2-009\brief_review_iter1.txt:34:1. `web/components/sovereignty/sovereignty_panel.tsx`: props = metadata (generator_model, evaluator_model, polaris_version, bundle_created_at_utc) + OPTIONAL manifest (bundle_id, files for the integrity hash) + OPTIONAL signature (rendered as "cryptographically signed" ONLY when present).
+.codex\I-p2-009\brief_review_iter1.txt:35:2. Renders three honest sections: (a) Sovereignty — the exact shell wording (Canadian processing, logged egress, no external AI vendor); (b) Two-family — generator vs evaluator model (different lineages); (c) Bundle integrity — bundle_id, schema 1.0, created_at, polaris_version, + "integrity-hashed (N files, sha256)" or, if signature passed, "cryptographically signed".
+.codex\I-p2-009\brief_review_iter1.txt:36:3. HONESTY: render only fields present; NO "cryptographically signed" without a signature; NO "air-gapped"; NO fabricated counts. Missing fields omitted.
+.codex\I-p2-009\brief_review_iter1.txt:43:1. HONESTY (P0/P1 if violated): any overclaim — "cryptographically signed" without a signature, "air-gapped", fabricated hash/count? The mark must match what the bundle actually proves (content-addressed integrity).
+.codex\I-p2-009\brief_review_iter1.txt:58:I’ll inspect the current diff and the specific sovereignty/signed-bundle files against the honesty criteria, then return only the review findings in the requested YAML shape.
+.codex\I-p2-009\brief_review_iter1.txt:62:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "sovereignty_panel|SovereigntyPanel|cryptographically signed|air-gapped|air gapped|integrity-hashed|signed bundle|sha256|bundle_id|schema_version|generator_model|evaluator_model" web' in C:\POLARIS
+.codex\I-p2-009\brief_review_iter1.txt:64:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/components/sovereignty/sovereignty_panel.tsx web/lib/signed_bundle.ts web/components/inspector/family_segregation_badge.tsx web/components/app_shell.tsx web/app/globals.css' in C:\POLARIS
+.codex\I-p2-009\brief_review_iter1.txt:644:The tracked diff for the target web files is empty, and `rg` did not find a `sovereignty_panel` implementation under `web`. I’m checking the task-specific `.codex/I-p2-009` inputs now, because the actual proposed patch may be staged there rather than applied to the worktree.
+.codex\I-p2-009\brief_review_iter1.txt:648:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"sovereignty|SovereigntyPanel|cryptographically signed|air-gapped|integrity-hashed|Bundle integrity|Canadian AI processing|public-source retrieval|logged Canadian egress|no external AI vendor|signature\" .codex\\I-p2-009 web" in C:\POLARIS
+.codex\I-p2-009\brief_review_iter1.txt:650:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short -- web/components/sovereignty web/components/sovereignty/sovereignty_panel.tsx' in C:\POLARIS
+web\components\inspector\bundle_header.tsx:7:  signaturePresent: boolean;
+web\components\inspector\bundle_header.tsx:12:  signaturePresent,
+web\components\inspector\bundle_header.tsx:37:          <SignatureBadge present={signaturePresent} />
+web\components\inspector\bundle_header.tsx:68:        data-testid="signature-badge"
+web\components\inspector\bundle_header.tsx:78:      data-testid="signature-badge"
+web\lib\inspector_bundle_loader.ts:11:// is the swappable seam — same function signature, different data
+web\lib\inspector_bundle_loader.ts:38:  signaturePresent: boolean;
+web\lib\inspector_bundle_loader.ts:134:  let signaturePresent = false;
+web\lib\inspector_bundle_loader.ts:137:    signaturePresent = stat.isFile() && stat.size > 0;
+web\lib\inspector_bundle_loader.ts:139:    signaturePresent = false;
+web\lib\inspector_bundle_loader.ts:151:    signaturePresent,
+web\lib\inspector_bundle_client_loader.ts:19: *   - signaturePresent: derived from manifest.yaml.asc existence + non-empty
+web\lib\inspector_bundle_client_loader.ts:319:  const signatureFile = _findFile(files, "manifest.yaml.asc");
+web\lib\inspector_bundle_client_loader.ts:320:  const signaturePresent = !!signatureFile && signatureFile.bytes.length > 0;
+web\lib\inspector_bundle_client_loader.ts:337:    signaturePresent,
+web\app\dashboard\page.tsx:52:    { id: "ai_sovereignty", title: "AI sovereignty", domain: "ISED / CIFAR" },
+web\app\components\home_keyboard_shell.tsx:66:            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+web\app\components\home_keyboard_shell.tsx:68:            ⬡ Canadian AI · no external AI vendor
+web\app\page.tsx:56:    id: "ai_sovereignty",
+web\app\page.tsx:57:    name: "AI sovereignty",
+web\app\inspector\[runId]\page.tsx:35:    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
+web\app\inspector\[runId]\inspector_view.tsx:18:  signaturePresent: boolean;
+web\app\inspector\[runId]\inspector_view.tsx:23:  signaturePresent,
+web\app\inspector\[runId]\inspector_view.tsx:33:        signaturePresent={signaturePresent}
+web\app\inspector\offline\page.tsx:56:        signaturePresent={bundle.signaturePresent}
+web\tests\e2e\command_palette.spec.ts:41:    // Arrow-down 3 times to first to-build (ai_sovereignty, after 3 active).
+web\tests\e2e\demo_walkthrough.spec.ts:57:      "ai_sovereignty",
+web\tests\e2e\landing_template_grid.spec.ts:23:  "ai_sovereignty",
+
+ succeeded in 1857ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+codex
+I found no applied component diff, so I’m treating this as a brief/plan review as requested. I’m verifying the grounded facts in the existing source now: bundle field names, current signed-bundle language, and the shell wording.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\lib\\signed_bundle.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\components\\inspector\\family_segregation_badge.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\components\\app_shell.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\components\\inspector\\bundle_header.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"--|sovereign|sovereignty|canada|red|#|signature|integrity|mono\" web\\app\\globals.css web\\components -g \"*.tsx\"" in C:\POLARIS
+ succeeded in 2486ms:
+// I-cd-012 (GH#608) — frontend mirror of
+// src/polaris_graph/audit_bundle/bundle_schema.py:BundleManifest (FROZEN v1.0).
+//
+// FROZEN v1.0: Field additions, removals, type changes, or new ContentType
+// enum members require the full bump cascade documented in the Python module.
+//
+// Active consumers:
+//   - Future Inspector route (I-A-03, #609)
+//   - Offline fallback Inspector that renders a signed bundle in-browser
+//     with no GPU/no backend (I-B-09, #631)
+//
+// Active producers (mirror this contract):
+//   - src/polaris_graph/audit_bundle/manifest_builder.py
+//   - src/polaris_graph/audit_bundle/bundle_builder.py
+//   - src/polaris_graph/api/audit_bundle_route.py
+//   - src/polaris_v6/api/bundle.py
+
+import yaml from "js-yaml";
+
+// ---------------------------------------------------------------------------
+// Type literals — must match
+// src/polaris_graph/audit_bundle/bundle_schema.py:ContentType
+// ---------------------------------------------------------------------------
+
+export type ContentType =
+  | "scope_decision"
+  | "evidence_pool"
+  | "verified_report"
+  | "source_snapshot"
+  | "metadata"
+  | "reasoning_trace";
+
+export const CONTENT_TYPES: ContentType[] = [
+  "scope_decision",
+  "evidence_pool",
+  "verified_report",
+  "source_snapshot",
+  "metadata",
+  "reasoning_trace",
+];
+
+export const BUNDLE_VERSION = "1.0" as const;
+
+// ---------------------------------------------------------------------------
+// FileEntry — mirrors bundle_schema.py:FileEntry
+// ---------------------------------------------------------------------------
+
+export interface FileEntry {
+  path: string; // relative POSIX path inside the extracted bundle
+  sha256: string; // lowercase hex SHA256
+  size_bytes: number;
+  content_type: ContentType;
+}
+
+// ---------------------------------------------------------------------------
+// BundleManifest — mirrors bundle_schema.py:BundleManifest
+// ---------------------------------------------------------------------------
+
+export interface BundleManifest {
+  bundle_id: string;
+  bundle_version: typeof BUNDLE_VERSION;
+  decision_id: string;
+  pool_id: string;
+  report_id: string;
+  generator_model: string;
+  polaris_version: string;
+  files: FileEntry[];
+  bundle_created_at_utc: string; // ISO-8601 UTC
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning trace — JSONL (one record per generator LLM call)
+// ---------------------------------------------------------------------------
+
+// Mirrors src/polaris_graph/generator/reasoning_trace.py:67
+// ReasoningTraceRecord (the active producer dataclass). 15 fields.
+// Codex diff iter-1 P1: previous 5-field shape diverged from real producer.
+export interface ReasoningTraceRecord {
+  call_id: string;
+  section: string;
+  call_type: string;
+  model: string;
+  status: string; // see reasoning_trace.py STATUSES
+  content_source: string; // see reasoning_trace.py CONTENT_SOURCES
+  parent_call_id: string | null;
+  regen_reason: string | null;
+  attempt_n: number;
+  reasoning_text: string;
+  content_text: string;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  timestamp: string; // ISO-8601 UTC
+}
+
+// ---------------------------------------------------------------------------
+// Bundle metadata — content of metadata.json
+// ---------------------------------------------------------------------------
+
+export interface BundleMetadata {
+  polaris_version: string;
+  generator_model: string;
+  evaluator_model: string;
+  bundle_created_at_utc: string;
+  schema_version: typeof BUNDLE_VERSION;
+}
+
+// ---------------------------------------------------------------------------
+// Parsers
+// ---------------------------------------------------------------------------
+
+/** Parse a `manifest.yaml` text into a typed `BundleManifest`.
+ *
+ * Validation is structural (presence of required fields + bundle_version
+ * literal); deeper conformance (path traversal, SHA256 matching, content
+ * schema validity) lives in the Python `check_bundle_conformance`. */
+export function parseManifest(yamlText: string): BundleManifest {
+  const parsed = yaml.load(yamlText);
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("manifest.yaml does not parse to a YAML mapping");
+  }
+  const m = parsed as Partial<BundleManifest>;
+  if (m.bundle_version !== BUNDLE_VERSION) {
+    throw new Error(
+      `bundle_version ${m.bundle_version} != frozen ${BUNDLE_VERSION}`,
+    );
+  }
+  for (const required of [
+    "bundle_id",
+    "decision_id",
+    "pool_id",
+    "report_id",
+    "generator_model",
+    "polaris_version",
+    "files",
+    "bundle_created_at_utc",
+  ] as const) {
+    if (m[required] === undefined || m[required] === null) {
+      throw new Error(`manifest.yaml missing required field: ${required}`);
+    }
+  }
+  if (!Array.isArray(m.files)) {
+    throw new Error("manifest.yaml `files` must be an array");
+  }
+  return m as BundleManifest;
+}
+
+/** Parse a `reasoning_trace.jsonl` text body into a list of records.
+ *
+ * One JSON object per non-empty line; blank lines are skipped. Malformed
+ * lines throw to surface bundle corruption at the source. */
+export function parseReasoningTraceJsonl(text: string): ReasoningTraceRecord[] {
+  const out: ReasoningTraceRecord[] = [];
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.trim() === "") continue;
+    let record: unknown;
+    try {
+      record = JSON.parse(line);
+    } catch (err) {
+      throw new Error(
+        `reasoning_trace.jsonl line ${i + 1} is not valid JSON: ${(err as Error).message}`,
+      );
+    }
+    if (
+      typeof record !== "object" ||
+      record === null ||
+      Array.isArray(record)
+    ) {
+      throw new Error(
+        `reasoning_trace.jsonl line ${i + 1} is not a JSON object`,
+      );
+    }
+    out.push(record as ReasoningTraceRecord);
+  }
+  return out;
+}
+
+/** Helper: filter `BundleManifest.files` by ContentType. */
+export function filesByContentType(
+  manifest: BundleManifest,
+  contentType: ContentType,
+): FileEntry[] {
+  return manifest.files.filter((f) => f.content_type === contentType);
+}
+
+ succeeded in 2747ms:
+// I-cd-013a (GH#609) — Two-family invariant badge.
+// Source of truth: verified_report.evaluator_model + verified_report.family_segregation_passed
+// (NOT metadata.json — corrected at brief iter 1 P1).
+import type { VerifiedReportShape } from "@/lib/inspector_bundle_loader";
+import type { BundleManifest } from "@/lib/signed_bundle";
+
+interface FamilySegregationBadgeProps {
+  manifest: BundleManifest;
+  verifiedReport: VerifiedReportShape;
+}
+
+export function FamilySegregationBadge({
+  manifest,
+  verifiedReport,
+}: FamilySegregationBadgeProps) {
+  const passed = verifiedReport.family_segregation_passed;
+  return (
+    <div
+      data-testid="family-segregation-badge"
+      data-state={passed ? "pass" : "fail"}
+      className="border-border bg-card flex flex-col gap-2 rounded-md border p-4 text-sm"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-medium">Two-family invariant</p>
+        <span
+          className={
+            passed
+              ? "inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+              : "inline-flex items-center rounded-md bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-900 dark:bg-rose-950 dark:text-rose-200"
+          }
+        >
+          {passed ? "Pass" : "Fail"}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div>
+          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+            Generator
+          </p>
+          <p className="font-mono text-sm">{manifest.generator_model}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+            Evaluator
+          </p>
+          <p className="font-mono text-sm">{verifiedReport.evaluator_model}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ succeeded in 3237ms:
+import Link from "next/link";
+
+import { NavLink } from "@/components/nav_link";
+import { PRIMARY_NAV, navForRole } from "@/lib/nav";
+import { DEFAULT_ROLE } from "@/lib/roles";
+
+/**
+ * I-cd-004: the global app shell. A server component that wraps every prod
+ * route with a single header + primary nav. The 8 primary nav entries are
+ * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+ *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+ *
+ * Out of scope for this issue (each its own later issue per the Seq-N order):
+ *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+ *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+ *    /dashboard rather than top-nav entries.
+ *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+ *    retired at that point (not merely hidden — per Codex P2).
+ *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+ *    I-cd-015.
+ *  - Auth gating of the nav itself is deferred to I-cd-014.
+ *  - Per-page rebuilds happen in the I-cd-013..030 series.
+ */
+// I-p2-029 (#768): PRIMARY_NAV now lives in @/lib/nav (single source of truth,
+// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <header className="border-border bg-background sticky top-0 z-40 border-b">
+        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <nav className="flex items-center gap-1" aria-label="Primary">
+            {navForRole(PRIMARY_NAV, DEFAULT_ROLE).map((item) => (
+              <NavLink key={item.href} href={item.href}>
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+          {/* I-ui-010 (#730): sovereign mark — honest wording (NOT a false
+              air-gap claim; we retrieve public sources via logged Canadian
+              egress). Eye-level badge of strength, not fine print. */}
+          <span
+            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+          >
+            ⬡ Canadian AI · no external AI vendor
+          </span>
+        </div>
+      </header>
+      <main className="flex-1">{children}</main>
+    </>
+  );
+}
+
+ succeeded in 3601ms:
+// I-cd-013a (GH#609) — Bundle header (top-level manifest summary).
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { BundleManifest } from "@/lib/signed_bundle";
+
+interface BundleHeaderProps {
+  manifest: BundleManifest;
+  signaturePresent: boolean;
+}
+
+export function BundleHeader({
+  manifest,
+  signaturePresent,
+}: BundleHeaderProps) {
+  const created = new Date(manifest.bundle_created_at_utc).toUTCString();
+  return (
+    <Card data-testid="bundle-header">
+      <CardHeader>
+        <CardTitle>Signed audit bundle</CardTitle>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+        <KeyValue label="Bundle ID" value={manifest.bundle_id} mono />
+        <KeyValue
+          label="Schema version"
+          value={`v${manifest.bundle_version}`}
+        />
+        <KeyValue label="POLARIS version" value={manifest.polaris_version} />
+        <KeyValue
+          label="Generator model"
+          value={manifest.generator_model}
+          mono
+        />
+        <KeyValue label="Decision ID" value={manifest.decision_id} mono />
+        <KeyValue label="Pool ID" value={manifest.pool_id} mono />
+        <KeyValue label="Report ID" value={manifest.report_id} mono />
+        <KeyValue label="Created (UTC)" value={created} />
+        <div className="md:col-span-2">
+          <SignatureBadge present={signaturePresent} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function KeyValue({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <p className="text-muted-foreground text-xs tracking-wide uppercase">
+        {label}
+      </p>
+      <p className={mono ? "font-mono text-sm" : "text-sm"}>{value}</p>
+    </div>
+  );
+}
+
+function SignatureBadge({ present }: { present: boolean }) {
+  if (present) {
+    return (
+      <p
+        className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200"
+        data-testid="signature-badge"
+        data-state="present"
+      >
+        Signature present
+      </p>
+    );
+  }
+  return (
+    <p
+      className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+      data-testid="signature-badge"
+      data-state="missing"
+    >
+      Signature missing
+    </p>
+  );
+}
+
+2026-05-22T09:07:40.172794Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 4.1 seconds
+Output:
+rg: unrecognized flag --|sovereign|sovereignty|canada|red|#|signature|integrity|mono
+
+ exited 1 in 4109ms:
+rg: unrecognized flag --|sovereign|sovereignty|canada|red|#|signature|integrity|mono
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -- \"sovereign|sovereignty|canada|red|signature|integrity|mono|font|color|--\" web\\app\\globals.css" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\globals.css" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content .codex\\I-p2-009\\brief.md" in C:\POLARIS
+ succeeded in 3333ms:
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-verified: var(--verified);
+  --color-verified-foreground: var(--verified-foreground);
+  --color-contradiction: var(--contradiction);
+  --color-contradiction-foreground: var(--contradiction-foreground);
+  --color-refusal: var(--refusal);
+  --color-refusal-foreground: var(--refusal-foreground);
+  --color-tier-1: var(--tier-1);
+  --color-tier-2: var(--tier-2);
+  --color-tier-3: var(--tier-3);
+  --color-proof-token: var(--proof-token);
+  --color-verified-bundle: var(--verified-bundle);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* I-ui-010 (#730): Frontier Minimal — near-monochrome zinc + ONE confident
+     accent (default = blue oklch(0.50 0.18 255); the prior cyan read grey).
+     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
+     border. Accent hue is operator-confirmable (one-token swap; alt indigo
+     oklch(0.50 0.16 270) / teal oklch(0.52 0.12 215)). chart-* left mono. */
+  --background: oklch(0.985 0.001 286.375);
+  --foreground: oklch(0.21 0.006 285.9);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  /* I-p2-003 (#742): white surface + ONE national accent = dark Canada-flag
+     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
+     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+     destructive=deep maroon distinct from the national red. + evidence-role
+     tokens (tiers + proof). Operator design lock 2026-05-21. */
+  --primary: #c8102e;
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.21 0.006 285.9);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.96 0.03 25);
+  --accent-foreground: oklch(0.45 0.16 26);
+  --destructive: oklch(0.42 0.13 18);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: #c8102e;
+  /* State colors — distinct from the national red (rubric: never red-only) */
+  --verified: oklch(0.48 0.14 152);
+  --verified-foreground: oklch(0.985 0 0);
+  --contradiction: oklch(0.72 0.15 75);
+  --contradiction-foreground: oklch(0.27 0.04 75);
+  --refusal: oklch(0.45 0.02 286);
+  --refusal-foreground: oklch(0.985 0 0);
+  /* Evidence-role tokens */
+  --tier-1: #c8102e;
+  --tier-2: oklch(0.556 0 0);
+  --tier-3: oklch(0.708 0 0);
+  --proof-token: oklch(0.45 0.16 26);
+  --verified-bundle: oklch(0.48 0.14 152);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  /* I-p2-003 (#742): dark-mode accent = Canada-red (NOT the old cyan, which
+     violated the operator lock). Lighter L0.62 for contrast on the dark
+     surface; white fg. NOTE: light mode is the demo target; dark mode reuses
+     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+     proof) — dark-specific tuning is a post-demo follow-up. */
+  --primary: oklch(0.62 0.2 26);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.32 0.06 26);
+  --accent-foreground: oklch(0.92 0.04 26);
+  --destructive: oklch(0.704 0.191 22.216);
+  /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+     White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+     fails WCAG-AA 4.5:1). Use near-black text instead — dark-on-light-warning is
+     the conventional inverse pattern. */
+  --destructive-foreground: oklch(0.145 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.62 0.2 26);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+ succeeded in 4356ms:
+8:  --color-background: var(--background);
+9:  --color-foreground: var(--foreground);
+10:  --font-sans: var(--font-sans);
+11:  --font-mono: var(--font-geist-mono);
+12:  --font-heading: var(--font-sans);
+13:  --color-sidebar-ring: var(--sidebar-ring);
+14:  --color-sidebar-border: var(--sidebar-border);
+15:  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+16:  --color-sidebar-accent: var(--sidebar-accent);
+17:  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+18:  --color-sidebar-primary: var(--sidebar-primary);
+19:  --color-sidebar-foreground: var(--sidebar-foreground);
+20:  --color-sidebar: var(--sidebar);
+21:  --color-chart-5: var(--chart-5);
+22:  --color-chart-4: var(--chart-4);
+23:  --color-chart-3: var(--chart-3);
+24:  --color-chart-2: var(--chart-2);
+25:  --color-chart-1: var(--chart-1);
+26:  --color-ring: var(--ring);
+27:  --color-input: var(--input);
+28:  --color-border: var(--border);
+29:  --color-destructive: var(--destructive);
+30:  --color-destructive-foreground: var(--destructive-foreground);
+31:  --color-verified: var(--verified);
+32:  --color-verified-foreground: var(--verified-foreground);
+33:  --color-contradiction: var(--contradiction);
+34:  --color-contradiction-foreground: var(--contradiction-foreground);
+35:  --color-refusal: var(--refusal);
+36:  --color-refusal-foreground: var(--refusal-foreground);
+37:  --color-tier-1: var(--tier-1);
+38:  --color-tier-2: var(--tier-2);
+39:  --color-tier-3: var(--tier-3);
+40:  --color-proof-token: var(--proof-token);
+41:  --color-verified-bundle: var(--verified-bundle);
+42:  --color-accent-foreground: var(--accent-foreground);
+43:  --color-accent: var(--accent);
+44:  --color-muted-foreground: var(--muted-foreground);
+45:  --color-muted: var(--muted);
+46:  --color-secondary-foreground: var(--secondary-foreground);
+47:  --color-secondary: var(--secondary);
+48:  --color-primary-foreground: var(--primary-foreground);
+49:  --color-primary: var(--primary);
+50:  --color-popover-foreground: var(--popover-foreground);
+51:  --color-popover: var(--popover);
+52:  --color-card-foreground: var(--card-foreground);
+53:  --color-card: var(--card);
+54:  --radius-sm: calc(var(--radius) * 0.6);
+55:  --radius-md: calc(var(--radius) * 0.8);
+56:  --radius-lg: var(--radius);
+57:  --radius-xl: calc(var(--radius) * 1.4);
+58:  --radius-2xl: calc(var(--radius) * 1.8);
+59:  --radius-3xl: calc(var(--radius) * 2.2);
+60:  --radius-4xl: calc(var(--radius) * 2.6);
+64:  /* I-ui-010 (#730): Frontier Minimal — near-monochrome zinc + ONE confident
+66:     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
+68:     oklch(0.50 0.16 270) / teal oklch(0.52 0.12 215)). chart-* left mono. */
+69:  --background: oklch(0.985 0.001 286.375);
+70:  --foreground: oklch(0.21 0.006 285.9);
+71:  --card: oklch(1 0 0);
+72:  --card-foreground: oklch(0.21 0.006 285.9);
+73:  --popover: oklch(1 0 0);
+74:  --popover-foreground: oklch(0.21 0.006 285.9);
+76:     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
+77:     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+78:     destructive=deep maroon distinct from the national red. + evidence-role
+80:  --primary: #c8102e;
+81:  --primary-foreground: oklch(0.985 0 0);
+82:  --secondary: oklch(0.97 0 0);
+83:  --secondary-foreground: oklch(0.21 0.006 285.9);
+84:  --muted: oklch(0.97 0 0);
+85:  --muted-foreground: oklch(0.556 0 0);
+86:  --accent: oklch(0.96 0.03 25);
+87:  --accent-foreground: oklch(0.45 0.16 26);
+88:  --destructive: oklch(0.42 0.13 18);
+89:  --destructive-foreground: oklch(0.985 0 0);
+90:  --border: oklch(0.922 0 0);
+91:  --input: oklch(0.922 0 0);
+92:  --ring: #c8102e;
+93:  /* State colors — distinct from the national red (rubric: never red-only) */
+94:  --verified: oklch(0.48 0.14 152);
+95:  --verified-foreground: oklch(0.985 0 0);
+96:  --contradiction: oklch(0.72 0.15 75);
+97:  --contradiction-foreground: oklch(0.27 0.04 75);
+98:  --refusal: oklch(0.45 0.02 286);
+99:  --refusal-foreground: oklch(0.985 0 0);
+101:  --tier-1: #c8102e;
+102:  --tier-2: oklch(0.556 0 0);
+103:  --tier-3: oklch(0.708 0 0);
+104:  --proof-token: oklch(0.45 0.16 26);
+105:  --verified-bundle: oklch(0.48 0.14 152);
+106:  --chart-1: oklch(0.87 0 0);
+107:  --chart-2: oklch(0.556 0 0);
+108:  --chart-3: oklch(0.439 0 0);
+109:  --chart-4: oklch(0.371 0 0);
+110:  --chart-5: oklch(0.269 0 0);
+111:  --radius: 0.625rem;
+112:  --sidebar: oklch(0.985 0 0);
+113:  --sidebar-foreground: oklch(0.145 0 0);
+114:  --sidebar-primary: oklch(0.205 0 0);
+115:  --sidebar-primary-foreground: oklch(0.985 0 0);
+116:  --sidebar-accent: oklch(0.97 0 0);
+117:  --sidebar-accent-foreground: oklch(0.205 0 0);
+118:  --sidebar-border: oklch(0.922 0 0);
+119:  --sidebar-ring: oklch(0.708 0 0);
+123:  --background: oklch(0.145 0 0);
+124:  --foreground: oklch(0.985 0 0);
+125:  --card: oklch(0.205 0 0);
+126:  --card-foreground: oklch(0.985 0 0);
+127:  --popover: oklch(0.205 0 0);
+128:  --popover-foreground: oklch(0.985 0 0);
+129:  /* I-p2-003 (#742): dark-mode accent = Canada-red (NOT the old cyan, which
+134:  --primary: oklch(0.62 0.2 26);
+135:  --primary-foreground: oklch(0.985 0 0);
+136:  --secondary: oklch(0.269 0 0);
+137:  --secondary-foreground: oklch(0.985 0 0);
+138:  --muted: oklch(0.269 0 0);
+139:  --muted-foreground: oklch(0.708 0 0);
+140:  --accent: oklch(0.32 0.06 26);
+141:  --accent-foreground: oklch(0.92 0.04 26);
+142:  --destructive: oklch(0.704 0.191 22.216);
+144:     White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+147:  --destructive-foreground: oklch(0.145 0 0);
+148:  --border: oklch(1 0 0 / 10%);
+149:  --input: oklch(1 0 0 / 15%);
+150:  --ring: oklch(0.62 0.2 26);
+151:  --chart-1: oklch(0.87 0 0);
+152:  --chart-2: oklch(0.556 0 0);
+153:  --chart-3: oklch(0.439 0 0);
+154:  --chart-4: oklch(0.371 0 0);
+155:  --chart-5: oklch(0.269 0 0);
+156:  --sidebar: oklch(0.205 0 0);
+157:  --sidebar-foreground: oklch(0.985 0 0);
+158:  --sidebar-primary: oklch(0.488 0.243 264.376);
+159:  --sidebar-primary-foreground: oklch(0.985 0 0);
+160:  --sidebar-accent: oklch(0.269 0 0);
+161:  --sidebar-accent-foreground: oklch(0.985 0 0);
+162:  --sidebar-border: oklch(1 0 0 / 10%);
+163:  --sidebar-ring: oklch(0.556 0 0);
+174:    @apply font-sans;
+
+ succeeded in 4441ms:
+# Codex BRIEF review — I-p2-009 (#748): sovereignty proof panel + signed-bundle mark
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; cosmetics → P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; do not bank for iter 6.
+- Surface held-back findings now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Task
+A reusable **sovereignty proof panel + signed-bundle mark** — surfaces POLARIS's sovereignty + integrity story as VERIFIABLE facts (not a marketing badge).
+
+## Verified current state (grounded — REAL fields only; HONESTY is P0-critical here)
+- Sovereign mark wording already in shell (app_shell.tsx:50,52): "Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor" — HONEST (NOT air-gapped; public sources fetched via logged Canadian egress). Reuse this exact framing.
+- Real signed-bundle data (signed_bundle.ts): BundleMetadata {polaris_version, generator_model, evaluator_model, bundle_created_at_utc, schema_version "1.0"}; BundleManifest {bundle_id, decision_id, pool_id, report_id, generator_model, polaris_version, files[] each with sha256, bundle_created_at_utc}.
+- There is NO top-level cryptographic SIGNATURE field in the manifest — integrity is content-addressed (per-file sha256 in the manifest). So the mark is "integrity-hashed / tamper-evident" — do NOT claim "cryptographically signed" unless a signature is explicitly passed in.
+- Two-family invariant: generator_model vs evaluator_model are different lineages (existing family_segregation_badge.tsx renders this).
+- #742 tokens; copy discipline: "verified provenance"/"integrity-hashed", NEVER "guaranteed true"/"cryptographically signed" without a real signature.
+
+## Acceptance criteria (diff implements; brief reviews the plan)
+1. `web/components/sovereignty/sovereignty_panel.tsx`: props = metadata (generator_model, evaluator_model, polaris_version, bundle_created_at_utc) + OPTIONAL manifest (bundle_id, files for the integrity hash) + OPTIONAL signature (rendered as "cryptographically signed" ONLY when present).
+2. Renders three honest sections: (a) Sovereignty — the exact shell wording (Canadian processing, logged egress, no external AI vendor); (b) Two-family — generator vs evaluator model (different lineages); (c) Bundle integrity — bundle_id, schema 1.0, created_at, polaris_version, + "integrity-hashed (N files, sha256)" or, if signature passed, "cryptographically signed".
+3. HONESTY: render only fields present; NO "cryptographically signed" without a signature; NO "air-gapped"; NO fabricated counts. Missing fields omitted.
+4. Frontier-Minimal (white, Canada-red, mono for ids/hashes); WCAG 2.2 AA.
+
+## Files I have ALSO checked and they're clean
+- web/lib/signed_bundle.ts (BundleManifest/BundleMetadata real fields), web/components/inspector/family_segregation_badge.tsx (two-family render to reuse/mirror), web/components/app_shell.tsx (the honest sovereign wording), web/app/globals.css (#742 tokens).
+
+## Review focus
+1. HONESTY (P0/P1 if violated): any overclaim — "cryptographically signed" without a signature, "air-gapped", fabricated hash/count? The mark must match what the bundle actually proves (content-addressed integrity).
+2. Real-field grounding (no invented manifest fields)?
+3. Two-family render correct (generator vs evaluator lineage)? a11y/tokens.
+4. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Test-Path web\\components\\sovereignty; if (Test-Path web\\components\\sovereignty) { Get-ChildItem -Force web\\components\\sovereignty }" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"family_segregation_passed|evaluator_model|BundleMetadata|schema_version|bundle_version\" web\\lib web\\components\\inspector src tests -g \"*.ts\" -g \"*.tsx\" -g \"*.py\"" in C:\POLARIS
+ succeeded in 2805ms:
+False
+
+ succeeded in 3128ms:
+tests\crown_jewels\test_cj_001_two_family_segregation.py:22:        evaluator_model="qwen/qwen3-8b",
+tests\crown_jewels\test_cj_001_two_family_segregation.py:33:            evaluator_model="qwen/qwen3-8b",
+tests\crown_jewels\test_cj_001_two_family_segregation.py:43:            evaluator_model="qwen/qwen3-8b",
+tests\crown_jewels\test_cj_001_two_family_segregation.py:53:            evaluator_model="unknown-vendor/some-model",
+tests\crown_jewels\test_cj_001_two_family_segregation.py:62:        evaluator_model="another-finetune/model",
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:67:        evaluator_model="strict_verify_v1",
+web\components\inspector\metadata_panel.tsx:6:import type { BundleMetadata } from "@/lib/signed_bundle";
+web\components\inspector\metadata_panel.tsx:9:  metadata: BundleMetadata;
+web\components\inspector\metadata_panel.tsx:39:            {metadata.evaluator_model}
+web\components\inspector\metadata_panel.tsx:53:            {metadata.schema_version}
+web\components\inspector\family_segregation_badge.tsx:2:// Source of truth: verified_report.evaluator_model + verified_report.family_segregation_passed
+web\components\inspector\family_segregation_badge.tsx:16:  const passed = verifiedReport.family_segregation_passed;
+web\components\inspector\family_segregation_badge.tsx:46:          <p className="font-mono text-sm">{verifiedReport.evaluator_model}</p>
+web\components\inspector\bundle_header.tsx:24:          value={`v${manifest.bundle_version}`}
+tests\v6\compare\test_jurisdictional_diff.py:26:        family_segregation_passed=True,
+tests\v6\compare\test_claim_diff.py:26:        family_segregation_passed=True,
+web\lib\inspector_bundle_loader.ts:19:  type BundleMetadata,
+web\lib\inspector_bundle_loader.ts:33:  metadata: BundleMetadata;
+web\lib\inspector_bundle_loader.ts:50:  evaluator_model: string;
+web\lib\inspector_bundle_loader.ts:51:  family_segregation_passed: boolean;
+web\lib\inspector_bundle_loader.ts:110:  ) as BundleMetadata;
+web\lib\inspector_bundle_client_loader.ts:14: *   - bundle_version == "1.0"
+web\lib\inspector_bundle_client_loader.ts:30:  type BundleMetadata,
+web\lib\inspector_bundle_client_loader.ts:238:  if (manifest.bundle_version !== "1.0") {
+web\lib\inspector_bundle_client_loader.ts:241:      `Bundle version ${JSON.stringify(manifest.bundle_version)} != frozen v1.0.`,
+web\lib\inspector_bundle_client_loader.ts:288:  const metadata = JSON.parse(_decode(metadataFile.bytes)) as BundleMetadata;
+web\lib\inspector_bundle_client_loader.ts:322:  // runId for offline mode: derive from filename (BundleMetadata doesn't
+tests\polaris_v6\api\test_transparency.py:39:        "evaluator_models", "egress_allowlist", "build_time_hosts_pruned",
+web\lib\signed_bundle.ts:61:  bundle_version: typeof BUNDLE_VERSION;
+web\lib\signed_bundle.ts:100:export interface BundleMetadata {
+web\lib\signed_bundle.ts:103:  evaluator_model: string;
+web\lib\signed_bundle.ts:105:  schema_version: typeof BUNDLE_VERSION;
+web\lib\signed_bundle.ts:114: * Validation is structural (presence of required fields + bundle_version
+web\lib\signed_bundle.ts:123:  if (m.bundle_version !== BUNDLE_VERSION) {
+web\lib\signed_bundle.ts:125:      `bundle_version ${m.bundle_version} != frozen ${BUNDLE_VERSION}`,
+tests\polaris_v6\api\test_artifact_to_slice_chain.py:97:            "schema_version": "1.0",
+web\lib\api.ts:459:  family_segregation_passed: boolean;
+web\lib\api.ts:828:  evaluator_model: string;
+web\lib\api.ts:925:  evaluator_model: string;
+web\lib\api.ts:926:  family_segregation_passed: boolean;
+web\lib\api.ts:1324:  schema_version: "1.0";
+web\lib\api.ts:1449:  schema_version: string;
+web\lib\api.ts:1509:  evaluator_model: string;
+web\lib\api.ts:1551:  ir_schema_version: string;
+tests\polaris_v6\api\test_artifact_to_evidence_contract.py:75:    assert isinstance(ec.family_segregation_passed, bool)
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:465:    assert parsed["schema_version"] == "1.0.0"
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:573:    assert output["schema_version"] == "1.0.0"
+tests\polaris_v6\api\test_app_slice_route_mount.py:245:        "evaluator_model": "strict_verify_v1",
+tests\v6\test_api_bundle.py:29:    assert body["family_segregation_passed"] is True
+tests\v6\test_charts.py:228:        family_segregation_passed=True,
+tests\polaris_graph\api\test_audit_bundle_route.py:132:        "evaluator_model": "strict_verify_v1",
+tests\polaris_graph\api\conftest.py:72:        ir_schema_version="1.0", run_id="test_run_001",
+src\polaris_v6\compare\differ.py:59:            left.family_segregation_passed and right.family_segregation_passed
+tests\unit\test_mesh_store.py:90:            "SELECT value FROM mesh_meta WHERE key = 'schema_version'"
+tests\unit\test_mesh_store.py:147:    def test_schema_version_mismatch_raises(self, tmp_db_path: Path):
+tests\unit\test_mesh_store.py:150:            "UPDATE mesh_meta SET value = '999' WHERE key = 'schema_version'"
+src\polaris_v6\schemas\evidence_contract.py:103:    family_segregation_passed: bool = Field(
+tests\polaris_graph\test_audit_ir_serializer.py:20:    assert restored["ir_schema_version"] == ir.ir_schema_version
+tests\polaris_graph\test_citation_health.py:88:        research_question="q", schema_version="1.0",
+tests\polaris_graph\test_citation_health.py:92:        ir_schema_version=IR_SCHEMA_VERSION, run_id=run_id,
+tests\polaris_graph\test_audit_ir_loader.py:65:def test_ir_schema_version_present(ir: AuditIR) -> None:
+tests\polaris_graph\test_audit_ir_loader.py:67:    assert ir.ir_schema_version == IR_SCHEMA_VERSION
+tests\polaris_graph\test_audit_ir_loader.py:68:    assert ir.ir_schema_version  # non-empty
+tests\polaris_graph\test_audit_ir_loader.py:519:    assert mp.evaluator_model == "qwen/qwen3-8b"
+tests\polaris_graph\test_deepseek_v4_pricing.py:42:        evaluator_model="qwen/qwen3-8b",
+src\polaris_graph\v30_contract_synthesizer.py:92:        {query_slug: <contract>} where <contract> has schema_version="v30.1",
+src\polaris_graph\v30_contract_synthesizer.py:135:        "schema_version": "v30.1",
+tests\v6\test_sycophancy_fixtures.py:25:    assert payload["schema_version"] == "1.0"
+tests\polaris_graph\golden\test_slice_005_goldens.py:130:            "evaluator_model": "strict_verify_v1",
+tests\polaris_graph\golden\test_slice_004_goldens.py:274:        evaluator_model="strict_verify_v1",
+tests\v6\test_schemas.py:93:        family_segregation_passed=True,
+tests\polaris_graph\test_hedging_gap2.py:119:        evaluator_model="qwen/qwen3-8b",
+tests\polaris_graph\test_hedging_gap2.py:140:        evaluator_model="qwen/qwen3-8b",
+tests\polaris_graph\test_hedging_gap2.py:163:        evaluator_model="qwen/qwen3-8b",
+tests\polaris_graph\followup\test_refusal.py:37:        family_segregation_passed=True,
+tests\polaris_graph\followup\test_multi_turn.py:27:        family_segregation_passed=True,
+tests\polaris_graph\test_gemma_4_evaluator.py:27:        evaluator_model="google/gemma-4-31b-it",
+tests\polaris_graph\followup\test_inheritance.py:42:        family_segregation_passed=True,
+src\polaris_v6\api\transparency.py:57:    evaluator_models: dict[str, str]
+src\polaris_v6\api\transparency.py:216:        evaluator_models={
+tests\v6\test_inspector_route.py:114:    assert body["ir_schema_version"]
+tests\v6\test_followup_agent.py:28:        family_segregation_passed=True,
+tests\polaris_graph\test_i_gen_003_citation_normalization.py:82:        evaluator_model="google/gemma-4-31b-it",
+tests\polaris_graph\test_inspector_router.py:42:    assert body["ir_schema_version"]
+tests\polaris_graph\evidence_contract\test_gate.py:84:        evaluator_model="strict_verify_v1",
+tests\v6\test_evidence_contract_gate.py:10:   - family_segregation_passed must be true for non-error runs
+tests\v6\test_evidence_contract_gate.py:67:        assert contract.family_segregation_passed is True
+src\polaris_graph\clinical_generator\verified_report.py:228:    evaluator_model: str = Field(min_length=1, max_length=200)
+src\polaris_graph\clinical_generator\verified_report.py:423:    evaluator_model: str = Field(
+src\polaris_graph\clinical_generator\verified_report.py:433:    family_segregation_passed: bool = Field(
+tests\polaris_graph\clinical_generator\test_verified_report.py:251:        evaluator_model="qwen-3.5-plus",
+tests\polaris_graph\clinical_generator\test_verified_report.py:262:            evaluator_model="m",
+tests\polaris_graph\clinical_generator\test_verified_report.py:279:            evaluator_model="qwen-3.5-plus",
+tests\polaris_graph\clinical_generator\test_verified_report.py:283:    assert s.evaluator_disagreement.evaluator_model == "qwen-3.5-plus"
+tests\polaris_graph\clinical_generator\test_verified_report.py:611:        evaluator_model="strict_verify_v1",
+tests\v6\test_compare.py:59:        family_segregation_passed=family_pass,
+src\polaris_v6\api\artifact_to_slice_chain.py:333:        evaluator_model=models_block.get("evaluator") or "strict_verify_v1",
+src\polaris_v6\api\artifact_to_slice_chain.py:334:        family_segregation_passed=True,
+src\polaris_v6\api\artifact_to_evidence_contract.py:152:        verifier_model=report.evaluator_model,
+src\polaris_v6\api\artifact_to_evidence_contract.py:153:        family_segregation_passed=report.family_segregation_passed,
+src\polaris_graph\generator\frame_manifest.py:112:    schema_version: str
+src\polaris_graph\generator\frame_manifest.py:135:            "schema_version": self.schema_version,
+src\polaris_graph\generator\frame_manifest.py:158:            schema_version, evidence_bindings).
+src\polaris_graph\generator\frame_manifest.py:296:        schema_version=compiled_frame.schema_version,
+tests\polaris_graph\benchmark\test_beat_both_scorer.py:95:            "evaluator_model": "strict_verify_v1",
+tests\polaris_graph\benchmark\test_polaris_runner.py:94:            "evaluator_model": "strict_verify_v1",
+src\polaris_graph\clinical_generator\generator.py:304:        evaluator_model="strict_verify_v1",
+src\polaris_graph\clinical_generator\generator.py:305:        family_segregation_passed=True,
+tests\polaris_graph\test_m30_pt11_abbreviation_boundary.py:240:            evaluator_model="qwen/qwen3-8b",
+tests\polaris_graph\test_m30_pt11_abbreviation_boundary.py:271:            evaluator_model="qwen/qwen3-8b",
+tests\polaris_graph\test_m30_pt11_abbreviation_boundary.py:305:            evaluator_model="qwen/qwen3-8b",
+tests\polaris_graph\benchmark\test_dimension_scorers.py:115:        evaluator_model="strict_verify_v1",
+tests\polaris_graph\benchmark\test_dimension_scorers.py:213:        evaluator_model="strict_verify_v1",
+tests\polaris_graph\test_m34_pt11_long_sentence_lookahead.py:45:        evaluator_model="qwen/qwen3-8b",
+src\polaris_graph\audit_ir\inspector_router.py:779:            f"Evaluator model:    {eval_rules.get('evaluator_model', '—')}",
+src\polaris_graph\evaluator\external_evaluator.py:436:    evaluator_model: str
+src\polaris_graph\evaluator\external_evaluator.py:500:    evaluator_model: str,
+src\polaris_graph\evaluator\external_evaluator.py:529:    pt03 = evaluator_model and evaluator_model.lower() in report_text.lower()
+src\polaris_graph\evaluator\external_evaluator.py:532:        f"Expected evaluator_model={evaluator_model!r} in report text."
+src\polaris_graph\evaluator\external_evaluator.py:860:        evaluator_model=PG_EVALUATOR_MODEL,
+src\polaris_graph\evaluator\external_evaluator.py:877:        evaluator_model=PG_EVALUATOR_MODEL,
+src\polaris_graph\audit_ir\loader.py:206:    schema_version: str
+src\polaris_graph\audit_ir\loader.py:242:    evaluator_model: str
+src\polaris_graph\audit_ir\loader.py:411:    `ir_schema_version` lets future runs (V31, V32, V34) declare schema
+src\polaris_graph\audit_ir\loader.py:415:    ir_schema_version: str
+src\polaris_graph\audit_ir\loader.py:646:        schema_version=str(raw.get("schema_version", "1.0")),
+src\polaris_graph\audit_ir\loader.py:917:        evaluator_model=str(eval_rules_raw.get("evaluator_model", "")),
+src\polaris_graph\audit_ir\loader.py:1027:        ir_schema_version=IR_SCHEMA_VERSION,
+tests\polaris_graph\audit_bundle\test_sovereignty_ci.py:91:        evaluator_model="strict_verify_v1",
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:84:        evaluator_model="strict_verify_v1",
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:92:        evaluator_model="strict_verify_v1",
+src\polaris_graph\audit_ir\model_pin.py:24:  - pin_schema_version: "v4" (explicit forward-compat marker)
+src\polaris_graph\audit_ir\model_pin.py:189:    pin_schema_version: str = PIN_SCHEMA_VERSION
+src\polaris_graph\audit_ir\model_pin.py:435:        pin_schema_version=PIN_SCHEMA_VERSION,
+src\polaris_graph\audit_ir\model_pin.py:472:    schema_version = data.get("pin_schema_version")
+src\polaris_graph\audit_ir\model_pin.py:473:    if schema_version != PIN_SCHEMA_VERSION:
+src\polaris_graph\audit_ir\model_pin.py:475:            f"pin_schema_version mismatch: got {schema_version!r}, "
+src\polaris_graph\audit_ir\model_pin.py:530:            pin_schema_version=str(schema_version),
+src\polaris_graph\audit_ir\model_pin.py:575:    Note: `pin_schema_version` IS compared — different schema
+src\polaris_graph\audit_ir\model_pin.py:580:        a.pin_schema_version == b.pin_schema_version
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:114:        evaluator_model="strict_verify_v1",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:202:        evaluator_model="strict_verify_v1",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:243:    # frozen fixture + frontend BundleMetadata. Provenance IDs live in
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:245:    assert metadata["schema_version"] == "1.0"
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:248:    # The _report() helper sets evaluator_model="strict_verify_v1"; metadata
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:249:    # must surface report.evaluator_model verbatim. (The real-evaluator-id
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:251:    assert metadata["evaluator_model"] == "strict_verify_v1"
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:258:        "evaluator_model",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:261:        "schema_version",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:295:        evaluator_model="strict_verify_v1",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:336:    assert parsed["bundle_version"] == "1.0"
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:89:        evaluator_model="strict_verify_v1",
+tests\polaris_graph\audit_bundle\test_conformance.py:140:# Layer 2 — wrong bundle_version
+tests\polaris_graph\audit_bundle\test_conformance.py:143:def test_wrong_bundle_version_rejected_by_pydantic(tmp_path: Path) -> None:
+tests\polaris_graph\audit_bundle\test_conformance.py:144:    """A manifest with bundle_version != "1.0" fails at Pydantic parse
+tests\polaris_graph\audit_bundle\test_conformance.py:145:    (because BundleManifest.bundle_version is a Literal["1.0"]).
+tests\polaris_graph\audit_bundle\test_conformance.py:150:    data["bundle_version"] = "2.0"
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:129:    assert m.bundle_version == BUNDLE_VERSION
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:130:    assert m.bundle_version == "1.0"
+tests\polaris_graph\audit_bundle\test_bundle_hash_chain.py:115:        evaluator_model="strict_verify_v1",
+src\polaris_graph\honest_sweep_integration.py:302:        f"schema={compiled.schema_version}, "
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:103:        evaluator_model="strict_verify_v1",
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:172:        evaluator_model="strict_verify_v1",
+tests\polaris_graph\test_m55_frame_compiler.py:90:    schema_version: str = "v30.1",
+tests\polaris_graph\test_m55_frame_compiler.py:95:        "schema_version": schema_version,
+tests\polaris_graph\test_m55_frame_compiler.py:117:        assert cf.schema_version == "v30.1"
+tests\polaris_graph\test_m55_frame_compiler.py:277:            schema_version="v30.1",
+tests\polaris_graph\test_m55_frame_compiler.py:287:            schema_version="v99.7",
+tests\polaris_graph\test_m55_frame_compiler.py:301:            schema_version="v99.7",
+tests\polaris_graph\test_m55_frame_compiler.py:305:        assert cf.schema_version == "v99.7"
+tests\polaris_graph\test_m55_frame_compiler.py:506:        assert cf1.schema_version == cf2.schema_version
+src\polaris_graph\audit_bundle\conformance.py:15: 2. `bundle_version` literal equals `BUNDLE_VERSION` ("1.0").
+src\polaris_graph\audit_bundle\conformance.py:135:    # --- 2. bundle_version literal == BUNDLE_VERSION ------------------
+src\polaris_graph\audit_bundle\conformance.py:136:    if manifest.bundle_version != BUNDLE_VERSION:
+src\polaris_graph\audit_bundle\conformance.py:139:            f"bundle_version={manifest.bundle_version!r} != frozen {BUNDLE_VERSION!r}",
+tests\polaris_graph\test_m54_contract_schema.py:16:6. Unknown schema_version accepted (forward-compat warning at M-55).
+tests\polaris_graph\test_m54_contract_schema.py:35:    get_known_schema_versions,
+tests\polaris_graph\test_m54_contract_schema.py:81:            "schema_version": "v30.1",
+tests\polaris_graph\test_m54_contract_schema.py:98:        assert contract.schema_version == "v30.1"
+tests\polaris_graph\test_m54_contract_schema.py:120:                "schema_version": "v30.1",
+tests\polaris_graph\test_m54_contract_schema.py:146:                "schema_version": "v30.1",
+tests\polaris_graph\test_m54_contract_schema.py:167:                "schema_version": "v30.1",
+tests\polaris_graph\test_m54_contract_schema.py:197:    def test_missing_schema_version_raises(self) -> None:
+tests\polaris_graph\test_m54_contract_schema.py:199:        del contract["test_slug"]["schema_version"]
+tests\polaris_graph\test_m54_contract_schema.py:203:        assert "schema_version" in exc.value.path
+tests\polaris_graph\test_m54_contract_schema.py:400:                "schema_version": "v30.1",
+tests\polaris_graph\test_m54_contract_schema.py:424:                "schema_version": "v30.1",
+tests\polaris_graph\test_m54_contract_schema.py:440:                "schema_version": "v30.1",
+tests\polaris_graph\test_m54_contract_schema.py:462:        assert result.schema_version == "v30.1"
+tests\polaris_graph\test_m54_contract_schema.py:468:        contract["test_slug"]["schema_version"] = "v99.7"
+tests\polaris_graph\test_m54_contract_schema.py:472:        assert result.schema_version == "v99.7"
+tests\polaris_graph\test_m54_contract_schema.py:474:    def test_known_schema_versions_accessor(self) -> None:
+tests\polaris_graph\test_m54_contract_schema.py:475:        versions = get_known_schema_versions()
+tests\polaris_graph\test_m54_contract_schema.py:479:    def test_non_string_schema_version_raises(self) -> None:
+tests\polaris_graph\test_m54_contract_schema.py:481:        contract["test_slug"]["schema_version"] = 30.1  # float not str
+tests\polaris_graph\test_m54_contract_schema.py:485:        assert "schema_version" in exc.value.path
+tests\polaris_graph\test_m54_contract_schema.py:637:        assert contract.schema_version == "v30.1"
+src\polaris_graph\audit_bundle\bundle_schema.py:7:1. Bumping ``BUNDLE_VERSION`` AND the ``bundle_version`` Literal type.
+src\polaris_graph\audit_bundle\bundle_schema.py:152:    bundle_version: Literal["1.0"] = BUNDLE_VERSION
+tests\polaris_graph\test_m57_contract_outline.py:89:    schema_version: str = "v30.1",
+tests\polaris_graph\test_m57_contract_outline.py:93:        "schema_version": schema_version,
+tests\polaris_graph\test_m57_contract_outline.py:179:        assert outline.schema_version == "v30.1"
+src\polaris_graph\nodes\contract_outline.py:114:    schema_version: str
+src\polaris_graph\nodes\contract_outline.py:280:        schema_version=compiled_frame.schema_version,
+src\polaris_graph\nodes\frame_compiler.py:76:    get_known_schema_versions,
+src\polaris_graph\nodes\frame_compiler.py:124:    schema_version: str
+src\polaris_graph\nodes\frame_compiler.py:195:    # M-54 accepts unknown schema_version at loader level; M-55 is
+src\polaris_graph\nodes\frame_compiler.py:198:    if contract.schema_version not in get_known_schema_versions():
+src\polaris_graph\nodes\frame_compiler.py:200:            f"schema_version {contract.schema_version!r} unknown to "
+src\polaris_graph\nodes\frame_compiler.py:202:            f"{sorted(get_known_schema_versions())}. "
+src\polaris_graph\nodes\frame_compiler.py:232:        schema_version=contract.schema_version,
+src\polaris_graph\audit_bundle\manifest_builder.py:47:# these; do not rename without bumping bundle_version.
+src\polaris_graph\audit_bundle\manifest_builder.py:196:    # BundleMetadata interface read. Provenance IDs (decision_id, pool_id,
+src\polaris_graph\audit_bundle\manifest_builder.py:208:        "evaluator_model": report.evaluator_model,
+src\polaris_graph\audit_bundle\manifest_builder.py:211:        "schema_version": BUNDLE_VERSION,
+tests\polaris_graph\test_m59_slot_validator.py:85:        schema_version="v30.1",
+tests\polaris_graph\test_m59_slot_validator.py:127:        schema_version=contract.schema_version,
+src\polaris_graph\nodes\report_contract.py:23:1. schema_version — contract schema revision tracking
+src\polaris_graph\nodes\report_contract.py:136:    schema_version: str
+src\polaris_graph\nodes\report_contract.py:163:# Forward-compat: if a template declares a newer schema_version than
+src\polaris_graph\nodes\report_contract.py:164:# the runtime knows, we WARN (via `schema_version_warnings`), not raise.
+src\polaris_graph\nodes\report_contract.py:219:    # ── schema_version ────────────────────────────────────────────
+src\polaris_graph\nodes\report_contract.py:220:    schema_version = raw.get("schema_version")
+src\polaris_graph\nodes\report_contract.py:221:    if schema_version is None:
+src\polaris_graph\nodes\report_contract.py:223:            f"per_query_report_contract.{slug}.schema_version",
+src\polaris_graph\nodes\report_contract.py:226:    if not isinstance(schema_version, str):
+src\polaris_graph\nodes\report_contract.py:228:            f"per_query_report_contract.{slug}.schema_version",
+src\polaris_graph\nodes\report_contract.py:229:            f"expected string, got {type(schema_version).__name__}",
+src\polaris_graph\nodes\report_contract.py:494:        schema_version=schema_version,
+src\polaris_graph\nodes\report_contract.py:501:def get_known_schema_versions() -> frozenset[str]:
+tests\polaris_graph\test_m63_contract_section_runner.py:547:                    "schema_version": "v30.1",
+tests\polaris_graph\test_m60_frame_manifest.py:146:        schema_version="v30.1",
+tests\polaris_graph\test_m60_frame_manifest.py:153:        schema_version="v30.1",
+tests\polaris_graph\test_m60_frame_manifest.py:189:        schema_version="v30.1",
+tests\polaris_graph\test_m60_frame_manifest.py:413:            schema_version="v30.1",
+tests\polaris_graph\test_m60_frame_manifest.py:739:            schema_version="v30.1",
+src\polaris_graph\audit_ir\regression_lab.py:281:    if baseline.pin_schema_version != current.pin_schema_version:
+src\polaris_graph\audit_ir\regression_lab.py:284:                field_name="pin_schema_version",
+src\polaris_graph\audit_ir\regression_lab.py:285:                baseline_value=baseline.pin_schema_version,
+src\polaris_graph\audit_ir\regression_lab.py:286:                current_value=current.pin_schema_version,
+src\polaris_graph\audit_ir\regression_lab.py:676:        manifest field is_regression=True OR pin_schema_version
+tests\polaris_graph\test_m62_non_clinical_regression.py:106:        assert contract.schema_version == "v30.1"
+tests\polaris_graph\test_m62_non_clinical_regression.py:196:        schema_version — compiler should emit zero warnings."""
+src\polaris_graph\llm\openrouter_client.py:459:    evaluator_model: str | None = None,
+src\polaris_graph\llm\openrouter_client.py:472:    eval_model = evaluator_model or PG_EVALUATOR_MODEL
+src\polaris_graph\llm\entailment_judge.py:140:        check_family_segregation(evaluator_model=self._model)
+src\polaris_graph\audit_ir\pin_replay.py:374:    if pin.pin_schema_version != fresh_pin.pin_schema_version:
+src\polaris_graph\audit_ir\pin_replay.py:377:                "pin_schema_version",
+src\polaris_graph\audit_ir\pin_replay.py:378:                pin.pin_schema_version,
+src\polaris_graph\audit_ir\pin_replay.py:379:                fresh_pin.pin_schema_version,
+src\polaris_graph\audit_ir\pin_trends.py:32:- **Schema drift**: `pin_schema_version` progression
+src\polaris_graph\audit_ir\pin_trends.py:209:    "pin_schema_version",
+src\polaris_graph\api\graph_route.py:99:    schema_version: Literal["1.0"] = "1.0"
+tests\polaris_graph\test_md11_model_pin.py:40:    assert pin.pin_schema_version == "v4"
+tests\polaris_graph\test_md11_model_pin.py:169:def test_capture_pin_default_schema_version() -> None:
+tests\polaris_graph\test_md11_model_pin.py:171:    assert pin.pin_schema_version == PIN_SCHEMA_VERSION == "v4"
+tests\polaris_graph\test_md11_model_pin.py:434:def test_pin_to_dict_emits_schema_version() -> None:
+tests\polaris_graph\test_md11_model_pin.py:437:    assert d["pin_schema_version"] == "v4"
+tests\polaris_graph\test_md11_model_pin.py:446:    """A v1-shaped dict (no pin_schema_version, llm_model singular)
+tests\polaris_graph\test_md11_model_pin.py:454:    with pytest.raises(ModelPinError, match="pin_schema_version"):
+tests\polaris_graph\test_md11_model_pin.py:461:        "pin_schema_version": "v2",
+tests\polaris_graph\test_md11_model_pin.py:467:    with pytest.raises(ModelPinError, match="pin_schema_version"):
+tests\polaris_graph\test_md11_model_pin.py:476:        "pin_schema_version": "v3",
+tests\polaris_graph\test_md11_model_pin.py:482:    with pytest.raises(ModelPinError, match="pin_schema_version"):
+tests\polaris_graph\test_md11_model_pin.py:486:def test_pin_from_dict_rejects_unknown_schema_version() -> None:
+tests\polaris_graph\test_md11_model_pin.py:487:    with pytest.raises(ModelPinError, match="pin_schema_version"):
+tests\polaris_graph\test_md11_model_pin.py:490:                "pin_schema_version": "v99",
+tests\polaris_graph\test_md11_model_pin.py:503:                "pin_schema_version": "v4",
+tests\polaris_graph\test_md11_model_pin.py:520:                "pin_schema_version": "v4",
+tests\polaris_graph\test_md11_model_pin.py:533:                "pin_schema_version": "v4",
+tests\polaris_graph\test_md11_model_pin.py:546:                "pin_schema_version": "v4",
+tests\polaris_graph\test_md11_model_pin.py:558:                "pin_schema_version": "v4",
+tests\polaris_graph\test_md11_model_pin.py:571:                "pin_schema_version": "v4",
+tests\polaris_graph\test_md11_model_pin.py:590:                "pin_schema_version": "v4",
+tests\polaris_graph\test_md11_model_pin.py:603:                "pin_schema_version": "v4",
+tests\polaris_graph\test_md11_model_pin.py:617:                "pin_schema_version": "v4",
+tests\polaris_graph\test_md11_model_pin.py:631:                "pin_schema_version": "v4",
+tests\polaris_graph\test_md11_model_pin.py:783:def test_pins_not_equivalent_on_schema_version_change() -> None:
+tests\polaris_graph\test_md11_model_pin.py:787:    pin_b = replace(pin_a, pin_schema_version="v99")
+tests\polaris_graph\test_md11_model_pin.py:842:    assert parsed["pin_schema_version"] == "v4"
+tests\polaris_graph\test_md11_phase2_v2_pin_trends.py:56:        pin_schema_version=schema,
+tests\polaris_graph\test_md11_phase2_v2_pin_trends.py:280:def test_schema_version_drift_emitted() -> None:
+tests\polaris_graph\test_md11_phase2_v2_pin_trends.py:287:              if e.dimension == "pin_schema_version"]
+tests\polaris_graph\test_md9_regression_lab.py:301:def test_pin_schema_version_change_is_red() -> None:
+tests\polaris_graph\test_md9_regression_lab.py:307:    curr_pin = replace(base_pin, pin_schema_version="v99")
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:186:        research_question="q", schema_version="1.0",
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:194:        ir_schema_version=IR_SCHEMA_VERSION, run_id="run_empty",
+tests\polaris_graph\test_regression_alerts.py:94:        research_question="q", schema_version="1.0",
+tests\polaris_graph\test_regression_alerts.py:105:        ir_schema_version=IR_SCHEMA_VERSION, run_id=run_id,
+tests\polaris_graph\test_run_diff.py:156:        research_question="q", schema_version="1.0",
+tests\polaris_graph\test_run_diff.py:160:        ir_schema_version=IR_SCHEMA_VERSION,
+tests\polaris_graph\test_slide_deck.py:120:        research_question="q", schema_version="1.0",
+tests\polaris_graph\test_slide_deck.py:128:        ir_schema_version=IR_SCHEMA_VERSION, run_id="run_test_1",
+tests\polaris_graph\test_v30_contract_synthesizer.py:46:    assert rc.schema_version == "v30.1"
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\lib\\inspector_bundle_loader.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\components\\inspector\\metadata_panel.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\lib\\inspector_bundle_client_loader.ts" in C:\POLARIS
+ succeeded in 1231ms:
+// I-cd-013a (GH#609) — server-only bundle loader.
+//
+// Imported by web/app/inspector/[runId]/page.tsx and
+// web/app/api/inspector_bundle/[runId]/route.ts. Returns the parsed
+// canonical fixture data for runId === "v1-canonical" or
+// "v1-canonical-success"; returns null for any other runId (the page
+// renders a BundlePendingCTA in that case).
+//
+// Real-bundle backend wiring lands at I-B-08 (Seq 20); offline
+// fallback (in-browser bundle render) at I-B-09 (Seq 21). This module
+// is the swappable seam — same function signature, different data
+// path in each follow-up issue.
+
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
+import {
+  type BundleManifest,
+  type BundleMetadata,
+  type ReasoningTraceRecord,
+  parseManifest,
+  parseReasoningTraceJsonl,
+} from "@/lib/signed_bundle";
+
+const REPO_ROOT = path.resolve(process.cwd(), "..");
+
+export interface LoadedBundle {
+  runId: string;
+  manifest: BundleManifest;
+  scopeDecision: unknown;
+  evidencePool: unknown;
+  verifiedReport: VerifiedReportShape;
+  metadata: BundleMetadata;
+  reasoningTrace: ReasoningTraceRecord[];
+  sources: Record<string, string>;
+  /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
+   * Derived during load — NOT a manifest field. Codex diff iter-1 P2. */
+  signaturePresent: boolean;
+}
+
+export interface VerifiedReportShape {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSectionShape[];
+  overall_verify_pass_rate: number;
+  verifier_pass_threshold: number;
+  pipeline_verdict: string;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface VerifiedReportSectionShape {
+  section_id: string;
+  section_verify_pass_rate: number;
+  verified_sentences: VerifiedSentenceShape[];
+  [extra: string]: unknown;
+}
+
+export interface VerifiedSentenceShape {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  [extra: string]: unknown;
+}
+
+const KNOWN_FIXTURES: Record<string, string> = {
+  "v1-canonical": "tests/fixtures/signed_bundle/v1_canonical",
+  "v1-canonical-success": "tests/fixtures/signed_bundle/v1_canonical_success",
+};
+
+export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+  const relPath = KNOWN_FIXTURES[runId];
+  if (!relPath) return null;
+  const dir = path.join(REPO_ROOT, relPath);
+
+  const manifestRaw = await fs.readFile(
+    path.join(dir, "manifest.yaml"),
+    "utf-8",
+  );
+  const manifest = parseManifest(manifestRaw);
+
+  const scopeDecision = await readJson(dir, manifest, "scope_decision");
+  const evidencePool = await readJson(dir, manifest, "evidence_pool");
+  const verifiedReport = (await readJson(
+    dir,
+    manifest,
+    "verified_report",
+  )) as VerifiedReportShape;
+
+  // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
+  // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
+  // also flagged metadata in the active producer).
+  const metadataEntry = manifest.files.find(
+    (f) => f.content_type === "metadata" && f.path === "metadata.json",
+  );
+  if (!metadataEntry) {
+    throw new Error(
+      `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
+    );
+  }
+  const metadata = JSON.parse(
+    await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
+  ) as BundleMetadata;
+
+  const reasoningTraceEntry = manifest.files.find(
+    (f) => f.content_type === "reasoning_trace",
+  );
+  const reasoningTrace = reasoningTraceEntry
+    ? parseReasoningTraceJsonl(
+        await fs.readFile(path.join(dir, reasoningTraceEntry.path), "utf-8"),
+      )
+    : [];
+
+  const sources: Record<string, string> = {};
+  for (const entry of manifest.files) {
+    if (entry.content_type !== "source_snapshot") continue;
+    sources[entry.path] = await fs.readFile(
+      path.join(dir, entry.path),
+      "utf-8",
+    );
+  }
+
+  // Signature presence check (Codex diff iter-1 P2): mirror the conformance
+  // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
+  // bundle. The UI surfaces this boolean transparently; cryptographic
+  // verification belongs to operator-side `gpg --verify` tooling.
+  let signaturePresent = false;
+  try {
+    const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
+    signaturePresent = stat.isFile() && stat.size > 0;
+  } catch {
+    signaturePresent = false;
+  }
+
+  return {
+    runId,
+    manifest,
+    scopeDecision,
+    evidencePool,
+    verifiedReport,
+    metadata,
+    reasoningTrace,
+    sources,
+    signaturePresent,
+  };
+}
+
+async function readJson(
+  dir: string,
+  manifest: BundleManifest,
+  contentType: "scope_decision" | "evidence_pool" | "verified_report",
+): Promise<unknown> {
+  const entry = manifest.files.find((f) => f.content_type === contentType);
+  if (!entry) {
+    throw new Error(
+      `bundle: manifest has no entry of content_type=${contentType}`,
+    );
+  }
+  const body = await fs.readFile(path.join(dir, entry.path), "utf-8");
+  return JSON.parse(body);
+}
+
+ succeeded in 1594ms:
+// I-cd-021 (#631): metadata panel — Codex iter-1 P1.2 finding was that
+// `LoadedBundle.metadata` was parsed but never rendered. Adds explicit
+// surfacing for both /inspector/[runId] and /inspector/offline.
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { BundleMetadata } from "@/lib/signed_bundle";
+
+interface MetadataPanelProps {
+  metadata: BundleMetadata;
+}
+
+export function MetadataPanel({ metadata }: MetadataPanelProps) {
+  return (
+    <Card data-testid="metadata-panel">
+      <CardHeader>
+        <CardTitle className="text-base">Bundle metadata</CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm">
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 md:grid-cols-[max-content,1fr]">
+          <dt className="text-muted-foreground">POLARIS version</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-polaris-version"
+          >
+            {metadata.polaris_version}
+          </dd>
+          <dt className="text-muted-foreground">Generator model</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-generator-model"
+          >
+            {metadata.generator_model}
+          </dd>
+          <dt className="text-muted-foreground">Evaluator model</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-evaluator-model"
+          >
+            {metadata.evaluator_model}
+          </dd>
+          <dt className="text-muted-foreground">Bundle created at (UTC)</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-created-at"
+          >
+            {metadata.bundle_created_at_utc}
+          </dd>
+          <dt className="text-muted-foreground">Schema version</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-schema-version"
+          >
+            {metadata.schema_version}
+          </dd>
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+ succeeded in 1913ms:
+/**
+ * I-cd-021 (#631) — Browser-side bundle loader.
+ *
+ * Parses a v1.0 BundleManifest tar.gz uploaded by a disconnected
+ * reviewer (no backend, no GPU). Same `LoadedBundle` shape as the
+ * server-side `inspector_bundle_loader.ts` so all Inspector components
+ * accept either source.
+ *
+ * Conformance (browser-safe subset of the 12-layer Python check):
+ *   - tar.gz size ≤ 50MB
+ *   - inflate via pako
+ *   - extract files with tar-stream (browser build)
+ *   - manifest.yaml parses cleanly (existing parseManifest)
+ *   - bundle_version == "1.0"
+ *   - all 6 required ContentTypes present in manifest.files
+ *   - each declared file is present in the tar
+ *   - SHA-256 of each file matches manifest hash (browser crypto.subtle)
+ *   - byte size matches manifest size
+ *   - signaturePresent: derived from manifest.yaml.asc existence + non-empty
+ *
+ * GPG cryptographic verify is out of scope (requires CLI / pgp.js + key
+ * trust UX, both browser-impractical for Carney handover).
+ */
+
+import pako from "pako";
+import { extract as tarExtract } from "tar-stream";
+
+import {
+  type BundleManifest,
+  type BundleMetadata,
+  type ReasoningTraceRecord,
+  parseManifest,
+  parseReasoningTraceJsonl,
+} from "@/lib/signed_bundle";
+
+import type {
+  LoadedBundle,
+  VerifiedReportShape,
+} from "@/lib/inspector_bundle_loader";
+
+const MAX_TAR_GZ_BYTES = 50 * 1024 * 1024;
+// Codex iter-1 P1.1 fix: cap DECOMPRESSED tar bytes to prevent gzip-bomb OOM.
+// A 50MB gzip can inflate to 50GB+ of zeros. 200MB is generous for legitimate
+// bundles (the largest v1.0 fixture is ~80KB; real runs may approach a few MB).
+const MAX_DECOMPRESSED_BYTES = 200 * 1024 * 1024;
+
+export class BundleClientLoaderError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+    this.name = "BundleClientLoaderError";
+  }
+}
+
+interface ExtractedFile {
+  name: string;
+  bytes: Uint8Array;
+}
+
+async function _extractTarBytes(
+  tarBytes: Uint8Array,
+): Promise<ExtractedFile[]> {
+  return new Promise((resolve, reject) => {
+    const files: ExtractedFile[] = [];
+    const extractor = tarExtract();
+    extractor.on(
+      "entry",
+      (
+        header: { name: string; type?: string },
+        stream: NodeJS.ReadableStream,
+        next: () => void,
+      ) => {
+        const chunks: Uint8Array[] = [];
+        stream.on("data", (c: Uint8Array) => chunks.push(c));
+        stream.on("end", () => {
+          if (header.type === "file") {
+            // Concat chunks into one Uint8Array.
+            const total = chunks.reduce((s, c) => s + c.length, 0);
+            const merged = new Uint8Array(total);
+            let off = 0;
+            for (const c of chunks) {
+              merged.set(c, off);
+              off += c.length;
+            }
+            files.push({
+              name: header.name.replace(/^\.\//, ""),
+              bytes: merged,
+            });
+          }
+          next();
+        });
+        stream.resume();
+      },
+    );
+    extractor.on("finish", () => resolve(files));
+    extractor.on("error", reject);
+    extractor.end(tarBytes);
+  });
+}
+
+class _GzipBombAbort extends Error {
+  readonly cap: number;
+  constructor(cap: number) {
+    super(`Decompressed bytes exceeded ${cap} cap (gzip-bomb guard).`);
+    this.cap = cap;
+  }
+}
+
+function _streamingUngzip(
+  compressed: Uint8Array,
+): Uint8Array | BundleClientLoaderError {
+  // pako.Inflate emits chunks via an onData callback; we accumulate up to
+  // MAX_DECOMPRESSED_BYTES then ABORT (Codex iter-3 P1 fix: previously
+  // onData just stopped collecting but inflator.push continued processing
+  // the rest of the stream — bomb could still hang the thread).
+  // Throwing from onData propagates out of inflator.push so we stop pako
+  // from continuing to decompress. The throw is caught locally.
+  const inflator = new pako.Inflate({ raw: false });
+  let total = 0;
+  const chunks: Uint8Array[] = [];
+
+  inflator.onData = (chunk: Uint8Array): void => {
+    total += chunk.length;
+    if (total > MAX_DECOMPRESSED_BYTES) {
+      throw new _GzipBombAbort(MAX_DECOMPRESSED_BYTES);
+    }
+    chunks.push(chunk);
+  };
+  inflator.onEnd = (_status: number): void => {
+    /* status handled via err/msg fields below */
+  };
+
+  try {
+    inflator.push(compressed, true);
+  } catch (exc) {
+    if (exc instanceof _GzipBombAbort) {
+      return new BundleClientLoaderError("decompressed_too_large", exc.message);
+    }
+    return new BundleClientLoaderError(
+      "ungzip_failed",
+      `Failed to gunzip bundle: ${(exc as Error).message}`,
+    );
+  }
+
+  if (inflator.err) {
+    return new BundleClientLoaderError(
+      "ungzip_failed",
+      `Failed to gunzip bundle: ${inflator.msg || "pako error " + inflator.err}`,
+    );
+  }
+
+  // Concatenate chunks into one Uint8Array.
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.length;
+  }
+  return out;
+}
+
+async function _sha256Hex(bytes: Uint8Array): Promise<string> {
+  // Slice into a fresh ArrayBuffer (not SharedArrayBuffer) for browser-safe
+  // BufferSource typing on crypto.subtle.digest.
+  const buf = await crypto.subtle.digest(
+    "SHA-256",
+    bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer,
+  );
+  const arr = Array.from(new Uint8Array(buf));
+  return arr.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function _findFile(
+  files: ExtractedFile[],
+  pathInManifest: string,
+): ExtractedFile | undefined {
+  // tar entries may be prefixed with bundle-dir name (e.g. "v1_canonical/").
+  // Match suffix to keep loader robust against `tar -czf bundle.tar.gz <dir>`
+  // vs `tar -czf bundle.tar.gz -C <dir> .`.
+  return files.find(
+    (f) => f.name === pathInManifest || f.name.endsWith("/" + pathInManifest),
+  );
+}
+
+function _decode(bytes: Uint8Array): string {
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+// Codex iter-1 P1.2 fix: v1.0 conformance per
+// src/polaris_graph/audit_bundle/conformance.py:_REQUIRED_CONTENT_TYPES
+// requires ALL SIX content types (including source_snapshot).
+const REQUIRED_CONTENT_TYPES = [
+  "scope_decision",
+  "evidence_pool",
+  "verified_report",
+  "metadata",
+  "source_snapshot",
+  "reasoning_trace",
+] as const;
+
+export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
+  if (file.size > MAX_TAR_GZ_BYTES) {
+    throw new BundleClientLoaderError(
+      "tar_gz_too_large",
+      `Bundle file is ${file.size} bytes, exceeds ${MAX_TAR_GZ_BYTES} byte limit.`,
+    );
+  }
+  const arrayBuffer = await file.arrayBuffer();
+  // Codex iter-2 P1.1 fix: streaming inflate via pako.Inflate, aborting as
+  // soon as cumulative decompressed bytes exceed MAX_DECOMPRESSED_BYTES.
+  // The previous one-shot pako.ungzip() materialized the full bomb before
+  // the size guard ran.
+  const tarBytes = _streamingUngzip(new Uint8Array(arrayBuffer));
+  if (tarBytes instanceof BundleClientLoaderError) {
+    throw tarBytes;
+  }
+  const files = await _extractTarBytes(tarBytes);
+  const manifestFile = _findFile(files, "manifest.yaml");
+  if (!manifestFile) {
+    throw new BundleClientLoaderError(
+      "manifest_missing",
+      "Bundle is missing manifest.yaml.",
+    );
+  }
+  let manifest: BundleManifest;
+  try {
+    manifest = parseManifest(_decode(manifestFile.bytes));
+  } catch (exc) {
+    throw new BundleClientLoaderError(
+      "manifest_parse_failed",
+      `manifest.yaml parse failed: ${(exc as Error).message}`,
+    );
+  }
+  if (manifest.bundle_version !== "1.0") {
+    throw new BundleClientLoaderError(
+      "version_mismatch",
+      `Bundle version ${JSON.stringify(manifest.bundle_version)} != frozen v1.0.`,
+    );
+  }
+  for (const required of REQUIRED_CONTENT_TYPES) {
+    if (!manifest.files.some((f) => f.content_type === required)) {
+      throw new BundleClientLoaderError(
+        "required_content_type_missing",
+        `Manifest missing required content_type ${JSON.stringify(required)}.`,
+      );
+    }
+  }
+
+  // SHA-256 + size verify every manifest entry.
+  for (const entry of manifest.files) {
+    const candidate = _findFile(files, entry.path);
+    if (!candidate) {
+      throw new BundleClientLoaderError(
+        "manifest_file_missing",
+        `Manifest declares ${JSON.stringify(entry.path)} but bundle does not contain it.`,
+      );
+    }
+    if (candidate.bytes.length !== entry.size_bytes) {
+      throw new BundleClientLoaderError(
+        "size_mismatch",
+        `${JSON.stringify(entry.path)}: manifest size=${entry.size_bytes}, actual=${candidate.bytes.length}.`,
+      );
+    }
+    const actualSha = await _sha256Hex(candidate.bytes);
+    if (actualSha !== entry.sha256) {
+      throw new BundleClientLoaderError(
+        "sha256_mismatch",
+        `${JSON.stringify(entry.path)}: manifest sha256=${JSON.stringify(entry.sha256)}, actual=${JSON.stringify(actualSha)}.`,
+      );
+    }
+  }
+
+  // metadata.json by explicit path (v1.0 spec).
+  const metadataEntry = manifest.files.find(
+    (f) => f.content_type === "metadata" && f.path === "metadata.json",
+  );
+  if (!metadataEntry) {
+    throw new BundleClientLoaderError(
+      "metadata_entry_missing",
+      "Manifest must have a metadata entry with path=metadata.json.",
+    );
+  }
+  const metadataFile = _findFile(files, "metadata.json")!;
+  const metadata = JSON.parse(_decode(metadataFile.bytes)) as BundleMetadata;
+
+  const scopeDecisionFile = _findFile(files, "scope_decision.json")!;
+  const scopeDecision = JSON.parse(_decode(scopeDecisionFile.bytes));
+
+  const evidencePoolFile = _findFile(files, "evidence_pool.json")!;
+  const evidencePool = JSON.parse(_decode(evidencePoolFile.bytes));
+
+  const verifiedReportFile = _findFile(files, "verified_report.json")!;
+  const verifiedReport = JSON.parse(
+    _decode(verifiedReportFile.bytes),
+  ) as VerifiedReportShape;
+
+  const reasoningEntry = manifest.files.find(
+    (f) => f.content_type === "reasoning_trace",
+  );
+  const reasoningTrace: ReasoningTraceRecord[] = reasoningEntry
+    ? parseReasoningTraceJsonl(
+        _decode(_findFile(files, reasoningEntry.path)!.bytes),
+      )
+    : [];
+
+  const sources: Record<string, string> = {};
+  for (const entry of manifest.files) {
+    if (entry.content_type !== "source_snapshot") continue;
+    const sourceFile = _findFile(files, entry.path);
+    if (sourceFile) {
+      sources[entry.path] = _decode(sourceFile.bytes);
+    }
+  }
+
+  const signatureFile = _findFile(files, "manifest.yaml.asc");
+  const signaturePresent = !!signatureFile && signatureFile.bytes.length > 0;
+
+  // runId for offline mode: derive from filename (BundleMetadata doesn't
+  // carry run_id; it's a session-level field outside the v1.0 freeze).
+  const runId =
+    file.name.replace(/\.tar\.gz$/, "").replace(/\.tgz$/, "") ||
+    "offline-bundle";
+
+  return {
+    runId,
+    manifest,
+    scopeDecision,
+    evidencePool,
+    verifiedReport,
+    metadata,
+    reasoningTrace,
+    sources,
+    signaturePresent,
+  };
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content .codex'"\\I-p2-009\\brief.md | ForEach-Object { \"{0,3}: {1}\" -f "'$i, $_; $i++ }' in C:\POLARIS
+ succeeded in 1224ms:
+  1: # Codex BRIEF review — I-p2-009 (#748): sovereignty proof panel + signed-bundle mark
+  2: 
+  3: HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+  4: - Front-load ALL real findings in iter 1. No drip-feeding.
+  5: - Same quality bar regardless of iteration count.
+  6: - "Don't pick bone from egg" — reserve P0/P1 for real execution risks; cosmetics → P2/P3.
+  7: - If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; do not bank for iter 6.
+  8: - Surface held-back findings now.
+  9: - Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+ 10: 
+ 11: ## Task
+ 12: A reusable **sovereignty proof panel + signed-bundle mark** — surfaces POLARIS's sovereignty + integrity story as VERIFIABLE facts (not a marketing badge).
+ 13: 
+ 14: ## Verified current state (grounded — REAL fields only; HONESTY is P0-critical here)
+ 15: - Sovereign mark wording already in shell (app_shell.tsx:50,52): "Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor" — HONEST (NOT air-gapped; public sources fetched via logged Canadian egress). Reuse this exact framing.
+ 16: - Real signed-bundle data (signed_bundle.ts): BundleMetadata {polaris_version, generator_model, evaluator_model, bundle_created_at_utc, schema_version "1.0"}; BundleManifest {bundle_id, decision_id, pool_id, report_id, generator_model, polaris_version, files[] each with sha256, bundle_created_at_utc}.
+ 17: - There is NO top-level cryptographic SIGNATURE field in the manifest — integrity is content-addressed (per-file sha256 in the manifest). So the mark is "integrity-hashed / tamper-evident" — do NOT claim "cryptographically signed" unless a signature is explicitly passed in.
+ 18: - Two-family invariant: generator_model vs evaluator_model are different lineages (existing family_segregation_badge.tsx renders this).
+ 19: - #742 tokens; copy discipline: "verified provenance"/"integrity-hashed", NEVER "guaranteed true"/"cryptographically signed" without a real signature.
+ 20: 
+ 21: ## Acceptance criteria (diff implements; brief reviews the plan)
+ 22: 1. `web/components/sovereignty/sovereignty_panel.tsx`: props = metadata (generator_model, evaluator_model, polaris_version, bundle_created_at_utc) + OPTIONAL manifest (bundle_id, files for the integrity hash) + OPTIONAL signature (rendered as "cryptographically signed" ONLY when present).
+ 23: 2. Renders three honest sections: (a) Sovereignty — the exact shell wording (Canadian processing, logged egress, no external AI vendor); (b) Two-family — generator vs evaluator model (different lineages); (c) Bundle integrity — bundle_id, schema 1.0, created_at, polaris_version, + "integrity-hashed (N files, sha256)" or, if signature passed, "cryptographically signed".
+ 24: 3. HONESTY: render only fields present; NO "cryptographically signed" without a signature; NO "air-gapped"; NO fabricated counts. Missing fields omitted.
+ 25: 4. Frontier-Minimal (white, Canada-red, mono for ids/hashes); WCAG 2.2 AA.
+ 26: 
+ 27: ## Files I have ALSO checked and they're clean
+ 28: - web/lib/signed_bundle.ts (BundleManifest/BundleMetadata real fields), web/components/inspector/family_segregation_badge.tsx (two-family render to reuse/mirror), web/components/app_shell.tsx (the honest sovereign wording), web/app/globals.css (#742 tokens).
+ 29: 
+ 30: ## Review focus
+ 31: 1. HONESTY (P0/P1 if violated): any overclaim — "cryptographically signed" without a signature, "air-gapped", fabricated hash/count? The mark must match what the bundle actually proves (content-addressed integrity).
+ 32: 2. Real-field grounding (no invented manifest fields)?
+ 33: 3. Two-family render correct (generator vs evaluator lineage)? a11y/tokens.
+ 34: 4. Any P0/P1.
+ 35: 
+ 36: ## Output schema
+ 37: ```yaml
+ 38: verdict: APPROVE | REQUEST_CHANGES
+ 39: novel_p0: [...]
+ 40: continuing_p0: [...]
+ 41: p1: [...]
+ 42: p2: [...]
+ 43: ```
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "The brief makes the two-family section assert 'different lineages' while the proposed props only include generator_model/evaluator_model. The existing source of truth is verified_report.family_segregation_passed, not model-name presence alone (web/components/inspector/family_segregation_badge.tsx:2, web/lib/inspector_bundle_loader.ts:51). Require a family_segregation_passed/verifiedReport prop, or render only the raw generator/evaluator model names without claiming different lineages unless the pass field is present."
+p2:
+  - "Acceptance says render schema 1.0, but the props list omits metadata.schema_version/manifest.bundle_version while also saying missing fields must be omitted. Clarify the schema source: metadata.schema_version, manifest.bundle_version, or imported BUNDLE_VERSION."
+tokens used
+55,251
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "The brief makes the two-family section assert 'different lineages' while the proposed props only include generator_model/evaluator_model. The existing source of truth is verified_report.family_segregation_passed, not model-name presence alone (web/components/inspector/family_segregation_badge.tsx:2, web/lib/inspector_bundle_loader.ts:51). Require a family_segregation_passed/verifiedReport prop, or render only the raw generator/evaluator model names without claiming different lineages unless the pass field is present."
+p2:
+  - "Acceptance says render schema 1.0, but the props list omits metadata.schema_version/manifest.bundle_version while also saying missing fields must be omitted. Clarify the schema source: metadata.schema_version, manifest.bundle_version, or imported BUNDLE_VERSION."

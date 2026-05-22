@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief APPROVE iter2 (two-family honesty from real field; integrity-not-signed honest).
