@@ -1,0 +1,183 @@
+diff --git a/web/app/components/home_keyboard_shell.tsx b/web/app/components/home_keyboard_shell.tsx
+index 54a955ab..db46af16 100644
+--- a/web/app/components/home_keyboard_shell.tsx
++++ b/web/app/components/home_keyboard_shell.tsx
+@@ -3,10 +3,8 @@
+ import Link from "next/link";
+ import { useEffect, useRef, useState, type ReactNode } from "react";
+ 
+-import { NavLink } from "@/components/nav_link";
+ import { Button } from "@/components/ui/button";
+-import { PRIMARY_NAV, navForRole } from "@/lib/nav";
+-import { DEFAULT_ROLE } from "@/lib/roles";
++import { PrimaryNav } from "@/components/primary_nav";
+ 
+ import { CommandPalette } from "./command_palette";
+ 
+@@ -44,7 +42,7 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+ 
+   return (
+     <>
+-      <header className="border-border bg-background border-b">
++      <header className="border-border bg-background relative border-b">
+         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-3">
+           <Link
+             href="/"
+@@ -52,13 +50,7 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+           >
+             POLARIS · Canada
+           </Link>
+-          <nav className="flex items-center gap-1" aria-label="Primary">
+-            {navForRole(PRIMARY_NAV, DEFAULT_ROLE).map((item) => (
+-              <NavLink key={item.href} href={item.href}>
+-                {item.label}
+-              </NavLink>
+-            ))}
+-          </nav>
++          <PrimaryNav />
+           {/* I-ui-010 (#730): sovereign mark — honest wording (no air-gap
+               overclaim). */}
+           <span
+diff --git a/web/components/app_shell.tsx b/web/components/app_shell.tsx
+index 9f9e1e6a..dee70905 100644
+--- a/web/components/app_shell.tsx
++++ b/web/components/app_shell.tsx
+@@ -1,8 +1,6 @@
+ import Link from "next/link";
+ 
+-import { NavLink } from "@/components/nav_link";
+-import { PRIMARY_NAV, navForRole } from "@/lib/nav";
+-import { DEFAULT_ROLE } from "@/lib/roles";
++import { PrimaryNav } from "@/components/primary_nav";
+ 
+ /**
+  * I-cd-004: the global app shell. A server component that wraps every prod
+@@ -35,13 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
+           >
+             POLARIS · Canada
+           </Link>
+-          <nav className="flex items-center gap-1" aria-label="Primary">
+-            {navForRole(PRIMARY_NAV, DEFAULT_ROLE).map((item) => (
+-              <NavLink key={item.href} href={item.href}>
+-                {item.label}
+-              </NavLink>
+-            ))}
+-          </nav>
++          <PrimaryNav />
+           {/* I-ui-010 (#730): sovereign mark — honest wording (NOT a false
+               air-gap claim; we retrieve public sources via logged Canadian
+               egress). Eye-level badge of strength, not fine print. */}
+diff --git a/web/components/nav_link.tsx b/web/components/nav_link.tsx
+index 81e03397..7bc8cc5d 100644
+--- a/web/components/nav_link.tsx
++++ b/web/components/nav_link.tsx
+@@ -13,9 +13,12 @@ import { usePathname } from "next/navigation";
+ export function NavLink({
+   href,
+   children,
++  onClick,
+ }: {
+   href: string;
+   children: React.ReactNode;
++  /** I-p2-034 (#790): lets the mobile menu close itself on navigation. */
++  onClick?: () => void;
+ }) {
+   const pathname = usePathname();
+   const is_active =
+@@ -23,6 +26,7 @@ export function NavLink({
+   return (
+     <Link
+       href={href}
++      onClick={onClick}
+       aria-current={is_active ? "page" : undefined}
+       className={
+         "rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
+diff --git a/web/components/primary_nav.tsx b/web/components/primary_nav.tsx
+new file mode 100644
+index 00000000..63924d41
+--- /dev/null
++++ b/web/components/primary_nav.tsx
+@@ -0,0 +1,83 @@
++// I-p2-034 (#790): responsive primary nav. Inline links on desktop (md+);
++// a hamburger menu below md so the 9 routes never overflow off-screen on a
++// phone (the prior single-row nav clipped half the links). Shared by AppShell
++// + HomeKeyboardShell (single nav source @/lib/nav). a11y: aria-expanded +
++// aria-controls + Escape-to-close + focus-visible; closes on navigation.
++"use client";
++
++import { Menu, X } from "lucide-react";
++import { useEffect, useState } from "react";
++
++import { NavLink } from "@/components/nav_link";
++import { PRIMARY_NAV, navForRole } from "@/lib/nav";
++import { DEFAULT_ROLE } from "@/lib/roles";
++
++export function PrimaryNav() {
++  const [open, setOpen] = useState(false);
++  const items = navForRole(PRIMARY_NAV, DEFAULT_ROLE);
++
++  useEffect(() => {
++    if (!open) return;
++    const onKey = (e: KeyboardEvent) => {
++      if (e.key === "Escape") setOpen(false);
++    };
++    window.addEventListener("keydown", onKey);
++    return () => window.removeEventListener("keydown", onKey);
++  }, [open]);
++
++  return (
++    <>
++      {/* Desktop: inline links */}
++      <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
++        {items.map((item) => (
++          <NavLink key={item.href} href={item.href}>
++            {item.label}
++          </NavLink>
++        ))}
++      </nav>
++
++      {/* Mobile: hamburger + dropdown */}
++      <div className="md:hidden">
++        <button
++          type="button"
++          aria-label={open ? "Close menu" : "Open menu"}
++          aria-expanded={open}
++          aria-controls="primary-nav-mobile"
++          onClick={() => setOpen((o) => !o)}
++          className="text-foreground hover:bg-muted focus-visible:ring-ring/70 inline-flex h-9 w-9 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:outline-none"
++        >
++          {open ? (
++            <X aria-hidden className="h-5 w-5" />
++          ) : (
++            <Menu aria-hidden className="h-5 w-5" />
++          )}
++        </button>
++        {open && (
++          <>
++            {/* click-away backdrop */}
++            <div
++              className="fixed inset-0 z-40"
++              aria-hidden
++              onClick={() => setOpen(false)}
++            />
++            <nav
++              id="primary-nav-mobile"
++              aria-label="Primary"
++              className="border-border bg-background absolute inset-x-0 top-full z-50 flex flex-col gap-1 border-b p-3 shadow-md"
++            >
++              {items.map((item) => (
++                <NavLink
++                  key={item.href}
++                  href={item.href}
++                  onClick={() => setOpen(false)}
++                >
++                  {item.label}
++                </NavLink>
++              ))}
++            </nav>
++          </>
++        )}
++      </div>
++    </>
++  );
++}
