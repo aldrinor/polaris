@@ -1,75 +1,163 @@
 {
-  "cost_usd": 0.0,
-  "decision_id": "decision_v1_canonical_0001",
-  "evaluator_model": "google/gemma-4-31b-it",
-  "family_segregation_passed": true,
-  "finished_at_utc": "2026-05-19T00:00:00+00:00",
-  "generator_model": "deepseek/deepseek-v4-pro",
-  "latency_ms": 4200,
-  "overall_verify_pass_rate": 1.0,
-  "pipeline_verdict": "success",
-  "pool_id": "pool_v1_canonical_0001",
-  "report_id": "report_v1_canonical_0001_success",
+  "report_id": "report_real_tirzepatide_0001",
+  "pool_id": "pool_real_tirzepatide_0001",
+  "decision_id": "decision_real_tirzepatide_0001",
   "sections": [
     {
-      "section_id": "Population",
+      "section_id": "Efficacy",
+      "section_title": "Efficacy",
       "section_status": "verified",
-      "section_title": "Population",
       "section_verify_pass_rate": 1.0,
       "verified_sentences": [
         {
+          "section_id": "Efficacy",
+          "sentence_text": "The estimated treatment differences were \u22120.15 percentage points (95% CI \u22120.28 to \u22120.03), \u22120.39 percentage points (95% CI \u22120.51 to \u22120.26), and \u22120.45 percentage points (95% CI \u22120.57 to \u22120.32), all favoring tirzepatide .",
+          "provenance_tokens": [
+            "[#ev:ev_006:8800-9300]"
+          ],
+          "verifier_pass": true,
           "assertion_surface": "prose",
           "contradiction": null,
           "drop_reason": null,
           "evaluator_agrees": true,
           "evaluator_disagreement": null,
-          "is_synthesis_claim": false,
-          "provenance_tokens": [
-            "[#ev:src_v1_canonical_0001:0-99]"
-          ],
-          "section_id": "Population",
-          "sentence_text": "Tirzepatide is a dual GIP and GLP-1 receptor agonist approved for type 2 diabetes mellitus.",
-          "verifier_pass": true
+          "is_synthesis_claim": false
         },
         {
+          "section_id": "Efficacy",
+          "sentence_text": "The proportion of participants achieving HbA1c targets of <7.0%, \u22646.5%, and <5.7% across the SURPASS program ranged from 81% to 97%, 66% to 95%, and 23% to 62%, respectively .",
+          "provenance_tokens": [
+            "[#ev:ev_000:8900-9400]"
+          ],
+          "verifier_pass": true,
           "assertion_surface": "prose",
           "contradiction": null,
           "drop_reason": null,
           "evaluator_agrees": true,
           "evaluator_disagreement": null,
-          "is_synthesis_claim": false,
-          "provenance_tokens": [
-            "[#ev:src_v1_canonical_0001:100-200]"
-          ],
-          "section_id": "Population",
-          "sentence_text": "It is administered subcutaneously once weekly.",
-          "verifier_pass": true
+          "is_synthesis_claim": false
         }
       ]
     },
     {
-      "section_id": "Outcomes",
+      "section_id": "Safety",
+      "section_title": "Safety",
       "section_status": "verified",
-      "section_title": "Outcomes",
       "section_verify_pass_rate": 1.0,
       "verified_sentences": [
         {
+          "section_id": "Safety",
+          "sentence_text": "The safety profile of tirzepatide is consistent with that of the GLP-1 receptor agonist class, with mild-to-moderate and transient gastrointestinal adverse events being the most common .",
+          "provenance_tokens": [
+            "[#ev:ev_000:200-700]",
+            "[#ev:ev_002:1700-2200]"
+          ],
+          "verifier_pass": true,
           "assertion_surface": "prose",
           "contradiction": null,
           "drop_reason": null,
           "evaluator_agrees": true,
           "evaluator_disagreement": null,
-          "is_synthesis_claim": false,
+          "is_synthesis_claim": false
+        }
+      ]
+    },
+    {
+      "section_id": "Comparative",
+      "section_title": "Comparative",
+      "section_status": "verified",
+      "section_verify_pass_rate": 1.0,
+      "verified_sentences": [
+        {
+          "section_id": "Comparative",
+          "sentence_text": "At 40 weeks, tirzepatide 5 mg, 10 mg, and 15 mg reduced HbA1c by \u22122.01, \u22122.24, and \u22122.30 percentage points, respectively, versus \u22121.86 percentage points with semaglutide .",
           "provenance_tokens": [
-            "[#ev:src_v1_canonical_0001:201-350]"
+            "[#ev:ev_006:1000-1500]"
           ],
-          "section_id": "Outcomes",
-          "sentence_text": "Phase III trials reported A1C reductions of 2.0 to 2.4 percentage points over 40 weeks.",
-          "verifier_pass": true
+          "verifier_pass": true,
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false
+        },
+        {
+          "section_id": "Comparative",
+          "sentence_text": "The estimated treatment differences versus semaglutide were \u22120.15 percentage points (95% CI \u22120.28 to \u22120.03; P=0.02) for 5 mg, \u22120.39 percentage points (\u22120.51 to \u22120.26; P<0.001) for 10 mg, and \u22120.45 percentage points (\u22120.57 to \u22120.32; P<0.001) for 15 mg .",
+          "provenance_tokens": [
+            "[#ev:ev_006:8800-9300]"
+          ],
+          "verifier_pass": true,
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false
+        },
+        {
+          "section_id": "Comparative",
+          "sentence_text": "A total of 82\u201386% of tirzepatide-treated patients achieved HbA1c <7.0% versus 79% with semaglutide; 69\u201380% achieved \u22646.5% versus 64%; and 27\u201346% achieved <5.7% versus 19% .",
+          "provenance_tokens": [
+            "[#ev:ev_006:9300-9800]"
+          ],
+          "verifier_pass": true,
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false
+        }
+      ]
+    },
+    {
+      "section_id": "Long-term Outcomes",
+      "section_title": "Long-term Outcomes",
+      "section_status": "verified",
+      "section_verify_pass_rate": 1.0,
+      "verified_sentences": [
+        {
+          "section_id": "Long-term Outcomes",
+          "sentence_text": "Those continuing tirzepatide achieved an additional 6.7% body\u2011weight reduction (efficacy estimand), resulting in a total mean weight loss of 26.0% over 88\u202fweeks, whereas participants switched to placebo regained 14.8% body weight .",
+          "provenance_tokens": [
+            "[#ev:ev_015:3400-3900]"
+          ],
+          "verifier_pass": true,
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false
+        },
+        {
+          "section_id": "Long-term Outcomes",
+          "sentence_text": "Additionally, a meta\u2011analysis of early tirzepatide trials noted that weight loss continued without reaching a plateau through weeks 40\u201352 across doses .",
+          "provenance_tokens": [
+            "[#ev:ev_002:8000-8500]"
+          ],
+          "verifier_pass": true,
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false
         }
       ]
     }
   ],
-  "started_at_utc": "2026-05-19T00:00:00+00:00",
-  "verifier_pass_threshold": 0.4
+  "overall_verify_pass_rate": 1.0,
+  "verifier_pass_threshold": 0.4,
+  "pipeline_verdict": "success",
+  "generator_model": "deepseek/deepseek-v4-pro",
+  "evaluator_model": "google/gemma-4-31b-it",
+  "family_segregation_passed": true,
+  "started_at_utc": "2026-05-20T00:00:00+00:00",
+  "finished_at_utc": "2026-05-20T00:00:00+00:00",
+  "latency_ms": 0,
+  "cost_usd": 0.0,
+  "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?"
 }
