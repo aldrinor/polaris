@@ -250,3 +250,7 @@ outputs/codex_findings/round_*/last_message.txt
 # I-cd-012 (GH#608): canonical signed-bundle fixture content MUST be tracked
 !tests/fixtures/signed_bundle/
 !tests/fixtures/signed_bundle/**
+
+# I-p2-p0 (#789): canonical demo bundles MUST ship to prod (read by the inspector). Never ignore.
+!web/public/canonical_bundles/
+!web/public/canonical_bundles/**
