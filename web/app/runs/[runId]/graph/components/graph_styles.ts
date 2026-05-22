@@ -53,7 +53,7 @@ export const STYLESHEET: cytoscape.StylesheetStyle[] = [
       label: "data(label)",
       "font-weight": "bold" as never,
       "font-size": 10,
-      color: "#f8fafc", // label centered ON the dark node -> light text
+      color: "#1e293b", // label renders above node on white (cytoscape default valign top)
     },
   },
   {
@@ -64,7 +64,7 @@ export const STYLESHEET: cytoscape.StylesheetStyle[] = [
       height: 22,
       label: "data(label)",
       "font-size": 9,
-      color: "#f8fafc", // label centered ON the mid node -> light text
+      color: "#1e293b", // label renders above node on white (cytoscape default valign top)
     },
   },
   {
