@@ -1,15 +1,9 @@
+import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
 import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 type Template = {
@@ -106,131 +100,89 @@ const templates: Template[] = [
   },
 ];
 
+const PILLARS = [
+  {
+    icon: BadgeCheck,
+    title: "Provable",
+    body: "Click any claim and see the exact source passage it came from. Frontier tools hallucinate 3–13% of their citations — every POLARIS claim is span-anchored to a primary source.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Sovereign",
+    body: "Canadian AI processing, no external AI vendor. Public sources are fetched via logged Canadian egress, and every brief is integrity-hashed and auditable.",
+  },
+  {
+    icon: Network,
+    title: "Snowball",
+    body: "Each run grows a connected knowledge graph of claims and sources you can explore, follow up on, and build the next question from.",
+  },
+] as const;
+
 export default function HomePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <HomeKeyboardShell templates={templates} signInHref="/sign-in">
-        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-12 px-6 py-16">
-          <section className="flex flex-col items-center gap-6 pt-6 text-center">
-            <h1 className="text-foreground max-w-3xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-              What can POLARIS verify for you today?
+        <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-20 px-6 py-24">
+          {/* Hero — one primary action */}
+          <section className="flex flex-col items-center gap-6 text-center">
+            <span className="text-muted-foreground border-border inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
+              ⬡ Sovereign Canadian deep research
+            </span>
+            <h1 className="text-foreground max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
+              Deep research you can check, line by line.
             </h1>
-            <p className="text-muted-foreground max-w-2xl text-base sm:text-lg">
-              Sovereign Canadian deep research. Every claim carries a provenance
-              token tied to a primary source, checked by a two-family evidence
-              pipeline.
+            <p className="text-muted-foreground max-w-2xl text-base text-pretty sm:text-lg">
+              Every sentence is tied to a primary source with a provenance token
+              and checked by an independent two-family evidence pipeline. Ask a
+              question — get a brief where you can click any claim and read the
+              exact passage behind it.
             </p>
             <form
               action="/intake"
               method="get"
               data-testid="home-hero-search"
-              className="flex w-full max-w-2xl items-center gap-2"
+              className="mt-2 flex w-full max-w-2xl items-center gap-2"
             >
               <Input
                 name="q"
                 type="search"
                 aria-label="Research question"
                 placeholder="Ask a research question…"
-                className="h-11 flex-1 text-base"
+                className="h-12 flex-1 text-base"
               />
-              <Button type="submit" className="h-11 px-6">
+              <Button type="submit" className="h-12 px-7">
                 Verify
               </Button>
             </form>
           </section>
 
-          <RecentRunsStrip />
-
+          {/* Differentiator pillars — replaces the templates grid */}
           <section
-            aria-labelledby="template_grid_heading"
-            className="flex flex-col gap-5"
-            data-testid="template-grid"
+            aria-label="Why POLARIS"
+            className="grid gap-8 sm:grid-cols-3"
           >
-            <div className="flex items-baseline justify-between">
-              <h2
-                id="template_grid_heading"
-                className="text-foreground text-xl font-semibold tracking-tight"
-              >
-                Research templates
-              </h2>
-              <span className="text-muted-foreground text-xs tracking-widest uppercase">
-                1 active · 7 in development
-              </span>
-            </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {templates.map((tpl) => (
-                <Card
-                  key={tpl.id}
-                  aria-disabled={tpl.active ? undefined : true}
-                  className={
-                    tpl.active
-                      ? "border-primary/40 flex flex-col transition-shadow hover:shadow-sm"
-                      : "bg-muted/40 text-muted-foreground flex flex-col"
-                  }
-                  data-testid={`template-card-${tpl.id}`}
-                >
-                  <CardHeader>
-                    <div className="flex items-start justify-between gap-2">
-                      <CardTitle className="text-lg">{tpl.name}</CardTitle>
-                      {!tpl.active ? (
-                        <span
-                          aria-hidden="true"
-                          className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
-                        >
-                          Coming soon
-                        </span>
-                      ) : null}
-                    </div>
-                    <CardDescription className="text-sm">
-                      {tpl.summary}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex flex-1 flex-col justify-between gap-4">
-                    <div className="flex flex-col gap-2 text-sm">
-                      <p>
-                        <span className="text-foreground font-medium">
-                          In scope:
-                        </span>{" "}
-                        {tpl.sample_question}
-                      </p>
-                      <p>
-                        <span className="text-foreground font-medium">
-                          Out of scope:
-                        </span>{" "}
-                        {tpl.out_of_scope}
-                      </p>
-                    </div>
-                    {tpl.active ? (
-                      <Button
-                        nativeButton={false}
-                        render={
-                          <Link
-                            data-testid={`template-card-${tpl.id}-link`}
-                            href={`/intake?template=${tpl.id}`}
-                          />
-                        }
-                      >
-                        Open {tpl.name}
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        disabled
-                        tabIndex={-1}
-                        aria-disabled="true"
-                      >
-                        Coming soon
-                      </Button>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            {PILLARS.map((pillar) => (
+              <div key={pillar.title} className="flex flex-col gap-2">
+                <pillar.icon
+                  aria-hidden
+                  className="text-primary h-5 w-5 shrink-0"
+                />
+                <h2 className="text-foreground text-sm font-semibold">
+                  {pillar.title}
+                </h2>
+                <p className="text-muted-foreground text-sm leading-relaxed">
+                  {pillar.body}
+                </p>
+              </div>
+            ))}
           </section>
+
+          {/* Real recent verified briefs */}
+          <RecentRunsStrip />
         </main>
 
         <footer className="border-border bg-background border-t">
-          <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+          <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
             <span>POLARIS · Sovereign Canadian deep research</span>
             <span>Two-family verified evidence</span>
           </div>
