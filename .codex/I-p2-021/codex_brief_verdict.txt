@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex APPROVE iter1 — institutional split-screen, chromeless, auth logic intact.

@@ -15,10 +15,15 @@ interface AppShellGateProps {
   children: React.ReactNode;
 }
 
+// Chromeless routes own their full viewport (no app header/nav):
+//  - `/`        : home owns its own header + main.
+//  - `/sign-in` : institutional full-screen auth (I-p2-021 #760); the primary
+//                 nav is auth-gated anyway, so it must not show pre-login.
+const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
+
 export function AppShellGate({ children }: AppShellGateProps) {
   const pathname = usePathname();
-  // Home owns its own header + main; render children bare on `/`.
-  if (pathname === "/") {
+  if (CHROMELESS_ROUTES.has(pathname)) {
     return <>{children}</>;
   }
   return <AppShell>{children}</AppShell>;

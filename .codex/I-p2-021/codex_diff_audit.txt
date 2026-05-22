@@ -1,0 +1,3 @@
+verdict: APPROVE
+merge_decision: MERGE AUTHORIZED
+# Codex design+diff APPROVE iter1 + MERGE AUTHORIZED, 0 P0/P1. Institutional split-screen sign-in, chromeless (CHROMELESS_ROUTES), auth logic + testids preserved. Screenshot-verified desktop+mobile.
