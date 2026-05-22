@@ -1,0 +1,1306 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4ecb-7e69-77b1-8b29-d93d8e08c4c6
+--------
+user
+# Codex DESIGN+DIFF review — I-p2-005 (#744): per-claim verdict chip
+
+HARD ITERATION CAP: 5. iter 1. APPROVE iff zero P0/P1 (code + design rubric). Final line MERGE AUTHORIZED if mergeable. Canonical-diff-sha256 `dac3bed276b65769110a6beffee74623b23620087df136ba88528cfe2425d852`. web/ only.
+
+## Design-audit note (component, no standalone page)
+Display-only chip; visual renders in-context on the report/audit pages (#756/#759) where it gets the full screenshot audit. Here audit code + the rubric a11y/honesty dims from the code + token math.
+
+## Diff
+- NEW web/components/verdict/verdict_chip.tsx: VerdictKind union (7 verdicts) → {label, lucide Icon, #742-token className}. Renders pill: tint bg + icon (aria-hidden) + label text = THREE signals (never color-only).
+- Mapping: VERIFIED→verified(green,BadgeCheck); PARTIAL→contradiction-tint(CircleSlash); UNSUPPORTED→muted(Minus); FABRICATED→destructive(X); UNREACHABLE→muted dashed(CircleHelp); contradiction→contradiction(TriangleAlert); refusal→refusal(Ban).
+
+## Review focus (rubric: provability/honesty, a11y, visual)
+1. WCAG 1.4.1: every verdict distinguished by MORE than color (icon + label present)? PARTIAL vs contradiction (both amber tint) distinct by icon(CircleSlash vs TriangleAlert) + label?
+2. AA contrast: each label text on its tint (text-verified / text-destructive / text-refusal on /10 of themselves ≈ white; text-contradiction-foreground on amber/15; text-muted-foreground on muted). Any pair under 4.5:1?
+3. Honesty: labels accurate, no euphemism (Fabricated, Unreachable distinct + serious)?
+4. Token classes resolve (bg-verified/10 etc. from @theme)? Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+codex
+I’ll inspect the web-only diff and the relevant theme token definitions, then check whether the chip satisfies the a11y and honesty criteria from code.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/components/verdict/verdict_chip.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "verified|contradiction|refusal|destructive|muted" web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short -- web' in C:\POLARIS
+ succeeded in 1601ms:
+ succeeded in 2025ms:
+web\AGENTS.md:23:**STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
+web\components\app_shell.tsx:49:            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+web\lib\api.ts:75:  | "abort_no_verified_sections";
+web\lib\api.ts:236:  left_contradictions: number;
+web\lib\api.ts:237:  right_contradictions: number;
+web\lib\api.ts:267:  verdict: "success" | "abort_no_verified_sections";
+web\lib\api.ts:270:  verified_sentence_count: number;
+web\lib\api.ts:345:  refusals: RefusalReason[];
+web\lib\api.ts:403:  refusal_patterns: string[];
+web\lib\api.ts:440:  verified_sentences: VerifiedSentence[];
+web\lib\api.ts:447:  contradictions: {
+web\lib\api.ts:448:    contradiction_id: string;
+web\lib\api.ts:672:// Slice 002 — Clinical Retrieval (verified clinical sources)
+web\lib\api.ts:796:// Mirrors src/polaris_graph/generator2/verified_report.py +
+web\lib\api.ts:800:export type SectionStatus = "verified" | "regenerated" | "dropped";
+web\lib\api.ts:802:export type PipelineVerdict = "success" | "abort_no_verified_sections";
+web\lib\api.ts:820:  contradiction?: ContradictionSignal | null;
+web\lib\api.ts:860:export type ContradictionKind = "multi_source" | "self_contradiction";
+web\lib\api.ts:889:  verified_sentences: ReportVerifiedSentence[];
+web\lib\api.ts:998:/** Filter to non-dropped sections (verified + regenerated). */
+web\lib\api.ts:1007:  return section.verified_sentences.filter((s) => s.verifier_pass);
+web\lib\api.ts:1125:  | "refusal_correctness"
+web\lib\api.ts:1139:  is_refusal_bait: boolean;
+web\lib\api.ts:1173:  refusal_correctness: "Refusal correctness",
+web\lib\api.ts:1183:  "refusal_correctness",
+web\lib\api.ts:1368:  is_verified: boolean;
+web\lib\api.ts:1383:  sentences_verified: number;
+web\lib\api.ts:1487:  sentences_verified: number;
+web\lib\api.ts:1489:  contradictions_found: number;
+web\lib\api.ts:1514:  contradictions_disclosed: number;
+web\lib\api.ts:1515:  contradictions_missing: string[];
+web\lib\api.ts:1557:  contradictions: AuditIrContradictionCluster[];
+web\lib\api.ts:1560:  verified_report: AuditIrVerifiedReport;
+web\lib\api.ts:1581: * I-rdy-008 (#504) slice 7a/7b — one verified evidence span cited by a run.
+web\lib\api.ts:1596:/** The verified evidence spans for one completed run. */
+web\lib\api.ts:1603: * Fetch the verified evidence spans for a completed run from the v6
+web\components\citation\citation_chip.tsx:59:            className="border-border text-muted-foreground hover:bg-muted focus-visible:ring-ring/70 mx-0.5 inline-flex min-h-[24px] min-w-[24px] items-center justify-center gap-1 rounded border px-1.5 align-baseline font-mono text-[11px] leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
+web\components\citation\citation_chip.tsx:75:            <div className="text-muted-foreground mb-1 flex flex-wrap items-center gap-2 text-[11px]">
+web\components\citation\citation_chip.tsx:88:              <p className="text-muted-foreground text-xs">
+web\components\citation\citation_chip.tsx:99:                className="text-muted-foreground mt-1 max-w-full truncate text-[11px]"
+web\components\inspector\bundle_header.tsx:55:      <p className="text-muted-foreground text-xs tracking-wide uppercase">
+web\app\audit_live\_panels.tsx:136:          data-testid="zero-verified-abort"
+web\app\audit_live\_panels.tsx:139:          Zero-verified abort: no kept verify decisions across{" "}
+web\app\audit_live\_panels.tsx:166:              className="text-muted-foreground text-xs"
+web\app\audit_live\_panels.tsx:178:                <span className="text-muted-foreground tabular-nums">
+web\app\compare\page.tsx:78:        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\compare\page.tsx:80:          coverage overlap, and contradiction counts. This is run-vs-run — for
+web\app\compare\page.tsx:86:        <p className="text-muted-foreground text-sm">
+web\app\compare\page.tsx:122:              <span className="text-muted-foreground text-xs">
+web\app\compare\page.tsx:133:          className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+web\app\compare\page.tsx:159:      <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\compare\page.tsx:181:    <span className="text-muted-foreground flex items-center gap-1 text-xs">
+web\app\compare\page.tsx:182:      <span className={ok ? "text-primary" : "text-muted-foreground"}>
+web\app\compare\page.tsx:200:            className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
+web\app\compare\page.tsx:206:          <span className="text-muted-foreground text-[10px]">
+web\app\compare\page.tsx:211:          <span className="text-muted-foreground text-[10px]">—</span>
+web\app\compare\page.tsx:262:        <span className="text-muted-foreground">
+web\app\compare\page.tsx:263:          Left contradictions:{" "}
+web\app\compare\page.tsx:265:            {result.left_contradictions}
+web\app\compare\page.tsx:268:        <span className="text-muted-foreground">
+web\app\compare\page.tsx:269:          Right contradictions:{" "}
+web\app\compare\page.tsx:271:            {result.right_contradictions}
+web\components\inspector\bundle_pending_cta.tsx:34:          <div className="border-border bg-muted/40 rounded-md border p-3">
+web\components\inspector\bundle_pending_cta.tsx:35:            <p className="text-muted-foreground text-sm font-medium">
+web\components\nav_link.tsx:8: * via the locked shadcn token set (accent / muted-foreground / foreground).
+web\components\nav_link.tsx:31:          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground")
+web\lib\inspector_bundle_loader.ts:32:  verifiedReport: VerifiedReportShape;
+web\lib\inspector_bundle_loader.ts:61:  verified_sentences: VerifiedSentenceShape[];
+web\lib\inspector_bundle_loader.ts:91:  const verifiedReport = (await readJson(
+web\lib\inspector_bundle_loader.ts:94:    "verified_report",
+web\lib\inspector_bundle_loader.ts:147:    verifiedReport,
+web\lib\inspector_bundle_loader.ts:158:  contentType: "scope_decision" | "evidence_pool" | "verified_report",
+web\app\upload\page.tsx:22:        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\components\verdict\verdict_chip.tsx:22:  | "contradiction"
+web\components\verdict\verdict_chip.tsx:23:  | "refusal";
+web\components\verdict\verdict_chip.tsx:36:    className: "bg-verified/10 text-verified border-verified/30",
+web\components\verdict\verdict_chip.tsx:42:      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+web\components\verdict\verdict_chip.tsx:47:    className: "bg-muted text-muted-foreground border-border",
+web\components\verdict\verdict_chip.tsx:52:    className: "bg-destructive/10 text-destructive border-destructive/40",
+web\components\verdict\verdict_chip.tsx:57:    className: "bg-muted text-muted-foreground border-border border-dashed",
+web\components\verdict\verdict_chip.tsx:59:  contradiction: {
+web\components\verdict\verdict_chip.tsx:63:      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+web\components\verdict\verdict_chip.tsx:65:  refusal: {
+web\components\verdict\verdict_chip.tsx:68:    className: "bg-refusal/10 text-refusal border-refusal/30",
+web\lib\inspector_bundle_client_loader.ts:199:  "verified_report",
+web\lib\inspector_bundle_client_loader.ts:296:  const verifiedReportFile = _findFile(files, "verified_report.json")!;
+web\lib\inspector_bundle_client_loader.ts:297:  const verifiedReport = JSON.parse(
+web\lib\inspector_bundle_client_loader.ts:298:    _decode(verifiedReportFile.bytes),
+web\lib\inspector_bundle_client_loader.ts:333:    verifiedReport,
+web\components\inspector\evidence_pool_table.tsx:45:          <p className="border-border text-muted-foreground rounded-md border border-dashed p-4 text-center">
+web\components\inspector\evidence_pool_table.tsx:51:              <thead className="border-border text-muted-foreground border-b text-xs tracking-wide uppercase">
+web\components\inspector\evidence_pool_table.tsx:66:                      <span className="bg-muted inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium">
+web\components\inspector\evidence_pool_table.tsx:83:                    <td className="text-muted-foreground px-2 py-2 align-top text-xs">
+web\components\inspector\evidence_pool_table.tsx:102:      className="border-border bg-muted/40 rounded-md border p-3"
+web\components\inspector\evidence_pool_table.tsx:117:        <p className="text-muted-foreground mt-2 text-xs">
+web\components\inspector\family_segregation_badge.tsx:2:// Source of truth: verified_report.evaluator_model + verified_report.family_segregation_passed
+web\components\inspector\family_segregation_badge.tsx:9:  verifiedReport: VerifiedReportShape;
+web\components\inspector\family_segregation_badge.tsx:14:  verifiedReport,
+web\components\inspector\family_segregation_badge.tsx:16:  const passed = verifiedReport.family_segregation_passed;
+web\components\inspector\family_segregation_badge.tsx:37:          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+web\components\inspector\family_segregation_badge.tsx:43:          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+web\components\inspector\family_segregation_badge.tsx:46:          <p className="font-mono text-sm">{verifiedReport.evaluator_model}</p>
+web\components\inspector\metadata_panel.tsx:20:          <dt className="text-muted-foreground">POLARIS version</dt>
+web\components\inspector\metadata_panel.tsx:27:          <dt className="text-muted-foreground">Generator model</dt>
+web\components\inspector\metadata_panel.tsx:34:          <dt className="text-muted-foreground">Evaluator model</dt>
+web\components\inspector\metadata_panel.tsx:41:          <dt className="text-muted-foreground">Bundle created at (UTC)</dt>
+web\components\inspector\metadata_panel.tsx:48:          <dt className="text-muted-foreground">Schema version</dt>
+web\app\benchmark\page.tsx:24:        <p className="text-muted-foreground max-w-3xl text-sm sm:text-base">
+web\app\benchmark\page.tsx:27:          provenance density, refusal correctness, coverage completeness,
+web\app\benchmark\page.tsx:28:          latency, and auditability. POLARIS uniquely scores 1.0 on refusal
+web\app\benchmark\page.tsx:38:        className="border-border text-muted-foreground rounded-lg border p-4 text-xs"
+web\app\benchmark\page.tsx:43:          <code className="bg-muted rounded px-1 py-0.5 text-xs">
+web\components\ui\button.tsx:7:  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/70 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+web\components\ui\button.tsx:13:          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+web\components\ui\button.tsx:17:          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+web\components\ui\button.tsx:18:        destructive:
+web\components\ui\button.tsx:19:          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/80 focus-visible:ring-destructive/30",
+web\scripts\capture_screenshots.mjs:69:    name: "inspector_contradiction_golden",
+web\scripts\capture_screenshots.mjs:71:    description: "Inspector view of housing contradiction golden run",
+web\lib\pin_regression.ts:12:  verified_sentence_count_drop: 3,
+web\lib\pin_regression.ts:16:  metric: "pass_rate" | "verified_sentence_count";
+web\lib\pin_regression.ts:61:  const sentence_drop = a.verified_sentence_count - b.verified_sentence_count;
+web\lib\pin_regression.ts:62:  if (sentence_drop > REGRESSION_THRESHOLDS.verified_sentence_count_drop) {
+web\lib\pin_regression.ts:64:      metric: "verified_sentence_count",
+web\lib\pin_regression.ts:65:      a_value: a.verified_sentence_count,
+web\lib\pin_regression.ts:66:      b_value: b.verified_sentence_count,
+web\lib\pin_regression.ts:68:      threshold: REGRESSION_THRESHOLDS.verified_sentence_count_drop,
+web\components\inspector\hash_chain_panel.tsx:18:            <thead className="border-border text-muted-foreground border-b text-xs tracking-wide uppercase">
+web\components\inspector\hash_chain_panel.tsx:38:                    <span className="bg-muted inline-flex items-center rounded-md px-2 py-0.5 text-xs">
+web\components\inspector\scope_decision_card.tsx:41:            <h3 className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
+web\components\inspector\scope_decision_card.tsx:48:                  className="border-border bg-muted/30 rounded-md border p-3"
+web\components\inspector\scope_decision_card.tsx:52:                    <ul className="text-muted-foreground mt-1 ml-4 list-disc text-xs">
+web\components\inspector\scope_decision_card.tsx:65:            <h3 className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
+web\components\inspector\scope_decision_card.tsx:91:      <p className="text-muted-foreground text-xs tracking-wide uppercase">
+web\components\inspector\verified_report_sections.tsx:2:// Real field names per verified_report.py:
+web\components\inspector\verified_report_sections.tsx:4://   sections[].verified_sentences
+web\components\inspector\verified_report_sections.tsx:5://   verified_sentences[].provenance_tokens (token strings)
+web\components\inspector\verified_report_sections.tsx:18:  verifiedReport: VerifiedReportShape;
+web\components\inspector\verified_report_sections.tsx:22:  verifiedReport,
+web\components\inspector\verified_report_sections.tsx:25:    <Card data-testid="verified-report-sections">
+web\components\inspector\verified_report_sections.tsx:28:          Verified report ({verifiedReport.sections.length} sections,{" "}
+web\components\inspector\verified_report_sections.tsx:29:          {(verifiedReport.overall_verify_pass_rate * 100).toFixed(0)}%
+web\components\inspector\verified_report_sections.tsx:30:          verified)
+web\components\inspector\verified_report_sections.tsx:34:        <VerdictBadge verdict={verifiedReport.pipeline_verdict} />
+web\components\inspector\verified_report_sections.tsx:35:        {verifiedReport.sections.length === 0 ? (
+web\components\inspector\verified_report_sections.tsx:36:          <p className="border-border text-muted-foreground rounded-md border border-dashed p-4 text-center">
+web\components\inspector\verified_report_sections.tsx:37:            No verified sections (pipeline verdict:{" "}
+web\components\inspector\verified_report_sections.tsx:38:            <code className="font-mono">{verifiedReport.pipeline_verdict}</code>
+web\components\inspector\verified_report_sections.tsx:42:          verifiedReport.sections.map((s) => (
+web\components\inspector\verified_report_sections.tsx:72:      data-testid="verified-report-section"
+web\components\inspector\verified_report_sections.tsx:77:        <span className="text-muted-foreground font-mono text-xs">
+web\components\inspector\verified_report_sections.tsx:82:        {section.verified_sentences.map((sentence, idx) => (
+web\components\inspector\verified_report_sections.tsx:97:      className="bg-muted/30 hover:bg-muted/60 rounded-sm border border-transparent p-2 transition-colors"
+web\components\inspector\verified_report_sections.tsx:98:      data-testid="verified-sentence"
+web\components\inspector\verified_report_sections.tsx:105:          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\components\inspector\verified_report_sections.tsx:115:        <ul className="text-muted-foreground mt-1 ml-4 list-disc font-mono text-xs">
+web\components\inspector\reasoning_trace_timeline.tsx:23:          <p className="border-border text-muted-foreground rounded-md border border-dashed p-4 text-center">
+web\components\inspector\reasoning_trace_timeline.tsx:44:          <span className="text-muted-foreground font-mono text-xs">
+web\components\inspector\reasoning_trace_timeline.tsx:47:          <span className="bg-muted rounded-md px-2 py-0.5 text-xs">
+web\components\inspector\reasoning_trace_timeline.tsx:50:          <span className="text-muted-foreground text-xs">
+web\components\inspector\reasoning_trace_timeline.tsx:58:            className="bg-muted/60 rounded-md px-2 py-0.5 font-mono"
+web\components\inspector\reasoning_trace_timeline.tsx:62:          <span className="bg-muted/60 rounded-md px-2 py-0.5 font-mono">
+web\components\inspector\reasoning_trace_timeline.tsx:68:        className="text-muted-foreground mt-2 grid grid-cols-1 gap-x-3 gap-y-1 text-xs sm:grid-cols-3"
+web\components\inspector\reasoning_trace_timeline.tsx:92:      <div className="text-muted-foreground mt-2 grid grid-cols-3 gap-2 text-xs">
+web\components\inspector\reasoning_trace_timeline.tsx:108:            <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+web\components\inspector\reasoning_trace_timeline.tsx:111:            <pre className="bg-muted rounded-md p-2 text-xs whitespace-pre-wrap">
+web\components\inspector\reasoning_trace_timeline.tsx:116:            <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+web\components\inspector\reasoning_trace_timeline.tsx:119:            <pre className="bg-muted rounded-md p-2 text-xs whitespace-pre-wrap">
+web\app\charts_test\components\chart_source_inspector.tsx:51:                className="bg-muted/40 rounded px-1 text-xs"
+web\app\charts_test\components\chart_source_inspector.tsx:83:            className="text-muted-foreground px-4 pb-4 text-sm italic"
+web\components\inspector\sources_panel.tsx:23:          <p className="border-border text-muted-foreground rounded-md border border-dashed p-4 text-center">
+web\components\inspector\sources_panel.tsx:37:                    className={`hover:bg-muted w-full rounded-sm px-2 py-1 text-left font-mono text-xs ${
+web\components\inspector\sources_panel.tsx:39:                        ? "bg-muted text-foreground"
+web\components\inspector\sources_panel.tsx:40:                        : "text-muted-foreground"
+web\components\inspector\sources_panel.tsx:49:              className="bg-muted max-h-[400px] overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap"
+web\app\benchmark\components\benchmark_board.tsx:31:  if (score === null) return "text-muted-foreground italic";
+web\app\benchmark\components\benchmark_board.tsx:38:  if (score < max_peer) return "text-muted-foreground";
+web\app\benchmark\components\benchmark_board.tsx:106:          <code className="bg-muted rounded px-1">
+web\app\benchmark\components\benchmark_board.tsx:125:          <code className="bg-muted rounded px-1">
+web\app\benchmark\components\benchmark_board.tsx:160:              className="border-border bg-background hover:bg-muted text-foreground rounded-lg border px-4 py-2 text-left text-sm transition-colors"
+web\app\benchmark\components\benchmark_board.tsx:187:          <span className="text-muted-foreground text-xs">
+web\app\upload\components\upload_drop_zone.tsx:162:        className="border-border bg-muted/10 flex min-h-32 flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center"
+web\app\upload\components\upload_drop_zone.tsx:165:        <p className="text-muted-foreground text-xs">
+web\app\upload\components\upload_drop_zone.tsx:184:              className="border-border bg-muted/20 flex items-center justify-between gap-2 rounded-lg border p-3 text-sm"
+web\app\upload\components\upload_drop_zone.tsx:198:              <span className="text-muted-foreground text-xs">
+web\app\charts_test\timeline\page.tsx:75:        <p className="text-muted-foreground mt-2 text-sm">
+web\app\charts_test\comparison_table\page.tsx:108:        <p className="text-muted-foreground mt-2 text-sm">
+web\app\charts_test\page.tsx:33:        <p className="text-muted-foreground mt-2 text-sm">
+web\app\upload\components\selected_docs_indicator.tsx:7:    <div className="border-border bg-muted/10 flex flex-col gap-1 rounded-lg border p-3 text-sm">
+web\app\upload\components\selected_docs_indicator.tsx:8:      <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\charts_test\click_through\page.tsx:78:        <p className="text-muted-foreground mt-2 text-sm">
+web\app\charts_test\forest_plot\page.tsx:42:        <p className="text-muted-foreground mt-2 text-sm">
+web\components\ui\input.tsx:12:        "border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/70 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm",
+web\lib\signed_bundle.ts:28:  | "verified_report"
+web\lib\signed_bundle.ts:36:  "verified_report",
+web\app\upload\components\document_preview.tsx:103:              className="hover:bg-muted/40 w-full truncate rounded p-1 text-left text-xs"
+web\app\layout.tsx:22:    "Two-family verified evidence pipelines for Government of Canada policy work.",
+web\components\ui\card.tsx:53:      className={cn("text-muted-foreground text-sm", className)}
+web\components\ui\card.tsx:87:        "bg-muted/50 flex items-center rounded-b-xl border-t p-4 group-data-[size=sm]/card:p-3",
+web\lib\sse_events.ts:8:  "contradiction",
+web\lib\sse_events.ts:19:  contradiction: "Contradiction events",
+web\components\ui\evidence-tooltip.tsx:150:            className="text-foreground bg-muted hover:bg-foreground hover:text-background mx-0.5 inline-flex min-h-[24px] cursor-pointer items-center rounded px-1.5 py-0.5 font-mono text-xs transition"
+web\components\ui\evidence-tooltip.tsx:162:            <p className="text-muted-foreground font-mono text-[11px]">
+web\components\ui\evidence-tooltip.tsx:167:              <p className="text-muted-foreground mt-1 truncate text-[11px]">
+web\components\ui\evidence-tooltip.tsx:174:                className="text-muted-foreground mt-1 text-[11px]"
+web\components\ui\evidence-tooltip.tsx:188:            <p className="text-muted-foreground mt-2 text-[11px] italic">
+web\components\ui\tabs.tsx:23:      "border-border bg-muted text-muted-foreground inline-flex h-10 items-center justify-start gap-1 rounded-md border p-1",
+web\app\globals.css:29:  --color-destructive: var(--destructive);
+web\app\globals.css:30:  --color-destructive-foreground: var(--destructive-foreground);
+web\app\globals.css:31:  --color-verified: var(--verified);
+web\app\globals.css:32:  --color-verified-foreground: var(--verified-foreground);
+web\app\globals.css:33:  --color-contradiction: var(--contradiction);
+web\app\globals.css:34:  --color-contradiction-foreground: var(--contradiction-foreground);
+web\app\globals.css:35:  --color-refusal: var(--refusal);
+web\app\globals.css:36:  --color-refusal-foreground: var(--refusal-foreground);
+web\app\globals.css:41:  --color-verified-bundle: var(--verified-bundle);
+web\app\globals.css:44:  --color-muted-foreground: var(--muted-foreground);
+web\app\globals.css:45:  --color-muted: var(--muted);
+web\app\globals.css:77:     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+web\app\globals.css:78:     destructive=deep maroon distinct from the national red. + evidence-role
+web\app\globals.css:84:  --muted: oklch(0.97 0 0);
+web\app\globals.css:85:  --muted-foreground: oklch(0.556 0 0);
+web\app\globals.css:88:  --destructive: oklch(0.42 0.13 18);
+web\app\globals.css:89:  --destructive-foreground: oklch(0.985 0 0);
+web\app\globals.css:94:  --verified: oklch(0.48 0.14 152);
+web\app\globals.css:95:  --verified-foreground: oklch(0.985 0 0);
+web\app\globals.css:96:  --contradiction: oklch(0.72 0.15 75);
+web\app\globals.css:97:  --contradiction-foreground: oklch(0.27 0.04 75);
+web\app\globals.css:98:  --refusal: oklch(0.45 0.02 286);
+web\app\globals.css:99:  --refusal-foreground: oklch(0.985 0 0);
+web\app\globals.css:105:  --verified-bundle: oklch(0.48 0.14 152);
+web\app\globals.css:132:     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+web\app\globals.css:138:  --muted: oklch(0.269 0 0);
+web\app\globals.css:139:  --muted-foreground: oklch(0.708 0 0);
+web\app\globals.css:142:  --destructive: oklch(0.704 0.191 22.216);
+web\app\globals.css:143:  /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+web\app\globals.css:147:  --destructive-foreground: oklch(0.145 0 0);
+web\components\ui\sheet.tsx:122:      className={cn("text-muted-foreground text-sm", className)}
+web\app\dashboard\page.tsx:333:        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\dashboard\page.tsx:369:                      : "border-border hover:border-muted-foreground"
+web\app\dashboard\page.tsx:420:                ? "border-foreground bg-muted/40"
+web\app\dashboard\page.tsx:421:                : "border-border bg-muted/10"
+web\app\dashboard\page.tsx:424:            <p className="text-muted-foreground">
+web\app\dashboard\page.tsx:442:              <p className="text-muted-foreground text-xs">Uploading…</p>
+web\app\dashboard\page.tsx:446:            <ul className="text-muted-foreground flex flex-col gap-1 text-xs">
+web\app\dashboard\page.tsx:486:                ? "border-destructive/60"
+web\app\dashboard\page.tsx:502:              {scopeDecision.refusals.length > 0 && (
+web\app\dashboard\page.tsx:504:                  Refused: {scopeDecision.refusals.join(", ")}
+web\app\dashboard\page.tsx:545:                    <span className="text-muted-foreground">
+web\app\dashboard\page.tsx:592:            className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+web\app\dashboard\page.tsx:601:            className="border-destructive/60 flex flex-col gap-2 rounded-md border p-3 text-sm"
+web\app\generation\page.tsx:19:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\generation\page.tsx:60:          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\generation\page.tsx:62:            001), retrieval against verified clinical sources (slice 002), and
+web\app\generation\page.tsx:65:            <code className="bg-muted rounded px-1 py-0.5 text-xs">
+web\app\generation\page.tsx:77:          className="border-border text-muted-foreground rounded-lg border p-4 text-xs"
+web\app\generation\page.tsx:81:            Slice 004 (audit bundle export, GPG-signed) packages this verified
+web\app\generation\page.tsx:90:        <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+web\app\intake\page.tsx:27:        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\intake\page.tsx:29:          scope + intake: refusal-bait detection, scope classification (efficacy
+web\app\inspector\offline\page.tsx:71:          <p className="text-muted-foreground">
+web\app\inspector\offline\page.tsx:73:            The bundle is verified and rendered entirely in your browser — no
+web\app\inspector\offline\page.tsx:100:              dragOver ? "bg-muted/60" : "bg-muted/20"
+web\app\intake\components\disambiguation_modal.tsx:57:            <DialogPrimitive.Description className="text-muted-foreground text-sm">
+web\app\intake\components\disambiguation_modal.tsx:70:                    className="border-border bg-muted/30 hover:bg-muted/60 flex w-full flex-col gap-1 rounded-lg border p-3 text-left focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+web\app\intake\components\disambiguation_modal.tsx:75:                    <span className="text-muted-foreground text-xs">
+web\app\intake\components\intake_form.tsx:135:            <p className="text-muted-foreground text-xs">
+web\app\intake\components\intake_form.tsx:150:              <span className="text-muted-foreground text-xs">or try:</span>
+web\app\intake\components\intake_form.tsx:156:                  className="text-muted-foreground hover:text-foreground border-border rounded-full border px-2 py-1 text-xs transition-colors"
+web\app\pin_replay\page.tsx:46:          <dt className="text-muted-foreground">Query</dt>
+web\app\pin_replay\page.tsx:53:          <dt className="text-muted-foreground">Verdict</dt>
+web\app\pin_replay\page.tsx:57:          <dt className="text-muted-foreground">Sections kept / dropped</dt>
+web\app\pin_replay\page.tsx:61:          <dt className="text-muted-foreground">Verified sentences</dt>
+web\app\pin_replay\page.tsx:63:            {snapshot.verified_sentence_count}
+web\app\pin_replay\page.tsx:65:          <dt className="text-muted-foreground">Pass rate</dt>
+web\app\pin_replay\page.tsx:87:      <p className="text-muted-foreground mt-4 text-sm">
+web\app\pin_replay\page.tsx:118:    snap_b.verified_sentence_count - snap_a.verified_sentence_count;
+web\app\pin_replay\page.tsx:132:        <p className="text-muted-foreground mt-2 text-sm">
+web\app\pin_replay\page.tsx:134:          verified-sentence count or pass-rate raise an alert.
+web\app\pin_replay\page.tsx:161:                      className="text-muted-foreground ml-1"
+web\app\intake\components\scope_decision_view.tsx:65:      <ul className="text-muted-foreground flex flex-wrap gap-1.5 text-xs">
+web\app\intake\components\scope_decision_view.tsx:69:            className="border-border bg-muted/40 rounded border px-1.5 py-0.5"
+web\app\intake\components\scope_decision_view.tsx:92:          <dt className="text-muted-foreground">Scope class</dt>
+web\app\intake\components\scope_decision_view.tsx:100:          <dt className="text-muted-foreground">Latency</dt>
+web\app\intake\components\scope_decision_view.tsx:108:          <dt className="text-muted-foreground">Decision id</dt>
+web\app\intake\components\scope_decision_view.tsx:113:          <dt className="text-muted-foreground">Decided at</dt>
+web\app\intake\components\scope_decision_view.tsx:135:            <ul className="text-muted-foreground list-disc pl-5 text-sm">
+web\app\intake\components\ambiguity_modal.tsx:55:            <DialogPrimitive.Description className="text-muted-foreground text-sm">
+web\app\intake\components\ambiguity_modal.tsx:66:                className="border-border bg-muted/30 flex flex-col gap-2 rounded-lg border p-3"
+web\app\intake\components\ambiguity_modal.tsx:68:                <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\intake\components\ambiguity_modal.tsx:86:            <ul className="text-muted-foreground list-disc pl-5 text-sm">
+web\app\page.tsx:118:            <p className="text-muted-foreground max-w-2xl text-base sm:text-lg">
+web\app\page.tsx:156:              <span className="text-muted-foreground text-xs tracking-widest uppercase">
+web\app\page.tsx:168:                      : "bg-muted/40 text-muted-foreground flex flex-col"
+web\app\page.tsx:178:                          className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+web\app\page.tsx:233:          <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+web\app\page.tsx:235:            <span>Two-family verified evidence</span>
+web\app\sign-in\page.tsx:65:    <div className="bg-muted/40 flex min-h-screen flex-col items-center justify-center px-6 py-12">
+web\app\sign-in\page.tsx:67:        className="text-muted-foreground text-sm"
+web\app\sign-in\page.tsx:100:    <div className="bg-muted/40 flex min-h-screen flex-col items-center justify-center px-6 py-12">
+web\app\sign-in\page.tsx:103:          <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\sign-in\page.tsx:160:                  className="text-destructive text-sm font-medium"
+web\app\inspector\[runId]\inspector_view.tsx:13:import { VerifiedReportSections } from "@/components/inspector/verified_report_sections";
+web\app\inspector\[runId]\inspector_view.tsx:37:        verifiedReport={bundle.verifiedReport}
+web\app\inspector\[runId]\inspector_view.tsx:50:          <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
+web\app\pin_replay\components\diff_side_panel.tsx:20:    key: "verified_sentence_count",
+web\app\pin_replay\components\diff_side_panel.tsx:119:            className="text-muted-foreground px-4 pb-4 text-sm italic"
+web\app\components\recent_runs_strip.tsx:64:        className="text-muted-foreground text-xs font-medium tracking-widest uppercase"
+web\app\components\recent_runs_strip.tsx:81:                  <span className="text-muted-foreground font-normal">
+web\app\contracts\page.tsx:19:      <p className="text-muted-foreground mb-6 text-sm">
+web\app\pin_replay\components\pin_timeseries.tsx:22:    value: s.verified_sentence_count,
+web\app\pin_replay\components\pin_timeseries.tsx:23:    series: "verified_sentences",
+web\app\components\home_keyboard_shell.tsx:65:            className="text-muted-foreground border-border mr-2 ml-auto hidden rounded-full border px-2.5 py-1 text-xs lg:inline-flex"
+web\app\memory\page.tsx:61:        className="text-muted-foreground mt-2 text-sm"
+web\app\memory\page.tsx:77:                className="text-muted-foreground"
+web\app\memory\page.tsx:125:              <div className="text-muted-foreground text-xs">
+web\app\components\command_palette.tsx:138:                  !t.active && "text-muted-foreground",
+web\tests\e2e\audit_live_adversarial.spec.ts:35:test("zero-verified-abort banner when all verify decisions drop", async ({
+web\tests\e2e\audit_live_adversarial.spec.ts:44:  await expect(page.getByTestId("zero-verified-abort")).toBeVisible({
+web\tests\e2e\audit_live_adversarial.spec.ts:66:  await expect(page.getByTestId("zero-verified-abort")).toBeHidden();
+web\app\runs\[runId]\page.tsx:144:        <span className="text-muted-foreground text-xs tracking-widest uppercase">
+web\app\runs\[runId]\page.tsx:151:          <p className="text-muted-foreground text-sm">
+web\app\runs\[runId]\page.tsx:163:            className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+web\app\runs\[runId]\page.tsx:174:        <p className="text-muted-foreground text-xs">
+web\app\runs\[runId]\page.tsx:235:          (it has an answerable, verified report). Failed/cancelled/in-progress
+web\tests\e2e\audit_bundle.spec.ts:25:    // Wait for either verified report or generation error
+web\tests\e2e\audit_bundle.spec.ts:27:      page.getByTestId("verified-report-view").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:38:    if (await page.getByTestId("verified-report-view").isVisible()) {
+web\tests\e2e\audit_bundle.spec.ts:51:      page.getByTestId("verified-report-view").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:61:    if (!(await page.getByTestId("verified-report-view").isVisible())) {
+web\tests\e2e\accessibility.spec.ts:72:// preserves the legacy "destructive error banner" test intent.
+web\tests\e2e\accessibility.spec.ts:113:    // Preserves the legacy "/inspector/<bad-runid> destructive error banner"
+web\tests\e2e\accessibility.spec.ts:128:    // the upload-list <li> renders with the destructive-class \"remove\"
+web\tests\e2e\accessibility.spec.ts:153:// exist in the new Inspector — verified_sentences with drop_reason will
+web\tests\e2e\accessibility.spec.ts:154:// render via verified_report_sections.tsx in a future PR that extends
+web\tests\e2e\accessibility.spec.ts:287:// I-cd-013b (GH#669): the legacy /inspector/<bad-runid> destructive-error
+web\tests\e2e\accessibility.spec.ts:290:// The /runs/<bad-runid> destructive-error test below stays here — it
+web\tests\e2e\accessibility.spec.ts:294:  test("Run-detail destructive error banner (invalid runId) is WCAG-AA clean", async ({
+web\tests\e2e\accessibility.spec.ts:297:    // /runs/[runId] page also uses the destructive error pattern; verify it.
+web\app\retrieval\page.tsx:10:    "Retrieve verified clinical sources for a research question. POLARIS runs the slice 001 scope gate, then retrieves T1/T2/T3 sources from approved clinical domains.",
+web\app\retrieval\page.tsx:19:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\retrieval\page.tsx:53:          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\retrieval\page.tsx:66:          className="border-border text-muted-foreground rounded-lg border p-4 text-xs"
+web\app\retrieval\page.tsx:78:        <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+web\tests\e2e\bundle_preview.spec.ts:52:    verified_report: { count: 1, bytes: 4096 },
+web\tests\e2e\bundle_preview.spec.ts:117:    "verified_report",
+web\tests\e2e\command_palette_adversarial.spec.ts:13: * Iter-1 + iter-2 Codex empirical scoring runs verified each corpus
+web\app\sentence_hover_test\follow_up_append\page.tsx:17:        verified_sentences: [
+web\app\sentence_hover_test\follow_up_append\page.tsx:28:        section_status: "verified",
+web\app\runs\[runId]\graph\page.tsx:47:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\runs\[runId]\graph\page.tsx:71:            className="border-destructive text-destructive rounded-md border p-4"
+web\app\runs\[runId]\graph\page.tsx:80:            className="text-muted-foreground flex items-center gap-2"
+web\app\runs\[runId]\graph\page.tsx:121:        <span className="text-muted-foreground text-xs">
+web\app\generation\components\verified_report_view.tsx:22:import { ContradictionPane } from "./contradiction_pane";
+web\app\generation\components\verified_report_view.tsx:48:  verified:
+web\app\generation\components\verified_report_view.tsx:66:  verdict: "success" | "abort_no_verified_sections";
+web\app\generation\components\verified_report_view.tsx:80:      {ok ? "Success" : "Aborted (no verified sections)"}
+web\app\generation\components\verified_report_view.tsx:152:          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+web\app\generation\components\verified_report_view.tsx:176:        <span className="text-muted-foreground font-mono text-[10px]">
+web\app\generation\components\verified_report_view.tsx:221:      {!dropped && sentence.contradiction ? (
+web\app\generation\components\verified_report_view.tsx:224:          data-testid={`inspector-contradiction-${sentence_id}`}
+web\app\generation\components\verified_report_view.tsx:225:          title={sentence.contradiction.summary}
+web\app\generation\components\verified_report_view.tsx:230:            if (sentence.contradiction)
+web\app\generation\components\verified_report_view.tsx:231:              onSelectContradiction(sentence.contradiction);
+web\app\generation\components\verified_report_view.tsx:239:              if (sentence.contradiction)
+web\app\generation\components\verified_report_view.tsx:240:                onSelectContradiction(sentence.contradiction);
+web\app\generation\components\verified_report_view.tsx:246:            const kind = sentence.contradiction.kind ?? "multi_source";
+web\app\generation\components\verified_report_view.tsx:247:            if (kind === "self_contradiction") {
+web\app\generation\components\verified_report_view.tsx:248:              // Codex iter-1 P2: self-contradiction span count comes from
+web\app\generation\components\verified_report_view.tsx:250:              const span_n = sentence.contradiction.sides?.length ?? 0;
+web\app\generation\components\verified_report_view.tsx:253:            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
+web\app\generation\components\verified_report_view.tsx:320:  const dropped_count = section.verified_sentences.length - kept.length;
+web\app\generation\components\verified_report_view.tsx:343:          <p className="text-muted-foreground text-sm">
+web\app\generation\components\verified_report_view.tsx:344:            No verified sentences in this section.
+web\app\generation\components\verified_report_view.tsx:348:            {section.verified_sentences.map((s, idx) => (
+web\app\generation\components\verified_report_view.tsx:365:          <p className="text-muted-foreground text-xs italic">
+web\app\generation\components\verified_report_view.tsx:389:  const [contradiction_open, set_contradiction_open] =
+web\app\generation\components\verified_report_view.tsx:400:      data-testid="verified-report-view"
+web\app\generation\components\verified_report_view.tsx:411:            <dt className="text-muted-foreground">Generator</dt>
+web\app\generation\components\verified_report_view.tsx:415:            <dt className="text-muted-foreground">Evaluator</dt>
+web\app\generation\components\verified_report_view.tsx:439:            <dt className="text-muted-foreground">Pass rate</dt>
+web\app\generation\components\verified_report_view.tsx:443:            <dt className="text-muted-foreground">Sections</dt>
+web\app\generation\components\verified_report_view.tsx:456:            <dt className="text-muted-foreground">Latency</dt>
+web\app\generation\components\verified_report_view.tsx:463:            className="text-muted-foreground mt-3 text-xs"
+web\app\generation\components\verified_report_view.tsx:478:          onSelectContradiction={(signal) => set_contradiction_open(signal)}
+web\app\generation\components\verified_report_view.tsx:485:        open={contradiction_open !== null}
+web\app\generation\components\verified_report_view.tsx:486:        signal={contradiction_open}
+web\app\generation\components\verified_report_view.tsx:488:          if (!open) set_contradiction_open(null);
+web\app\sentence_hover_test\memory_cite\page.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\memory_cite\page.tsx:16:      verified_sentences: [
+web\app\sentence_hover_test\memory_cite\page.tsx:37:      section_status: "verified",
+web\app\retrieval\components\retrieval_runner.tsx:137:            <p className="text-muted-foreground text-xs">
+web\app\generation\components\two_run_picker.tsx:38:        className="text-muted-foreground text-sm"
+web\app\generation\components\two_run_picker.tsx:60:                <span className="text-muted-foreground block text-xs">
+web\app\generation\components\two_run_picker.tsx:77:        className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground inline-flex items-center rounded-md px-4 py-2 text-sm font-medium disabled:cursor-not-allowed"
+web\app\sentence_hover_test\_demo.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo.tsx:114:      verified_sentences: [
+web\app\sentence_hover_test\_demo.tsx:257:        // sec_x:26 — contradiction signal (I-f8-001/I-f8-002).
+web\app\sentence_hover_test\_demo.tsx:269:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:305:        // sec_x:27 — self-contradiction (I-f8-003).
+web\app\sentence_hover_test\_demo.tsx:308:          sentence_text: "Self-contradiction demo: same source on both sides.",
+web\app\sentence_hover_test\_demo.tsx:313:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:314:            kind: "self_contradiction",
+web\app\sentence_hover_test\_demo.tsx:339:        // sec_x:28 — regulatory non-numeric contradiction (I-f8-004).
+web\app\sentence_hover_test\_demo.tsx:343:            "Regulatory non-numeric contradiction: FDA approved vs not.",
+web\app\sentence_hover_test\_demo.tsx:348:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:378:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:412:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:456:      section_status: "verified",
+web\app\retrieval\components\corpus_brief.tsx:94:          <dt className="text-muted-foreground">Sources retrieved</dt>
+web\app\retrieval\components\corpus_brief.tsx:96:          <dt className="text-muted-foreground">Queries executed</dt>
+web\app\retrieval\components\corpus_brief.tsx:100:          <dt className="text-muted-foreground">Latency</dt>
+web\app\retrieval\components\corpus_brief.tsx:102:          <dt className="text-muted-foreground">Cost</dt>
+web\app\retrieval\components\corpus_brief.tsx:128:                  <span className="text-muted-foreground font-mono text-xs">
+web\app\retrieval\components\corpus_brief.tsx:141:                  <p className="text-muted-foreground text-xs">
+web\app\sentence_hover_test\_demo_coverage.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_coverage.tsx:83:        verified_sentences: [
+web\app\sentence_hover_test\_demo_coverage.tsx:94:        section_status: "verified",
+web\app\sentence_hover_test\two_run_picker\page.tsx:52:        className="text-muted-foreground mt-6 text-sm"
+web\tests\e2e\demo_journey.spec.ts:8:// renders. That step's assertions cover the verified-report → claim →
+web\app\generation\components\follow_up_append_view.tsx:5:import { VerifiedReportView } from "./verified_report_view";
+web\app\generation\components\follow_up_append_view.tsx:8:// verified report, a labeled separator, then the appended (follow-up)
+web\app\generation\components\follow_up_append_view.tsx:9:// verified report. Production wiring (graph_v4 generating the appended
+web\app\generation\components\follow_up_append_view.tsx:26:          className="text-muted-foreground mt-2 text-center text-xs tracking-widest uppercase"
+web\app\generation\components\multi_source_panel.tsx:77:      <p className="text-muted-foreground">
+web\app\generation\components\multi_source_panel.tsx:150:            className="text-muted-foreground border-border mb-3 rounded border bg-blue-500/5 p-2 text-xs"
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:60:        verified_sentences: Array.from({ length: N }, (_, i) => ({
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:79:        section_status: "verified",
+web\app\generation\components\evaluator_pane.tsx:58:            <div className="text-muted-foreground text-xs">
+web\app\generation\components\evaluator_pane.tsx:65:                    className="bg-muted/40 rounded px-1"
+web\app\generation\components\evaluator_pane.tsx:72:            <div className="text-muted-foreground text-xs">
+web\app\generation\components\evaluator_pane.tsx:82:            className="text-muted-foreground px-4 pb-4 text-sm italic"
+web\app\generation\components\generation_runner.tsx:22:import { VerifiedReportView } from "./verified_report_view";
+web\app\generation\components\generation_runner.tsx:148:            <p className="text-muted-foreground text-xs">
+web\app\generation\components\generation_runner.tsx:211:              className="text-muted-foreground hover:text-foreground border-border rounded-full border px-3 py-1 text-xs transition-colors"
+web\app\generation\components\generation_runner.tsx:285:      className="text-foreground border-border bg-background hover:bg-muted rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-50"
+web\app\generation\components\sentence_inspector.tsx:91:      className="border-border bg-muted/40 text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+web\app\generation\components\sentence_inspector.tsx:207:        className="text-muted-foreground"
+web\app\generation\components\sentence_inspector.tsx:283:                <p className="text-muted-foreground text-xs italic">
+web\app\generation\components\contradiction_pane.tsx:66:        data-testid="contradiction-pane"
+web\app\generation\components\contradiction_pane.tsx:71:          <SheetTitle data-testid="contradiction-pane-title">
+web\app\generation\components\contradiction_pane.tsx:75:              if (kind === "self_contradiction") {
+web\app\generation\components\contradiction_pane.tsx:76:                return `Self-contradiction: source contradicts itself across ${sides.length} spans`;
+web\app\generation\components\contradiction_pane.tsx:85:                data-testid="contradiction-category"
+web\app\generation\components\contradiction_pane.tsx:97:              data-testid={`contradiction-side-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:101:                <code data-testid={`contradiction-source-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:112:                        data-testid={`contradiction-evidence-type-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:124:                        data-testid={`contradiction-jurisdiction-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:132:                    data-testid={`contradiction-tier-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:139:              <div className="text-muted-foreground flex flex-wrap gap-2 text-[10px]">
+web\app\generation\components\contradiction_pane.tsx:141:                  <span data-testid={`contradiction-sample-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:145:                <span data-testid={`contradiction-hedge-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:149:                  <span data-testid={`contradiction-pt08-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:155:                data-testid={`contradiction-claim-${idx}`}
+web\app\generation\components\BundlePreview.tsx:22:  ["verified_report", "Verified report"],
+web\app\generation\components\BundlePreview.tsx:68:        className="text-muted-foreground border-border rounded-md border p-3 text-xs"
+web\app\generation\components\BundlePreview.tsx:88:      className="border-border bg-muted/30 rounded-md border p-3 text-xs"
+web\app\generation\components\frame_coverage_panel.tsx:104:          className="bg-muted h-2 w-full overflow-hidden rounded-full"
+web\app\runs\[runId]\graph\components\claim_graph.tsx:186:            <div className="text-muted-foreground">{hover.type}</div>
+web\app\runs\[runId]\graph\components\claim_graph.tsx:188:              <div className="text-muted-foreground">{hover.tier}</div>
+web\app\runs\[runId]\graph\components\claim_graph.tsx:191:              <div className="text-muted-foreground truncate">
+web\app\runs\[runId]\graph\components\claim_graph.tsx:198:      <p className="text-muted-foreground border-border border-t p-2 text-xs">
+web\app\runs\[runId]\components\followup_panel.tsx:70:      <p className="text-muted-foreground text-xs">
+web\app\runs\[runId]\components\followup_panel.tsx:71:        Scoped to this run&apos;s verified evidence — no new retrieval is run.
+web\app\runs\[runId]\components\followup_panel.tsx:85:          <span className="text-muted-foreground text-[10px]">
+web\app\runs\[runId]\components\followup_panel.tsx:97:          className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+web\app\runs\[runId]\components\followup_panel.tsx:126:      <p className="text-muted-foreground text-xs">{answer.rationale}</p>
+web\app\runs\[runId]\components\followup_panel.tsx:129:        <p className="text-muted-foreground text-xs">
+web\app\runs\[runId]\components\followup_panel.tsx:141:          <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+web\app\runs\[runId]\components\followup_panel.tsx:148:                className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
+web\app\runs\[runId]\components\followup_panel.tsx:156:                className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:147:                <span className="text-muted-foreground font-mono text-[10px] uppercase">
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:172:          <li className="text-muted-foreground p-3 text-xs">
+web\app\runs\[runId]\components\run_progress.tsx:70:      verified: asNumber(e.data.verified ?? e.data.verified_sentences),
+web\app\runs\[runId]\components\run_progress.tsx:183:    ? sections.reduce((acc, s) => acc + s.verified, 0)
+web\app\runs\[runId]\components\run_progress.tsx:196:          label="Sentences verified"
+web\app\runs\[runId]\components\run_progress.tsx:204:          className="border-border text-muted-foreground rounded-md border border-dashed p-3 text-sm"
+web\app\runs\[runId]\components\run_progress.tsx:247:      <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+web\app\runs\[runId]\components\run_progress.tsx:278:        className="border-muted-foreground text-muted-foreground flex size-4 items-center justify-center rounded-full border text-[10px]"
+web\app\runs\[runId]\components\run_progress.tsx:288:      className="bg-muted-foreground/30 size-4 rounded-full"
+web\app\runs\[runId]\components\run_progress.tsx:305:  sections: { section: string; verified: number; dropped: number }[];
+web\app\runs\[runId]\components\run_progress.tsx:311:    return <p className="text-muted-foreground text-xs">Did not run.</p>;
+web\app\runs\[runId]\components\run_progress.tsx:315:      <p className="text-muted-foreground text-xs">
+web\app\runs\[runId]\components\run_progress.tsx:332:      return <p className="text-muted-foreground text-xs">Completed.</p>;
+web\app\runs\[runId]\components\run_progress.tsx:337:        <p className="text-muted-foreground text-xs">Awaiting scope gate…</p>
+web\app\runs\[runId]\components\run_progress.tsx:340:      <p className="text-muted-foreground text-xs">
+web\app\runs\[runId]\components\run_progress.tsx:351:        <p className="text-muted-foreground text-xs">Gathering evidence…</p>
+web\app\runs\[runId]\components\run_progress.tsx:358:            className="text-muted-foreground truncate text-xs"
+web\app\runs\[runId]\components\run_progress.tsx:365:          <li className="text-muted-foreground text-xs">
+web\app\runs\[runId]\components\run_progress.tsx:375:        <p className="text-muted-foreground text-xs">Drafting sections…</p>
+web\app\runs\[runId]\components\run_progress.tsx:382:            className="text-muted-foreground text-xs"
+web\app\runs\[runId]\components\run_progress.tsx:387:            — {s.verified} verified, {s.dropped} dropped
+web\app\runs\[runId]\components\run_progress.tsx:395:    return <p className="text-muted-foreground text-xs">Verifying claims…</p>;
+web\app\runs\[runId]\components\run_progress.tsx:399:        <li key={`${v.section}-${i}`} className="text-muted-foreground text-xs">
+web\app\sentence_hover_test\_demo_perf.tsx:97:        <p className="text-muted-foreground text-sm">
+web\app\sentence_hover_test\_demo_stress.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_stress.tsx:57:        verified_sentences: Array.from({ length: n }, (_, i) => ({
+web\app\sentence_hover_test\_demo_stress.tsx:68:        section_status: "verified",
+web\tests\e2e\follow_up_append.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toHaveCount(2);
+web\tests\e2e\frame_coverage_panel.spec.ts:59:test("Frame coverage panel is the first child of verified-report-view (above-the-fold)", async ({
+web\tests\e2e\frame_coverage_panel.spec.ts:65:  // Codex iter-1 P2: assert first-child of verified-report-view — the
+web\tests\e2e\frame_coverage_panel.spec.ts:68:    const rv = document.querySelector('[data-testid="verified-report-view"]');
+web\tests\e2e\generation.spec.ts:11: * happy path renders a verified report; without them the chain fails
+web\tests\e2e\generation.spec.ts:62:    // verified report renders. Both are valid e2e outcomes.
+web\tests\e2e\generation.spec.ts:68:        .getByTestId("verified-report-view")
+web\tests\e2e\generation.spec.ts:76:      .getByTestId("verified-report-view")
+web\tests\e2e\inspector_offline_fallback.spec.ts:50:  // Bundle header + verified report visible.
+web\tests\e2e\inspector_route.spec.ts:50:  test("family segregation badge shows pass (verified_report SoT)", async ({
+web\tests\e2e\pin_regression_alert.spec.ts:24:      page.getByTestId("regression-alert-verified_sentence_count"),
+web\tests\e2e\pin_replay_diff.spec.ts:30:      page.getByTestId("pin-diff-row-verified_sentence_count"),
+web\tests\e2e\pin_retraction_handled.spec.ts:20:      page.getByTestId("regression-alert-verified_sentence_count"),
+web\tests\e2e\sentence_hover.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:3:test("Sentence row with contradiction signal shows ⚠ badge", async ({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:8:  const badge = row.getByTestId("inspector-contradiction-sec_x:26");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:17:test("Sentence row without contradiction shows NO contradiction badge", async ({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:22:  await expect(row.getByTestId("inspector-contradiction-sec_x:5")).toHaveCount(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:27:test("Click contradiction badge → ContradictionPane shows N sides", async ({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:31:  await page.getByTestId("inspector-contradiction-sec_x:26").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:32:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:35:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:39:  await expect(page.getByTestId("contradiction-side-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:40:  await expect(page.getByTestId("contradiction-side-1")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:41:  await expect(page.getByTestId("contradiction-side-2")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:43:  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:46:  await expect(page.getByTestId("contradiction-tier-0")).toContainText("T1");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:47:  await expect(page.getByTestId("contradiction-sample-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:50:  await expect(page.getByTestId("contradiction-hedge-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:53:  await expect(page.getByTestId("contradiction-pt08-0")).toContainText("PT04");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:54:  await expect(page.getByTestId("contradiction-claim-0")).toContainText("81mg");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:61:  await page.getByTestId("inspector-contradiction-sec_x:28").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:62:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:65:  await expect(page.getByTestId("contradiction-category")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:68:  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:71:  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:78:  await page.getByTestId("inspector-contradiction-sec_x:29").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:79:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:82:  await expect(page.getByTestId("contradiction-evidence-type-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:85:  await expect(page.getByTestId("contradiction-evidence-type-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:92:  await page.getByTestId("inspector-contradiction-sec_x:30").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:93:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:96:  await expect(page.getByTestId("contradiction-jurisdiction-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:99:  await expect(page.getByTestId("contradiction-jurisdiction-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:104:test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:106:  const badge = page.getByTestId("inspector-contradiction-sec_x:27");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:111:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:112:    "Self-contradiction",
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:114:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:118:  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:121:  await expect(page.getByTestId("contradiction-source-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:124:  await expect(page.getByTestId("contradiction-claim-0")).toContainText("safe");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:125:  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:55:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector_latency.spec.ts:9:    await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\visual_60_baselines.spec.ts:50:    testid: "verified-report-view",
+web\tests\e2e\visual_60_baselines.spec.ts:60:    testid: "verified-report-view",
+web\tests\e2e\visual_60_baselines.spec.ts:65:    testid: "verified-report-view",
+
+ succeeded in 2487ms:
+ succeeded in 2729ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+codex
+The worktree shows no unstaged/staged diff under `web`, but the new component is present in the tree. I’m reading the component and theme files directly so the review is grounded in the code that would be merged.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\verdict\\verdict_chip.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files web | rg \"(globals|\\.css"'$|tailwind|postcss|package'"\\.json|tsconfig)\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "@theme|--verified|--contradiction|--refusal|--destructive|--muted|--foreground|--background|--border" web --glob "*.css" --glob "*.tsx"' in C:\POLARIS
+ succeeded in 1982ms:
+// I-p2-005 (#744): per-claim verdict chip. THREE signals (state color + icon +
+// label) so a verdict is never distinguished by color alone (WCAG 1.4.1).
+// Consumes the #742 state tokens. Display-only (non-interactive). Honest
+// labels — FABRICATED and UNREACHABLE are real, distinct, serious verdicts.
+import {
+  BadgeCheck,
+  Ban,
+  CircleHelp,
+  CircleSlash,
+  Minus,
+  TriangleAlert,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+
+export type VerdictKind =
+  | "VERIFIED"
+  | "PARTIAL"
+  | "UNSUPPORTED"
+  | "FABRICATED"
+  | "UNREACHABLE"
+  | "contradiction"
+  | "refusal";
+
+interface VerdictMeta {
+  label: string;
+  Icon: LucideIcon;
+  /** Tint bg + readable text + border, all AA from #742 tokens. */
+  className: string;
+}
+
+const VERDICT_META: Record<VerdictKind, VerdictMeta> = {
+  VERIFIED: {
+    label: "Verified",
+    Icon: BadgeCheck,
+    className: "bg-verified/10 text-verified border-verified/30",
+  },
+  PARTIAL: {
+    label: "Partial",
+    Icon: CircleSlash,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  UNSUPPORTED: {
+    label: "Unsupported",
+    Icon: Minus,
+    className: "bg-muted text-muted-foreground border-border",
+  },
+  FABRICATED: {
+    label: "Fabricated",
+    Icon: X,
+    className: "bg-destructive/10 text-destructive border-destructive/40",
+  },
+  UNREACHABLE: {
+    label: "Unreachable",
+    Icon: CircleHelp,
+    className: "bg-muted text-muted-foreground border-border border-dashed",
+  },
+  contradiction: {
+    label: "Contradiction",
+    Icon: TriangleAlert,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  refusal: {
+    label: "Refusal",
+    Icon: Ban,
+    className: "bg-refusal/10 text-refusal border-refusal/30",
+  },
+};
+
+export function VerdictChip({ verdict }: { verdict: VerdictKind }) {
+  const meta = VERDICT_META[verdict];
+  return (
+    <span
+      data-testid="verdict-chip"
+      data-verdict={verdict}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
+    >
+      <meta.Icon aria-hidden className="h-3 w-3 shrink-0" />
+      {meta.label}
+    </span>
+  );
+}
+
+ succeeded in 2565ms:
+web\package.json
+web\tsconfig.json
+web\postcss.config.mjs
+web\app\globals.css
+
+ succeeded in 2927ms:
+web\app\globals.css:7:@theme inline {
+web\app\globals.css:8:  --color-background: var(--background);
+web\app\globals.css:9:  --color-foreground: var(--foreground);
+web\app\globals.css:28:  --color-border: var(--border);
+web\app\globals.css:29:  --color-destructive: var(--destructive);
+web\app\globals.css:30:  --color-destructive-foreground: var(--destructive-foreground);
+web\app\globals.css:31:  --color-verified: var(--verified);
+web\app\globals.css:32:  --color-verified-foreground: var(--verified-foreground);
+web\app\globals.css:33:  --color-contradiction: var(--contradiction);
+web\app\globals.css:34:  --color-contradiction-foreground: var(--contradiction-foreground);
+web\app\globals.css:35:  --color-refusal: var(--refusal);
+web\app\globals.css:36:  --color-refusal-foreground: var(--refusal-foreground);
+web\app\globals.css:41:  --color-verified-bundle: var(--verified-bundle);
+web\app\globals.css:44:  --color-muted-foreground: var(--muted-foreground);
+web\app\globals.css:45:  --color-muted: var(--muted);
+web\app\globals.css:69:  --background: oklch(0.985 0.001 286.375);
+web\app\globals.css:70:  --foreground: oklch(0.21 0.006 285.9);
+web\app\globals.css:84:  --muted: oklch(0.97 0 0);
+web\app\globals.css:85:  --muted-foreground: oklch(0.556 0 0);
+web\app\globals.css:88:  --destructive: oklch(0.42 0.13 18);
+web\app\globals.css:89:  --destructive-foreground: oklch(0.985 0 0);
+web\app\globals.css:90:  --border: oklch(0.922 0 0);
+web\app\globals.css:94:  --verified: oklch(0.48 0.14 152);
+web\app\globals.css:95:  --verified-foreground: oklch(0.985 0 0);
+web\app\globals.css:96:  --contradiction: oklch(0.72 0.15 75);
+web\app\globals.css:97:  --contradiction-foreground: oklch(0.27 0.04 75);
+web\app\globals.css:98:  --refusal: oklch(0.45 0.02 286);
+web\app\globals.css:99:  --refusal-foreground: oklch(0.985 0 0);
+web\app\globals.css:105:  --verified-bundle: oklch(0.48 0.14 152);
+web\app\globals.css:123:  --background: oklch(0.145 0 0);
+web\app\globals.css:124:  --foreground: oklch(0.985 0 0);
+web\app\globals.css:138:  --muted: oklch(0.269 0 0);
+web\app\globals.css:139:  --muted-foreground: oklch(0.708 0 0);
+web\app\globals.css:142:  --destructive: oklch(0.704 0.191 22.216);
+web\app\globals.css:147:  --destructive-foreground: oklch(0.145 0 0);
+web\app\globals.css:148:  --border: oklch(1 0 0 / 10%);
+web\components\ui\sonner.tsx:31:          "--normal-border": "var(--border)",
+web\components\ui\sonner.tsx:32:          "--border-radius": "var(--radius)",
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\globals.css | Select-Object -First 180" in C:\POLARIS
+ succeeded in 2398ms:
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-verified: var(--verified);
+  --color-verified-foreground: var(--verified-foreground);
+  --color-contradiction: var(--contradiction);
+  --color-contradiction-foreground: var(--contradiction-foreground);
+  --color-refusal: var(--refusal);
+  --color-refusal-foreground: var(--refusal-foreground);
+  --color-tier-1: var(--tier-1);
+  --color-tier-2: var(--tier-2);
+  --color-tier-3: var(--tier-3);
+  --color-proof-token: var(--proof-token);
+  --color-verified-bundle: var(--verified-bundle);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* I-ui-010 (#730): Frontier Minimal — near-monochrome zinc + ONE confident
+     accent (default = blue oklch(0.50 0.18 255); the prior cyan read grey).
+     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
+     border. Accent hue is operator-confirmable (one-token swap; alt indigo
+     oklch(0.50 0.16 270) / teal oklch(0.52 0.12 215)). chart-* left mono. */
+  --background: oklch(0.985 0.001 286.375);
+  --foreground: oklch(0.21 0.006 285.9);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  /* I-p2-003 (#742): white surface + ONE national accent = dark Canada-flag
+     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
+     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+     destructive=deep maroon distinct from the national red. + evidence-role
+     tokens (tiers + proof). Operator design lock 2026-05-21. */
+  --primary: #c8102e;
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.21 0.006 285.9);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.96 0.03 25);
+  --accent-foreground: oklch(0.45 0.16 26);
+  --destructive: oklch(0.42 0.13 18);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: #c8102e;
+  /* State colors — distinct from the national red (rubric: never red-only) */
+  --verified: oklch(0.48 0.14 152);
+  --verified-foreground: oklch(0.985 0 0);
+  --contradiction: oklch(0.72 0.15 75);
+  --contradiction-foreground: oklch(0.27 0.04 75);
+  --refusal: oklch(0.45 0.02 286);
+  --refusal-foreground: oklch(0.985 0 0);
+  /* Evidence-role tokens */
+  --tier-1: #c8102e;
+  --tier-2: oklch(0.556 0 0);
+  --tier-3: oklch(0.708 0 0);
+  --proof-token: oklch(0.45 0.16 26);
+  --verified-bundle: oklch(0.48 0.14 152);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  /* I-p2-003 (#742): dark-mode accent = Canada-red (NOT the old cyan, which
+     violated the operator lock). Lighter L0.62 for contrast on the dark
+     surface; white fg. NOTE: light mode is the demo target; dark mode reuses
+     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+     proof) — dark-specific tuning is a post-demo follow-up. */
+  --primary: oklch(0.62 0.2 26);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.32 0.06 26);
+  --accent-foreground: oklch(0.92 0.04 26);
+  --destructive: oklch(0.704 0.191 22.216);
+  /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+     White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+     fails WCAG-AA 4.5:1). Use near-black text instead — dark-on-light-warning is
+     the conventional inverse pattern. */
+  --destructive-foreground: oklch(0.145 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.62 0.2 26);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+codex
+The chip has the required three channels in JSX: color treatment, hidden decorative icon, and visible text. I’m now checking the exact contrast ratios for the token combinations rather than relying on the comments.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff HEAD''^ HEAD -- web/components/verdict/verdict_chip.tsx web/app/globals.css' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --stat --oneline --name-status HEAD -- web/components/verdict/verdict_chip.tsx web/app/globals.css' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git log --oneline -n 5 -- web/components/verdict/verdict_chip.tsx web/app/globals.css' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\package.json" in C:\POLARIS
+ succeeded in 4297ms:
+099ad73d I-p2-005 (#744): per-claim verdict chip (VERIFIED/PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE/contradiction/refusal)
+f2511ae3 I-p2-003 (#742): design system → white + Canada-red (first visible Phase-2 change) (#773)
+534f8915 I-ui-010 (#730): Frontier Minimal design-system foundation (confident accent + sovereign mark) (#739)
+d400663b I-ui-001 (#704): Perplexity-style home + cyan-accent visual identity (#719)
+51c1bdb8 PL: v6.2 F-17..F-20 + cycle-6 audit/cross-review + 🔒 LOCK ACHIEVED
+
+ succeeded in 4356ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 5142ms:
+diff --git a/web/components/verdict/verdict_chip.tsx b/web/components/verdict/verdict_chip.tsx
+new file mode 100644
+index 00000000..0412932c
+--- /dev/null
++++ b/web/components/verdict/verdict_chip.tsx
+@@ -0,0 +1,84 @@
++// I-p2-005 (#744): per-claim verdict chip. THREE signals (state color + icon +
++// label) so a verdict is never distinguished by color alone (WCAG 1.4.1).
++// Consumes the #742 state tokens. Display-only (non-interactive). Honest
++// labels — FABRICATED and UNREACHABLE are real, distinct, serious verdicts.
++import {
++  BadgeCheck,
++  Ban,
++  CircleHelp,
++  CircleSlash,
++  Minus,
++  TriangleAlert,
++  X,
++  type LucideIcon,
++} from "lucide-react";
++
++export type VerdictKind =
++  | "VERIFIED"
++  | "PARTIAL"
++  | "UNSUPPORTED"
++  | "FABRICATED"
++  | "UNREACHABLE"
++  | "contradiction"
++  | "refusal";
++
++interface VerdictMeta {
++  label: string;
++  Icon: LucideIcon;
++  /** Tint bg + readable text + border, all AA from #742 tokens. */
++  className: string;
++}
++
++const VERDICT_META: Record<VerdictKind, VerdictMeta> = {
++  VERIFIED: {
++    label: "Verified",
++    Icon: BadgeCheck,
++    className: "bg-verified/10 text-verified border-verified/30",
++  },
++  PARTIAL: {
++    label: "Partial",
++    Icon: CircleSlash,
++    className:
++      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
++  },
++  UNSUPPORTED: {
++    label: "Unsupported",
++    Icon: Minus,
++    className: "bg-muted text-muted-foreground border-border",
++  },
++  FABRICATED: {
++    label: "Fabricated",
++    Icon: X,
++    className: "bg-destructive/10 text-destructive border-destructive/40",
++  },
++  UNREACHABLE: {
++    label: "Unreachable",
++    Icon: CircleHelp,
++    className: "bg-muted text-muted-foreground border-border border-dashed",
++  },
++  contradiction: {
++    label: "Contradiction",
++    Icon: TriangleAlert,
++    className:
++      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
++  },
++  refusal: {
++    label: "Refusal",
++    Icon: Ban,
++    className: "bg-refusal/10 text-refusal border-refusal/30",
++  },
++};
++
++export function VerdictChip({ verdict }: { verdict: VerdictKind }) {
++  const meta = VERDICT_META[verdict];
++  return (
++    <span
++      data-testid="verdict-chip"
++      data-verdict={verdict}
++      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
++    >
++      <meta.Icon aria-hidden className="h-3 w-3 shrink-0" />
++      {meta.label}
++    </span>
++  );
++}
+
+ succeeded in 5969ms:
+099ad73d I-p2-005 (#744): per-claim verdict chip (VERIFIED/PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE/contradiction/refusal)
+A	web/components/verdict/verdict_chip.tsx
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+function oklchToSrgb({L,C,h}) {
+  const rad = h * Math.PI / 180;
+  const a = C * Math.cos(rad);
+  const b = C * Math.sin(rad);
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  const l = l_ ** 3;
+  const m = m_ ** 3;
+  const s = s_ ** 3;
+  let r = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  let g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  let bl = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+  const encode = (x) => {
+    x = Math.min(1, Math.max(0, x));
+    return x <= 0.0031308 ? 12.92 * x : 1.055 * (x ** (1 / 2.4)) - 0.055;
+  };
+  return [encode(r), encode(g), encode(bl)];
+}
+function linFromSrgb(c) {
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+function lum(rgb) {
+  return 0.2126 * linFromSrgb(rgb[0]) + 0.7152 * linFromSrgb(rgb[1]) + 0.0722 * linFromSrgb(rgb[2]);
+}
+function contrast(a,b) {
+  const L1 = lum(a), L2 = lum(b);
+  const hi = Math.max(L1,L2), lo = Math.min(L1,L2);
+  return (hi + 0.05) / (lo + 0.05);
+}
+function over(fg, alpha, bg) {
+  return fg.map((c,i) => c * alpha + bg[i] * (1-alpha));
+}
+function fmt(rgb) { return rgb.map(c => Math.round(c*255)); }
+const c = {
+  lightBg: {L:.985,C:.001,h:286.375},
+  darkBg: {L:.145,C:0,h:0},
+  verified: {L:.48,C:.14,h:152},
+  contradiction: {L:.72,C:.15,h:75},
+  contradictionFg: {L:.27,C:.04,h:75},
+  muted: {L:.97,C:0,h:0},
+  mutedFg: {L:.556,C:0,h:0},
+  destructiveLight: {L:.42,C:.13,h:18},
+  destructiveDark: {L:.704,C:.191,h:22.216},
+  refusal: {L:.45,C:.02,h:286},
+  darkMuted: {L:.269,C:0,h:0},
+  darkMutedFg: {L:.708,C:0,h:0},
+};
+const rgb = Object.fromEntries(Object.entries(c).map(([k,v])=>[k,oklchToSrgb(v)]));
+const cases = [
+  ['VERIFIED light', rgb.verified, over(rgb.verified, .10, rgb.lightBg)],
+  ['PARTIAL/contradiction light', rgb.contradictionFg, over(rgb.contradiction, .15, rgb.lightBg)],
+  ['UNSUPPORTED/UNREACHABLE light', rgb.mutedFg, rgb.muted],
+  ['FABRICATED light', rgb.destructiveLight, over(rgb.destructiveLight, .10, rgb.lightBg)],
+  ['refusal light', rgb.refusal, over(rgb.refusal, .10, rgb.lightBg)],
+  ['VERIFIED dark', rgb.verified, over(rgb.verified, .10, rgb.darkBg)],
+  ['PARTIAL/contradiction dark', rgb.contradictionFg, over(rgb.contradiction, .15, rgb.darkBg)],
+  ['UNSUPPORTED/UNREACHABLE dark', rgb.darkMutedFg, rgb.darkMuted],
+  ['FABRICATED dark', rgb.destructiveDark, over(rgb.destructiveDark, .10, rgb.darkBg)],
+  ['refusal dark', rgb.refusal, over(rgb.refusal, .10, rgb.darkBg)],
+];
+for (const [name, fg, bg] of cases) {
+  console.log(name.padEnd(32), contrast(fg,bg).toFixed(2), 'fg', fmt(fg).join(','), 'bg', fmt(bg).join(','));
+}
+'@ | node -" in C:\POLARIS
+ succeeded in 1045ms:
+VERIFIED light                   5.00 fg 0,115,50 bg 225,236,231
+PARTIAL/contradiction light      12.77 fg 50,35,14 bg 245,235,215
+UNSUPPORTED/UNREACHABLE light    4.34 fg 115,115,115 bg 245,245,245
+FABRICATED light                 7.32 fg 133,37,49 bg 238,229,230
+refusal light                    6.18 fg 84,84,96 bg 233,233,235
+VERIFIED dark                    3.10 fg 0,115,50 bg 9,20,14
+PARTIAL/contradiction dark       1.07 fg 50,35,14 bg 41,31,10
+UNSUPPORTED/UNREACHABLE dark     5.83 fg 161,161,161 bg 38,38,38
+FABRICATED dark                  6.19 fg 255,100,103 bg 35,19,19
+refusal dark                     2.52 fg 84,84,96 bg 17,17,19
+
+codex
+Token math shows one definite light-mode AA miss: `text-muted-foreground` on `bg-muted` is about 4.34:1 at 11px, below the 4.5:1 normal-text threshold. I’m checking whether dark mode is in scope for this component before classifying any additional contrast findings.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "UNSUPPORTED|UNREACHABLE|VerdictChip|VerdictKind|verdict-chip" web --glob "*.tsx" --glob "*.ts"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"ThemeProvider|next-themes|className=\\\"dark|\\.dark|theme\" web\\app web\\components web\\lib --glob \"*.tsx\" --glob \"*.ts\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --format=fuller --stat HEAD -- web/components/verdict/verdict_chip.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\layout.tsx" in C:\POLARIS
+ succeeded in 1356ms:
+web\components\verdict\verdict_chip.tsx:4:// labels — FABRICATED and UNREACHABLE are real, distinct, serious verdicts.
+web\components\verdict\verdict_chip.tsx:16:export type VerdictKind =
+web\components\verdict\verdict_chip.tsx:19:  | "UNSUPPORTED"
+web\components\verdict\verdict_chip.tsx:21:  | "UNREACHABLE"
+web\components\verdict\verdict_chip.tsx:32:const VERDICT_META: Record<VerdictKind, VerdictMeta> = {
+web\components\verdict\verdict_chip.tsx:44:  UNSUPPORTED: {
+web\components\verdict\verdict_chip.tsx:54:  UNREACHABLE: {
+web\components\verdict\verdict_chip.tsx:72:export function VerdictChip({ verdict }: { verdict: VerdictKind }) {
+web\components\verdict\verdict_chip.tsx:76:      data-testid="verdict-chip"
+
+2026-05-22T08:28:52.371333Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.6 seconds
+Output:
+
+ exited 1 in 1577ms:
+ succeeded in 1835ms:
+commit 099ad73d12c0de309c7bc156629dc0a3b5d6259e
+Author:     msn <msn@polaris.dev>
+AuthorDate: Fri May 22 01:26:58 2026 -0700
+Commit:     msn <msn@polaris.dev>
+CommitDate: Fri May 22 01:26:58 2026 -0700
+
+    I-p2-005 (#744): per-claim verdict chip (VERIFIED/PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE/contradiction/refusal)
+    
+    Three signals (state color + lucide icon + label) — never color-only (WCAG 1.4.1).
+    Consumes #742 state tokens; honest distinct labels (FABRICATED, UNREACHABLE real
+    + serious). Display-only. typecheck + build green.
+    
+    Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+
+ web/components/verdict/verdict_chip.tsx | 84 +++++++++++++++++++++++++++++++++
+ 1 file changed, 84 insertions(+)
+
+ succeeded in 2155ms:
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+
+import { AppShellGate } from "@/components/app_shell_gate";
+import { Toaster } from "@/components/ui/sonner";
+
+import "./globals.css";
+
+const geist_sans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geist_mono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "POLARIS Canada — Sovereign Deep Research",
+  description:
+    "Two-family verified evidence pipelines for Government of Canada policy work.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+    >
+      <body className="flex min-h-full flex-col">
+        <AppShellGate>{children}</AppShellGate>
+        <Toaster />
+      </body>
+    </html>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$diff = git diff HEAD''^ HEAD -- web; $bytes = [System.Text.Encoding]::UTF8.GetBytes(($diff -join "`n") + "`n"); $sha = [System.Security.Cryptography.SHA256]::HashData($bytes); [Convert]::ToHexString($sha).ToLowerInvariant()' in C:\POLARIS
+ succeeded in 1790ms:
+dac3bed276b65769110a6beffee74623b23620087df136ba88528cfe2425d852
+
+ succeeded in 5482ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/components/verdict/verdict_chip.tsx:47 and :57 use `bg-muted text-muted-foreground` for UNSUPPORTED and UNREACHABLE. Token math is ~4.34:1 (#737373 on #f5f5f5), below WCAG AA 4.5:1 for the 11px chip label. Use a stronger foreground token, e.g. `text-foreground`, or adjust the neutral token pairing."
+p2: []
+merge_decision: DO NOT MERGE
+tokens used
+37,799
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/components/verdict/verdict_chip.tsx:47 and :57 use `bg-muted text-muted-foreground` for UNSUPPORTED and UNREACHABLE. Token math is ~4.34:1 (#737373 on #f5f5f5), below WCAG AA 4.5:1 for the 11px chip label. Use a stronger foreground token, e.g. `text-foreground`, or adjust the neutral token pairing."
+p2: []
+merge_decision: DO NOT MERGE
