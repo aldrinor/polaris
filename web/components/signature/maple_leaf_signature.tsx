@@ -160,14 +160,22 @@ export default function MapleLeafSignature() {
         renderer?.dispose();
       };
     } catch {
-      // WebGL unavailable → graceful absence (decorative only).
+      // WebGL unavailable / setup failure → dispose anything allocated +
+      // graceful absence (decorative only). (Codex iter-1 P2.)
+      geometry?.dispose();
+      material?.dispose();
+      target?.dispose();
+      renderer?.dispose();
       return () => {
         cancelled = true;
       };
     }
   }, []);
 
-  if (!art) return null;
+  // Always render the <pre> (even before the first frame) so the
+  // IntersectionObserver in the effect has a stable element to observe — the
+  // offscreen perf-pause depends on it (Codex iter-1 P1). It's empty (0 lines)
+  // until the first frame fills `art`.
   return (
     <pre
       ref={preRef}
