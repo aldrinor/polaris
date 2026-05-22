@@ -1,0 +1,3622 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e50cd-29fa-7881-9e4e-e8b3d323d53a
+--------
+user
+# Codex DESIGN+DIFF review — I-p2-037 (#794): proof-as-hero home
+
+HARD ITERATION CAP: 5. iter 1. Canonical-diff-sha256 `649aac92e102c48ec9325b3a0f63b86321559cd0c000a49376e83c22bb1a8953`. web/ only. MERGE AUTHORIZED if mergeable. APPROVE iff zero P0/P1.
+
+## Direction (operator: "really match the top-tier design level"; frontier study: verifiability is the hero)
+The home was sparse/empty ("ugly"). Now it LEADS with a real proof showcase.
+
+## Diff
+- NEW app/components/proof_showcase.tsx (server component): loadBundle("v1-canonical-success") → finds the first verified sentence whose provenance token resolveSpan()s to a real source quote (>40 chars) → renders a premium card: LEFT = claim + "Verified against a primary source" (--verified) + the brief's research_question; RIGHT = the EXACT real source span (blockquote) + source title/url + tier badge; footer = "See the full proof →" /inspector/v1-canonical-success. HONEST: returns null if nothing resolves (no fabricated showcase). Uses the REAL bundle shipped in #795.
+- page.tsx: insert <ProofShowcase/> after the hero; tightened hero (py-14 sm:py-16, gap-14, gap-5) for density; pillars get a top border.
+- inspector_bundle_loader.ts: + optional research_question?: string on VerifiedReportShape (real-run bundles carry it).
+
+## Claude visual audit (standalone @1366 + @390, sent to operator): premium two-column proof card with the real NEJM claim+span; Geist Sans; card stacks on mobile; hamburger nav. Far denser/more-premium than the prior empty home.
+
+## §-1.1 honesty: the shown claim+span are from the real #795 bundle; I independently re-verified all 9 spans support their claims. Showcase renders the resolveSpan quote (exact full_text slice) — same honest resolver as the inspector.
+
+## Review focus
+1. HONESTY: can the showcase EVER render a claim whose span doesn't support it? (resolveSpan returns quote only when bounds valid; null→render nothing.) Any fabrication risk?
+2. Server-component data-load correct (no client leak; loadBundle is server-only)? a11y (section aria-label, blockquote, link focus-visible)? AA on --verified text?
+3. Responsive: two-col md+ → stacks mobile cleanly? Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+codex
+I’ll inspect the claimed diff and the affected `web/` files first, then I’ll verify whether the implementation can honestly render only source-backed spans and whether the UI has any blocking responsive or accessibility issues.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short --branch' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git rev-parse --show-toplevel' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web' in C:\POLARIS
+ succeeded in 1882ms:
+## bot/I-p2-037-home-proof-hero
+ M .claude/settings.json
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-p2-037/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+ succeeded in 2355ms:
+web\components.json
+web\playwright.config.ts
+web\package.json
+web\package-lock.json
+web\requirements-v6.txt
+web\README.md
+web\next.config.ts
+web\middleware.ts
+web\THIRD_PARTY_LICENSES.md
+web\requirements.txt
+web\tsconfig.json
+web\CLAUDE.md
+web\AGENTS.md
+web\Dockerfile
+web\eslint.config.mjs
+web\postcss.config.mjs
+web\components\app_shell.tsx
+web\components\app_shell_gate.tsx
+web\lib\comparison_table_spec.ts
+web\lib\auth.ts
+web\lib\api.ts
+web\lib\evidence_span.ts
+web\lib\contracts.ts
+web\lib\forest_plot_spec.ts
+web\public\file.svg
+web\screenshots\sign_in.png
+web\screenshots\research_dashboard_scope_rejected.png
+web\screenshots\research_dashboard_scope_accepted.png
+web\screenshots\research_dashboard.png
+web\screenshots\inspector_executive_summary.png
+web\screenshots\inspector_contradiction_golden.png
+web\screenshots\inspector_clinical_golden.png
+web\screenshots\inspector_charts_tab.png
+web\screenshots\dashboard_empty.png
+web\public\window.svg
+web\public\vercel.svg
+web\public\next.svg
+web\public\globe.svg
+web\scripts\capture_screenshots.mjs
+web\scripts\verify_harness_404.sh
+web\lib\utils.ts
+web\lib\timeline_spec.ts
+web\lib\sse_events.ts
+web\lib\sse_client.ts
+web\lib\signed_bundle.ts
+web\lib\sentence_highlight.ts
+web\lib\run_broadcast.ts
+web\lib\roles.ts
+web\lib\relative_time.ts
+web\lib\provenance_tokens.ts
+web\lib\pin_replay_demo.ts
+web\lib\pin_replay_client.ts
+web\lib\pin_regression.ts
+web\lib\nav.ts
+web\lib\inspector_bundle_loader.ts
+web\lib\inspector_bundle_client_loader.ts
+web\tests\fixtures\graph_payload.json
+web\app\upload\page.tsx
+web\app\generation\page.tsx
+web\app\pin_replay\page.tsx
+web\components\primary_nav.tsx
+web\components\nav_link.tsx
+web\components\verdict\verdict_chip.tsx
+web\app\intake\page.tsx
+web\app\upload\components\upload_workspace.tsx
+web\app\upload\components\upload_drop_zone.tsx
+web\app\upload\components\selected_docs_indicator.tsx
+web\app\upload\components\document_preview.tsx
+web\app\pin_replay\components\pin_timeseries.tsx
+web\app\pin_replay\components\diff_side_panel.tsx
+web\app\page.tsx
+web\app\generation\components\verified_report_view.tsx
+web\app\generation\components\two_run_picker.tsx
+web\app\generation\components\split_screen.tsx
+web\app\generation\components\sentence_inspector.tsx
+web\app\generation\components\multi_source_panel.tsx
+web\app\generation\components\generation_runner.tsx
+web\app\generation\components\frame_coverage_panel.tsx
+web\app\generation\components\follow_up_append_view.tsx
+web\app\generation\components\evaluator_pane.tsx
+web\app\generation\components\contradiction_pane.tsx
+web\app\generation\components\BundlePreview.tsx
+web\app\favicon.ico
+web\public\canonical_bundles\v1_canonical_success\verified_report.json
+web\components\inspector\verified_report_sections.tsx
+web\components\inspector\sources_panel.tsx
+web\components\inspector\scope_decision_card.tsx
+web\components\inspector\reasoning_trace_timeline.tsx
+web\components\inspector\metadata_panel.tsx
+web\components\inspector\hash_chain_panel.tsx
+web\components\inspector\family_segregation_badge.tsx
+web\components\inspector\evidence_pool_table.tsx
+web\components\inspector\bundle_pending_cta.tsx
+web\components\inspector\bundle_header.tsx
+web\app\charts_test\timeline\page.tsx
+web\app\charts_test\page.tsx
+web\app\sse\_harness.tsx
+web\app\sse\page.tsx
+web\components\ui\vega-chart.tsx
+web\app\memory\page.tsx
+web\components\ui\tabs.tsx
+web\app\intake\components\scope_decision_view.tsx
+web\components\ui\sonner.tsx
+web\tests\e2e\frame_coverage_adversarial.spec.ts
+web\components\ui\sheet.tsx
+web\components\ui\input.tsx
+web\tests\e2e\forest_plot_chart.spec.ts
+web\tests\e2e\follow_up_append.spec.ts
+web\tests\e2e\f2_walkthrough.spec.ts
+web\tests\e2e\f1_multi_tab.spec.ts
+web\tests\e2e\f1_a11y.spec.ts
+web\app\layout.tsx
+web\tests\e2e\evidence_tooltip_perf.spec.ts
+web\tests\e2e\evidence_tooltip_mobile.spec.ts
+web\tests\e2e\evidence_tooltip_edges.spec.ts
+web\tests\e2e\evidence_tooltip.spec.ts
+web\tests\e2e\disambiguation_modal.spec.ts
+web\tests\e2e\demo_walkthrough.spec.ts
+web\tests\e2e\demo_journey.spec.ts
+web\tests\e2e\dashboard_g1_g8.spec.ts
+web\tests\e2e\cross_session_surface.spec.ts
+web\tests\e2e\cross_browser_smoke.spec.ts
+web\tests\e2e\contract_editor.spec.ts
+web\tests\e2e\contracts_g1_g8.spec.ts
+web\tests\e2e\comparison_table_chart.spec.ts
+web\tests\e2e\command_palette_suggest.spec.ts
+web\tests\e2e\command_palette_adversarial.spec.ts
+web\tests\e2e\command_palette.spec.ts
+web\tests\e2e\cited_recall_badge.spec.ts
+web\tests\e2e\chart_click_through.spec.ts
+web\components\ui\evidence-tooltip.tsx
+web\tests\e2e\bundle_preview.spec.ts
+web\components\ui\card.tsx
+web\tests\e2e\benchmark_g1_g8.spec.ts
+web\components\ui\button.tsx
+web\tests\e2e\benchmark.spec.ts
+web\tests\e2e\audit_live_multitab.spec.ts
+web\tests\e2e\audit_live_adversarial.spec.ts
+web\tests\e2e\audit_live.spec.ts
+web\tests\e2e\audit_bundle.spec.ts
+web\tests\e2e\accessibility.spec.ts
+web\tests\e2e\sentence_inspector_contradiction.spec.ts
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts
+web\tests\e2e\sentence_inspector_agreement.spec.ts
+web\tests\e2e\sentence_inspector_adversarial.spec.ts
+web\tests\e2e\sentence_inspector.spec.ts
+web\tests\e2e\sentence_hover.spec.ts
+web\tests\e2e\runs_runid_g1_g8.spec.ts
+web\tests\e2e\retrieval.spec.ts
+web\tests\e2e\pin_retraction_handled.spec.ts
+web\tests\e2e\pin_replay_g1_g8.spec.ts
+web\tests\e2e\pin_replay_diff.spec.ts
+web\tests\e2e\pin_replay.spec.ts
+web\tests\e2e\pin_regression_alert.spec.ts
+web\tests\e2e\perf_core_web_vitals.spec.ts
+web\tests\e2e\performance.spec.ts
+web\tests\e2e\p2c_005_mobile.spec.ts
+web\tests\e2e\p2c_001_chain.spec.ts
+web\tests\e2e\multi_source_panel.spec.ts
+web\tests\e2e\memory_page_controls.spec.ts
+web\tests\e2e\memory_g1_g8.spec.ts
+web\tests\e2e\intake_g1_g8.spec.ts
+web\tests\e2e\intake_edge.spec.ts
+web\tests\e2e\intake_disambiguation_negative.spec.ts
+web\tests\e2e\intake_disambiguation.spec.ts
+web\tests\e2e\intake.spec.ts
+web\tests\e2e\inspector_route.spec.ts
+web\tests\e2e\inspector_offline_fallback.spec.ts
+web\tests\e2e\inspector.spec.ts
+web\tests\e2e\home_g1_g8.spec.ts
+web\tests\e2e\graph_page_smoke.spec.ts
+web\tests\e2e\generation.spec.ts
+web\tests\e2e\frame_coverage_panel.spec.ts
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F1-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F1-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F1-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts
+web\public\canonical_bundles\v1_canonical\verified_report.json
+web\app\dashboard\page.tsx
+web\app\sign-in\page.tsx
+web\components\contradiction\contradiction_panel.tsx
+web\app\charts_test\forest_plot\page.tsx
+web\public\canonical_bundles\v1_canonical_success\sources\ev_015.txt
+web\public\canonical_bundles\v1_canonical_success\sources\ev_006.txt
+web\public\canonical_bundles\v1_canonical_success\sources\ev_002.txt
+web\public\canonical_bundles\v1_canonical_success\sources\ev_000.txt
+web\public\canonical_bundles\v1_canonical_success\scope_decision.json
+web\public\canonical_bundles\v1_canonical_success\reasoning_trace.jsonl
+web\public\canonical_bundles\v1_canonical_success\metadata.json
+web\public\canonical_bundles\v1_canonical_success\manifest.yaml
+web\public\canonical_bundles\v1_canonical_success\evidence_pool.json
+web\components\auth_redirect.tsx
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F9-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F9-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F9-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F9-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F8-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F8-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F8-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F8-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F7-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F7-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F7-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F7-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F6-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F6-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F6-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F6-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F5-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F5-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F5-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F5-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F4-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F4-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F4-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F4-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F3-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F3-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F3-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F3-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F2-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F2-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F2-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F2-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F15-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F15-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F15-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F15-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F14-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F14-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F14-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F14-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F13-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F13-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F13-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F13-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F12-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F12-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F12-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F12-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F11-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F11-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F11-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F11-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F10-tablet-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F10-mobile-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F10-laptop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F10-desktop-chromium-win32.png
+web\tests\e2e\visual_60_baselines.spec.ts-snapshots\F1-tablet-chromium-win32.png
+web\app\intake\components\ambiguity_modal.tsx
+web\tests\e2e\visual.spec.ts-snapshots\dashboard-initial-chromium-win32.png
+web\components\states\state_kit.tsx
+web\tests\e2e\visual.spec.ts
+web\tests\e2e\vega_lite_chart.spec.ts
+web\tests\e2e\upload_parse_status.spec.ts
+web\tests\e2e\upload_g1_g8.spec.ts
+web\tests\e2e\upload_evidence_toggle.spec.ts
+web\tests\e2e\upload_dropzone.spec.ts
+web\tests\e2e\upload_doc_preview.spec.ts
+web\tests\e2e\two_run_picker.spec.ts
+web\tests\e2e\timeline_chart.spec.ts
+web\tests\e2e\sse_client.spec.ts
+web\tests\e2e\split_screen.spec.ts
+web\tests\e2e\sign_in.spec.ts
+web\tests\e2e\sentence_inspector_synthesis.spec.ts
+web\tests\e2e\sentence_inspector_surfaces.spec.ts
+web\tests\e2e\sentence_inspector_source.spec.ts
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts
+web\tests\e2e\sentence_inspector_multispan.spec.ts
+web\tests\e2e\sentence_inspector_latency.spec.ts
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts
+web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts
+web\app\globals.css
+web\app\intake\components\intake_form.tsx
+web\app\intake\components\disambiguation_modal.tsx
+web\app\intake\components\pdf_drop_banner.tsx
+web\public\canonical_bundles\v1_canonical\manifest.yaml.asc
+web\public\canonical_bundles\v1_canonical\manifest.yaml
+web\public\canonical_bundles\v1_canonical\evidence_pool.json
+web\public\canonical_bundles\v1_canonical\reasoning_trace.jsonl
+web\public\canonical_bundles\v1_canonical\metadata.json
+web\public\canonical_bundles\v1_canonical\scope_decision.json
+web\components\signature\maple_leaf_signature.tsx
+web\components\signature\maple_leaf_signature_lazy.tsx
+web\components\citation\citation_chip.tsx
+web\public\canonical_bundles\v1_canonical\sources\src_v1_canonical_0001.txt
+web\app\api\inspector_bundle\[runId]\route.ts
+web\app\runs\[runId]\page.tsx
+web\app\contracts\_editor.tsx
+web\app\contracts\page.tsx
+web\components\sovereignty\sovereignty_panel.tsx
+web\components\source\source_card.tsx
+web\app\retrieval\page.tsx
+web\components\proof_replay\proof_replay.tsx
+web\app\benchmark\page.tsx
+web\app\inspector\[runId]\page.tsx
+web\app\inspector\[runId]\inspector_view.tsx
+web\app\runs\[runId]\graph\page.tsx
+web\app\charts_test\click_through\page.tsx
+web\app\compare\page.tsx
+web\app\charts_test\comparison_table\page.tsx
+web\app\components\command_palette.tsx
+web\app\components\home_keyboard_shell.tsx
+web\app\components\proof_showcase.tsx
+web\app\charts_test\components\chart_source_inspector.tsx
+web\app\components\recent_runs_strip.tsx
+web\app\runs\[runId]\components\followup_panel.tsx
+web\app\runs\[runId]\components\run_progress.tsx
+web\app\retrieval\components\retrieval_runner.tsx
+web\app\retrieval\components\corpus_brief.tsx
+web\app\benchmark\components\benchmark_board.tsx
+web\app\sentence_hover_test\_demo_stress.tsx
+web\app\sentence_hover_test\_demo_perf.tsx
+web\app\sentence_hover_test\_demo_evidence_tooltip_edges.tsx
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx
+web\app\sentence_hover_test\_demo_coverage.tsx
+web\app\sentence_hover_test\_demo.tsx
+web\app\runs\[runId]\graph\components\use_graph_state.ts
+web\app\runs\[runId]\graph\components\snowball.ts
+web\app\runs\[runId]\graph\components\graph_styles.ts
+web\app\runs\[runId]\graph\components\graph_export_buttons.tsx
+web\app\runs\[runId]\graph\components\graph_export.ts
+web\app\runs\[runId]\graph\components\claim_graph.tsx
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx
+web\app\(test_harness)\disambiguation_modal_preview\_client.tsx
+web\app\(test_harness)\disambiguation_modal_preview\page.tsx
+web\app\inspector\offline\page.tsx
+web\app\sentence_hover_test\follow_up_append\page.tsx
+web\app\sentence_hover_test\page.tsx
+web\app\audit_live\_panels.tsx
+web\app\sentence_hover_test\two_run_picker\page.tsx
+web\app\sentence_hover_test\evaluator_edge\page.tsx
+web\app\audit_live\page.tsx
+web\app\sentence_hover_test\evidence_tooltip\page.tsx
+web\app\sentence_hover_test\perf\page.tsx
+web\app\sentence_hover_test\coverage\page.tsx
+web\app\sentence_hover_test\memory_cite\page.tsx
+web\app\sentence_hover_test\evidence_tooltip_edges\page.tsx
+web\app\sentence_hover_test\split_screen\page.tsx
+web\app\sentence_hover_test\stress\page.tsx
+
+ succeeded in 2808ms:
+C:/POLARIS
+
+codex
+The branch is `bot/I-p2-037-home-proof-hero`; the worktree has many unrelated dirty files outside `web/`, so I’m going to scope the review strictly to `web/` as requested and ignore the rest.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git branch --show-current' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --name-status -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git log --oneline --decorate -5' in C:\POLARIS
+ succeeded in 1607ms:
+ succeeded in 2164ms:
+ac0f50a6 (HEAD -> bot/I-p2-037-home-proof-hero) I-p2-037 (#794): proof-as-hero home — lead with a REAL verified claim + real source span
+ba3096e5 (origin/polaris, polaris) I-p2-036 (#795): real canonical demo bundle (replaces placeholder fabricated proof) (#796)
+c8d120e5 I-p2-034 (#790): responsive nav (hamburger on mobile) (#793)
+4da65c37 I-p2-033 (#789): fix inspector 500 (centerpiece down in prod) (#792)
+877f234c I-p2-032 (#787): fix self-referential --font-sans (live serif fallback) (#788)
+
+ succeeded in 2766ms:
+ succeeded in 3286ms:
+bot/I-p2-037-home-proof-hero
+
+codex
+The `web/` diff is committed at `ac0f50a6` with a clean `web/` worktree, so I’m reviewing `HEAD` against its parent rather than unstaged changes.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --stat --oneline --decorate HEAD -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --name-status --format=fuller HEAD -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff HEAD''^ HEAD -- web' in C:\POLARIS
+ succeeded in 1672ms:
+diff --git a/web/app/components/proof_showcase.tsx b/web/app/components/proof_showcase.tsx
+new file mode 100644
+index 00000000..db23d719
+--- /dev/null
++++ b/web/app/components/proof_showcase.tsx
+@@ -0,0 +1,133 @@
++// I-p2-037 (#794): proof-as-hero showcase. The home LEADS with a REAL verified
++// claim from a real POLARIS run + its exact real source span — the differentiator
++// made visceral (frontier study: verifiability is the hero). Server component:
++// loads the real canonical bundle + resolves the span server-side; renders only
++// if the span genuinely resolves (honest — never a fabricated showcase). Links
++// to the full Proof Replay.
++import { ArrowRight, BadgeCheck, Quote } from "lucide-react";
++import Link from "next/link";
++
++import { resolveSpan } from "@/lib/evidence_span";
++import { loadBundle } from "@/lib/inspector_bundle_loader";
++
++const DEMO_RUN_ID = "v1-canonical-success";
++
++function tierLabel(tier: unknown): string | null {
++  if (typeof tier === "string" && tier) return tier;
++  if (typeof tier === "number") return `T${tier}`;
++  return null;
++}
++
++export async function ProofShowcase() {
++  const bundle = await loadBundle(DEMO_RUN_ID);
++  if (!bundle) return null;
++
++  // Pick the first verified sentence whose span genuinely resolves to a real
++  // source quote — honest: if nothing resolves, render nothing (no fake proof).
++  const sections = bundle.verifiedReport?.sections ?? [];
++  let claim: string | null = null;
++  let quote: string | null = null;
++  let sourceTitle: string | null = null;
++  let sourceUrl: string | null = null;
++  let tier: string | null = null;
++
++  outer: for (const section of sections) {
++    for (const s of section.verified_sentences ?? []) {
++      const token = (s.provenance_tokens ?? []).find(
++        (t): t is string => typeof t === "string",
++      );
++      if (!token) continue;
++      const span = resolveSpan(token, bundle.evidencePool);
++      if (span?.quote && span.quote.trim().length > 40) {
++        claim = s.sentence_text;
++        quote = span.quote.trim();
++        sourceTitle = span.source?.title ?? null;
++        sourceUrl = span.source?.url ?? null;
++        tier = tierLabel(span.source?.tier);
++        break outer;
++      }
++    }
++  }
++
++  if (!claim || !quote) return null;
++
++  const question = bundle.verifiedReport?.research_question;
++
++  return (
++    <section
++      aria-label="A real verified claim"
++      data-testid="proof-showcase"
++      className="border-border bg-card relative overflow-hidden rounded-2xl border shadow-sm"
++    >
++      <div className="border-border/70 bg-muted/30 flex items-center justify-between gap-3 border-b px-5 py-3">
++        <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
++          A real verified claim
++        </span>
++        {tier ? (
++          <span className="text-muted-foreground border-border rounded-full border px-2 py-0.5 font-mono text-[11px]">
++            {tier} source
++          </span>
++        ) : null}
++      </div>
++
++      <div className="grid gap-0 md:grid-cols-2">
++        {/* The claim + verdict */}
++        <div className="flex flex-col gap-3 p-6">
++          <div className="text-verified inline-flex items-center gap-1.5 text-xs font-semibold">
++            <BadgeCheck aria-hidden className="h-4 w-4" />
++            Verified against a primary source
++          </div>
++          <p className="text-foreground text-lg leading-relaxed font-medium text-pretty">
++            {claim}
++          </p>
++          {question ? (
++            <p className="text-muted-foreground text-xs">
++              From a POLARIS brief answering:{" "}
++              <span className="text-foreground/80">{question}</span>
++            </p>
++          ) : null}
++        </div>
++
++        {/* The exact real source span — the proof */}
++        <div className="border-border/70 bg-muted/20 flex flex-col gap-3 border-t p-6 md:border-t-0 md:border-l">
++          <div className="text-muted-foreground inline-flex items-center gap-1.5 text-xs font-medium">
++            <Quote aria-hidden className="h-4 w-4" />
++            The exact passage it came from
++          </div>
++          <blockquote className="border-primary/40 text-foreground/90 border-l-2 pl-3 text-sm leading-relaxed">
++            “{quote}”
++          </blockquote>
++          {sourceTitle ? (
++            <p className="text-muted-foreground truncate text-xs">
++              {sourceUrl ? (
++                <a
++                  href={sourceUrl}
++                  target="_blank"
++                  rel="noopener noreferrer"
++                  className="hover:text-foreground underline-offset-2 hover:underline"
++                >
++                  {sourceTitle}
++                </a>
++              ) : (
++                sourceTitle
++              )}
++            </p>
++          ) : null}
++        </div>
++      </div>
++
++      <div className="border-border/70 flex items-center justify-between gap-3 border-t px-5 py-3">
++        <span className="text-muted-foreground text-xs">
++          Every sentence in a POLARIS brief is checked this way.
++        </span>
++        <Link
++          href={`/inspector/${DEMO_RUN_ID}`}
++          className="text-primary focus-visible:ring-ring/70 inline-flex items-center gap-1 rounded text-sm font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
++        >
++          See the full proof
++          <ArrowRight aria-hidden className="h-4 w-4" />
++        </Link>
++      </div>
++    </section>
++  );
++}
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index f009a274..10bc8e70 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -1,6 +1,7 @@
+ import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
+ 
+ import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
++import { ProofShowcase } from "@/app/components/proof_showcase";
+ import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
+ import { MapleLeafSignatureLazy } from "@/components/signature/maple_leaf_signature_lazy";
+ import { Button } from "@/components/ui/button";
+@@ -122,9 +123,9 @@ export default function HomePage() {
+   return (
+     <div className="flex min-h-screen flex-col">
+       <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+-        <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-20 px-6 py-24">
++        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-14 px-6 py-14 sm:py-16">
+           {/* Hero — one primary action */}
+-          <section className="flex flex-col items-center gap-6 text-center">
++          <section className="flex flex-col items-center gap-5 text-center">
+             {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
+             <MapleLeafSignatureLazy />
+             <span className="text-muted-foreground border-border inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
+@@ -143,7 +144,7 @@ export default function HomePage() {
+               action="/intake"
+               method="get"
+               data-testid="home-hero-search"
+-              className="mt-2 flex w-full max-w-2xl items-center gap-2"
++              className="mt-1 flex w-full max-w-2xl items-center gap-2"
+             >
+               <Input
+                 name="q"
+@@ -158,10 +159,13 @@ export default function HomePage() {
+             </form>
+           </section>
+ 
+-          {/* Differentiator pillars — replaces the templates grid */}
++          {/* Proof-as-hero — a REAL verified claim + its real source span */}
++          <ProofShowcase />
++
++          {/* Differentiator pillars */}
+           <section
+             aria-label="Why POLARIS"
+-            className="grid gap-8 sm:grid-cols-3"
++            className="border-border/60 grid gap-8 border-t pt-12 sm:grid-cols-3"
+           >
+             {PILLARS.map((pillar) => (
+               <div key={pillar.title} className="flex flex-col gap-2">
+diff --git a/web/lib/inspector_bundle_loader.ts b/web/lib/inspector_bundle_loader.ts
+index 23b3b3e7..e1da9077 100644
+--- a/web/lib/inspector_bundle_loader.ts
++++ b/web/lib/inspector_bundle_loader.ts
+@@ -57,6 +57,8 @@ export interface VerifiedReportShape {
+   finished_at_utc: string;
+   latency_ms: number;
+   cost_usd: number;
++  /** The research question this brief answered (real-run bundles). */
++  research_question?: string;
+ }
+ 
+ export interface VerifiedReportSectionShape {
+
+ succeeded in 2231ms:
+commit ac0f50a6c763e6f9efecad05cb318b8162e58039
+Author:     msn <msn@polaris.dev>
+AuthorDate: Fri May 22 10:48:02 2026 -0700
+Commit:     msn <msn@polaris.dev>
+CommitDate: Fri May 22 10:48:02 2026 -0700
+
+    I-p2-037 (#794): proof-as-hero home — lead with a REAL verified claim + real source span
+    
+    Frontier study: verifiability is the hero. The home now LEADS with a premium
+    proof card (ProofShowcase, server component) showing a REAL verified claim from
+    the real canonical bundle + the EXACT real source passage it resolves to,
+    side-by-side, linking to the full Proof Replay. Replaces the empty whitespace
+    with a real demonstration of the differentiator. Honest: renders only when the
+    span genuinely resolves (resolveSpan, real full_text) — never a fabricated
+    showcase. Tighter hero (py-14, gap-14) for density. typecheck + build green;
+    screenshot-verified desktop + mobile (card stacks). Real proof, real data.
+    
+    Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+
+A	web/app/components/proof_showcase.tsx
+M	web/app/page.tsx
+M	web/lib/inspector_bundle_loader.ts
+
+ succeeded in 2815ms:
+ac0f50a6 (HEAD -> bot/I-p2-037-home-proof-hero) I-p2-037 (#794): proof-as-hero home — lead with a REAL verified claim + real source span
+ web/app/components/proof_showcase.tsx | 133 ++++++++++++++++++++++++++++++++++
+ web/app/page.tsx                      |  14 ++--
+ web/lib/inspector_bundle_loader.ts    |   2 +
+ 3 files changed, 144 insertions(+), 5 deletions(-)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\evidence_span.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\inspector_bundle_loader.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\page.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\components\\proof_showcase.tsx" in C:\POLARIS
+ succeeded in 1548ms:
+// I-cd-013a (GH#609) — server-only bundle loader.
+//
+// Imported by web/app/inspector/[runId]/page.tsx and
+// web/app/api/inspector_bundle/[runId]/route.ts. Returns the parsed
+// canonical fixture data for runId === "v1-canonical" or
+// "v1-canonical-success"; returns null for any other runId (the page
+// renders a BundlePendingCTA in that case).
+//
+// Real-bundle backend wiring lands at I-B-08 (Seq 20); offline
+// fallback (in-browser bundle render) at I-B-09 (Seq 21). This module
+// is the swappable seam — same function signature, different data
+// path in each follow-up issue.
+
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
+import {
+  type BundleManifest,
+  type BundleMetadata,
+  type ReasoningTraceRecord,
+  parseManifest,
+  parseReasoningTraceJsonl,
+} from "@/lib/signed_bundle";
+
+// I-p2-p0 (#789): the canonical fixture ships in web/public/canonical_bundles/
+// (Dockerfile COPYs public → /app/public; cwd=/app at runtime), so it resolves
+// in dev, the standalone harness, AND the prod container — unlike the old
+// process.cwd()/../tests/fixtures path, which only existed in dev → live 500.
+const FIXTURE_ROOT = path.join(process.cwd(), "public", "canonical_bundles");
+
+export interface LoadedBundle {
+  runId: string;
+  manifest: BundleManifest;
+  scopeDecision: unknown;
+  evidencePool: unknown;
+  verifiedReport: VerifiedReportShape;
+  metadata: BundleMetadata;
+  reasoningTrace: ReasoningTraceRecord[];
+  sources: Record<string, string>;
+  /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
+   * Derived during load — NOT a manifest field. Codex diff iter-1 P2. */
+  signaturePresent: boolean;
+}
+
+export interface VerifiedReportShape {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSectionShape[];
+  overall_verify_pass_rate: number;
+  verifier_pass_threshold: number;
+  pipeline_verdict: string;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+  /** The research question this brief answered (real-run bundles). */
+  research_question?: string;
+}
+
+export interface VerifiedReportSectionShape {
+  section_id: string;
+  section_verify_pass_rate: number;
+  verified_sentences: VerifiedSentenceShape[];
+  [extra: string]: unknown;
+}
+
+export interface VerifiedSentenceShape {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  [extra: string]: unknown;
+}
+
+const KNOWN_FIXTURES: Record<string, string> = {
+  "v1-canonical": "v1_canonical",
+  "v1-canonical-success": "v1_canonical_success",
+};
+
+export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+  // typeof guard (not `!relPath`): runId could be an Object.prototype name
+  // (toString / __proto__ / constructor) → KNOWN_FIXTURES[runId] returns a
+  // function/object → path.join would throw before the try → user-triggerable
+  // 500. A non-string lookup → null → BundlePendingCta. (Codex iter-2 P1.)
+  const relPath = KNOWN_FIXTURES[runId];
+  if (typeof relPath !== "string") return null;
+  const dir = path.join(FIXTURE_ROOT, relPath);
+
+  try {
+    const manifestRaw = await fs.readFile(
+      path.join(dir, "manifest.yaml"),
+      "utf-8",
+    );
+    const manifest = parseManifest(manifestRaw);
+
+    const scopeDecision = await readJson(dir, manifest, "scope_decision");
+    const evidencePool = await readJson(dir, manifest, "evidence_pool");
+    const verifiedReport = (await readJson(
+      dir,
+      manifest,
+      "verified_report",
+    )) as VerifiedReportShape;
+
+    // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
+    // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
+    // also flagged metadata in the active producer).
+    const metadataEntry = manifest.files.find(
+      (f) => f.content_type === "metadata" && f.path === "metadata.json",
+    );
+    if (!metadataEntry) {
+      throw new Error(
+        `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
+      );
+    }
+    const metadata = JSON.parse(
+      await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
+    ) as BundleMetadata;
+
+    const reasoningTraceEntry = manifest.files.find(
+      (f) => f.content_type === "reasoning_trace",
+    );
+    const reasoningTrace = reasoningTraceEntry
+      ? parseReasoningTraceJsonl(
+          await fs.readFile(path.join(dir, reasoningTraceEntry.path), "utf-8"),
+        )
+      : [];
+
+    const sources: Record<string, string> = {};
+    for (const entry of manifest.files) {
+      if (entry.content_type !== "source_snapshot") continue;
+      sources[entry.path] = await fs.readFile(
+        path.join(dir, entry.path),
+        "utf-8",
+      );
+    }
+
+    // Signature presence check (Codex diff iter-1 P2): mirror the conformance
+    // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
+    // bundle. The UI surfaces this boolean transparently; cryptographic
+    // verification belongs to operator-side `gpg --verify` tooling.
+    let signaturePresent = false;
+    try {
+      const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
+      signaturePresent = stat.isFile() && stat.size > 0;
+    } catch {
+      signaturePresent = false;
+    }
+
+    return {
+      runId,
+      manifest,
+      scopeDecision,
+      evidencePool,
+      verifiedReport,
+      metadata,
+      reasoningTrace,
+      sources,
+      signaturePresent,
+    };
+  } catch (err) {
+    // Graceful: a missing/unreadable/malformed bundle renders the pending
+    // state (BundlePendingCta), NEVER a 500. (#789 P0 — the centerpiece must
+    // not crash the page.)
+    console.error(`[inspector] bundle load failed for ${runId}:`, err);
+    return null;
+  }
+}
+
+async function readJson(
+  dir: string,
+  manifest: BundleManifest,
+  contentType: "scope_decision" | "evidence_pool" | "verified_report",
+): Promise<unknown> {
+  const entry = manifest.files.find((f) => f.content_type === contentType);
+  if (!entry) {
+    throw new Error(
+      `bundle: manifest has no entry of content_type=${contentType}`,
+    );
+  }
+  const body = await fs.readFile(path.join(dir, entry.path), "utf-8");
+  return JSON.parse(body);
+}
+
+ succeeded in 2120ms:
+// I-p2-004 (#743): the SINGLE shared resolver for provenance-token → exact
+// source span. Consumed by the citation chip now and by the Proof-Replay
+// inspector (#756) — one resolver boundary, no duplicate parsing.
+//
+// No-synthetic-proof contract (Codex brief iter-2/3): returns quote=null
+// (→ honest fallback) unless the bounds are fully valid against the actual
+// source body. NEVER a silently-clamped slice (that would be synthetic proof).
+
+import { parseProvenanceToken } from "@/lib/provenance_tokens";
+
+export interface EvidenceSource {
+  source_id: string;
+  full_text?: string | null;
+  snippet?: string | null;
+  title?: string | null;
+  url?: string | null;
+  tier?: string | number | null;
+}
+
+export interface ResolvedSpan {
+  raw: string;
+  sourceId: string;
+  source: EvidenceSource | null;
+  start: number;
+  end: number;
+  /** The EXACT cited passage `full_text[start:end]`, or null when unresolved
+   * (missing source / no full_text / out-of-range bounds) — never clamped. */
+  quote: string | null;
+}
+
+function sourcesOf(evidencePool: unknown): EvidenceSource[] {
+  const s = (evidencePool as { sources?: unknown } | null)?.sources;
+  return Array.isArray(s) ? (s as EvidenceSource[]) : [];
+}
+
+/** Resolve a `[#ev:<id>:<start>-<end>]` token against the evidence pool.
+ * Returns null if the token itself is malformed; otherwise a ResolvedSpan
+ * whose `quote` is null unless every bound is valid against the real body. */
+export function resolveSpan(
+  token: string,
+  evidencePool: unknown,
+): ResolvedSpan | null {
+  const parsed = parseProvenanceToken(token);
+  if (!parsed) return null;
+  // sources is an ARRAY → look up by source_id (never index).
+  const source =
+    sourcesOf(evidencePool).find((s) => s?.source_id === parsed.source_id) ??
+    null;
+  const body = source?.full_text ?? null; // exact span only from full_text
+  let quote: string | null = null;
+  if (
+    typeof body === "string" &&
+    body.length > 0 &&
+    parsed.start >= 0 &&
+    parsed.end <= body.length &&
+    parsed.start <= parsed.end
+  ) {
+    quote = body.slice(parsed.start, parsed.end);
+  }
+  return {
+    raw: token,
+    sourceId: parsed.source_id,
+    source,
+    start: parsed.start,
+    end: parsed.end,
+    quote,
+  };
+}
+
+ succeeded in 2597ms:
+import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
+
+import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+import { ProofShowcase } from "@/app/components/proof_showcase";
+import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
+import { MapleLeafSignatureLazy } from "@/components/signature/maple_leaf_signature_lazy";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+const templates: Template[] = [
+  {
+    id: "clinical",
+    name: "Clinical drug audit",
+    summary:
+      "Drug safety signals, labelling deltas, and post-market surveillance evidence across Health Canada, FDA, EMA, and clinical trials.",
+    sample_question:
+      "What did the SELECT trial show on cardiovascular outcomes for semaglutide?",
+    out_of_scope: "Should I take ozempic for my diabetes?",
+    active: true,
+  },
+  {
+    id: "policy",
+    name: "Public policy",
+    summary:
+      "Regulatory decisions, reimbursement and health-technology-assessment policy, public-health guidance, and cross-jurisdiction access comparisons.",
+    sample_question:
+      "What did NICE and CADTH conclude on the cost-effectiveness of CAR-T therapies?",
+    out_of_scope: "Which political party has the better health platform?",
+    active: false,
+  },
+  {
+    id: "tech",
+    name: "Technology assessment",
+    summary:
+      "Assessment of a technology, algorithm, or engineering approach — grounded in peer-reviewed conference and journal papers, standards, and attributed preprints.",
+    sample_question:
+      "What does the peer-reviewed evidence show on mixture-of-experts vs dense transformers as of 2025?",
+    out_of_scope: "Which GPU should I buy for my gaming PC?",
+    active: false,
+  },
+  {
+    id: "ai_sovereignty",
+    name: "AI sovereignty",
+    summary:
+      "Canadian AI policy, sovereign compute, talent retention, IP and data residency, alignment posture, Bill C-27 / AIDA, federal AI strategy.",
+    sample_question:
+      "What sovereign compute capacity does Canada have for training frontier models as of 2025?",
+    out_of_scope:
+      "Should I take a job at a Canadian AI startup or move to San Francisco?",
+    active: false,
+  },
+  {
+    id: "canada_us",
+    name: "Canada–US relations",
+    summary:
+      "Bilateral relationship, CUSMA / USMCA renegotiation, IRA spillover, energy + critical minerals integration, defense interoperability.",
+    sample_question:
+      "What are the 2026 CUSMA review triggers and what does Canada's pre-position look like?",
+    out_of_scope: "Should I move to the US for tax reasons?",
+    active: false,
+  },
+  {
+    id: "due_diligence",
+    name: "Due diligence",
+    summary:
+      "Company, product, market, and competitive-landscape research for investment, M&A, or partnership decisions — every claim carries named, dated provenance.",
+    sample_question:
+      "What did the most recent 10-K disclose on customer-concentration risk for this company?",
+    out_of_scope: "Should I buy this stock?",
+    active: false,
+  },
+  {
+    id: "custom",
+    name: "Custom research",
+    summary:
+      "Operator-defined catch-all for research questions that do not match the clinical, policy, tech, or due-diligence templates; accepts any classified source tier.",
+    sample_question:
+      "Summarize the documented positions on this question with provenance for each claim.",
+    out_of_scope:
+      "Requests for individualized legal, medical, or financial advice.",
+    active: false,
+  },
+  {
+    id: "workforce",
+    name: "Workforce & productivity",
+    summary:
+      "Canadian labour productivity, immigration + skills mismatch, regional unemployment, federal-provincial training, demographic shifts.",
+    sample_question:
+      "What does StatCan's 2024 productivity series show for Canada vs US over the last decade?",
+    out_of_scope: "How do I apply for permanent residency?",
+    active: false,
+  },
+];
+
+const PILLARS = [
+  {
+    icon: BadgeCheck,
+    title: "Provable",
+    body: "Click any claim and see the exact source passage it came from. Frontier tools hallucinate 3–13% of their citations — every POLARIS claim is span-anchored to a primary source.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Sovereign",
+    body: "Built for Canadian-hosted, sovereign deployment. Public sources are fetched via logged Canadian egress, and every brief is integrity-hashed and auditable.",
+  },
+  {
+    icon: Network,
+    title: "Snowball",
+    body: "Each run grows a connected knowledge graph of claims and sources you can explore, follow up on, and build the next question from.",
+  },
+] as const;
+
+export default function HomePage() {
+  return (
+    <div className="flex min-h-screen flex-col">
+      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-14 px-6 py-14 sm:py-16">
+          {/* Hero — one primary action */}
+          <section className="flex flex-col items-center gap-5 text-center">
+            {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
+            <MapleLeafSignatureLazy />
+            <span className="text-muted-foreground border-border inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
+              ⬡ Sovereign Canadian deep research
+            </span>
+            <h1 className="text-foreground max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
+              Deep research you can check, line by line.
+            </h1>
+            <p className="text-muted-foreground max-w-2xl text-base text-pretty sm:text-lg">
+              Every sentence is tied to a primary source with a provenance token
+              and checked by an independent two-family evidence pipeline. Ask a
+              question — get a brief where you can click any claim and read the
+              exact passage behind it.
+            </p>
+            <form
+              action="/intake"
+              method="get"
+              data-testid="home-hero-search"
+              className="mt-1 flex w-full max-w-2xl items-center gap-2"
+            >
+              <Input
+                name="q"
+                type="search"
+                aria-label="Research question"
+                placeholder="Ask a research question…"
+                className="h-12 flex-1 text-base"
+              />
+              <Button type="submit" className="h-12 px-7">
+                Verify
+              </Button>
+            </form>
+          </section>
+
+          {/* Proof-as-hero — a REAL verified claim + its real source span */}
+          <ProofShowcase />
+
+          {/* Differentiator pillars */}
+          <section
+            aria-label="Why POLARIS"
+            className="border-border/60 grid gap-8 border-t pt-12 sm:grid-cols-3"
+          >
+            {PILLARS.map((pillar) => (
+              <div key={pillar.title} className="flex flex-col gap-2">
+                <pillar.icon
+                  aria-hidden
+                  className="text-primary h-5 w-5 shrink-0"
+                />
+                <h2 className="text-foreground text-sm font-semibold">
+                  {pillar.title}
+                </h2>
+                <p className="text-muted-foreground text-sm leading-relaxed">
+                  {pillar.body}
+                </p>
+              </div>
+            ))}
+          </section>
+
+          {/* Real recent verified briefs */}
+          <RecentRunsStrip />
+        </main>
+
+        <footer className="border-border bg-background border-t">
+          <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+            <span>POLARIS · Sovereign Canadian deep research</span>
+            <span>Two-family verified evidence</span>
+          </div>
+        </footer>
+      </HomeKeyboardShell>
+    </div>
+  );
+}
+
+ succeeded in 3122ms:
+// I-p2-037 (#794): proof-as-hero showcase. The home LEADS with a REAL verified
+// claim from a real POLARIS run + its exact real source span — the differentiator
+// made visceral (frontier study: verifiability is the hero). Server component:
+// loads the real canonical bundle + resolves the span server-side; renders only
+// if the span genuinely resolves (honest — never a fabricated showcase). Links
+// to the full Proof Replay.
+import { ArrowRight, BadgeCheck, Quote } from "lucide-react";
+import Link from "next/link";
+
+import { resolveSpan } from "@/lib/evidence_span";
+import { loadBundle } from "@/lib/inspector_bundle_loader";
+
+const DEMO_RUN_ID = "v1-canonical-success";
+
+function tierLabel(tier: unknown): string | null {
+  if (typeof tier === "string" && tier) return tier;
+  if (typeof tier === "number") return `T${tier}`;
+  return null;
+}
+
+export async function ProofShowcase() {
+  const bundle = await loadBundle(DEMO_RUN_ID);
+  if (!bundle) return null;
+
+  // Pick the first verified sentence whose span genuinely resolves to a real
+  // source quote — honest: if nothing resolves, render nothing (no fake proof).
+  const sections = bundle.verifiedReport?.sections ?? [];
+  let claim: string | null = null;
+  let quote: string | null = null;
+  let sourceTitle: string | null = null;
+  let sourceUrl: string | null = null;
+  let tier: string | null = null;
+
+  outer: for (const section of sections) {
+    for (const s of section.verified_sentences ?? []) {
+      const token = (s.provenance_tokens ?? []).find(
+        (t): t is string => typeof t === "string",
+      );
+      if (!token) continue;
+      const span = resolveSpan(token, bundle.evidencePool);
+      if (span?.quote && span.quote.trim().length > 40) {
+        claim = s.sentence_text;
+        quote = span.quote.trim();
+        sourceTitle = span.source?.title ?? null;
+        sourceUrl = span.source?.url ?? null;
+        tier = tierLabel(span.source?.tier);
+        break outer;
+      }
+    }
+  }
+
+  if (!claim || !quote) return null;
+
+  const question = bundle.verifiedReport?.research_question;
+
+  return (
+    <section
+      aria-label="A real verified claim"
+      data-testid="proof-showcase"
+      className="border-border bg-card relative overflow-hidden rounded-2xl border shadow-sm"
+    >
+      <div className="border-border/70 bg-muted/30 flex items-center justify-between gap-3 border-b px-5 py-3">
+        <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+          A real verified claim
+        </span>
+        {tier ? (
+          <span className="text-muted-foreground border-border rounded-full border px-2 py-0.5 font-mono text-[11px]">
+            {tier} source
+          </span>
+        ) : null}
+      </div>
+
+      <div className="grid gap-0 md:grid-cols-2">
+        {/* The claim + verdict */}
+        <div className="flex flex-col gap-3 p-6">
+          <div className="text-verified inline-flex items-center gap-1.5 text-xs font-semibold">
+            <BadgeCheck aria-hidden className="h-4 w-4" />
+            Verified against a primary source
+          </div>
+          <p className="text-foreground text-lg leading-relaxed font-medium text-pretty">
+            {claim}
+          </p>
+          {question ? (
+            <p className="text-muted-foreground text-xs">
+              From a POLARIS brief answering:{" "}
+              <span className="text-foreground/80">{question}</span>
+            </p>
+          ) : null}
+        </div>
+
+        {/* The exact real source span — the proof */}
+        <div className="border-border/70 bg-muted/20 flex flex-col gap-3 border-t p-6 md:border-t-0 md:border-l">
+          <div className="text-muted-foreground inline-flex items-center gap-1.5 text-xs font-medium">
+            <Quote aria-hidden className="h-4 w-4" />
+            The exact passage it came from
+          </div>
+          <blockquote className="border-primary/40 text-foreground/90 border-l-2 pl-3 text-sm leading-relaxed">
+            “{quote}”
+          </blockquote>
+          {sourceTitle ? (
+            <p className="text-muted-foreground truncate text-xs">
+              {sourceUrl ? (
+                <a
+                  href={sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-foreground underline-offset-2 hover:underline"
+                >
+                  {sourceTitle}
+                </a>
+              ) : (
+                sourceTitle
+              )}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="border-border/70 flex items-center justify-between gap-3 border-t px-5 py-3">
+        <span className="text-muted-foreground text-xs">
+          Every sentence in a POLARIS brief is checked this way.
+        </span>
+        <Link
+          href={`/inspector/${DEMO_RUN_ID}`}
+          className="text-primary focus-visible:ring-ring/70 inline-flex items-center gap-1 rounded text-sm font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+        >
+          See the full proof
+          <ArrowRight aria-hidden className="h-4 w-4" />
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+codex
+The new component is a server component and imports the filesystem-backed loader directly. I’m checking whether that loader is already constrained to server-only usage and whether any client bundle path can accidentally pull it in.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "inspector_bundle_loader|loadBundle" web -n' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"text-verified|--verified|verified\" web\\app web\\components web\\lib -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\globals.css" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\package.json" in C:\POLARIS
+ succeeded in 1826ms:
+web\app\api\inspector_bundle\[runId]\route.ts:6:import { loadBundle } from "@/lib/inspector_bundle_loader";
+web\app\api\inspector_bundle\[runId]\route.ts:14:  const bundle = await loadBundle(runId);
+web\app\components\proof_showcase.tsx:11:import { loadBundle } from "@/lib/inspector_bundle_loader";
+web\app\components\proof_showcase.tsx:22:  const bundle = await loadBundle(DEMO_RUN_ID);
+web\components\proof_replay\proof_replay.tsx:16:import type { VerifiedReportSectionShape } from "@/lib/inspector_bundle_loader";
+web\app\runs\[runId]\page.tsx:9:  downloadBundleAsJson,
+web\app\runs\[runId]\page.tsx:122:              downloadBundleAsJson(bundle);
+web\app\runs\[runId]\page.tsx:192:                downloadBundleAsJson(bundle);
+web\app\inspector\[runId]\page.tsx:9:// at I-B-09 (Seq 21). For now `loadBundle` returns the canonical fixtures
+web\app\inspector\[runId]\page.tsx:13:import { loadBundle } from "@/lib/inspector_bundle_loader";
+web\app\inspector\[runId]\page.tsx:24:  const bundle = await loadBundle(runId);
+web\app\inspector\[runId]\inspector_view.tsx:14:import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+web\components\inspector\verified_report_sections.tsx:15:} from "@/lib/inspector_bundle_loader";
+web\app\inspector\offline\page.tsx:12:  loadBundleFromTarGz,
+web\app\inspector\offline\page.tsx:14:import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+web\app\inspector\offline\page.tsx:27:      const loaded = await loadBundleFromTarGz(file);
+web\components\inspector\family_segregation_badge.tsx:4:import type { VerifiedReportShape } from "@/lib/inspector_bundle_loader";
+web\lib\inspector_bundle_loader.ts:84:export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+web\lib\inspector_bundle_client_loader.ts:6: * server-side `inspector_bundle_loader.ts` so all Inspector components
+web\lib\inspector_bundle_client_loader.ts:39:} from "@/lib/inspector_bundle_loader";
+web\lib\inspector_bundle_client_loader.ts:205:export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
+web\lib\api.ts:494:export function downloadBundleAsJson(bundle: EvidenceContract): void {
+
+ succeeded in 2222ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "@types/three": "^0.184.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "three": "^0.184.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 2736ms:
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-verified: var(--verified);
+  --color-verified-foreground: var(--verified-foreground);
+  --color-contradiction: var(--contradiction);
+  --color-contradiction-foreground: var(--contradiction-foreground);
+  --color-refusal: var(--refusal);
+  --color-refusal-foreground: var(--refusal-foreground);
+  --color-tier-1: var(--tier-1);
+  --color-tier-2: var(--tier-2);
+  --color-tier-3: var(--tier-3);
+  --color-proof-token: var(--proof-token);
+  --color-verified-bundle: var(--verified-bundle);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* I-ui-010 (#730): Frontier Minimal — near-monochrome zinc + ONE confident
+     accent (default = blue oklch(0.50 0.18 255); the prior cyan read grey).
+     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
+     border. Accent hue is operator-confirmable (one-token swap; alt indigo
+     oklch(0.50 0.16 270) / teal oklch(0.52 0.12 215)). chart-* left mono. */
+  --background: oklch(0.985 0.001 286.375);
+  --foreground: oklch(0.21 0.006 285.9);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  /* I-p2-003 (#742): white surface + ONE national accent = dark Canada-flag
+     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
+     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+     destructive=deep maroon distinct from the national red. + evidence-role
+     tokens (tiers + proof). Operator design lock 2026-05-21. */
+  --primary: #c8102e;
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.21 0.006 285.9);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.96 0.03 25);
+  --accent-foreground: oklch(0.45 0.16 26);
+  --destructive: oklch(0.42 0.13 18);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: #c8102e;
+  /* State colors — distinct from the national red (rubric: never red-only) */
+  --verified: oklch(0.48 0.14 152);
+  --verified-foreground: oklch(0.985 0 0);
+  --contradiction: oklch(0.72 0.15 75);
+  --contradiction-foreground: oklch(0.27 0.04 75);
+  --refusal: oklch(0.45 0.02 286);
+  --refusal-foreground: oklch(0.985 0 0);
+  /* Evidence-role tokens */
+  --tier-1: #c8102e;
+  --tier-2: oklch(0.556 0 0);
+  --tier-3: oklch(0.708 0 0);
+  --proof-token: oklch(0.45 0.16 26);
+  --verified-bundle: oklch(0.48 0.14 152);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  /* I-p2-003 (#742): dark-mode accent = Canada-red (NOT the old cyan, which
+     violated the operator lock). Lighter L0.62 for contrast on the dark
+     surface; white fg. NOTE: light mode is the demo target; dark mode reuses
+     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+     proof) — dark-specific tuning is a post-demo follow-up. */
+  --primary: oklch(0.62 0.2 26);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.32 0.06 26);
+  --accent-foreground: oklch(0.92 0.04 26);
+  --destructive: oklch(0.704 0.191 22.216);
+  /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+     White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+     fails WCAG-AA 4.5:1). Use near-black text instead — dark-on-light-warning is
+     the conventional inverse pattern. */
+  --destructive-foreground: oklch(0.145 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.62 0.2 26);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+ succeeded in 3294ms:
+web\lib\api.ts:75:  | "abort_no_verified_sections";
+web\lib\api.ts:267:  verdict: "success" | "abort_no_verified_sections";
+web\lib\api.ts:270:  verified_sentence_count: number;
+web\lib\api.ts:440:  verified_sentences: VerifiedSentence[];
+web\lib\api.ts:672:// Slice 002 — Clinical Retrieval (verified clinical sources)
+web\lib\api.ts:796:// Mirrors src/polaris_graph/generator2/verified_report.py +
+web\lib\api.ts:800:export type SectionStatus = "verified" | "regenerated" | "dropped";
+web\lib\api.ts:802:export type PipelineVerdict = "success" | "abort_no_verified_sections";
+web\lib\api.ts:889:  verified_sentences: ReportVerifiedSentence[];
+web\lib\api.ts:998:/** Filter to non-dropped sections (verified + regenerated). */
+web\lib\api.ts:1007:  return section.verified_sentences.filter((s) => s.verifier_pass);
+web\lib\api.ts:1368:  is_verified: boolean;
+web\lib\api.ts:1383:  sentences_verified: number;
+web\lib\api.ts:1487:  sentences_verified: number;
+web\lib\api.ts:1560:  verified_report: AuditIrVerifiedReport;
+web\lib\api.ts:1581: * I-rdy-008 (#504) slice 7a/7b — one verified evidence span cited by a run.
+web\lib\api.ts:1596:/** The verified evidence spans for one completed run. */
+web\lib\api.ts:1603: * Fetch the verified evidence spans for a completed run from the v6
+web\lib\inspector_bundle_loader.ts:36:  verifiedReport: VerifiedReportShape;
+web\lib\inspector_bundle_loader.ts:67:  verified_sentences: VerifiedSentenceShape[];
+web\lib\inspector_bundle_loader.ts:102:    const verifiedReport = (await readJson(
+web\lib\inspector_bundle_loader.ts:105:      "verified_report",
+web\lib\inspector_bundle_loader.ts:158:      verifiedReport,
+web\lib\inspector_bundle_loader.ts:176:  contentType: "scope_decision" | "evidence_pool" | "verified_report",
+web\lib\inspector_bundle_client_loader.ts:199:  "verified_report",
+web\lib\inspector_bundle_client_loader.ts:296:  const verifiedReportFile = _findFile(files, "verified_report.json")!;
+web\lib\inspector_bundle_client_loader.ts:297:  const verifiedReport = JSON.parse(
+web\lib\inspector_bundle_client_loader.ts:298:    _decode(verifiedReportFile.bytes),
+web\lib\inspector_bundle_client_loader.ts:333:    verifiedReport,
+web\components\source\source_card.tsx:37:      <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\lib\pin_regression.ts:12:  verified_sentence_count_drop: 3,
+web\lib\pin_regression.ts:16:  metric: "pass_rate" | "verified_sentence_count";
+web\lib\pin_regression.ts:61:  const sentence_drop = a.verified_sentence_count - b.verified_sentence_count;
+web\lib\pin_regression.ts:62:  if (sentence_drop > REGRESSION_THRESHOLDS.verified_sentence_count_drop) {
+web\lib\pin_regression.ts:64:      metric: "verified_sentence_count",
+web\lib\pin_regression.ts:65:      a_value: a.verified_sentence_count,
+web\lib\pin_regression.ts:66:      b_value: b.verified_sentence_count,
+web\lib\pin_regression.ts:68:      threshold: REGRESSION_THRESHOLDS.verified_sentence_count_drop,
+web\components\verdict\verdict_chip.tsx:36:    className: "bg-verified/10 text-verified border-verified/30",
+web\components\sovereignty\sovereignty_panel.tsx:11:  /** verified_report.family_segregation_passed — the real source of truth. */
+web\components\sovereignty\sovereignty_panel.tsx:70:              <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\sovereignty\sovereignty_panel.tsx:76:                Not verified
+web\components\sovereignty\sovereignty_panel.tsx:94:            <p className="text-verified mt-1 text-[11px]">
+web\components\contradiction\contradiction_panel.tsx:21:  abort_no_verified_sections:
+web\components\contradiction\contradiction_panel.tsx:22:    "No claim could be verified against a primary source.",
+web\components\inspector\family_segregation_badge.tsx:2:// Source of truth: verified_report.evaluator_model + verified_report.family_segregation_passed
+web\components\inspector\family_segregation_badge.tsx:9:  verifiedReport: VerifiedReportShape;
+web\components\inspector\family_segregation_badge.tsx:14:  verifiedReport,
+web\components\inspector\family_segregation_badge.tsx:16:  const passed = verifiedReport.family_segregation_passed;
+web\components\inspector\family_segregation_badge.tsx:46:          <p className="font-mono text-sm">{verifiedReport.evaluator_model}</p>
+web\app\components\proof_showcase.tsx:1:// I-p2-037 (#794): proof-as-hero showcase. The home LEADS with a REAL verified
+web\app\components\proof_showcase.tsx:25:  // Pick the first verified sentence whose span genuinely resolves to a real
+web\app\components\proof_showcase.tsx:27:  const sections = bundle.verifiedReport?.sections ?? [];
+web\app\components\proof_showcase.tsx:35:    for (const s of section.verified_sentences ?? []) {
+web\app\components\proof_showcase.tsx:54:  const question = bundle.verifiedReport?.research_question;
+web\app\components\proof_showcase.tsx:58:      aria-label="A real verified claim"
+web\app\components\proof_showcase.tsx:64:          A real verified claim
+web\app\components\proof_showcase.tsx:76:          <div className="text-verified inline-flex items-center gap-1.5 text-xs font-semibold">
+web\components\proof_replay\proof_replay.tsx:2:// verified claim (left) → see the EXACT cited source span (right). Composes the
+web\components\proof_replay\proof_replay.tsx:29:  verified: boolean;
+web\components\proof_replay\proof_replay.tsx:38:    section.verified_sentences?.forEach((s, i) => {
+web\components\proof_replay\proof_replay.tsx:49:        verified: s.verifier_pass === true,
+web\components\proof_replay\proof_replay.tsx:56:function UnverifiedBadge() {
+web\components\proof_replay\proof_replay.tsx:59:      Unverified
+web\components\proof_replay\proof_replay.tsx:75:        {claim.verified ? (
+web\components\proof_replay\proof_replay.tsx:78:          <UnverifiedBadge />
+web\components\proof_replay\proof_replay.tsx:152:        No verified claims in this report.
+web\components\proof_replay\proof_replay.tsx:178:                aria-label={`${claim.verified ? "Verified" : "Unverified"} claim: ${claim.text}`}
+web\components\proof_replay\proof_replay.tsx:189:                    claim.verified ? "bg-verified" : "bg-muted-foreground"
+web\app\inspector\[runId]\inspector_view.tsx:13:import { VerifiedReportSections } from "@/components/inspector/verified_report_sections";
+web\app\inspector\[runId]\inspector_view.tsx:37:        verifiedReport={bundle.verifiedReport}
+web\app\inspector\[runId]\inspector_view.tsx:50:          <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
+web\components\inspector\verified_report_sections.tsx:2:// Real field names per verified_report.py:
+web\components\inspector\verified_report_sections.tsx:4://   sections[].verified_sentences
+web\components\inspector\verified_report_sections.tsx:5://   verified_sentences[].provenance_tokens (token strings)
+web\components\inspector\verified_report_sections.tsx:18:  verifiedReport: VerifiedReportShape;
+web\components\inspector\verified_report_sections.tsx:22:  verifiedReport,
+web\components\inspector\verified_report_sections.tsx:25:    <Card data-testid="verified-report-sections">
+web\components\inspector\verified_report_sections.tsx:28:          Verified report ({verifiedReport.sections.length} sections,{" "}
+web\components\inspector\verified_report_sections.tsx:29:          {(verifiedReport.overall_verify_pass_rate * 100).toFixed(0)}%
+web\components\inspector\verified_report_sections.tsx:30:          verified)
+web\components\inspector\verified_report_sections.tsx:34:        <VerdictBadge verdict={verifiedReport.pipeline_verdict} />
+web\components\inspector\verified_report_sections.tsx:35:        {verifiedReport.sections.length === 0 ? (
+web\components\inspector\verified_report_sections.tsx:37:            No verified sections (pipeline verdict:{" "}
+web\components\inspector\verified_report_sections.tsx:38:            <code className="font-mono">{verifiedReport.pipeline_verdict}</code>
+web\components\inspector\verified_report_sections.tsx:42:          verifiedReport.sections.map((s) => (
+web\components\inspector\verified_report_sections.tsx:72:      data-testid="verified-report-section"
+web\components\inspector\verified_report_sections.tsx:82:        {section.verified_sentences.map((sentence, idx) => (
+web\components\inspector\verified_report_sections.tsx:98:      data-testid="verified-sentence"
+web\app\audit_live\_panels.tsx:136:          data-testid="zero-verified-abort"
+web\app\audit_live\_panels.tsx:139:          Zero-verified abort: no kept verify decisions across{" "}
+web\app\globals.css:31:  --color-verified: var(--verified);
+web\app\globals.css:32:  --color-verified-foreground: var(--verified-foreground);
+web\app\globals.css:41:  --color-verified-bundle: var(--verified-bundle);
+web\app\globals.css:77:     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+web\app\globals.css:94:  --verified: oklch(0.48 0.14 152);
+web\app\globals.css:95:  --verified-foreground: oklch(0.985 0 0);
+web\app\globals.css:105:  --verified-bundle: oklch(0.48 0.14 152);
+web\app\globals.css:132:     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+web\app\inspector\offline\page.tsx:73:            The bundle is verified and rendered entirely in your browser — no
+web\app\generation\page.tsx:62:            001), retrieval against verified clinical sources (slice 002), and
+web\app\generation\page.tsx:81:            Slice 004 (audit bundle export, GPG-signed) packages this verified
+web\lib\signed_bundle.ts:28:  | "verified_report"
+web\lib\signed_bundle.ts:36:  "verified_report",
+web\app\layout.tsx:22:    "Two-family verified evidence pipelines for Government of Canada policy work.",
+web\app\generation\components\BundlePreview.tsx:22:  ["verified_report", "Verified report"],
+web\app\pin_replay\page.tsx:63:            {snapshot.verified_sentence_count}
+web\app\pin_replay\page.tsx:118:    snap_b.verified_sentence_count - snap_a.verified_sentence_count;
+web\app\pin_replay\page.tsx:134:          verified-sentence count or pass-rate raise an alert.
+web\app\page.tsx:162:          {/* Proof-as-hero — a REAL verified claim + its real source span */}
+web\app\page.tsx:186:          {/* Real recent verified briefs */}
+web\app\page.tsx:193:            <span>Two-family verified evidence</span>
+web\app\pin_replay\components\pin_timeseries.tsx:22:    value: s.verified_sentence_count,
+web\app\pin_replay\components\pin_timeseries.tsx:23:    series: "verified_sentences",
+web\app\retrieval\page.tsx:10:    "Retrieve verified clinical sources for a research question. POLARIS runs the slice 001 scope gate, then retrieves T1/T2/T3 sources from approved clinical domains.",
+web\app\generation\components\follow_up_append_view.tsx:5:import { VerifiedReportView } from "./verified_report_view";
+web\app\generation\components\follow_up_append_view.tsx:8:// verified report, a labeled separator, then the appended (follow-up)
+web\app\generation\components\follow_up_append_view.tsx:9:// verified report. Production wiring (graph_v4 generating the appended
+web\app\pin_replay\components\diff_side_panel.tsx:20:    key: "verified_sentence_count",
+web\app\runs\[runId]\page.tsx:235:          (it has an answerable, verified report). Failed/cancelled/in-progress
+web\app\sentence_hover_test\follow_up_append\page.tsx:17:        verified_sentences: [
+web\app\sentence_hover_test\follow_up_append\page.tsx:28:        section_status: "verified",
+web\app\runs\[runId]\components\followup_panel.tsx:71:        Scoped to this run&apos;s verified evidence — no new retrieval is run.
+web\app\runs\[runId]\components\run_progress.tsx:87:      verified: asNumber(e.data.verified ?? e.data.verified_sentences),
+web\app\runs\[runId]\components\run_progress.tsx:203:    ? sections.reduce((acc, s) => acc + s.verified, 0)
+web\app\runs\[runId]\components\run_progress.tsx:216:          label="Sentences verified"
+web\app\runs\[runId]\components\run_progress.tsx:344:  sections: { section: string; verified: number; dropped: number }[];
+web\app\runs\[runId]\components\run_progress.tsx:426:            — {s.verified} verified, {s.dropped} dropped
+web\app\sentence_hover_test\_demo.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo.tsx:114:      verified_sentences: [
+web\app\sentence_hover_test\_demo.tsx:456:      section_status: "verified",
+web\app\sentence_hover_test\memory_cite\page.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\memory_cite\page.tsx:16:      verified_sentences: [
+web\app\sentence_hover_test\memory_cite\page.tsx:37:      section_status: "verified",
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:60:        verified_sentences: Array.from({ length: N }, (_, i) => ({
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:79:        section_status: "verified",
+web\app\generation\components\generation_runner.tsx:22:import { VerifiedReportView } from "./verified_report_view";
+web\app\sentence_hover_test\_demo_coverage.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_coverage.tsx:83:        verified_sentences: [
+web\app\sentence_hover_test\_demo_coverage.tsx:94:        section_status: "verified",
+web\app\generation\components\verified_report_view.tsx:48:  verified:
+web\app\generation\components\verified_report_view.tsx:66:  verdict: "success" | "abort_no_verified_sections";
+web\app\generation\components\verified_report_view.tsx:80:      {ok ? "Success" : "Aborted (no verified sections)"}
+web\app\generation\components\verified_report_view.tsx:320:  const dropped_count = section.verified_sentences.length - kept.length;
+web\app\generation\components\verified_report_view.tsx:344:            No verified sentences in this section.
+web\app\generation\components\verified_report_view.tsx:348:            {section.verified_sentences.map((s, idx) => (
+web\app\generation\components\verified_report_view.tsx:400:      data-testid="verified-report-view"
+web\app\runs\[runId]\graph\components\graph_styles.ts:90:      "border-color": "#1f7a44", // verified-green (connected)
+web\app\sentence_hover_test\_demo_stress.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_stress.tsx:57:        verified_sentences: Array.from({ length: n }, (_, i) => ({
+web\app\sentence_hover_test\_demo_stress.tsx:68:        section_status: "verified",
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\inspector\\verified_report_sections.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\proof_replay\\proof_replay.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\public\\canonical_bundles\\v1_canonical_success\\verified_report.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\provenance_tokens.ts" in C:\POLARIS
+ succeeded in 1908ms:
+// I-cd-013a (GH#609) — VerifiedReport.sections renderer.
+// Real field names per verified_report.py:
+//   sections[].section_verify_pass_rate
+//   sections[].verified_sentences
+//   verified_sentences[].provenance_tokens (token strings)
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type {
+  VerifiedReportSectionShape,
+  VerifiedReportShape,
+  VerifiedSentenceShape,
+} from "@/lib/inspector_bundle_loader";
+
+interface VerifiedReportSectionsProps {
+  verifiedReport: VerifiedReportShape;
+}
+
+export function VerifiedReportSections({
+  verifiedReport,
+}: VerifiedReportSectionsProps) {
+  return (
+    <Card data-testid="verified-report-sections">
+      <CardHeader>
+        <CardTitle>
+          Verified report ({verifiedReport.sections.length} sections,{" "}
+          {(verifiedReport.overall_verify_pass_rate * 100).toFixed(0)}%
+          verified)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <VerdictBadge verdict={verifiedReport.pipeline_verdict} />
+        {verifiedReport.sections.length === 0 ? (
+          <p className="border-border text-muted-foreground rounded-md border border-dashed p-4 text-center">
+            No verified sections (pipeline verdict:{" "}
+            <code className="font-mono">{verifiedReport.pipeline_verdict}</code>
+            ).
+          </p>
+        ) : (
+          verifiedReport.sections.map((s) => (
+            <SectionPanel key={s.section_id} section={s} />
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function VerdictBadge({ verdict }: { verdict: string }) {
+  const isSuccess = verdict === "success";
+  return (
+    <p
+      data-testid="pipeline-verdict-badge"
+      data-state={isSuccess ? "success" : "abort"}
+      className={
+        isSuccess
+          ? "inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+          : "inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+      }
+    >
+      Verdict: {verdict}
+    </p>
+  );
+}
+
+function SectionPanel({ section }: { section: VerifiedReportSectionShape }) {
+  return (
+    <div
+      className="border-border rounded-md border p-4"
+      data-testid="verified-report-section"
+      data-section-id={section.section_id}
+    >
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="font-medium">{section.section_id}</h3>
+        <span className="text-muted-foreground font-mono text-xs">
+          pass rate {(section.section_verify_pass_rate * 100).toFixed(0)}%
+        </span>
+      </div>
+      <ul className="space-y-2">
+        {section.verified_sentences.map((sentence, idx) => (
+          <SentenceItem
+            key={`${section.section_id}-${idx}`}
+            sentence={sentence}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SentenceItem({ sentence }: { sentence: VerifiedSentenceShape }) {
+  const [showTokens, setShowTokens] = useState(false);
+  return (
+    <li
+      className="bg-muted/30 hover:bg-muted/60 rounded-sm border border-transparent p-2 transition-colors"
+      data-testid="verified-sentence"
+      data-verifier-pass={sentence.verifier_pass}
+    >
+      <p className="text-sm">{sentence.sentence_text}</p>
+      {sentence.provenance_tokens.length > 0 && (
+        <button
+          type="button"
+          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+          onClick={() => setShowTokens((v) => !v)}
+          data-testid="toggle-provenance-tokens"
+        >
+          {showTokens ? "Hide" : "Show"} {sentence.provenance_tokens.length}{" "}
+          provenance token
+          {sentence.provenance_tokens.length === 1 ? "" : "s"}
+        </button>
+      )}
+      {showTokens && (
+        <ul className="text-muted-foreground mt-1 ml-4 list-disc font-mono text-xs">
+          {sentence.provenance_tokens.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+ succeeded in 2572ms:
+// I-p2-007 (#746): Proof Replay split-view — POLARIS's centerpiece. Click a
+// verified claim (left) → see the EXACT cited source span (right). Composes the
+// shared resolveSpan (#743) + SourceCard (#745) + VerdictChip (#744). Honest:
+// malformed/missing/empty provenance never crashes — it shows an honest note,
+// never synthetic proof.
+"use client";
+
+import { useMemo, useState } from "react";
+
+import {
+  SourceCard,
+  type SourceCardSource,
+} from "@/components/source/source_card";
+import { VerdictChip } from "@/components/verdict/verdict_chip";
+import { resolveSpan } from "@/lib/evidence_span";
+import type { VerifiedReportSectionShape } from "@/lib/inspector_bundle_loader";
+
+interface ProofReplayProps {
+  sections: VerifiedReportSectionShape[];
+  evidencePool: unknown;
+}
+
+interface FlatClaim {
+  key: string;
+  sectionId: string;
+  sectionTitle: string | null;
+  text: string;
+  tokens: string[];
+  verified: boolean;
+}
+
+function flatten(sections: VerifiedReportSectionShape[]): FlatClaim[] {
+  const out: FlatClaim[] = [];
+  sections.forEach((section, si) => {
+    const title =
+      (typeof section.section_title === "string" && section.section_title) ||
+      null;
+    section.verified_sentences?.forEach((s, i) => {
+      out.push({
+        key: `${si}:${i}`,
+        sectionId: section.section_id,
+        sectionTitle: title,
+        text: s.sentence_text,
+        tokens: Array.isArray(s.provenance_tokens)
+          ? s.provenance_tokens.filter(
+              (t): t is string => typeof t === "string",
+            )
+          : [],
+        verified: s.verifier_pass === true,
+      });
+    });
+  });
+  return out;
+}
+
+function UnverifiedBadge() {
+  return (
+    <span className="bg-muted text-foreground border-border inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium">
+      Unverified
+    </span>
+  );
+}
+
+function ProofPane({
+  claim,
+  evidencePool,
+}: {
+  claim: FlatClaim;
+  evidencePool: unknown;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-foreground text-sm leading-snug">{claim.text}</p>
+        {claim.verified ? (
+          <VerdictChip verdict="VERIFIED" />
+        ) : (
+          <UnverifiedBadge />
+        )}
+      </div>
+
+      {claim.tokens.length === 0 ? (
+        <p className="text-muted-foreground text-xs">
+          No provenance tokens recorded for this claim.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {claim.tokens.map((token, i) => {
+            const span = resolveSpan(token, evidencePool);
+            if (span === null) {
+              return (
+                <p
+                  key={`${token}-${i}`}
+                  className="text-muted-foreground text-xs"
+                >
+                  Unresolvable provenance token:{" "}
+                  <span className="font-mono">{token}</span>
+                </p>
+              );
+            }
+            if (span.source === null) {
+              return (
+                <p
+                  key={`${token}-${i}`}
+                  className="text-muted-foreground text-xs"
+                >
+                  Source <span className="font-mono">{span.sourceId}</span> not
+                  in this bundle — verify via the signed bundle.
+                </p>
+              );
+            }
+            const cardSource: SourceCardSource = {
+              source_id: span.source.source_id,
+              title: span.source.title,
+              url: span.source.url,
+              tier: span.source.tier,
+            };
+            return (
+              <div key={`${token}-${i}`} className="flex flex-col gap-1">
+                <SourceCard source={cardSource} />
+                {span.quote != null ? (
+                  <blockquote className="border-primary text-foreground max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-snug italic">
+                    &ldquo;{span.quote}&rdquo;
+                  </blockquote>
+                ) : (
+                  <p className="text-muted-foreground text-xs">
+                    Span not renderable from this bundle.
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
+  const claims = useMemo(() => flatten(sections), [sections]);
+  const [selectedKey, setSelectedKey] = useState<string | null>(
+    claims[0]?.key ?? null,
+  );
+  // Fall back to the first claim if the selected key is stale (e.g. sections
+  // changed after mount), so the proof pane keeps its default-first behavior.
+  const selected =
+    claims.find((c) => c.key === selectedKey) ?? claims[0] ?? null;
+
+  if (claims.length === 0) {
+    return (
+      <p className="text-muted-foreground text-sm">
+        No verified claims in this report.
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <div
+        role="list"
+        aria-label="Claims"
+        className="border-border flex max-h-[32rem] flex-col gap-1 overflow-auto rounded-md border p-2"
+      >
+        {claims.map((claim, i) => {
+          const isSelected = claim.key === selectedKey;
+          const showHeading =
+            i === 0 || claims[i - 1].sectionId !== claim.sectionId;
+          return (
+            <div key={claim.key} role="listitem">
+              {showHeading && claim.sectionTitle && (
+                <p className="text-muted-foreground mt-2 mb-1 px-2 text-[11px] font-medium tracking-wide uppercase">
+                  {claim.sectionTitle}
+                </p>
+              )}
+              <button
+                type="button"
+                aria-current={isSelected ? "true" : undefined}
+                aria-label={`${claim.verified ? "Verified" : "Unverified"} claim: ${claim.text}`}
+                onClick={() => setSelectedKey(claim.key)}
+                className={`focus-visible:ring-ring/70 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs leading-snug transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+                  isSelected
+                    ? "bg-primary/10 text-foreground border-primary border-l-2"
+                    : "text-muted-foreground hover:bg-muted border-l-2 border-transparent"
+                }`}
+              >
+                <span
+                  aria-hidden
+                  className={`mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+                    claim.verified ? "bg-verified" : "bg-muted-foreground"
+                  }`}
+                />
+                <span className="line-clamp-2">{claim.text}</span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div
+        aria-live="polite"
+        aria-label="Proof for the selected claim"
+        className="border-border rounded-md border p-4"
+      >
+        {selected ? (
+          <ProofPane claim={selected} evidencePool={evidencePool} />
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            Select a claim to see its proof.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ succeeded in 3362ms:
+// I-f5-003 — frontend mirror of polaris_graph.generator2.provenance.
+
+const TOKEN_RE = /^\[#ev:([a-zA-Z0-9_\-]+):(\d+)-(\d+)\]$/;
+
+export interface ParsedToken {
+  raw: string;
+  source_id: string;
+  start: number;
+  end: number;
+}
+
+export function parseProvenanceToken(token: string): ParsedToken | null {
+  const match = TOKEN_RE.exec(token.trim());
+  if (!match) return null;
+  return {
+    raw: token,
+    source_id: match[1],
+    start: parseInt(match[2], 10),
+    end: parseInt(match[3], 10),
+  };
+}
+
+export function parseAllTokens(tokens: string[]): ParsedToken[] {
+  return tokens
+    .map(parseProvenanceToken)
+    .filter((t): t is ParsedToken => t !== null);
+}
+
+ succeeded in 4098ms:
+{
+  "report_id": "report_real_tirzepatide_0001",
+  "pool_id": "pool_real_tirzepatide_0001",
+  "decision_id": "decision_real_tirzepatide_0001",
+  "sections": [
+    {
+      "section_id": "Efficacy",
+      "section_title": "Efficacy",
+      "section_status": "verified",
+      "section_verify_pass_rate": 1.0,
+      "verified_sentences": [
+        {
+          "section_id": "Efficacy",
+          "sentence_text": "The estimated treatment differences were \u22120.15 percentage points (95% CI \u22120.28 to \u22120.03), \u22120.39 percentage points (95% CI \u22120.51 to \u22120.26), and \u22120.45 percentage points (95% CI \u22120.57 to \u22120.32), all favoring tirzepatide .",
+          "provenance_tokens": [
+            "[#ev:ev_006:8800-9300]"
+          ],
+          "verifier_pass": true,
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false
+        },
+        {
+          "section_id": "Efficacy",
+          "sentence_text": "The proportion of participants achieving HbA1c targets of <7.0%, \u22646.5%, and <5.7% across the SURPASS program ranged from 81% to 97%, 66% to 95%, and 23% to 62%, respectively .",
+          "provenance_tokens": [
+            "[#ev:ev_000:8900-9400]"
+          ],
+          "verifier_pass": true,
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false
+        }
+      ]
+    },
+    {
+      "section_id": "Safety",
+      "section_title": "Safety",
+      "section_status": "verified",
+      "section_verify_pass_rate": 1.0,
+      "verified_sentences": [
+        {
+          "section_id": "Safety",
+          "sentence_text": "The safety profile of tirzepatide is consistent with that of the GLP-1 receptor agonist class, with mild-to-moderate and transient gastrointestinal adverse events being the most common .",
+          "provenance_tokens": [
+            "[#ev:ev_000:200-700]",
+            "[#ev:ev_002:1700-2200]"
+          ],
+          "verifier_pass": true,
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false
+        }
+      ]
+    },
+    {
+      "section_id": "Comparative",
+      "section_title": "Comparative",
+      "section_status": "verified",
+      "section_verify_pass_rate": 1.0,
+      "verified_sentences": [
+        {
+          "section_id": "Comparative",
+          "sentence_text": "At 40 weeks, tirzepatide 5 mg, 10 mg, and 15 mg reduced HbA1c by \u22122.01, \u22122.24, and \u22122.30 percentage points, respectively, versus \u22121.86 percentage points with semaglutide .",
+          "provenance_tokens": [
+            "[#ev:ev_006:1000-1500]"
+          ],
+          "verifier_pass": true,
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false
+        },
+        {
+          "section_id": "Comparative",
+          "sentence_text": "The estimated treatment differences versus semaglutide were \u22120.15 percentage points (95% CI \u22120.28 to \u22120.03; P=0.02) for 5 mg, \u22120.39 percentage points (\u22120.51 to \u22120.26; P<0.001) for 10 mg, and \u22120.45 percentage points (\u22120.57 to \u22120.32; P<0.001) for 15 mg .",
+          "provenance_tokens": [
+            "[#ev:ev_006:8800-9300]"
+          ],
+          "verifier_pass": true,
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false
+        },
+        {
+          "section_id": "Comparative",
+          "sentence_text": "A total of 82\u201386% of tirzepatide-treated patients achieved HbA1c <7.0% versus 79% with semaglutide; 69\u201380% achieved \u22646.5% versus 64%; and 27\u201346% achieved <5.7% versus 19% .",
+          "provenance_tokens": [
+            "[#ev:ev_006:9300-9800]"
+          ],
+          "verifier_pass": true,
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false
+        }
+      ]
+    },
+    {
+      "section_id": "Long-term Outcomes",
+      "section_title": "Long-term Outcomes",
+      "section_status": "verified",
+      "section_verify_pass_rate": 1.0,
+      "verified_sentences": [
+        {
+          "section_id": "Long-term Outcomes",
+          "sentence_text": "Those continuing tirzepatide achieved an additional 6.7% body\u2011weight reduction (efficacy estimand), resulting in a total mean weight loss of 26.0% over 88\u202fweeks, whereas participants switched to placebo regained 14.8% body weight .",
+          "provenance_tokens": [
+            "[#ev:ev_015:3400-3900]"
+          ],
+          "verifier_pass": true,
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false
+        },
+        {
+          "section_id": "Long-term Outcomes",
+          "sentence_text": "Additionally, a meta\u2011analysis of early tirzepatide trials noted that weight loss continued without reaching a plateau through weeks 40\u201352 across doses .",
+          "provenance_tokens": [
+            "[#ev:ev_002:8000-8500]"
+          ],
+          "verifier_pass": true,
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false
+        }
+      ]
+    }
+  ],
+  "overall_verify_pass_rate": 1.0,
+  "verifier_pass_threshold": 0.4,
+  "pipeline_verdict": "success",
+  "generator_model": "deepseek/deepseek-v4-pro",
+  "evaluator_model": "google/gemma-4-31b-it",
+  "family_segregation_passed": true,
+  "started_at_utc": "2026-05-20T00:00:00+00:00",
+  "finished_at_utc": "2026-05-20T00:00:00+00:00",
+  "latency_ms": 0,
+  "cost_usd": 0.0,
+  "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?"
+}
+
+codex
+One risk is standing out: the showcase trusts membership in `verified_sentences`, but other UI code treats `verifier_pass` as the actual pass/fail flag inside that array. I’m checking whether that matters for the committed demo bundle versus future bundle swaps.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff HEAD''^ HEAD -- web | sha256sum' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff HEAD''^ HEAD -- web | git hash-object --stdin' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"filter\\(.*verifier_pass|verifier_pass\\)\" web\\app web\\components web\\lib -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\verified_report_view.tsx | Select-Object -First 460" in C:\POLARIS
+2026-05-22T17:49:24.880419Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.9 seconds
+Output:
+      0 [main] sha256sum (41988) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mgit diff HEAD^ HEAD -- web | sha256sum[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:1[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ git diff HEAD^ HEAD -- web | sha256sum[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ ~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+ exited 1 in 1945ms:
+      0 [main] sha256sum (41988) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mgit diff HEAD^ HEAD -- web | sha256sum[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:1[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ git diff HEAD^ HEAD -- web | sha256sum[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ ~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+ succeeded in 2387ms:
+cd807923239e6703c213ee180fb4721e6ac45667
+
+ succeeded in 2822ms:
+web\lib\api.ts:1007:  return section.verified_sentences.filter((s) => s.verifier_pass);
+
+ succeeded in 3425ms:
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSentenceHover } from "@/lib/sentence_highlight";
+import { cn } from "@/lib/utils";
+import {
+  keptSentences,
+  type AssertionSurface,
+  type ContradictionSignal,
+  type DropReason,
+  type EvaluatorDisagreement,
+  type EvidencePool,
+  type ReportVerifiedSentence,
+  type VerifiedReport,
+  type VerifiedReportSection,
+} from "@/lib/api";
+
+import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+
+import { ContradictionPane } from "./contradiction_pane";
+import { EvaluatorPane } from "./evaluator_pane";
+import { MultiSourcePanel } from "./multi_source_panel";
+
+const ASSERTION_SURFACES: AssertionSurface[] = [
+  "prose",
+  "table",
+  "summary_bullet",
+  "limitation",
+  "caption",
+  "heading",
+];
+
+const SURFACE_LABEL: Record<AssertionSurface, string> = {
+  prose: "Prose",
+  table: "Table",
+  summary_bullet: "Summary bullet",
+  limitation: "Limitation",
+  caption: "Caption",
+  heading: "Heading",
+};
+
+import { FrameCoveragePanel } from "./frame_coverage_panel";
+import { SentenceInspector } from "./sentence_inspector";
+
+const STATUS_TONE: Record<string, string> = {
+  verified:
+    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  regenerated:
+    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+};
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Insufficient content overlap",
+  no_provenance_token: "No provenance token",
+};
+
+function VerdictBadge({
+  verdict,
+}: {
+  verdict: "success" | "abort_no_verified_sections";
+}) {
+  const ok = verdict === "success";
+  return (
+    <span
+      data-testid="verdict-badge"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+        ok
+          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+      )}
+    >
+      <span aria-hidden="true">{ok ? "●" : "◌"}</span>
+      {ok ? "Success" : "Aborted (no verified sections)"}
+    </span>
+  );
+}
+
+const MULTI_SOURCE_THRESHOLD = 3;
+
+function SentenceRow({
+  sentence,
+  show_dropped,
+  sentence_id,
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  onSelectEvaluator,
+  onSelectMultiSource,
+  pool,
+}: {
+  sentence: ReportVerifiedSentence;
+  show_dropped: boolean;
+  sentence_id: string;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
+  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+  onSelectMultiSource: (payload: {
+    tokens: ParsedToken[];
+    sentence_text: string;
+  }) => void;
+  pool: EvidencePool | null;
+}) {
+  const dropped = !sentence.verifier_pass;
+  if (dropped && !show_dropped) return null;
+
+  // I-f6-004: parse provenance tokens once; reused for both T1-conflict
+  // detection and multi-source badge threshold.
+  const parsed_tokens = parseAllTokens(sentence.provenance_tokens);
+  const distinct_source_count = new Set(parsed_tokens.map((t) => t.source_id))
+    .size;
+
+  // I-f5-010: T1-conflict HEURISTIC — when ≥2 distinct T1 sources are cited
+  // for one sentence, surface a "may conflict — review Inspector" caption.
+  // Honest framing per CLAUDE.md §9.4: this is NOT a semantic conflict
+  // detector; it's a flag prompting human review.
+  const t1_conflict = (() => {
+    if (!pool || dropped) return false;
+    const cited_t1 = new Set<string>();
+    for (const tok of sentence.provenance_tokens) {
+      const m = tok.match(/^\[#ev:([a-zA-Z0-9_\-]+):/);
+      if (!m) continue;
+      const src = pool.sources.find((s) => s.source_id === m[1]);
+      if (src && src.tier === "T1") cited_t1.add(m[1]);
+    }
+    return cited_t1.size >= 2;
+  })();
+
+  return (
+    <li
+      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+      data-sentence-id={sentence_id}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(sentence_id, sentence)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(sentence_id, sentence);
+        }
+      }}
+      className={cn(
+        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+        dropped
+          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+          : "border-border bg-background",
+        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {(() => {
+          const surface = sentence.assertion_surface ?? "prose";
+          if (surface === "prose") return null;
+          return (
+            <span
+              data-testid={`surface-badge-${surface}`}
+              title={`Assertion surface: ${SURFACE_LABEL[surface]} (gated through Inspector)`}
+              className="inline-flex shrink-0 items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+            >
+              {SURFACE_LABEL[surface]}
+            </span>
+          );
+        })()}
+        <span className={cn(dropped ? "" : "text-foreground")}>
+          {sentence.sentence_text}
+        </span>
+      </div>
+      {sentence.provenance_tokens.length > 0 && !dropped ? (
+        <span className="text-muted-foreground font-mono text-[10px]">
+          {sentence.provenance_tokens.join(" ")}
+        </span>
+      ) : null}
+      {!dropped &&
+      parsed_tokens.some((t) => t.source_id.startsWith("ev_memory_")) ? (
+        <span
+          data-testid={`prior-run-badge-${sentence_id}`}
+          title={`Cites prior workspace run via ${parsed_tokens
+            .filter((t) => t.source_id.startsWith("ev_memory_"))
+            .map((t) => t.source_id)
+            .join(", ")}`}
+          className="inline-flex w-fit items-center rounded border border-purple-500/40 bg-purple-500/5 px-2 py-0.5 text-[10px] font-medium tracking-widest text-purple-700 uppercase dark:text-purple-300"
+        >
+          from prior run
+        </span>
+      ) : null}
+      {dropped && sentence.drop_reason ? (
+        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+          dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+        </span>
+      ) : null}
+      {!dropped && sentence.evaluator_agrees === false ? (
+        <button
+          type="button"
+          data-testid={`evaluator-flag-${sentence_id}`}
+          title="Two-family evaluator disagrees with generator's claim per CLAUDE.md §9.1 invariant 1."
+          onClick={(e) => {
+            e.stopPropagation();
+            if (sentence.evaluator_disagreement)
+              onSelectEvaluator(sentence.evaluator_disagreement);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              if (sentence.evaluator_disagreement)
+                onSelectEvaluator(sentence.evaluator_disagreement);
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-rose-700 uppercase hover:bg-rose-500/10 focus:ring-2 focus:ring-rose-400 focus:outline-none dark:text-rose-300"
+        >
+          ⚠ Internal evaluator flagged this
+        </button>
+      ) : null}
+      {!dropped && sentence.contradiction ? (
+        <button
+          type="button"
+          data-testid={`inspector-contradiction-${sentence_id}`}
+          title={sentence.contradiction.summary}
+          onClick={(e) => {
+            // Codex iter-1 P2: stop propagation so the parent row's
+            // SentenceInspector doesn't ALSO open.
+            e.stopPropagation();
+            if (sentence.contradiction)
+              onSelectContradiction(sentence.contradiction);
+          }}
+          onKeyDown={(e) => {
+            // Codex iter-1 P1: keyboard activation must not bubble to the
+            // parent row onKeyDown either, otherwise SentenceInspector opens.
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              if (sentence.contradiction)
+                onSelectContradiction(sentence.contradiction);
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-300"
+        >
+          {(() => {
+            const kind = sentence.contradiction.kind ?? "multi_source";
+            if (kind === "self_contradiction") {
+              // Codex iter-1 P2: self-contradiction span count comes from
+              // sides.length, NOT disagreeing_source_count (which is 1).
+              const span_n = sentence.contradiction.sides?.length ?? 0;
+              return `⚠ Source self-contradicts (${span_n} spans)`;
+            }
+            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
+          })()}
+        </button>
+      ) : null}
+      {t1_conflict ? (
+        <span
+          data-testid="inspector-t1-conflict"
+          title="Multiple T1 sources cited — they may conflict; review Inspector. Heuristic flag, not a semantic conflict detection."
+          className="inline-flex items-center gap-1 text-[10px] tracking-widest text-amber-700 uppercase dark:text-amber-300"
+        >
+          ⚠ T1 sources may conflict — review Inspector
+        </span>
+      ) : null}
+      {!dropped && distinct_source_count >= MULTI_SOURCE_THRESHOLD ? (
+        <button
+          type="button"
+          data-testid={`multi-source-${sentence_id}`}
+          title="Multi-source claim — open the cross-ref panel to see all cited sources side-by-side."
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelectMultiSource({
+              tokens: parsed_tokens,
+              sentence_text: sentence.sentence_text,
+            });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              onSelectMultiSource({
+                tokens: parsed_tokens,
+                sentence_text: sentence.sentence_text,
+              });
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-blue-700 uppercase hover:bg-blue-500/10 focus:ring-2 focus:ring-blue-400 focus:outline-none dark:text-blue-300"
+        >
+          📚 {distinct_source_count} sources
+        </button>
+      ) : null}
+    </li>
+  );
+}
+
+function SectionCard({
+  section,
+  show_dropped,
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  onSelectEvaluator,
+  onSelectMultiSource,
+  pool,
+}: {
+  section: VerifiedReportSection;
+  show_dropped: boolean;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
+  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+  onSelectMultiSource: (payload: {
+    tokens: ParsedToken[];
+    sentence_text: string;
+  }) => void;
+  pool: EvidencePool | null;
+}) {
+  const kept = keptSentences(section);
+  const dropped_count = section.verified_sentences.length - kept.length;
+  return (
+    <Card
+      data-testid={`section-${section.section_id}`}
+      className={cn(
+        "border",
+        section.section_status === "dropped" && "opacity-60",
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{section.section_title}</CardTitle>
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase",
+            STATUS_TONE[section.section_status],
+          )}
+        >
+          {section.section_status} ·{" "}
+          {Math.round(section.section_verify_pass_rate * 100)}%
+        </span>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {kept.length === 0 && !show_dropped ? (
+          <p className="text-muted-foreground text-sm">
+            No verified sentences in this section.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {section.verified_sentences.map((s, idx) => (
+              <SentenceRow
+                key={idx}
+                sentence={s}
+                show_dropped={show_dropped}
+                sentence_id={`${section.section_id}:${idx}`}
+                hovered_id={hovered_id}
+                onSelect={onSelect}
+                onSelectContradiction={onSelectContradiction}
+                onSelectEvaluator={onSelectEvaluator}
+                onSelectMultiSource={onSelectMultiSource}
+                pool={pool}
+              />
+            ))}
+          </ul>
+        )}
+        {!show_dropped && dropped_count > 0 ? (
+          <p className="text-muted-foreground text-xs italic">
+            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
+            strict-verify (toggle below to inspect).
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function VerifiedReportView({
+  report,
+  show_dropped = false,
+  pool = null,
+}: {
+  report: VerifiedReport;
+  show_dropped?: boolean;
+  pool?: EvidencePool | null;
+}) {
+  const { hovered_id, root_ref } = useSentenceHover();
+  const [inspector, setInspector] = useState<{
+    id: string;
+    sentence: ReportVerifiedSentence;
+  } | null>(null);
+  const [contradiction_open, set_contradiction_open] =
+    useState<ContradictionSignal | null>(null);
+  const [evaluator_open, set_evaluator_open] =
+    useState<EvaluatorDisagreement | null>(null);
+  const [multi_source_open, set_multi_source_open] = useState<{
+    tokens: ParsedToken[];
+    sentence_text: string;
+  } | null>(null);
+  return (
+    <div
+      ref={root_ref}
+      data-testid="verified-report-view"
+      className="flex flex-col gap-4"
+    >
+      <FrameCoveragePanel coverage={report.frame_coverage ?? null} />
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="text-lg">Verified report</CardTitle>
+          <VerdictBadge verdict={report.pipeline_verdict} />
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Generator</dt>
+            <dd className="text-foreground font-medium">
+              {report.generator_model}
+            </dd>
+            <dt className="text-muted-foreground">Evaluator</dt>
+            <dd
+              className="text-foreground flex items-center gap-2 font-medium"
+              data-testid="report-evaluator"
+            >
+              {report.evaluator_model}
+              {report.family_segregation_passed ? (
+                <span
+                  data-testid="family-segregated"
+                  title="Two-family segregation passed: evaluator and generator are from different training lineages."
+                  className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+                >
+                  ✓ Family segregated
+                </span>
+              ) : (
+                <span
+                  data-testid="family-not-segregated"
+                  title="Two-family segregation FAILED: evaluator and generator share training lineage."
+                  className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  ✗ Same family
+                </span>
+              )}
+            </dd>
+            <dt className="text-muted-foreground">Pass rate</dt>
+            <dd className="text-foreground font-medium">
+              {Math.round(report.overall_verify_pass_rate * 100)}%
+            </dd>
+            <dt className="text-muted-foreground">Sections</dt>
+            <dd className="text-foreground font-medium">
+              {
+                report.sections.filter((s) => s.section_status !== "dropped")
+                  .length
+              }{" "}
+              kept ·{" "}
+              {
+                report.sections.filter((s) => s.section_status === "dropped")
+                  .length
+              }{" "}
+              dropped
+            </dd>
+            <dt className="text-muted-foreground">Latency</dt>
+            <dd className="text-foreground font-medium">
+              {report.latency_ms} ms
+            </dd>
+          </dl>
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+function oklchToLinSrgb(L, C, hDeg) {
+  const h = hDeg * Math.PI / 180;
+  const a = C * Math.cos(h);
+  const b = C * Math.sin(h);
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  const l = l_ ** 3;
+  const m = m_ ** 3;
+  const s = s_ ** 3;
+  return [
+    +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+  ];
+}
+function luminance(lin) {
+  const [r,g,b] = lin.map(v => Math.min(1, Math.max(0, v)));
+  return 0.2126*r + 0.7152*g + 0.0722*b;
+}
+function contrast(l1, l2) {
+  const a = Math.max(l1,l2), b = Math.min(l1,l2);
+  return (a + 0.05) / (b + 0.05);
+}
+const verified = luminance(oklchToLinSrgb(0.48,0.14,152));
+const white = luminance(oklchToLinSrgb(1,0,0));
+const lightCard = luminance(oklchToLinSrgb(1,0,0));
+const darkCard = luminance(oklchToLinSrgb(0.205,0,0));
+console.log({ verifiedLum: verified, contrastLight: contrast(verified, lightCard), contrastDark: contrast(verified, darkCard) });
+'@ | node -" in C:\POLARIS
+ succeeded in 1646ms:
+{
+  verifiedLum: 0.12394980751799185,
+  contrastLight: 6.0362239831245414,
+  contrastDark: 2.9676607789882192
+}
+
+codex
+The verified token passes AA on the light card, but the same token is only about 3:1 on the dark card token if the app is in dark mode. I’m checking whether the app exposes dark mode here before deciding whether that is blocking or only a follow-up.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\app_shell.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\layout.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"ThemeProvider|next-themes|className=\\\"dark|forcedTheme|data-theme|theme\" web\\app web\\components -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\app_shell_gate.tsx" in C:\POLARIS
+ succeeded in 1618ms:
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+
+import { AppShellGate } from "@/components/app_shell_gate";
+import { Toaster } from "@/components/ui/sonner";
+
+import "./globals.css";
+
+const geist_sans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geist_mono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "POLARIS Canada — Sovereign Deep Research",
+  description:
+    "Two-family verified evidence pipelines for Government of Canada policy work.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+    >
+      <body className="flex min-h-full flex-col">
+        <AppShellGate>{children}</AppShellGate>
+        <Toaster />
+      </body>
+    </html>
+  );
+}
+
+ succeeded in 2055ms:
+import Link from "next/link";
+
+import { PrimaryNav } from "@/components/primary_nav";
+
+/**
+ * I-cd-004: the global app shell. A server component that wraps every prod
+ * route with a single header + primary nav. The 8 primary nav entries are
+ * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+ *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+ *
+ * Out of scope for this issue (each its own later issue per the Seq-N order):
+ *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+ *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+ *    /dashboard rather than top-nav entries.
+ *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+ *    retired at that point (not merely hidden — per Codex P2).
+ *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+ *    I-cd-015.
+ *  - Auth gating of the nav itself is deferred to I-cd-014.
+ *  - Per-page rebuilds happen in the I-cd-013..030 series.
+ */
+// I-p2-029 (#768): PRIMARY_NAV now lives in @/lib/nav (single source of truth,
+// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <header className="border-border bg-background sticky top-0 z-40 border-b">
+        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <PrimaryNav />
+          {/* I-ui-010 (#730): sovereign mark — honest wording (NOT a false
+              air-gap claim; we retrieve public sources via logged Canadian
+              egress). Eye-level badge of strength, not fine print. */}
+          <span
+            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+          >
+            ⬡ Canadian AI · no external AI vendor
+          </span>
+        </div>
+      </header>
+      <main className="flex-1">{children}</main>
+    </>
+  );
+}
+
+2026-05-22T17:50:06.658880Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.6 seconds
+Output:
+
+ exited 1 in 2573ms:
+ succeeded in 2943ms:
+// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+// the AppShell header AND its <main> wrapper so the home route can
+// provide its own header (with the same primary nav) + its own <main>.
+// This avoids G1 (double header) + G6 (nested main) landmark violations.
+//
+// Tiny "use client" boundary so the otherwise server-rendered AppShell
+// can still wrap every non-home route on the server.
+"use client";
+
+import { usePathname } from "next/navigation";
+
+import { AppShell } from "@/components/app_shell";
+
+interface AppShellGateProps {
+  children: React.ReactNode;
+}
+
+export function AppShellGate({ children }: AppShellGateProps) {
+  const pathname = usePathname();
+  // Home owns its own header + main; render children bare on `/`.
+  if (pathname === "/") {
+    return <>{children}</>;
+  }
+  return <AppShell>{children}</AppShell>;
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\components\\home_keyboard_shell.tsx" in C:\POLARIS
+ succeeded in 1476ms:
+"use client";
+
+import Link from "next/link";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
+import { Button } from "@/components/ui/button";
+import { PrimaryNav } from "@/components/primary_nav";
+
+import { CommandPalette } from "./command_palette";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+
+// I-cd-022 (#612): the home header carries the same nav as AppShell (G1:
+// "global header nav present and identical"). I-p2-029 (#768): that nav is now
+// the single shared source @/lib/nav (no more duplicated const), role-aware via
+// navForRole (presentation-only).
+
+export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+  const [palette_open, set_palette_open] = useState(false);
+  const sign_in_link_ref = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    function on_keydown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+        event.preventDefault();
+        event.stopPropagation();
+        set_palette_open((p) => !p);
+      }
+    }
+    window.addEventListener("keydown", on_keydown);
+    return () => window.removeEventListener("keydown", on_keydown);
+  }, []);
+
+  return (
+    <>
+      <header className="border-border bg-background relative border-b">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <PrimaryNav />
+          {/* I-ui-010 (#730): sovereign mark — honest wording (no air-gap
+              overclaim). */}
+          <span
+            className="text-muted-foreground border-border mr-2 ml-auto hidden rounded-full border px-2.5 py-1 text-xs lg:inline-flex"
+            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+          >
+            ⬡ Canadian AI · no external AI vendor
+          </span>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={
+              <Link
+                ref={sign_in_link_ref}
+                data-testid="header-sign-in-link"
+                href={signInHref}
+              />
+            }
+          >
+            Sign in
+          </Button>
+        </div>
+      </header>
+      {children}
+      <CommandPalette
+        open={palette_open}
+        onOpenChange={set_palette_open}
+        templates={templates}
+        signInLinkRef={sign_in_link_ref}
+      />
+    </>
+  );
+}
+
+codex
+The app has no active theme provider or `.dark` class path in the checked files, so the verified-color AA concern is only for an unreachable/manual dark-mode state; light mode is around 6:1. I’m going to run the focused static checks now and keep the finding threshold to P0/P1.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run lint' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck' in C:\POLARIS\web
+ succeeded in 6670ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+
+ succeeded in 15164ms:
+
+> web@0.1.0 lint
+> eslint
+
+
+C:\POLARIS\web\app\benchmark\components\benchmark_board.tsx
+  12:8  warning  'BenchmarkDimension' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\lib\inspector_bundle_client_loader.ts
+  130:21  warning  '_status' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\tests\e2e\frame_coverage_panel.spec.ts
+  44:27  warning  '_text' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 3 problems (0 errors, 3 warnings)
+
+
+codex
+Typecheck is clean and lint has only existing warnings outside this diff. I’m running a production build as the final mergeability check because this change crosses a server component and the filesystem-backed bundle loader.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run build' in C:\POLARIS\web
+2026-05-22T17:51:00.837704Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 12.9 seconds
+Output:
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.2.4 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 7.7s
+  Running TypeScript ...
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+
+> Build error occurred
+Error: spawn EPERM
+    at ignore-listed frames {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+ exited 1 in 12899ms:
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.2.4 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 7.7s
+  Running TypeScript ...
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+
+> Build error occurred
+Error: spawn EPERM
+    at ignore-listed frames {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"for \\(const s|const token|resolveSpan|verifier_pass|Verified against\" web\\app\\components\\proof_showcase.tsx web\\components\\proof_replay\\proof_replay.tsx web\\app\\generation\\components\\verified_report_view.tsx" in C:\POLARIS
+ succeeded in 1460ms:
+web\app\generation\components\verified_report_view.tsx:111:  const dropped = !sentence.verifier_pass;
+web\components\proof_replay\proof_replay.tsx:3:// shared resolveSpan (#743) + SourceCard (#745) + VerdictChip (#744). Honest:
+web\components\proof_replay\proof_replay.tsx:15:import { resolveSpan } from "@/lib/evidence_span";
+web\components\proof_replay\proof_replay.tsx:49:        verified: s.verifier_pass === true,
+web\components\proof_replay\proof_replay.tsx:89:            const span = resolveSpan(token, evidencePool);
+web\app\components\proof_showcase.tsx:10:import { resolveSpan } from "@/lib/evidence_span";
+web\app\components\proof_showcase.tsx:34:  outer: for (const section of sections) {
+web\app\components\proof_showcase.tsx:35:    for (const s of section.verified_sentences ?? []) {
+web\app\components\proof_showcase.tsx:36:      const token = (s.provenance_tokens ?? []).find(
+web\app\components\proof_showcase.tsx:40:      const span = resolveSpan(token, bundle.evidencePool);
+web\app\components\proof_showcase.tsx:78:            Verified against a primary source
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/app/components/proof_showcase.tsx:35: The showcase does not require `s.verifier_pass === true` before rendering 'Verified against a primary source'. Existing UI code treats `verified_sentences` as containing both kept and dropped sentences, with `verifier_pass` as the real truth flag. A future bundle where an earlier failed sentence has a valid resolvable span could be presented as verified on the homepage."
+p2:
+  - "web/app/components/proof_showcase.tsx:36: Only the first string provenance token is tried; if it is malformed/unresolvable but a later token resolves, the sentence is skipped."
+  - "web/app/components/proof_showcase.tsx:42: `span.quote.trim()` means the rendered quote is not strictly the exact `full_text[start:end]` slice."
+merge_decision: DO NOT MERGE
+```
+tokens used
+60,246
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/app/components/proof_showcase.tsx:35: The showcase does not require `s.verifier_pass === true` before rendering 'Verified against a primary source'. Existing UI code treats `verified_sentences` as containing both kept and dropped sentences, with `verifier_pass` as the real truth flag. A future bundle where an earlier failed sentence has a valid resolvable span could be presented as verified on the homepage."
+p2:
+  - "web/app/components/proof_showcase.tsx:36: Only the first string provenance token is tried; if it is malformed/unresolvable but a later token resolves, the sentence is skipped."
+  - "web/app/components/proof_showcase.tsx:42: `span.quote.trim()` means the rendered quote is not strictly the exact `full_text[start:end]` slice."
+merge_decision: DO NOT MERGE
+```

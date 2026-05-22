@@ -1,0 +1,211 @@
+diff --git a/web/app/components/proof_showcase.tsx b/web/app/components/proof_showcase.tsx
+new file mode 100644
+index 00000000..d666d40a
+--- /dev/null
++++ b/web/app/components/proof_showcase.tsx
+@@ -0,0 +1,141 @@
++// I-p2-037 (#794): proof-as-hero showcase. The home LEADS with a REAL verified
++// claim from a real POLARIS run + its exact real source span — the differentiator
++// made visceral (frontier study: verifiability is the hero). Server component:
++// loads the real canonical bundle + resolves the span server-side; renders only
++// if the span genuinely resolves (honest — never a fabricated showcase). Links
++// to the full Proof Replay.
++import { ArrowRight, BadgeCheck, Quote } from "lucide-react";
++import Link from "next/link";
++
++import { resolveSpan } from "@/lib/evidence_span";
++import { loadBundle } from "@/lib/inspector_bundle_loader";
++
++const DEMO_RUN_ID = "v1-canonical-success";
++
++function tierLabel(tier: unknown): string | null {
++  if (typeof tier === "string" && tier) return tier;
++  if (typeof tier === "number") return `T${tier}`;
++  return null;
++}
++
++export async function ProofShowcase() {
++  const bundle = await loadBundle(DEMO_RUN_ID);
++  if (!bundle) return null;
++
++  // Pick the first verified sentence whose span genuinely resolves to a real
++  // source quote — honest: if nothing resolves, render nothing (no fake proof).
++  const sections = bundle.verifiedReport?.sections ?? [];
++  let claim: string | null = null;
++  let quote: string | null = null;
++  let sourceTitle: string | null = null;
++  let sourceUrl: string | null = null;
++  let tier: string | null = null;
++
++  outer: for (const section of sections) {
++    for (const s of section.verified_sentences ?? []) {
++      // HONESTY (Codex P1): only feature a sentence the verifier actually
++      // passed — never present a dropped/failed sentence as "verified".
++      if (s.verifier_pass !== true) continue;
++      const tokens = (s.provenance_tokens ?? []).filter(
++        (t): t is string => typeof t === "string",
++      );
++      // Try every token, not just the first (Codex P2): a later token may
++      // resolve when an earlier one is malformed.
++      for (const token of tokens) {
++        const span = resolveSpan(token, bundle.evidencePool);
++        // Render the EXACT cited passage full_text[start:end] (Codex P2 —
++        // no trim); the length gate uses a trimmed copy only for the check.
++        if (span?.quote && span.quote.trim().length > 40) {
++          claim = s.sentence_text;
++          quote = span.quote;
++          sourceTitle = span.source?.title ?? null;
++          sourceUrl = span.source?.url ?? null;
++          tier = tierLabel(span.source?.tier);
++          break outer;
++        }
++      }
++    }
++  }
++
++  if (!claim || !quote) return null;
++
++  const question = bundle.verifiedReport?.research_question;
++
++  return (
++    <section
++      aria-label="A real verified claim"
++      data-testid="proof-showcase"
++      className="border-border bg-card relative overflow-hidden rounded-2xl border shadow-sm"
++    >
++      <div className="border-border/70 bg-muted/30 flex items-center justify-between gap-3 border-b px-5 py-3">
++        <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
++          A real verified claim
++        </span>
++        {tier ? (
++          <span className="text-muted-foreground border-border rounded-full border px-2 py-0.5 font-mono text-[11px]">
++            {tier} source
++          </span>
++        ) : null}
++      </div>
++
++      <div className="grid gap-0 md:grid-cols-2">
++        {/* The claim + verdict */}
++        <div className="flex flex-col gap-3 p-6">
++          <div className="text-verified inline-flex items-center gap-1.5 text-xs font-semibold">
++            <BadgeCheck aria-hidden className="h-4 w-4" />
++            Verified against a primary source
++          </div>
++          <p className="text-foreground text-lg leading-relaxed font-medium text-pretty">
++            {claim}
++          </p>
++          {question ? (
++            <p className="text-muted-foreground text-xs">
++              From a POLARIS brief answering:{" "}
++              <span className="text-foreground/80">{question}</span>
++            </p>
++          ) : null}
++        </div>
++
++        {/* The exact real source span — the proof */}
++        <div className="border-border/70 bg-muted/20 flex flex-col gap-3 border-t p-6 md:border-t-0 md:border-l">
++          <div className="text-muted-foreground inline-flex items-center gap-1.5 text-xs font-medium">
++            <Quote aria-hidden className="h-4 w-4" />
++            The exact passage it came from
++          </div>
++          <blockquote className="border-primary/40 text-foreground/90 border-l-2 pl-3 text-sm leading-relaxed">
++            “{quote}”
++          </blockquote>
++          {sourceTitle ? (
++            <p className="text-muted-foreground truncate text-xs">
++              {sourceUrl ? (
++                <a
++                  href={sourceUrl}
++                  target="_blank"
++                  rel="noopener noreferrer"
++                  className="hover:text-foreground underline-offset-2 hover:underline"
++                >
++                  {sourceTitle}
++                </a>
++              ) : (
++                sourceTitle
++              )}
++            </p>
++          ) : null}
++        </div>
++      </div>
++
++      <div className="border-border/70 flex items-center justify-between gap-3 border-t px-5 py-3">
++        <span className="text-muted-foreground text-xs">
++          Every sentence in a POLARIS brief is checked this way.
++        </span>
++        <Link
++          href={`/inspector/${DEMO_RUN_ID}`}
++          className="text-primary focus-visible:ring-ring/70 inline-flex items-center gap-1 rounded text-sm font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
++        >
++          See the full proof
++          <ArrowRight aria-hidden className="h-4 w-4" />
++        </Link>
++      </div>
++    </section>
++  );
++}
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index f009a274..10bc8e70 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -1,6 +1,7 @@
+ import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
+ 
+ import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
++import { ProofShowcase } from "@/app/components/proof_showcase";
+ import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
+ import { MapleLeafSignatureLazy } from "@/components/signature/maple_leaf_signature_lazy";
+ import { Button } from "@/components/ui/button";
+@@ -122,9 +123,9 @@ export default function HomePage() {
+   return (
+     <div className="flex min-h-screen flex-col">
+       <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+-        <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-20 px-6 py-24">
++        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-14 px-6 py-14 sm:py-16">
+           {/* Hero — one primary action */}
+-          <section className="flex flex-col items-center gap-6 text-center">
++          <section className="flex flex-col items-center gap-5 text-center">
+             {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
+             <MapleLeafSignatureLazy />
+             <span className="text-muted-foreground border-border inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
+@@ -143,7 +144,7 @@ export default function HomePage() {
+               action="/intake"
+               method="get"
+               data-testid="home-hero-search"
+-              className="mt-2 flex w-full max-w-2xl items-center gap-2"
++              className="mt-1 flex w-full max-w-2xl items-center gap-2"
+             >
+               <Input
+                 name="q"
+@@ -158,10 +159,13 @@ export default function HomePage() {
+             </form>
+           </section>
+ 
+-          {/* Differentiator pillars — replaces the templates grid */}
++          {/* Proof-as-hero — a REAL verified claim + its real source span */}
++          <ProofShowcase />
++
++          {/* Differentiator pillars */}
+           <section
+             aria-label="Why POLARIS"
+-            className="grid gap-8 sm:grid-cols-3"
++            className="border-border/60 grid gap-8 border-t pt-12 sm:grid-cols-3"
+           >
+             {PILLARS.map((pillar) => (
+               <div key={pillar.title} className="flex flex-col gap-2">
+diff --git a/web/lib/inspector_bundle_loader.ts b/web/lib/inspector_bundle_loader.ts
+index 23b3b3e7..e1da9077 100644
+--- a/web/lib/inspector_bundle_loader.ts
++++ b/web/lib/inspector_bundle_loader.ts
+@@ -57,6 +57,8 @@ export interface VerifiedReportShape {
+   finished_at_utc: string;
+   latency_ms: number;
+   cost_usd: number;
++  /** The research question this brief answered (real-run bundles). */
++  research_question?: string;
+ }
+ 
+ export interface VerifiedReportSectionShape {
+
+# canonical-diff-sha256: 5c7deba033467ecd08ebda83ea95277ec16edf53266638cbe2fcb7c997d1a09e
