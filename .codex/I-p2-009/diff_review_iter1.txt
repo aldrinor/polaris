@@ -1,0 +1,2801 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4ef4-63b5-7ca3-97f7-fc81ccd27bb7
+--------
+user
+# Codex DESIGN+DIFF review — I-p2-009 (#748): sovereignty proof panel
+
+HARD ITERATION CAP: 5. iter 1. APPROVE iff zero P0/P1 (code + design rubric, HONESTY is P0-critical). Final line MERGE AUTHORIZED if mergeable. Canonical-diff-sha256 `25f29ee57ac239ec08c73e985b49d1b7bfd18665f524c31c2ef8c0c4829b51b4`. web/ only.
+
+## Design-audit note
+Display panel; visual renders in-context on report/audit pages (#759) + sovereignty integration (#762). Audit code + rubric honesty/a11y here.
+
+## Diff
+- NEW web/components/sovereignty/sovereignty_panel.tsx. (a) Sovereign processing: exact honest shell wording (Canadian, logged egress, no external AI vendor). (b) Two-family: generator+evaluator model NAMES always; "Verified" badge ONLY when familySegregationPassed===true, "Not verified" when false, nothing when undefined — never inferred from names. (c) Signed bundle: bundle_id/schema/polaris/created (only when present); "Cryptographically signed" ONLY when signature passed, else "Integrity-hashed · N files sha256 (tamper-evident)" when fileCount present, else nothing.
+
+## Review focus (rubric: provability/HONESTY = P0, a11y, visual)
+1. HONESTY (P0/P1): any overclaim? "Cryptographically signed" gated on a real signature? two-family "Verified" gated on the real field? "no external AI vendor" not "air-gapped"? no fabricated counts/hashes (fileCount/values only from props)?
+2. Renders only present fields (every field guarded)?
+3. tokens/a11y (ShieldCheck/BadgeCheck aria-hidden, AA). Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+codex
+I’ll review this as a code/design gate, starting from the web-only diff and the new panel implementation so the honesty gates are checked against actual prop flow rather than inferred UI copy.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Recurse -File web\\components\\sovereignty | Select-Object -ExpandProperty FullName" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web' in C:\POLARIS
+ succeeded in 1292ms:
+C:\POLARIS\web\components\sovereignty\sovereignty_panel.tsx
+
+ succeeded in 1679ms:
+ succeeded in 2248ms:
+ M .claude/settings.json
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-p2-009/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+codex
+The working tree has a lot of unrelated noise, and `git diff -- web` is currently empty. I found the new sovereignty component on disk, so I’m narrowing to that file and any review brief artifacts for this issue before deciding whether the diff is actually mergeable.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\components\\sovereignty\\sovereignty_panel.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Recurse -File .codex\\I-p2-009 | Select-Object -ExpandProperty FullName" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git ls-files --others --exclude-standard -- web\\components\\sovereignty\\sovereignty_panel.tsx" in C:\POLARIS
+ succeeded in 1357ms:
+// I-p2-009 (#748): sovereignty proof panel + signed-bundle mark. Surfaces the
+// sovereignty + integrity story as VERIFIABLE facts, not a marketing badge.
+// HONESTY: never claims "cryptographically signed" without a signature, never
+// "air-gapped", never asserts the two-family invariant passed without the real
+// family_segregation_passed field. Renders only fields present.
+import { BadgeCheck, ShieldCheck } from "lucide-react";
+
+interface SovereigntyPanelProps {
+  generatorModel?: string | null;
+  evaluatorModel?: string | null;
+  /** verified_report.family_segregation_passed — the real source of truth. */
+  familySegregationPassed?: boolean;
+  polarisVersion?: string | null;
+  bundleId?: string | null;
+  bundleCreatedAt?: string | null;
+  /** metadata.schema_version / manifest.bundle_version — rendered only if present. */
+  schemaVersion?: string | null;
+  /** Number of integrity-hashed files in the manifest (each carries a sha256). */
+  fileCount?: number | null;
+  /** A real detached signature — only then is "cryptographically signed" shown. */
+  signature?: string | null;
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-foreground font-mono">{value}</span>
+    </div>
+  );
+}
+
+export function SovereigntyPanel({
+  generatorModel,
+  evaluatorModel,
+  familySegregationPassed,
+  polarisVersion,
+  bundleId,
+  bundleCreatedAt,
+  schemaVersion,
+  fileCount,
+  signature,
+}: SovereigntyPanelProps) {
+  return (
+    <section
+      data-testid="sovereignty-panel"
+      className="border-border bg-card flex flex-col gap-4 rounded-md border p-4 text-sm"
+    >
+      {/* (a) Sovereignty — the honest shell wording */}
+      <div className="flex items-start gap-2">
+        <ShieldCheck
+          aria-hidden
+          className="text-primary mt-0.5 h-4 w-4 shrink-0"
+        />
+        <div>
+          <p className="text-foreground font-medium">Sovereign processing</p>
+          <p className="text-muted-foreground text-xs">
+            Canadian AI processing · public-source retrieval via logged Canadian
+            egress · no external AI vendor.
+          </p>
+        </div>
+      </div>
+
+      {/* (b) Two-family invariant — passed claim ONLY from the real field */}
+      {(generatorModel || evaluatorModel) && (
+        <div className="border-border flex flex-col gap-1 border-t pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-foreground font-medium">Two-family invariant</p>
+            {familySegregationPassed === true ? (
+              <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+                <BadgeCheck aria-hidden className="h-3 w-3 shrink-0" />
+                Verified
+              </span>
+            ) : familySegregationPassed === false ? (
+              <span className="bg-muted text-foreground border-border inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium">
+                Not verified
+              </span>
+            ) : null}
+          </div>
+          {generatorModel && <Row label="Generator" value={generatorModel} />}
+          {evaluatorModel && <Row label="Evaluator" value={evaluatorModel} />}
+        </div>
+      )}
+
+      {/* (c) Bundle integrity / signed mark — honest about what's proven */}
+      {(bundleId || polarisVersion || bundleCreatedAt || schemaVersion) && (
+        <div className="border-border flex flex-col gap-1 border-t pt-3">
+          <p className="text-foreground mb-1 font-medium">Signed bundle</p>
+          {bundleId && <Row label="Bundle" value={bundleId} />}
+          {schemaVersion && <Row label="Schema" value={schemaVersion} />}
+          {polarisVersion && <Row label="POLARIS" value={polarisVersion} />}
+          {bundleCreatedAt && <Row label="Created" value={bundleCreatedAt} />}
+          {signature ? (
+            <p className="text-verified mt-1 text-[11px]">
+              Cryptographically signed.
+            </p>
+          ) : fileCount != null ? (
+            <p className="text-muted-foreground mt-1 text-[11px]">
+              Integrity-hashed · {fileCount} files, sha256 per file
+              (tamper-evident).
+            </p>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
+
+ succeeded in 1639ms:
+C:\POLARIS\.codex\I-p2-009\brief_review_iter1.txt
+C:\POLARIS\.codex\I-p2-009\brief_review_iter2.txt
+C:\POLARIS\.codex\I-p2-009\brief.md
+C:\POLARIS\.codex\I-p2-009\codex_diff_canonical.patch
+C:\POLARIS\.codex\I-p2-009\codex_diff.patch
+C:\POLARIS\.codex\I-p2-009\diff_review_iter1.txt
+C:\POLARIS\.codex\I-p2-009\diff_review.md
+
+ succeeded in 2014ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 2305ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw .codex\\I-p2-009\\codex_diff_canonical.patch" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-FileHash -Algorithm SHA256 .codex\\I-p2-009\\codex_diff_canonical.patch | Format-List" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw .codex\\I-p2-009\\brief.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw .codex\\I-p2-009\\diff_review.md" in C:\POLARIS
+ succeeded in 1299ms:
+diff --git a/web/components/sovereignty/sovereignty_panel.tsx b/web/components/sovereignty/sovereignty_panel.tsx
+new file mode 100644
+index 00000000..f5f4cc30
+--- /dev/null
++++ b/web/components/sovereignty/sovereignty_panel.tsx
+@@ -0,0 +1,107 @@
++// I-p2-009 (#748): sovereignty proof panel + signed-bundle mark. Surfaces the
++// sovereignty + integrity story as VERIFIABLE facts, not a marketing badge.
++// HONESTY: never claims "cryptographically signed" without a signature, never
++// "air-gapped", never asserts the two-family invariant passed without the real
++// family_segregation_passed field. Renders only fields present.
++import { BadgeCheck, ShieldCheck } from "lucide-react";
++
++interface SovereigntyPanelProps {
++  generatorModel?: string | null;
++  evaluatorModel?: string | null;
++  /** verified_report.family_segregation_passed — the real source of truth. */
++  familySegregationPassed?: boolean;
++  polarisVersion?: string | null;
++  bundleId?: string | null;
++  bundleCreatedAt?: string | null;
++  /** metadata.schema_version / manifest.bundle_version — rendered only if present. */
++  schemaVersion?: string | null;
++  /** Number of integrity-hashed files in the manifest (each carries a sha256). */
++  fileCount?: number | null;
++  /** A real detached signature — only then is "cryptographically signed" shown. */
++  signature?: string | null;
++}
++
++function Row({ label, value }: { label: string; value: string }) {
++  return (
++    <div className="flex items-baseline justify-between gap-3 text-xs">
++      <span className="text-muted-foreground">{label}</span>
++      <span className="text-foreground font-mono">{value}</span>
++    </div>
++  );
++}
++
++export function SovereigntyPanel({
++  generatorModel,
++  evaluatorModel,
++  familySegregationPassed,
++  polarisVersion,
++  bundleId,
++  bundleCreatedAt,
++  schemaVersion,
++  fileCount,
++  signature,
++}: SovereigntyPanelProps) {
++  return (
++    <section
++      data-testid="sovereignty-panel"
++      className="border-border bg-card flex flex-col gap-4 rounded-md border p-4 text-sm"
++    >
++      {/* (a) Sovereignty — the honest shell wording */}
++      <div className="flex items-start gap-2">
++        <ShieldCheck
++          aria-hidden
++          className="text-primary mt-0.5 h-4 w-4 shrink-0"
++        />
++        <div>
++          <p className="text-foreground font-medium">Sovereign processing</p>
++          <p className="text-muted-foreground text-xs">
++            Canadian AI processing · public-source retrieval via logged Canadian
++            egress · no external AI vendor.
++          </p>
++        </div>
++      </div>
++
++      {/* (b) Two-family invariant — passed claim ONLY from the real field */}
++      {(generatorModel || evaluatorModel) && (
++        <div className="border-border flex flex-col gap-1 border-t pt-3">
++          <div className="flex items-center justify-between gap-2">
++            <p className="text-foreground font-medium">Two-family invariant</p>
++            {familySegregationPassed === true ? (
++              <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
++                <BadgeCheck aria-hidden className="h-3 w-3 shrink-0" />
++                Verified
++              </span>
++            ) : familySegregationPassed === false ? (
++              <span className="bg-muted text-foreground border-border inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium">
++                Not verified
++              </span>
++            ) : null}
++          </div>
++          {generatorModel && <Row label="Generator" value={generatorModel} />}
++          {evaluatorModel && <Row label="Evaluator" value={evaluatorModel} />}
++        </div>
++      )}
++
++      {/* (c) Bundle integrity / signed mark — honest about what's proven */}
++      {(bundleId || polarisVersion || bundleCreatedAt || schemaVersion) && (
++        <div className="border-border flex flex-col gap-1 border-t pt-3">
++          <p className="text-foreground mb-1 font-medium">Signed bundle</p>
++          {bundleId && <Row label="Bundle" value={bundleId} />}
++          {schemaVersion && <Row label="Schema" value={schemaVersion} />}
++          {polarisVersion && <Row label="POLARIS" value={polarisVersion} />}
++          {bundleCreatedAt && <Row label="Created" value={bundleCreatedAt} />}
++          {signature ? (
++            <p className="text-verified mt-1 text-[11px]">
++              Cryptographically signed.
++            </p>
++          ) : fileCount != null ? (
++            <p className="text-muted-foreground mt-1 text-[11px]">
++              Integrity-hashed · {fileCount} files, sha256 per file
++              (tamper-evident).
++            </p>
++          ) : null}
++        </div>
++      )}
++    </section>
++  );
++}
+
+
+ succeeded in 1683ms:
+
+[32;1mAlgorithm : [0mSHA256
+[32;1mHash      : [0m25F29EE57AC239EC08C73E985B49D1B7BFD18665F524C31C2EF8C0C4829B51B4
+[32;1mPath      : [0mC:\POLARIS\.codex\I-p2-009\codex_diff_canonical.patch
+
+
+ succeeded in 2011ms:
+# Codex BRIEF review — I-p2-009 (#748): sovereignty proof panel + signed-bundle mark
+
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; cosmetics → P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; do not bank for iter 6.
+- Surface held-back findings now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Task
+A reusable **sovereignty proof panel + signed-bundle mark** — surfaces POLARIS's sovereignty + integrity story as VERIFIABLE facts (not a marketing badge).
+
+## Verified current state (grounded — REAL fields only; HONESTY is P0-critical here)
+- Sovereign mark wording already in shell (app_shell.tsx:50,52): "Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor" — HONEST (NOT air-gapped; public sources fetched via logged Canadian egress). Reuse this exact framing.
+- Real signed-bundle data (signed_bundle.ts): BundleMetadata {polaris_version, generator_model, evaluator_model, bundle_created_at_utc, schema_version "1.0"}; BundleManifest {bundle_id, decision_id, pool_id, report_id, generator_model, polaris_version, files[] each with sha256, bundle_created_at_utc}.
+- There is NO top-level cryptographic SIGNATURE field in the manifest — integrity is content-addressed (per-file sha256 in the manifest). So the mark is "integrity-hashed / tamper-evident" — do NOT claim "cryptographically signed" unless a signature is explicitly passed in.
+- Two-family invariant: generator_model vs evaluator_model are different lineages (existing family_segregation_badge.tsx renders this).
+- #742 tokens; copy discipline: "verified provenance"/"integrity-hashed", NEVER "guaranteed true"/"cryptographically signed" without a real signature.
+
+## Acceptance criteria (diff implements; brief reviews the plan)
+1. `web/components/sovereignty/sovereignty_panel.tsx`: props = metadata (generator_model, evaluator_model, polaris_version, bundle_created_at_utc) + OPTIONAL manifest (bundle_id, files for the integrity hash) + OPTIONAL signature (rendered as "cryptographically signed" ONLY when present).
+2. Renders three honest sections: (a) Sovereignty — the exact shell wording (Canadian processing, logged egress, no external AI vendor); (b) Two-family — generator vs evaluator model (different lineages); (c) Bundle integrity — bundle_id, schema 1.0, created_at, polaris_version, + "integrity-hashed (N files, sha256)" or, if signature passed, "cryptographically signed".
+3. HONESTY: render only fields present; NO "cryptographically signed" without a signature; NO "air-gapped"; NO fabricated counts. Missing fields omitted.
+4. Frontier-Minimal (white, Canada-red, mono for ids/hashes); WCAG 2.2 AA.
+
+## Files I have ALSO checked and they're clean
+- web/lib/signed_bundle.ts (BundleManifest/BundleMetadata real fields), web/components/inspector/family_segregation_badge.tsx (two-family render to reuse/mirror), web/components/app_shell.tsx (the honest sovereign wording), web/app/globals.css (#742 tokens).
+
+## Review focus
+1. HONESTY (P0/P1 if violated): any overclaim — "cryptographically signed" without a signature, "air-gapped", fabricated hash/count? The mark must match what the bundle actually proves (content-addressed integrity).
+2. Real-field grounding (no invented manifest fields)?
+3. Two-family render correct (generator vs evaluator lineage)? a11y/tokens.
+4. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+---
+## iter-2 corrections (all iter-1 findings folded)
+- **P1 (two-family honesty):** add prop `familySegregationPassed?: boolean` (from verified_report.family_segregation_passed — the real source of truth). The two-family section ALWAYS shows the raw generator + evaluator model NAMES, but asserts "Two-family invariant verified" (green/verified token) ONLY when familySegregationPassed === true; when undefined → show model names with NO pass claim; when false → show an honest "not verified" state. NEVER infer "different lineages passed" from two names alone.
+- **P2 (schema source):** the bundle-version/schema label comes from metadata.schema_version (or manifest.bundle_version) and is rendered ONLY when that field is present — do NOT hardcode "1.0" or import BUNDLE_VERSION as if it were the bundle's own value.
+Re-confirm APPROVE or list only true remaining P0/P1.
+
+
+ succeeded in 2334ms:
+# Codex DESIGN+DIFF review — I-p2-009 (#748): sovereignty proof panel
+
+HARD ITERATION CAP: 5. iter 1. APPROVE iff zero P0/P1 (code + design rubric, HONESTY is P0-critical). Final line MERGE AUTHORIZED if mergeable. Canonical-diff-sha256 `25f29ee57ac239ec08c73e985b49d1b7bfd18665f524c31c2ef8c0c4829b51b4`. web/ only.
+
+## Design-audit note
+Display panel; visual renders in-context on report/audit pages (#759) + sovereignty integration (#762). Audit code + rubric honesty/a11y here.
+
+## Diff
+- NEW web/components/sovereignty/sovereignty_panel.tsx. (a) Sovereign processing: exact honest shell wording (Canadian, logged egress, no external AI vendor). (b) Two-family: generator+evaluator model NAMES always; "Verified" badge ONLY when familySegregationPassed===true, "Not verified" when false, nothing when undefined — never inferred from names. (c) Signed bundle: bundle_id/schema/polaris/created (only when present); "Cryptographically signed" ONLY when signature passed, else "Integrity-hashed · N files sha256 (tamper-evident)" when fileCount present, else nothing.
+
+## Review focus (rubric: provability/HONESTY = P0, a11y, visual)
+1. HONESTY (P0/P1): any overclaim? "Cryptographically signed" gated on a real signature? two-family "Verified" gated on the real field? "no external AI vendor" not "air-gapped"? no fabricated counts/hashes (fileCount/values only from props)?
+2. Renders only present fields (every field guarded)?
+3. tokens/a11y (ShieldCheck/BadgeCheck aria-hidden, AA). Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+
+codex
+The canonical patch hash matches the requested SHA exactly. I’m checking the surrounding Tailwind/token setup and existing badge conventions now, because a visual/a11y P1 would likely come from an undefined token or inaccessible color pairing rather than from the component logic itself.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "verified|familySegregation|family_segregation|SovereigntyPanel|bg-card|text-muted-foreground|--verified|verified" web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\app\\globals.css" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"lucide-react|BadgeCheck|ShieldCheck|aria-hidden\" web\\components web\\app" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -File web | Select-Object -ExpandProperty Name' in C:\POLARIS
+ succeeded in 1388ms:
+web\lib\api.ts:75:  | "abort_no_verified_sections";
+web\lib\api.ts:239:  family_segregation_both_pass: boolean;
+web\lib\api.ts:267:  verdict: "success" | "abort_no_verified_sections";
+web\lib\api.ts:270:  verified_sentence_count: number;
+web\lib\api.ts:440:  verified_sentences: VerifiedSentence[];
+web\lib\api.ts:459:  family_segregation_passed: boolean;
+web\lib\api.ts:672:// Slice 002 — Clinical Retrieval (verified clinical sources)
+web\lib\api.ts:796:// Mirrors src/polaris_graph/generator2/verified_report.py +
+web\lib\api.ts:800:export type SectionStatus = "verified" | "regenerated" | "dropped";
+web\lib\api.ts:802:export type PipelineVerdict = "success" | "abort_no_verified_sections";
+web\lib\api.ts:889:  verified_sentences: ReportVerifiedSentence[];
+web\lib\api.ts:926:  family_segregation_passed: boolean;
+web\lib\api.ts:998:/** Filter to non-dropped sections (verified + regenerated). */
+web\lib\api.ts:1007:  return section.verified_sentences.filter((s) => s.verifier_pass);
+web\lib\api.ts:1368:  is_verified: boolean;
+web\lib\api.ts:1383:  sentences_verified: number;
+web\lib\api.ts:1487:  sentences_verified: number;
+web\lib\api.ts:1560:  verified_report: AuditIrVerifiedReport;
+web\lib\api.ts:1581: * I-rdy-008 (#504) slice 7a/7b — one verified evidence span cited by a run.
+web\lib\api.ts:1596:/** The verified evidence spans for one completed run. */
+web\lib\api.ts:1603: * Fetch the verified evidence spans for a completed run from the v6
+web\app\dashboard\page.tsx:333:        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\dashboard\page.tsx:366:                  className={`bg-card focus-visible:ring-ring/70 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+web\app\dashboard\page.tsx:424:            <p className="text-muted-foreground">
+web\app\dashboard\page.tsx:442:              <p className="text-muted-foreground text-xs">Uploading…</p>
+web\app\dashboard\page.tsx:446:            <ul className="text-muted-foreground flex flex-col gap-1 text-xs">
+web\app\dashboard\page.tsx:545:                    <span className="text-muted-foreground">
+web\app\benchmark\page.tsx:24:        <p className="text-muted-foreground max-w-3xl text-sm sm:text-base">
+web\app\benchmark\page.tsx:38:        className="border-border text-muted-foreground rounded-lg border p-4 text-xs"
+web\app\compare\page.tsx:78:        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\compare\page.tsx:86:        <p className="text-muted-foreground text-sm">
+web\app\compare\page.tsx:122:              <span className="text-muted-foreground text-xs">
+web\app\compare\page.tsx:159:      <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\compare\page.tsx:181:    <span className="text-muted-foreground flex items-center gap-1 text-xs">
+web\app\compare\page.tsx:182:      <span className={ok ? "text-primary" : "text-muted-foreground"}>
+web\app\compare\page.tsx:192:    <div className="border-border bg-card flex flex-col gap-1 rounded-lg border p-3">
+web\app\compare\page.tsx:200:            className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
+web\app\compare\page.tsx:206:          <span className="text-muted-foreground text-[10px]">
+web\app\compare\page.tsx:211:          <span className="text-muted-foreground text-[10px]">—</span>
+web\app\compare\page.tsx:222:      <div className="border-border bg-card flex flex-wrap items-center gap-4 rounded-lg border p-4">
+web\app\compare\page.tsx:231:          ok={result.family_segregation_both_pass}
+web\app\compare\page.tsx:262:        <span className="text-muted-foreground">
+web\app\compare\page.tsx:268:        <span className="text-muted-foreground">
+web\app\intake\page.tsx:27:        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\components\recent_runs_strip.tsx:64:        className="text-muted-foreground text-xs font-medium tracking-widest uppercase"
+web\app\components\recent_runs_strip.tsx:76:              className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring group flex max-w-xs flex-col gap-1 rounded-lg border px-3 py-2 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+web\app\components\recent_runs_strip.tsx:81:                  <span className="text-muted-foreground font-normal">
+web\app\upload\page.tsx:22:        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\components\home_keyboard_shell.tsx:65:            className="text-muted-foreground border-border mr-2 ml-auto hidden rounded-full border px-2.5 py-1 text-xs lg:inline-flex"
+web\app\contracts\page.tsx:19:      <p className="text-muted-foreground mb-6 text-sm">
+web\app\benchmark\components\benchmark_board.tsx:31:  if (score === null) return "text-muted-foreground italic";
+web\app\benchmark\components\benchmark_board.tsx:38:  if (score < max_peer) return "text-muted-foreground";
+web\app\benchmark\components\benchmark_board.tsx:187:          <span className="text-muted-foreground text-xs">
+web\app\components\command_palette.tsx:138:                  !t.active && "text-muted-foreground",
+web\lib\inspector_bundle_client_loader.ts:199:  "verified_report",
+web\lib\inspector_bundle_client_loader.ts:296:  const verifiedReportFile = _findFile(files, "verified_report.json")!;
+web\lib\inspector_bundle_client_loader.ts:297:  const verifiedReport = JSON.parse(
+web\lib\inspector_bundle_client_loader.ts:298:    _decode(verifiedReportFile.bytes),
+web\lib\inspector_bundle_client_loader.ts:333:    verifiedReport,
+web\lib\inspector_bundle_loader.ts:32:  verifiedReport: VerifiedReportShape;
+web\lib\inspector_bundle_loader.ts:51:  family_segregation_passed: boolean;
+web\lib\inspector_bundle_loader.ts:61:  verified_sentences: VerifiedSentenceShape[];
+web\lib\inspector_bundle_loader.ts:91:  const verifiedReport = (await readJson(
+web\lib\inspector_bundle_loader.ts:94:    "verified_report",
+web\lib\inspector_bundle_loader.ts:147:    verifiedReport,
+web\lib\inspector_bundle_loader.ts:158:  contentType: "scope_decision" | "evidence_pool" | "verified_report",
+web\components\verdict\verdict_chip.tsx:36:    className: "bg-verified/10 text-verified border-verified/30",
+web\app\generation\page.tsx:19:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\generation\page.tsx:60:          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\generation\page.tsx:62:            001), retrieval against verified clinical sources (slice 002), and
+web\app\generation\page.tsx:77:          className="border-border text-muted-foreground rounded-lg border p-4 text-xs"
+web\app\generation\page.tsx:81:            Slice 004 (audit bundle export, GPG-signed) packages this verified
+web\app\generation\page.tsx:90:        <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+web\app\audit_live\_panels.tsx:136:          data-testid="zero-verified-abort"
+web\app\audit_live\_panels.tsx:139:          Zero-verified abort: no kept verify decisions across{" "}
+web\app\audit_live\_panels.tsx:166:              className="text-muted-foreground text-xs"
+web\app\audit_live\_panels.tsx:178:                <span className="text-muted-foreground tabular-nums">
+web\lib\pin_regression.ts:12:  verified_sentence_count_drop: 3,
+web\lib\pin_regression.ts:16:  metric: "pass_rate" | "verified_sentence_count";
+web\lib\pin_regression.ts:61:  const sentence_drop = a.verified_sentence_count - b.verified_sentence_count;
+web\lib\pin_regression.ts:62:  if (sentence_drop > REGRESSION_THRESHOLDS.verified_sentence_count_drop) {
+web\lib\pin_regression.ts:64:      metric: "verified_sentence_count",
+web\lib\pin_regression.ts:65:      a_value: a.verified_sentence_count,
+web\lib\pin_regression.ts:66:      b_value: b.verified_sentence_count,
+web\lib\pin_regression.ts:68:      threshold: REGRESSION_THRESHOLDS.verified_sentence_count_drop,
+web\app\charts_test\timeline\page.tsx:75:        <p className="text-muted-foreground mt-2 text-sm">
+web\app\intake\components\ambiguity_modal.tsx:55:            <DialogPrimitive.Description className="text-muted-foreground text-sm">
+web\app\intake\components\ambiguity_modal.tsx:68:                <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\intake\components\ambiguity_modal.tsx:86:            <ul className="text-muted-foreground list-disc pl-5 text-sm">
+web\app\charts_test\page.tsx:33:        <p className="text-muted-foreground mt-2 text-sm">
+web\app\upload\components\upload_drop_zone.tsx:165:        <p className="text-muted-foreground text-xs">
+web\app\upload\components\upload_drop_zone.tsx:198:              <span className="text-muted-foreground text-xs">
+web\app\upload\components\selected_docs_indicator.tsx:8:      <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\intake\components\scope_decision_view.tsx:65:      <ul className="text-muted-foreground flex flex-wrap gap-1.5 text-xs">
+web\app\intake\components\scope_decision_view.tsx:92:          <dt className="text-muted-foreground">Scope class</dt>
+web\app\intake\components\scope_decision_view.tsx:100:          <dt className="text-muted-foreground">Latency</dt>
+web\app\intake\components\scope_decision_view.tsx:108:          <dt className="text-muted-foreground">Decision id</dt>
+web\app\intake\components\scope_decision_view.tsx:113:          <dt className="text-muted-foreground">Decided at</dt>
+web\app\intake\components\scope_decision_view.tsx:135:            <ul className="text-muted-foreground list-disc pl-5 text-sm">
+web\app\generation\components\BundlePreview.tsx:22:  ["verified_report", "Verified report"],
+web\app\generation\components\BundlePreview.tsx:68:        className="text-muted-foreground border-border rounded-md border p-3 text-xs"
+web\app\charts_test\comparison_table\page.tsx:108:        <p className="text-muted-foreground mt-2 text-sm">
+web\app\charts_test\forest_plot\page.tsx:42:        <p className="text-muted-foreground mt-2 text-sm">
+web\app\generation\components\contradiction_pane.tsx:139:              <div className="text-muted-foreground flex flex-wrap gap-2 text-[10px]">
+web\app\intake\components\intake_form.tsx:135:            <p className="text-muted-foreground text-xs">
+web\app\intake\components\intake_form.tsx:150:              <span className="text-muted-foreground text-xs">or try:</span>
+web\app\intake\components\intake_form.tsx:156:                  className="text-muted-foreground hover:text-foreground border-border rounded-full border px-2 py-1 text-xs transition-colors"
+web\app\charts_test\components\chart_source_inspector.tsx:83:            className="text-muted-foreground px-4 pb-4 text-sm italic"
+web\app\charts_test\click_through\page.tsx:78:        <p className="text-muted-foreground mt-2 text-sm">
+web\app\generation\components\follow_up_append_view.tsx:5:import { VerifiedReportView } from "./verified_report_view";
+web\app\generation\components\follow_up_append_view.tsx:8:// verified report, a labeled separator, then the appended (follow-up)
+web\app\generation\components\follow_up_append_view.tsx:9:// verified report. Production wiring (graph_v4 generating the appended
+web\app\generation\components\follow_up_append_view.tsx:26:          className="text-muted-foreground mt-2 text-center text-xs tracking-widest uppercase"
+web\app\inspector\[runId]\inspector_view.tsx:7:import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
+web\app\inspector\[runId]\inspector_view.tsx:13:import { VerifiedReportSections } from "@/components/inspector/verified_report_sections";
+web\app\inspector\[runId]\inspector_view.tsx:37:        verifiedReport={bundle.verifiedReport}
+web\app\inspector\[runId]\inspector_view.tsx:50:          <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
+web\app\generation\components\evaluator_pane.tsx:58:            <div className="text-muted-foreground text-xs">
+web\app\generation\components\evaluator_pane.tsx:72:            <div className="text-muted-foreground text-xs">
+web\app\generation\components\evaluator_pane.tsx:82:            className="text-muted-foreground px-4 pb-4 text-sm italic"
+web\app\intake\components\disambiguation_modal.tsx:57:            <DialogPrimitive.Description className="text-muted-foreground text-sm">
+web\app\intake\components\disambiguation_modal.tsx:75:                    <span className="text-muted-foreground text-xs">
+web\app\generation\components\generation_runner.tsx:22:import { VerifiedReportView } from "./verified_report_view";
+web\app\generation\components\generation_runner.tsx:148:            <p className="text-muted-foreground text-xs">
+web\app\generation\components\generation_runner.tsx:211:              className="text-muted-foreground hover:text-foreground border-border rounded-full border px-3 py-1 text-xs transition-colors"
+web\app\inspector\offline\page.tsx:71:          <p className="text-muted-foreground">
+web\app\inspector\offline\page.tsx:73:            The bundle is verified and rendered entirely in your browser — no
+web\lib\signed_bundle.ts:28:  | "verified_report"
+web\lib\signed_bundle.ts:36:  "verified_report",
+web\app\globals.css:31:  --color-verified: var(--verified);
+web\app\globals.css:32:  --color-verified-foreground: var(--verified-foreground);
+web\app\globals.css:41:  --color-verified-bundle: var(--verified-bundle);
+web\app\globals.css:77:     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+web\app\globals.css:94:  --verified: oklch(0.48 0.14 152);
+web\app\globals.css:95:  --verified-foreground: oklch(0.985 0 0);
+web\app\globals.css:105:  --verified-bundle: oklch(0.48 0.14 152);
+web\app\globals.css:132:     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+web\app\generation\components\multi_source_panel.tsx:77:      <p className="text-muted-foreground">
+web\app\generation\components\multi_source_panel.tsx:150:            className="text-muted-foreground border-border mb-3 rounded border bg-blue-500/5 p-2 text-xs"
+web\components\ui\tabs.tsx:23:      "border-border bg-muted text-muted-foreground inline-flex h-10 items-center justify-start gap-1 rounded-md border p-1",
+web\app\sign-in\page.tsx:67:        className="text-muted-foreground text-sm"
+web\app\sign-in\page.tsx:103:          <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\generation\components\sentence_inspector.tsx:91:      className="border-border bg-muted/40 text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+web\app\generation\components\sentence_inspector.tsx:207:        className="text-muted-foreground"
+web\app\generation\components\sentence_inspector.tsx:283:                <p className="text-muted-foreground text-xs italic">
+web\components\ui\sheet.tsx:122:      className={cn("text-muted-foreground text-sm", className)}
+web\tests\e2e\accessibility.spec.ts:153:// exist in the new Inspector — verified_sentences with drop_reason will
+web\tests\e2e\accessibility.spec.ts:154:// render via verified_report_sections.tsx in a future PR that extends
+web\tests\e2e\audit_live_adversarial.spec.ts:35:test("zero-verified-abort banner when all verify decisions drop", async ({
+web\tests\e2e\audit_live_adversarial.spec.ts:44:  await expect(page.getByTestId("zero-verified-abort")).toBeVisible({
+web\tests\e2e\audit_live_adversarial.spec.ts:66:  await expect(page.getByTestId("zero-verified-abort")).toBeHidden();
+web\tests\e2e\audit_bundle.spec.ts:25:    // Wait for either verified report or generation error
+web\tests\e2e\audit_bundle.spec.ts:27:      page.getByTestId("verified-report-view").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:38:    if (await page.getByTestId("verified-report-view").isVisible()) {
+web\tests\e2e\audit_bundle.spec.ts:51:      page.getByTestId("verified-report-view").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:61:    if (!(await page.getByTestId("verified-report-view").isVisible())) {
+web\components\ui\input.tsx:12:        "border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/70 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm",
+web\app\generation\components\two_run_picker.tsx:38:        className="text-muted-foreground text-sm"
+web\app\generation\components\two_run_picker.tsx:60:                <span className="text-muted-foreground block text-xs">
+web\app\generation\components\two_run_picker.tsx:77:        className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground inline-flex items-center rounded-md px-4 py-2 text-sm font-medium disabled:cursor-not-allowed"
+web\app\page.tsx:118:            <p className="text-muted-foreground max-w-2xl text-base sm:text-lg">
+web\app\page.tsx:156:              <span className="text-muted-foreground text-xs tracking-widest uppercase">
+web\app\page.tsx:168:                      : "bg-muted/40 text-muted-foreground flex flex-col"
+web\app\page.tsx:178:                          className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+web\app\page.tsx:233:          <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+web\app\page.tsx:235:            <span>Two-family verified evidence</span>
+web\app\generation\components\verified_report_view.tsx:48:  verified:
+web\app\generation\components\verified_report_view.tsx:66:  verdict: "success" | "abort_no_verified_sections";
+web\app\generation\components\verified_report_view.tsx:80:      {ok ? "Success" : "Aborted (no verified sections)"}
+web\app\generation\components\verified_report_view.tsx:152:          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+web\app\generation\components\verified_report_view.tsx:176:        <span className="text-muted-foreground font-mono text-[10px]">
+web\app\generation\components\verified_report_view.tsx:320:  const dropped_count = section.verified_sentences.length - kept.length;
+web\app\generation\components\verified_report_view.tsx:343:          <p className="text-muted-foreground text-sm">
+web\app\generation\components\verified_report_view.tsx:344:            No verified sentences in this section.
+web\app\generation\components\verified_report_view.tsx:348:            {section.verified_sentences.map((s, idx) => (
+web\app\generation\components\verified_report_view.tsx:365:          <p className="text-muted-foreground text-xs italic">
+web\app\generation\components\verified_report_view.tsx:400:      data-testid="verified-report-view"
+web\app\generation\components\verified_report_view.tsx:411:            <dt className="text-muted-foreground">Generator</dt>
+web\app\generation\components\verified_report_view.tsx:415:            <dt className="text-muted-foreground">Evaluator</dt>
+web\app\generation\components\verified_report_view.tsx:421:              {report.family_segregation_passed ? (
+web\app\generation\components\verified_report_view.tsx:439:            <dt className="text-muted-foreground">Pass rate</dt>
+web\app\generation\components\verified_report_view.tsx:443:            <dt className="text-muted-foreground">Sections</dt>
+web\app\generation\components\verified_report_view.tsx:456:            <dt className="text-muted-foreground">Latency</dt>
+web\app\generation\components\verified_report_view.tsx:463:            className="text-muted-foreground mt-3 text-xs"
+web\app\layout.tsx:22:    "Two-family verified evidence pipelines for Government of Canada policy work.",
+web\components\ui\evidence-tooltip.tsx:162:            <p className="text-muted-foreground font-mono text-[11px]">
+web\components\ui\evidence-tooltip.tsx:167:              <p className="text-muted-foreground mt-1 truncate text-[11px]">
+web\components\ui\evidence-tooltip.tsx:174:                className="text-muted-foreground mt-1 text-[11px]"
+web\components\ui\evidence-tooltip.tsx:188:            <p className="text-muted-foreground mt-2 text-[11px] italic">
+web\components\ui\card.tsx:15:        "group/card bg-card text-card-foreground ring-foreground/10 flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+web\components\ui\card.tsx:53:      className={cn("text-muted-foreground text-sm", className)}
+web\app\pin_replay\components\diff_side_panel.tsx:20:    key: "verified_sentence_count",
+web\app\pin_replay\components\diff_side_panel.tsx:119:            className="text-muted-foreground px-4 pb-4 text-sm italic"
+web\app\pin_replay\page.tsx:46:          <dt className="text-muted-foreground">Query</dt>
+web\app\pin_replay\page.tsx:53:          <dt className="text-muted-foreground">Verdict</dt>
+web\app\pin_replay\page.tsx:57:          <dt className="text-muted-foreground">Sections kept / dropped</dt>
+web\app\pin_replay\page.tsx:61:          <dt className="text-muted-foreground">Verified sentences</dt>
+web\app\pin_replay\page.tsx:63:            {snapshot.verified_sentence_count}
+web\app\pin_replay\page.tsx:65:          <dt className="text-muted-foreground">Pass rate</dt>
+web\app\pin_replay\page.tsx:87:      <p className="text-muted-foreground mt-4 text-sm">
+web\app\pin_replay\page.tsx:118:    snap_b.verified_sentence_count - snap_a.verified_sentence_count;
+web\app\pin_replay\page.tsx:132:        <p className="text-muted-foreground mt-2 text-sm">
+web\app\pin_replay\page.tsx:134:          verified-sentence count or pass-rate raise an alert.
+web\app\pin_replay\page.tsx:161:                      className="text-muted-foreground ml-1"
+web\tests\e2e\bundle_preview.spec.ts:36:  family_segregation_passed: true,
+web\tests\e2e\bundle_preview.spec.ts:52:    verified_report: { count: 1, bytes: 4096 },
+web\tests\e2e\bundle_preview.spec.ts:117:    "verified_report",
+web\app\memory\page.tsx:61:        className="text-muted-foreground mt-2 text-sm"
+web\app\memory\page.tsx:77:                className="text-muted-foreground"
+web\app\memory\page.tsx:125:              <div className="text-muted-foreground text-xs">
+web\app\pin_replay\components\pin_timeseries.tsx:22:    value: s.verified_sentence_count,
+web\app\pin_replay\components\pin_timeseries.tsx:23:    series: "verified_sentences",
+web\app\sentence_hover_test\_demo.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo.tsx:114:      verified_sentences: [
+web\app\sentence_hover_test\_demo.tsx:456:      section_status: "verified",
+web\app\sentence_hover_test\_demo.tsx:463:  family_segregation_passed: true,
+web\app\runs\[runId]\page.tsx:144:        <span className="text-muted-foreground text-xs tracking-widest uppercase">
+web\app\runs\[runId]\page.tsx:151:          <p className="text-muted-foreground text-sm">
+web\app\runs\[runId]\page.tsx:174:        <p className="text-muted-foreground text-xs">
+web\app\runs\[runId]\page.tsx:235:          (it has an answerable, verified report). Failed/cancelled/in-progress
+web\app\sentence_hover_test\follow_up_append\page.tsx:17:        verified_sentences: [
+web\app\sentence_hover_test\follow_up_append\page.tsx:28:        section_status: "verified",
+web\app\sentence_hover_test\follow_up_append\page.tsx:35:    family_segregation_passed: true,
+web\components\sovereignty\sovereignty_panel.tsx:5:// family_segregation_passed field. Renders only fields present.
+web\components\sovereignty\sovereignty_panel.tsx:8:interface SovereigntyPanelProps {
+web\components\sovereignty\sovereignty_panel.tsx:11:  /** verified_report.family_segregation_passed — the real source of truth. */
+web\components\sovereignty\sovereignty_panel.tsx:12:  familySegregationPassed?: boolean;
+web\components\sovereignty\sovereignty_panel.tsx:27:      <span className="text-muted-foreground">{label}</span>
+web\components\sovereignty\sovereignty_panel.tsx:33:export function SovereigntyPanel({
+web\components\sovereignty\sovereignty_panel.tsx:36:  familySegregationPassed,
+web\components\sovereignty\sovereignty_panel.tsx:43:}: SovereigntyPanelProps) {
+web\components\sovereignty\sovereignty_panel.tsx:47:      className="border-border bg-card flex flex-col gap-4 rounded-md border p-4 text-sm"
+web\components\sovereignty\sovereignty_panel.tsx:57:          <p className="text-muted-foreground text-xs">
+web\components\sovereignty\sovereignty_panel.tsx:69:            {familySegregationPassed === true ? (
+web\components\sovereignty\sovereignty_panel.tsx:70:              <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\sovereignty\sovereignty_panel.tsx:74:            ) : familySegregationPassed === false ? (
+web\components\sovereignty\sovereignty_panel.tsx:76:                Not verified
+web\components\sovereignty\sovereignty_panel.tsx:94:            <p className="text-verified mt-1 text-[11px]">
+web\components\sovereignty\sovereignty_panel.tsx:98:            <p className="text-muted-foreground mt-1 text-[11px]">
+web\tests\e2e\command_palette_adversarial.spec.ts:13: * Iter-1 + iter-2 Codex empirical scoring runs verified each corpus
+web\app\sentence_hover_test\_demo_coverage.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_coverage.tsx:83:        verified_sentences: [
+web\app\sentence_hover_test\_demo_coverage.tsx:94:        section_status: "verified",
+web\app\sentence_hover_test\_demo_coverage.tsx:101:    family_segregation_passed: true,
+web\app\sentence_hover_test\memory_cite\page.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\memory_cite\page.tsx:16:      verified_sentences: [
+web\app\sentence_hover_test\memory_cite\page.tsx:37:      section_status: "verified",
+web\app\sentence_hover_test\memory_cite\page.tsx:44:  family_segregation_passed: true,
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:60:        verified_sentences: Array.from({ length: N }, (_, i) => ({
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:79:        section_status: "verified",
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:86:    family_segregation_passed: true,
+web\components\source\source_card.tsx:37:      <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\source\source_card.tsx:57:      className="border-border bg-card flex flex-col gap-2 rounded-md border p-4 text-sm"
+web\components\source\source_card.tsx:59:      <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-[11px]">
+web\components\source\source_card.tsx:89:        <p className="text-muted-foreground text-xs">
+web\components\source\source_card.tsx:103:        <p className="text-muted-foreground truncate font-mono text-[10px]">
+web\components\nav_link.tsx:31:          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground")
+web\components\citation\citation_chip.tsx:59:            className="border-border text-muted-foreground hover:bg-muted focus-visible:ring-ring/70 mx-0.5 inline-flex min-h-[24px] min-w-[24px] items-center justify-center gap-1 rounded border px-1.5 align-baseline font-mono text-[11px] leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
+web\components\citation\citation_chip.tsx:75:            <div className="text-muted-foreground mb-1 flex flex-wrap items-center gap-2 text-[11px]">
+web\components\citation\citation_chip.tsx:88:              <p className="text-muted-foreground text-xs">
+web\components\citation\citation_chip.tsx:99:                className="text-muted-foreground mt-1 max-w-full truncate text-[11px]"
+web\app\sentence_hover_test\two_run_picker\page.tsx:52:        className="text-muted-foreground mt-6 text-sm"
+web\components\proof_replay\proof_replay.tsx:2:// verified claim (left) → see the EXACT cited source span (right). Composes the
+web\components\proof_replay\proof_replay.tsx:29:  verified: boolean;
+web\components\proof_replay\proof_replay.tsx:38:    section.verified_sentences?.forEach((s, i) => {
+web\components\proof_replay\proof_replay.tsx:49:        verified: s.verifier_pass === true,
+web\components\proof_replay\proof_replay.tsx:56:function UnverifiedBadge() {
+web\components\proof_replay\proof_replay.tsx:59:      Unverified
+web\components\proof_replay\proof_replay.tsx:75:        {claim.verified ? (
+web\components\proof_replay\proof_replay.tsx:78:          <UnverifiedBadge />
+web\components\proof_replay\proof_replay.tsx:83:        <p className="text-muted-foreground text-xs">
+web\components\proof_replay\proof_replay.tsx:94:                  className="text-muted-foreground text-xs"
+web\components\proof_replay\proof_replay.tsx:105:                  className="text-muted-foreground text-xs"
+web\components\proof_replay\proof_replay.tsx:126:                  <p className="text-muted-foreground text-xs">
+web\components\proof_replay\proof_replay.tsx:151:      <p className="text-muted-foreground text-sm">
+web\components\proof_replay\proof_replay.tsx:152:        No verified claims in this report.
+web\components\proof_replay\proof_replay.tsx:171:                <p className="text-muted-foreground mt-2 mb-1 px-2 text-[11px] font-medium tracking-wide uppercase">
+web\components\proof_replay\proof_replay.tsx:178:                aria-label={`${claim.verified ? "Verified" : "Unverified"} claim: ${claim.text}`}
+web\components\proof_replay\proof_replay.tsx:183:                    : "text-muted-foreground hover:bg-muted border-l-2 border-transparent"
+web\components\proof_replay\proof_replay.tsx:189:                    claim.verified ? "bg-verified" : "bg-muted-foreground"
+web\components\proof_replay\proof_replay.tsx:207:          <p className="text-muted-foreground text-sm">
+web\app\runs\[runId]\graph\page.tsx:47:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\runs\[runId]\graph\page.tsx:80:            className="text-muted-foreground flex items-center gap-2"
+web\app\runs\[runId]\graph\page.tsx:121:        <span className="text-muted-foreground text-xs">
+web\components\app_shell.tsx:49:            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+web\components\inspector\evidence_pool_table.tsx:45:          <p className="border-border text-muted-foreground rounded-md border border-dashed p-4 text-center">
+web\components\inspector\evidence_pool_table.tsx:51:              <thead className="border-border text-muted-foreground border-b text-xs tracking-wide uppercase">
+web\components\inspector\evidence_pool_table.tsx:83:                    <td className="text-muted-foreground px-2 py-2 align-top text-xs">
+web\components\inspector\evidence_pool_table.tsx:117:        <p className="text-muted-foreground mt-2 text-xs">
+web\components\inspector\bundle_header.tsx:55:      <p className="text-muted-foreground text-xs tracking-wide uppercase">
+web\app\sentence_hover_test\_demo_stress.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_stress.tsx:57:        verified_sentences: Array.from({ length: n }, (_, i) => ({
+web\app\sentence_hover_test\_demo_stress.tsx:68:        section_status: "verified",
+web\app\sentence_hover_test\_demo_stress.tsx:75:    family_segregation_passed: true,
+web\app\runs\[runId]\components\run_progress.tsx:87:      verified: asNumber(e.data.verified ?? e.data.verified_sentences),
+web\app\runs\[runId]\components\run_progress.tsx:203:    ? sections.reduce((acc, s) => acc + s.verified, 0)
+web\app\runs\[runId]\components\run_progress.tsx:216:          label="Sentences verified"
+web\app\runs\[runId]\components\run_progress.tsx:224:          className="border-border text-muted-foreground rounded-md border border-dashed p-3 text-sm"
+web\app\runs\[runId]\components\run_progress.tsx:238:          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/70 rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\app\runs\[runId]\components\run_progress.tsx:253:              className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4"
+web\app\runs\[runId]\components\run_progress.tsx:271:                <p className="text-muted-foreground text-xs">
+web\app\runs\[runId]\components\run_progress.tsx:285:    <div className="border-border bg-card flex flex-col gap-1 rounded-lg border px-3 py-2">
+web\app\runs\[runId]\components\run_progress.tsx:286:      <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+web\app\runs\[runId]\components\run_progress.tsx:317:        className="border-muted-foreground text-muted-foreground flex size-4 items-center justify-center rounded-full border text-[10px]"
+web\app\runs\[runId]\components\run_progress.tsx:344:  sections: { section: string; verified: number; dropped: number }[];
+web\app\runs\[runId]\components\run_progress.tsx:350:    return <p className="text-muted-foreground text-xs">Did not run.</p>;
+web\app\runs\[runId]\components\run_progress.tsx:354:      <p className="text-muted-foreground text-xs">
+web\app\runs\[runId]\components\run_progress.tsx:371:      return <p className="text-muted-foreground text-xs">Completed.</p>;
+web\app\runs\[runId]\components\run_progress.tsx:376:        <p className="text-muted-foreground text-xs">Awaiting scope gate…</p>
+web\app\runs\[runId]\components\run_progress.tsx:379:      <p className="text-muted-foreground text-xs">
+web\app\runs\[runId]\components\run_progress.tsx:390:        <p className="text-muted-foreground text-xs">Gathering evidence…</p>
+web\app\runs\[runId]\components\run_progress.tsx:397:            className="text-muted-foreground truncate text-xs"
+web\app\runs\[runId]\components\run_progress.tsx:404:          <li className="text-muted-foreground text-xs">
+web\app\runs\[runId]\components\run_progress.tsx:414:        <p className="text-muted-foreground text-xs">Drafting sections…</p>
+web\app\runs\[runId]\components\run_progress.tsx:421:            className="text-muted-foreground text-xs"
+web\app\runs\[runId]\components\run_progress.tsx:426:            — {s.verified} verified, {s.dropped} dropped
+web\app\runs\[runId]\components\run_progress.tsx:434:    return <p className="text-muted-foreground text-xs">Verifying claims…</p>;
+web\app\runs\[runId]\components\run_progress.tsx:438:        <li key={`${v.section}-${i}`} className="text-muted-foreground text-xs">
+web\app\runs\[runId]\components\followup_panel.tsx:67:      className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4"
+web\app\runs\[runId]\components\followup_panel.tsx:70:      <p className="text-muted-foreground text-xs">
+web\app\runs\[runId]\components\followup_panel.tsx:71:        Scoped to this run&apos;s verified evidence — no new retrieval is run.
+web\app\runs\[runId]\components\followup_panel.tsx:85:          <span className="text-muted-foreground text-[10px]">
+web\app\runs\[runId]\components\followup_panel.tsx:126:      <p className="text-muted-foreground text-xs">{answer.rationale}</p>
+web\app\runs\[runId]\components\followup_panel.tsx:129:        <p className="text-muted-foreground text-xs">
+web\app\runs\[runId]\components\followup_panel.tsx:141:          <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+web\app\runs\[runId]\components\followup_panel.tsx:148:                className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
+web\app\runs\[runId]\components\followup_panel.tsx:156:                className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
+web\app\sentence_hover_test\_demo_perf.tsx:97:        <p className="text-muted-foreground text-sm">
+web\app\runs\[runId]\graph\components\claim_graph.tsx:186:            <div className="text-muted-foreground">{hover.type}</div>
+web\app\runs\[runId]\graph\components\claim_graph.tsx:188:              <div className="text-muted-foreground">{hover.tier}</div>
+web\app\runs\[runId]\graph\components\claim_graph.tsx:191:              <div className="text-muted-foreground truncate">
+web\app\runs\[runId]\graph\components\claim_graph.tsx:198:      <p className="text-muted-foreground border-border border-t p-2 text-xs">
+web\app\retrieval\page.tsx:10:    "Retrieve verified clinical sources for a research question. POLARIS runs the slice 001 scope gate, then retrieves T1/T2/T3 sources from approved clinical domains.",
+web\app\retrieval\page.tsx:19:            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+web\app\retrieval\page.tsx:53:          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+web\app\retrieval\page.tsx:66:          className="border-border text-muted-foreground rounded-lg border p-4 text-xs"
+web\app\retrieval\page.tsx:78:        <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:147:                <span className="text-muted-foreground font-mono text-[10px] uppercase">
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:172:          <li className="text-muted-foreground p-3 text-xs">
+web\tests\e2e\demo_journey.spec.ts:8:// renders. That step's assertions cover the verified-report → claim →
+web\components\inspector\family_segregation_badge.tsx:2:// Source of truth: verified_report.evaluator_model + verified_report.family_segregation_passed
+web\components\inspector\family_segregation_badge.tsx:9:  verifiedReport: VerifiedReportShape;
+web\components\inspector\family_segregation_badge.tsx:14:  verifiedReport,
+web\components\inspector\family_segregation_badge.tsx:16:  const passed = verifiedReport.family_segregation_passed;
+web\components\inspector\family_segregation_badge.tsx:21:      className="border-border bg-card flex flex-col gap-2 rounded-md border p-4 text-sm"
+web\components\inspector\family_segregation_badge.tsx:37:          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+web\components\inspector\family_segregation_badge.tsx:43:          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+web\components\inspector\family_segregation_badge.tsx:46:          <p className="font-mono text-sm">{verifiedReport.evaluator_model}</p>
+web\app\retrieval\components\corpus_brief.tsx:94:          <dt className="text-muted-foreground">Sources retrieved</dt>
+web\app\retrieval\components\corpus_brief.tsx:96:          <dt className="text-muted-foreground">Queries executed</dt>
+web\app\retrieval\components\corpus_brief.tsx:100:          <dt className="text-muted-foreground">Latency</dt>
+web\app\retrieval\components\corpus_brief.tsx:102:          <dt className="text-muted-foreground">Cost</dt>
+web\app\retrieval\components\corpus_brief.tsx:128:                  <span className="text-muted-foreground font-mono text-xs">
+web\app\retrieval\components\corpus_brief.tsx:141:                  <p className="text-muted-foreground text-xs">
+web\components\inspector\bundle_pending_cta.tsx:35:            <p className="text-muted-foreground text-sm font-medium">
+web\components\inspector\hash_chain_panel.tsx:18:            <thead className="border-border text-muted-foreground border-b text-xs tracking-wide uppercase">
+web\app\retrieval\components\retrieval_runner.tsx:137:            <p className="text-muted-foreground text-xs">
+web\components\inspector\metadata_panel.tsx:20:          <dt className="text-muted-foreground">POLARIS version</dt>
+web\components\inspector\metadata_panel.tsx:27:          <dt className="text-muted-foreground">Generator model</dt>
+web\components\inspector\metadata_panel.tsx:34:          <dt className="text-muted-foreground">Evaluator model</dt>
+web\components\inspector\metadata_panel.tsx:41:          <dt className="text-muted-foreground">Bundle created at (UTC)</dt>
+web\components\inspector\metadata_panel.tsx:48:          <dt className="text-muted-foreground">Schema version</dt>
+web\components\inspector\reasoning_trace_timeline.tsx:23:          <p className="border-border text-muted-foreground rounded-md border border-dashed p-4 text-center">
+web\components\inspector\reasoning_trace_timeline.tsx:44:          <span className="text-muted-foreground font-mono text-xs">
+web\components\inspector\reasoning_trace_timeline.tsx:50:          <span className="text-muted-foreground text-xs">
+web\components\inspector\reasoning_trace_timeline.tsx:68:        className="text-muted-foreground mt-2 grid grid-cols-1 gap-x-3 gap-y-1 text-xs sm:grid-cols-3"
+web\components\inspector\reasoning_trace_timeline.tsx:92:      <div className="text-muted-foreground mt-2 grid grid-cols-3 gap-2 text-xs">
+web\components\inspector\reasoning_trace_timeline.tsx:108:            <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+web\components\inspector\reasoning_trace_timeline.tsx:116:            <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+web\components\inspector\scope_decision_card.tsx:41:            <h3 className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
+web\components\inspector\scope_decision_card.tsx:52:                    <ul className="text-muted-foreground mt-1 ml-4 list-disc text-xs">
+web\components\inspector\scope_decision_card.tsx:65:            <h3 className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
+web\components\inspector\scope_decision_card.tsx:91:      <p className="text-muted-foreground text-xs tracking-wide uppercase">
+web\components\inspector\verified_report_sections.tsx:2:// Real field names per verified_report.py:
+web\components\inspector\verified_report_sections.tsx:4://   sections[].verified_sentences
+web\components\inspector\verified_report_sections.tsx:5://   verified_sentences[].provenance_tokens (token strings)
+web\components\inspector\verified_report_sections.tsx:18:  verifiedReport: VerifiedReportShape;
+web\components\inspector\verified_report_sections.tsx:22:  verifiedReport,
+web\components\inspector\verified_report_sections.tsx:25:    <Card data-testid="verified-report-sections">
+web\components\inspector\verified_report_sections.tsx:28:          Verified report ({verifiedReport.sections.length} sections,{" "}
+web\components\inspector\verified_report_sections.tsx:29:          {(verifiedReport.overall_verify_pass_rate * 100).toFixed(0)}%
+web\components\inspector\verified_report_sections.tsx:30:          verified)
+web\components\inspector\verified_report_sections.tsx:34:        <VerdictBadge verdict={verifiedReport.pipeline_verdict} />
+web\components\inspector\verified_report_sections.tsx:35:        {verifiedReport.sections.length === 0 ? (
+web\components\inspector\verified_report_sections.tsx:36:          <p className="border-border text-muted-foreground rounded-md border border-dashed p-4 text-center">
+web\components\inspector\verified_report_sections.tsx:37:            No verified sections (pipeline verdict:{" "}
+web\components\inspector\verified_report_sections.tsx:38:            <code className="font-mono">{verifiedReport.pipeline_verdict}</code>
+web\components\inspector\verified_report_sections.tsx:42:          verifiedReport.sections.map((s) => (
+web\components\inspector\verified_report_sections.tsx:72:      data-testid="verified-report-section"
+web\components\inspector\verified_report_sections.tsx:77:        <span className="text-muted-foreground font-mono text-xs">
+web\components\inspector\verified_report_sections.tsx:82:        {section.verified_sentences.map((sentence, idx) => (
+web\components\inspector\verified_report_sections.tsx:98:      data-testid="verified-sentence"
+web\components\inspector\verified_report_sections.tsx:105:          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\components\inspector\verified_report_sections.tsx:115:        <ul className="text-muted-foreground mt-1 ml-4 list-disc font-mono text-xs">
+web\components\inspector\sources_panel.tsx:23:          <p className="border-border text-muted-foreground rounded-md border border-dashed p-4 text-center">
+web\components\inspector\sources_panel.tsx:40:                        : "text-muted-foreground"
+web\tests\e2e\follow_up_append.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toHaveCount(2);
+web\tests\e2e\frame_coverage_panel.spec.ts:59:test("Frame coverage panel is the first child of verified-report-view (above-the-fold)", async ({
+web\tests\e2e\frame_coverage_panel.spec.ts:65:  // Codex iter-1 P2: assert first-child of verified-report-view — the
+web\tests\e2e\frame_coverage_panel.spec.ts:68:    const rv = document.querySelector('[data-testid="verified-report-view"]');
+web\tests\e2e\generation.spec.ts:11: * happy path renders a verified report; without them the chain fails
+web\tests\e2e\generation.spec.ts:62:    // verified report renders. Both are valid e2e outcomes.
+web\tests\e2e\generation.spec.ts:68:        .getByTestId("verified-report-view")
+web\tests\e2e\generation.spec.ts:76:      .getByTestId("verified-report-view")
+web\tests\e2e\inspector_offline_fallback.spec.ts:50:  // Bundle header + verified report visible.
+web\tests\e2e\inspector_route.spec.ts:50:  test("family segregation badge shows pass (verified_report SoT)", async ({
+web\tests\e2e\pin_regression_alert.spec.ts:24:      page.getByTestId("regression-alert-verified_sentence_count"),
+web\tests\e2e\pin_replay_diff.spec.ts:30:      page.getByTestId("pin-diff-row-verified_sentence_count"),
+web\tests\e2e\pin_retraction_handled.spec.ts:20:      page.getByTestId("regression-alert-verified_sentence_count"),
+web\tests\e2e\sentence_hover.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:55:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector_latency.spec.ts:9:    await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\visual_60_baselines.spec.ts:50:    testid: "verified-report-view",
+web\tests\e2e\visual_60_baselines.spec.ts:60:    testid: "verified-report-view",
+web\tests\e2e\visual_60_baselines.spec.ts:65:    testid: "verified-report-view",
+
+ succeeded in 1640ms:
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-verified: var(--verified);
+  --color-verified-foreground: var(--verified-foreground);
+  --color-contradiction: var(--contradiction);
+  --color-contradiction-foreground: var(--contradiction-foreground);
+  --color-refusal: var(--refusal);
+  --color-refusal-foreground: var(--refusal-foreground);
+  --color-tier-1: var(--tier-1);
+  --color-tier-2: var(--tier-2);
+  --color-tier-3: var(--tier-3);
+  --color-proof-token: var(--proof-token);
+  --color-verified-bundle: var(--verified-bundle);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* I-ui-010 (#730): Frontier Minimal — near-monochrome zinc + ONE confident
+     accent (default = blue oklch(0.50 0.18 255); the prior cyan read grey).
+     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
+     border. Accent hue is operator-confirmable (one-token swap; alt indigo
+     oklch(0.50 0.16 270) / teal oklch(0.52 0.12 215)). chart-* left mono. */
+  --background: oklch(0.985 0.001 286.375);
+  --foreground: oklch(0.21 0.006 285.9);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  /* I-p2-003 (#742): white surface + ONE national accent = dark Canada-flag
+     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
+     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+     destructive=deep maroon distinct from the national red. + evidence-role
+     tokens (tiers + proof). Operator design lock 2026-05-21. */
+  --primary: #c8102e;
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.21 0.006 285.9);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.96 0.03 25);
+  --accent-foreground: oklch(0.45 0.16 26);
+  --destructive: oklch(0.42 0.13 18);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: #c8102e;
+  /* State colors — distinct from the national red (rubric: never red-only) */
+  --verified: oklch(0.48 0.14 152);
+  --verified-foreground: oklch(0.985 0 0);
+  --contradiction: oklch(0.72 0.15 75);
+  --contradiction-foreground: oklch(0.27 0.04 75);
+  --refusal: oklch(0.45 0.02 286);
+  --refusal-foreground: oklch(0.985 0 0);
+  /* Evidence-role tokens */
+  --tier-1: #c8102e;
+  --tier-2: oklch(0.556 0 0);
+  --tier-3: oklch(0.708 0 0);
+  --proof-token: oklch(0.45 0.16 26);
+  --verified-bundle: oklch(0.48 0.14 152);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  /* I-p2-003 (#742): dark-mode accent = Canada-red (NOT the old cyan, which
+     violated the operator lock). Lighter L0.62 for contrast on the dark
+     surface; white fg. NOTE: light mode is the demo target; dark mode reuses
+     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+     proof) — dark-specific tuning is a post-demo follow-up. */
+  --primary: oklch(0.62 0.2 26);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.32 0.06 26);
+  --accent-foreground: oklch(0.92 0.04 26);
+  --destructive: oklch(0.704 0.191 22.216);
+  /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+     White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+     fails WCAG-AA 4.5:1). Use near-black text instead — dark-on-light-warning is
+     the conventional inverse pattern. */
+  --destructive-foreground: oklch(0.145 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.62 0.2 26);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+
+ succeeded in 1977ms:
+web\app\page.tsx:177:                          aria-hidden="true"
+web\components\verdict\verdict_chip.tsx:6:  BadgeCheck,
+web\components\verdict\verdict_chip.tsx:14:} from "lucide-react";
+web\components\verdict\verdict_chip.tsx:35:    Icon: BadgeCheck,
+web\components\verdict\verdict_chip.tsx:80:      <meta.Icon aria-hidden className="h-3 w-3 shrink-0" />
+web\app\intake\components\scope_decision_view.tsx:38:      <span aria-hidden="true">●</span>
+web\components\ui\sonner.tsx:11:} from "lucide-react";
+web\components\source\source_card.tsx:4:import { Check, ExternalLink, TriangleAlert } from "lucide-react";
+web\components\source\source_card.tsx:38:        <Check aria-hidden className="h-3 w-3 shrink-0" />
+web\components\source\source_card.tsx:45:      <TriangleAlert aria-hidden className="h-3 w-3 shrink-0" />
+web\components\source\source_card.tsx:63:              aria-hidden
+web\components\source\source_card.tsx:82:            <ExternalLink aria-hidden className="mt-0.5 h-3 w-3 shrink-0" />
+web\app\runs\[runId]\graph\page.tsx:83:              aria-hidden
+web\app\retrieval\components\corpus_brief.tsx:42:      <span aria-hidden="true">{ok ? "●" : "◌"}</span>
+web\components\citation\citation_chip.tsx:64:          aria-hidden
+web\components\ui\sheet.tsx:8:import { XIcon } from "lucide-react";
+web\app\generation\components\verified_report_view.tsx:79:      <span aria-hidden="true">{ok ? "●" : "◌"}</span>
+web\components\proof_replay\proof_replay.tsx:187:                  aria-hidden
+web\components\sovereignty\sovereignty_panel.tsx:6:import { BadgeCheck, ShieldCheck } from "lucide-react";
+web\components\sovereignty\sovereignty_panel.tsx:51:        <ShieldCheck
+web\components\sovereignty\sovereignty_panel.tsx:52:          aria-hidden
+web\components\sovereignty\sovereignty_panel.tsx:71:                <BadgeCheck aria-hidden className="h-3 w-3 shrink-0" />
+
+ succeeded in 2288ms:
+.gitignore
+.prettierignore
+.prettierrc.json
+AGENTS.md
+CLAUDE.md
+components.json
+Dockerfile
+eslint.config.mjs
+middleware.ts
+next-env.d.ts
+next.config.ts
+package-lock.json
+package.json
+playwright.config.ts
+postcss.config.mjs
+README.md
+requirements-v6.txt
+requirements.txt
+THIRD_PARTY_LICENSES.md
+tsconfig.json
+tsconfig.tsbuildinfo
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\components\\verdict\\verdict_chip.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\components\\inspector\\family_segregation_badge.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\tsconfig.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\lib\\signed_bundle.ts" in C:\POLARIS
+ succeeded in 1345ms:
+// I-p2-005 (#744): per-claim verdict chip. THREE signals (state color + icon +
+// label) so a verdict is never distinguished by color alone (WCAG 1.4.1).
+// Consumes the #742 state tokens. Display-only (non-interactive). Honest
+// labels — FABRICATED and UNREACHABLE are real, distinct, serious verdicts.
+import {
+  BadgeCheck,
+  Ban,
+  CircleHelp,
+  CircleSlash,
+  Minus,
+  TriangleAlert,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+
+export type VerdictKind =
+  | "VERIFIED"
+  | "PARTIAL"
+  | "UNSUPPORTED"
+  | "FABRICATED"
+  | "UNREACHABLE"
+  | "contradiction"
+  | "refusal";
+
+interface VerdictMeta {
+  label: string;
+  Icon: LucideIcon;
+  /** Tint bg + readable text + border, all AA from #742 tokens. */
+  className: string;
+}
+
+const VERDICT_META: Record<VerdictKind, VerdictMeta> = {
+  VERIFIED: {
+    label: "Verified",
+    Icon: BadgeCheck,
+    className: "bg-verified/10 text-verified border-verified/30",
+  },
+  PARTIAL: {
+    label: "Partial",
+    Icon: CircleSlash,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  UNSUPPORTED: {
+    label: "Unsupported",
+    Icon: Minus,
+    className: "bg-muted text-foreground border-border",
+  },
+  FABRICATED: {
+    label: "Fabricated",
+    Icon: X,
+    className: "bg-destructive/10 text-destructive border-destructive/40",
+  },
+  UNREACHABLE: {
+    label: "Unreachable",
+    Icon: CircleHelp,
+    className: "bg-muted text-foreground border-border border-dashed",
+  },
+  contradiction: {
+    label: "Contradiction",
+    Icon: TriangleAlert,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  refusal: {
+    label: "Refusal",
+    Icon: Ban,
+    className: "bg-refusal/10 text-refusal border-refusal/30",
+  },
+};
+
+export function VerdictChip({ verdict }: { verdict: VerdictKind }) {
+  const meta = VERDICT_META[verdict];
+  return (
+    <span
+      data-testid="verdict-chip"
+      data-verdict={verdict}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
+    >
+      <meta.Icon aria-hidden className="h-3 w-3 shrink-0" />
+      {meta.label}
+    </span>
+  );
+}
+
+
+ succeeded in 1641ms:
+// I-cd-013a (GH#609) — Two-family invariant badge.
+// Source of truth: verified_report.evaluator_model + verified_report.family_segregation_passed
+// (NOT metadata.json — corrected at brief iter 1 P1).
+import type { VerifiedReportShape } from "@/lib/inspector_bundle_loader";
+import type { BundleManifest } from "@/lib/signed_bundle";
+
+interface FamilySegregationBadgeProps {
+  manifest: BundleManifest;
+  verifiedReport: VerifiedReportShape;
+}
+
+export function FamilySegregationBadge({
+  manifest,
+  verifiedReport,
+}: FamilySegregationBadgeProps) {
+  const passed = verifiedReport.family_segregation_passed;
+  return (
+    <div
+      data-testid="family-segregation-badge"
+      data-state={passed ? "pass" : "fail"}
+      className="border-border bg-card flex flex-col gap-2 rounded-md border p-4 text-sm"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-medium">Two-family invariant</p>
+        <span
+          className={
+            passed
+              ? "inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+              : "inline-flex items-center rounded-md bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-900 dark:bg-rose-950 dark:text-rose-200"
+          }
+        >
+          {passed ? "Pass" : "Fail"}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div>
+          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+            Generator
+          </p>
+          <p className="font-mono text-sm">{manifest.generator_model}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+            Evaluator
+          </p>
+          <p className="font-mono text-sm">{verifiedReport.evaluator_model}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+ succeeded in 1909ms:
+// I-cd-012 (GH#608) — frontend mirror of
+// src/polaris_graph/audit_bundle/bundle_schema.py:BundleManifest (FROZEN v1.0).
+//
+// FROZEN v1.0: Field additions, removals, type changes, or new ContentType
+// enum members require the full bump cascade documented in the Python module.
+//
+// Active consumers:
+//   - Future Inspector route (I-A-03, #609)
+//   - Offline fallback Inspector that renders a signed bundle in-browser
+//     with no GPU/no backend (I-B-09, #631)
+//
+// Active producers (mirror this contract):
+//   - src/polaris_graph/audit_bundle/manifest_builder.py
+//   - src/polaris_graph/audit_bundle/bundle_builder.py
+//   - src/polaris_graph/api/audit_bundle_route.py
+//   - src/polaris_v6/api/bundle.py
+
+import yaml from "js-yaml";
+
+// ---------------------------------------------------------------------------
+// Type literals — must match
+// src/polaris_graph/audit_bundle/bundle_schema.py:ContentType
+// ---------------------------------------------------------------------------
+
+export type ContentType =
+  | "scope_decision"
+  | "evidence_pool"
+  | "verified_report"
+  | "source_snapshot"
+  | "metadata"
+  | "reasoning_trace";
+
+export const CONTENT_TYPES: ContentType[] = [
+  "scope_decision",
+  "evidence_pool",
+  "verified_report",
+  "source_snapshot",
+  "metadata",
+  "reasoning_trace",
+];
+
+export const BUNDLE_VERSION = "1.0" as const;
+
+// ---------------------------------------------------------------------------
+// FileEntry — mirrors bundle_schema.py:FileEntry
+// ---------------------------------------------------------------------------
+
+export interface FileEntry {
+  path: string; // relative POSIX path inside the extracted bundle
+  sha256: string; // lowercase hex SHA256
+  size_bytes: number;
+  content_type: ContentType;
+}
+
+// ---------------------------------------------------------------------------
+// BundleManifest — mirrors bundle_schema.py:BundleManifest
+// ---------------------------------------------------------------------------
+
+export interface BundleManifest {
+  bundle_id: string;
+  bundle_version: typeof BUNDLE_VERSION;
+  decision_id: string;
+  pool_id: string;
+  report_id: string;
+  generator_model: string;
+  polaris_version: string;
+  files: FileEntry[];
+  bundle_created_at_utc: string; // ISO-8601 UTC
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning trace — JSONL (one record per generator LLM call)
+// ---------------------------------------------------------------------------
+
+// Mirrors src/polaris_graph/generator/reasoning_trace.py:67
+// ReasoningTraceRecord (the active producer dataclass). 15 fields.
+// Codex diff iter-1 P1: previous 5-field shape diverged from real producer.
+export interface ReasoningTraceRecord {
+  call_id: string;
+  section: string;
+  call_type: string;
+  model: string;
+  status: string; // see reasoning_trace.py STATUSES
+  content_source: string; // see reasoning_trace.py CONTENT_SOURCES
+  parent_call_id: string | null;
+  regen_reason: string | null;
+  attempt_n: number;
+  reasoning_text: string;
+  content_text: string;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  timestamp: string; // ISO-8601 UTC
+}
+
+// ---------------------------------------------------------------------------
+// Bundle metadata — content of metadata.json
+// ---------------------------------------------------------------------------
+
+export interface BundleMetadata {
+  polaris_version: string;
+  generator_model: string;
+  evaluator_model: string;
+  bundle_created_at_utc: string;
+  schema_version: typeof BUNDLE_VERSION;
+}
+
+// ---------------------------------------------------------------------------
+// Parsers
+// ---------------------------------------------------------------------------
+
+/** Parse a `manifest.yaml` text into a typed `BundleManifest`.
+ *
+ * Validation is structural (presence of required fields + bundle_version
+ * literal); deeper conformance (path traversal, SHA256 matching, content
+ * schema validity) lives in the Python `check_bundle_conformance`. */
+export function parseManifest(yamlText: string): BundleManifest {
+  const parsed = yaml.load(yamlText);
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("manifest.yaml does not parse to a YAML mapping");
+  }
+  const m = parsed as Partial<BundleManifest>;
+  if (m.bundle_version !== BUNDLE_VERSION) {
+    throw new Error(
+      `bundle_version ${m.bundle_version} != frozen ${BUNDLE_VERSION}`,
+    );
+  }
+  for (const required of [
+    "bundle_id",
+    "decision_id",
+    "pool_id",
+    "report_id",
+    "generator_model",
+    "polaris_version",
+    "files",
+    "bundle_created_at_utc",
+  ] as const) {
+    if (m[required] === undefined || m[required] === null) {
+      throw new Error(`manifest.yaml missing required field: ${required}`);
+    }
+  }
+  if (!Array.isArray(m.files)) {
+    throw new Error("manifest.yaml `files` must be an array");
+  }
+  return m as BundleManifest;
+}
+
+/** Parse a `reasoning_trace.jsonl` text body into a list of records.
+ *
+ * One JSON object per non-empty line; blank lines are skipped. Malformed
+ * lines throw to surface bundle corruption at the source. */
+export function parseReasoningTraceJsonl(text: string): ReasoningTraceRecord[] {
+  const out: ReasoningTraceRecord[] = [];
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.trim() === "") continue;
+    let record: unknown;
+    try {
+      record = JSON.parse(line);
+    } catch (err) {
+      throw new Error(
+        `reasoning_trace.jsonl line ${i + 1} is not valid JSON: ${(err as Error).message}`,
+      );
+    }
+    if (
+      typeof record !== "object" ||
+      record === null ||
+      Array.isArray(record)
+    ) {
+      throw new Error(
+        `reasoning_trace.jsonl line ${i + 1} is not a JSON object`,
+      );
+    }
+    out.push(record as ReasoningTraceRecord);
+  }
+  return out;
+}
+
+/** Helper: filter `BundleManifest.files` by ContentType. */
+export function filesByContentType(
+  manifest: BundleManifest,
+  contentType: ContentType,
+): FileEntry[] {
+  return manifest.files.filter((f) => f.content_type === contentType);
+}
+
+
+ succeeded in 2305ms:
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+import math
+
+def oklch_to_srgb(L, C, h_deg):
+    h = math.radians(h_deg)
+    a = C * math.cos(h)
+    b = C * math.sin(h)
+    l_ = L + 0.3963377774 * a + 0.2158037573 * b
+    m_ = L - 0.1055613458 * a - 0.0638541728 * b
+    s_ = L - 0.0894841775 * a - 1.2914855480 * b
+    l = l_ ** 3
+    m = m_ ** 3
+    s = s_ ** 3
+    r = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+    g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+    bl = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+    def comp(x):
+        if x <= 0.0031308:
+            y = 12.92 * x
+        else:
+            y = 1.055 * (x ** (1/2.4)) - 0.055
+        return max(0, min(1, y))
+    return tuple(comp(x) for x in (r, g, bl))
+
+def oklch_gray(L):
+    return oklch_to_srgb(L, 0, 0)
+
+def rel_lum(rgb):
+    def lin(c):
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    r,g,b=map(lin,rgb)
+    return 0.2126*r + 0.7152*g + 0.0722*b
+
+def contrast(a,b):
+    La,Lb=rel_lum(a),rel_lum(b)
+    hi,lo=max(La,Lb),min(La,Lb)
+    return (hi+0.05)/(lo+0.05)
+
+verified=oklch_to_srgb(0.48,0.14,152)
+muted_fg=oklch_gray(0.556)
+foreground=oklch_to_srgb(0.21,0.006,285.9)
+white=(1,1,1)
+card_light=oklch_gray(1)
+card_dark=oklch_gray(0.205)
+muted_dark=oklch_gray(0.269)
+for name, fg, bg in [
+    ('verified on light card', verified, card_light),
+    ('muted fg on light card', muted_fg, card_light),
+    ('foreground on muted light', foreground, oklch_gray(0.97)),
+    ('verified on dark card', verified, card_dark),
+    ('foreground dark on muted dark', oklch_gray(0.985), muted_dark),
+]:
+    print(name, round(contrast(fg,bg), 3), tuple(round(x*255) for x in fg), tuple(round(x*255) for x in bg))
+'@ | python -" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\app\\generation\\components\\verified_report_view.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\components\\app_shell.tsx" in C:\POLARIS
+ succeeded in 1345ms:
+import Link from "next/link";
+
+import { NavLink } from "@/components/nav_link";
+import { PRIMARY_NAV, navForRole } from "@/lib/nav";
+import { DEFAULT_ROLE } from "@/lib/roles";
+
+/**
+ * I-cd-004: the global app shell. A server component that wraps every prod
+ * route with a single header + primary nav. The 8 primary nav entries are
+ * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+ *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+ *
+ * Out of scope for this issue (each its own later issue per the Seq-N order):
+ *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+ *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+ *    /dashboard rather than top-nav entries.
+ *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+ *    retired at that point (not merely hidden — per Codex P2).
+ *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+ *    I-cd-015.
+ *  - Auth gating of the nav itself is deferred to I-cd-014.
+ *  - Per-page rebuilds happen in the I-cd-013..030 series.
+ */
+// I-p2-029 (#768): PRIMARY_NAV now lives in @/lib/nav (single source of truth,
+// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <header className="border-border bg-background sticky top-0 z-40 border-b">
+        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <nav className="flex items-center gap-1" aria-label="Primary">
+            {navForRole(PRIMARY_NAV, DEFAULT_ROLE).map((item) => (
+              <NavLink key={item.href} href={item.href}>
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+          {/* I-ui-010 (#730): sovereign mark — honest wording (NOT a false
+              air-gap claim; we retrieve public sources via logged Canadian
+              egress). Eye-level badge of strength, not fine print. */}
+          <span
+            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+          >
+            ⬡ Canadian AI · no external AI vendor
+          </span>
+        </div>
+      </header>
+      <main className="flex-1">{children}</main>
+    </>
+  );
+}
+
+
+ succeeded in 1700ms:
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSentenceHover } from "@/lib/sentence_highlight";
+import { cn } from "@/lib/utils";
+import {
+  keptSentences,
+  type AssertionSurface,
+  type ContradictionSignal,
+  type DropReason,
+  type EvaluatorDisagreement,
+  type EvidencePool,
+  type ReportVerifiedSentence,
+  type VerifiedReport,
+  type VerifiedReportSection,
+} from "@/lib/api";
+
+import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+
+import { ContradictionPane } from "./contradiction_pane";
+import { EvaluatorPane } from "./evaluator_pane";
+import { MultiSourcePanel } from "./multi_source_panel";
+
+const ASSERTION_SURFACES: AssertionSurface[] = [
+  "prose",
+  "table",
+  "summary_bullet",
+  "limitation",
+  "caption",
+  "heading",
+];
+
+const SURFACE_LABEL: Record<AssertionSurface, string> = {
+  prose: "Prose",
+  table: "Table",
+  summary_bullet: "Summary bullet",
+  limitation: "Limitation",
+  caption: "Caption",
+  heading: "Heading",
+};
+
+import { FrameCoveragePanel } from "./frame_coverage_panel";
+import { SentenceInspector } from "./sentence_inspector";
+
+const STATUS_TONE: Record<string, string> = {
+  verified:
+    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  regenerated:
+    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+};
+
+const DROP_REASON_LABEL: Record<DropReason, string> = {
+  invalid_token: "Invalid token (source not in pool)",
+  span_out_of_range: "Span out of range",
+  numeric_mismatch: "Numeric mismatch (decimal not in cited span)",
+  overlap_too_low: "Insufficient content overlap",
+  no_provenance_token: "No provenance token",
+};
+
+function VerdictBadge({
+  verdict,
+}: {
+  verdict: "success" | "abort_no_verified_sections";
+}) {
+  const ok = verdict === "success";
+  return (
+    <span
+      data-testid="verdict-badge"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
+        ok
+          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+      )}
+    >
+      <span aria-hidden="true">{ok ? "●" : "◌"}</span>
+      {ok ? "Success" : "Aborted (no verified sections)"}
+    </span>
+  );
+}
+
+const MULTI_SOURCE_THRESHOLD = 3;
+
+function SentenceRow({
+  sentence,
+  show_dropped,
+  sentence_id,
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  onSelectEvaluator,
+  onSelectMultiSource,
+  pool,
+}: {
+  sentence: ReportVerifiedSentence;
+  show_dropped: boolean;
+  sentence_id: string;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
+  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+  onSelectMultiSource: (payload: {
+    tokens: ParsedToken[];
+    sentence_text: string;
+  }) => void;
+  pool: EvidencePool | null;
+}) {
+  const dropped = !sentence.verifier_pass;
+  if (dropped && !show_dropped) return null;
+
+  // I-f6-004: parse provenance tokens once; reused for both T1-conflict
+  // detection and multi-source badge threshold.
+  const parsed_tokens = parseAllTokens(sentence.provenance_tokens);
+  const distinct_source_count = new Set(parsed_tokens.map((t) => t.source_id))
+    .size;
+
+  // I-f5-010: T1-conflict HEURISTIC — when ≥2 distinct T1 sources are cited
+  // for one sentence, surface a "may conflict — review Inspector" caption.
+  // Honest framing per CLAUDE.md §9.4: this is NOT a semantic conflict
+  // detector; it's a flag prompting human review.
+  const t1_conflict = (() => {
+    if (!pool || dropped) return false;
+    const cited_t1 = new Set<string>();
+    for (const tok of sentence.provenance_tokens) {
+      const m = tok.match(/^\[#ev:([a-zA-Z0-9_\-]+):/);
+      if (!m) continue;
+      const src = pool.sources.find((s) => s.source_id === m[1]);
+      if (src && src.tier === "T1") cited_t1.add(m[1]);
+    }
+    return cited_t1.size >= 2;
+  })();
+
+  return (
+    <li
+      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+      data-sentence-id={sentence_id}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(sentence_id, sentence)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(sentence_id, sentence);
+        }
+      }}
+      className={cn(
+        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+        dropped
+          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+          : "border-border bg-background",
+        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {(() => {
+          const surface = sentence.assertion_surface ?? "prose";
+          if (surface === "prose") return null;
+          return (
+            <span
+              data-testid={`surface-badge-${surface}`}
+              title={`Assertion surface: ${SURFACE_LABEL[surface]} (gated through Inspector)`}
+              className="inline-flex shrink-0 items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+            >
+              {SURFACE_LABEL[surface]}
+            </span>
+          );
+        })()}
+        <span className={cn(dropped ? "" : "text-foreground")}>
+          {sentence.sentence_text}
+        </span>
+      </div>
+      {sentence.provenance_tokens.length > 0 && !dropped ? (
+        <span className="text-muted-foreground font-mono text-[10px]">
+          {sentence.provenance_tokens.join(" ")}
+        </span>
+      ) : null}
+      {!dropped &&
+      parsed_tokens.some((t) => t.source_id.startsWith("ev_memory_")) ? (
+        <span
+          data-testid={`prior-run-badge-${sentence_id}`}
+          title={`Cites prior workspace run via ${parsed_tokens
+            .filter((t) => t.source_id.startsWith("ev_memory_"))
+            .map((t) => t.source_id)
+            .join(", ")}`}
+          className="inline-flex w-fit items-center rounded border border-purple-500/40 bg-purple-500/5 px-2 py-0.5 text-[10px] font-medium tracking-widest text-purple-700 uppercase dark:text-purple-300"
+        >
+          from prior run
+        </span>
+      ) : null}
+      {dropped && sentence.drop_reason ? (
+        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+          dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+        </span>
+      ) : null}
+      {!dropped && sentence.evaluator_agrees === false ? (
+        <button
+          type="button"
+          data-testid={`evaluator-flag-${sentence_id}`}
+          title="Two-family evaluator disagrees with generator's claim per CLAUDE.md §9.1 invariant 1."
+          onClick={(e) => {
+            e.stopPropagation();
+            if (sentence.evaluator_disagreement)
+              onSelectEvaluator(sentence.evaluator_disagreement);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              if (sentence.evaluator_disagreement)
+                onSelectEvaluator(sentence.evaluator_disagreement);
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-rose-700 uppercase hover:bg-rose-500/10 focus:ring-2 focus:ring-rose-400 focus:outline-none dark:text-rose-300"
+        >
+          ⚠ Internal evaluator flagged this
+        </button>
+      ) : null}
+      {!dropped && sentence.contradiction ? (
+        <button
+          type="button"
+          data-testid={`inspector-contradiction-${sentence_id}`}
+          title={sentence.contradiction.summary}
+          onClick={(e) => {
+            // Codex iter-1 P2: stop propagation so the parent row's
+            // SentenceInspector doesn't ALSO open.
+            e.stopPropagation();
+            if (sentence.contradiction)
+              onSelectContradiction(sentence.contradiction);
+          }}
+          onKeyDown={(e) => {
+            // Codex iter-1 P1: keyboard activation must not bubble to the
+            // parent row onKeyDown either, otherwise SentenceInspector opens.
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              if (sentence.contradiction)
+                onSelectContradiction(sentence.contradiction);
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-300"
+        >
+          {(() => {
+            const kind = sentence.contradiction.kind ?? "multi_source";
+            if (kind === "self_contradiction") {
+              // Codex iter-1 P2: self-contradiction span count comes from
+              // sides.length, NOT disagreeing_source_count (which is 1).
+              const span_n = sentence.contradiction.sides?.length ?? 0;
+              return `⚠ Source self-contradicts (${span_n} spans)`;
+            }
+            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
+          })()}
+        </button>
+      ) : null}
+      {t1_conflict ? (
+        <span
+          data-testid="inspector-t1-conflict"
+          title="Multiple T1 sources cited — they may conflict; review Inspector. Heuristic flag, not a semantic conflict detection."
+          className="inline-flex items-center gap-1 text-[10px] tracking-widest text-amber-700 uppercase dark:text-amber-300"
+        >
+          ⚠ T1 sources may conflict — review Inspector
+        </span>
+      ) : null}
+      {!dropped && distinct_source_count >= MULTI_SOURCE_THRESHOLD ? (
+        <button
+          type="button"
+          data-testid={`multi-source-${sentence_id}`}
+          title="Multi-source claim — open the cross-ref panel to see all cited sources side-by-side."
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelectMultiSource({
+              tokens: parsed_tokens,
+              sentence_text: sentence.sentence_text,
+            });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              onSelectMultiSource({
+                tokens: parsed_tokens,
+                sentence_text: sentence.sentence_text,
+              });
+            }
+          }}
+          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-blue-700 uppercase hover:bg-blue-500/10 focus:ring-2 focus:ring-blue-400 focus:outline-none dark:text-blue-300"
+        >
+          📚 {distinct_source_count} sources
+        </button>
+      ) : null}
+    </li>
+  );
+}
+
+function SectionCard({
+  section,
+  show_dropped,
+  hovered_id,
+  onSelect,
+  onSelectContradiction,
+  onSelectEvaluator,
+  onSelectMultiSource,
+  pool,
+}: {
+  section: VerifiedReportSection;
+  show_dropped: boolean;
+  hovered_id: string | null;
+  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+  onSelectContradiction: (signal: ContradictionSignal) => void;
+  onSelectEvaluator: (d: EvaluatorDisagreement) => void;
+  onSelectMultiSource: (payload: {
+    tokens: ParsedToken[];
+    sentence_text: string;
+  }) => void;
+  pool: EvidencePool | null;
+}) {
+  const kept = keptSentences(section);
+  const dropped_count = section.verified_sentences.length - kept.length;
+  return (
+    <Card
+      data-testid={`section-${section.section_id}`}
+      className={cn(
+        "border",
+        section.section_status === "dropped" && "opacity-60",
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{section.section_title}</CardTitle>
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase",
+            STATUS_TONE[section.section_status],
+          )}
+        >
+          {section.section_status} ·{" "}
+          {Math.round(section.section_verify_pass_rate * 100)}%
+        </span>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {kept.length === 0 && !show_dropped ? (
+          <p className="text-muted-foreground text-sm">
+            No verified sentences in this section.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {section.verified_sentences.map((s, idx) => (
+              <SentenceRow
+                key={idx}
+                sentence={s}
+                show_dropped={show_dropped}
+                sentence_id={`${section.section_id}:${idx}`}
+                hovered_id={hovered_id}
+                onSelect={onSelect}
+                onSelectContradiction={onSelectContradiction}
+                onSelectEvaluator={onSelectEvaluator}
+                onSelectMultiSource={onSelectMultiSource}
+                pool={pool}
+              />
+            ))}
+          </ul>
+        )}
+        {!show_dropped && dropped_count > 0 ? (
+          <p className="text-muted-foreground text-xs italic">
+            {dropped_count} sentence{dropped_count > 1 ? "s" : ""} dropped by
+            strict-verify (toggle below to inspect).
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function VerifiedReportView({
+  report,
+  show_dropped = false,
+  pool = null,
+}: {
+  report: VerifiedReport;
+  show_dropped?: boolean;
+  pool?: EvidencePool | null;
+}) {
+  const { hovered_id, root_ref } = useSentenceHover();
+  const [inspector, setInspector] = useState<{
+    id: string;
+    sentence: ReportVerifiedSentence;
+  } | null>(null);
+  const [contradiction_open, set_contradiction_open] =
+    useState<ContradictionSignal | null>(null);
+  const [evaluator_open, set_evaluator_open] =
+    useState<EvaluatorDisagreement | null>(null);
+  const [multi_source_open, set_multi_source_open] = useState<{
+    tokens: ParsedToken[];
+    sentence_text: string;
+  } | null>(null);
+  return (
+    <div
+      ref={root_ref}
+      data-testid="verified-report-view"
+      className="flex flex-col gap-4"
+    >
+      <FrameCoveragePanel coverage={report.frame_coverage ?? null} />
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="text-lg">Verified report</CardTitle>
+          <VerdictBadge verdict={report.pipeline_verdict} />
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Generator</dt>
+            <dd className="text-foreground font-medium">
+              {report.generator_model}
+            </dd>
+            <dt className="text-muted-foreground">Evaluator</dt>
+            <dd
+              className="text-foreground flex items-center gap-2 font-medium"
+              data-testid="report-evaluator"
+            >
+              {report.evaluator_model}
+              {report.family_segregation_passed ? (
+                <span
+                  data-testid="family-segregated"
+                  title="Two-family segregation passed: evaluator and generator are from different training lineages."
+                  className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+                >
+                  ✓ Family segregated
+                </span>
+              ) : (
+                <span
+                  data-testid="family-not-segregated"
+                  title="Two-family segregation FAILED: evaluator and generator share training lineage."
+                  className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  ✗ Same family
+                </span>
+              )}
+            </dd>
+            <dt className="text-muted-foreground">Pass rate</dt>
+            <dd className="text-foreground font-medium">
+              {Math.round(report.overall_verify_pass_rate * 100)}%
+            </dd>
+            <dt className="text-muted-foreground">Sections</dt>
+            <dd className="text-foreground font-medium">
+              {
+                report.sections.filter((s) => s.section_status !== "dropped")
+                  .length
+              }{" "}
+              kept ·{" "}
+              {
+                report.sections.filter((s) => s.section_status === "dropped")
+                  .length
+              }{" "}
+              dropped
+            </dd>
+            <dt className="text-muted-foreground">Latency</dt>
+            <dd className="text-foreground font-medium">
+              {report.latency_ms} ms
+            </dd>
+          </dl>
+          <p
+            data-testid="assertion-surface-legend"
+            className="text-muted-foreground mt-3 text-xs"
+          >
+            Gated assertion surfaces (all clickable through Inspector):{" "}
+            {ASSERTION_SURFACES.map((s) => SURFACE_LABEL[s]).join(", ")}.
+          </p>
+        </CardContent>
+      </Card>
+
+      {report.sections.map((section) => (
+        <SectionCard
+          key={section.section_id}
+          section={section}
+          show_dropped={show_dropped}
+          hovered_id={hovered_id}
+          onSelect={(id, sentence) => setInspector({ id, sentence })}
+          onSelectContradiction={(signal) => set_contradiction_open(signal)}
+          onSelectEvaluator={(d) => set_evaluator_open(d)}
+          onSelectMultiSource={(payload) => set_multi_source_open(payload)}
+          pool={pool}
+        />
+      ))}
+      <ContradictionPane
+        open={contradiction_open !== null}
+        signal={contradiction_open}
+        onOpenChange={(open) => {
+          if (!open) set_contradiction_open(null);
+        }}
+      />
+      <EvaluatorPane
+        open={evaluator_open !== null}
+        disagreement={evaluator_open}
+        onOpenChange={(open) => {
+          if (!open) set_evaluator_open(null);
+        }}
+      />
+      <MultiSourcePanel
+        open={multi_source_open !== null}
+        tokens={multi_source_open?.tokens ?? []}
+        sentence_text={multi_source_open?.sentence_text ?? ""}
+        pool={pool}
+        onOpenChange={(open) => {
+          if (!open) set_multi_source_open(null);
+        }}
+      />
+      <SentenceInspector
+        open={inspector !== null}
+        onOpenChange={(open) => {
+          if (!open) setInspector(null);
+        }}
+        sentence={inspector?.sentence ?? null}
+        sentence_id={inspector?.id ?? null}
+        pool={pool}
+      />
+    </div>
+  );
+}
+
+
+ succeeded in 3224ms:
+verified on light card 6.036 (0, 115, 50) (255, 255, 255)
+muted fg on light card 4.732 (115, 115, 115) (255, 255, 255)
+foreground on muted light 16.256 (24, 24, 27) (245, 245, 245)
+verified on dark card 2.968 (0, 115, 50) (23, 23, 23)
+foreground dark on muted dark 14.477 (250, 250, 250) (38, 38, 38)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"className=\\\"dark|theme|darkMode|\\.dark|next-themes|prefers-color|localStorage.*theme|documentElement.classList\" web" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\package.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -File web | Where-Object {$_.Name -like '"'*tailwind*'} | Select-Object -ExpandProperty FullName" in C:\POLARIS
+ succeeded in 1335ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+
+2026-05-22T09:13:57.028372Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.6 seconds
+Output:
+
+ exited 1 in 1604ms:
+ succeeded in 1861ms:
+codex
+The component follows the existing token pattern (`bg-verified/10 text-verified border-verified/30`) and the light-mode contrast checks out above AA. There doesn’t appear to be an active dark-theme switch in `web/`, so I’m treating light mode as the in-context target for this gate and doing a TypeScript pass for compile-level issues.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck -- --pretty false' in C:\POLARIS\web
+ succeeded in 4643ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit --pretty false
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx eslint components/sovereignty/sovereignty_panel.tsx' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx prettier --check components/sovereignty/sovereignty_panel.tsx' in C:\POLARIS\web
+ succeeded in 3237ms:
+Checking formatting...
+All matched files use Prettier code style!
+
+ succeeded in 5452ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git ls-files --stage -- web\\components\\sovereignty\\sovereignty_panel.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show HEAD:web/components/sovereignty/sovereignty_panel.tsx' in C:\POLARIS
+ succeeded in 1218ms:
+// I-p2-009 (#748): sovereignty proof panel + signed-bundle mark. Surfaces the
+// sovereignty + integrity story as VERIFIABLE facts, not a marketing badge.
+// HONESTY: never claims "cryptographically signed" without a signature, never
+// "air-gapped", never asserts the two-family invariant passed without the real
+// family_segregation_passed field. Renders only fields present.
+import { BadgeCheck, ShieldCheck } from "lucide-react";
+
+interface SovereigntyPanelProps {
+  generatorModel?: string | null;
+  evaluatorModel?: string | null;
+  /** verified_report.family_segregation_passed — the real source of truth. */
+  familySegregationPassed?: boolean;
+  polarisVersion?: string | null;
+  bundleId?: string | null;
+  bundleCreatedAt?: string | null;
+  /** metadata.schema_version / manifest.bundle_version — rendered only if present. */
+  schemaVersion?: string | null;
+  /** Number of integrity-hashed files in the manifest (each carries a sha256). */
+  fileCount?: number | null;
+  /** A real detached signature — only then is "cryptographically signed" shown. */
+  signature?: string | null;
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-foreground font-mono">{value}</span>
+    </div>
+  );
+}
+
+export function SovereigntyPanel({
+  generatorModel,
+  evaluatorModel,
+  familySegregationPassed,
+  polarisVersion,
+  bundleId,
+  bundleCreatedAt,
+  schemaVersion,
+  fileCount,
+  signature,
+}: SovereigntyPanelProps) {
+  return (
+    <section
+      data-testid="sovereignty-panel"
+      className="border-border bg-card flex flex-col gap-4 rounded-md border p-4 text-sm"
+    >
+      {/* (a) Sovereignty — the honest shell wording */}
+      <div className="flex items-start gap-2">
+        <ShieldCheck
+          aria-hidden
+          className="text-primary mt-0.5 h-4 w-4 shrink-0"
+        />
+        <div>
+          <p className="text-foreground font-medium">Sovereign processing</p>
+          <p className="text-muted-foreground text-xs">
+            Canadian AI processing · public-source retrieval via logged Canadian
+            egress · no external AI vendor.
+          </p>
+        </div>
+      </div>
+
+      {/* (b) Two-family invariant — passed claim ONLY from the real field */}
+      {(generatorModel || evaluatorModel) && (
+        <div className="border-border flex flex-col gap-1 border-t pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-foreground font-medium">Two-family invariant</p>
+            {familySegregationPassed === true ? (
+              <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+                <BadgeCheck aria-hidden className="h-3 w-3 shrink-0" />
+                Verified
+              </span>
+            ) : familySegregationPassed === false ? (
+              <span className="bg-muted text-foreground border-border inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium">
+                Not verified
+              </span>
+            ) : null}
+          </div>
+          {generatorModel && <Row label="Generator" value={generatorModel} />}
+          {evaluatorModel && <Row label="Evaluator" value={evaluatorModel} />}
+        </div>
+      )}
+
+      {/* (c) Bundle integrity / signed mark — honest about what's proven */}
+      {(bundleId || polarisVersion || bundleCreatedAt || schemaVersion) && (
+        <div className="border-border flex flex-col gap-1 border-t pt-3">
+          <p className="text-foreground mb-1 font-medium">Signed bundle</p>
+          {bundleId && <Row label="Bundle" value={bundleId} />}
+          {schemaVersion && <Row label="Schema" value={schemaVersion} />}
+          {polarisVersion && <Row label="POLARIS" value={polarisVersion} />}
+          {bundleCreatedAt && <Row label="Created" value={bundleCreatedAt} />}
+          {signature ? (
+            <p className="text-verified mt-1 text-[11px]">
+              Cryptographically signed.
+            </p>
+          ) : fileCount != null ? (
+            <p className="text-muted-foreground mt-1 text-[11px]">
+              Integrity-hashed · {fileCount} files, sha256 per file
+              (tamper-evident).
+            </p>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
+ succeeded in 1439ms:
+100644 f5f4cc30623b378707464eb8fd66da09bad5f0a1 0	web/components/sovereignty/sovereignty_panel.tsx
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+merge_decision: MERGE AUTHORIZED
+tokens used
+90,696
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+merge_decision: MERGE AUTHORIZED

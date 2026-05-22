@@ -1,0 +1,3 @@
+verdict: APPROVE
+merge_decision: MERGE AUTHORIZED
+# Codex design+diff APPROVE iter1 + MERGE AUTHORIZED, 0 P0/P1. Sovereignty panel honest: no overclaim (signed only w/ signature; two-family only from real field; integrity-hashed not air-gapped). Visual verifies in-context at #759/#762.
