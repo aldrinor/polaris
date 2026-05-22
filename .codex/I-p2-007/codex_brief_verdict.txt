@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief APPROVE iter2 (null-guards + neutral Unverified + coherent a11y locked).

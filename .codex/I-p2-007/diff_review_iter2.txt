@@ -1,0 +1,3406 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4ee3-ddce-7280-9566-31edef4075fb
+--------
+user
+# Codex DESIGN+DIFF review — I-p2-007 (#746): Proof Replay split-view (CENTERPIECE)
+
+HARD ITERATION CAP: 5. iter 2 (iter-1 P1 token-string-filter + P2 stale-selection + a11y-label fixed). APPROVE iff zero P0/P1 (code + design rubric, esp. HONESTY + a11y). Final line MERGE AUTHORIZED if mergeable. Canonical-diff-sha256 `294b59c19f8d305915e13db910881153125d0e584472a583fc5e8a24b8efe7f3`. web/ only.
+
+## Design-audit note
+The identical click→span interaction was screenshot-verified earlier this session on the #734 branch (production standalone harness, real fixture); #746 is the clean reusable extraction using the shared resolveSpan. The full PAGE screenshot audit happens at #756 (which wires this to a real run). Audit code + rubric honesty/a11y here.
+
+## Diff
+- NEW web/components/proof_replay/proof_replay.tsx: split-view. LEFT = role=list of buttons (claims grouped by section, line-clamp-2, verified dot, aria-current selection, focus-visible /70). RIGHT = aria-live="polite" proof pane. flatten() builds claims; default selects first. ProofPane: verifier_pass→VerdictChip VERIFIED else neutral UnverifiedBadge; per token resolveSpan → null token / null source / empty tokens / null quote ALL show honest notes; only renders SourceCard when span.source non-null + the exact quote in a blockquote.
+- Composes #743 resolveSpan, #745 SourceCard, #744 VerdictChip.
+
+## Review focus (rubric: provability/HONESTY, a11y, responsive, code)
+1. HONESTY: every degenerate case (malformed token, missing source, empty tokens, null quote) shows an honest note, NEVER synthetic proof or a crash? (brief iter-1 P1)
+2. a11y: list semantics + aria-current (not mixed aria-selected); proof pane aria-live; keyboard nav + focus-visible; selected accent.
+3. Responsive: md:grid-cols-2 → stacked ≤768; the dense split at mobile + 400% reflow.
+4. verifier_pass binary not over-mapped to richer verdicts? Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+codex
+I’ll inspect the actual `web/` diff and the composed components/helpers before judging the review points, with the focus on honesty states and accessibility semantics.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web | rg "proof_replay|resolveSpan|source_card|verdict"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+ succeeded in 1372ms:
+ succeeded in 1633ms:
+web\components\verdict\verdict_chip.tsx
+web\components\source\source_card.tsx
+web\components\proof_replay\proof_replay.tsx
+
+ succeeded in 1971ms:
+ M .claude/settings.json
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-p2-007/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+codex
+`git diff -- web` is empty in this checkout, so this looks already applied to `HEAD` rather than sitting as an unstaged patch. I’m reading the component and its dependencies directly and will judge the implemented state.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "resolveSpan|type Proof|ProofReplay|SourceCard|VerdictChip|Unverified" web -n' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\components\\proof_replay\\proof_replay.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\components\\source\\source_card.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\components\\verdict\\verdict_chip.tsx" in C:\POLARIS
+ succeeded in 1625ms:
+web\components\citation\citation_chip.tsx:3:// tap → source card with the EXACT cited span (untruncated) via resolveSpan.
+web\components\citation\citation_chip.tsx:10:import { resolveSpan } from "@/lib/evidence_span";
+web\components\citation\citation_chip.tsx:33:  const span = resolveSpan(token, evidencePool);
+web\lib\evidence_span.ts:39:export function resolveSpan(
+web\components\verdict\verdict_chip.tsx:72:export function VerdictChip({ verdict }: { verdict: VerdictKind }) {
+web\components\proof_replay\proof_replay.tsx:3:// shared resolveSpan (#743) + SourceCard (#745) + VerdictChip (#744). Honest:
+web\components\proof_replay\proof_replay.tsx:11:  SourceCard,
+web\components\proof_replay\proof_replay.tsx:12:  type SourceCardSource,
+web\components\proof_replay\proof_replay.tsx:14:import { VerdictChip } from "@/components/verdict/verdict_chip";
+web\components\proof_replay\proof_replay.tsx:15:import { resolveSpan } from "@/lib/evidence_span";
+web\components\proof_replay\proof_replay.tsx:18:interface ProofReplayProps {
+web\components\proof_replay\proof_replay.tsx:56:function UnverifiedBadge() {
+web\components\proof_replay\proof_replay.tsx:59:      Unverified
+web\components\proof_replay\proof_replay.tsx:76:          <VerdictChip verdict="VERIFIED" />
+web\components\proof_replay\proof_replay.tsx:78:          <UnverifiedBadge />
+web\components\proof_replay\proof_replay.tsx:89:            const span = resolveSpan(token, evidencePool);
+web\components\proof_replay\proof_replay.tsx:112:            const cardSource: SourceCardSource = {
+web\components\proof_replay\proof_replay.tsx:120:                <SourceCard source={cardSource} />
+web\components\proof_replay\proof_replay.tsx:139:export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
+web\components\proof_replay\proof_replay.tsx:178:                aria-label={`${claim.verified ? "Verified" : "Unverified"} claim: ${claim.text}`}
+web\components\source\source_card.tsx:6:export interface SourceCardSource {
+web\components\source\source_card.tsx:16:interface SourceCardProps {
+web\components\source\source_card.tsx:17:  source: SourceCardSource;
+web\components\source\source_card.tsx:33:  // Dedicated stance badge (NOT the claim VerdictChip): support=green,
+web\components\source\source_card.tsx:51:export function SourceCard({ source, stance, contentHash }: SourceCardProps) {
+web\app\generation\components\sentence_inspector.tsx:132:function SourceCard({
+web\app\generation\components\sentence_inspector.tsx:292:                    <SourceCard
+
+ succeeded in 1904ms:
+// I-p2-007 (#746): Proof Replay split-view — POLARIS's centerpiece. Click a
+// verified claim (left) → see the EXACT cited source span (right). Composes the
+// shared resolveSpan (#743) + SourceCard (#745) + VerdictChip (#744). Honest:
+// malformed/missing/empty provenance never crashes — it shows an honest note,
+// never synthetic proof.
+"use client";
+
+import { useMemo, useState } from "react";
+
+import {
+  SourceCard,
+  type SourceCardSource,
+} from "@/components/source/source_card";
+import { VerdictChip } from "@/components/verdict/verdict_chip";
+import { resolveSpan } from "@/lib/evidence_span";
+import type { VerifiedReportSectionShape } from "@/lib/inspector_bundle_loader";
+
+interface ProofReplayProps {
+  sections: VerifiedReportSectionShape[];
+  evidencePool: unknown;
+}
+
+interface FlatClaim {
+  key: string;
+  sectionId: string;
+  sectionTitle: string | null;
+  text: string;
+  tokens: string[];
+  verified: boolean;
+}
+
+function flatten(sections: VerifiedReportSectionShape[]): FlatClaim[] {
+  const out: FlatClaim[] = [];
+  sections.forEach((section, si) => {
+    const title =
+      (typeof section.section_title === "string" && section.section_title) ||
+      null;
+    section.verified_sentences?.forEach((s, i) => {
+      out.push({
+        key: `${si}:${i}`,
+        sectionId: section.section_id,
+        sectionTitle: title,
+        text: s.sentence_text,
+        tokens: Array.isArray(s.provenance_tokens)
+          ? s.provenance_tokens.filter(
+              (t): t is string => typeof t === "string",
+            )
+          : [],
+        verified: s.verifier_pass === true,
+      });
+    });
+  });
+  return out;
+}
+
+function UnverifiedBadge() {
+  return (
+    <span className="bg-muted text-foreground border-border inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium">
+      Unverified
+    </span>
+  );
+}
+
+function ProofPane({
+  claim,
+  evidencePool,
+}: {
+  claim: FlatClaim;
+  evidencePool: unknown;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-foreground text-sm leading-snug">{claim.text}</p>
+        {claim.verified ? (
+          <VerdictChip verdict="VERIFIED" />
+        ) : (
+          <UnverifiedBadge />
+        )}
+      </div>
+
+      {claim.tokens.length === 0 ? (
+        <p className="text-muted-foreground text-xs">
+          No provenance tokens recorded for this claim.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {claim.tokens.map((token, i) => {
+            const span = resolveSpan(token, evidencePool);
+            if (span === null) {
+              return (
+                <p
+                  key={`${token}-${i}`}
+                  className="text-muted-foreground text-xs"
+                >
+                  Unresolvable provenance token:{" "}
+                  <span className="font-mono">{token}</span>
+                </p>
+              );
+            }
+            if (span.source === null) {
+              return (
+                <p
+                  key={`${token}-${i}`}
+                  className="text-muted-foreground text-xs"
+                >
+                  Source <span className="font-mono">{span.sourceId}</span> not
+                  in this bundle — verify via the signed bundle.
+                </p>
+              );
+            }
+            const cardSource: SourceCardSource = {
+              source_id: span.source.source_id,
+              title: span.source.title,
+              url: span.source.url,
+              tier: span.source.tier,
+            };
+            return (
+              <div key={`${token}-${i}`} className="flex flex-col gap-1">
+                <SourceCard source={cardSource} />
+                {span.quote != null ? (
+                  <blockquote className="border-primary text-foreground max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-snug italic">
+                    &ldquo;{span.quote}&rdquo;
+                  </blockquote>
+                ) : (
+                  <p className="text-muted-foreground text-xs">
+                    Span not renderable from this bundle.
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
+  const claims = useMemo(() => flatten(sections), [sections]);
+  const [selectedKey, setSelectedKey] = useState<string | null>(
+    claims[0]?.key ?? null,
+  );
+  // Fall back to the first claim if the selected key is stale (e.g. sections
+  // changed after mount), so the proof pane keeps its default-first behavior.
+  const selected =
+    claims.find((c) => c.key === selectedKey) ?? claims[0] ?? null;
+
+  if (claims.length === 0) {
+    return (
+      <p className="text-muted-foreground text-sm">
+        No verified claims in this report.
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <div
+        role="list"
+        aria-label="Claims"
+        className="border-border flex max-h-[32rem] flex-col gap-1 overflow-auto rounded-md border p-2"
+      >
+        {claims.map((claim, i) => {
+          const isSelected = claim.key === selectedKey;
+          const showHeading =
+            i === 0 || claims[i - 1].sectionId !== claim.sectionId;
+          return (
+            <div key={claim.key} role="listitem">
+              {showHeading && claim.sectionTitle && (
+                <p className="text-muted-foreground mt-2 mb-1 px-2 text-[11px] font-medium tracking-wide uppercase">
+                  {claim.sectionTitle}
+                </p>
+              )}
+              <button
+                type="button"
+                aria-current={isSelected ? "true" : undefined}
+                aria-label={`${claim.verified ? "Verified" : "Unverified"} claim: ${claim.text}`}
+                onClick={() => setSelectedKey(claim.key)}
+                className={`focus-visible:ring-ring/70 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs leading-snug transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+                  isSelected
+                    ? "bg-primary/10 text-foreground border-primary border-l-2"
+                    : "text-muted-foreground hover:bg-muted border-l-2 border-transparent"
+                }`}
+              >
+                <span
+                  aria-hidden
+                  className={`mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+                    claim.verified ? "bg-verified" : "bg-muted-foreground"
+                  }`}
+                />
+                <span className="line-clamp-2">{claim.text}</span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div
+        aria-live="polite"
+        aria-label="Proof for the selected claim"
+        className="border-border rounded-md border p-4"
+      >
+        {selected ? (
+          <ProofPane claim={selected} evidencePool={evidencePool} />
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            Select a claim to see its proof.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+ succeeded in 2195ms:
+// I-p2-006 (#745): source / evidence card — a single retrieved source's
+// identity + provenance. Renders ONLY fields actually present (no fabricated
+// hash/version/stance). #742 tier tokens; Frontier-Minimal hairline card.
+import { Check, ExternalLink, TriangleAlert } from "lucide-react";
+
+export interface SourceCardSource {
+  source_id: string;
+  title?: string | null;
+  url?: string | null;
+  domain?: string | null;
+  tier?: string | number | null;
+  authors?: string[] | null;
+  snippet?: string | null;
+}
+
+interface SourceCardProps {
+  source: SourceCardSource;
+  /** Run-level stance toward a claim — rendered ONLY when the consumer passes
+   * it (not intrinsic to a source). */
+  stance?: "support" | "contradict" | null;
+  /** Bundle/source content hash — rendered ONLY when provided (never invented). */
+  contentHash?: string | null;
+}
+
+function tierDotClass(tier: string | number | null | undefined): string {
+  const t = String(tier ?? "").toUpperCase();
+  if (t === "T1" || t === "1") return "bg-tier-1";
+  if (t === "T2" || t === "2") return "bg-tier-2";
+  return "bg-tier-3";
+}
+
+function StanceBadge({ stance }: { stance: "support" | "contradict" }) {
+  // Dedicated stance badge (NOT the claim VerdictChip): support=green,
+  // contradict=amber, each with icon + label (never color-only).
+  if (stance === "support") {
+    return (
+      <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+        <Check aria-hidden className="h-3 w-3 shrink-0" />
+        Supports
+      </span>
+    );
+  }
+  return (
+    <span className="bg-contradiction/15 text-contradiction-foreground border-contradiction/40 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+      <TriangleAlert aria-hidden className="h-3 w-3 shrink-0" />
+      Contradicts
+    </span>
+  );
+}
+
+export function SourceCard({ source, stance, contentHash }: SourceCardProps) {
+  const { source_id, title, url, domain, tier, authors, snippet } = source;
+  return (
+    <article
+      data-testid="source-card"
+      data-source-id={source_id}
+      className="border-border bg-card flex flex-col gap-2 rounded-md border p-4 text-sm"
+    >
+      <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-[11px]">
+        {tier != null && (
+          <span className="border-border inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+            <span
+              aria-hidden
+              className={`inline-block h-1.5 w-1.5 rounded-full ${tierDotClass(tier)}`}
+            />
+            Tier {String(tier).replace(/^T/i, "")}
+          </span>
+        )}
+        {stance && <StanceBadge stance={stance} />}
+        <span className="ml-auto font-mono">{source_id}</span>
+      </div>
+
+      {title &&
+        (url ? (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-foreground hover:text-primary focus-visible:ring-ring/70 inline-flex items-start gap-1 font-medium underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:outline-none"
+          >
+            {title}
+            <ExternalLink aria-hidden className="mt-0.5 h-3 w-3 shrink-0" />
+          </a>
+        ) : (
+          <p className="text-foreground font-medium">{title}</p>
+        ))}
+
+      {(domain || (authors && authors.length > 0)) && (
+        <p className="text-muted-foreground text-xs">
+          {domain}
+          {domain && authors && authors.length > 0 && " · "}
+          {authors && authors.length > 0 && authors.join(", ")}
+        </p>
+      )}
+
+      {snippet && (
+        <p className="text-foreground/80 line-clamp-3 text-xs leading-snug">
+          {snippet}
+        </p>
+      )}
+
+      {contentHash && (
+        <p className="text-muted-foreground truncate font-mono text-[10px]">
+          sha256 {contentHash}
+        </p>
+      )}
+    </article>
+  );
+}
+
+
+ succeeded in 2570ms:
+// I-p2-005 (#744): per-claim verdict chip. THREE signals (state color + icon +
+// label) so a verdict is never distinguished by color alone (WCAG 1.4.1).
+// Consumes the #742 state tokens. Display-only (non-interactive). Honest
+// labels — FABRICATED and UNREACHABLE are real, distinct, serious verdicts.
+import {
+  BadgeCheck,
+  Ban,
+  CircleHelp,
+  CircleSlash,
+  Minus,
+  TriangleAlert,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+
+export type VerdictKind =
+  | "VERIFIED"
+  | "PARTIAL"
+  | "UNSUPPORTED"
+  | "FABRICATED"
+  | "UNREACHABLE"
+  | "contradiction"
+  | "refusal";
+
+interface VerdictMeta {
+  label: string;
+  Icon: LucideIcon;
+  /** Tint bg + readable text + border, all AA from #742 tokens. */
+  className: string;
+}
+
+const VERDICT_META: Record<VerdictKind, VerdictMeta> = {
+  VERIFIED: {
+    label: "Verified",
+    Icon: BadgeCheck,
+    className: "bg-verified/10 text-verified border-verified/30",
+  },
+  PARTIAL: {
+    label: "Partial",
+    Icon: CircleSlash,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  UNSUPPORTED: {
+    label: "Unsupported",
+    Icon: Minus,
+    className: "bg-muted text-foreground border-border",
+  },
+  FABRICATED: {
+    label: "Fabricated",
+    Icon: X,
+    className: "bg-destructive/10 text-destructive border-destructive/40",
+  },
+  UNREACHABLE: {
+    label: "Unreachable",
+    Icon: CircleHelp,
+    className: "bg-muted text-foreground border-border border-dashed",
+  },
+  contradiction: {
+    label: "Contradiction",
+    Icon: TriangleAlert,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  refusal: {
+    label: "Refusal",
+    Icon: Ban,
+    className: "bg-refusal/10 text-refusal border-refusal/30",
+  },
+};
+
+export function VerdictChip({ verdict }: { verdict: VerdictKind }) {
+  const meta = VERDICT_META[verdict];
+  return (
+    <span
+      data-testid="verdict-chip"
+      data-verdict={verdict}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
+    >
+      <meta.Icon aria-hidden className="h-3 w-3 shrink-0" />
+      {meta.label}
+    </span>
+  );
+}
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\lib\\evidence_span.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "ProofReplay|proof_replay" web -n' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"interface VerifiedReportSectionShape|type VerifiedReportSectionShape|verified_sentences|provenance_tokens|verifier_pass\" web\\lib web\\components -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Recurse -Path web -Filter "*.test.*" | Select-String -Pattern "ProofReplay|resolveSpan|SourceCard|VerdictChip" -List | ForEach-Object { $_.Path }' in C:\POLARIS
+ succeeded in 1331ms:
+// I-p2-004 (#743): the SINGLE shared resolver for provenance-token → exact
+// source span. Consumed by the citation chip now and by the Proof-Replay
+// inspector (#756) — one resolver boundary, no duplicate parsing.
+//
+// No-synthetic-proof contract (Codex brief iter-2/3): returns quote=null
+// (→ honest fallback) unless the bounds are fully valid against the actual
+// source body. NEVER a silently-clamped slice (that would be synthetic proof).
+
+import { parseProvenanceToken } from "@/lib/provenance_tokens";
+
+export interface EvidenceSource {
+  source_id: string;
+  full_text?: string | null;
+  snippet?: string | null;
+  title?: string | null;
+  url?: string | null;
+  tier?: string | number | null;
+}
+
+export interface ResolvedSpan {
+  raw: string;
+  sourceId: string;
+  source: EvidenceSource | null;
+  start: number;
+  end: number;
+  /** The EXACT cited passage `full_text[start:end]`, or null when unresolved
+   * (missing source / no full_text / out-of-range bounds) — never clamped. */
+  quote: string | null;
+}
+
+function sourcesOf(evidencePool: unknown): EvidenceSource[] {
+  const s = (evidencePool as { sources?: unknown } | null)?.sources;
+  return Array.isArray(s) ? (s as EvidenceSource[]) : [];
+}
+
+/** Resolve a `[#ev:<id>:<start>-<end>]` token against the evidence pool.
+ * Returns null if the token itself is malformed; otherwise a ResolvedSpan
+ * whose `quote` is null unless every bound is valid against the real body. */
+export function resolveSpan(
+  token: string,
+  evidencePool: unknown,
+): ResolvedSpan | null {
+  const parsed = parseProvenanceToken(token);
+  if (!parsed) return null;
+  // sources is an ARRAY → look up by source_id (never index).
+  const source =
+    sourcesOf(evidencePool).find((s) => s?.source_id === parsed.source_id) ??
+    null;
+  const body = source?.full_text ?? null; // exact span only from full_text
+  let quote: string | null = null;
+  if (
+    typeof body === "string" &&
+    body.length > 0 &&
+    parsed.start >= 0 &&
+    parsed.end <= body.length &&
+    parsed.start <= parsed.end
+  ) {
+    quote = body.slice(parsed.start, parsed.end);
+  }
+  return {
+    raw: token,
+    sourceId: parsed.source_id,
+    source,
+    start: parsed.start,
+    end: parsed.end,
+    quote,
+  };
+}
+
+
+ succeeded in 1663ms:
+web\components\proof_replay\proof_replay.tsx:18:interface ProofReplayProps {
+web\components\proof_replay\proof_replay.tsx:139:export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
+
+ succeeded in 1936ms:
+web\lib\api.ts:202:  provenance_tokens: string[];
+web\lib\api.ts:425:  provenance_tokens: string[];
+web\lib\api.ts:440:  verified_sentences: VerifiedSentence[];
+web\lib\api.ts:814:  provenance_tokens: string[];
+web\lib\api.ts:815:  verifier_pass: boolean;
+web\lib\api.ts:889:  verified_sentences: ReportVerifiedSentence[];
+web\lib\api.ts:927:  verifier_pass_threshold: number;
+web\lib\api.ts:1007:  return section.verified_sentences.filter((s) => s.verifier_pass);
+web\lib\evidence_span.ts:9:import { parseProvenanceToken } from "@/lib/provenance_tokens";
+web\lib\inspector_bundle_loader.ts:47:  verifier_pass_threshold: number;
+web\lib\inspector_bundle_loader.ts:58:export interface VerifiedReportSectionShape {
+web\lib\inspector_bundle_loader.ts:61:  verified_sentences: VerifiedSentenceShape[];
+web\lib\inspector_bundle_loader.ts:68:  provenance_tokens: string[];
+web\lib\inspector_bundle_loader.ts:69:  verifier_pass: boolean;
+web\components\proof_replay\proof_replay.tsx:38:    section.verified_sentences?.forEach((s, i) => {
+web\components\proof_replay\proof_replay.tsx:44:        tokens: Array.isArray(s.provenance_tokens)
+web\components\proof_replay\proof_replay.tsx:45:          ? s.provenance_tokens.filter(
+web\components\proof_replay\proof_replay.tsx:49:        verified: s.verifier_pass === true,
+web\components\inspector\verified_report_sections.tsx:4://   sections[].verified_sentences
+web\components\inspector\verified_report_sections.tsx:5://   verified_sentences[].provenance_tokens (token strings)
+web\components\inspector\verified_report_sections.tsx:82:        {section.verified_sentences.map((sentence, idx) => (
+web\components\inspector\verified_report_sections.tsx:99:      data-verifier-pass={sentence.verifier_pass}
+web\components\inspector\verified_report_sections.tsx:102:      {sentence.provenance_tokens.length > 0 && (
+web\components\inspector\verified_report_sections.tsx:109:          {showTokens ? "Hide" : "Show"} {sentence.provenance_tokens.length}{" "}
+web\components\inspector\verified_report_sections.tsx:111:          {sentence.provenance_tokens.length === 1 ? "" : "s"}
+web\components\inspector\verified_report_sections.tsx:116:          {sentence.provenance_tokens.map((t) => (
+
+ succeeded in 4750ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\lib\\inspector_bundle_loader.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\lib\\provenance_tokens.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\components\\inspector\\verified_report_sections.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\components\\citation\\citation_chip.tsx" in C:\POLARIS
+ succeeded in 1972ms:
+// I-cd-013a (GH#609) — server-only bundle loader.
+//
+// Imported by web/app/inspector/[runId]/page.tsx and
+// web/app/api/inspector_bundle/[runId]/route.ts. Returns the parsed
+// canonical fixture data for runId === "v1-canonical" or
+// "v1-canonical-success"; returns null for any other runId (the page
+// renders a BundlePendingCTA in that case).
+//
+// Real-bundle backend wiring lands at I-B-08 (Seq 20); offline
+// fallback (in-browser bundle render) at I-B-09 (Seq 21). This module
+// is the swappable seam — same function signature, different data
+// path in each follow-up issue.
+
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
+import {
+  type BundleManifest,
+  type BundleMetadata,
+  type ReasoningTraceRecord,
+  parseManifest,
+  parseReasoningTraceJsonl,
+} from "@/lib/signed_bundle";
+
+const REPO_ROOT = path.resolve(process.cwd(), "..");
+
+export interface LoadedBundle {
+  runId: string;
+  manifest: BundleManifest;
+  scopeDecision: unknown;
+  evidencePool: unknown;
+  verifiedReport: VerifiedReportShape;
+  metadata: BundleMetadata;
+  reasoningTrace: ReasoningTraceRecord[];
+  sources: Record<string, string>;
+  /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
+   * Derived during load — NOT a manifest field. Codex diff iter-1 P2. */
+  signaturePresent: boolean;
+}
+
+export interface VerifiedReportShape {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSectionShape[];
+  overall_verify_pass_rate: number;
+  verifier_pass_threshold: number;
+  pipeline_verdict: string;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface VerifiedReportSectionShape {
+  section_id: string;
+  section_verify_pass_rate: number;
+  verified_sentences: VerifiedSentenceShape[];
+  [extra: string]: unknown;
+}
+
+export interface VerifiedSentenceShape {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  [extra: string]: unknown;
+}
+
+const KNOWN_FIXTURES: Record<string, string> = {
+  "v1-canonical": "tests/fixtures/signed_bundle/v1_canonical",
+  "v1-canonical-success": "tests/fixtures/signed_bundle/v1_canonical_success",
+};
+
+export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+  const relPath = KNOWN_FIXTURES[runId];
+  if (!relPath) return null;
+  const dir = path.join(REPO_ROOT, relPath);
+
+  const manifestRaw = await fs.readFile(
+    path.join(dir, "manifest.yaml"),
+    "utf-8",
+  );
+  const manifest = parseManifest(manifestRaw);
+
+  const scopeDecision = await readJson(dir, manifest, "scope_decision");
+  const evidencePool = await readJson(dir, manifest, "evidence_pool");
+  const verifiedReport = (await readJson(
+    dir,
+    manifest,
+    "verified_report",
+  )) as VerifiedReportShape;
+
+  // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
+  // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
+  // also flagged metadata in the active producer).
+  const metadataEntry = manifest.files.find(
+    (f) => f.content_type === "metadata" && f.path === "metadata.json",
+  );
+  if (!metadataEntry) {
+    throw new Error(
+      `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
+    );
+  }
+  const metadata = JSON.parse(
+    await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
+  ) as BundleMetadata;
+
+  const reasoningTraceEntry = manifest.files.find(
+    (f) => f.content_type === "reasoning_trace",
+  );
+  const reasoningTrace = reasoningTraceEntry
+    ? parseReasoningTraceJsonl(
+        await fs.readFile(path.join(dir, reasoningTraceEntry.path), "utf-8"),
+      )
+    : [];
+
+  const sources: Record<string, string> = {};
+  for (const entry of manifest.files) {
+    if (entry.content_type !== "source_snapshot") continue;
+    sources[entry.path] = await fs.readFile(
+      path.join(dir, entry.path),
+      "utf-8",
+    );
+  }
+
+  // Signature presence check (Codex diff iter-1 P2): mirror the conformance
+  // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
+  // bundle. The UI surfaces this boolean transparently; cryptographic
+  // verification belongs to operator-side `gpg --verify` tooling.
+  let signaturePresent = false;
+  try {
+    const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
+    signaturePresent = stat.isFile() && stat.size > 0;
+  } catch {
+    signaturePresent = false;
+  }
+
+  return {
+    runId,
+    manifest,
+    scopeDecision,
+    evidencePool,
+    verifiedReport,
+    metadata,
+    reasoningTrace,
+    sources,
+    signaturePresent,
+  };
+}
+
+async function readJson(
+  dir: string,
+  manifest: BundleManifest,
+  contentType: "scope_decision" | "evidence_pool" | "verified_report",
+): Promise<unknown> {
+  const entry = manifest.files.find((f) => f.content_type === contentType);
+  if (!entry) {
+    throw new Error(
+      `bundle: manifest has no entry of content_type=${contentType}`,
+    );
+  }
+  const body = await fs.readFile(path.join(dir, entry.path), "utf-8");
+  return JSON.parse(body);
+}
+
+
+ succeeded in 2069ms:
+// I-f5-003 — frontend mirror of polaris_graph.generator2.provenance.
+
+const TOKEN_RE = /^\[#ev:([a-zA-Z0-9_\-]+):(\d+)-(\d+)\]$/;
+
+export interface ParsedToken {
+  raw: string;
+  source_id: string;
+  start: number;
+  end: number;
+}
+
+export function parseProvenanceToken(token: string): ParsedToken | null {
+  const match = TOKEN_RE.exec(token.trim());
+  if (!match) return null;
+  return {
+    raw: token,
+    source_id: match[1],
+    start: parseInt(match[2], 10),
+    end: parseInt(match[3], 10),
+  };
+}
+
+export function parseAllTokens(tokens: string[]): ParsedToken[] {
+  return tokens
+    .map(parseProvenanceToken)
+    .filter((t): t is ParsedToken => t !== null);
+}
+
+
+ succeeded in 2675ms:
+// I-p2-004 (#743): reusable citation chip + hover/focus source card.
+// Chip = inline provenance marker (tier dot + mono index/id). Hover OR focus OR
+// tap → source card with the EXACT cited span (untruncated) via resolveSpan.
+// No-synthetic-proof: shows the span only when resolved, else an honest note.
+"use client";
+
+import { Tooltip } from "@base-ui/react/tooltip";
+import { useState } from "react";
+
+import { resolveSpan } from "@/lib/evidence_span";
+
+interface CitationChipProps {
+  /** A provenance token `[#ev:<id>:<start>-<end>]`. */
+  token: string;
+  /** The run's evidence pool (EvidenceContract / bundle.evidencePool). */
+  evidencePool: unknown;
+  /** Optional display index (e.g. the nth citation in a sentence). */
+  index?: number;
+}
+
+function tierDotClass(tier: string | number | null | undefined): string {
+  const t = String(tier ?? "").toUpperCase();
+  if (t === "T1" || t === "1") return "bg-tier-1"; // primary evidence (red)
+  if (t === "T2" || t === "2") return "bg-tier-2";
+  return "bg-tier-3";
+}
+
+export function CitationChip({
+  token,
+  evidencePool,
+  index,
+}: CitationChipProps) {
+  const span = resolveSpan(token, evidencePool);
+  const tier = span?.source?.tier ?? null;
+  const label = span?.source?.title ?? span?.sourceId ?? token;
+  // Controlled open so hover (mouse), focus (keyboard) AND tap (touch) all open
+  // the source card — base-ui hover alone is mouse-only (Codex iter-1 P1).
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Tooltip.Root open={open} onOpenChange={setOpen}>
+      <Tooltip.Trigger
+        closeOnClick={false}
+        render={
+          <button
+            type="button"
+            data-testid="citation-chip"
+            data-source-id={span?.sourceId}
+            aria-label={`Source: ${label}`}
+            onPointerDown={(e) => {
+              // Touch: toggle on pointerdown only (avoids the focus→open then
+              // click→toggle-closed race). Mouse/pen use hover + focus below.
+              if (e.pointerType === "touch") setOpen((o) => !o);
+            }}
+            onMouseEnter={() => setOpen(true)}
+            onMouseLeave={() => setOpen(false)}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setOpen(false)}
+            className="border-border text-muted-foreground hover:bg-muted focus-visible:ring-ring/70 mx-0.5 inline-flex min-h-[24px] min-w-[24px] items-center justify-center gap-1 rounded border px-1.5 align-baseline font-mono text-[11px] leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
+          />
+        }
+      >
+        <span
+          aria-hidden
+          className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${tierDotClass(tier)}`}
+        />
+        {index != null ? index : (span?.sourceId ?? "ev")}
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Positioner sideOffset={6}>
+          <Tooltip.Popup
+            data-testid="citation-source-card"
+            className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
+          >
+            <div className="text-muted-foreground mb-1 flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="text-foreground font-medium">{label}</span>
+              {tier != null && <span>· tier {String(tier)}</span>}
+              <span className="font-mono">
+                [{span?.sourceId ?? "?"}:{span?.start ?? "?"}-{span?.end ?? "?"}
+                ]
+              </span>
+            </div>
+            {span?.quote != null ? (
+              <blockquote className="text-foreground border-border max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-snug italic">
+                &ldquo;{span.quote}&rdquo;
+              </blockquote>
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                Source span not renderable from this bundle — verify via the
+                signed bundle.
+              </p>
+            )}
+            {span?.source?.url && (
+              // Non-interactive provenance text: a tooltip popup must not hold
+              // interactive elements (unreachable on mouseleave + ARIA
+              // antipattern). The clickable "open source" lives in the full
+              // source card (#745) / Proof Replay (#756).
+              <p
+                className="text-muted-foreground mt-1 max-w-full truncate text-[11px]"
+                title={span.source.url}
+              >
+                {span.source.url}
+              </p>
+            )}
+          </Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+}
+
+
+ succeeded in 3432ms:
+// I-cd-013a (GH#609) — VerifiedReport.sections renderer.
+// Real field names per verified_report.py:
+//   sections[].section_verify_pass_rate
+//   sections[].verified_sentences
+//   verified_sentences[].provenance_tokens (token strings)
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type {
+  VerifiedReportSectionShape,
+  VerifiedReportShape,
+  VerifiedSentenceShape,
+} from "@/lib/inspector_bundle_loader";
+
+interface VerifiedReportSectionsProps {
+  verifiedReport: VerifiedReportShape;
+}
+
+export function VerifiedReportSections({
+  verifiedReport,
+}: VerifiedReportSectionsProps) {
+  return (
+    <Card data-testid="verified-report-sections">
+      <CardHeader>
+        <CardTitle>
+          Verified report ({verifiedReport.sections.length} sections,{" "}
+          {(verifiedReport.overall_verify_pass_rate * 100).toFixed(0)}%
+          verified)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <VerdictBadge verdict={verifiedReport.pipeline_verdict} />
+        {verifiedReport.sections.length === 0 ? (
+          <p className="border-border text-muted-foreground rounded-md border border-dashed p-4 text-center">
+            No verified sections (pipeline verdict:{" "}
+            <code className="font-mono">{verifiedReport.pipeline_verdict}</code>
+            ).
+          </p>
+        ) : (
+          verifiedReport.sections.map((s) => (
+            <SectionPanel key={s.section_id} section={s} />
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function VerdictBadge({ verdict }: { verdict: string }) {
+  const isSuccess = verdict === "success";
+  return (
+    <p
+      data-testid="pipeline-verdict-badge"
+      data-state={isSuccess ? "success" : "abort"}
+      className={
+        isSuccess
+          ? "inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+          : "inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+      }
+    >
+      Verdict: {verdict}
+    </p>
+  );
+}
+
+function SectionPanel({ section }: { section: VerifiedReportSectionShape }) {
+  return (
+    <div
+      className="border-border rounded-md border p-4"
+      data-testid="verified-report-section"
+      data-section-id={section.section_id}
+    >
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="font-medium">{section.section_id}</h3>
+        <span className="text-muted-foreground font-mono text-xs">
+          pass rate {(section.section_verify_pass_rate * 100).toFixed(0)}%
+        </span>
+      </div>
+      <ul className="space-y-2">
+        {section.verified_sentences.map((sentence, idx) => (
+          <SentenceItem
+            key={`${section.section_id}-${idx}`}
+            sentence={sentence}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SentenceItem({ sentence }: { sentence: VerifiedSentenceShape }) {
+  const [showTokens, setShowTokens] = useState(false);
+  return (
+    <li
+      className="bg-muted/30 hover:bg-muted/60 rounded-sm border border-transparent p-2 transition-colors"
+      data-testid="verified-sentence"
+      data-verifier-pass={sentence.verifier_pass}
+    >
+      <p className="text-sm">{sentence.sentence_text}</p>
+      {sentence.provenance_tokens.length > 0 && (
+        <button
+          type="button"
+          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+          onClick={() => setShowTokens((v) => !v)}
+          data-testid="toggle-provenance-tokens"
+        >
+          {showTokens ? "Hide" : "Show"} {sentence.provenance_tokens.length}{" "}
+          provenance token
+          {sentence.provenance_tokens.length === 1 ? "" : "s"}
+        </button>
+      )}
+      {showTokens && (
+        <ul className="text-muted-foreground mt-1 ml-4 list-disc font-mono text-xs">
+          {sentence.provenance_tokens.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+
+codex
+The main component is close to the described shape, but one honesty edge is worth checking carefully: malformed entries are filtered before `resolveSpan`, so I’m tracing whether that can hide recorded provenance rather than surfacing it.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Force .codex\\I-p2-007 | Format-Table -AutoSize" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git log --oneline --decorate -8 -- web\\components\\proof_replay\\proof_replay.tsx web\\lib\\evidence_span.ts web\\components\\source\\source_card.tsx web\\components\\verdict\\verdict_chip.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Recurse -Force .codex\\I-p2-007 | Select-Object -ExpandProperty FullName" in C:\POLARIS
+ succeeded in 3165ms:
+887f97b6 (HEAD -> bot/I-p2-007-proof-replay) I-p2-007 (#746): filter tokens to strings (no .trim() crash on malformed), stale-selection fallback, a11y status label — Codex iter-1 P1+P2
+873f526f I-p2-007 (#746): Proof Replay split-view (centerpiece) — claim list → exact source span
+248e6593 (origin/polaris, polaris) I-p2-006 (#745): source / evidence card (#777)
+da7c9cdd I-p2-005 (#744): per-claim verdict chip (3-signal, #742 tokens) (#776)
+cabcc4e5 I-p2-004 (#743): citation chip + hover source card + shared resolver (#775)
+
+ succeeded in 3888ms:
+
+    Directory: C:\POLARIS\.codex\I-p2-007
+
+[32;1mMode [0m[32;1m       LastWriteTime[0m[32;1m Length[0m[32;1m Name[0m
+[32;1m---- [0m [32;1m      -------------[0m [32;1m------[0m [32;1m----[0m
+-a--- 2026-05-22  1:45 AM  88240 brief_review_iter1.txt
+-a--- 2026-05-22  1:46 AM  71222 brief_review_iter2.txt
+-a--- 2026-05-22  1:45 AM   4808 brief.md
+-a--- 2026-05-22  1:53 AM   7655 codex_diff_canonical.patch
+-a--- 2026-05-22  1:53 AM   7746 codex_diff.patch
+-a--- 2026-05-22  1:52 AM  97948 diff_review_iter1.txt
+-a--- 2026-05-22  1:53 AM      0 diff_review_iter2.txt
+-a--- 2026-05-22  1:53 AM   2084 diff_review.md
+
+
+ succeeded in 4127ms:
+C:\POLARIS\.codex\I-p2-007\brief_review_iter1.txt
+C:\POLARIS\.codex\I-p2-007\brief_review_iter2.txt
+C:\POLARIS\.codex\I-p2-007\brief.md
+C:\POLARIS\.codex\I-p2-007\codex_diff_canonical.patch
+C:\POLARIS\.codex\I-p2-007\codex_diff.patch
+C:\POLARIS\.codex\I-p2-007\diff_review_iter1.txt
+C:\POLARIS\.codex\I-p2-007\diff_review_iter2.txt
+C:\POLARIS\.codex\I-p2-007\diff_review.md
+
+ succeeded in 4581ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw .codex\\I-p2-007\\diff_review.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path .codex\\I-p2-007\\diff_review_iter1.txt -Pattern \"token|P1|filter|trim|malformed|aria\" -Context 2,3 | Select-Object -First 80 | ForEach-Object { "'$_.Context.PreContext; $_.Line; $_.Context.PostContext; '"'' }" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git show -- web\\components\\proof_replay\\proof_replay.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git show --stat --oneline HEAD~1..HEAD -- web\\components\\proof_replay\\proof_replay.tsx" in C:\POLARIS
+ succeeded in 2371ms:
+# Codex DESIGN+DIFF review — I-p2-007 (#746): Proof Replay split-view (CENTERPIECE)
+
+HARD ITERATION CAP: 5. iter 2 (iter-1 P1 token-string-filter + P2 stale-selection + a11y-label fixed). APPROVE iff zero P0/P1 (code + design rubric, esp. HONESTY + a11y). Final line MERGE AUTHORIZED if mergeable. Canonical-diff-sha256 `294b59c19f8d305915e13db910881153125d0e584472a583fc5e8a24b8efe7f3`. web/ only.
+
+## Design-audit note
+The identical click→span interaction was screenshot-verified earlier this session on the #734 branch (production standalone harness, real fixture); #746 is the clean reusable extraction using the shared resolveSpan. The full PAGE screenshot audit happens at #756 (which wires this to a real run). Audit code + rubric honesty/a11y here.
+
+## Diff
+- NEW web/components/proof_replay/proof_replay.tsx: split-view. LEFT = role=list of buttons (claims grouped by section, line-clamp-2, verified dot, aria-current selection, focus-visible /70). RIGHT = aria-live="polite" proof pane. flatten() builds claims; default selects first. ProofPane: verifier_pass→VerdictChip VERIFIED else neutral UnverifiedBadge; per token resolveSpan → null token / null source / empty tokens / null quote ALL show honest notes; only renders SourceCard when span.source non-null + the exact quote in a blockquote.
+- Composes #743 resolveSpan, #745 SourceCard, #744 VerdictChip.
+
+## Review focus (rubric: provability/HONESTY, a11y, responsive, code)
+1. HONESTY: every degenerate case (malformed token, missing source, empty tokens, null quote) shows an honest note, NEVER synthetic proof or a crash? (brief iter-1 P1)
+2. a11y: list semantics + aria-current (not mixed aria-selected); proof pane aria-live; keyboard nav + focus-visible; selected accent.
+3. Responsive: md:grid-cols-2 → stacked ≤768; the dense split at mobile + 400% reflow.
+4. verifier_pass binary not over-mapped to richer verdicts? Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+
+ succeeded in 3182ms:
+887f97b6 I-p2-007 (#746): filter tokens to strings (no .trim() crash on malformed), stale-selection fallback, a11y status label — Codex iter-1 P1+P2
+ web/components/proof_replay/proof_replay.tsx | 14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+ succeeded in 4215ms:
+# Codex DESIGN+DIFF review — I-p2-007 (#746): Proof Replay split-view (CENTERPIECE)
+
+HARD ITERATION CAP: 5. iter 1. APPROVE iff zero P0/P1 (code + design rubric, esp. HONESTY + a11y). Final line MERGE AUTHORIZED if mergeable. Canonical-diff-sha256 `04886bf1db779739d0e846ee544458f38fa5bb9b36741d671388171441c84a11`. web/ only.
+
+## Design-audit note
+The identical click→span interaction was screenshot-verified earlier this session on the #734 branch (production standalone harness, real fixture); #746 is the clean reusable extraction using the shared resolveSpan. The full PAGE screenshot audit happens at #756 (which wires this to a real run). Audit code + rubric honesty/a11y here.
+
+
+## Diff
+- NEW web/components/proof_replay/proof_replay.tsx: split-view. LEFT = role=list of buttons (claims grouped by section, line-clamp-2, verified dot, aria-current selection, focus-visible /70). RIGHT = aria-live="polite" proof pane. flatten() builds claims; default selects first. ProofPane: verifier_pass→VerdictChip VERIFIED else neutral UnverifiedBadge; per token resolveSpan → null token / null source / empty tokens / null quote ALL show honest notes; only renders SourceCard when span.source non-null + the exact quote in a blockquote.
+- Composes #743 resolveSpan, #745 SourceCard, #744 VerdictChip.
+
+## Review focus (rubric: provability/HONESTY, a11y, responsive, code)
+
+
+## Review focus (rubric: provability/HONESTY, a11y, responsive, code)
+1. HONESTY: every degenerate case (malformed token, missing source, empty tokens, null quote) shows an honest note, NEVER synthetic proof or a crash? (brief iter-1 P1)
+2. a11y: list semantics + aria-current (not mixed aria-selected); proof pane aria-live; keyboard nav + focus-visible; selected accent.
+3. Responsive: md:grid-cols-2 → stacked ≤768; the dense split at mobile + 400% reflow.
+4. verifier_pass binary not over-mapped to richer verdicts? Any P0/P1.
+
+## Review focus (rubric: provability/HONESTY, a11y, responsive, code)
+1. HONESTY: every degenerate case (malformed token, missing source, empty tokens, null quote) shows an honest note, NEVER synthetic proof or a crash? (brief iter-1 P1)
+2. a11y: list semantics + aria-current (not mixed aria-selected); proof pane aria-live; keyboard nav + focus-visible; selected accent.
+3. Responsive: md:grid-cols-2 → stacked ≤768; the dense split at mobile + 400% reflow.
+4. verifier_pass binary not over-mapped to richer verdicts? Any P0/P1.
+
+
+2. a11y: list semantics + aria-current (not mixed aria-selected); proof pane aria-live; keyboard nav + focus-visible; selected accent.
+3. Responsive: md:grid-cols-2 → stacked ≤768; the dense split at mobile + 400% reflow.
+4. verifier_pass binary not over-mapped to richer verdicts? Any P0/P1.
+
+## Output schema
+```yaml
+
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+   2: // verified claim (left) → see the EXACT cited source span (right). Composes the
+   3: // shared resolveSpan (#743) + SourceCard (#745) + VerdictChip (#744). Honest:
+   4: // malformed/missing/empty provenance never crashes — it shows an honest note,
+   5: // never synthetic proof.
+   6: "use client";
+   7: 
+
+  26:   sectionTitle: string | null;
+  27:   text: string;
+  28:   tokens: string[];
+  29:   verified: boolean;
+  30: }
+  31: 
+
+  42:         sectionTitle: title,
+  43:         text: s.sentence_text,
+  44:         tokens: Array.isArray(s.provenance_tokens) ? s.provenance_tokens : [],
+  45:         verified: s.verifier_pass === true,
+  46:       });
+  47:     });
+
+  76:       </div>
+  77: 
+  78:       {claim.tokens.length === 0 ? (
+  79:         <p className="text-muted-foreground text-xs">
+  80:           No provenance tokens recorded for this claim.
+  81:         </p>
+
+  78:       {claim.tokens.length === 0 ? (
+  79:         <p className="text-muted-foreground text-xs">
+  80:           No provenance tokens recorded for this claim.
+  81:         </p>
+  82:       ) : (
+  83:         <div className="flex flex-col gap-3">
+
+  82:       ) : (
+  83:         <div className="flex flex-col gap-3">
+  84:           {claim.tokens.map((token, i) => {
+  85:             const span = resolveSpan(token, evidencePool);
+  86:             if (span === null) {
+  87:               return (
+
+  83:         <div className="flex flex-col gap-3">
+  84:           {claim.tokens.map((token, i) => {
+  85:             const span = resolveSpan(token, evidencePool);
+  86:             if (span === null) {
+  87:               return (
+  88:                 <p
+
+  87:               return (
+  88:                 <p
+  89:                   key={`${token}-${i}`}
+  90:                   className="text-muted-foreground text-xs"
+  91:                 >
+  92:                   Unresolvable provenance token:{" "}
+
+  90:                   className="text-muted-foreground text-xs"
+  91:                 >
+  92:                   Unresolvable provenance token:{" "}
+  93:                   <span className="font-mono">{token}</span>
+  94:                 </p>
+  95:               );
+
+  91:                 >
+  92:                   Unresolvable provenance token:{" "}
+  93:                   <span className="font-mono">{token}</span>
+  94:                 </p>
+  95:               );
+  96:             }
+
+  98:               return (
+  99:                 <p
+ 100:                   key={`${token}-${i}`}
+ 101:                   className="text-muted-foreground text-xs"
+ 102:                 >
+ 103:                   Source <span className="font-mono">{span.sourceId}</span> not
+
+ 113:             };
+ 114:             return (
+ 115:               <div key={`${token}-${i}`} className="flex flex-col gap-1">
+ 116:                 <SourceCard source={cardSource} />
+ 117:                 {span.quote != null ? (
+ 118:                   <blockquote className="border-primary text-foreground max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-snug italic">
+
+ 152:       <div
+ 153:         role="list"
+ 154:         aria-label="Verified claims"
+ 155:         className="border-border flex max-h-[32rem] flex-col gap-1 overflow-auto rounded-md border p-2"
+ 156:       >
+ 157:         {claims.map((claim, i) => {
+
+ 168:               <button
+ 169:                 type="button"
+ 170:                 aria-current={isSelected ? "true" : undefined}
+ 171:                 onClick={() => setSelectedKey(claim.key)}
+ 172:                 className={`focus-visible:ring-ring/70 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs leading-snug transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+ 173:                   isSelected
+
+ 177:               >
+ 178:                 <span
+ 179:                   aria-hidden
+ 180:                   className={`mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+ 181:                     claim.verified ? "bg-verified" : "bg-muted-foreground"
+ 182:                   }`}
+
+ 190: 
+ 191:       <div
+ 192:         aria-live="polite"
+ 193:         aria-label="Proof for the selected claim"
+ 194:         className="border-border rounded-md border p-4"
+ 195:       >
+
+ 191:       <div
+ 192:         aria-live="polite"
+ 193:         aria-label="Proof for the selected claim"
+ 194:         className="border-border rounded-md border p-4"
+ 195:       >
+ 196:         {selected ? (
+
+   1: // I-p2-006 (#745): source / evidence card — a single retrieved source's
+   2: // identity + provenance. Renders ONLY fields actually present (no fabricated
+   3: // hash/version/stance). #742 tier tokens; Frontier-Minimal hairline card.
+   4: import { Check, ExternalLink, TriangleAlert } from "lucide-react";
+   5: 
+   6: export interface SourceCardSource {
+
+  36:     return (
+  37:       <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+  38:         <Check aria-hidden className="h-3 w-3 shrink-0" />
+  39:         Supports
+  40:       </span>
+  41:     );
+
+  43:   return (
+  44:     <span className="bg-contradiction/15 text-contradiction-foreground border-contradiction/40 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+  45:       <TriangleAlert aria-hidden className="h-3 w-3 shrink-0" />
+  46:       Contradicts
+  47:     </span>
+  48:   );
+
+  61:           <span className="border-border inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+  62:             <span
+  63:               aria-hidden
+  64:               className={`inline-block h-1.5 w-1.5 rounded-full ${tierDotClass(tier)}`}
+  65:             />
+  66:             Tier {String(tier).replace(/^T/i, "")}
+
+  80:           >
+  81:             {title}
+  82:             <ExternalLink aria-hidden className="mt-0.5 h-3 w-3 shrink-0" />
+  83:           </a>
+  84:         ) : (
+  85:           <p className="text-foreground font-medium">{title}</p>
+
+   1: // I-p2-005 (#744): per-claim verdict chip. THREE signals (state color + icon +
+   2: // label) so a verdict is never distinguished by color alone (WCAG 1.4.1).
+   3: // Consumes the #742 state tokens. Display-only (non-interactive). Honest
+   4: // labels — FABRICATED and UNREACHABLE are real, distinct, serious verdicts.
+   5: import {
+   6:   BadgeCheck,
+
+  26:   label: string;
+  27:   Icon: LucideIcon;
+  28:   /** Tint bg + readable text + border, all AA from #742 tokens. */
+  29:   className: string;
+  30: }
+  31: 
+
+  78:       className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
+  79:     >
+  80:       <meta.Icon aria-hidden className="h-3 w-3 shrink-0" />
+  81:       {meta.label}
+  82:     </span>
+  83:   );
+
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path '"'web/lib/evidence_span.ts' | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "interface VerifiedReportSectionShape|type VerifiedReportSectionShape|VerifiedReportSectionShape|verified_sentences|provenance_tokens|verifier_pass" web/lib web/components web/app' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path '"'.codex/I-p2-007/codex_diff_canonical.patch' | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+ succeeded in 1281ms:
+
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content -Path '"'.codex/I-p2-007/codex_diff_canonical.patch' | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+ succeeded in 1281ms:
+   1: // I-p2-004 (#743): the SINGLE shared resolver for provenance-token → exact
+   2: // source span. Consumed by the citation chip now and by the Proof-Replay
+   3: // inspector (#756) — one resolver boundary, no duplicate parsing.
+   4: //
+
+   7: // source body. NEVER a silently-clamped slice (that would be synthetic proof).
+   8: 
+   9: import { parseProvenanceToken } from "@/lib/provenance_tokens";
+  10: 
+  11: export interface EvidenceSource {
+  12:   source_id: string;
+
+  34: }
+  35: 
+  36: /** Resolve a `[#ev:<id>:<start>-<end>]` token against the evidence pool.
+  37:  * Returns null if the token itself is malformed; otherwise a ResolvedSpan
+  38:  * whose `quote` is null unless every bound is valid against the real body. */
+  39: export function resolveSpan(
+
+  35: 
+  36: /** Resolve a `[#ev:<id>:<start>-<end>]` token against the evidence pool.
+  37:  * Returns null if the token itself is malformed; otherwise a ResolvedSpan
+  38:  * whose `quote` is null unless every bound is valid against the real body. */
+  39: export function resolveSpan(
+  40:   token: string,
+
+  38:  * whose `quote` is null unless every bound is valid against the real body. */
+  39: export function resolveSpan(
+  40:   token: string,
+  41:   evidencePool: unknown,
+  42: ): ResolvedSpan | null {
+  43:   const parsed = parseProvenanceToken(token);
+
+  41:   evidencePool: unknown,
+  42: ): ResolvedSpan | null {
+  43:   const parsed = parseProvenanceToken(token);
+  44:   if (!parsed) return null;
+  45:   // sources is an ARRAY → look up by source_id (never index).
+  46:   const source =
+
+  59:   }
+  60:   return {
+  61:     raw: token,
+  62:     sourceId: parsed.source_id,
+  63:     source,
+  64:     start: parsed.start,
+
+ succeeded in 1733ms:
+web/app\runs\[runId]\components\run_progress.tsx:70:      verified: asNumber(e.data.verified ?? e.data.verified_sentences),
+web/app\runs\[runId]\components\followup_panel.tsx:139:        answer.provenance_tokens.length > 0) && (
+web/app\runs\[runId]\components\followup_panel.tsx:153:            {answer.provenance_tokens.map((tok, i) => (
+web/app\pin_replay\components\pin_timeseries.tsx:23:    series: "verified_sentences",
+web/components\proof_replay\proof_replay.tsx:16:import type { VerifiedReportSectionShape } from "@/lib/inspector_bundle_loader";
+
+web/app\runs\[runId]\components\run_progress.tsx:70:      verified: asNumber(e.data.verified ?? e.data.verified_sentences),
+web/app\runs\[runId]\components\followup_panel.tsx:139:        answer.provenance_tokens.length > 0) && (
+web/app\runs\[runId]\components\followup_panel.tsx:153:            {answer.provenance_tokens.map((tok, i) => (
+web/app\pin_replay\components\pin_timeseries.tsx:23:    series: "verified_sentences",
+web/components\proof_replay\proof_replay.tsx:16:import type { VerifiedReportSectionShape } from "@/lib/inspector_bundle_loader";
+web/components\proof_replay\proof_replay.tsx:19:  sections: VerifiedReportSectionShape[];
+
+web/components\proof_replay\proof_replay.tsx:32:function flatten(sections: VerifiedReportSectionShape[]): FlatClaim[] {
+web/components\proof_replay\proof_replay.tsx:38:    section.verified_sentences?.forEach((s, i) => {
+web/components\proof_replay\proof_replay.tsx:44:        tokens: Array.isArray(s.provenance_tokens) ? s.provenance_tokens : [],
+web/components\proof_replay\proof_replay.tsx:45:        verified: s.verifier_pass === true,
+web/app\sentence_hover_test\follow_up_append\page.tsx:17:        verified_sentences: [
+web/app\sentence_hover_test\follow_up_append\page.tsx:21:            provenance_tokens: ["[#ev:src-1:0-30]"],
+
+web/components\proof_replay\proof_replay.tsx:45:        verified: s.verifier_pass === true,
+web/app\sentence_hover_test\follow_up_append\page.tsx:17:        verified_sentences: [
+web/app\sentence_hover_test\follow_up_append\page.tsx:21:            provenance_tokens: ["[#ev:src-1:0-30]"],
+web/app\sentence_hover_test\follow_up_append\page.tsx:22:            verifier_pass: true,
+web/app\sentence_hover_test\follow_up_append\page.tsx:36:    verifier_pass_threshold: 0.4,
+web/app\sentence_hover_test\memory_cite\page.tsx:16:      verified_sentences: [
+
+web/app\sentence_hover_test\follow_up_append\page.tsx:36:    verifier_pass_threshold: 0.4,
+web/app\sentence_hover_test\memory_cite\page.tsx:16:      verified_sentences: [
+web/app\sentence_hover_test\memory_cite\page.tsx:21:          provenance_tokens: ["[#ev:ev_memory_abc123def456:0-90]"],
+web/app\sentence_hover_test\memory_cite\page.tsx:22:          verifier_pass: true,
+web/app\sentence_hover_test\memory_cite\page.tsx:30:          provenance_tokens: ["[#ev:src-1:0-60]"],
+web/app\sentence_hover_test\memory_cite\page.tsx:31:          verifier_pass: true,
+
+web/app\sentence_hover_test\memory_cite\page.tsx:21:          provenance_tokens: ["[#ev:ev_memory_abc123def456:0-90]"],
+web/app\sentence_hover_test\memory_cite\page.tsx:22:          verifier_pass: true,
+web/app\sentence_hover_test\memory_cite\page.tsx:30:          provenance_tokens: ["[#ev:src-1:0-60]"],
+web/app\sentence_hover_test\memory_cite\page.tsx:31:          verifier_pass: true,
+web/app\sentence_hover_test\memory_cite\page.tsx:45:  verifier_pass_threshold: 0.4,
+web/app\sentence_hover_test\_demo.tsx:114:      verified_sentences: [
+
+web/app\sentence_hover_test\memory_cite\page.tsx:45:  verifier_pass_threshold: 0.4,
+web/app\sentence_hover_test\_demo.tsx:114:      verified_sentences: [
+web/app\sentence_hover_test\_demo.tsx:124:            provenance_tokens: [token],
+web/app\sentence_hover_test\_demo.tsx:125:            verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:134:          provenance_tokens: [`[#ev:src-0:0-3]`],
+web/app\sentence_hover_test\_demo.tsx:135:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:124:            provenance_tokens: [token],
+web/app\sentence_hover_test\_demo.tsx:125:            verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:134:          provenance_tokens: [`[#ev:src-0:0-3]`],
+web/app\sentence_hover_test\_demo.tsx:135:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:139:        // sec_x:11 — disagree (verifier_pass=true, LLM judge disagreed).
+web/app\sentence_hover_test\_demo.tsx:143:          provenance_tokens: [`[#ev:src-1:0-3]`],
+
+web/app\sentence_hover_test\_demo.tsx:135:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:139:        // sec_x:11 — disagree (verifier_pass=true, LLM judge disagreed).
+web/app\sentence_hover_test\_demo.tsx:143:          provenance_tokens: [`[#ev:src-1:0-3]`],
+web/app\sentence_hover_test\_demo.tsx:144:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:161:          provenance_tokens: [`[#ev:src-2:0-3]`],
+web/app\sentence_hover_test\_demo.tsx:162:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:143:          provenance_tokens: [`[#ev:src-1:0-3]`],
+web/app\sentence_hover_test\_demo.tsx:144:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:161:          provenance_tokens: [`[#ev:src-2:0-3]`],
+web/app\sentence_hover_test\_demo.tsx:162:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:170:          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:60-90]`],
+web/app\sentence_hover_test\_demo.tsx:171:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:161:          provenance_tokens: [`[#ev:src-2:0-3]`],
+web/app\sentence_hover_test\_demo.tsx:162:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:170:          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:60-90]`],
+web/app\sentence_hover_test\_demo.tsx:171:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:179:          provenance_tokens: [`[#ev:src-1:0-20]`, `[#ev:src-2:30-50]`],
+web/app\sentence_hover_test\_demo.tsx:180:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:170:          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:60-90]`],
+web/app\sentence_hover_test\_demo.tsx:171:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:179:          provenance_tokens: [`[#ev:src-1:0-20]`, `[#ev:src-2:30-50]`],
+web/app\sentence_hover_test\_demo.tsx:180:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:188:          provenance_tokens: [],
+web/app\sentence_hover_test\_demo.tsx:189:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:179:          provenance_tokens: [`[#ev:src-1:0-20]`, `[#ev:src-2:30-50]`],
+web/app\sentence_hover_test\_demo.tsx:180:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:188:          provenance_tokens: [],
+web/app\sentence_hover_test\_demo.tsx:189:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:198:          provenance_tokens: [`[#ev:src-retracted:0-30]`],
+web/app\sentence_hover_test\_demo.tsx:199:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:188:          provenance_tokens: [],
+web/app\sentence_hover_test\_demo.tsx:189:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:198:          provenance_tokens: [`[#ev:src-retracted:0-30]`],
+web/app\sentence_hover_test\_demo.tsx:199:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:207:          provenance_tokens: [`[#ev:src-stale:0-30]`],
+web/app\sentence_hover_test\_demo.tsx:208:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:198:          provenance_tokens: [`[#ev:src-retracted:0-30]`],
+web/app\sentence_hover_test\_demo.tsx:199:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:207:          provenance_tokens: [`[#ev:src-stale:0-30]`],
+web/app\sentence_hover_test\_demo.tsx:208:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:224:          provenance_tokens: [`[#ev:src-${k}:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:225:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:207:          provenance_tokens: [`[#ev:src-stale:0-30]`],
+web/app\sentence_hover_test\_demo.tsx:208:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:224:          provenance_tokens: [`[#ev:src-${k}:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:225:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:234:          provenance_tokens: [`[#ev:src-paywalled:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:235:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:224:          provenance_tokens: [`[#ev:src-${k}:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:225:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:234:          provenance_tokens: [`[#ev:src-paywalled:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:235:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:243:          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:5000-5050]`],
+web/app\sentence_hover_test\_demo.tsx:244:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:234:          provenance_tokens: [`[#ev:src-paywalled:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:235:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:243:          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:5000-5050]`],
+web/app\sentence_hover_test\_demo.tsx:244:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:252:          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:253:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:243:          provenance_tokens: [`[#ev:src-0:0-30]`, `[#ev:src-0:5000-5050]`],
+web/app\sentence_hover_test\_demo.tsx:244:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:252:          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:253:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:261:          provenance_tokens: [
+web/app\sentence_hover_test\_demo.tsx:266:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:252:          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:253:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:261:          provenance_tokens: [
+web/app\sentence_hover_test\_demo.tsx:266:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:309:          provenance_tokens: [`[#ev:src-0:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:310:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:261:          provenance_tokens: [
+web/app\sentence_hover_test\_demo.tsx:266:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:309:          provenance_tokens: [`[#ev:src-0:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:310:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:344:          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:345:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:309:          provenance_tokens: [`[#ev:src-0:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:310:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:344:          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:345:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:374:          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:375:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:344:          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:345:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:374:          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:375:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:408:          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:409:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:374:          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:375:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:408:          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:409:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:443:          provenance_tokens: [
+web/app\sentence_hover_test\_demo.tsx:450:          verifier_pass: true,
+
+web/app\sentence_hover_test\_demo.tsx:408:          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+web/app\sentence_hover_test\_demo.tsx:409:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:443:          provenance_tokens: [
+web/app\sentence_hover_test\_demo.tsx:450:          verifier_pass: true,
+web/app\sentence_hover_test\_demo.tsx:475:  verifier_pass_threshold: 0.4,
+web/app\sentence_hover_test\_demo_evaluator_edge.tsx:60:        verified_sentences: Array.from({ length: N }, (_, i) => ({
+
+web/app\sentence_hover_test\_demo.tsx:475:  verifier_pass_threshold: 0.4,
+web/app\sentence_hover_test\_demo_evaluator_edge.tsx:60:        verified_sentences: Array.from({ length: N }, (_, i) => ({
+web/app\sentence_hover_test\_demo_evaluator_edge.tsx:63:          provenance_tokens: [`[#ev:src-${i}:0-30]`],
+web/app\sentence_hover_test\_demo_evaluator_edge.tsx:64:          verifier_pass: true,
+web/app\sentence_hover_test\_demo_evaluator_edge.tsx:87:    verifier_pass_threshold: 0.4,
+web/app\generation\components\verified_report_view.tsx:20:import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+
+web/app\sentence_hover_test\_demo_evaluator_edge.tsx:64:          verifier_pass: true,
+web/app\sentence_hover_test\_demo_evaluator_edge.tsx:87:    verifier_pass_threshold: 0.4,
+web/app\generation\components\verified_report_view.tsx:20:import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+web/app\generation\components\verified_report_view.tsx:111:  const dropped = !sentence.verifier_pass;
+web/app\generation\components\verified_report_view.tsx:116:  const parsed_tokens = parseAllTokens(sentence.provenance_tokens);
+web/app\generation\components\verified_report_view.tsx:127:    for (const tok of sentence.provenance_tokens) {
+
+web/app\generation\components\verified_report_view.tsx:20:import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+web/app\generation\components\verified_report_view.tsx:111:  const dropped = !sentence.verifier_pass;
+web/app\generation\components\verified_report_view.tsx:116:  const parsed_tokens = parseAllTokens(sentence.provenance_tokens);
+web/app\generation\components\verified_report_view.tsx:127:    for (const tok of sentence.provenance_tokens) {
+web/app\generation\components\verified_report_view.tsx:175:      {sentence.provenance_tokens.length > 0 && !dropped ? (
+web/app\generation\components\verified_report_view.tsx:177:          {sentence.provenance_tokens.join(" ")}
+
+web/app\generation\components\verified_report_view.tsx:111:  const dropped = !sentence.verifier_pass;
+web/app\generation\components\verified_report_view.tsx:116:  const parsed_tokens = parseAllTokens(sentence.provenance_tokens);
+web/app\generation\components\verified_report_view.tsx:127:    for (const tok of sentence.provenance_tokens) {
+web/app\generation\components\verified_report_view.tsx:175:      {sentence.provenance_tokens.length > 0 && !dropped ? (
+web/app\generation\components\verified_report_view.tsx:177:          {sentence.provenance_tokens.join(" ")}
+web/app\generation\components\verified_report_view.tsx:320:  const dropped_count = section.verified_sentences.length - kept.length;
+
+web/app\generation\components\verified_report_view.tsx:116:  const parsed_tokens = parseAllTokens(sentence.provenance_tokens);
+web/app\generation\components\verified_report_view.tsx:127:    for (const tok of sentence.provenance_tokens) {
+web/app\generation\components\verified_report_view.tsx:175:      {sentence.provenance_tokens.length > 0 && !dropped ? (
+web/app\generation\components\verified_report_view.tsx:177:          {sentence.provenance_tokens.join(" ")}
+web/app\generation\components\verified_report_view.tsx:320:  const dropped_count = section.verified_sentences.length - kept.length;
+web/app\generation\components\verified_report_view.tsx:348:            {section.verified_sentences.map((s, idx) => (
+
+web/app\generation\components\verified_report_view.tsx:127:    for (const tok of sentence.provenance_tokens) {
+web/app\generation\components\verified_report_view.tsx:175:      {sentence.provenance_tokens.length > 0 && !dropped ? (
+web/app\generation\components\verified_report_view.tsx:177:          {sentence.provenance_tokens.join(" ")}
+web/app\generation\components\verified_report_view.tsx:320:  const dropped_count = section.verified_sentences.length - kept.length;
+web/app\generation\components\verified_report_view.tsx:348:            {section.verified_sentences.map((s, idx) => (
+web/app\sentence_hover_test\_demo_coverage.tsx:83:        verified_sentences: [
+
+web/app\generation\components\verified_report_view.tsx:348:            {section.verified_sentences.map((s, idx) => (
+web/app\sentence_hover_test\_demo_coverage.tsx:83:        verified_sentences: [
+web/app\sentence_hover_test\_demo_coverage.tsx:87:            provenance_tokens: ["[#ev:src-cov-0:0-20]"],
+web/app\sentence_hover_test\_demo_coverage.tsx:88:            verifier_pass: true,
+web/app\sentence_hover_test\_demo_coverage.tsx:107:    verifier_pass_threshold: 0.4,
+web/app\generation\components\sentence_inspector.tsx:17:import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+
+web/app\sentence_hover_test\_demo_coverage.tsx:88:            verifier_pass: true,
+web/app\sentence_hover_test\_demo_coverage.tsx:107:    verifier_pass_threshold: 0.4,
+web/app\generation\components\sentence_inspector.tsx:17:import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+web/app\generation\components\sentence_inspector.tsx:241:  const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+web/lib\evidence_span.ts:9:import { parseProvenanceToken } from "@/lib/provenance_tokens";
+web/app\generation\components\multi_source_panel.tsx:15:import type { ParsedToken } from "@/lib/provenance_tokens";
+
+web/app\sentence_hover_test\_demo_coverage.tsx:107:    verifier_pass_threshold: 0.4,
+web/app\generation\components\sentence_inspector.tsx:17:import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+web/app\generation\components\sentence_inspector.tsx:241:  const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+web/lib\evidence_span.ts:9:import { parseProvenanceToken } from "@/lib/provenance_tokens";
+web/app\generation\components\multi_source_panel.tsx:15:import type { ParsedToken } from "@/lib/provenance_tokens";
+web/app\sentence_hover_test\_demo_stress.tsx:57:        verified_sentences: Array.from({ length: n }, (_, i) => ({
+
+web/app\generation\components\sentence_inspector.tsx:17:import { parseAllTokens, type ParsedToken } from "@/lib/provenance_tokens";
+web/app\generation\components\sentence_inspector.tsx:241:  const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+web/lib\evidence_span.ts:9:import { parseProvenanceToken } from "@/lib/provenance_tokens";
+web/app\generation\components\multi_source_panel.tsx:15:import type { ParsedToken } from "@/lib/provenance_tokens";
+web/app\sentence_hover_test\_demo_stress.tsx:57:        verified_sentences: Array.from({ length: n }, (_, i) => ({
+web/app\sentence_hover_test\_demo_stress.tsx:60:          provenance_tokens: [
+
+web/app\generation\components\sentence_inspector.tsx:241:  const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+web/lib\evidence_span.ts:9:import { parseProvenanceToken } from "@/lib/provenance_tokens";
+web/app\generation\components\multi_source_panel.tsx:15:import type { ParsedToken } from "@/lib/provenance_tokens";
+web/app\sentence_hover_test\_demo_stress.tsx:57:        verified_sentences: Array.from({ length: n }, (_, i) => ({
+web/app\sentence_hover_test\_demo_stress.tsx:60:          provenance_tokens: [
+web/app\sentence_hover_test\_demo_stress.tsx:63:          verifier_pass: true,
+
+web/app\generation\components\multi_source_panel.tsx:15:import type { ParsedToken } from "@/lib/provenance_tokens";
+web/app\sentence_hover_test\_demo_stress.tsx:57:        verified_sentences: Array.from({ length: n }, (_, i) => ({
+web/app\sentence_hover_test\_demo_stress.tsx:60:          provenance_tokens: [
+web/app\sentence_hover_test\_demo_stress.tsx:63:          verifier_pass: true,
+web/app\sentence_hover_test\_demo_stress.tsx:76:    verifier_pass_threshold: 0.4,
+web/lib\inspector_bundle_loader.ts:45:  sections: VerifiedReportSectionShape[];
+
+web/lib\inspector_bundle_loader.ts:58:export interface VerifiedReportSectionShape {
+web/lib\inspector_bundle_loader.ts:61:  verified_sentences: VerifiedSentenceShape[];
+web/lib\inspector_bundle_loader.ts:68:  provenance_tokens: string[];
+web/lib\inspector_bundle_loader.ts:69:  verifier_pass: boolean;
+web/lib\api.ts:202:  provenance_tokens: string[];
+web/lib\api.ts:425:  provenance_tokens: string[];
+
+web/lib\inspector_bundle_loader.ts:68:  provenance_tokens: string[];
+web/lib\inspector_bundle_loader.ts:69:  verifier_pass: boolean;
+web/lib\api.ts:202:  provenance_tokens: string[];
+web/lib\api.ts:425:  provenance_tokens: string[];
+web/lib\api.ts:440:  verified_sentences: VerifiedSentence[];
+web/lib\api.ts:814:  provenance_tokens: string[];
+
+web/lib\inspector_bundle_loader.ts:69:  verifier_pass: boolean;
+web/lib\api.ts:202:  provenance_tokens: string[];
+web/lib\api.ts:425:  provenance_tokens: string[];
+web/lib\api.ts:440:  verified_sentences: VerifiedSentence[];
+web/lib\api.ts:814:  provenance_tokens: string[];
+web/lib\api.ts:815:  verifier_pass: boolean;
+
+web/lib\api.ts:425:  provenance_tokens: string[];
+web/lib\api.ts:440:  verified_sentences: VerifiedSentence[];
+web/lib\api.ts:814:  provenance_tokens: string[];
+web/lib\api.ts:815:  verifier_pass: boolean;
+web/lib\api.ts:889:  verified_sentences: ReportVerifiedSentence[];
+web/lib\api.ts:927:  verifier_pass_threshold: number;
+
+
+ succeeded in 4182ms:
+commit 887f97b63cd64cb1fe74144b9eed6e16763acf9c
+Author: msn <msn@polaris.dev>
+Date:   Fri May 22 01:53:35 2026 -0700
+
+    I-p2-007 (#746): filter tokens to strings (no .trim() crash on malformed), stale-selection fallback, a11y status label — Codex iter-1 P1+P2
+    
+    Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+
+diff --git a/web/components/proof_replay/proof_replay.tsx b/web/components/proof_replay/proof_replay.tsx
+index 2a67ad5e..497d2892 100644
+--- a/web/components/proof_replay/proof_replay.tsx
++++ b/web/components/proof_replay/proof_replay.tsx
+@@ -41,7 +41,11 @@ function flatten(sections: VerifiedReportSectionShape[]): FlatClaim[] {
+         sectionId: section.section_id,
+         sectionTitle: title,
+         text: s.sentence_text,
+-        tokens: Array.isArray(s.provenance_tokens) ? s.provenance_tokens : [],
++        tokens: Array.isArray(s.provenance_tokens)
++          ? s.provenance_tokens.filter(
++              (t): t is string => typeof t === "string",
++            )
++          : [],
+         verified: s.verifier_pass === true,
+       });
+     });
+@@ -137,7 +141,10 @@ export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
+   const [selectedKey, setSelectedKey] = useState<string | null>(
+     claims[0]?.key ?? null,
+   );
+-  const selected = claims.find((c) => c.key === selectedKey) ?? null;
++  // Fall back to the first claim if the selected key is stale (e.g. sections
++  // changed after mount), so the proof pane keeps its default-first behavior.
++  const selected =
++    claims.find((c) => c.key === selectedKey) ?? claims[0] ?? null;
+ 
+   if (claims.length === 0) {
+     return (
+@@ -151,7 +158,7 @@ export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
+     <div className="grid gap-4 md:grid-cols-2">
+       <div
+         role="list"
+-        aria-label="Verified claims"
++        aria-label="Claims"
+         className="border-border flex max-h-[32rem] flex-col gap-1 overflow-auto rounded-md border p-2"
+       >
+         {claims.map((claim, i) => {
+@@ -168,6 +175,7 @@ export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
+               <button
+                 type="button"
+                 aria-current={isSelected ? "true" : undefined}
++                aria-label={`${claim.verified ? "Verified" : "Unverified"} claim: ${claim.text}`}
+                 onClick={() => setSelectedKey(claim.key)}
+                 className={`focus-visible:ring-ring/70 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs leading-snug transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+                   isSelected
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content .codex\\I-p2-007\\diff_review_iter1.txt -Tail 80" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content .codex\\I-p2-007\\brief_review_iter2.txt -Tail 80" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content .codex\\I-p2-007\\codex_diff_canonical.patch -TotalCount 240" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content .codex\\I-p2-007\\codex_diff.patch -TotalCount 260" in C:\POLARIS
+ succeeded in 3508ms:
+  "cost_usd": 0.0,
+  "decision_id": "decision_v1_canonical_0001",
+  "evaluator_model": "google/gemma-4-31b-it",
+  "family_segregation_passed": true,
+  "finished_at_utc": "2026-05-19T00:00:00+00:00",
+  "generator_model": "deepseek/deepseek-v4-pro",
+  "latency_ms": 1500,
+  "overall_verify_pass_rate": 0.0,
+  "pipeline_verdict": "abort_no_verified_sections",
+  "pool_id": "pool_v1_canonical_0001",
+  "report_id": "report_v1_canonical_0001",
+  "sections": [],
+  "started_at_utc": "2026-05-19T00:00:00+00:00",
+  "verifier_pass_threshold": 0.4
+}
+
+ succeeded in 5838ms:
+{
+  "adequacy": {
+    "failure_reason": null,
+    "is_adequate": true,
+    "min_required_per_tier": {
+      "T1": 1
+    },
+    "sources_per_tier": {
+      "T1": 1
+    }
+  },
+  "cost_usd": 0.0,
+  "decision_id": "decision_v1_canonical_0001",
+  "latency_ms": 100,
+  "pool_id": "pool_v1_canonical_0001",
+  "queries_executed": [
+    "canonical fixture query"
+  ],
+  "retrieval_finished_at_utc": "2026-05-19T00:00:00+00:00",
+  "retrieval_started_at_utc": "2026-05-19T00:00:00+00:00",
+  "sources": [
+    {
+      "authors": [
+        "Test, A."
+      ],
+      "domain": "example.org",
+      "fetched_at_utc": "2026-05-19T00:00:00+00:00",
+      "full_text": "Full text body placeholder for the canonical fixture source.",
+      "full_text_available": true,
+      "provenance": {
+        "fetched_by": "canonical_fixture"
+      },
+      "retracted": false,
+      "snippet": "Snippet placeholder for the canonical fixture source.",
+      "source_id": "src_v1_canonical_0001",
+      "tier": "T1",
+      "title": "Canonical clinical evidence \u2014 v1 fixture source",
+      "url": "https://example.org/clinical/canonical_v1.html"
+    }
+  ]
+}
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/components/proof_replay/proof_replay.tsx:44 and :85: `provenance_tokens` is only checked as an array, not as an array of strings. A malformed bundle with `[null]`, numbers, or objects will pass through to `resolveSpan`, then `parseProvenanceToken` calls `token.trim()` at web/lib/provenance_tokens.ts:13 and crashes. This violates the explicit malformed-token honesty/no-crash requirement."
+p2:
+  - "web/components/proof_replay/proof_replay.tsx:137: default selection is only initialized once. If `sections` changes after mount, the pane can lose the default-first behavior until the user clicks."
+  - "web/components/proof_replay/proof_replay.tsx:154 and :178-182: the list is labeled 'Verified claims' and the verification dot is color-only/aria-hidden, while the component can include unverified claims."
+merge_decision: DO NOT MERGE
+tokens used
+39,814
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/components/proof_replay/proof_replay.tsx:44 and :85: `provenance_tokens` is only checked as an array, not as an array of strings. A malformed bundle with `[null]`, numbers, or objects will pass through to `resolveSpan`, then `parseProvenanceToken` calls `token.trim()` at web/lib/provenance_tokens.ts:13 and crashes. This violates the explicit malformed-token honesty/no-crash requirement."
+p2:
+  - "web/components/proof_replay/proof_replay.tsx:137: default selection is only initialized once. If `sections` changes after mount, the pane can lose the default-first behavior until the user clicks."
+  - "web/components/proof_replay/proof_replay.tsx:154 and :178-182: the list is labeled 'Verified claims' and the verification dot is color-only/aria-hidden, while the component can include unverified claims."
+merge_decision: DO NOT MERGE
+
+ succeeded in 3616ms:
+// source body. NEVER a silently-clamped slice (that would be synthetic proof).
+
+import { parseProvenanceToken } from "@/lib/provenance_tokens";
+
+export interface EvidenceSource {
+  source_id: string;
+  full_text?: string | null;
+  snippet?: string | null;
+  title?: string | null;
+  url?: string | null;
+  tier?: string | number | null;
+}
+
+export interface ResolvedSpan {
+  raw: string;
+  sourceId: string;
+  source: EvidenceSource | null;
+  start: number;
+  end: number;
+  /** The EXACT cited passage `full_text[start:end]`, or null when unresolved
+   * (missing source / no full_text / out-of-range bounds) — never clamped. */
+  quote: string | null;
+}
+
+function sourcesOf(evidencePool: unknown): EvidenceSource[] {
+  const s = (evidencePool as { sources?: unknown } | null)?.sources;
+  return Array.isArray(s) ? (s as EvidenceSource[]) : [];
+}
+
+/** Resolve a `[#ev:<id>:<start>-<end>]` token against the evidence pool.
+ * Returns null if the token itself is malformed; otherwise a ResolvedSpan
+ * whose `quote` is null unless every bound is valid against the real body. */
+export function resolveSpan(
+  token: string,
+  evidencePool: unknown,
+): ResolvedSpan | null {
+  const parsed = parseProvenanceToken(token);
+  if (!parsed) return null;
+  // sources is an ARRAY → look up by source_id (never index).
+  const source =
+    sourcesOf(evidencePool).find((s) => s?.source_id === parsed.source_id) ??
+    null;
+  const body = source?.full_text ?? null; // exact span only from full_text
+  let quote: string | null = null;
+  if (
+    typeof body === "string" &&
+    body.length > 0 &&
+    parsed.start >= 0 &&
+    parsed.end <= body.length &&
+    parsed.start <= parsed.end
+  ) {
+    quote = body.slice(parsed.start, parsed.end);
+  }
+  return {
+    raw: token,
+    sourceId: parsed.source_id,
+    source,
+    start: parsed.start,
+    end: parsed.end,
+    quote,
+  };
+}
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+```
+tokens used
+37,879
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+```
+
+ succeeded in 4739ms:
+diff --git a/web/components/proof_replay/proof_replay.tsx b/web/components/proof_replay/proof_replay.tsx
+new file mode 100644
+index 00000000..497d2892
+--- /dev/null
++++ b/web/components/proof_replay/proof_replay.tsx
+@@ -0,0 +1,214 @@
++// I-p2-007 (#746): Proof Replay split-view — POLARIS's centerpiece. Click a
++// verified claim (left) → see the EXACT cited source span (right). Composes the
++// shared resolveSpan (#743) + SourceCard (#745) + VerdictChip (#744). Honest:
++// malformed/missing/empty provenance never crashes — it shows an honest note,
++// never synthetic proof.
++"use client";
++
++import { useMemo, useState } from "react";
++
++import {
++  SourceCard,
++  type SourceCardSource,
++} from "@/components/source/source_card";
++import { VerdictChip } from "@/components/verdict/verdict_chip";
++import { resolveSpan } from "@/lib/evidence_span";
++import type { VerifiedReportSectionShape } from "@/lib/inspector_bundle_loader";
++
++interface ProofReplayProps {
++  sections: VerifiedReportSectionShape[];
++  evidencePool: unknown;
++}
++
++interface FlatClaim {
++  key: string;
++  sectionId: string;
++  sectionTitle: string | null;
++  text: string;
++  tokens: string[];
++  verified: boolean;
++}
++
++function flatten(sections: VerifiedReportSectionShape[]): FlatClaim[] {
++  const out: FlatClaim[] = [];
++  sections.forEach((section, si) => {
++    const title =
++      (typeof section.section_title === "string" && section.section_title) ||
++      null;
++    section.verified_sentences?.forEach((s, i) => {
++      out.push({
++        key: `${si}:${i}`,
++        sectionId: section.section_id,
++        sectionTitle: title,
++        text: s.sentence_text,
++        tokens: Array.isArray(s.provenance_tokens)
++          ? s.provenance_tokens.filter(
++              (t): t is string => typeof t === "string",
++            )
++          : [],
++        verified: s.verifier_pass === true,
++      });
++    });
++  });
++  return out;
++}
++
++function UnverifiedBadge() {
++  return (
++    <span className="bg-muted text-foreground border-border inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium">
++      Unverified
++    </span>
++  );
++}
++
++function ProofPane({
++  claim,
++  evidencePool,
++}: {
++  claim: FlatClaim;
++  evidencePool: unknown;
++}) {
++  return (
++    <div className="flex flex-col gap-3">
++      <div className="flex items-start justify-between gap-3">
++        <p className="text-foreground text-sm leading-snug">{claim.text}</p>
++        {claim.verified ? (
++          <VerdictChip verdict="VERIFIED" />
++        ) : (
++          <UnverifiedBadge />
++        )}
++      </div>
++
++      {claim.tokens.length === 0 ? (
++        <p className="text-muted-foreground text-xs">
++          No provenance tokens recorded for this claim.
++        </p>
++      ) : (
++        <div className="flex flex-col gap-3">
++          {claim.tokens.map((token, i) => {
++            const span = resolveSpan(token, evidencePool);
++            if (span === null) {
++              return (
++                <p
++                  key={`${token}-${i}`}
++                  className="text-muted-foreground text-xs"
++                >
++                  Unresolvable provenance token:{" "}
++                  <span className="font-mono">{token}</span>
++                </p>
++              );
++            }
++            if (span.source === null) {
++              return (
++                <p
++                  key={`${token}-${i}`}
++                  className="text-muted-foreground text-xs"
++                >
++                  Source <span className="font-mono">{span.sourceId}</span> not
++                  in this bundle — verify via the signed bundle.
++                </p>
++              );
++            }
++            const cardSource: SourceCardSource = {
++              source_id: span.source.source_id,
++              title: span.source.title,
++              url: span.source.url,
++              tier: span.source.tier,
++            };
++            return (
++              <div key={`${token}-${i}`} className="flex flex-col gap-1">
++                <SourceCard source={cardSource} />
++                {span.quote != null ? (
++                  <blockquote className="border-primary text-foreground max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-snug italic">
++                    &ldquo;{span.quote}&rdquo;
++                  </blockquote>
++                ) : (
++                  <p className="text-muted-foreground text-xs">
++                    Span not renderable from this bundle.
++                  </p>
++                )}
++              </div>
++            );
++          })}
++        </div>
++      )}
++    </div>
++  );
++}
++
++export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
++  const claims = useMemo(() => flatten(sections), [sections]);
++  const [selectedKey, setSelectedKey] = useState<string | null>(
++    claims[0]?.key ?? null,
++  );
++  // Fall back to the first claim if the selected key is stale (e.g. sections
++  // changed after mount), so the proof pane keeps its default-first behavior.
++  const selected =
++    claims.find((c) => c.key === selectedKey) ?? claims[0] ?? null;
++
++  if (claims.length === 0) {
++    return (
++      <p className="text-muted-foreground text-sm">
++        No verified claims in this report.
++      </p>
++    );
++  }
++
++  return (
++    <div className="grid gap-4 md:grid-cols-2">
++      <div
++        role="list"
++        aria-label="Claims"
++        className="border-border flex max-h-[32rem] flex-col gap-1 overflow-auto rounded-md border p-2"
++      >
++        {claims.map((claim, i) => {
++          const isSelected = claim.key === selectedKey;
++          const showHeading =
++            i === 0 || claims[i - 1].sectionId !== claim.sectionId;
++          return (
++            <div key={claim.key} role="listitem">
++              {showHeading && claim.sectionTitle && (
++                <p className="text-muted-foreground mt-2 mb-1 px-2 text-[11px] font-medium tracking-wide uppercase">
++                  {claim.sectionTitle}
++                </p>
++              )}
++              <button
++                type="button"
++                aria-current={isSelected ? "true" : undefined}
++                aria-label={`${claim.verified ? "Verified" : "Unverified"} claim: ${claim.text}`}
++                onClick={() => setSelectedKey(claim.key)}
++                className={`focus-visible:ring-ring/70 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs leading-snug transition-colors focus-visible:ring-2 focus-visible:outline-none ${
++                  isSelected
++                    ? "bg-primary/10 text-foreground border-primary border-l-2"
++                    : "text-muted-foreground hover:bg-muted border-l-2 border-transparent"
++                }`}
++              >
++                <span
++                  aria-hidden
++                  className={`mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
++                    claim.verified ? "bg-verified" : "bg-muted-foreground"
++                  }`}
++                />
++                <span className="line-clamp-2">{claim.text}</span>
++              </button>
++            </div>
++          );
++        })}
++      </div>
++
++      <div
++        aria-live="polite"
++        aria-label="Proof for the selected claim"
++        className="border-border rounded-md border p-4"
++      >
++        {selected ? (
++          <ProofPane claim={selected} evidencePool={evidencePool} />
++        ) : (
++          <p className="text-muted-foreground text-sm">
++            Select a claim to see its proof.
++          </p>
++        )}
++      </div>
++    </div>
++  );
++}
+
+ succeeded in 4886ms:
+diff --git a/web/components/proof_replay/proof_replay.tsx b/web/components/proof_replay/proof_replay.tsx
+new file mode 100644
+index 00000000..497d2892
+--- /dev/null
++++ b/web/components/proof_replay/proof_replay.tsx
+@@ -0,0 +1,214 @@
++// I-p2-007 (#746): Proof Replay split-view — POLARIS's centerpiece. Click a
++// verified claim (left) → see the EXACT cited source span (right). Composes the
++// shared resolveSpan (#743) + SourceCard (#745) + VerdictChip (#744). Honest:
++// malformed/missing/empty provenance never crashes — it shows an honest note,
++// never synthetic proof.
++"use client";
++
++import { useMemo, useState } from "react";
++
++import {
++  SourceCard,
++  type SourceCardSource,
++} from "@/components/source/source_card";
++import { VerdictChip } from "@/components/verdict/verdict_chip";
++import { resolveSpan } from "@/lib/evidence_span";
++import type { VerifiedReportSectionShape } from "@/lib/inspector_bundle_loader";
++
++interface ProofReplayProps {
++  sections: VerifiedReportSectionShape[];
++  evidencePool: unknown;
++}
++
++interface FlatClaim {
++  key: string;
++  sectionId: string;
++  sectionTitle: string | null;
++  text: string;
++  tokens: string[];
++  verified: boolean;
++}
++
++function flatten(sections: VerifiedReportSectionShape[]): FlatClaim[] {
++  const out: FlatClaim[] = [];
++  sections.forEach((section, si) => {
++    const title =
++      (typeof section.section_title === "string" && section.section_title) ||
++      null;
++    section.verified_sentences?.forEach((s, i) => {
++      out.push({
++        key: `${si}:${i}`,
++        sectionId: section.section_id,
++        sectionTitle: title,
++        text: s.sentence_text,
++        tokens: Array.isArray(s.provenance_tokens)
++          ? s.provenance_tokens.filter(
++              (t): t is string => typeof t === "string",
++            )
++          : [],
++        verified: s.verifier_pass === true,
++      });
++    });
++  });
++  return out;
++}
++
++function UnverifiedBadge() {
++  return (
++    <span className="bg-muted text-foreground border-border inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium">
++      Unverified
++    </span>
++  );
++}
++
++function ProofPane({
++  claim,
++  evidencePool,
++}: {
++  claim: FlatClaim;
++  evidencePool: unknown;
++}) {
++  return (
++    <div className="flex flex-col gap-3">
++      <div className="flex items-start justify-between gap-3">
++        <p className="text-foreground text-sm leading-snug">{claim.text}</p>
++        {claim.verified ? (
++          <VerdictChip verdict="VERIFIED" />
++        ) : (
++          <UnverifiedBadge />
++        )}
++      </div>
++
++      {claim.tokens.length === 0 ? (
++        <p className="text-muted-foreground text-xs">
++          No provenance tokens recorded for this claim.
++        </p>
++      ) : (
++        <div className="flex flex-col gap-3">
++          {claim.tokens.map((token, i) => {
++            const span = resolveSpan(token, evidencePool);
++            if (span === null) {
++              return (
++                <p
++                  key={`${token}-${i}`}
++                  className="text-muted-foreground text-xs"
++                >
++                  Unresolvable provenance token:{" "}
++                  <span className="font-mono">{token}</span>
++                </p>
++              );
++            }
++            if (span.source === null) {
++              return (
++                <p
++                  key={`${token}-${i}`}
++                  className="text-muted-foreground text-xs"
++                >
++                  Source <span className="font-mono">{span.sourceId}</span> not
++                  in this bundle — verify via the signed bundle.
++                </p>
++              );
++            }
++            const cardSource: SourceCardSource = {
++              source_id: span.source.source_id,
++              title: span.source.title,
++              url: span.source.url,
++              tier: span.source.tier,
++            };
++            return (
++              <div key={`${token}-${i}`} className="flex flex-col gap-1">
++                <SourceCard source={cardSource} />
++                {span.quote != null ? (
++                  <blockquote className="border-primary text-foreground max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-snug italic">
++                    &ldquo;{span.quote}&rdquo;
++                  </blockquote>
++                ) : (
++                  <p className="text-muted-foreground text-xs">
++                    Span not renderable from this bundle.
++                  </p>
++                )}
++              </div>
++            );
++          })}
++        </div>
++      )}
++    </div>
++  );
++}
++
++export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
++  const claims = useMemo(() => flatten(sections), [sections]);
++  const [selectedKey, setSelectedKey] = useState<string | null>(
++    claims[0]?.key ?? null,
++  );
++  // Fall back to the first claim if the selected key is stale (e.g. sections
++  // changed after mount), so the proof pane keeps its default-first behavior.
++  const selected =
++    claims.find((c) => c.key === selectedKey) ?? claims[0] ?? null;
++
++  if (claims.length === 0) {
++    return (
++      <p className="text-muted-foreground text-sm">
++        No verified claims in this report.
++      </p>
++    );
++  }
++
++  return (
++    <div className="grid gap-4 md:grid-cols-2">
++      <div
++        role="list"
++        aria-label="Claims"
++        className="border-border flex max-h-[32rem] flex-col gap-1 overflow-auto rounded-md border p-2"
++      >
++        {claims.map((claim, i) => {
++          const isSelected = claim.key === selectedKey;
++          const showHeading =
++            i === 0 || claims[i - 1].sectionId !== claim.sectionId;
++          return (
++            <div key={claim.key} role="listitem">
++              {showHeading && claim.sectionTitle && (
++                <p className="text-muted-foreground mt-2 mb-1 px-2 text-[11px] font-medium tracking-wide uppercase">
++                  {claim.sectionTitle}
++                </p>
++              )}
++              <button
++                type="button"
++                aria-current={isSelected ? "true" : undefined}
++                aria-label={`${claim.verified ? "Verified" : "Unverified"} claim: ${claim.text}`}
++                onClick={() => setSelectedKey(claim.key)}
++                className={`focus-visible:ring-ring/70 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs leading-snug transition-colors focus-visible:ring-2 focus-visible:outline-none ${
++                  isSelected
++                    ? "bg-primary/10 text-foreground border-primary border-l-2"
++                    : "text-muted-foreground hover:bg-muted border-l-2 border-transparent"
++                }`}
++              >
++                <span
++                  aria-hidden
++                  className={`mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
++                    claim.verified ? "bg-verified" : "bg-muted-foreground"
++                  }`}
++                />
++                <span className="line-clamp-2">{claim.text}</span>
++              </button>
++            </div>
++          );
++        })}
++      </div>
++
++      <div
++        aria-live="polite"
++        aria-label="Proof for the selected claim"
++        className="border-border rounded-md border p-4"
++      >
++        {selected ? (
++          <ProofPane claim={selected} evidencePool={evidencePool} />
++        ) : (
++          <p className="text-muted-foreground text-sm">
++            Select a claim to see its proof.
++          </p>
++        )}
++      </div>
++    </div>
++  );
++}
+
+# canonical-diff-sha256: 294b59c19f8d305915e13db910881153125d0e584472a583fc5e8a24b8efe7f3
+
+codex
+The composed resolver is doing the important no-clamp behavior: bad token strings return `null`, missing sources keep `source=null`, and invalid span bounds keep `quote=null`. I’m checking the branch diff boundary and stale-selection behavior before finalizing the gate.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat origin/polaris..HEAD -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --name-only origin/polaris..HEAD' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git diff origin/polaris..HEAD -- web\\components\\proof_replay\\proof_replay.tsx web\\lib\\evidence_span.ts web\\components\\source\\source_card.tsx web\\components\\verdict\\verdict_chip.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git merge-base --is-ancestor origin/polaris HEAD; if ($LASTEXITCODE -eq 0) { '"'origin/polaris is ancestor of HEAD' } else { \"not ancestor exit="'$LASTEXITCODE" }' in C:\POLARIS
+ succeeded in 1390ms:
+ web/components/proof_replay/proof_replay.tsx | 214 +++++++++++++++++++++++++++
+ 1 file changed, 214 insertions(+)
+
+ succeeded in 1836ms:
+web/components/proof_replay/proof_replay.tsx
+
+ succeeded in 2225ms:
+origin/polaris is ancestor of HEAD
+
+ succeeded in 2516ms:
+diff --git a/web/components/proof_replay/proof_replay.tsx b/web/components/proof_replay/proof_replay.tsx
+new file mode 100644
+index 00000000..497d2892
+--- /dev/null
++++ b/web/components/proof_replay/proof_replay.tsx
+@@ -0,0 +1,214 @@
++// I-p2-007 (#746): Proof Replay split-view — POLARIS's centerpiece. Click a
++// verified claim (left) → see the EXACT cited source span (right). Composes the
++// shared resolveSpan (#743) + SourceCard (#745) + VerdictChip (#744). Honest:
++// malformed/missing/empty provenance never crashes — it shows an honest note,
++// never synthetic proof.
++"use client";
++
++import { useMemo, useState } from "react";
++
++import {
++  SourceCard,
++  type SourceCardSource,
++} from "@/components/source/source_card";
++import { VerdictChip } from "@/components/verdict/verdict_chip";
++import { resolveSpan } from "@/lib/evidence_span";
++import type { VerifiedReportSectionShape } from "@/lib/inspector_bundle_loader";
++
++interface ProofReplayProps {
++  sections: VerifiedReportSectionShape[];
++  evidencePool: unknown;
++}
++
++interface FlatClaim {
++  key: string;
++  sectionId: string;
++  sectionTitle: string | null;
++  text: string;
++  tokens: string[];
++  verified: boolean;
++}
++
++function flatten(sections: VerifiedReportSectionShape[]): FlatClaim[] {
++  const out: FlatClaim[] = [];
++  sections.forEach((section, si) => {
++    const title =
++      (typeof section.section_title === "string" && section.section_title) ||
++      null;
++    section.verified_sentences?.forEach((s, i) => {
++      out.push({
++        key: `${si}:${i}`,
++        sectionId: section.section_id,
++        sectionTitle: title,
++        text: s.sentence_text,
++        tokens: Array.isArray(s.provenance_tokens)
++          ? s.provenance_tokens.filter(
++              (t): t is string => typeof t === "string",
++            )
++          : [],
++        verified: s.verifier_pass === true,
++      });
++    });
++  });
++  return out;
++}
++
++function UnverifiedBadge() {
++  return (
++    <span className="bg-muted text-foreground border-border inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium">
++      Unverified
++    </span>
++  );
++}
++
++function ProofPane({
++  claim,
++  evidencePool,
++}: {
++  claim: FlatClaim;
++  evidencePool: unknown;
++}) {
++  return (
++    <div className="flex flex-col gap-3">
++      <div className="flex items-start justify-between gap-3">
++        <p className="text-foreground text-sm leading-snug">{claim.text}</p>
++        {claim.verified ? (
++          <VerdictChip verdict="VERIFIED" />
++        ) : (
++          <UnverifiedBadge />
++        )}
++      </div>
++
++      {claim.tokens.length === 0 ? (
++        <p className="text-muted-foreground text-xs">
++          No provenance tokens recorded for this claim.
++        </p>
++      ) : (
++        <div className="flex flex-col gap-3">
++          {claim.tokens.map((token, i) => {
++            const span = resolveSpan(token, evidencePool);
++            if (span === null) {
++              return (
++                <p
++                  key={`${token}-${i}`}
++                  className="text-muted-foreground text-xs"
++                >
++                  Unresolvable provenance token:{" "}
++                  <span className="font-mono">{token}</span>
++                </p>
++              );
++            }
++            if (span.source === null) {
++              return (
++                <p
++                  key={`${token}-${i}`}
++                  className="text-muted-foreground text-xs"
++                >
++                  Source <span className="font-mono">{span.sourceId}</span> not
++                  in this bundle — verify via the signed bundle.
++                </p>
++              );
++            }
++            const cardSource: SourceCardSource = {
++              source_id: span.source.source_id,
++              title: span.source.title,
++              url: span.source.url,
++              tier: span.source.tier,
++            };
++            return (
++              <div key={`${token}-${i}`} className="flex flex-col gap-1">
++                <SourceCard source={cardSource} />
++                {span.quote != null ? (
++                  <blockquote className="border-primary text-foreground max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-snug italic">
++                    &ldquo;{span.quote}&rdquo;
++                  </blockquote>
++                ) : (
++                  <p className="text-muted-foreground text-xs">
++                    Span not renderable from this bundle.
++                  </p>
++                )}
++              </div>
++            );
++          })}
++        </div>
++      )}
++    </div>
++  );
++}
++
++export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
++  const claims = useMemo(() => flatten(sections), [sections]);
++  const [selectedKey, setSelectedKey] = useState<string | null>(
++    claims[0]?.key ?? null,
++  );
++  // Fall back to the first claim if the selected key is stale (e.g. sections
++  // changed after mount), so the proof pane keeps its default-first behavior.
++  const selected =
++    claims.find((c) => c.key === selectedKey) ?? claims[0] ?? null;
++
++  if (claims.length === 0) {
++    return (
++      <p className="text-muted-foreground text-sm">
++        No verified claims in this report.
++      </p>
++    );
++  }
++
++  return (
++    <div className="grid gap-4 md:grid-cols-2">
++      <div
++        role="list"
++        aria-label="Claims"
++        className="border-border flex max-h-[32rem] flex-col gap-1 overflow-auto rounded-md border p-2"
++      >
++        {claims.map((claim, i) => {
++          const isSelected = claim.key === selectedKey;
++          const showHeading =
++            i === 0 || claims[i - 1].sectionId !== claim.sectionId;
++          return (
++            <div key={claim.key} role="listitem">
++              {showHeading && claim.sectionTitle && (
++                <p className="text-muted-foreground mt-2 mb-1 px-2 text-[11px] font-medium tracking-wide uppercase">
++                  {claim.sectionTitle}
++                </p>
++              )}
++              <button
++                type="button"
++                aria-current={isSelected ? "true" : undefined}
++                aria-label={`${claim.verified ? "Verified" : "Unverified"} claim: ${claim.text}`}
++                onClick={() => setSelectedKey(claim.key)}
++                className={`focus-visible:ring-ring/70 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs leading-snug transition-colors focus-visible:ring-2 focus-visible:outline-none ${
++                  isSelected
++                    ? "bg-primary/10 text-foreground border-primary border-l-2"
++                    : "text-muted-foreground hover:bg-muted border-l-2 border-transparent"
++                }`}
++              >
++                <span
++                  aria-hidden
++                  className={`mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
++                    claim.verified ? "bg-verified" : "bg-muted-foreground"
++                  }`}
++                />
++                <span className="line-clamp-2">{claim.text}</span>
++              </button>
++            </div>
++          );
++        })}
++      </div>
++
++      <div
++        aria-live="polite"
++        aria-label="Proof for the selected claim"
++        className="border-border rounded-md border p-4"
++      >
++        {selected ? (
++          <ProofPane claim={selected} evidencePool={evidencePool} />
++        ) : (
++          <p className="text-muted-foreground text-sm">
++            Select a claim to see its proof.
++          </p>
++        )}
++      </div>
++    </div>
++  );
++}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem web -Force | Select-Object Name' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw web\\package.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "bg-verified|border-primary|ring-ring|md:grid-cols-2|line-clamp" web -n' in C:\POLARIS
+ succeeded in 1276ms:
+
+[32;1mName[0m
+[32;1m----[0m
+.next
+app
+components
+lib
+node_modules
+public
+screenshots
+scripts
+test-results
+tests
+web
+.gitignore
+.prettierignore
+.prettierrc.json
+AGENTS.md
+CLAUDE.md
+components.json
+Dockerfile
+eslint.config.mjs
+middleware.ts
+next-env.d.ts
+next.config.ts
+package-lock.json
+package.json
+playwright.config.ts
+postcss.config.mjs
+README.md
+requirements-v6.txt
+requirements.txt
+THIRD_PARTY_LICENSES.md
+tsconfig.json
+tsconfig.tsbuildinfo
+
+
+ succeeded in 1602ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+
+ succeeded in 2003ms:
+web\components\verdict\verdict_chip.tsx:36:    className: "bg-verified/10 text-verified border-verified/30",
+web\app\compare\page.tsx:166:        className="border-input focus-visible:border-ring focus-visible:ring-ring rounded-lg border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2"
+web\app\components\recent_runs_strip.tsx:76:              className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring group flex max-w-xs flex-col gap-1 rounded-lg border px-3 py-2 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+web\app\components\recent_runs_strip.tsx:87:              <span className="text-foreground line-clamp-2 text-sm">
+web\components\ui\tabs.tsx:39:      "focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+web\components\ui\tabs.tsx:58:      "ring-offset-background focus-visible:ring-ring mt-4 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+web\app\components\command_palette.tsx:120:            className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:ring-2 focus:outline-none"
+web\components\ui\input.tsx:12:        "border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/70 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm",
+web\components\ui\button.tsx:7:  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/70 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+web\app\dashboard\page.tsx:347:            className="grid grid-cols-1 gap-3 md:grid-cols-2"
+web\app\dashboard\page.tsx:366:                  className={`bg-card focus-visible:ring-ring/70 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+web\app\inspector\offline\page.tsx:99:            className={`border-border focus-visible:ring-ring flex min-h-32 cursor-pointer items-center justify-center rounded border-2 border-dashed px-6 py-8 text-center text-sm focus-visible:ring-2 focus-visible:outline-none ${
+web\components\source\source_card.tsx:37:      <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\source\source_card.tsx:79:            className="text-foreground hover:text-primary focus-visible:ring-ring/70 inline-flex items-start gap-1 font-medium underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:outline-none"
+web\components\source\source_card.tsx:97:        <p className="text-foreground/80 line-clamp-3 text-xs leading-snug">
+web\components\proof_replay\proof_replay.tsx:122:                  <blockquote className="border-primary text-foreground max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-snug italic">
+web\components\proof_replay\proof_replay.tsx:158:    <div className="grid gap-4 md:grid-cols-2">
+web\components\proof_replay\proof_replay.tsx:180:                className={`focus-visible:ring-ring/70 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs leading-snug transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+web\components\proof_replay\proof_replay.tsx:182:                    ? "bg-primary/10 text-foreground border-primary border-l-2"
+web\components\proof_replay\proof_replay.tsx:189:                    claim.verified ? "bg-verified" : "bg-muted-foreground"
+web\components\proof_replay\proof_replay.tsx:192:                <span className="line-clamp-2">{claim.text}</span>
+web\app\pin_replay\page.tsx:172:        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+web\app\retrieval\components\retrieval_runner.tsx:135:              className="border-input focus-visible:border-ring focus-visible:ring-ring/70 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+web\app\page.tsx:160:            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+web\app\page.tsx:167:                      ? "border-primary/40 flex flex-col transition-shadow hover:shadow-sm"
+web\app\generation\components\generation_runner.tsx:146:              className="border-input focus-visible:border-ring focus-visible:ring-ring/70 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+web\app\pin_replay\components\pin_timeseries.tsx:39:    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+web\components\inspector\bundle_header.tsx:20:      <CardContent className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+web\components\inspector\reasoning_trace_timeline.tsx:99:        className="focus-visible:ring-ring mt-2 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\components\citation\citation_chip.tsx:59:            className="border-border text-muted-foreground hover:bg-muted focus-visible:ring-ring/70 mx-0.5 inline-flex min-h-[24px] min-w-[24px] items-center justify-center gap-1 rounded border px-1.5 align-baseline font-mono text-[11px] leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
+web\app\runs\[runId]\components\followup_panel.tsx:82:          className="border-input focus-visible:border-ring focus-visible:ring-ring w-full rounded-lg border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2"
+web\components\inspector\verified_report_sections.tsx:105:          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\app\runs\[runId]\components\run_progress.tsx:260:        className="border-primary size-4 animate-spin rounded-full border-2 border-t-transparent"
+
+codex
+The branch diff is confined to `web/components/proof_replay/proof_replay.tsx`, and `origin/polaris` is an ancestor of `HEAD`, so the diff boundary is clean. I’m running the web typecheck as a mergeability sanity check.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck -- --pretty false' in C:\POLARIS\web
+ succeeded in 4055ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit --pretty false
+
+
+codex
+Typecheck passes. I’m doing one targeted lint pass on the new file, then I’ll return the gate verdict in the requested YAML shape.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx eslint components/proof_replay/proof_replay.tsx' in C:\POLARIS\web
+ succeeded in 4529ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web'"\\components\\proof_replay\\proof_replay.tsx | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -Skip 130 -First 60' in C:\POLARIS
+ succeeded in 1432ms:
+ 131:             );
+ 132:           })}
+ 133:         </div>
+ 134:       )}
+ 135:     </div>
+ 136:   );
+ 137: }
+ 138: 
+ 139: export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
+ 140:   const claims = useMemo(() => flatten(sections), [sections]);
+ 141:   const [selectedKey, setSelectedKey] = useState<string | null>(
+ 142:     claims[0]?.key ?? null,
+ 143:   );
+ 144:   // Fall back to the first claim if the selected key is stale (e.g. sections
+ 145:   // changed after mount), so the proof pane keeps its default-first behavior.
+ 146:   const selected =
+ 147:     claims.find((c) => c.key === selectedKey) ?? claims[0] ?? null;
+ 148: 
+ 149:   if (claims.length === 0) {
+ 150:     return (
+ 151:       <p className="text-muted-foreground text-sm">
+ 152:         No verified claims in this report.
+ 153:       </p>
+ 154:     );
+ 155:   }
+ 156: 
+ 157:   return (
+ 158:     <div className="grid gap-4 md:grid-cols-2">
+ 159:       <div
+ 160:         role="list"
+ 161:         aria-label="Claims"
+ 162:         className="border-border flex max-h-[32rem] flex-col gap-1 overflow-auto rounded-md border p-2"
+ 163:       >
+ 164:         {claims.map((claim, i) => {
+ 165:           const isSelected = claim.key === selectedKey;
+ 166:           const showHeading =
+ 167:             i === 0 || claims[i - 1].sectionId !== claim.sectionId;
+ 168:           return (
+ 169:             <div key={claim.key} role="listitem">
+ 170:               {showHeading && claim.sectionTitle && (
+ 171:                 <p className="text-muted-foreground mt-2 mb-1 px-2 text-[11px] font-medium tracking-wide uppercase">
+ 172:                   {claim.sectionTitle}
+ 173:                 </p>
+ 174:               )}
+ 175:               <button
+ 176:                 type="button"
+ 177:                 aria-current={isSelected ? "true" : undefined}
+ 178:                 aria-label={`${claim.verified ? "Verified" : "Unverified"} claim: ${claim.text}`}
+ 179:                 onClick={() => setSelectedKey(claim.key)}
+ 180:                 className={`focus-visible:ring-ring/70 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs leading-snug transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+ 181:                   isSelected
+ 182:                     ? "bg-primary/10 text-foreground border-primary border-l-2"
+ 183:                     : "text-muted-foreground hover:bg-muted border-l-2 border-transparent"
+ 184:                 }`}
+ 185:               >
+ 186:                 <span
+ 187:                   aria-hidden
+ 188:                   className={`mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+ 189:                     claim.verified ? "bg-verified" : "bg-muted-foreground"
+ 190:                   }`}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content web'"\\components\\proof_replay\\proof_replay.tsx | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -Skip 28 -First 28' in C:\POLARIS
+ succeeded in 1459ms:
+  29:   verified: boolean;
+  30: }
+  31: 
+  32: function flatten(sections: VerifiedReportSectionShape[]): FlatClaim[] {
+  33:   const out: FlatClaim[] = [];
+  34:   sections.forEach((section, si) => {
+  35:     const title =
+  36:       (typeof section.section_title === "string" && section.section_title) ||
+  37:       null;
+  38:     section.verified_sentences?.forEach((s, i) => {
+  39:       out.push({
+  40:         key: `${si}:${i}`,
+  41:         sectionId: section.section_id,
+  42:         sectionTitle: title,
+  43:         text: s.sentence_text,
+  44:         tokens: Array.isArray(s.provenance_tokens)
+  45:           ? s.provenance_tokens.filter(
+  46:               (t): t is string => typeof t === "string",
+  47:             )
+  48:           : [],
+  49:         verified: s.verifier_pass === true,
+  50:       });
+  51:     });
+  52:   });
+  53:   return out;
+  54: }
+  55: 
+  56: function UnverifiedBadge() {
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/components/proof_replay/proof_replay.tsx:147 and web/components/proof_replay/proof_replay.tsx:165: stale selectedKey fallback updates the proof pane to the first claim, but the list can show no aria-current/selected accent after sections prop changes."
+merge_decision: MERGE AUTHORIZED
+tokens used
+104,433
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/components/proof_replay/proof_replay.tsx:147 and web/components/proof_replay/proof_replay.tsx:165: stale selectedKey fallback updates the proof pane to the first claim, but the list can show no aria-current/selected accent after sections prop changes."
+merge_decision: MERGE AUTHORIZED
