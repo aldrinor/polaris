@@ -1,0 +1,280 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4efb-29ec-7943-ae09-32409fd1a6a2
+--------
+user
+# Codex BRIEF review — I-p2-010 (#749): contradiction / refusal panel
+
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; cosmetics → P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; do not bank for iter 6.
+- Surface held-back findings now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Task
+A reusable **contradiction / refusal panel** — surfaces genuine source disagreement AND honest pipeline refusals as FEATURES (the trust differentiator: POLARIS shows conflict + declines rather than fabricating).
+
+## Verified current state (grounded — REAL fields)
+- `ContradictionSignal { disagreeing_source_count, summary, sides?: ContradictionSide[], kind?: "multi_source"|"self_contradiction", category? }` (api.ts).
+- `ContradictionSide { source_id, source_tier: "T1"|"T2"|"T3", sample_size?, hedge_language, pt08_flag?, claim_excerpt, evidence_type?, jurisdiction? }`.
+- Refusal = the abort pipeline statuses: abort_scope_rejected, abort_corpus_inadequate, abort_corpus_approval_denied, abort_no_verified_sections (api.ts:72-75 + the manifest verdict).
+- #742 tokens; VerdictChip (#744) has contradiction + refusal verdicts.
+
+## Acceptance criteria (diff implements; brief reviews the plan)
+1. `web/components/contradiction/contradiction_panel.tsx`: props = `contradictions?: ContradictionSignal[]` + `refusalStatus?: string | null` (an abort_* status).
+2. REFUSAL (when refusalStatus is an abort_*): an honest, feature-framed card — "POLARIS declined to answer" + the specific reason mapped from the status:
+   - abort_scope_rejected → "The question is outside POLARIS's research scope."
+   - abort_corpus_inadequate → "Not enough qualifying sources to answer responsibly."
+   - abort_corpus_approval_denied → "The source set failed approval (material tier deviation)."
+   - abort_no_verified_sections → "No claim could be verified against a primary source."
+   - Unknown abort_* → a generic honest "Declined — see run status." (no fabricated reason).
+3. CONTRADICTIONS: render each ContradictionSignal — summary, "N sources disagree", kind badge, and per side: tier, claim_excerpt, jurisdiction/hedge if present. Real fields only.
+4. Honest framing: refusal is a FEATURE not an error (calm, not alarming red); contradiction is shown faithfully. Frontier-Minimal; #742 tokens (contradiction=amber, refusal=neutral); WCAG 2.2 AA.
+
+## Files I have ALSO checked and they're clean
+- web/lib/api.ts (ContradictionSignal/Side/Kind + abort statuses), web/components/verdict/verdict_chip.tsx (#744 contradiction/refusal), web/app/globals.css (#742 tokens).
+
+## Review focus
+1. Refusal mapping correct + complete vs the 4 abort statuses + an honest unknown-fallback (no fabricated reason)?
+2. Contradiction rendering uses only real ContradictionSignal/Side fields (no invented fields)?
+3. Honest framing (refusal as feature, not alarming error)? tokens/a11y. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+---
+## iter-2 clarification (review scope)
+This is a BRIEF / PLAN review, NOT a diff review. The component web/components/contradiction/contradiction_panel.tsx is INTENTIONALLY not yet implemented — it is built AFTER this brief is APPROVE'd (per the issue-driven workflow: brief → Codex brief APPROVE → diff → Codex diff APPROVE). "File does not exist" is the expected pre-implementation state, NOT a defect in the plan. Please evaluate the PLAN's correctness: (a) is the refusal-status→message mapping correct + complete vs the 4 abort statuses + honest unknown-fallback; (b) does the contradiction rendering use only real ContradictionSignal/ContradictionSide fields; (c) is the honest framing (refusal as feature) right. APPROVE iff the PLAN is sound; reserve P0/P1 for real plan defects (wrong field, wrong mapping, honesty violation), not the absence of the not-yet-written file.
+
+codex
+I’ll verify the referenced type/status definitions against the workspace, then judge the brief as a plan only. The expected missing component will not be treated as a defect.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "contradiction|refusal|abort_" web/components/verdict web/app/globals.css' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "ContradictionSignal|ContradictionSide|abort_scope_rejected|abort_corpus_inadequate|abort_corpus_approval_denied|abort_no_verified_sections" web/lib/api.ts' in C:\POLARIS
+ succeeded in 1338ms:
+web/app/globals.css:33:  --color-contradiction: var(--contradiction);
+web/app/globals.css:34:  --color-contradiction-foreground: var(--contradiction-foreground);
+web/app/globals.css:35:  --color-refusal: var(--refusal);
+web/app/globals.css:36:  --color-refusal-foreground: var(--refusal-foreground);
+web/app/globals.css:77:     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+web/app/globals.css:96:  --contradiction: oklch(0.72 0.15 75);
+web/app/globals.css:97:  --contradiction-foreground: oklch(0.27 0.04 75);
+web/app/globals.css:98:  --refusal: oklch(0.45 0.02 286);
+web/app/globals.css:99:  --refusal-foreground: oklch(0.985 0 0);
+web/app/globals.css:132:     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+web/components/verdict\verdict_chip.tsx:22:  | "contradiction"
+web/components/verdict\verdict_chip.tsx:23:  | "refusal";
+web/components/verdict\verdict_chip.tsx:42:      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+web/components/verdict\verdict_chip.tsx:59:  contradiction: {
+web/components/verdict\verdict_chip.tsx:63:      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+web/components/verdict\verdict_chip.tsx:65:  refusal: {
+web/components/verdict\verdict_chip.tsx:68:    className: "bg-refusal/10 text-refusal border-refusal/30",
+
+ succeeded in 1600ms:
+72:  | "abort_scope_rejected"
+73:  | "abort_corpus_inadequate"
+74:  | "abort_corpus_approval_denied"
+75:  | "abort_no_verified_sections";
+267:  verdict: "success" | "abort_no_verified_sections";
+802:export type PipelineVerdict = "success" | "abort_no_verified_sections";
+820:  contradiction?: ContradictionSignal | null;
+849:export interface ContradictionSide {
+870:export interface ContradictionSignal {
+873:  sides?: ContradictionSide[];
+
+codex
+The status names and token hooks are present where the brief says they are. I’m opening the type definitions now to check the field list exactly, since that is the main plan-risk here.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/lib/api.ts | Select-Object -Skip 840 -First 45' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/lib/api.ts | Select-Object -Skip 60 -First 20' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/components/verdict/verdict_chip.tsx | Select-Object -First 95' in C:\POLARIS
+ succeeded in 1494ms:
+  | "canada"
+  | "us"
+  | "eu"
+  | "uk"
+  | "who"
+  | "other"
+  | "unspecified";
+
+export interface ContradictionSide {
+  source_id: string;
+  source_tier: "T1" | "T2" | "T3";
+  sample_size?: number | null;
+  hedge_language: string;
+  pt08_flag?: string | null;
+  claim_excerpt: string;
+  evidence_type?: ContradictionEvidenceType;
+  jurisdiction?: Jurisdiction;
+}
+
+export type ContradictionKind = "multi_source" | "self_contradiction";
+
+export type ContradictionCategory =
+  | "numeric"
+  | "categorical"
+  | "regulatory"
+  | "temporal"
+  | "jurisdictional"
+  | "other";
+
+export interface ContradictionSignal {
+  disagreeing_source_count: number;
+  summary: string;
+  sides?: ContradictionSide[];
+  kind?: ContradictionKind;
+  category?: ContradictionCategory;
+}
+
+export type AssertionSurface =
+  | "prose"
+  | "table"
+  | "summary_bullet"
+  | "limitation"
+  | "caption"
+  | "heading";
+
+
+ succeeded in 1784ms:
+// I-p2-005 (#744): per-claim verdict chip. THREE signals (state color + icon +
+// label) so a verdict is never distinguished by color alone (WCAG 1.4.1).
+// Consumes the #742 state tokens. Display-only (non-interactive). Honest
+// labels — FABRICATED and UNREACHABLE are real, distinct, serious verdicts.
+import {
+  BadgeCheck,
+  Ban,
+  CircleHelp,
+  CircleSlash,
+  Minus,
+  TriangleAlert,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+
+export type VerdictKind =
+  | "VERIFIED"
+  | "PARTIAL"
+  | "UNSUPPORTED"
+  | "FABRICATED"
+  | "UNREACHABLE"
+  | "contradiction"
+  | "refusal";
+
+interface VerdictMeta {
+  label: string;
+  Icon: LucideIcon;
+  /** Tint bg + readable text + border, all AA from #742 tokens. */
+  className: string;
+}
+
+const VERDICT_META: Record<VerdictKind, VerdictMeta> = {
+  VERIFIED: {
+    label: "Verified",
+    Icon: BadgeCheck,
+    className: "bg-verified/10 text-verified border-verified/30",
+  },
+  PARTIAL: {
+    label: "Partial",
+    Icon: CircleSlash,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  UNSUPPORTED: {
+    label: "Unsupported",
+    Icon: Minus,
+    className: "bg-muted text-foreground border-border",
+  },
+  FABRICATED: {
+    label: "Fabricated",
+    Icon: X,
+    className: "bg-destructive/10 text-destructive border-destructive/40",
+  },
+  UNREACHABLE: {
+    label: "Unreachable",
+    Icon: CircleHelp,
+    className: "bg-muted text-foreground border-border border-dashed",
+  },
+  contradiction: {
+    label: "Contradiction",
+    Icon: TriangleAlert,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  refusal: {
+    label: "Refusal",
+    Icon: Ban,
+    className: "bg-refusal/10 text-refusal border-refusal/30",
+  },
+};
+
+export function VerdictChip({ verdict }: { verdict: VerdictKind }) {
+  const meta = VERDICT_META[verdict];
+  return (
+    <span
+      data-testid="verdict-chip"
+      data-verdict={verdict}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
+    >
+      <meta.Icon aria-hidden className="h-3 w-3 shrink-0" />
+      {meta.label}
+    </span>
+  );
+}
+
+ succeeded in 2131ms:
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce"
+  | "custom";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+```
+tokens used
+29,315
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+```

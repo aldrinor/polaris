@@ -1,0 +1,2364 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4efc-a04d-7622-a731-ccfebf22afb2
+--------
+user
+# Codex DIFF review — I-p2-010 (#749): contradiction / refusal panel
+
+HARD ITERATION CAP: 5. iter 1. APPROVE iff zero P0/P1 (code + design rubric, esp. HONESTY framing). Final line MERGE AUTHORIZED if mergeable. Canonical-diff-sha256 `bc6f4efc7e04f9e24a006ac83871ed918bd418d40f8fc9305caee60518b94246`. web/ only. Display component; visual verifies in-context at #759/#756.
+
+## Diff (contradiction_panel.tsx)
+- RefusalCard: maps abort_scope_rejected/corpus_inadequate/corpus_approval_denied/no_verified_sections → honest reason; unknown abort_* → "Declined — see run status" (no fabricated reason); refusal-neutral tokens (NOT alarming red); "by design — refuses rather than fabricating".
+- ContradictionCard: real ContradictionSignal fields (disagreeing_source_count, kind, summary, sides[]: source_tier, source_id, jurisdiction?, claim_excerpt). amber contradiction tokens.
+- Empty state when neither present.
+
+## Review focus
+1. HONESTY: refusal mapping faithful + unknown-fallback non-fabricated; refusal framed as feature (calm, not alarming); contradiction uses only real fields?
+2. tokens (contradiction amber / refusal neutral, AA); a11y (TriangleAlert aria-hidden, list semantics)?
+3. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+codex
+I’ll review this as a diff review and keep it scoped to `web/`, with the final response limited to the requested YAML schema. First I’m checking the touched file and current diff so the findings are grounded in the actual code.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files web | rg \"contradiction_panel\\.tsx"'$|ContradictionPanel|RefusalCard|ContradictionCard"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+ succeeded in 1374ms:
+ succeeded in 1702ms:
+ M .claude/settings.json
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-p2-010/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+ succeeded in 1932ms:
+web\components\contradiction\contradiction_panel.tsx
+
+codex
+The working tree has unrelated dirt, but no visible `git diff -- web` output, so I’m reading the target component directly and checking the review input under `.codex/I-p2-010` for the actual patch context.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\contradiction\\contradiction_panel.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path .codex\\I-p2-010 -Force" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "ContradictionSignal|abort_scope_rejected|corpus_inadequate|corpus_approval_denied|no_verified_sections|contradiction_panel" web -n' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git log --oneline --decorate -5 -- web/components/contradiction/contradiction_panel.tsx' in C:\POLARIS
+ succeeded in 1280ms:
+// I-p2-010 (#749): contradiction / refusal panel. Surfaces genuine source
+// disagreement AND honest pipeline refusals as FEATURES — POLARIS shows
+// conflict and declines rather than fabricating. Real fields only; refusal is
+// framed calmly (by design), not as an alarming error.
+import { TriangleAlert } from "lucide-react";
+
+import type { ContradictionSignal } from "@/lib/api";
+
+interface ContradictionPanelProps {
+  contradictions?: ContradictionSignal[];
+  /** An abort_* pipeline status, when the run honestly declined to answer. */
+  refusalStatus?: string | null;
+}
+
+const REFUSAL_MESSAGES: Record<string, string> = {
+  abort_scope_rejected: "The question is outside POLARIS's research scope.",
+  abort_corpus_inadequate:
+    "Not enough qualifying sources to answer responsibly.",
+  abort_corpus_approval_denied:
+    "The source set failed approval (material tier deviation).",
+  abort_no_verified_sections:
+    "No claim could be verified against a primary source.",
+};
+
+function RefusalCard({ status }: { status: string }) {
+  const reason =
+    REFUSAL_MESSAGES[status] ?? "Declined — see the run status for detail.";
+  return (
+    <div
+      data-testid="refusal-card"
+      data-status={status}
+      className="bg-refusal/10 border-refusal/30 flex flex-col gap-1 rounded-md border p-4"
+    >
+      <p className="text-foreground text-sm font-medium">
+        POLARIS declined to answer
+      </p>
+      <p className="text-muted-foreground text-xs">{reason}</p>
+      <p className="text-muted-foreground mt-1 text-[11px] italic">
+        By design — POLARIS refuses rather than fabricating an unverifiable
+        answer.
+      </p>
+    </div>
+  );
+}
+
+function ContradictionCard({ signal }: { signal: ContradictionSignal }) {
+  return (
+    <div
+      data-testid="contradiction-card"
+      className="bg-contradiction/10 border-contradiction/30 flex flex-col gap-2 rounded-md border p-4"
+    >
+      <div className="flex items-start gap-2">
+        <TriangleAlert
+          aria-hidden
+          className="text-contradiction-foreground mt-0.5 h-4 w-4 shrink-0"
+        />
+        <div>
+          <p className="text-foreground text-sm font-medium">
+            {signal.disagreeing_source_count} sources disagree
+            {signal.kind ? ` · ${signal.kind.replace(/_/g, " ")}` : ""}
+          </p>
+          <p className="text-muted-foreground text-xs">{signal.summary}</p>
+        </div>
+      </div>
+      {signal.sides && signal.sides.length > 0 && (
+        <ul className="border-border/60 flex flex-col gap-2 border-t pt-2">
+          {signal.sides.map((side, i) => (
+            <li key={`${side.source_id}-${i}`} className="text-xs">
+              <span className="text-muted-foreground font-mono">
+                {side.source_tier} · {side.source_id}
+              </span>
+              {side.jurisdiction ? (
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {side.jurisdiction}
+                </span>
+              ) : null}
+              <p className="text-foreground/80 leading-snug">
+                {side.claim_excerpt}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+export function ContradictionPanel({
+  contradictions,
+  refusalStatus,
+}: ContradictionPanelProps) {
+  const isRefusal =
+    typeof refusalStatus === "string" && refusalStatus.startsWith("abort_");
+  const hasContradictions = contradictions && contradictions.length > 0;
+
+  if (!isRefusal && !hasContradictions) {
+    return (
+      <p className="text-muted-foreground text-sm">
+        No contradictions or refusals for this run.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3" data-testid="contradiction-panel">
+      {isRefusal && <RefusalCard status={refusalStatus as string} />}
+      {hasContradictions &&
+        contradictions.map((signal, i) => (
+          <ContradictionCard key={i} signal={signal} />
+        ))}
+    </div>
+  );
+}
+
+ succeeded in 1724ms:
+
+    Directory: C:\POLARIS\.codex\I-p2-010
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m[32;1m         Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+-a---          2026-05-22  2:18 AM        1088052 brief_review_iter1.txt
+-a---          2026-05-22  2:19 AM          11384 brief_review_iter2.txt
+-a---          2026-05-22  2:19 AM           4142 brief.md
+-a---          2026-05-22  2:20 AM           4350 codex_diff_canonical.patch
+-a---          2026-05-22  2:20 AM           4441 codex_diff.patch
+-a---          2026-05-22  2:20 AM              0 diff_review_iter1.txt
+-a---          2026-05-22  2:20 AM           1384 diff_review.md
+
+
+ succeeded in 1973ms:
+web\lib\api.ts:72:  | "abort_scope_rejected"
+web\lib\api.ts:73:  | "abort_corpus_inadequate"
+web\lib\api.ts:74:  | "abort_corpus_approval_denied"
+web\lib\api.ts:75:  | "abort_no_verified_sections";
+web\lib\api.ts:267:  verdict: "success" | "abort_no_verified_sections";
+web\lib\api.ts:802:export type PipelineVerdict = "success" | "abort_no_verified_sections";
+web\lib\api.ts:820:  contradiction?: ContradictionSignal | null;
+web\lib\api.ts:870:export interface ContradictionSignal {
+web\components\contradiction\contradiction_panel.tsx:7:import type { ContradictionSignal } from "@/lib/api";
+web\components\contradiction\contradiction_panel.tsx:10:  contradictions?: ContradictionSignal[];
+web\components\contradiction\contradiction_panel.tsx:16:  abort_scope_rejected: "The question is outside POLARIS's research scope.",
+web\components\contradiction\contradiction_panel.tsx:17:  abort_corpus_inadequate:
+web\components\contradiction\contradiction_panel.tsx:19:  abort_corpus_approval_denied:
+web\components\contradiction\contradiction_panel.tsx:21:  abort_no_verified_sections:
+web\components\contradiction\contradiction_panel.tsx:46:function ContradictionCard({ signal }: { signal: ContradictionSignal }) {
+web\app\generation\components\contradiction_pane.tsx:13:  ContradictionSignal,
+web\app\generation\components\contradiction_pane.tsx:58:  signal: ContradictionSignal | null;
+web\app\generation\components\verified_report_view.tsx:11:  type ContradictionSignal,
+web\app\generation\components\verified_report_view.tsx:66:  verdict: "success" | "abort_no_verified_sections";
+web\app\generation\components\verified_report_view.tsx:103:  onSelectContradiction: (signal: ContradictionSignal) => void;
+web\app\generation\components\verified_report_view.tsx:311:  onSelectContradiction: (signal: ContradictionSignal) => void;
+web\app\generation\components\verified_report_view.tsx:390:    useState<ContradictionSignal | null>(null);
+
+ succeeded in 2297ms:
+0b486810 (HEAD -> bot/I-p2-010-contradiction-panel) I-p2-010 (#749): contradiction / refusal panel (honest, feature-framed)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .codex\\I-p2-010\\codex_diff_canonical.patch" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\api.ts | Select-Object -Skip 50 -First 60" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\api.ts | Select-Object -Skip 850 -First 60" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\generation\\components\\contradiction_pane.tsx | Select-Object -First 220" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "refusal|contradiction" web -g "*.css" -g "*.ts" -g "*.tsx" -n' in C:\POLARIS
+ succeeded in 1686ms:
+  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}
+
+export type TemplateId =
+  | "clinical"
+  | "policy"
+  | "tech"
+  | "due_diligence"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce"
+  | "custom";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  // I-ui-bug-001 (#725): the pipeline-A verdict (success / abort_* / partial_*
+  // / error_*), distinct from the lifecycle `status`. mark_aborted() stores
+  // lifecycle_status='completed' for aborts, so lifecycle alone CANNOT tell a
+  // successful run from an aborted one — pipeline_status is required to render
+  // a completed run honestly (an aborted run must NOT show as success).
+  pipeline_status?: string | null;
+  // I-rdy-011 (#507): true once a cancel has been requested; lets the run
+  // page show a cancel as in-flight before an in-progress run transitions.
+  cancel_requested?: boolean;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+
+ succeeded in 2039ms:
+web\lib\api.ts:236:  left_contradictions: number;
+web\lib\api.ts:237:  right_contradictions: number;
+web\lib\api.ts:345:  refusals: RefusalReason[];
+web\lib\api.ts:403:  refusal_patterns: string[];
+web\lib\api.ts:447:  contradictions: {
+web\lib\api.ts:448:    contradiction_id: string;
+web\lib\api.ts:820:  contradiction?: ContradictionSignal | null;
+web\lib\api.ts:860:export type ContradictionKind = "multi_source" | "self_contradiction";
+web\lib\api.ts:1125:  | "refusal_correctness"
+web\lib\api.ts:1139:  is_refusal_bait: boolean;
+web\lib\api.ts:1173:  refusal_correctness: "Refusal correctness",
+web\lib\api.ts:1183:  "refusal_correctness",
+web\lib\api.ts:1489:  contradictions_found: number;
+web\lib\api.ts:1514:  contradictions_disclosed: number;
+web\lib\api.ts:1515:  contradictions_missing: string[];
+web\lib\api.ts:1557:  contradictions: AuditIrContradictionCluster[];
+web\components\contradiction\contradiction_panel.tsx:1:// I-p2-010 (#749): contradiction / refusal panel. Surfaces genuine source
+web\components\contradiction\contradiction_panel.tsx:2:// disagreement AND honest pipeline refusals as FEATURES — POLARIS shows
+web\components\contradiction\contradiction_panel.tsx:3:// conflict and declines rather than fabricating. Real fields only; refusal is
+web\components\contradiction\contradiction_panel.tsx:10:  contradictions?: ContradictionSignal[];
+web\components\contradiction\contradiction_panel.tsx:12:  refusalStatus?: string | null;
+web\components\contradiction\contradiction_panel.tsx:30:      data-testid="refusal-card"
+web\components\contradiction\contradiction_panel.tsx:32:      className="bg-refusal/10 border-refusal/30 flex flex-col gap-1 rounded-md border p-4"
+web\components\contradiction\contradiction_panel.tsx:49:      data-testid="contradiction-card"
+web\components\contradiction\contradiction_panel.tsx:50:      className="bg-contradiction/10 border-contradiction/30 flex flex-col gap-2 rounded-md border p-4"
+web\components\contradiction\contradiction_panel.tsx:55:          className="text-contradiction-foreground mt-0.5 h-4 w-4 shrink-0"
+web\components\contradiction\contradiction_panel.tsx:90:  contradictions,
+web\components\contradiction\contradiction_panel.tsx:91:  refusalStatus,
+web\components\contradiction\contradiction_panel.tsx:94:    typeof refusalStatus === "string" && refusalStatus.startsWith("abort_");
+web\components\contradiction\contradiction_panel.tsx:95:  const hasContradictions = contradictions && contradictions.length > 0;
+web\components\contradiction\contradiction_panel.tsx:100:        No contradictions or refusals for this run.
+web\components\contradiction\contradiction_panel.tsx:106:    <div className="flex flex-col gap-3" data-testid="contradiction-panel">
+web\components\contradiction\contradiction_panel.tsx:107:      {isRefusal && <RefusalCard status={refusalStatus as string} />}
+web\components\contradiction\contradiction_panel.tsx:109:        contradictions.map((signal, i) => (
+web\components\verdict\verdict_chip.tsx:22:  | "contradiction"
+web\components\verdict\verdict_chip.tsx:23:  | "refusal";
+web\components\verdict\verdict_chip.tsx:42:      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+web\components\verdict\verdict_chip.tsx:59:  contradiction: {
+web\components\verdict\verdict_chip.tsx:63:      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+web\components\verdict\verdict_chip.tsx:65:  refusal: {
+web\components\verdict\verdict_chip.tsx:68:    className: "bg-refusal/10 text-refusal border-refusal/30",
+web\components\source\source_card.tsx:44:    <span className="bg-contradiction/15 text-contradiction-foreground border-contradiction/40 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\app\dashboard\page.tsx:502:              {scopeDecision.refusals.length > 0 && (
+web\app\dashboard\page.tsx:504:                  Refused: {scopeDecision.refusals.join(", ")}
+web\app\generation\components\contradiction_pane.tsx:66:        data-testid="contradiction-pane"
+web\app\generation\components\contradiction_pane.tsx:71:          <SheetTitle data-testid="contradiction-pane-title">
+web\app\generation\components\contradiction_pane.tsx:75:              if (kind === "self_contradiction") {
+web\app\generation\components\contradiction_pane.tsx:76:                return `Self-contradiction: source contradicts itself across ${sides.length} spans`;
+web\app\generation\components\contradiction_pane.tsx:85:                data-testid="contradiction-category"
+web\app\generation\components\contradiction_pane.tsx:97:              data-testid={`contradiction-side-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:101:                <code data-testid={`contradiction-source-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:112:                        data-testid={`contradiction-evidence-type-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:124:                        data-testid={`contradiction-jurisdiction-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:132:                    data-testid={`contradiction-tier-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:141:                  <span data-testid={`contradiction-sample-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:145:                <span data-testid={`contradiction-hedge-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:149:                  <span data-testid={`contradiction-pt08-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:155:                data-testid={`contradiction-claim-${idx}`}
+web\app\globals.css:33:  --color-contradiction: var(--contradiction);
+web\app\globals.css:34:  --color-contradiction-foreground: var(--contradiction-foreground);
+web\app\globals.css:35:  --color-refusal: var(--refusal);
+web\app\globals.css:36:  --color-refusal-foreground: var(--refusal-foreground);
+web\app\globals.css:77:     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+web\app\globals.css:96:  --contradiction: oklch(0.72 0.15 75);
+web\app\globals.css:97:  --contradiction-foreground: oklch(0.27 0.04 75);
+web\app\globals.css:98:  --refusal: oklch(0.45 0.02 286);
+web\app\globals.css:99:  --refusal-foreground: oklch(0.985 0 0);
+web\app\globals.css:132:     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+web\app\compare\page.tsx:80:          coverage overlap, and contradiction counts. This is run-vs-run — for
+web\app\compare\page.tsx:263:          Left contradictions:{" "}
+web\app\compare\page.tsx:265:            {result.left_contradictions}
+web\app\compare\page.tsx:269:          Right contradictions:{" "}
+web\app\compare\page.tsx:271:            {result.right_contradictions}
+web\lib\sse_events.ts:8:  "contradiction",
+web\lib\sse_events.ts:19:  contradiction: "Contradiction events",
+web\app\benchmark\page.tsx:27:          provenance density, refusal correctness, coverage completeness,
+web\app\benchmark\page.tsx:28:          latency, and auditability. POLARIS uniquely scores 1.0 on refusal
+web\app\intake\page.tsx:29:          scope + intake: refusal-bait detection, scope classification (efficacy
+web\app\generation\components\verified_report_view.tsx:22:import { ContradictionPane } from "./contradiction_pane";
+web\app\generation\components\verified_report_view.tsx:221:      {!dropped && sentence.contradiction ? (
+web\app\generation\components\verified_report_view.tsx:224:          data-testid={`inspector-contradiction-${sentence_id}`}
+web\app\generation\components\verified_report_view.tsx:225:          title={sentence.contradiction.summary}
+web\app\generation\components\verified_report_view.tsx:230:            if (sentence.contradiction)
+web\app\generation\components\verified_report_view.tsx:231:              onSelectContradiction(sentence.contradiction);
+web\app\generation\components\verified_report_view.tsx:239:              if (sentence.contradiction)
+web\app\generation\components\verified_report_view.tsx:240:                onSelectContradiction(sentence.contradiction);
+web\app\generation\components\verified_report_view.tsx:246:            const kind = sentence.contradiction.kind ?? "multi_source";
+web\app\generation\components\verified_report_view.tsx:247:            if (kind === "self_contradiction") {
+web\app\generation\components\verified_report_view.tsx:248:              // Codex iter-1 P2: self-contradiction span count comes from
+web\app\generation\components\verified_report_view.tsx:250:              const span_n = sentence.contradiction.sides?.length ?? 0;
+web\app\generation\components\verified_report_view.tsx:253:            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
+web\app\generation\components\verified_report_view.tsx:389:  const [contradiction_open, set_contradiction_open] =
+web\app\generation\components\verified_report_view.tsx:478:          onSelectContradiction={(signal) => set_contradiction_open(signal)}
+web\app\generation\components\verified_report_view.tsx:485:        open={contradiction_open !== null}
+web\app\generation\components\verified_report_view.tsx:486:        signal={contradiction_open}
+web\app\generation\components\verified_report_view.tsx:488:          if (!open) set_contradiction_open(null);
+web\app\sentence_hover_test\_demo.tsx:257:        // sec_x:26 — contradiction signal (I-f8-001/I-f8-002).
+web\app\sentence_hover_test\_demo.tsx:269:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:305:        // sec_x:27 — self-contradiction (I-f8-003).
+web\app\sentence_hover_test\_demo.tsx:308:          sentence_text: "Self-contradiction demo: same source on both sides.",
+web\app\sentence_hover_test\_demo.tsx:313:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:314:            kind: "self_contradiction",
+web\app\sentence_hover_test\_demo.tsx:339:        // sec_x:28 — regulatory non-numeric contradiction (I-f8-004).
+web\app\sentence_hover_test\_demo.tsx:343:            "Regulatory non-numeric contradiction: FDA approved vs not.",
+web\app\sentence_hover_test\_demo.tsx:348:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:378:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:412:          contradiction: {
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:3:test("Sentence row with contradiction signal shows ⚠ badge", async ({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:8:  const badge = row.getByTestId("inspector-contradiction-sec_x:26");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:17:test("Sentence row without contradiction shows NO contradiction badge", async ({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:22:  await expect(row.getByTestId("inspector-contradiction-sec_x:5")).toHaveCount(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:27:test("Click contradiction badge → ContradictionPane shows N sides", async ({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:31:  await page.getByTestId("inspector-contradiction-sec_x:26").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:32:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:35:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:39:  await expect(page.getByTestId("contradiction-side-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:40:  await expect(page.getByTestId("contradiction-side-1")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:41:  await expect(page.getByTestId("contradiction-side-2")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:43:  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:46:  await expect(page.getByTestId("contradiction-tier-0")).toContainText("T1");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:47:  await expect(page.getByTestId("contradiction-sample-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:50:  await expect(page.getByTestId("contradiction-hedge-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:53:  await expect(page.getByTestId("contradiction-pt08-0")).toContainText("PT04");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:54:  await expect(page.getByTestId("contradiction-claim-0")).toContainText("81mg");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:61:  await page.getByTestId("inspector-contradiction-sec_x:28").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:62:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:65:  await expect(page.getByTestId("contradiction-category")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:68:  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:71:  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:78:  await page.getByTestId("inspector-contradiction-sec_x:29").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:79:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:82:  await expect(page.getByTestId("contradiction-evidence-type-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:85:  await expect(page.getByTestId("contradiction-evidence-type-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:92:  await page.getByTestId("inspector-contradiction-sec_x:30").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:93:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:96:  await expect(page.getByTestId("contradiction-jurisdiction-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:99:  await expect(page.getByTestId("contradiction-jurisdiction-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:104:test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:106:  const badge = page.getByTestId("inspector-contradiction-sec_x:27");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:111:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:112:    "Self-contradiction",
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:114:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:118:  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:121:  await expect(page.getByTestId("contradiction-source-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:124:  await expect(page.getByTestId("contradiction-claim-0")).toContainText("safe");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:125:  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+
+ succeeded in 2391ms:
+"use client";
+
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import type {
+  ContradictionCategory,
+  ContradictionEvidenceType,
+  ContradictionSignal,
+  Jurisdiction,
+} from "@/lib/api";
+
+const EVIDENCE_TYPE_LABEL: Record<ContradictionEvidenceType, string> = {
+  trial: "Trial",
+  guideline: "Guideline",
+  meta_analysis: "Meta-analysis",
+  observational: "Observational",
+  regulatory_label: "Regulatory label",
+  expert_opinion: "Expert opinion",
+  unspecified: "Unspecified",
+};
+
+const JURISDICTION_LABEL: Record<Jurisdiction, string> = {
+  canada: "Canada",
+  us: "United States",
+  eu: "European Union",
+  uk: "United Kingdom",
+  who: "WHO",
+  other: "Other",
+  unspecified: "Unspecified",
+};
+
+const TIER_TONE: Record<"T1" | "T2" | "T3", string> = {
+  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  T3: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+};
+
+const CATEGORY_LABEL: Record<ContradictionCategory, string> = {
+  numeric: "Numeric",
+  categorical: "Categorical",
+  regulatory: "Regulatory",
+  temporal: "Temporal",
+  jurisdictional: "Jurisdictional",
+  other: "Other",
+};
+
+export function ContradictionPane({
+  open,
+  signal,
+  onOpenChange,
+}: {
+  open: boolean;
+  signal: ContradictionSignal | null;
+  onOpenChange: (next: boolean) => void;
+}) {
+  // Codex iter-1 P2: tolerate signal.sides being absent at runtime.
+  const sides = signal?.sides ?? [];
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        data-testid="contradiction-pane"
+        side="right"
+        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+      >
+        <SheetHeader>
+          <SheetTitle data-testid="contradiction-pane-title">
+            {(() => {
+              if (!signal) return "";
+              const kind = signal.kind ?? "multi_source";
+              if (kind === "self_contradiction") {
+                return `Self-contradiction: source contradicts itself across ${sides.length} spans`;
+              }
+              return `Contradiction: ${signal.disagreeing_source_count} sources disagree`;
+            })()}
+          </SheetTitle>
+          <SheetDescription>
+            {signal?.summary ?? ""}
+            {signal ? (
+              <span
+                data-testid="contradiction-category"
+                className="ml-2 inline-flex items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+              >
+                {CATEGORY_LABEL[signal.category ?? "other"]}
+              </span>
+            ) : null}
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+          {sides.map((side, idx) => (
+            <div
+              key={idx}
+              data-testid={`contradiction-side-${idx}`}
+              className="border-border flex flex-col gap-1 rounded border p-2 text-xs"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <code data-testid={`contradiction-source-${idx}`}>
+                  {side.source_id}
+                </code>
+                <div className="flex items-center gap-1">
+                  {(() => {
+                    // Codex iter-1 P2: coalesce undefined to "unspecified"
+                    // and skip badge for that default.
+                    const et = side.evidence_type ?? "unspecified";
+                    if (et === "unspecified") return null;
+                    return (
+                      <span
+                        data-testid={`contradiction-evidence-type-${idx}`}
+                        className="rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] tracking-widest text-violet-700 uppercase dark:text-violet-300"
+                      >
+                        {EVIDENCE_TYPE_LABEL[et]}
+                      </span>
+                    );
+                  })()}
+                  {(() => {
+                    const j = side.jurisdiction ?? "unspecified";
+                    if (j === "unspecified") return null;
+                    return (
+                      <span
+                        data-testid={`contradiction-jurisdiction-${idx}`}
+                        className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2 py-0.5 text-[10px] tracking-widest text-cyan-700 uppercase dark:text-cyan-300"
+                      >
+                        {JURISDICTION_LABEL[j]}
+                      </span>
+                    );
+                  })()}
+                  <span
+                    data-testid={`contradiction-tier-${idx}`}
+                    className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[side.source_tier]}`}
+                  >
+                    {side.source_tier}
+                  </span>
+                </div>
+              </div>
+              <div className="text-muted-foreground flex flex-wrap gap-2 text-[10px]">
+                {side.sample_size !== null && side.sample_size !== undefined ? (
+                  <span data-testid={`contradiction-sample-${idx}`}>
+                    n = {side.sample_size}
+                  </span>
+                ) : null}
+                <span data-testid={`contradiction-hedge-${idx}`}>
+                  {side.hedge_language}
+                </span>
+                {side.pt08_flag ? (
+                  <span data-testid={`contradiction-pt08-${idx}`}>
+                    PT08: {side.pt08_flag}
+                  </span>
+                ) : null}
+              </div>
+              <blockquote
+                data-testid={`contradiction-claim-${idx}`}
+                className="border-l-2 border-amber-400 bg-amber-50 px-2 py-1 italic dark:bg-amber-900/20"
+              >
+                {side.claim_excerpt}
+              </blockquote>
+            </div>
+          ))}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+ succeeded in 2832ms:
+diff --git a/web/components/contradiction/contradiction_panel.tsx b/web/components/contradiction/contradiction_panel.tsx
+new file mode 100644
+index 00000000..d437d0e1
+--- /dev/null
++++ b/web/components/contradiction/contradiction_panel.tsx
+@@ -0,0 +1,114 @@
++// I-p2-010 (#749): contradiction / refusal panel. Surfaces genuine source
++// disagreement AND honest pipeline refusals as FEATURES — POLARIS shows
++// conflict and declines rather than fabricating. Real fields only; refusal is
++// framed calmly (by design), not as an alarming error.
++import { TriangleAlert } from "lucide-react";
++
++import type { ContradictionSignal } from "@/lib/api";
++
++interface ContradictionPanelProps {
++  contradictions?: ContradictionSignal[];
++  /** An abort_* pipeline status, when the run honestly declined to answer. */
++  refusalStatus?: string | null;
++}
++
++const REFUSAL_MESSAGES: Record<string, string> = {
++  abort_scope_rejected: "The question is outside POLARIS's research scope.",
++  abort_corpus_inadequate:
++    "Not enough qualifying sources to answer responsibly.",
++  abort_corpus_approval_denied:
++    "The source set failed approval (material tier deviation).",
++  abort_no_verified_sections:
++    "No claim could be verified against a primary source.",
++};
++
++function RefusalCard({ status }: { status: string }) {
++  const reason =
++    REFUSAL_MESSAGES[status] ?? "Declined — see the run status for detail.";
++  return (
++    <div
++      data-testid="refusal-card"
++      data-status={status}
++      className="bg-refusal/10 border-refusal/30 flex flex-col gap-1 rounded-md border p-4"
++    >
++      <p className="text-foreground text-sm font-medium">
++        POLARIS declined to answer
++      </p>
++      <p className="text-muted-foreground text-xs">{reason}</p>
++      <p className="text-muted-foreground mt-1 text-[11px] italic">
++        By design — POLARIS refuses rather than fabricating an unverifiable
++        answer.
++      </p>
++    </div>
++  );
++}
++
++function ContradictionCard({ signal }: { signal: ContradictionSignal }) {
++  return (
++    <div
++      data-testid="contradiction-card"
++      className="bg-contradiction/10 border-contradiction/30 flex flex-col gap-2 rounded-md border p-4"
++    >
++      <div className="flex items-start gap-2">
++        <TriangleAlert
++          aria-hidden
++          className="text-contradiction-foreground mt-0.5 h-4 w-4 shrink-0"
++        />
++        <div>
++          <p className="text-foreground text-sm font-medium">
++            {signal.disagreeing_source_count} sources disagree
++            {signal.kind ? ` · ${signal.kind.replace(/_/g, " ")}` : ""}
++          </p>
++          <p className="text-muted-foreground text-xs">{signal.summary}</p>
++        </div>
++      </div>
++      {signal.sides && signal.sides.length > 0 && (
++        <ul className="border-border/60 flex flex-col gap-2 border-t pt-2">
++          {signal.sides.map((side, i) => (
++            <li key={`${side.source_id}-${i}`} className="text-xs">
++              <span className="text-muted-foreground font-mono">
++                {side.source_tier} · {side.source_id}
++              </span>
++              {side.jurisdiction ? (
++                <span className="text-muted-foreground">
++                  {" "}
++                  · {side.jurisdiction}
++                </span>
++              ) : null}
++              <p className="text-foreground/80 leading-snug">
++                {side.claim_excerpt}
++              </p>
++            </li>
++          ))}
++        </ul>
++      )}
++    </div>
++  );
++}
++
++export function ContradictionPanel({
++  contradictions,
++  refusalStatus,
++}: ContradictionPanelProps) {
++  const isRefusal =
++    typeof refusalStatus === "string" && refusalStatus.startsWith("abort_");
++  const hasContradictions = contradictions && contradictions.length > 0;
++
++  if (!isRefusal && !hasContradictions) {
++    return (
++      <p className="text-muted-foreground text-sm">
++        No contradictions or refusals for this run.
++      </p>
++    );
++  }
++
++  return (
++    <div className="flex flex-col gap-3" data-testid="contradiction-panel">
++      {isRefusal && <RefusalCard status={refusalStatus as string} />}
++      {hasContradictions &&
++        contradictions.map((signal, i) => (
++          <ContradictionCard key={i} signal={signal} />
++        ))}
++    </div>
++  );
++}
+
+ succeeded in 3329ms:
+  source_tier: "T1" | "T2" | "T3";
+  sample_size?: number | null;
+  hedge_language: string;
+  pt08_flag?: string | null;
+  claim_excerpt: string;
+  evidence_type?: ContradictionEvidenceType;
+  jurisdiction?: Jurisdiction;
+}
+
+export type ContradictionKind = "multi_source" | "self_contradiction";
+
+export type ContradictionCategory =
+  | "numeric"
+  | "categorical"
+  | "regulatory"
+  | "temporal"
+  | "jurisdictional"
+  | "other";
+
+export interface ContradictionSignal {
+  disagreeing_source_count: number;
+  summary: string;
+  sides?: ContradictionSide[];
+  kind?: ContradictionKind;
+  category?: ContradictionCategory;
+}
+
+export type AssertionSurface =
+  | "prose"
+  | "table"
+  | "summary_bullet"
+  | "limitation"
+  | "caption"
+  | "heading";
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: ReportVerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export type GapReason =
+  | "paywalled"
+  | "no_oa"
+  | "source_tier_ineligible"
+  | "language_unavailable"
+  | "retracted_only"
+  | "jurisdiction_outside"
+  | "not_indexed"
+  | "embargoed"
+  | "other";
+
+export interface FrameGap {
+  entity_name: string;
+  reason: GapReason;
+  reason_detail?: string | null;
+}
+
+
+codex
+The component is a new file on the branch. I’ve confirmed the TypeScript shape for `ContradictionSignal`; next I’m checking token definitions and whether the fallback/status handling lines up with the API status names.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\globals.css | Select-Object -Skip 60 -First 55" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .codex\\I-p2-010\\brief.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .codex\\I-p2-010\\diff_review.md" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\verdict\\verdict_chip.tsx | Select-Object -First 110" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-FileHash -Algorithm SHA256 .codex\\I-p2-010\\codex_diff_canonical.patch | Format-List" in C:\POLARIS
+ succeeded in 1539ms:
+}
+
+:root {
+  /* I-ui-010 (#730): Frontier Minimal — near-monochrome zinc + ONE confident
+     accent (default = blue oklch(0.50 0.18 255); the prior cyan read grey).
+     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
+     border. Accent hue is operator-confirmable (one-token swap; alt indigo
+     oklch(0.50 0.16 270) / teal oklch(0.52 0.12 215)). chart-* left mono. */
+  --background: oklch(0.985 0.001 286.375);
+  --foreground: oklch(0.21 0.006 285.9);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  /* I-p2-003 (#742): white surface + ONE national accent = dark Canada-flag
+     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
+     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+     destructive=deep maroon distinct from the national red. + evidence-role
+     tokens (tiers + proof). Operator design lock 2026-05-21. */
+  --primary: #c8102e;
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.21 0.006 285.9);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.96 0.03 25);
+  --accent-foreground: oklch(0.45 0.16 26);
+  --destructive: oklch(0.42 0.13 18);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: #c8102e;
+  /* State colors — distinct from the national red (rubric: never red-only) */
+  --verified: oklch(0.48 0.14 152);
+  --verified-foreground: oklch(0.985 0 0);
+  --contradiction: oklch(0.72 0.15 75);
+  --contradiction-foreground: oklch(0.27 0.04 75);
+  --refusal: oklch(0.45 0.02 286);
+  --refusal-foreground: oklch(0.985 0 0);
+  /* Evidence-role tokens */
+  --tier-1: #c8102e;
+  --tier-2: oklch(0.556 0 0);
+  --tier-3: oklch(0.708 0 0);
+  --proof-token: oklch(0.45 0.16 26);
+  --verified-bundle: oklch(0.48 0.14 152);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+
+ succeeded in 1929ms:
+// I-p2-005 (#744): per-claim verdict chip. THREE signals (state color + icon +
+// label) so a verdict is never distinguished by color alone (WCAG 1.4.1).
+// Consumes the #742 state tokens. Display-only (non-interactive). Honest
+// labels — FABRICATED and UNREACHABLE are real, distinct, serious verdicts.
+import {
+  BadgeCheck,
+  Ban,
+  CircleHelp,
+  CircleSlash,
+  Minus,
+  TriangleAlert,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+
+export type VerdictKind =
+  | "VERIFIED"
+  | "PARTIAL"
+  | "UNSUPPORTED"
+  | "FABRICATED"
+  | "UNREACHABLE"
+  | "contradiction"
+  | "refusal";
+
+interface VerdictMeta {
+  label: string;
+  Icon: LucideIcon;
+  /** Tint bg + readable text + border, all AA from #742 tokens. */
+  className: string;
+}
+
+const VERDICT_META: Record<VerdictKind, VerdictMeta> = {
+  VERIFIED: {
+    label: "Verified",
+    Icon: BadgeCheck,
+    className: "bg-verified/10 text-verified border-verified/30",
+  },
+  PARTIAL: {
+    label: "Partial",
+    Icon: CircleSlash,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  UNSUPPORTED: {
+    label: "Unsupported",
+    Icon: Minus,
+    className: "bg-muted text-foreground border-border",
+  },
+  FABRICATED: {
+    label: "Fabricated",
+    Icon: X,
+    className: "bg-destructive/10 text-destructive border-destructive/40",
+  },
+  UNREACHABLE: {
+    label: "Unreachable",
+    Icon: CircleHelp,
+    className: "bg-muted text-foreground border-border border-dashed",
+  },
+  contradiction: {
+    label: "Contradiction",
+    Icon: TriangleAlert,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  refusal: {
+    label: "Refusal",
+    Icon: Ban,
+    className: "bg-refusal/10 text-refusal border-refusal/30",
+  },
+};
+
+export function VerdictChip({ verdict }: { verdict: VerdictKind }) {
+  const meta = VERDICT_META[verdict];
+  return (
+    <span
+      data-testid="verdict-chip"
+      data-verdict={verdict}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
+    >
+      <meta.Icon aria-hidden className="h-3 w-3 shrink-0" />
+      {meta.label}
+    </span>
+  );
+}
+
+ succeeded in 2288ms:
+# Codex DIFF review — I-p2-010 (#749): contradiction / refusal panel
+
+HARD ITERATION CAP: 5. iter 1. APPROVE iff zero P0/P1 (code + design rubric, esp. HONESTY framing). Final line MERGE AUTHORIZED if mergeable. Canonical-diff-sha256 `bc6f4efc7e04f9e24a006ac83871ed918bd418d40f8fc9305caee60518b94246`. web/ only. Display component; visual verifies in-context at #759/#756.
+
+## Diff (contradiction_panel.tsx)
+- RefusalCard: maps abort_scope_rejected/corpus_inadequate/corpus_approval_denied/no_verified_sections → honest reason; unknown abort_* → "Declined — see run status" (no fabricated reason); refusal-neutral tokens (NOT alarming red); "by design — refuses rather than fabricating".
+- ContradictionCard: real ContradictionSignal fields (disagreeing_source_count, kind, summary, sides[]: source_tier, source_id, jurisdiction?, claim_excerpt). amber contradiction tokens.
+- Empty state when neither present.
+
+## Review focus
+1. HONESTY: refusal mapping faithful + unknown-fallback non-fabricated; refusal framed as feature (calm, not alarming); contradiction uses only real fields?
+2. tokens (contradiction amber / refusal neutral, AA); a11y (TriangleAlert aria-hidden, list semantics)?
+3. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+ succeeded in 2629ms:
+# Codex BRIEF review — I-p2-010 (#749): contradiction / refusal panel
+
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; cosmetics → P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; do not bank for iter 6.
+- Surface held-back findings now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Task
+A reusable **contradiction / refusal panel** — surfaces genuine source disagreement AND honest pipeline refusals as FEATURES (the trust differentiator: POLARIS shows conflict + declines rather than fabricating).
+
+## Verified current state (grounded — REAL fields)
+- `ContradictionSignal { disagreeing_source_count, summary, sides?: ContradictionSide[], kind?: "multi_source"|"self_contradiction", category? }` (api.ts).
+- `ContradictionSide { source_id, source_tier: "T1"|"T2"|"T3", sample_size?, hedge_language, pt08_flag?, claim_excerpt, evidence_type?, jurisdiction? }`.
+- Refusal = the abort pipeline statuses: abort_scope_rejected, abort_corpus_inadequate, abort_corpus_approval_denied, abort_no_verified_sections (api.ts:72-75 + the manifest verdict).
+- #742 tokens; VerdictChip (#744) has contradiction + refusal verdicts.
+
+## Acceptance criteria (diff implements; brief reviews the plan)
+1. `web/components/contradiction/contradiction_panel.tsx`: props = `contradictions?: ContradictionSignal[]` + `refusalStatus?: string | null` (an abort_* status).
+2. REFUSAL (when refusalStatus is an abort_*): an honest, feature-framed card — "POLARIS declined to answer" + the specific reason mapped from the status:
+   - abort_scope_rejected → "The question is outside POLARIS's research scope."
+   - abort_corpus_inadequate → "Not enough qualifying sources to answer responsibly."
+   - abort_corpus_approval_denied → "The source set failed approval (material tier deviation)."
+   - abort_no_verified_sections → "No claim could be verified against a primary source."
+   - Unknown abort_* → a generic honest "Declined — see run status." (no fabricated reason).
+3. CONTRADICTIONS: render each ContradictionSignal — summary, "N sources disagree", kind badge, and per side: tier, claim_excerpt, jurisdiction/hedge if present. Real fields only.
+4. Honest framing: refusal is a FEATURE not an error (calm, not alarming red); contradiction is shown faithfully. Frontier-Minimal; #742 tokens (contradiction=amber, refusal=neutral); WCAG 2.2 AA.
+
+## Files I have ALSO checked and they're clean
+- web/lib/api.ts (ContradictionSignal/Side/Kind + abort statuses), web/components/verdict/verdict_chip.tsx (#744 contradiction/refusal), web/app/globals.css (#742 tokens).
+
+## Review focus
+1. Refusal mapping correct + complete vs the 4 abort statuses + an honest unknown-fallback (no fabricated reason)?
+2. Contradiction rendering uses only real ContradictionSignal/Side fields (no invented fields)?
+3. Honest framing (refusal as feature, not alarming error)? tokens/a11y. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+---
+## iter-2 clarification (review scope)
+This is a BRIEF / PLAN review, NOT a diff review. The component web/components/contradiction/contradiction_panel.tsx is INTENTIONALLY not yet implemented — it is built AFTER this brief is APPROVE'd (per the issue-driven workflow: brief → Codex brief APPROVE → diff → Codex diff APPROVE). "File does not exist" is the expected pre-implementation state, NOT a defect in the plan. Please evaluate the PLAN's correctness: (a) is the refusal-status→message mapping correct + complete vs the 4 abort statuses + honest unknown-fallback; (b) does the contradiction rendering use only real ContradictionSignal/ContradictionSide fields; (c) is the honest framing (refusal as feature) right. APPROVE iff the PLAN is sound; reserve P0/P1 for real plan defects (wrong field, wrong mapping, honesty violation), not the absence of the not-yet-written file.
+
+ succeeded in 2862ms:
+
+[32;1mAlgorithm : [0mSHA256
+[32;1mHash      : [0mBC6F4EFC7E04F9E24A006AC83871ED918BD418D40F8FC9305CAEE60518B94246
+[32;1mPath      : [0mC:\POLARIS\.codex\I-p2-010\codex_diff_canonical.patch
+
+
+codex
+The canonical patch hash matches the requested SHA. I’m doing one compile-oriented pass now: imports, TypeScript compatibility, and any obvious JSX/runtime issue that would rise above visual polish.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\package.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web -Force | Select-Object Name,Mode,Length' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"@/components|paths|baseUrl\" web\\tsconfig.json web -g \"tsconfig*.json\" -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "components/contradiction|ContradictionPanel" web -n' in C:\POLARIS
+ succeeded in 1262ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 1541ms:
+web\tsconfig.json:21:    "paths": {
+web\tsconfig.json:21:    "paths": {
+
+ succeeded in 1886ms:
+
+[32;1mName                   [0m[32;1m Mode [0m[32;1m Length[0m
+[32;1m----                   [0m [32;1m---- [0m [32;1m------[0m
+.next                   d---- 
+app                     d---- 
+components              d---- 
+lib                     d---- 
+node_modules            d---- 
+public                  d---- 
+screenshots             d---- 
+scripts                 d---- 
+test-results            d---- 
+tests                   d---- 
+web                     d---- 
+.gitignore              -a--- 521
+.prettierignore         -a--- 98
+.prettierrc.json        -a--- 231
+AGENTS.md               -a--- 4705
+CLAUDE.md               -a--- 12
+components.json         -a--- 541
+Dockerfile              -a--- 2605
+eslint.config.mjs       -a--- 490
+middleware.ts           -a--- 1451
+next-env.d.ts           -a--- 247
+next.config.ts          -a--- 1131
+package-lock.json       -a--- 412809
+package.json            -a--- 1713
+playwright.config.ts    -a--- 2061
+postcss.config.mjs      -a--- 101
+README.md               -a--- 1486
+requirements-v6.txt     -a--- 155
+requirements.txt        -a--- 480
+THIRD_PARTY_LICENSES.md -a--- 2045
+tsconfig.json           -a--- 700
+tsconfig.tsbuildinfo    -a--- 269464
+
+
+ succeeded in 2196ms:
+web\components\contradiction\contradiction_panel.tsx:9:interface ContradictionPanelProps {
+web\components\contradiction\contradiction_panel.tsx:89:export function ContradictionPanel({
+web\components\contradiction\contradiction_panel.tsx:92:}: ContradictionPanelProps) {
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tsconfig.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\globals.css | Select-Object -Skip 120 -First 35" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\.prettierrc.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --stat --oneline HEAD -- web' in C:\POLARIS
+ succeeded in 1203ms:
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+
+ succeeded in 1609ms:
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  /* I-p2-003 (#742): dark-mode accent = Canada-red (NOT the old cyan, which
+     violated the operator lock). Lighter L0.62 for contrast on the dark
+     surface; white fg. NOTE: light mode is the demo target; dark mode reuses
+     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+     proof) — dark-specific tuning is a post-demo follow-up. */
+  --primary: oklch(0.62 0.2 26);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.32 0.06 26);
+  --accent-foreground: oklch(0.92 0.04 26);
+  --destructive: oklch(0.704 0.191 22.216);
+  /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+     White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+     fails WCAG-AA 4.5:1). Use near-black text instead — dark-on-light-warning is
+     the conventional inverse pattern. */
+  --destructive-foreground: oklch(0.145 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.62 0.2 26);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+
+ succeeded in 2059ms:
+{
+  "semi": true,
+  "singleQuote": false,
+  "trailingComma": "all",
+  "printWidth": 80,
+  "tabWidth": 2,
+  "useTabs": false,
+  "arrowParens": "always",
+  "endOfLine": "lf",
+  "plugins": ["prettier-plugin-tailwindcss"]
+}
+
+ succeeded in 2354ms:
+0b486810 I-p2-010 (#749): contradiction / refusal panel (honest, feature-framed)
+ .../contradiction/contradiction_panel.tsx          | 114 +++++++++++++++++++++
+ 1 file changed, 114 insertions(+)
+
+codex
+The props and alias path are normal for this app. One subtle TypeScript risk is whether the `hasContradictions` boolean narrows `contradictions` in JSX, so I’m running the local typecheck/lint path rather than guessing.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run lint -- components/contradiction/contradiction_panel.tsx' in C:\POLARIS\web
+ succeeded in 4650ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+
+ succeeded in 5391ms:
+
+> web@0.1.0 lint
+> eslint components/contradiction/contradiction_panel.tsx
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "abort_corpus_approval_denied|abort_corpus_inadequate|abort_scope_rejected|abort_no_verified_sections|no_verified_sections" -n --glob "!web/node_modules/**" --glob "!web/.next/**"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "corpus approval|material tier|scope rejected|verified sections|verified_sections" -n --glob "!web/node_modules/**" --glob "!web/.next/**"' in C:\POLARIS
+2026-05-22T09:22:03.885659Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+
+ exited 1 in 1065ms:
+2026-05-22T09:22:04.239467Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.4 seconds
+Output:
+
+ exited 1 in 1423ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "abort_corpus_approval_denied|abort_corpus_inadequate|abort_scope_rejected|abort_no_verified_sections" src tests scripts web -n' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "material tier deviation|source set failed approval|corpus approval|approval_denied|corpus_inadequate" src tests scripts web -n' in C:\POLARIS
+ succeeded in 1351ms:
+web\lib\api.ts:72:  | "abort_scope_rejected"
+web\lib\api.ts:73:  | "abort_corpus_inadequate"
+web\lib\api.ts:74:  | "abort_corpus_approval_denied"
+web\lib\api.ts:75:  | "abort_no_verified_sections";
+web\lib\api.ts:267:  verdict: "success" | "abort_no_verified_sections";
+web\lib\api.ts:802:export type PipelineVerdict = "success" | "abort_no_verified_sections";
+tests\crown_jewels\test_cj_005_corpus_approval.py:5:(status = abort_corpus_approval_denied). The check_auto_approve_allowed
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:4:verdict MUST be 'abort_no_verified_sections' (not a pseudo-success
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:79:        pipeline_verdict="abort_no_verified_sections",
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:82:    assert rpt.pipeline_verdict == "abort_no_verified_sections"
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:89:        pipeline_verdict="abort_no_verified_sections",
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:92:    assert rpt.pipeline_verdict == "abort_no_verified_sections"
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:99:            pipeline_verdict="abort_no_verified_sections",
+web\components\contradiction\contradiction_panel.tsx:16:  abort_scope_rejected: "The question is outside POLARIS's research scope.",
+web\components\contradiction\contradiction_panel.tsx:17:  abort_corpus_inadequate:
+web\components\contradiction\contradiction_panel.tsx:19:  abort_corpus_approval_denied:
+web\components\contradiction\contradiction_panel.tsx:21:  abort_no_verified_sections:
+tests\polaris_graph\clinical_generator\test_verified_report.py:646:            pipeline_verdict="abort_no_verified_sections",
+tests\polaris_graph\clinical_generator\test_verified_report.py:661:        pipeline_verdict="abort_no_verified_sections",
+tests\polaris_graph\clinical_generator\test_verified_report.py:673:    assert r.pipeline_verdict == "abort_no_verified_sections"
+tests\polaris_graph\clinical_generator\test_verified_report.py:679:        pipeline_verdict="abort_no_verified_sections",
+web\app\generation\components\verified_report_view.tsx:66:  verdict: "success" | "abort_no_verified_sections";
+tests\polaris_graph\clinical_generator\test_generator.py:198:    assert result.pipeline_verdict == "abort_no_verified_sections"
+tests\polaris_graph\clinical_generator\test_generator.py:210:    assert result.pipeline_verdict == "abort_no_verified_sections"
+tests\polaris_graph\golden\test_slice_004_goldens.py:204:    if verdict == "abort_no_verified_sections":
+tests\polaris_graph\benchmark\test_dimension_scorers.py:211:        pipeline_verdict="abort_no_verified_sections",
+tests\polaris_graph\api\test_generation_route.py:161:    assert report["pipeline_verdict"] == "abort_no_verified_sections"
+tests\polaris_graph\api\test_audit_bundle_route.py:215:        "/api/audit-bundle", json=_payload(verdict="abort_no_verified_sections")
+tests\v6\test_scripts_v6_handover.py:116:        sealed_pipeline_status="abort_no_verified_sections",
+tests\v6\test_scripts_v6_handover.py:172:        sealed_pipeline_status="abort_no_verified_sections",
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:200:        pipeline_verdict="abort_no_verified_sections",
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:231:        message="cannot build bundle when verdict=abort_no_verified_sections",
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:143:            _decision(), _pool([src]), _report([dropped], verdict="abort_no_verified_sections")
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:170:        pipeline_verdict="abort_no_verified_sections",
+tests\v6\test_runs_list_endpoint.py:53:    _seed(db_path, "aborted", "completed", "abort_no_verified_sections", "2026-05-20T04:00:00Z")
+tests\v6\test_replay.py:78:        sealed_pipeline_status="abort_no_verified_sections",
+tests\v6\test_regression_lab.py:59:            status="abort_no_verified_sections",
+tests\v6\test_regression_lab.py:140:    success → abort_no_verified_sections produces a regression-severity field.
+tests\v6\test_regression_lab.py:147:            status="abort_no_verified_sections",
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:92:    assert "abort_corpus_approval_denied" in src, (
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:93:        "orchestrator must emit status=abort_corpus_approval_denied"
+tests\v6\test_pins_route.py:7:* abort_no_verified_sections generator block (sections_total +
+tests\v6\test_pins_route.py:128:    """Iter-2 P1.2: abort_no_verified_sections generator shape has
+tests\v6\test_pins_route.py:140:        status="abort_no_verified_sections",
+tests\v6\test_pins_route.py:148:        pipeline_status="abort_no_verified_sections",
+tests\v6\test_pins_route.py:156:    assert pins[0]["verdict"] == "abort_no_verified_sections"
+tests\v6\test_pins_route.py:240:        pipeline_status="abort_corpus_inadequate",
+tests\v6\test_pins_route.py:335:    # verdict is collapsed to "success" — only abort_no_verified_sections
+tests\v6\test_pins_route.py:354:        status="abort_no_verified_sections",
+tests\v6\test_pins_route.py:362:        pipeline_status="abort_no_verified_sections",
+src\polaris_v6\schemas\run_status.py:34:    "abort_scope_rejected",
+src\polaris_v6\schemas\run_status.py:35:    "abort_corpus_inadequate",
+src\polaris_v6\schemas\run_status.py:36:    "abort_corpus_approval_denied",
+src\polaris_v6\schemas\run_status.py:37:    "abort_no_verified_sections",
+tests\v6\test_inspector_route.py:85:        pipeline_status="abort_corpus_inadequate",
+src\polaris_v6\schemas\pin_snapshot.py:27:    verdict: str = Field(..., description="success | abort_no_verified_sections (partial_* collapsed to success).")
+tests\v6\test_evidence_contract_gate.py:11:   - abort_no_verified_sections artifacts have empty verified_sentences
+tests\v6\test_evidence_contract_gate.py:76:    assert contract.pipeline_status == "abort_no_verified_sections"
+tests\v6\test_concurrency.py:93:        pipeline_status="abort_corpus_inadequate",
+src\polaris_v6\replay\differ.py:8:    "abort_scope_rejected",
+src\polaris_v6\replay\differ.py:9:    "abort_corpus_inadequate",
+src\polaris_v6\replay\differ.py:10:    "abort_corpus_approval_denied",
+src\polaris_v6\replay\differ.py:11:    "abort_no_verified_sections",
+tests\v6\test_compare.py:106:    b = _bundle("r2", status="abort_no_verified_sections")
+tests\fixtures\signed_bundle\v1_canonical\verified_report.json:10:  "pipeline_verdict": "abort_no_verified_sections",
+tests\v6\test_api_charts.py:88:        pipeline_status="abort_corpus_inadequate",
+tests\v6\test_api_bundle.py:47:    assert body["pipeline_status"] == "abort_no_verified_sections"
+tests\polaris_graph\test_manifest_contract.py:44:        "abort_scope_rejected",
+tests\polaris_graph\test_manifest_contract.py:46:        "abort_corpus_inadequate",
+tests\polaris_graph\test_manifest_contract.py:47:        "abort_corpus_approval_denied",
+tests\polaris_graph\test_manifest_contract.py:48:        "abort_no_verified_sections",
+tests\polaris_graph\test_manifest_contract.py:67:        ("fail_no_verified_prose", "abort_no_verified_sections"),
+tests\polaris_graph\test_manifest_contract.py:68:        ("abort_corpus_inadequate", "abort_corpus_inadequate"),
+tests\polaris_graph\test_manifest_contract.py:69:        ("abort_corpus_approval_denied", "abort_corpus_approval_denied"),
+tests\polaris_graph\test_manifest_contract.py:70:        ("abort_no_verified_sections", "abort_no_verified_sections"),
+tests\polaris_graph\test_manifest_contract.py:353:        "abort_scope_rejected",
+tests\polaris_graph\test_manifest_contract.py:355:        "abort_corpus_inadequate",
+tests\polaris_graph\test_manifest_contract.py:356:        "abort_corpus_approval_denied",
+tests\polaris_graph\test_manifest_contract.py:357:        "abort_no_verified_sections",
+tests\polaris_graph\test_md9_regression_lab.py:171:    curr = _inputs(manifest={"status": "abort_no_verified_sections"})
+tests\polaris_graph\test_md9_regression_lab.py:192:    curr = _inputs(manifest={"status": "abort_corpus_inadequate"})
+tests\polaris_graph\test_md9_regression_lab.py:415:    curr = _inputs(manifest={"status": "abort_corpus_inadequate"})
+tests\polaris_graph\test_md9_regression_lab.py:422:    base = _inputs(manifest={"status": "abort_no_verified_sections"})
+tests\v6\fixtures\evidence_contract_v1\golden_run_abort_no_verified.json:8:  "pipeline_status": "abort_no_verified_sections",
+tests\polaris_graph\test_scope_gate.py:287:    assert '"status": "abort_scope_rejected"' in after_check, (
+tests\polaris_graph\test_scope_gate.py:288:        "scope-rejected branch must write manifest.status=abort_scope_rejected"
+scripts\run_honest_sweep_r3.py:181:    "abort_scope_rejected",
+scripts\run_honest_sweep_r3.py:183:    "abort_corpus_inadequate",
+scripts\run_honest_sweep_r3.py:184:    "abort_corpus_approval_denied",
+scripts\run_honest_sweep_r3.py:185:    "abort_no_verified_sections",
+scripts\run_honest_sweep_r3.py:201:    "fail_no_verified_prose": "abort_no_verified_sections",
+scripts\run_honest_sweep_r3.py:202:    "abort_scope_rejected": "abort_scope_rejected",
+scripts\run_honest_sweep_r3.py:203:    "abort_corpus_inadequate": "abort_corpus_inadequate",
+scripts\run_honest_sweep_r3.py:204:    "abort_corpus_approval_denied": "abort_corpus_approval_denied",
+scripts\run_honest_sweep_r3.py:205:    "abort_no_verified_sections": "abort_no_verified_sections",
+scripts\run_honest_sweep_r3.py:1374:        # verdict artifact and manifest.status=abort_scope_rejected.
+scripts\run_honest_sweep_r3.py:1379:            summary["status"] = "abort_scope_rejected"
+scripts\run_honest_sweep_r3.py:1408:                "status": "abort_scope_rejected",
+scripts\run_honest_sweep_r3.py:1434:                    "abort_scope_rejected",
+scripts\run_honest_sweep_r3.py:1751:        # inadequate" manifest and return status=abort_corpus_inadequate.
+scripts\run_honest_sweep_r3.py:1755:            summary["status"] = "abort_corpus_inadequate"
+scripts\run_honest_sweep_r3.py:1786:                "status": "abort_corpus_inadequate",
+scripts\run_honest_sweep_r3.py:1816:                    "abort_corpus_inadequate",
+scripts\run_honest_sweep_r3.py:1852:            summary["status"] = "abort_corpus_approval_denied"
+scripts\run_honest_sweep_r3.py:1881:                "status": "abort_corpus_approval_denied",
+scripts\run_honest_sweep_r3.py:1908:                    "abort_corpus_approval_denied",
+scripts\run_honest_sweep_r3.py:2496:            summary["status"] = "abort_no_verified_sections"
+scripts\run_honest_sweep_r3.py:2509:                "status": "abort_no_verified_sections",
+scripts\run_honest_sweep_r3.py:2540:                    "abort_no_verified_sections",
+scripts\regen_signed_bundle_canonical_fixture.py:122:        "pipeline_verdict": "abort_no_verified_sections",
+src\polaris_v6\api\artifact_to_slice_chain.py:316:    # PipelineVerdict Literal accepts success | abort_no_verified_sections;
+src\polaris_v6\api\artifact_to_slice_chain.py:323:        pipeline_verdict = "abort_no_verified_sections"
+src\polaris_v6\api\pins.py:17:    * abort_no_verified_sections path → `sections_total`,
+src\polaris_v6\api\pins.py:52:        "abort_no_verified_sections",
+src\polaris_v6\api\pins.py:58:    if pipeline_status == "abort_no_verified_sections":
+src\polaris_v6\api\pins.py:59:        return "abort_no_verified_sections"
+src\polaris_v6\api\pins.py:71:    abort_no_verified_sections manifests carry `sections_total` +
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:99:        pipeline_status="abort_corpus_inadequate",
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:107:    assert row.pipeline_status == "abort_corpus_inadequate"
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:60:        pipeline_status="abort_corpus_inadequate",
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:69:    assert "abort_corpus_inadequate" in body["error"]
+src\polaris_graph\generator\multi_section_generator.py:3429:            # abort_no_verified_sections downstream.
+src\polaris_graph\clinical_generator\verified_report.py:38:PipelineVerdict = Literal["success", "abort_no_verified_sections"]
+src\polaris_graph\clinical_generator\verified_report.py:470:        regenerated. If verdict=abort_no_verified_sections, every section
+src\polaris_graph\clinical_generator\verified_report.py:481:        else:  # abort_no_verified_sections
+src\polaris_graph\clinical_generator\verified_report.py:485:                        "pipeline_verdict='abort_no_verified_sections' "
+src\polaris_graph\clinical_generator\generator.py:21:    If every section dropped: VerifiedReport(verdict='abort_no_verified_sections')
+src\polaris_graph\clinical_generator\generator.py:290:        pipeline_verdict = "abort_no_verified_sections"
+src\polaris_graph\audit_ir\regression_lab.py:600:    "abort_scope_rejected": 2,
+src\polaris_graph\audit_ir\regression_lab.py:602:    "abort_corpus_inadequate": 2,
+src\polaris_graph\audit_ir\regression_lab.py:603:    "abort_corpus_approval_denied": 2,
+src\polaris_graph\audit_ir\regression_lab.py:604:    "abort_no_verified_sections": 2,
+src\polaris_graph\nodes\scope_gate.py:330:    # abort BEFORE retrieval with manifest.status=abort_scope_rejected.
+src\polaris_graph\llm\openrouter_client.py:403:    #     so a truncation degrades to an honest abort_no_verified_sections
+src\polaris_graph\api\generation_route.py:121:    Note: a VerifiedReport with verdict='abort_no_verified_sections' is
+
+ succeeded in 1580ms:
+tests\crown_jewels\test_cj_005_corpus_approval.py:3:Per CLAUDE.md §9.1.5: a corpus with material tier deviation + a
+tests\crown_jewels\test_cj_005_corpus_approval.py:5:(status = abort_corpus_approval_denied). The check_auto_approve_allowed
+web\components\contradiction\contradiction_panel.tsx:17:  abort_corpus_inadequate:
+web\components\contradiction\contradiction_panel.tsx:19:  abort_corpus_approval_denied:
+web\components\contradiction\contradiction_panel.tsx:20:    "The source set failed approval (material tier deviation).",
+web\lib\api.ts:73:  | "abort_corpus_inadequate"
+web\lib\api.ts:74:  | "abort_corpus_approval_denied"
+tests\v6\test_pins_route.py:240:        pipeline_status="abort_corpus_inadequate",
+tests\v6\test_inspector_route.py:85:        pipeline_status="abort_corpus_inadequate",
+tests\v6\test_concurrency.py:93:        pipeline_status="abort_corpus_inadequate",
+src\polaris_v6\schemas\run_status.py:35:    "abort_corpus_inadequate",
+src\polaris_v6\schemas\run_status.py:36:    "abort_corpus_approval_denied",
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:99:        pipeline_status="abort_corpus_inadequate",
+tests\polaris_v6\queue\test_run_store_i_arch_001a.py:107:    assert row.pipeline_status == "abort_corpus_inadequate"
+tests\v6\test_api_charts.py:88:        pipeline_status="abort_corpus_inadequate",
+src\polaris_v6\replay\differ.py:9:    "abort_corpus_inadequate",
+src\polaris_v6\replay\differ.py:10:    "abort_corpus_approval_denied",
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:60:        pipeline_status="abort_corpus_inadequate",
+tests\polaris_v6\api\test_bundle_endpoint_targz.py:69:    assert "abort_corpus_inadequate" in body["error"]
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:2:Codex round 1 B-2 regression test: corpus approval must be enforced.
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:92:    assert "abort_corpus_approval_denied" in src, (
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py:93:        "orchestrator must emit status=abort_corpus_approval_denied"
+scripts\run_honest_sweep_r3.py:183:    "abort_corpus_inadequate",
+scripts\run_honest_sweep_r3.py:184:    "abort_corpus_approval_denied",
+scripts\run_honest_sweep_r3.py:203:    "abort_corpus_inadequate": "abort_corpus_inadequate",
+scripts\run_honest_sweep_r3.py:204:    "abort_corpus_approval_denied": "abort_corpus_approval_denied",
+scripts\run_honest_sweep_r3.py:1751:        # inadequate" manifest and return status=abort_corpus_inadequate.
+scripts\run_honest_sweep_r3.py:1755:            summary["status"] = "abort_corpus_inadequate"
+scripts\run_honest_sweep_r3.py:1756:            summary["error"] = adequacy.notes[0] if adequacy.notes else "corpus_inadequate"
+scripts\run_honest_sweep_r3.py:1786:                "status": "abort_corpus_inadequate",
+scripts\run_honest_sweep_r3.py:1816:                    "abort_corpus_inadequate",
+scripts\run_honest_sweep_r3.py:1852:            summary["status"] = "abort_corpus_approval_denied"
+scripts\run_honest_sweep_r3.py:1853:            summary["error"] = approval_error or "approval_denied"
+scripts\run_honest_sweep_r3.py:1881:                "status": "abort_corpus_approval_denied",
+scripts\run_honest_sweep_r3.py:1908:                    "abort_corpus_approval_denied",
+tests\polaris_graph\test_manifest_contract.py:46:        "abort_corpus_inadequate",
+tests\polaris_graph\test_manifest_contract.py:47:        "abort_corpus_approval_denied",
+tests\polaris_graph\test_manifest_contract.py:68:        ("abort_corpus_inadequate", "abort_corpus_inadequate"),
+tests\polaris_graph\test_manifest_contract.py:69:        ("abort_corpus_approval_denied", "abort_corpus_approval_denied"),
+tests\polaris_graph\test_manifest_contract.py:355:        "abort_corpus_inadequate",
+tests\polaris_graph\test_manifest_contract.py:356:        "abort_corpus_approval_denied",
+scripts\static\inspector\inspector.js:1186:    // Adequacy + corpus approval gates (Codex M-6 fix: surface non-evaluator gates)
+tests\polaris_graph\test_md9_regression_lab.py:192:    curr = _inputs(manifest={"status": "abort_corpus_inadequate"})
+tests\polaris_graph\test_md9_regression_lab.py:415:    curr = _inputs(manifest={"status": "abort_corpus_inadequate"})
+src\polaris_graph\honest_pipeline.py:185:    # ── Phase 2g: corpus approval gate ──────────────────────────────────
+src\polaris_graph\audit_ir\loader.py:321:    audit-grade discipline, a corpus with material tier deviation plus
+src\polaris_graph\audit_ir\regression_lab.py:602:    "abort_corpus_inadequate": 2,
+src\polaris_graph\audit_ir\regression_lab.py:603:    "abort_corpus_approval_denied": 2,
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path scripts\\run_honest_sweep_r3.py | Select-Object -Skip 1368 -First 50" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path scripts\\run_honest_sweep_r3.py | Select-Object -Skip 1740 -First 125" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\crown_jewels\\test_cj_005_corpus_approval.py | Select-Object -First 90" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path scripts\\run_honest_sweep_r3.py | Select-Object -Skip 2488 -First 60" in C:\POLARIS
+ succeeded in 1356ms:
+                f"abstain_reason={inductor_summary['abstain_reason']!r}"
+            )
+
+        # BUG-B-100 fix (deep-dive R3): the scope gate is now a real
+        # gate. If it rejects, abort BEFORE retrieval with a pipeline-
+        # verdict artifact and manifest.status=abort_scope_rejected.
+        if scope.protocol.scope_rejected:
+            reasons_text = "; ".join(scope.protocol.scope_reasons) or "(no reasons)"
+            _log(f"[ABORT]       Scope rejected: "
+                 f"{scope.protocol.scope_rejection_code} — {reasons_text}")
+            summary["status"] = "abort_scope_rejected"
+            summary["error"] = (
+                f"scope rejected: {scope.protocol.scope_rejection_code}"
+            )
+            (run_dir / "report.md").write_text(
+                f"# Research report: {q['question']}\n\n"
+                "## Pipeline verdict\n\n"
+                "The scope gate refused to proceed with this research "
+                "question. The pipeline is refusing to spend retrieval "
+                "and generation budget on a query that would not produce "
+                "a meaningful evidence corpus.\n\n"
+                f"### Rejection code\n\n`{scope.protocol.scope_rejection_code}`\n\n"
+                "### Reasons\n\n"
+                + "\n".join(f"- {r}" for r in scope.protocol.scope_reasons)
+                + "\n\n### Suggested next steps\n\n"
+                "- Refine the research question with explicit scope hints "
+                "(e.g., add population / intervention for clinical queries).\n"
+                "- Choose a supported domain: clinical, policy, tech, or "
+                "due_diligence.\n"
+                "- Provide user_overrides via the caller's protocol to "
+                "supply the missing scope anchors directly.\n",
+                encoding="utf-8",
+            )
+            run_cost = current_run_cost()
+            # BUG-SCHEMA-R8d: shared envelope for schema consistency.
+            abort_manifest = _base_manifest_envelope(
+                run_id=run_id, q=q, retrieval=None, run_cost=run_cost,
+            )
+            abort_manifest.update({
+                "status": "abort_scope_rejected",
+                "protocol_sha256": scope.protocol_sha256,
+                "scope": {
+                    "decision": scope.protocol.scope_decision,
+                    "rejected": scope.protocol.scope_rejected,
+                    "rejection_code": scope.protocol.scope_rejection_code,
+                    "reasons": scope.protocol.scope_reasons,
+                },
+            })
+            abort_manifest = augment_v6_manifest(
+                abort_manifest,
+
+ succeeded in 1698ms:
+                (run_dir / "corpus_adequacy.json").write_text(
+                    json.dumps(asdict(adequacy), indent=2, sort_keys=True, default=str)
+                    + "\n",
+                    encoding="utf-8",
+                )
+            except Exception as exc:
+                _log(f"[expansion]   FAILED: {exc}")
+
+        # R-6 Gap-1: if adequacy still says ABORT after optional
+        # expansion, refuse to synthesize — emit a short "corpus
+        # inadequate" manifest and return status=abort_corpus_inadequate.
+        if adequacy.decision == "abort":
+            _log(f"[ABORT]       Corpus inadequate for confident synthesis. "
+                 f"Refusing to ship a misleading short report.")
+            summary["status"] = "abort_corpus_inadequate"
+            summary["error"] = adequacy.notes[0] if adequacy.notes else "corpus_inadequate"
+            # Still save what we have
+            (run_dir / "report.md").write_text(
+                f"# Research report: {q['question']}\n\n"
+                "## Pipeline verdict\n\n"
+                "The corpus retrieved for this query did not meet the "
+                f"adequacy thresholds for domain {q['domain']}. The "
+                "pipeline is refusing to synthesize a report that would "
+                "read as confident while being based on thin evidence.\n\n"
+                "### Adequacy findings\n\n"
+                + "\n".join(
+                    f"- **{f.severity.upper()}** {f.name}: "
+                    f"observed={f.observed}, threshold={f.threshold}"
+                    for f in adequacy.findings if not f.ok
+                )
+                + "\n\n### Suggested next steps\n\n"
+                "- Widen retrieval (more amplified queries, higher caps).\n"
+                "- Relax adequacy thresholds if the domain has inherently "
+                "sparse evidence.\n"
+                "- Refine the research question to a narrower, better-"
+                "supported sub-topic.\n",
+                encoding="utf-8",
+            )
+            run_cost = current_run_cost()
+            # BUG-SCHEMA-R8d: use shared envelope so every exit path
+            # has the same field shape.
+            manifest = _base_manifest_envelope(
+                run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+            )
+            manifest.update({
+                "status": "abort_corpus_inadequate",
+                "adequacy": asdict(adequacy),
+                "corpus": {
+                    "count": dist.total_sources,
+                    "tier_fractions": dist.tier_fractions,
+                },
+                "completeness": {
+                    "total_applicable": completeness.total_applicable,
+                    "total_covered": completeness.total_covered,
+                    "total_uncovered": completeness.total_uncovered,
+                    "uncovered_topic_ids": completeness.uncovered_topic_ids(),
+                },
+            })
+            manifest = augment_v6_manifest(
+                manifest,
+                external_run_id=q.get("external_run_id"),
+                decision_id=q.get("decision_id"),
+                query_slug=q.get("slug"),
+            )
+            (run_dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
+                encoding="utf-8",
+            )
+            summary["manifest"] = manifest
+            summary["cost_usd"] = run_cost
+            try: write_per_run_cost_ledger(run_dir, run_id)
+            except Exception: pass
+            if q.get("v6_mode") and q.get("external_run_id"):
+                emit_terminal_event(
+                    q.get("external_run_id"),
+                    "abort_corpus_inadequate",
+                    error_msg=summary.get("error"),
+                )
+            set_current_run_id(None)
+            set_reasoning_sink(None)
+            log_f.close()
+            return summary
+
+        note = f"R-3 sweep. Domain={q['domain']}. Auto-approve on sweep."
+        if dist.has_material_deviation:
+            ok, err = check_auto_approve_allowed(dist, note)
+            approved = ok
+            approval_error = err
+        else:
+            approved = True
+            approval_error = ""
+        decision = CorpusApprovalDecision(
+            run_id=run_id,
+            decision_at_unix=time.time(),
+            decision_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            approved=approved, user_note=note,
+            approved_source_urls=[s.url for s in retrieval.classified_sources] if approved else [],
+            rejected_source_urls=[] if approved else [s.url for s in retrieval.classified_sources],
+            report=dist, protocol_sha256=scope.protocol_sha256,
+        )
+        save_approval_decision(decision, run_dir)
+
+        # Codex round 1 B-2: ENFORCE the corpus-approval gate. Previously
+        # the orchestrator wrote corpus_approval.json and then proceeded
+        # regardless of `approved`. Now we short-circuit exactly like the
+        # adequacy-abort path when approval was denied (material deviation
+        # + rubber-stamp note). No LLM call, pipeline verdict artifact only.
+        if not approved:
+            _log(f"[ABORT]       Corpus approval denied "
+                 f"(material deviation without substantive note). "
+                 f"Refusing to synthesize.")
+            summary["status"] = "abort_corpus_approval_denied"
+            summary["error"] = approval_error or "approval_denied"
+            (run_dir / "report.md").write_text(
+                f"# Research report: {q['question']}\n\n"
+                "## Pipeline verdict\n\n"
+                "The corpus has a material deviation from the "
+                f"pre-registered protocol for domain {q['domain']} and "
+                "the approval step did not receive a substantive note "
+                "explaining the deviation. The pipeline is refusing to "
+                "synthesize a report over an unapproved corpus.\n\n"
+                "### Approval failure\n\n"
+                f"- {approval_error or 'no substantive note provided'}\n\n"
+                "### Tier distribution\n\n"
+                f"Expected: {expected_str_for_abort(protocol)}\n"
+
+ succeeded in 1915ms:
+        # refuse to ship report.md. The old code would write a Methods
+        # + Bibliography file with an empty findings body, and only then
+        # mark status=fail_no_verified_prose as a post-hoc flag.
+        verified_sections = filter_verified_sections(multi.sections)
+        if not verified_sections:
+            _log(f"[ABORT]       All {len(multi.sections)} sections "
+                 f"failed verification. Refusing to write a report body.")
+            summary["status"] = "abort_no_verified_sections"
+            summary["error"] = (
+                f"all {len(multi.sections)} sections dropped at strict_verify"
+            )
+            (run_dir / "report.md").write_text(
+                build_no_verified_sections_abort_body(q["question"], multi.sections),
+                encoding="utf-8",
+            )
+            run_cost = current_run_cost()
+            manifest = _base_manifest_envelope(
+                run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+            )
+            manifest.update({
+                "status": "abort_no_verified_sections",
+                "adequacy": asdict(adequacy),
+                "corpus": {
+                    "count": dist.total_sources,
+                    "tier_fractions": dist.tier_fractions,
+                    "approved": approved,
+                },
+                "generator": {
+                    "outline_sections": [p.title for p in multi.outline],
+                    "sections_total": len(multi.sections),
+                    "sections_dropped": len(multi.sections),
+                    "sentences_verified": 0,
+                },
+            })
+            manifest = augment_v6_manifest(
+                manifest,
+                external_run_id=q.get("external_run_id"),
+                decision_id=q.get("decision_id"),
+                query_slug=q.get("slug"),
+            )
+            (run_dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
+                encoding="utf-8",
+            )
+            summary["manifest"] = manifest
+            summary["cost_usd"] = run_cost
+            try: write_per_run_cost_ledger(run_dir, run_id)
+            except Exception: pass
+            if q.get("v6_mode") and q.get("external_run_id"):
+                emit_terminal_event(
+                    q.get("external_run_id"),
+                    "abort_no_verified_sections",
+                    error_msg=summary.get("error"),
+                )
+            set_current_run_id(None)
+            set_reasoning_sink(None)
+            log_f.close()
+            return summary
+
+        from src.polaris_graph.llm.openrouter_client import (
+
+ succeeded in 2135ms:
+"""Crown Jewel I-cj-005 — Corpus approval rubber-stamp resistance.
+
+Per CLAUDE.md §9.1.5: a corpus with material tier deviation + a
+rubber-stamp note aborts before any generator token is billed
+(status = abort_corpus_approval_denied). The check_auto_approve_allowed
+gate enforces:
+  - no material deviation → any note OK
+  - material deviation + short / trivial note → rejected
+  - material deviation + substantive note → OK
+
+The Crown Jewel pins the user-observable rejection invariant; whether
+the rejection fires under the length-check branch or the trivial-note
+branch is an implementation detail.
+"""
+
+from __future__ import annotations
+
+from src.polaris_graph.nodes.corpus_approval_gate import (
+    CorpusDistributionReport,
+    check_auto_approve_allowed,
+)
+
+
+def _report(material: bool) -> CorpusDistributionReport:
+    return CorpusDistributionReport(
+        total_sources=10,
+        tier_counts={"T1": 5, "T2": 5},
+        tier_fractions={"T1": 0.5, "T2": 0.5},
+        deviations=[],
+        has_material_deviation=material,
+        auto_approve_allowed=not material,
+    )
+
+
+def test_cj_005_no_material_deviation_any_note_ok() -> None:
+    ok, msg = check_auto_approve_allowed(_report(False), user_note="")
+    assert ok and msg == ""
+
+
+def test_cj_005_material_deviation_empty_note_rejected() -> None:
+    ok, msg = check_auto_approve_allowed(_report(True), user_note="")
+    assert not ok and "note" in msg.lower()
+
+
+def test_cj_005_material_deviation_short_note_rejected() -> None:
+    ok, msg = check_auto_approve_allowed(_report(True), user_note="too short")
+    assert not ok and "note" in msg.lower()
+
+
+def test_cj_005_material_deviation_short_or_trivial_rejected() -> None:
+    for note in ["lgtm", "approved", "ok", "fine", "go ahead", "x"]:
+        ok, msg = check_auto_approve_allowed(_report(True), user_note=note)
+        assert not ok, f"short / trivial note {note!r} should be rejected"
+        assert msg, "rejection must include explanation"
+
+
+def test_cj_005_material_deviation_substantive_note_accepted() -> None:
+    note = (
+        "T1 sources fell below 30% because Cochrane Review CD012345 was "
+        "retracted post-protocol-registration and we replaced it with two "
+        "T2 systematic reviews. The methods section flags this deviation."
+    )
+    ok, msg = check_auto_approve_allowed(_report(True), user_note=note)
+    assert ok and msg == ""
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path scripts\\run_honest_sweep_r3.py | Select-Object -Skip 1848 -First 60" in C:\POLARIS
+ succeeded in 1271ms:
+            _log(f"[ABORT]       Corpus approval denied "
+                 f"(material deviation without substantive note). "
+                 f"Refusing to synthesize.")
+            summary["status"] = "abort_corpus_approval_denied"
+            summary["error"] = approval_error or "approval_denied"
+            (run_dir / "report.md").write_text(
+                f"# Research report: {q['question']}\n\n"
+                "## Pipeline verdict\n\n"
+                "The corpus has a material deviation from the "
+                f"pre-registered protocol for domain {q['domain']} and "
+                "the approval step did not receive a substantive note "
+                "explaining the deviation. The pipeline is refusing to "
+                "synthesize a report over an unapproved corpus.\n\n"
+                "### Approval failure\n\n"
+                f"- {approval_error or 'no substantive note provided'}\n\n"
+                "### Tier distribution\n\n"
+                f"Expected: {expected_str_for_abort(protocol)}\n"
+                f"Actual:   {tier_summary}\n\n"
+                "### Suggested next steps\n\n"
+                "- Provide a substantive approval note (>=30 chars) that "
+                "explains why the deviation is acceptable for this "
+                "research question.\n"
+                "- Widen retrieval to align the actual tier distribution "
+                "with the expected range.\n"
+                "- Abort and refine the research question.\n",
+                encoding="utf-8",
+            )
+            run_cost = current_run_cost()
+            manifest = _base_manifest_envelope(
+                run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+            )
+            manifest.update({
+                "status": "abort_corpus_approval_denied",
+                "approval_error": approval_error,
+                "adequacy": asdict(adequacy),
+                "corpus": {
+                    "count": dist.total_sources,
+                    "tier_fractions": dist.tier_fractions,
+                    "material_deviation": dist.has_material_deviation,
+                    "approved": False,
+                },
+            })
+            manifest = augment_v6_manifest(
+                manifest,
+                external_run_id=q.get("external_run_id"),
+                decision_id=q.get("decision_id"),
+                query_slug=q.get("slug"),
+            )
+            (run_dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
+                encoding="utf-8",
+            )
+            summary["manifest"] = manifest
+            summary["cost_usd"] = run_cost
+            try: write_per_run_cost_ledger(run_dir, run_id)
+            except Exception: pass
+            if q.get("v6_mode") and q.get("external_run_id"):
+                emit_terminal_event(
+                    q.get("external_run_id"),
+                    "abort_corpus_approval_denied",
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+merge_decision: MERGE AUTHORIZED
+tokens used
+48,453
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+merge_decision: MERGE AUTHORIZED
