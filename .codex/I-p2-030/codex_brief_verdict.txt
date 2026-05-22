@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief APPROVE iter 2 (iter-1: G-SEC redaction+tamper-logs, G-PERF export budget, G-CONTENT domain-copy fixed). Gates concrete + measurable + complete.
