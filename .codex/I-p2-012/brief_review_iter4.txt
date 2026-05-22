@@ -1,0 +1,800 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4f0e-9a73-7573-90c9-a132390ca581
+--------
+user
+# Codex BRIEF review — I-p2-012 (#751): knowledge-graph visualization — align to #742
+
+HARD ITERATION CAP: 5 per document. This is iter 4 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; cosmetics → P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; do not bank for iter 6.
+- Surface held-back findings now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Task
+Align the EXISTING knowledge-graph viz (claim_graph.tsx + graph_styles.ts, built I-snowball-003/004/005, cytoscape + fcose) to the #742 white+Canada-red design system. NO rebuild, NO new graph lib (cytoscape is installed + working).
+
+## Verified current state (grounded)
+- claim_graph.tsx is complete (hover/select/search/snowball/selection-sync/fcose, node+edge counts+hash). Do NOT rebuild it.
+- graph_styles.ts STYLESHEET uses HARDCODED pre-#742 colors that CLASH with the white+Canada-red lock: sentence #3b82f6 (blue), source #22c55e (green), section #a3a3a3, frame #f59e0b (amber); selected border #0ea5e9 (sky-blue), snowball #3b82f6 (blue), search-hit #facc15 (yellow); edges cites #60a5fa, contradicts #ef4444, section_member #d4d4d4.
+- Cytoscape canvas CANNOT read CSS custom properties → must use CONCRETE values matching #742.
+
+## Acceptance criteria (diff implements; brief reviews the PLAN — colors are the crux)
+1. RED reserved for the SELECTION state (scarcity): `node.selected` border → **#c8102e** (Canada-red, 4px). Node TYPES become muted/categorical (not saturated rainbow) so they harmonize with white+red:
+   - section #334155 (slate-700, anchor), source #475569 (slate-600), sentence #64748b (slate-500), frame #94a3b8 (slate-400). Labels stay dark (#1e293b) on white — AA.
+2. State accents distinct from each other + the node fills: selected #c8102e (red); snowball-neighbor border #1f7a44 (verified-green concrete, "connected"); search-hit border #c98a00 (contradiction-amber concrete, "search mode").
+3. Edges: cites #94a3b8 (hairline slate), contradicts #c98a00 (amber — conflict; NOT red, to keep red = selection scarcity), section_member dashed #d4d4d8.
+4. G-PERF: cytoscape + fcose already handles ~1k nodes; no change to layout/perf. NO behavior change to claim_graph.tsx logic.
+
+## Files I have ALSO checked and they're clean
+- web/app/runs/[runId]/graph/components/claim_graph.tsx (logic — unchanged), graph_styles.ts (the ONLY file edited), web/app/globals.css (#742 token source for the concrete values).
+
+## Review focus (colors are the crux)
+1. Do the concrete values faithfully reflect #742 (red=selection scarcity; muted categorical types; amber not red for contradiction so red stays scarce)? Any AA issue (node fills vs white, labels, state borders)?
+2. Are the 4 node-type slate shades distinguishable enough (+ size + tooltip)? Are the 3 state borders (red/green/amber) mutually distinct?
+3. Any clash I missed; any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+---
+## iter-2 clarification (review scope)
+This is a BRIEF / PLAN review, NOT a diff review. graph_styles.ts is INTENTIONALLY still the pre-#742 palette — the recolor is applied AFTER this brief is APPROVE'd (workflow: brief → Codex brief APPROVE → diff → Codex diff APPROVE). An empty git diff / unchanged stylesheet is the EXPECTED pre-implementation state, NOT a defect. Please evaluate the PLAN: are the proposed CONCRETE color values (§ acceptance 1-3) faithful to #742 (red=selection scarcity; muted slate node types; amber-not-red contradiction; green snowball; amber search-hit) and AA-safe; are the 4 slate shades + 3 state borders mutually distinguishable. APPROVE iff the color PLAN is sound; reserve P0/P1 for a wrong/clashing color choice or an AA failure in the PROPOSED values, NOT the absence of the not-yet-applied edit.
+
+---
+## iter-3 corrections (concrete values now all ≥3:1 on white)
+- **P1 (node fills):** use 4 lightness-tiered slates, ALL ≥3:1 on white, biggest=darkest: section #1e293b (slate-800, ~16:1), source #334155 (slate-700, ~8.6:1), sentence #475569 (slate-600, ~6.4:1), frame #64748b (slate-500, ~4:1). Distinguishable by lightness + node size (30/26/18/22) + hover tooltip. Drops the failing #94a3b8.
+- **P1 (amber):** search-hit border + contradicts edge → #a16207 (amber-700, ~4.8:1 on white) — clears 3:1, stays clearly amber + distinct from Canada-red #c8102e and snowball-green #1f7a44.
+- selected #c8102e (red, ~5.9:1), snowball-neighbor #1f7a44 (green, ~4.7:1) confirmed ≥3:1. cites edge #64748b (visible hairline), section_member dashed #cbd5e1.
+Re-confirm APPROVE or list only true remaining P0/P1.
+
+---
+## iter-4 correction (edges all ≥3:1)
+- **P1 (section_member edge):** drop #cbd5e1 + the opacity:0.5. Use cites #475569 (slate-600 solid, ~6.4:1, the proof relationships), section_member #64748b (slate-500 DASHED, full opacity, ~4:1 — distinguished from cites by dash + darkness, not by sub-3:1 paleness), contradicts #a16207 (amber, 2px). All edges now ≥3:1; distinction via color + line-style + width.
+Re-confirm APPROVE or list only true remaining P0/P1.
+
+codex
+I’ll verify the local style/token context and the proposed contrast numbers, then keep the review scoped to the plan rather than the unimplemented diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/graph/components/graph_styles.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "c8102e|Canada|--|claim|graph|#742|red|slate|amber" web/app/globals.css web/app/runs/[runId]/graph/components/graph_styles.ts web/app/runs/[runId]/graph/components/claim_graph.tsx' in C:\POLARIS
+ succeeded in 2081ms:
+/**
+ * Cytoscape stylesheet + layout constants for ClaimGraph.
+ *
+ * Extracted from claim_graph.tsx in I-snowball-004 to keep the component
+ * under 200 LOC after adding event handlers + hover card + a11y list.
+ */
+
+import type cytoscape from "cytoscape";
+
+export const STYLESHEET: cytoscape.StylesheetStyle[] = [
+  {
+    selector: "node[type='sentence']",
+    style: {
+      "background-color": "#3b82f6",
+      width: 18,
+      height: 18,
+      label: "data(label)",
+      "font-size": 8,
+      color: "#1e293b",
+      "text-valign": "bottom",
+      "text-halign": "center",
+      "text-margin-y": 4,
+    },
+  },
+  {
+    selector: "node[type='source']",
+    style: {
+      "background-color": "#22c55e",
+      width: 26,
+      height: 26,
+      label: "data(label)",
+      "font-size": 9,
+      color: "#1e293b",
+      "text-valign": "bottom",
+      "text-halign": "center",
+      "text-margin-y": 4,
+      "text-max-width": "180px",
+      "text-wrap": "ellipsis",
+    },
+  },
+  {
+    selector: "node[type='section']",
+    style: {
+      "background-color": "#a3a3a3",
+      width: 30,
+      height: 30,
+      label: "data(label)",
+      "font-weight": "bold" as never,
+      "font-size": 10,
+      color: "#0f172a",
+    },
+  },
+  {
+    selector: "node[type='frame']",
+    style: {
+      "background-color": "#f59e0b",
+      width: 22,
+      height: 22,
+      label: "data(label)",
+      "font-size": 9,
+      color: "#1e293b",
+    },
+  },
+  {
+    selector: "node.bibliography_missing",
+    style: {
+      "background-color": "#9ca3af",
+      "border-style": "dashed",
+      "border-width": 1,
+      "border-color": "#6b7280",
+    },
+  },
+  {
+    selector: "node.search-hit",
+    style: {
+      "border-width": 3,
+      "border-color": "#facc15",
+    },
+  },
+  {
+    selector: "node.selected",
+    style: {
+      "border-width": 4,
+      "border-color": "#0ea5e9",
+    },
+  },
+  {
+    selector: "node.snowball-neighbor",
+    style: {
+      "border-width": 3,
+      "border-color": "#3b82f6",
+      "background-opacity": 0.95,
+    },
+  },
+  {
+    selector: "edge[edge_type='cites']",
+    style: {
+      "line-color": "#60a5fa",
+      width: 1,
+      "curve-style": "bezier",
+    },
+  },
+  {
+    selector: "edge[edge_type='contradicts']",
+    style: {
+      "line-color": "#ef4444",
+      width: 2,
+      "curve-style": "bezier",
+      "line-style": "solid",
+    },
+  },
+  {
+    selector: "edge[edge_type='section_member']",
+    style: {
+      "line-color": "#d4d4d4",
+      "line-style": "dashed",
+      width: 1,
+      opacity: 0.5,
+    },
+  },
+];
+
+export const LAYOUT_FCOSE = {
+  name: "fcose",
+  randomize: false,
+  quality: "proof",
+  animate: false,
+  nodeSeparation: 75,
+  idealEdgeLength: 50,
+} as unknown as cytoscape.LayoutOptions;
+
+export const LAYOUT_PRESET: cytoscape.LayoutOptions = { name: "preset" };
+
+ succeeded in 2640ms:
+web/app/runs/[runId]/graph/components/graph_styles.ts:4: * Extracted from claim_graph.tsx in I-snowball-004 to keep the component
+web/app/runs/[runId]/graph/components/graph_styles.ts:65:    selector: "node.bibliography_missing",
+web/app/runs/[runId]/graph/components/claim_graph.tsx:6: * Stylesheet + layout constants extracted to graph_styles.ts to keep file
+web/app/runs/[runId]/graph/components/claim_graph.tsx:18:import { LAYOUT_FCOSE, LAYOUT_PRESET, STYLESHEET } from "./graph_styles";
+web/app/runs/[runId]/graph/components/claim_graph.tsx:19:import { nodeMatchesQuery } from "./use_graph_state";
+web/app/runs/[runId]/graph/components/claim_graph.tsx:22:const _cy = cytoscape as unknown as { _fcoseRegistered?: boolean };
+web/app/runs/[runId]/graph/components/claim_graph.tsx:23:if (!_cy._fcoseRegistered) {
+web/app/runs/[runId]/graph/components/claim_graph.tsx:25:  _cy._fcoseRegistered = true;
+web/app/runs/[runId]/graph/components/claim_graph.tsx:96:      const rendered = node.renderedPosition();
+web/app/runs/[runId]/graph/components/claim_graph.tsx:103:        x: rendered.x,
+web/app/runs/[runId]/graph/components/claim_graph.tsx:104:        y: rendered.y,
+web/app/runs/[runId]/graph/components/claim_graph.tsx:129:  // Search-highlight (Codex iter-2 P2-1.5 + iter-3 share-predicate fix:
+web/app/runs/[runId]/graph/components/claim_graph.tsx:167:      aria-label="Claim graph canvas"
+web/app/runs/[runId]/graph/components/claim_graph.tsx:168:      data-testid="claim-graph"
+web/app/globals.css:8:  --color-background: var(--background);
+web/app/globals.css:9:  --color-foreground: var(--foreground);
+web/app/globals.css:10:  --font-sans: var(--font-sans);
+web/app/globals.css:11:  --font-mono: var(--font-geist-mono);
+web/app/globals.css:12:  --font-heading: var(--font-sans);
+web/app/globals.css:13:  --color-sidebar-ring: var(--sidebar-ring);
+web/app/globals.css:14:  --color-sidebar-border: var(--sidebar-border);
+web/app/globals.css:15:  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+web/app/globals.css:16:  --color-sidebar-accent: var(--sidebar-accent);
+web/app/globals.css:17:  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+web/app/globals.css:18:  --color-sidebar-primary: var(--sidebar-primary);
+web/app/globals.css:19:  --color-sidebar-foreground: var(--sidebar-foreground);
+web/app/globals.css:20:  --color-sidebar: var(--sidebar);
+web/app/globals.css:21:  --color-chart-5: var(--chart-5);
+web/app/globals.css:22:  --color-chart-4: var(--chart-4);
+web/app/globals.css:23:  --color-chart-3: var(--chart-3);
+web/app/globals.css:24:  --color-chart-2: var(--chart-2);
+web/app/globals.css:25:  --color-chart-1: var(--chart-1);
+web/app/globals.css:26:  --color-ring: var(--ring);
+web/app/globals.css:27:  --color-input: var(--input);
+web/app/globals.css:28:  --color-border: var(--border);
+web/app/globals.css:29:  --color-destructive: var(--destructive);
+web/app/globals.css:30:  --color-destructive-foreground: var(--destructive-foreground);
+web/app/globals.css:31:  --color-verified: var(--verified);
+web/app/globals.css:32:  --color-verified-foreground: var(--verified-foreground);
+web/app/globals.css:33:  --color-contradiction: var(--contradiction);
+web/app/globals.css:34:  --color-contradiction-foreground: var(--contradiction-foreground);
+web/app/globals.css:35:  --color-refusal: var(--refusal);
+web/app/globals.css:36:  --color-refusal-foreground: var(--refusal-foreground);
+web/app/globals.css:37:  --color-tier-1: var(--tier-1);
+web/app/globals.css:38:  --color-tier-2: var(--tier-2);
+web/app/globals.css:39:  --color-tier-3: var(--tier-3);
+web/app/globals.css:40:  --color-proof-token: var(--proof-token);
+web/app/globals.css:41:  --color-verified-bundle: var(--verified-bundle);
+web/app/globals.css:42:  --color-accent-foreground: var(--accent-foreground);
+web/app/globals.css:43:  --color-accent: var(--accent);
+web/app/globals.css:44:  --color-muted-foreground: var(--muted-foreground);
+web/app/globals.css:45:  --color-muted: var(--muted);
+web/app/globals.css:46:  --color-secondary-foreground: var(--secondary-foreground);
+web/app/globals.css:47:  --color-secondary: var(--secondary);
+web/app/globals.css:48:  --color-primary-foreground: var(--primary-foreground);
+web/app/globals.css:49:  --color-primary: var(--primary);
+web/app/globals.css:50:  --color-popover-foreground: var(--popover-foreground);
+web/app/globals.css:51:  --color-popover: var(--popover);
+web/app/globals.css:52:  --color-card-foreground: var(--card-foreground);
+web/app/globals.css:53:  --color-card: var(--card);
+web/app/globals.css:54:  --radius-sm: calc(var(--radius) * 0.6);
+web/app/globals.css:55:  --radius-md: calc(var(--radius) * 0.8);
+web/app/globals.css:56:  --radius-lg: var(--radius);
+web/app/globals.css:57:  --radius-xl: calc(var(--radius) * 1.4);
+web/app/globals.css:58:  --radius-2xl: calc(var(--radius) * 1.8);
+web/app/globals.css:59:  --radius-3xl: calc(var(--radius) * 2.2);
+web/app/globals.css:60:  --radius-4xl: calc(var(--radius) * 2.6);
+web/app/globals.css:66:     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
+web/app/globals.css:69:  --background: oklch(0.985 0.001 286.375);
+web/app/globals.css:70:  --foreground: oklch(0.21 0.006 285.9);
+web/app/globals.css:71:  --card: oklch(1 0 0);
+web/app/globals.css:72:  --card-foreground: oklch(0.21 0.006 285.9);
+web/app/globals.css:73:  --popover: oklch(1 0 0);
+web/app/globals.css:74:  --popover-foreground: oklch(0.21 0.006 285.9);
+web/app/globals.css:75:  /* I-p2-003 (#742): white surface + ONE national accent = dark Canada-flag
+web/app/globals.css:76:     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
+web/app/globals.css:77:     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+web/app/globals.css:78:     destructive=deep maroon distinct from the national red. + evidence-role
+web/app/globals.css:80:  --primary: #c8102e;
+web/app/globals.css:81:  --primary-foreground: oklch(0.985 0 0);
+web/app/globals.css:82:  --secondary: oklch(0.97 0 0);
+web/app/globals.css:83:  --secondary-foreground: oklch(0.21 0.006 285.9);
+web/app/globals.css:84:  --muted: oklch(0.97 0 0);
+web/app/globals.css:85:  --muted-foreground: oklch(0.556 0 0);
+web/app/globals.css:86:  --accent: oklch(0.96 0.03 25);
+web/app/globals.css:87:  --accent-foreground: oklch(0.45 0.16 26);
+web/app/globals.css:88:  --destructive: oklch(0.42 0.13 18);
+web/app/globals.css:89:  --destructive-foreground: oklch(0.985 0 0);
+web/app/globals.css:90:  --border: oklch(0.922 0 0);
+web/app/globals.css:91:  --input: oklch(0.922 0 0);
+web/app/globals.css:92:  --ring: #c8102e;
+web/app/globals.css:93:  /* State colors — distinct from the national red (rubric: never red-only) */
+web/app/globals.css:94:  --verified: oklch(0.48 0.14 152);
+web/app/globals.css:95:  --verified-foreground: oklch(0.985 0 0);
+web/app/globals.css:96:  --contradiction: oklch(0.72 0.15 75);
+web/app/globals.css:97:  --contradiction-foreground: oklch(0.27 0.04 75);
+web/app/globals.css:98:  --refusal: oklch(0.45 0.02 286);
+web/app/globals.css:99:  --refusal-foreground: oklch(0.985 0 0);
+web/app/globals.css:101:  --tier-1: #c8102e;
+web/app/globals.css:102:  --tier-2: oklch(0.556 0 0);
+web/app/globals.css:103:  --tier-3: oklch(0.708 0 0);
+web/app/globals.css:104:  --proof-token: oklch(0.45 0.16 26);
+web/app/globals.css:105:  --verified-bundle: oklch(0.48 0.14 152);
+web/app/globals.css:106:  --chart-1: oklch(0.87 0 0);
+web/app/globals.css:107:  --chart-2: oklch(0.556 0 0);
+web/app/globals.css:108:  --chart-3: oklch(0.439 0 0);
+web/app/globals.css:109:  --chart-4: oklch(0.371 0 0);
+web/app/globals.css:110:  --chart-5: oklch(0.269 0 0);
+web/app/globals.css:111:  --radius: 0.625rem;
+web/app/globals.css:112:  --sidebar: oklch(0.985 0 0);
+web/app/globals.css:113:  --sidebar-foreground: oklch(0.145 0 0);
+web/app/globals.css:114:  --sidebar-primary: oklch(0.205 0 0);
+web/app/globals.css:115:  --sidebar-primary-foreground: oklch(0.985 0 0);
+web/app/globals.css:116:  --sidebar-accent: oklch(0.97 0 0);
+web/app/globals.css:117:  --sidebar-accent-foreground: oklch(0.205 0 0);
+web/app/globals.css:118:  --sidebar-border: oklch(0.922 0 0);
+web/app/globals.css:119:  --sidebar-ring: oklch(0.708 0 0);
+web/app/globals.css:123:  --background: oklch(0.145 0 0);
+web/app/globals.css:124:  --foreground: oklch(0.985 0 0);
+web/app/globals.css:125:  --card: oklch(0.205 0 0);
+web/app/globals.css:126:  --card-foreground: oklch(0.985 0 0);
+web/app/globals.css:127:  --popover: oklch(0.205 0 0);
+web/app/globals.css:128:  --popover-foreground: oklch(0.985 0 0);
+web/app/globals.css:129:  /* I-p2-003 (#742): dark-mode accent = Canada-red (NOT the old cyan, which
+web/app/globals.css:134:  --primary: oklch(0.62 0.2 26);
+web/app/globals.css:135:  --primary-foreground: oklch(0.985 0 0);
+web/app/globals.css:136:  --secondary: oklch(0.269 0 0);
+web/app/globals.css:137:  --secondary-foreground: oklch(0.985 0 0);
+web/app/globals.css:138:  --muted: oklch(0.269 0 0);
+web/app/globals.css:139:  --muted-foreground: oklch(0.708 0 0);
+web/app/globals.css:140:  --accent: oklch(0.32 0.06 26);
+web/app/globals.css:141:  --accent-foreground: oklch(0.92 0.04 26);
+web/app/globals.css:142:  --destructive: oklch(0.704 0.191 22.216);
+web/app/globals.css:144:     White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+web/app/globals.css:147:  --destructive-foreground: oklch(0.145 0 0);
+web/app/globals.css:148:  --border: oklch(1 0 0 / 10%);
+web/app/globals.css:149:  --input: oklch(1 0 0 / 15%);
+web/app/globals.css:150:  --ring: oklch(0.62 0.2 26);
+web/app/globals.css:151:  --chart-1: oklch(0.87 0 0);
+web/app/globals.css:152:  --chart-2: oklch(0.556 0 0);
+web/app/globals.css:153:  --chart-3: oklch(0.439 0 0);
+web/app/globals.css:154:  --chart-4: oklch(0.371 0 0);
+web/app/globals.css:155:  --chart-5: oklch(0.269 0 0);
+web/app/globals.css:156:  --sidebar: oklch(0.205 0 0);
+web/app/globals.css:157:  --sidebar-foreground: oklch(0.985 0 0);
+web/app/globals.css:158:  --sidebar-primary: oklch(0.488 0.243 264.376);
+web/app/globals.css:159:  --sidebar-primary-foreground: oklch(0.985 0 0);
+web/app/globals.css:160:  --sidebar-accent: oklch(0.269 0 0);
+web/app/globals.css:161:  --sidebar-accent-foreground: oklch(0.985 0 0);
+web/app/globals.css:162:  --sidebar-border: oklch(1 0 0 / 10%);
+web/app/globals.css:163:  --sidebar-ring: oklch(0.556 0 0);
+
+codex
+The local tokens match the brief’s premise: `--primary`/`--ring` are concrete Canada red `#c8102e`, with contradiction and verified separated from that red. I’m checking the proposed palette numerically against white so the verdict is based on the actual values.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$colors = @('"'#1e293b','#334155','#475569','#64748b','#c8102e','#1f7a44','#a16207','#ffffff'); function Lin("'$c) { $v = $c / 255.0; if ($v -le 0.03928) { return $v / 12.92 } return [Math]::Pow((($v + 0.055) / 1.055), 2.4) }; function Lum($hex) { $r=[Convert]::ToInt32($hex.Substring(1,2),16); $g=[Convert]::ToInt32($hex.Substring(3,2),16); $b=[Convert]::ToInt32($hex.Substring(5,2),16); return 0.2126*(Lin $r)+0.7152*(Lin $g)+0.0722*(Lin $b) }; $white = Lum '"'#ffffff'; foreach ("'$hex in $colors[0..6]) { $l = Lum $hex; $ratio = ($white + 0.05) / ($l + 0.05); '"'{0} {1:n2}:1' -f "'$hex,$ratio }' in C:\POLARIS
+ succeeded in 1558ms:
+#1e293b 14.63:1
+#334155 10.35:1
+#475569 7.58:1
+#64748b 4.76:1
+#c8102e 5.88:1
+#1f7a44 5.35:1
+#a16207 4.92:1
+
+codex
+One implementation detail to keep in view: the current stylesheet explicitly places sentence/source labels below nodes, while section/frame rely on Cytoscape defaults. I’m checking whether that affects the plan’s “dark labels on white” assumption.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "text-valign|text-halign|valign|halign" node_modules/cytoscape -g "*.js" -g "*.mjs"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "text-valign|text-halign" web/app/runs/[runId]/graph/components web/app/runs/[runId]/graph -g "*.ts" -g "*.tsx"' in C:\POLARIS
+2026-05-22T09:41:02.160324Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+rg: node_modules/cytoscape: IO error for operation on node_modules/cytoscape: The system cannot find the path specified. (os error 3)
+
+ exited 1 in 1324ms:
+rg: node_modules/cytoscape: IO error for operation on node_modules/cytoscape: The system cannot find the path specified. (os error 3)
+
+ succeeded in 1595ms:
+web/app/runs/[runId]/graph/components\graph_styles.ts:20:      "text-valign": "bottom",
+web/app/runs/[runId]/graph/components\graph_styles.ts:21:      "text-halign": "center",
+web/app/runs/[runId]/graph/components\graph_styles.ts:34:      "text-valign": "bottom",
+web/app/runs/[runId]/graph/components\graph_styles.ts:35:      "text-halign": "center",
+web/app/runs/[runId]/graph\components\graph_styles.ts:20:      "text-valign": "bottom",
+web/app/runs/[runId]/graph\components\graph_styles.ts:21:      "text-halign": "center",
+web/app/runs/[runId]/graph\components\graph_styles.ts:34:      "text-valign": "bottom",
+web/app/runs/[runId]/graph\components\graph_styles.ts:35:      "text-halign": "center",
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files -g "cytoscape*.js" -g "package.json" | Select-String -Pattern "cytoscape|package.json" | Select-Object -First 20' in C:\POLARIS
+2026-05-22T09:41:06.710480Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.4 seconds
+Output:
+
+web\[7mpackage.json[0m
+
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+
+ exited 1 in 1389ms:
+
+web\[7mpackage.json[0m
+
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+
+web search: 
+web search: Cytoscape.js text-valign default style text-halign default documentation
+web search: 
+web search: 'The default stylesheet' in https://js.cytoscape.org/index.html
+web search: 
+web search: github cytoscape.js default stylesheet text-valign center top
+web search: 
+web search: https://raw.githubusercontent.com/cytoscape/cytoscape.js/master/src/style/properties.mjs
+web search: 
+web search: site:raw.githubusercontent.com/cytoscape/cytoscape.js "text-valign" "center" "default"
+web search: 
+web search: 'text-valign' in https://raw.githubusercontent.com/cytoscape/cytoscape.js/master/src/style/properties.mjs
+codex
+The contrast checks came back above 3:1 for the proposed fills, borders, and edges. I’m doing one last pass on state precedence because Cytoscape applies later matching rules last, which matters when selected/search/snowball classes overlap.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/graph/components/claim_graph.tsx' | Select-Object -First 180" in C:\POLARIS
+ succeeded in 1085ms:
+"use client";
+
+/**
+ * ClaimGraph — cytoscape canvas component (I-snowball-003 + I-snowball-004).
+ *
+ * Stylesheet + layout constants extracted to graph_styles.ts to keep file
+ * under 200 LOC after adding hover + click + search-highlight + selection
+ * sync handlers (I-snowball-004 brief iter 2 P2-1.4).
+ */
+
+import cytoscape from "cytoscape";
+import fcose from "cytoscape-fcose";
+import dynamic from "next/dynamic";
+import { useEffect, useMemo, useState } from "react";
+
+import type { GraphPayload } from "@/lib/api";
+
+import { LAYOUT_FCOSE, LAYOUT_PRESET, STYLESHEET } from "./graph_styles";
+import { nodeMatchesQuery } from "./use_graph_state";
+
+// Idempotent fcose registration (guards against double-register on HMR).
+const _cy = cytoscape as unknown as { _fcoseRegistered?: boolean };
+if (!_cy._fcoseRegistered) {
+  cytoscape.use(fcose);
+  _cy._fcoseRegistered = true;
+}
+
+// `react-cytoscapejs` is SSR-unsafe; dynamic-import as client-only.
+const CytoscapeComponent = dynamic(() => import("react-cytoscapejs"), {
+  ssr: false,
+});
+
+interface HoverState {
+  id: string;
+  type: string;
+  label: string;
+  tier?: string;
+  source_url?: string;
+  x: number;
+  y: number;
+}
+
+interface ClaimGraphProps {
+  payload: GraphPayload;
+  selectedNodeId: string | null;
+  searchQuery: string;
+  snowballHighlightIds: Set<string> | null;
+  setSelectedNodeId: (id: string | null) => void;
+  onCyReady?: (cy: cytoscape.Core | null) => void;
+}
+
+export function ClaimGraph({
+  payload,
+  selectedNodeId,
+  searchQuery,
+  snowballHighlightIds,
+  setSelectedNodeId,
+  onCyReady,
+}: ClaimGraphProps) {
+  const [cyInstance, _setCyInstance] = useState<cytoscape.Core | null>(null);
+  const setCyInstance = (cy: cytoscape.Core | null) => {
+    _setCyInstance(cy);
+    onCyReady?.(cy);
+  };
+  const [hover, setHover] = useState<HoverState | null>(null);
+
+  const { elements, layout } = useMemo(() => {
+    const hasPositions =
+      payload.elements.nodes.length > 0 &&
+      payload.elements.nodes.every((n) => n.position != null);
+
+    const cyNodes = payload.elements.nodes.map((n) => ({
+      data: n.data,
+      position: n.position ?? undefined,
+      classes: n.data.classes ?? undefined,
+    }));
+    const cyEdges = payload.elements.edges.map((e) => ({ data: e.data }));
+
+    return {
+      elements: [...cyNodes, ...cyEdges],
+      layout: hasPositions ? LAYOUT_PRESET : LAYOUT_FCOSE,
+    };
+  }, [payload]);
+
+  // Idempotent event registration (I-snowball-004 iter-1 P1 fix).
+  // I-snowball-005 iter-1 P1 fix: tap is SELECT-only, no navigation
+  // (page-level "Open Inspector" button now owns Inspector routing).
+  useEffect(() => {
+    if (!cyInstance) return;
+    const onTap = (evt: cytoscape.EventObject) => {
+      setSelectedNodeId(evt.target.id());
+    };
+    const onMouseover = (evt: cytoscape.EventObject) => {
+      const node = evt.target;
+      const data = node.data();
+      const rendered = node.renderedPosition();
+      setHover({
+        id: data.id,
+        type: data.type,
+        label: data.label,
+        tier: data.tier,
+        source_url: data.source_url,
+        x: rendered.x,
+        y: rendered.y,
+      });
+    };
+    const onMouseout = () => setHover(null);
+    cyInstance.on("tap", "node", onTap);
+    cyInstance.on("mouseover", "node", onMouseover);
+    cyInstance.on("mouseout", "node", onMouseout);
+    return () => {
+      cyInstance.off("tap", "node", onTap);
+      cyInstance.off("mouseover", "node", onMouseover);
+      cyInstance.off("mouseout", "node", onMouseout);
+    };
+  }, [cyInstance, setSelectedNodeId]);
+
+  // Snowball-neighbor highlight (I-snowball-005).
+  useEffect(() => {
+    if (!cyInstance) return;
+    cyInstance.nodes().removeClass("snowball-neighbor");
+    if (!snowballHighlightIds) return;
+    cyInstance
+      .nodes()
+      .filter((n) => snowballHighlightIds.has(n.id()))
+      .addClass("snowball-neighbor");
+  }, [cyInstance, snowballHighlightIds]);
+
+  // Search-highlight (Codex iter-2 P2-1.5 + iter-3 share-predicate fix:
+  // use the same `nodeMatchesQuery` helper as the list filter).
+  useEffect(() => {
+    if (!cyInstance) return;
+    cyInstance.nodes().removeClass("search-hit");
+    if (!searchQuery.trim()) return;
+    cyInstance
+      .nodes()
+      .filter((n) =>
+        nodeMatchesQuery(
+          {
+            data: {
+              id: n.data("id") as string,
+              type: n.data("type") as
+                | "sentence"
+                | "source"
+                | "section"
+                | "frame",
+              label: n.data("label") as string,
+            },
+          },
+          searchQuery,
+        ),
+      )
+      .addClass("search-hit");
+  }, [cyInstance, searchQuery]);
+
+  // Selection sync — selected node gets a halo via .selected class.
+  useEffect(() => {
+    if (!cyInstance) return;
+    cyInstance.nodes().removeClass("selected");
+    if (selectedNodeId) {
+      cyInstance.getElementById(selectedNodeId).addClass("selected");
+    }
+  }, [cyInstance, selectedNodeId]);
+
+  return (
+    <section
+      aria-label="Claim graph canvas"
+      data-testid="claim-graph"
+      className="border-border relative flex w-full flex-col overflow-hidden rounded-md border"
+    >
+      <div className="relative h-[600px] w-full">
+        <CytoscapeComponent
+          elements={elements}
+          style={{ width: "100%", height: "100%" }}
+          layout={layout}
+          stylesheet={STYLESHEET}
+          cy={(cy) => setCyInstance(cy)}
+        />
+        {hover && (
+          <div
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/graph/components/claim_graph.tsx' | Select-Object -Skip 180 -First 120" in C:\POLARIS
+ succeeded in 1072ms:
+            role="tooltip"
+            className="bg-popover text-popover-foreground border-border pointer-events-none absolute z-50 max-w-xs rounded-md border px-3 py-2 text-xs shadow-md"
+            style={{ left: hover.x + 12, top: hover.y + 12 }}
+          >
+            <div className="font-medium">{hover.label}</div>
+            <div className="text-muted-foreground">{hover.type}</div>
+            {hover.tier && (
+              <div className="text-muted-foreground">{hover.tier}</div>
+            )}
+            {hover.source_url && (
+              <div className="text-muted-foreground truncate">
+                {hover.source_url}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <p className="text-muted-foreground border-border border-t p-2 text-xs">
+        {payload.elements.nodes.length} nodes · {payload.elements.edges.length}{" "}
+        edges · hash {payload.elements_hash.slice(0, 12)}…
+      </p>
+    </section>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "snowballHighlightIds|snowball|selectedNodeId" web/app/runs/[runId]/graph -g "*.ts" -g "*.tsx"' in C:\POLARIS
+ succeeded in 1150ms:
+web/app/runs/[runId]/graph\page.tsx:16:import { snowballNeighbors } from "./components/snowball";
+web/app/runs/[runId]/graph\page.tsx:48:              POLARIS — F-snowball
+web/app/runs/[runId]/graph\page.tsx:142:              snowballNeighbors(payload, state.selected_node_id, 2),
+web/app/runs/[runId]/graph\page.tsx:146:          Expand snowball (2 hops)
+web/app/runs/[runId]/graph\page.tsx:148:        {state.snowball_highlight_ids && (
+web/app/runs/[runId]/graph\page.tsx:154:            Clear ({state.snowball_highlight_ids.size} nodes)
+web/app/runs/[runId]/graph\page.tsx:162:          selectedNodeId={state.selected_node_id}
+web/app/runs/[runId]/graph\page.tsx:164:          snowballHighlightIds={state.snowball_highlight_ids}
+web/app/runs/[runId]/graph\components\use_graph_state.ts:9: * I-snowball-004 (combined 004a + 004b scope per DECISION.md).
+web/app/runs/[runId]/graph\components\use_graph_state.ts:20:  snowball_highlight_ids: Set<string> | null;
+web/app/runs/[runId]/graph\components\use_graph_state.ts:49:  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+web/app/runs/[runId]/graph\components\use_graph_state.ts:51:  const [snowballHighlight, setSnowballHighlight] =
+web/app/runs/[runId]/graph\components\use_graph_state.ts:79:      selected_node_id: selectedNodeId,
+web/app/runs/[runId]/graph\components\use_graph_state.ts:82:      snowball_highlight_ids: snowballHighlight,
+web/app/runs/[runId]/graph\components\graph_styles.ts:4: * Extracted from claim_graph.tsx in I-snowball-004 to keep the component
+web/app/runs/[runId]/graph\components\graph_styles.ts:88:    selector: "node.snowball-neighbor",
+web/app/runs/[runId]/graph\components\snowball.ts:2: * snowballNeighbors — BFS frontier walk on the loaded GraphPayload.
+web/app/runs/[runId]/graph\components\snowball.ts:6: * I-snowball-002 brief iter 5 + I-snowball-001 DECISION.md).
+web/app/runs/[runId]/graph\components\snowball.ts:9: * approved DECISION.md caveat). v1 scope per I-snowball-005 brief iter 2:
+web/app/runs/[runId]/graph\components\snowball.ts:22:export function snowballNeighbors(
+web/app/runs/[runId]/graph\components\claim_graph.tsx:4: * ClaimGraph — cytoscape canvas component (I-snowball-003 + I-snowball-004).
+web/app/runs/[runId]/graph\components\claim_graph.tsx:8: * sync handlers (I-snowball-004 brief iter 2 P2-1.4).
+web/app/runs/[runId]/graph\components\claim_graph.tsx:45:  selectedNodeId: string | null;
+web/app/runs/[runId]/graph\components\claim_graph.tsx:47:  snowballHighlightIds: Set<string> | null;
+web/app/runs/[runId]/graph\components\claim_graph.tsx:54:  selectedNodeId,
+web/app/runs/[runId]/graph\components\claim_graph.tsx:56:  snowballHighlightIds,
+web/app/runs/[runId]/graph\components\claim_graph.tsx:85:  // Idempotent event registration (I-snowball-004 iter-1 P1 fix).
+web/app/runs/[runId]/graph\components\claim_graph.tsx:86:  // I-snowball-005 iter-1 P1 fix: tap is SELECT-only, no navigation
+web/app/runs/[runId]/graph\components\claim_graph.tsx:118:  // Snowball-neighbor highlight (I-snowball-005).
+web/app/runs/[runId]/graph\components\claim_graph.tsx:121:    cyInstance.nodes().removeClass("snowball-neighbor");
+web/app/runs/[runId]/graph\components\claim_graph.tsx:122:    if (!snowballHighlightIds) return;
+web/app/runs/[runId]/graph\components\claim_graph.tsx:125:      .filter((n) => snowballHighlightIds.has(n.id()))
+web/app/runs/[runId]/graph\components\claim_graph.tsx:126:      .addClass("snowball-neighbor");
+web/app/runs/[runId]/graph\components\claim_graph.tsx:127:  }, [cyInstance, snowballHighlightIds]);
+web/app/runs/[runId]/graph\components\claim_graph.tsx:160:    if (selectedNodeId) {
+web/app/runs/[runId]/graph\components\claim_graph.tsx:161:      cyInstance.getElementById(selectedNodeId).addClass("selected");
+web/app/runs/[runId]/graph\components\claim_graph.tsx:163:  }, [cyInstance, selectedNodeId]);
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/graph/components/snowball.ts'" in C:\POLARIS
+ succeeded in 1107ms:
+/**
+ * snowballNeighbors — BFS frontier walk on the loaded GraphPayload.
+ *
+ * Pure function. Walks semantic edges only (cites + contradicts; NEVER
+ * section_member or frame_member, which are styling-only per
+ * I-snowball-002 brief iter 5 + I-snowball-001 DECISION.md).
+ *
+ * Undirected traversal (matches `cy.elements().bfs()` default and the
+ * approved DECISION.md caveat). v1 scope per I-snowball-005 brief iter 2:
+ * no `includeCoCites` parameter — current GraphEdgeType schema doesn't
+ * include `co_cites_default_off`. Add it back when co-citation edges
+ * land in a future PR.
+ */
+
+import type { GraphEdgeType, GraphPayload } from "@/lib/api";
+
+const SEMANTIC_EDGE_TYPES: ReadonlySet<GraphEdgeType> = new Set([
+  "cites",
+  "contradicts",
+]);
+
+export function snowballNeighbors(
+  payload: GraphPayload,
+  targetId: string,
+  maxHops: number,
+): Set<string> {
+  if (maxHops < 0) return new Set();
+  // Build undirected adjacency on semantic edges only.
+  const adj = new Map<string, Set<string>>();
+  for (const n of payload.elements.nodes) {
+    adj.set(n.data.id, new Set());
+  }
+  for (const e of payload.elements.edges) {
+    if (!SEMANTIC_EDGE_TYPES.has(e.data.edge_type)) continue;
+    adj.get(e.data.source)?.add(e.data.target);
+    adj.get(e.data.target)?.add(e.data.source);
+  }
+  if (!adj.has(targetId)) return new Set();
+  // BFS frontier walk
+  const visited = new Set<string>([targetId]);
+  let frontier: Set<string> = new Set([targetId]);
+  for (let hop = 0; hop < maxHops; hop++) {
+    const next = new Set<string>();
+    for (const id of frontier) {
+      for (const neighbor of adj.get(id) ?? []) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          next.add(neighbor);
+        }
+      }
+    }
+    if (next.size === 0) break;
+    frontier = next;
+  }
+  return visited;
+}
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "State precedence can still violate red=selection. In `graph_styles.ts`, `node.selected` currently appears before `node.snowball-neighbor`, and `snowballNeighbors()` includes the selected target in the returned set. So after Expand snowball, the selected node can render as green/3px instead of Canada-red/4px. Fix in `graph_styles.ts` by placing `node.selected` after search/snowball state selectors, or add an explicit compound selector so selected always wins."
+p2: []
+```
+tokens used
+79,592
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "State precedence can still violate red=selection. In `graph_styles.ts`, `node.selected` currently appears before `node.snowball-neighbor`, and `snowballNeighbors()` includes the selected target in the returned set. So after Expand snowball, the selected node can render as green/3px instead of Canada-red/4px. Fix in `graph_styles.ts` by placing `node.selected` after search/snowball state selectors, or add an explicit compound selector so selected always wins."
+p2: []
+```
