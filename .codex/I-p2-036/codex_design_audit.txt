@@ -1,0 +1,3 @@
+verdict: APPROVE
+merge_decision: MERGE AUTHORIZED
+# Codex APPROVE+MERGE AUTHORIZED iter1, 0 P0/P1. Real canonical bundle replaces placeholder fabricated proof; §-1.1 gate sound; all 9 spans independently verified. P2s addressed post-approval: honest per-tier counts (T1/T2/T4) + trailing-whitespace. reasoning_trace shortened-record + non-numeric-claim-vacuous-pass noted as acceptable P2 (all shipped spans independently checked).

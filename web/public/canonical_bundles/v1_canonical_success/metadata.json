@@ -1,7 +1,9 @@
 {
-  "bundle_created_at_utc": "2026-05-19T00:00:00+00:00",
-  "evaluator_model": "google/gemma-4-31b-it",
+  "bundle_created_at_utc": "2026-05-20T00:00:00+00:00",
   "generator_model": "deepseek/deepseek-v4-pro",
+  "evaluator_model": "google/gemma-4-31b-it",
   "polaris_version": "1.0.0",
-  "schema_version": "1.0"
+  "schema_version": "1.0",
+  "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
+  "source": "real pipeline run: honest_sweep_r3 clinical_tirzepatide_t2dm"
 }

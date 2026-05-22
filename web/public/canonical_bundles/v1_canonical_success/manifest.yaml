@@ -1,37 +1,45 @@
-bundle_created_at_utc: '2026-05-19T00:00:00Z'
-bundle_id: bundle_v1_canonical_0001_success
+bundle_created_at_utc: '2026-05-20T00:00:00Z'
+bundle_id: bundle_real_tirzepatide_0001
 bundle_version: '1.0'
-decision_id: decision_v1_canonical_0001
+decision_id: decision_real_tirzepatide_0001
 files:
 - content_type: scope_decision
   path: scope_decision.json
-  sha256: 37e8a54e7536e02788cf8e1aaca546714c18549878aec92e8b6458fa59e813f5
-  size_bytes: 332
+  sha256: 988618326ea866e2876576f3f52f1cd2234d0f89f3ba6cd81e0d4fdf327cc66e
+  size_bytes: 485
 - content_type: evidence_pool
   path: evidence_pool.json
-  sha256: f8249c902925aefa03a2ef0e3f86a82f160f21aa0eaf11875f30bd4a9c8557b5
-  size_bytes: 1138
+  sha256: 81223c9af93eb15e80246f0f92dd8fa02ba95adf8f190b488e3f279faed609fb
+  size_bytes: 41640
 - content_type: verified_report
   path: verified_report.json
-  sha256: 813970c56041eeab246cb697fb49b75ccab905d76f8ee0c5610576e35f183111
-  size_bytes: 2458
+  sha256: ae8081fa5cec4dec110c9d0a907e4e5276ef8a44fd617b98b5db2b82fc5aaed0
+  size_bytes: 6795
 - content_type: metadata
   path: metadata.json
-  sha256: 69b94105be13490815dbd18d8c3dc02485c2e8c68b123f12f95f13001f7f3fde
-  size_bytes: 211
-- content_type: metadata
-  path: REVIEWER_README.md
-  sha256: f440f60cda8861400cfa4b572c7784def6832987756e2066cf24158df96825ee
-  size_bytes: 336
+  sha256: 26a068d9298a8c536a0ad8ec4b3e5de02cdc0d8331cfc80bf0be66d3bb4a372d
+  size_bytes: 436
 - content_type: reasoning_trace
   path: reasoning_trace.jsonl
-  sha256: 815069307891201bc1a06324e961fda0cdf81143a210939975f007705afba2d0
-  size_bytes: 961
+  sha256: dd88aa24c1197da536ea9622299e9173bbff9797726081bff426a4bc8d365cba
+  size_bytes: 307
 - content_type: source_snapshot
-  path: sources/src_v1_canonical_0001.txt
-  sha256: 0d42df092fd4032c76267df6548d270ab1f31d2c8dad9c3cfda7265cf3769aa1
-  size_bytes: 203
+  path: sources/ev_000.txt
+  sha256: d4aa9c5d1cbc14c9c323855ab6cd5f7ce2cadd3025c117882e47a991a75abe42
+  size_bytes: 11179
+- content_type: source_snapshot
+  path: sources/ev_002.txt
+  sha256: f618166aa33da37c3d4e3c32385dcf2bad668bcb964ef3b5be1253c3ed9c6de3
+  size_bytes: 10488
+- content_type: source_snapshot
+  path: sources/ev_006.txt
+  sha256: f9229dae6b3adaaac32ed14391f40dbe18c378587c76c76b3bf71064c91b3b3c
+  size_bytes: 10657
+- content_type: source_snapshot
+  path: sources/ev_015.txt
+  sha256: 8fde5bfb7db0eabcdd360ca14690dccccece928ed00d4d7608a54161819dea65
+  size_bytes: 4486
 generator_model: deepseek/deepseek-v4-pro
 polaris_version: 1.0.0
-pool_id: pool_v1_canonical_0001
-report_id: report_v1_canonical_0001_success
+pool_id: pool_real_tirzepatide_0001
+report_id: report_real_tirzepatide_0001

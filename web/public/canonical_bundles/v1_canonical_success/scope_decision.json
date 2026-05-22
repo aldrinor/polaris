@@ -1,13 +1,14 @@
 {
+  "decision_id": "decision_real_tirzepatide_0001",
+  "scope_class": "clinical_efficacy",
+  "status": "in_scope",
   "ambiguity_axes": [],
   "clarifications_needed": [],
-  "decided_at_utc": "2026-05-19T00:00:00+00:00",
-  "decision_id": "decision_v1_canonical_0001",
-  "latency_ms": 12,
+  "decided_at_utc": "2026-05-20T00:00:00+00:00",
+  "latency_ms": 0,
   "provenance": {
-    "ambiguity_detector_layer": "regex",
-    "classifier_layer": "regex"
+    "classifier_layer": "llm",
+    "ambiguity_detector_layer": "llm"
   },
-  "scope_class": "clinical_efficacy",
-  "status": "in_scope"
+  "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?"
 }
