@@ -1,0 +1,610 @@
+diff --git a/.gitignore b/.gitignore
+index 53aabc78..1e8acdc9 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -250,3 +250,7 @@ outputs/codex_findings/round_*/last_message.txt
+ # I-cd-012 (GH#608): canonical signed-bundle fixture content MUST be tracked
+ !tests/fixtures/signed_bundle/
+ !tests/fixtures/signed_bundle/**
++
++# I-p2-p0 (#789): canonical demo bundles MUST ship to prod (read by the inspector). Never ignore.
++!web/public/canonical_bundles/
++!web/public/canonical_bundles/**
+diff --git a/web/lib/inspector_bundle_loader.ts b/web/lib/inspector_bundle_loader.ts
+index 68f63177..23b3b3e7 100644
+--- a/web/lib/inspector_bundle_loader.ts
++++ b/web/lib/inspector_bundle_loader.ts
+@@ -22,7 +22,11 @@ import {
+   parseReasoningTraceJsonl,
+ } from "@/lib/signed_bundle";
+ 
+-const REPO_ROOT = path.resolve(process.cwd(), "..");
++// I-p2-p0 (#789): the canonical fixture ships in web/public/canonical_bundles/
++// (Dockerfile COPYs public → /app/public; cwd=/app at runtime), so it resolves
++// in dev, the standalone harness, AND the prod container — unlike the old
++// process.cwd()/../tests/fixtures path, which only existed in dev → live 500.
++const FIXTURE_ROOT = path.join(process.cwd(), "public", "canonical_bundles");
+ 
+ export interface LoadedBundle {
+   runId: string;
+@@ -71,85 +75,97 @@ export interface VerifiedSentenceShape {
+ }
+ 
+ const KNOWN_FIXTURES: Record<string, string> = {
+-  "v1-canonical": "tests/fixtures/signed_bundle/v1_canonical",
+-  "v1-canonical-success": "tests/fixtures/signed_bundle/v1_canonical_success",
++  "v1-canonical": "v1_canonical",
++  "v1-canonical-success": "v1_canonical_success",
+ };
+ 
+ export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
++  // typeof guard (not `!relPath`): runId could be an Object.prototype name
++  // (toString / __proto__ / constructor) → KNOWN_FIXTURES[runId] returns a
++  // function/object → path.join would throw before the try → user-triggerable
++  // 500. A non-string lookup → null → BundlePendingCta. (Codex iter-2 P1.)
+   const relPath = KNOWN_FIXTURES[runId];
+-  if (!relPath) return null;
+-  const dir = path.join(REPO_ROOT, relPath);
+-
+-  const manifestRaw = await fs.readFile(
+-    path.join(dir, "manifest.yaml"),
+-    "utf-8",
+-  );
+-  const manifest = parseManifest(manifestRaw);
+-
+-  const scopeDecision = await readJson(dir, manifest, "scope_decision");
+-  const evidencePool = await readJson(dir, manifest, "evidence_pool");
+-  const verifiedReport = (await readJson(
+-    dir,
+-    manifest,
+-    "verified_report",
+-  )) as VerifiedReportShape;
+-
+-  // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
+-  // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
+-  // also flagged metadata in the active producer).
+-  const metadataEntry = manifest.files.find(
+-    (f) => f.content_type === "metadata" && f.path === "metadata.json",
+-  );
+-  if (!metadataEntry) {
+-    throw new Error(
+-      `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
+-    );
+-  }
+-  const metadata = JSON.parse(
+-    await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
+-  ) as BundleMetadata;
+-
+-  const reasoningTraceEntry = manifest.files.find(
+-    (f) => f.content_type === "reasoning_trace",
+-  );
+-  const reasoningTrace = reasoningTraceEntry
+-    ? parseReasoningTraceJsonl(
+-        await fs.readFile(path.join(dir, reasoningTraceEntry.path), "utf-8"),
+-      )
+-    : [];
+-
+-  const sources: Record<string, string> = {};
+-  for (const entry of manifest.files) {
+-    if (entry.content_type !== "source_snapshot") continue;
+-    sources[entry.path] = await fs.readFile(
+-      path.join(dir, entry.path),
+-      "utf-8",
+-    );
+-  }
++  if (typeof relPath !== "string") return null;
++  const dir = path.join(FIXTURE_ROOT, relPath);
+ 
+-  // Signature presence check (Codex diff iter-1 P2): mirror the conformance
+-  // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
+-  // bundle. The UI surfaces this boolean transparently; cryptographic
+-  // verification belongs to operator-side `gpg --verify` tooling.
+-  let signaturePresent = false;
+   try {
+-    const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
+-    signaturePresent = stat.isFile() && stat.size > 0;
+-  } catch {
+-    signaturePresent = false;
++    const manifestRaw = await fs.readFile(
++      path.join(dir, "manifest.yaml"),
++      "utf-8",
++    );
++    const manifest = parseManifest(manifestRaw);
++
++    const scopeDecision = await readJson(dir, manifest, "scope_decision");
++    const evidencePool = await readJson(dir, manifest, "evidence_pool");
++    const verifiedReport = (await readJson(
++      dir,
++      manifest,
++      "verified_report",
++    )) as VerifiedReportShape;
++
++    // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
++    // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
++    // also flagged metadata in the active producer).
++    const metadataEntry = manifest.files.find(
++      (f) => f.content_type === "metadata" && f.path === "metadata.json",
++    );
++    if (!metadataEntry) {
++      throw new Error(
++        `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
++      );
++    }
++    const metadata = JSON.parse(
++      await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
++    ) as BundleMetadata;
++
++    const reasoningTraceEntry = manifest.files.find(
++      (f) => f.content_type === "reasoning_trace",
++    );
++    const reasoningTrace = reasoningTraceEntry
++      ? parseReasoningTraceJsonl(
++          await fs.readFile(path.join(dir, reasoningTraceEntry.path), "utf-8"),
++        )
++      : [];
++
++    const sources: Record<string, string> = {};
++    for (const entry of manifest.files) {
++      if (entry.content_type !== "source_snapshot") continue;
++      sources[entry.path] = await fs.readFile(
++        path.join(dir, entry.path),
++        "utf-8",
++      );
++    }
++
++    // Signature presence check (Codex diff iter-1 P2): mirror the conformance
++    // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
++    // bundle. The UI surfaces this boolean transparently; cryptographic
++    // verification belongs to operator-side `gpg --verify` tooling.
++    let signaturePresent = false;
++    try {
++      const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
++      signaturePresent = stat.isFile() && stat.size > 0;
++    } catch {
++      signaturePresent = false;
++    }
++
++    return {
++      runId,
++      manifest,
++      scopeDecision,
++      evidencePool,
++      verifiedReport,
++      metadata,
++      reasoningTrace,
++      sources,
++      signaturePresent,
++    };
++  } catch (err) {
++    // Graceful: a missing/unreadable/malformed bundle renders the pending
++    // state (BundlePendingCta), NEVER a 500. (#789 P0 — the centerpiece must
++    // not crash the page.)
++    console.error(`[inspector] bundle load failed for ${runId}:`, err);
++    return null;
+   }
+-
+-  return {
+-    runId,
+-    manifest,
+-    scopeDecision,
+-    evidencePool,
+-    verifiedReport,
+-    metadata,
+-    reasoningTrace,
+-    sources,
+-    signaturePresent,
+-  };
+ }
+ 
+ async function readJson(
+diff --git a/web/public/canonical_bundles/v1_canonical/evidence_pool.json b/web/public/canonical_bundles/v1_canonical/evidence_pool.json
+new file mode 100644
+index 00000000..0d8cf4a0
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical/evidence_pool.json
+@@ -0,0 +1,41 @@
++{
++  "adequacy": {
++    "failure_reason": null,
++    "is_adequate": true,
++    "min_required_per_tier": {
++      "T1": 1
++    },
++    "sources_per_tier": {
++      "T1": 1
++    }
++  },
++  "cost_usd": 0.0,
++  "decision_id": "decision_v1_canonical_0001",
++  "latency_ms": 100,
++  "pool_id": "pool_v1_canonical_0001",
++  "queries_executed": [
++    "canonical fixture query"
++  ],
++  "retrieval_finished_at_utc": "2026-05-19T00:00:00+00:00",
++  "retrieval_started_at_utc": "2026-05-19T00:00:00+00:00",
++  "sources": [
++    {
++      "authors": [
++        "Test, A."
++      ],
++      "domain": "example.org",
++      "fetched_at_utc": "2026-05-19T00:00:00+00:00",
++      "full_text": "Full text body fixture content for the canonical fixture source.",
++      "full_text_available": true,
++      "provenance": {
++        "fetched_by": "canonical_fixture"
++      },
++      "retracted": false,
++      "snippet": "Snippet fixture content for the canonical fixture source.",
++      "source_id": "src_v1_canonical_0001",
++      "tier": "T1",
++      "title": "Canonical clinical evidence \u2014 v1 fixture source",
++      "url": "https://example.org/clinical/canonical_v1.html"
++    }
++  ]
++}
+diff --git a/web/public/canonical_bundles/v1_canonical/manifest.yaml b/web/public/canonical_bundles/v1_canonical/manifest.yaml
+new file mode 100644
+index 00000000..654a5054
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical/manifest.yaml
+@@ -0,0 +1,33 @@
++bundle_created_at_utc: '2026-05-19T00:00:00Z'
++bundle_id: bundle_v1_canonical_0001
++bundle_version: '1.0'
++decision_id: decision_v1_canonical_0001
++files:
++- content_type: scope_decision
++  path: scope_decision.json
++  sha256: 37e8a54e7536e02788cf8e1aaca546714c18549878aec92e8b6458fa59e813f5
++  size_bytes: 332
++- content_type: evidence_pool
++  path: evidence_pool.json
++  sha256: f8249c902925aefa03a2ef0e3f86a82f160f21aa0eaf11875f30bd4a9c8557b5
++  size_bytes: 1138
++- content_type: verified_report
++  path: verified_report.json
++  sha256: 89d9545e6c642c422a6d469faf24670c1fd4745ec5dc553de4f6c3fb1a0110d4
++  size_bytes: 543
++- content_type: metadata
++  path: metadata.json
++  sha256: 69b94105be13490815dbd18d8c3dc02485c2e8c68b123f12f95f13001f7f3fde
++  size_bytes: 211
++- content_type: reasoning_trace
++  path: reasoning_trace.jsonl
++  sha256: 815069307891201bc1a06324e961fda0cdf81143a210939975f007705afba2d0
++  size_bytes: 961
++- content_type: source_snapshot
++  path: sources/src_v1_canonical_0001.txt
++  sha256: 0d42df092fd4032c76267df6548d270ab1f31d2c8dad9c3cfda7265cf3769aa1
++  size_bytes: 203
++generator_model: deepseek/deepseek-v4-pro
++polaris_version: 1.0.0
++pool_id: pool_v1_canonical_0001
++report_id: report_v1_canonical_0001
+diff --git a/web/public/canonical_bundles/v1_canonical/manifest.yaml.asc b/web/public/canonical_bundles/v1_canonical/manifest.yaml.asc
+new file mode 100644
+index 00000000..f182fb8f
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical/manifest.yaml.asc
+@@ -0,0 +1,6 @@
++-----BEGIN PGP SIGNATURE-----
++# I-cd-012 canonical fixture fixture content.
++# Conformance check enforces presence + non-empty ONLY; cryptographic
++# verification belongs to operator-side tooling (gpg --verify).
++# Real bundles ship a real armored signature here.
++-----END PGP SIGNATURE-----
+diff --git a/web/public/canonical_bundles/v1_canonical/metadata.json b/web/public/canonical_bundles/v1_canonical/metadata.json
+new file mode 100644
+index 00000000..b06c9a2e
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical/metadata.json
+@@ -0,0 +1,7 @@
++{
++  "bundle_created_at_utc": "2026-05-19T00:00:00+00:00",
++  "evaluator_model": "google/gemma-4-31b-it",
++  "generator_model": "deepseek/deepseek-v4-pro",
++  "polaris_version": "1.0.0",
++  "schema_version": "1.0"
++}
+diff --git a/web/public/canonical_bundles/v1_canonical/reasoning_trace.jsonl b/web/public/canonical_bundles/v1_canonical/reasoning_trace.jsonl
+new file mode 100644
+index 00000000..a6cf06e6
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical/reasoning_trace.jsonl
+@@ -0,0 +1,2 @@
++{"attempt_n": 1, "call_id": "call_0001", "call_type": "outline", "content_source": "direct", "content_text": "1. Background\n2. Methods\n3. Results\n4. Limitations\n", "input_tokens": 100, "model": "deepseek/deepseek-v4-pro", "output_tokens": 80, "parent_call_id": null, "reasoning_text": "Outline reasoning trace fixture content for the canonical fixture.", "reasoning_tokens": 200, "regen_reason": null, "section": "outline", "status": "ok", "timestamp": "2026-05-19T00:00:00+00:00"}
++{"attempt_n": 1, "call_id": "call_0002", "call_type": "section", "content_source": "direct", "content_text": "Background prose fixture content.", "input_tokens": 200, "model": "deepseek/deepseek-v4-pro", "output_tokens": 150, "parent_call_id": "call_0001", "reasoning_text": "Section reasoning trace fixture content for the canonical fixture.", "reasoning_tokens": 400, "regen_reason": null, "section": "Background", "status": "ok", "timestamp": "2026-05-19T00:00:00+00:00"}
+diff --git a/web/public/canonical_bundles/v1_canonical/scope_decision.json b/web/public/canonical_bundles/v1_canonical/scope_decision.json
+new file mode 100644
+index 00000000..70ddf333
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical/scope_decision.json
+@@ -0,0 +1,13 @@
++{
++  "ambiguity_axes": [],
++  "clarifications_needed": [],
++  "decided_at_utc": "2026-05-19T00:00:00+00:00",
++  "decision_id": "decision_v1_canonical_0001",
++  "latency_ms": 12,
++  "provenance": {
++    "ambiguity_detector_layer": "regex",
++    "classifier_layer": "regex"
++  },
++  "scope_class": "clinical_efficacy",
++  "status": "in_scope"
++}
+diff --git a/web/public/canonical_bundles/v1_canonical/sources/src_v1_canonical_0001.txt b/web/public/canonical_bundles/v1_canonical/sources/src_v1_canonical_0001.txt
+new file mode 100644
+index 00000000..326f9587
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical/sources/src_v1_canonical_0001.txt
+@@ -0,0 +1,2 @@
++Canonical clinical evidence source — v1 fixture.
++This is a fixture content full-text body used by the I-cd-012 canonical signed-bundle fixture for tests/polaris_graph/audit_bundle/test_conformance.py.
+diff --git a/web/public/canonical_bundles/v1_canonical/verified_report.json b/web/public/canonical_bundles/v1_canonical/verified_report.json
+new file mode 100644
+index 00000000..95d751ca
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical/verified_report.json
+@@ -0,0 +1,16 @@
++{
++  "cost_usd": 0.0,
++  "decision_id": "decision_v1_canonical_0001",
++  "evaluator_model": "google/gemma-4-31b-it",
++  "family_segregation_passed": true,
++  "finished_at_utc": "2026-05-19T00:00:00+00:00",
++  "generator_model": "deepseek/deepseek-v4-pro",
++  "latency_ms": 1500,
++  "overall_verify_pass_rate": 0.0,
++  "pipeline_verdict": "abort_no_verified_sections",
++  "pool_id": "pool_v1_canonical_0001",
++  "report_id": "report_v1_canonical_0001",
++  "sections": [],
++  "started_at_utc": "2026-05-19T00:00:00+00:00",
++  "verifier_pass_threshold": 0.4
++}
+diff --git a/web/public/canonical_bundles/v1_canonical_success/REVIEWER_README.md b/web/public/canonical_bundles/v1_canonical_success/REVIEWER_README.md
+new file mode 100644
+index 00000000..0a16139c
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical_success/REVIEWER_README.md
+@@ -0,0 +1,6 @@
++# POLARIS audit bundle — reviewer guide (canonical-success fixture)
++
++This bundle is the v1.0 SUCCESS-shape canonical fixture used by
++I-cd-013a Inspector route tests. The active bundle producer emits
++this file with `content_type="metadata"` alongside `metadata.json`;
++downstream consumers MUST select `metadata.json` by explicit path.
+diff --git a/web/public/canonical_bundles/v1_canonical_success/evidence_pool.json b/web/public/canonical_bundles/v1_canonical_success/evidence_pool.json
+new file mode 100644
+index 00000000..3be51e54
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical_success/evidence_pool.json
+@@ -0,0 +1,41 @@
++{
++  "adequacy": {
++    "failure_reason": null,
++    "is_adequate": true,
++    "min_required_per_tier": {
++      "T1": 1
++    },
++    "sources_per_tier": {
++      "T1": 1
++    }
++  },
++  "cost_usd": 0.0,
++  "decision_id": "decision_v1_canonical_0001",
++  "latency_ms": 100,
++  "pool_id": "pool_v1_canonical_0001",
++  "queries_executed": [
++    "canonical fixture query"
++  ],
++  "retrieval_finished_at_utc": "2026-05-19T00:00:00+00:00",
++  "retrieval_started_at_utc": "2026-05-19T00:00:00+00:00",
++  "sources": [
++    {
++      "authors": [
++        "Test, A."
++      ],
++      "domain": "example.org",
++      "fetched_at_utc": "2026-05-19T00:00:00+00:00",
++      "full_text": "Full text body placeholder for the canonical fixture source.",
++      "full_text_available": true,
++      "provenance": {
++        "fetched_by": "canonical_fixture"
++      },
++      "retracted": false,
++      "snippet": "Snippet placeholder for the canonical fixture source.",
++      "source_id": "src_v1_canonical_0001",
++      "tier": "T1",
++      "title": "Canonical clinical evidence \u2014 v1 fixture source",
++      "url": "https://example.org/clinical/canonical_v1.html"
++    }
++  ]
++}
+diff --git a/web/public/canonical_bundles/v1_canonical_success/manifest.yaml b/web/public/canonical_bundles/v1_canonical_success/manifest.yaml
+new file mode 100644
+index 00000000..81b3f4ac
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical_success/manifest.yaml
+@@ -0,0 +1,37 @@
++bundle_created_at_utc: '2026-05-19T00:00:00Z'
++bundle_id: bundle_v1_canonical_0001_success
++bundle_version: '1.0'
++decision_id: decision_v1_canonical_0001
++files:
++- content_type: scope_decision
++  path: scope_decision.json
++  sha256: 37e8a54e7536e02788cf8e1aaca546714c18549878aec92e8b6458fa59e813f5
++  size_bytes: 332
++- content_type: evidence_pool
++  path: evidence_pool.json
++  sha256: f8249c902925aefa03a2ef0e3f86a82f160f21aa0eaf11875f30bd4a9c8557b5
++  size_bytes: 1138
++- content_type: verified_report
++  path: verified_report.json
++  sha256: 813970c56041eeab246cb697fb49b75ccab905d76f8ee0c5610576e35f183111
++  size_bytes: 2458
++- content_type: metadata
++  path: metadata.json
++  sha256: 69b94105be13490815dbd18d8c3dc02485c2e8c68b123f12f95f13001f7f3fde
++  size_bytes: 211
++- content_type: metadata
++  path: REVIEWER_README.md
++  sha256: f440f60cda8861400cfa4b572c7784def6832987756e2066cf24158df96825ee
++  size_bytes: 336
++- content_type: reasoning_trace
++  path: reasoning_trace.jsonl
++  sha256: 815069307891201bc1a06324e961fda0cdf81143a210939975f007705afba2d0
++  size_bytes: 961
++- content_type: source_snapshot
++  path: sources/src_v1_canonical_0001.txt
++  sha256: 0d42df092fd4032c76267df6548d270ab1f31d2c8dad9c3cfda7265cf3769aa1
++  size_bytes: 203
++generator_model: deepseek/deepseek-v4-pro
++polaris_version: 1.0.0
++pool_id: pool_v1_canonical_0001
++report_id: report_v1_canonical_0001_success
+diff --git a/web/public/canonical_bundles/v1_canonical_success/manifest.yaml.asc b/web/public/canonical_bundles/v1_canonical_success/manifest.yaml.asc
+new file mode 100644
+index 00000000..91f1c62f
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical_success/manifest.yaml.asc
+@@ -0,0 +1,6 @@
++-----BEGIN PGP SIGNATURE-----
++# I-cd-012 canonical fixture placeholder.
++# Conformance check enforces presence + non-empty ONLY; cryptographic
++# verification belongs to operator-side tooling (gpg --verify).
++# Real bundles ship a real armored signature here.
++-----END PGP SIGNATURE-----
+diff --git a/web/public/canonical_bundles/v1_canonical_success/metadata.json b/web/public/canonical_bundles/v1_canonical_success/metadata.json
+new file mode 100644
+index 00000000..b06c9a2e
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical_success/metadata.json
+@@ -0,0 +1,7 @@
++{
++  "bundle_created_at_utc": "2026-05-19T00:00:00+00:00",
++  "evaluator_model": "google/gemma-4-31b-it",
++  "generator_model": "deepseek/deepseek-v4-pro",
++  "polaris_version": "1.0.0",
++  "schema_version": "1.0"
++}
+diff --git a/web/public/canonical_bundles/v1_canonical_success/reasoning_trace.jsonl b/web/public/canonical_bundles/v1_canonical_success/reasoning_trace.jsonl
+new file mode 100644
+index 00000000..a6cf06e6
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical_success/reasoning_trace.jsonl
+@@ -0,0 +1,2 @@
++{"attempt_n": 1, "call_id": "call_0001", "call_type": "outline", "content_source": "direct", "content_text": "1. Background\n2. Methods\n3. Results\n4. Limitations\n", "input_tokens": 100, "model": "deepseek/deepseek-v4-pro", "output_tokens": 80, "parent_call_id": null, "reasoning_text": "Outline reasoning trace fixture content for the canonical fixture.", "reasoning_tokens": 200, "regen_reason": null, "section": "outline", "status": "ok", "timestamp": "2026-05-19T00:00:00+00:00"}
++{"attempt_n": 1, "call_id": "call_0002", "call_type": "section", "content_source": "direct", "content_text": "Background prose fixture content.", "input_tokens": 200, "model": "deepseek/deepseek-v4-pro", "output_tokens": 150, "parent_call_id": "call_0001", "reasoning_text": "Section reasoning trace fixture content for the canonical fixture.", "reasoning_tokens": 400, "regen_reason": null, "section": "Background", "status": "ok", "timestamp": "2026-05-19T00:00:00+00:00"}
+diff --git a/web/public/canonical_bundles/v1_canonical_success/scope_decision.json b/web/public/canonical_bundles/v1_canonical_success/scope_decision.json
+new file mode 100644
+index 00000000..70ddf333
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical_success/scope_decision.json
+@@ -0,0 +1,13 @@
++{
++  "ambiguity_axes": [],
++  "clarifications_needed": [],
++  "decided_at_utc": "2026-05-19T00:00:00+00:00",
++  "decision_id": "decision_v1_canonical_0001",
++  "latency_ms": 12,
++  "provenance": {
++    "ambiguity_detector_layer": "regex",
++    "classifier_layer": "regex"
++  },
++  "scope_class": "clinical_efficacy",
++  "status": "in_scope"
++}
+diff --git a/web/public/canonical_bundles/v1_canonical_success/sources/src_v1_canonical_0001.txt b/web/public/canonical_bundles/v1_canonical_success/sources/src_v1_canonical_0001.txt
+new file mode 100644
+index 00000000..326f9587
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical_success/sources/src_v1_canonical_0001.txt
+@@ -0,0 +1,2 @@
++Canonical clinical evidence source — v1 fixture.
++This is a fixture content full-text body used by the I-cd-012 canonical signed-bundle fixture for tests/polaris_graph/audit_bundle/test_conformance.py.
+diff --git a/web/public/canonical_bundles/v1_canonical_success/verified_report.json b/web/public/canonical_bundles/v1_canonical_success/verified_report.json
+new file mode 100644
+index 00000000..dce6a850
+--- /dev/null
++++ b/web/public/canonical_bundles/v1_canonical_success/verified_report.json
+@@ -0,0 +1,75 @@
++{
++  "cost_usd": 0.0,
++  "decision_id": "decision_v1_canonical_0001",
++  "evaluator_model": "google/gemma-4-31b-it",
++  "family_segregation_passed": true,
++  "finished_at_utc": "2026-05-19T00:00:00+00:00",
++  "generator_model": "deepseek/deepseek-v4-pro",
++  "latency_ms": 4200,
++  "overall_verify_pass_rate": 1.0,
++  "pipeline_verdict": "success",
++  "pool_id": "pool_v1_canonical_0001",
++  "report_id": "report_v1_canonical_0001_success",
++  "sections": [
++    {
++      "section_id": "Population",
++      "section_status": "verified",
++      "section_title": "Population",
++      "section_verify_pass_rate": 1.0,
++      "verified_sentences": [
++        {
++          "assertion_surface": "prose",
++          "contradiction": null,
++          "drop_reason": null,
++          "evaluator_agrees": true,
++          "evaluator_disagreement": null,
++          "is_synthesis_claim": false,
++          "provenance_tokens": [
++            "[#ev:src_v1_canonical_0001:0-99]"
++          ],
++          "section_id": "Population",
++          "sentence_text": "Tirzepatide is a dual GIP and GLP-1 receptor agonist approved for type 2 diabetes mellitus.",
++          "verifier_pass": true
++        },
++        {
++          "assertion_surface": "prose",
++          "contradiction": null,
++          "drop_reason": null,
++          "evaluator_agrees": true,
++          "evaluator_disagreement": null,
++          "is_synthesis_claim": false,
++          "provenance_tokens": [
++            "[#ev:src_v1_canonical_0001:100-200]"
++          ],
++          "section_id": "Population",
++          "sentence_text": "It is administered subcutaneously once weekly.",
++          "verifier_pass": true
++        }
++      ]
++    },
++    {
++      "section_id": "Outcomes",
++      "section_status": "verified",
++      "section_title": "Outcomes",
++      "section_verify_pass_rate": 1.0,
++      "verified_sentences": [
++        {
++          "assertion_surface": "prose",
++          "contradiction": null,
++          "drop_reason": null,
++          "evaluator_agrees": true,
++          "evaluator_disagreement": null,
++          "is_synthesis_claim": false,
++          "provenance_tokens": [
++            "[#ev:src_v1_canonical_0001:201-350]"
++          ],
++          "section_id": "Outcomes",
++          "sentence_text": "Phase III trials reported A1C reductions of 2.0 to 2.4 percentage points over 40 weeks.",
++          "verifier_pass": true
++        }
++      ]
++    }
++  ],
++  "started_at_utc": "2026-05-19T00:00:00+00:00",
++  "verifier_pass_threshold": 0.4
++}

@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex APPROVE iter3 — prod-readable fixture + graceful + proto-safe + complete-in-clean-tree.
