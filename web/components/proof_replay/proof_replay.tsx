@@ -41,7 +41,11 @@ function flatten(sections: VerifiedReportSectionShape[]): FlatClaim[] {
         sectionId: section.section_id,
         sectionTitle: title,
         text: s.sentence_text,
-        tokens: Array.isArray(s.provenance_tokens) ? s.provenance_tokens : [],
+        tokens: Array.isArray(s.provenance_tokens)
+          ? s.provenance_tokens.filter(
+              (t): t is string => typeof t === "string",
+            )
+          : [],
         verified: s.verifier_pass === true,
       });
     });
@@ -137,7 +141,10 @@ export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
   const [selectedKey, setSelectedKey] = useState<string | null>(
     claims[0]?.key ?? null,
   );
-  const selected = claims.find((c) => c.key === selectedKey) ?? null;
+  // Fall back to the first claim if the selected key is stale (e.g. sections
+  // changed after mount), so the proof pane keeps its default-first behavior.
+  const selected =
+    claims.find((c) => c.key === selectedKey) ?? claims[0] ?? null;
 
   if (claims.length === 0) {
     return (
@@ -151,7 +158,7 @@ export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
     <div className="grid gap-4 md:grid-cols-2">
       <div
         role="list"
-        aria-label="Verified claims"
+        aria-label="Claims"
         className="border-border flex max-h-[32rem] flex-col gap-1 overflow-auto rounded-md border p-2"
       >
         {claims.map((claim, i) => {
@@ -168,6 +175,7 @@ export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
               <button
                 type="button"
                 aria-current={isSelected ? "true" : undefined}
+                aria-label={`${claim.verified ? "Verified" : "Unverified"} claim: ${claim.text}`}
                 onClick={() => setSelectedKey(claim.key)}
                 className={`focus-visible:ring-ring/70 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs leading-snug transition-colors focus-visible:ring-2 focus-visible:outline-none ${
                   isSelected
