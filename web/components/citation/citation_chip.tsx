@@ -87,14 +87,16 @@ export function CitationChip({
               </p>
             )}
             {span?.source?.url && (
-              <a
-                href={span.source.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary mt-1 block max-w-full truncate text-[11px] underline-offset-2 hover:underline"
+              // Non-interactive provenance text: a tooltip popup must not hold
+              // interactive elements (unreachable on mouseleave + ARIA
+              // antipattern). The clickable "open source" lives in the full
+              // source card (#745) / Proof Replay (#756).
+              <p
+                className="text-muted-foreground mt-1 max-w-full truncate text-[11px]"
+                title={span.source.url}
               >
                 {span.source.url}
-              </a>
+              </p>
             )}
           </Tooltip.Popup>
         </Tooltip.Positioner>
