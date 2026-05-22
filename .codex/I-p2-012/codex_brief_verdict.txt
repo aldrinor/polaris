@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief APPROVE iter5 (palette + precedence locked; contrast all >=3:1).
