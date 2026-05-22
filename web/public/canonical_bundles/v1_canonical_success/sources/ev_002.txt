@@ -2,7 +2,7 @@ Title: Efficacy and safety of tirzepatide in patients with type 2 diabetes: A sy
 
 [...]
 
-ty indexes. **Results:** Six trials comprising 6,579 subjects (4,410 in the tirzepatide group and 2,054 in the control group) fulfilled the pre-specified criteria and were included in the study. Tirzepatide treatment resulted in reducing HbA1c (WMD: -1.07%; 95% confidence intervals [CIs]: −1.44, −0.56), FSG (WMD, −21.50 mg/dl; 95% CI: −34.44, −8.56), body weight (WMD: −7.99 kg; 95% CI −11.36, −4.62), and blood pressure and ameliorated fasting lipid profiles, without increasing hypoglycemia, either as monotherapy or an add-on therapy. Tirzepatide increased the risk of gastrointestinal adverse events mainly in add-on therapy but not in terms of 
+ty indexes. **Results:** Six trials comprising 6,579 subjects (4,410 in the tirzepatide group and 2,054 in the control group) fulfilled the pre-specified criteria and were included in the study. Tirzepatide treatment resulted in reducing HbA1c (WMD: -1.07%; 95% confidence intervals [CIs]: −1.44, −0.56), FSG (WMD, −21.50 mg/dl; 95% CI: −34.44, −8.56), body weight (WMD: −7.99 kg; 95% CI −11.36, −4.62), and blood pressure and ameliorated fasting lipid profiles, without increasing hypoglycemia, either as monotherapy or an add-on therapy. Tirzepatide increased the risk of gastrointestinal adverse events mainly in add-on therapy but not in terms of
 
 [...]
 

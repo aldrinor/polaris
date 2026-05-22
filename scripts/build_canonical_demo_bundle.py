@@ -46,6 +46,14 @@ def _norm(s: str) -> str:
     return s.replace("−", "-").replace("‐", "-").replace("–", "-")
 
 
+def _tier_counts(sources: list[dict]) -> dict:
+    counts: dict[str, int] = {}
+    for s in sources:
+        t = s.get("tier", "T1")
+        counts[t] = counts.get(t, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 def numbers_present(sentence: str, span: str) -> tuple[bool, list[str]]:
     """Every numeric token in the sentence must appear in the span (§-1.1)."""
     nums = _NUM.findall(_norm(sentence))
@@ -156,7 +164,10 @@ def main() -> int:
         sources.append(
             {
                 "source_id": eid,
-                "full_text": ev.get("direct_quote", "") or "",
+                # rstrip trailing whitespace per line so git diff --check is clean
+                "full_text": "\n".join(
+                    line.rstrip() for line in (ev.get("direct_quote", "") or "").split("\n")
+                ),
                 "full_text_available": True,
                 "title": (ev.get("statement") or ev.get("title") or eid)[:200],
                 "url": url,
@@ -178,7 +189,8 @@ def main() -> int:
             "is_adequate": True,
             "failure_reason": None,
             "min_required_per_tier": {"T1": 1},
-            "sources_per_tier": {"T1": len(sources)},
+            # honest per-tier counts from the actual source tiers (not all-T1)
+            "sources_per_tier": _tier_counts(sources),
         },
         "queries_executed": [question] if question else [],
         "cost_usd": 0.0,
