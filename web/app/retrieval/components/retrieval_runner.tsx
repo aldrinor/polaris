@@ -132,7 +132,7 @@ export function RetrievalRunner() {
                 state.kind === "scope_loading" ||
                 state.kind === "retrieval_loading"
               }
-              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+              className="border-input focus-visible:border-ring focus-visible:ring-ring/70 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
             />
             <p className="text-muted-foreground text-xs">
               Slice 002 only retrieves for in-scope clinical questions. The

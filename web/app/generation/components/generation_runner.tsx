@@ -143,7 +143,7 @@ export function GenerationRunner() {
               maxLength={2000}
               autoComplete="off"
               disabled={state.kind === "loading"}
-              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+              className="border-input focus-visible:border-ring focus-visible:ring-ring/70 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
             />
             <p className="text-muted-foreground text-xs">
               POLARIS chains intake → retrieval → generation in one click. Each
