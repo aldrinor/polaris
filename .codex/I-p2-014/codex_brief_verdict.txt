@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief+diff APPROVE iter1 (combined). Honest scope: no fake source-set control (no backend field); ErrorState swap clean.
