@@ -1,0 +1,32 @@
+diff --git a/web/app/intake/components/intake_form.tsx b/web/app/intake/components/intake_form.tsx
+index ae60d814..bab7ad32 100644
+--- a/web/app/intake/components/intake_form.tsx
++++ b/web/app/intake/components/intake_form.tsx
+@@ -3,6 +3,7 @@
+ import { useSearchParams } from "next/navigation";
+ import { useState } from "react";
+ 
++import { ErrorState } from "@/components/states/state_kit";
+ import { Button } from "@/components/ui/button";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { Input } from "@/components/ui/input";
+@@ -164,14 +165,11 @@ export function IntakeForm() {
+       </Card>
+ 
+       {state.kind === "error" ? (
+-        <Card
+-          data-testid="intake-error"
+-          className="border-rose-500/40 bg-rose-500/5"
+-        >
+-          <CardContent className="text-rose-700 dark:text-rose-300">
+-            {state.message}
+-          </CardContent>
+-        </Card>
++        <div data-testid="intake-error">
++          {/* I-p2-014 (#753): #750 ErrorState (design-system tokens + role=alert)
++              replaces the hardcoded-rose card. */}
++          <ErrorState title="Scope check failed" message={state.message} />
++        </div>
+       ) : null}
+ 
+       {state.kind === "ok" ? (
