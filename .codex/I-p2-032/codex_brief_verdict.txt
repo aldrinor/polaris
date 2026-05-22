@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex APPROVE iter1 — correct target var(--font-geist-sans).

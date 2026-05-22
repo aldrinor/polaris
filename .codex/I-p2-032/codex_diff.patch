@@ -1,0 +1,15 @@
+diff --git a/web/app/globals.css b/web/app/globals.css
+index a370fbe5..19b7f23f 100644
+--- a/web/app/globals.css
++++ b/web/app/globals.css
+@@ -7,7 +7,7 @@
+ @theme inline {
+   --color-background: var(--background);
+   --color-foreground: var(--foreground);
+-  --font-sans: var(--font-sans);
++  --font-sans: var(--font-geist-sans);
+   --font-mono: var(--font-geist-mono);
+   --font-heading: var(--font-sans);
+   --color-sidebar-ring: var(--sidebar-ring);
+
+# canonical-diff-sha256: 0a6e4db2546e2e49c8265894e2b53423b3ef439c4c06b444ab9e84263da237e2
