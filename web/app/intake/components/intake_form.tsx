@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
@@ -173,7 +174,24 @@ export function IntakeForm() {
       ) : null}
 
       {state.kind === "ok" ? (
-        <ScopeDecisionView decision={state.decision} />
+        <>
+          <ScopeDecisionView decision={state.decision} />
+          {/* I-p2-015 (#754): in-scope questions hand off to the plan-review
+              page, which is the run-start surface. */}
+          {state.decision.status === "in_scope" ? (
+            <div className="flex justify-end">
+              <Button
+                nativeButton={false}
+                data-testid="intake-continue-to-plan"
+                render={
+                  <Link href={`/plan?q=${encodeURIComponent(question.trim())}`}>
+                    Continue to plan →
+                  </Link>
+                }
+              />
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       <AmbiguityModal
