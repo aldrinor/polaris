@@ -1,0 +1,75 @@
+{
+  "cost_usd": 0.0,
+  "decision_id": "decision_v1_canonical_0001",
+  "evaluator_model": "google/gemma-4-31b-it",
+  "family_segregation_passed": true,
+  "finished_at_utc": "2026-05-19T00:00:00+00:00",
+  "generator_model": "deepseek/deepseek-v4-pro",
+  "latency_ms": 4200,
+  "overall_verify_pass_rate": 1.0,
+  "pipeline_verdict": "success",
+  "pool_id": "pool_v1_canonical_0001",
+  "report_id": "report_v1_canonical_0001_success",
+  "sections": [
+    {
+      "section_id": "Population",
+      "section_status": "verified",
+      "section_title": "Population",
+      "section_verify_pass_rate": 1.0,
+      "verified_sentences": [
+        {
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false,
+          "provenance_tokens": [
+            "[#ev:src_v1_canonical_0001:0-99]"
+          ],
+          "section_id": "Population",
+          "sentence_text": "Tirzepatide is a dual GIP and GLP-1 receptor agonist approved for type 2 diabetes mellitus.",
+          "verifier_pass": true
+        },
+        {
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false,
+          "provenance_tokens": [
+            "[#ev:src_v1_canonical_0001:100-200]"
+          ],
+          "section_id": "Population",
+          "sentence_text": "It is administered subcutaneously once weekly.",
+          "verifier_pass": true
+        }
+      ]
+    },
+    {
+      "section_id": "Outcomes",
+      "section_status": "verified",
+      "section_title": "Outcomes",
+      "section_verify_pass_rate": 1.0,
+      "verified_sentences": [
+        {
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false,
+          "provenance_tokens": [
+            "[#ev:src_v1_canonical_0001:201-350]"
+          ],
+          "section_id": "Outcomes",
+          "sentence_text": "Phase III trials reported A1C reductions of 2.0 to 2.4 percentage points over 40 weeks.",
+          "verifier_pass": true
+        }
+      ]
+    }
+  ],
+  "started_at_utc": "2026-05-19T00:00:00+00:00",
+  "verifier_pass_threshold": 0.4
+}

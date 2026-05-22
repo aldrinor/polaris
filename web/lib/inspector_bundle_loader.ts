@@ -22,7 +22,11 @@ import {
   parseReasoningTraceJsonl,
 } from "@/lib/signed_bundle";
 
-const REPO_ROOT = path.resolve(process.cwd(), "..");
+// I-p2-p0 (#789): the canonical fixture ships in web/public/canonical_bundles/
+// (Dockerfile COPYs public → /app/public; cwd=/app at runtime), so it resolves
+// in dev, the standalone harness, AND the prod container — unlike the old
+// process.cwd()/../tests/fixtures path, which only existed in dev → live 500.
+const FIXTURE_ROOT = path.join(process.cwd(), "public", "canonical_bundles");
 
 export interface LoadedBundle {
   runId: string;
@@ -71,85 +75,97 @@ export interface VerifiedSentenceShape {
 }
 
 const KNOWN_FIXTURES: Record<string, string> = {
-  "v1-canonical": "tests/fixtures/signed_bundle/v1_canonical",
-  "v1-canonical-success": "tests/fixtures/signed_bundle/v1_canonical_success",
+  "v1-canonical": "v1_canonical",
+  "v1-canonical-success": "v1_canonical_success",
 };
 
 export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+  // typeof guard (not `!relPath`): runId could be an Object.prototype name
+  // (toString / __proto__ / constructor) → KNOWN_FIXTURES[runId] returns a
+  // function/object → path.join would throw before the try → user-triggerable
+  // 500. A non-string lookup → null → BundlePendingCta. (Codex iter-2 P1.)
   const relPath = KNOWN_FIXTURES[runId];
-  if (!relPath) return null;
-  const dir = path.join(REPO_ROOT, relPath);
+  if (typeof relPath !== "string") return null;
+  const dir = path.join(FIXTURE_ROOT, relPath);
 
-  const manifestRaw = await fs.readFile(
-    path.join(dir, "manifest.yaml"),
-    "utf-8",
-  );
-  const manifest = parseManifest(manifestRaw);
-
-  const scopeDecision = await readJson(dir, manifest, "scope_decision");
-  const evidencePool = await readJson(dir, manifest, "evidence_pool");
-  const verifiedReport = (await readJson(
-    dir,
-    manifest,
-    "verified_report",
-  )) as VerifiedReportShape;
-
-  // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
-  // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
-  // also flagged metadata in the active producer).
-  const metadataEntry = manifest.files.find(
-    (f) => f.content_type === "metadata" && f.path === "metadata.json",
-  );
-  if (!metadataEntry) {
-    throw new Error(
-      `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
-    );
-  }
-  const metadata = JSON.parse(
-    await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
-  ) as BundleMetadata;
-
-  const reasoningTraceEntry = manifest.files.find(
-    (f) => f.content_type === "reasoning_trace",
-  );
-  const reasoningTrace = reasoningTraceEntry
-    ? parseReasoningTraceJsonl(
-        await fs.readFile(path.join(dir, reasoningTraceEntry.path), "utf-8"),
-      )
-    : [];
-
-  const sources: Record<string, string> = {};
-  for (const entry of manifest.files) {
-    if (entry.content_type !== "source_snapshot") continue;
-    sources[entry.path] = await fs.readFile(
-      path.join(dir, entry.path),
+  try {
+    const manifestRaw = await fs.readFile(
+      path.join(dir, "manifest.yaml"),
       "utf-8",
     );
-  }
+    const manifest = parseManifest(manifestRaw);
 
-  // Signature presence check (Codex diff iter-1 P2): mirror the conformance
-  // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
-  // bundle. The UI surfaces this boolean transparently; cryptographic
-  // verification belongs to operator-side `gpg --verify` tooling.
-  let signaturePresent = false;
-  try {
-    const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
-    signaturePresent = stat.isFile() && stat.size > 0;
-  } catch {
-    signaturePresent = false;
-  }
+    const scopeDecision = await readJson(dir, manifest, "scope_decision");
+    const evidencePool = await readJson(dir, manifest, "evidence_pool");
+    const verifiedReport = (await readJson(
+      dir,
+      manifest,
+      "verified_report",
+    )) as VerifiedReportShape;
 
-  return {
-    runId,
-    manifest,
-    scopeDecision,
-    evidencePool,
-    verifiedReport,
-    metadata,
-    reasoningTrace,
-    sources,
-    signaturePresent,
-  };
+    // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
+    // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
+    // also flagged metadata in the active producer).
+    const metadataEntry = manifest.files.find(
+      (f) => f.content_type === "metadata" && f.path === "metadata.json",
+    );
+    if (!metadataEntry) {
+      throw new Error(
+        `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
+      );
+    }
+    const metadata = JSON.parse(
+      await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
+    ) as BundleMetadata;
+
+    const reasoningTraceEntry = manifest.files.find(
+      (f) => f.content_type === "reasoning_trace",
+    );
+    const reasoningTrace = reasoningTraceEntry
+      ? parseReasoningTraceJsonl(
+          await fs.readFile(path.join(dir, reasoningTraceEntry.path), "utf-8"),
+        )
+      : [];
+
+    const sources: Record<string, string> = {};
+    for (const entry of manifest.files) {
+      if (entry.content_type !== "source_snapshot") continue;
+      sources[entry.path] = await fs.readFile(
+        path.join(dir, entry.path),
+        "utf-8",
+      );
+    }
+
+    // Signature presence check (Codex diff iter-1 P2): mirror the conformance
+    // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
+    // bundle. The UI surfaces this boolean transparently; cryptographic
+    // verification belongs to operator-side `gpg --verify` tooling.
+    let signaturePresent = false;
+    try {
+      const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
+      signaturePresent = stat.isFile() && stat.size > 0;
+    } catch {
+      signaturePresent = false;
+    }
+
+    return {
+      runId,
+      manifest,
+      scopeDecision,
+      evidencePool,
+      verifiedReport,
+      metadata,
+      reasoningTrace,
+      sources,
+      signaturePresent,
+    };
+  } catch (err) {
+    // Graceful: a missing/unreadable/malformed bundle renders the pending
+    // state (BundlePendingCta), NEVER a 500. (#789 P0 — the centerpiece must
+    // not crash the page.)
+    console.error(`[inspector] bundle load failed for ${runId}:`, err);
+    return null;
+  }
 }
 
 async function readJson(
