@@ -363,7 +363,7 @@ export default function DashboardPage() {
                     setTemplate(t.id);
                     resetAmbiguityState();
                   }}
-                  className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+                  className={`bg-card focus-visible:ring-ring/70 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
                     selected
                       ? "border-foreground"
                       : "border-border hover:border-muted-foreground"

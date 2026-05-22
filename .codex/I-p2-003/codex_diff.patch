@@ -1,0 +1,176 @@
+diff --git a/web/app/dashboard/page.tsx b/web/app/dashboard/page.tsx
+index 7046247c..fb3fa453 100644
+--- a/web/app/dashboard/page.tsx
++++ b/web/app/dashboard/page.tsx
+@@ -363,7 +363,7 @@ export default function DashboardPage() {
+                     setTemplate(t.id);
+                     resetAmbiguityState();
+                   }}
+-                  className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
++                  className={`bg-card focus-visible:ring-ring/70 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+                     selected
+                       ? "border-foreground"
+                       : "border-border hover:border-muted-foreground"
+diff --git a/web/app/generation/components/generation_runner.tsx b/web/app/generation/components/generation_runner.tsx
+index 4089ba0b..372f8796 100644
+--- a/web/app/generation/components/generation_runner.tsx
++++ b/web/app/generation/components/generation_runner.tsx
+@@ -143,7 +143,7 @@ export function GenerationRunner() {
+               maxLength={2000}
+               autoComplete="off"
+               disabled={state.kind === "loading"}
+-              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
++              className="border-input focus-visible:border-ring focus-visible:ring-ring/70 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+             />
+             <p className="text-muted-foreground text-xs">
+               POLARIS chains intake → retrieval → generation in one click. Each
+diff --git a/web/app/globals.css b/web/app/globals.css
+index c6c3c1f0..a370fbe5 100644
+--- a/web/app/globals.css
++++ b/web/app/globals.css
+@@ -28,6 +28,17 @@
+   --color-border: var(--border);
+   --color-destructive: var(--destructive);
+   --color-destructive-foreground: var(--destructive-foreground);
++  --color-verified: var(--verified);
++  --color-verified-foreground: var(--verified-foreground);
++  --color-contradiction: var(--contradiction);
++  --color-contradiction-foreground: var(--contradiction-foreground);
++  --color-refusal: var(--refusal);
++  --color-refusal-foreground: var(--refusal-foreground);
++  --color-tier-1: var(--tier-1);
++  --color-tier-2: var(--tier-2);
++  --color-tier-3: var(--tier-3);
++  --color-proof-token: var(--proof-token);
++  --color-verified-bundle: var(--verified-bundle);
+   --color-accent-foreground: var(--accent-foreground);
+   --color-accent: var(--accent);
+   --color-muted-foreground: var(--muted-foreground);
+@@ -61,19 +72,37 @@
+   --card-foreground: oklch(0.21 0.006 285.9);
+   --popover: oklch(1 0 0);
+   --popover-foreground: oklch(0.21 0.006 285.9);
+-  --primary: oklch(0.5 0.18 255);
++  /* I-p2-003 (#742): white surface + ONE national accent = dark Canada-flag
++     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
++     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
++     destructive=deep maroon distinct from the national red. + evidence-role
++     tokens (tiers + proof). Operator design lock 2026-05-21. */
++  --primary: #c8102e;
+   --primary-foreground: oklch(0.985 0 0);
+   --secondary: oklch(0.97 0 0);
+   --secondary-foreground: oklch(0.21 0.006 285.9);
+   --muted: oklch(0.97 0 0);
+   --muted-foreground: oklch(0.556 0 0);
+-  --accent: oklch(0.96 0.02 255);
+-  --accent-foreground: oklch(0.4 0.12 255);
+-  --destructive: oklch(0.577 0.245 27.325);
++  --accent: oklch(0.96 0.03 25);
++  --accent-foreground: oklch(0.45 0.16 26);
++  --destructive: oklch(0.42 0.13 18);
+   --destructive-foreground: oklch(0.985 0 0);
+   --border: oklch(0.922 0 0);
+   --input: oklch(0.922 0 0);
+-  --ring: oklch(0.5 0.18 255);
++  --ring: #c8102e;
++  /* State colors — distinct from the national red (rubric: never red-only) */
++  --verified: oklch(0.48 0.14 152);
++  --verified-foreground: oklch(0.985 0 0);
++  --contradiction: oklch(0.72 0.15 75);
++  --contradiction-foreground: oklch(0.27 0.04 75);
++  --refusal: oklch(0.45 0.02 286);
++  --refusal-foreground: oklch(0.985 0 0);
++  /* Evidence-role tokens */
++  --tier-1: #c8102e;
++  --tier-2: oklch(0.556 0 0);
++  --tier-3: oklch(0.708 0 0);
++  --proof-token: oklch(0.45 0.16 26);
++  --verified-bundle: oklch(0.48 0.14 152);
+   --chart-1: oklch(0.87 0 0);
+   --chart-2: oklch(0.556 0 0);
+   --chart-3: oklch(0.439 0 0);
+@@ -97,16 +126,19 @@
+   --card-foreground: oklch(0.985 0 0);
+   --popover: oklch(0.205 0 0);
+   --popover-foreground: oklch(0.985 0 0);
+-  /* I-cd-ui-001 (#704): cyan accent for dark mode (slightly lighter L0.65
+-     for contrast on the dark surface; dark text on the lighter cyan). */
+-  --primary: oklch(0.65 0.17 200);
+-  --primary-foreground: oklch(0.21 0.006 285.9);
++  /* I-p2-003 (#742): dark-mode accent = Canada-red (NOT the old cyan, which
++     violated the operator lock). Lighter L0.62 for contrast on the dark
++     surface; white fg. NOTE: light mode is the demo target; dark mode reuses
++     the :root state/evidence tokens (verified/contradiction/refusal/tier/
++     proof) — dark-specific tuning is a post-demo follow-up. */
++  --primary: oklch(0.62 0.2 26);
++  --primary-foreground: oklch(0.985 0 0);
+   --secondary: oklch(0.269 0 0);
+   --secondary-foreground: oklch(0.985 0 0);
+   --muted: oklch(0.269 0 0);
+   --muted-foreground: oklch(0.708 0 0);
+-  --accent: oklch(0.32 0.05 200);
+-  --accent-foreground: oklch(0.92 0.04 200);
++  --accent: oklch(0.32 0.06 26);
++  --accent-foreground: oklch(0.92 0.04 26);
+   --destructive: oklch(0.704 0.191 22.216);
+   /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+      White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+@@ -115,7 +147,7 @@
+   --destructive-foreground: oklch(0.145 0 0);
+   --border: oklch(1 0 0 / 10%);
+   --input: oklch(1 0 0 / 15%);
+-  --ring: oklch(0.65 0.17 200);
++  --ring: oklch(0.62 0.2 26);
+   --chart-1: oklch(0.87 0 0);
+   --chart-2: oklch(0.556 0 0);
+   --chart-3: oklch(0.439 0 0);
+@@ -133,7 +165,7 @@
+ 
+ @layer base {
+   * {
+-    @apply border-border outline-ring/50;
++    @apply border-border outline-ring;
+   }
+   body {
+     @apply bg-background text-foreground;
+diff --git a/web/app/retrieval/components/retrieval_runner.tsx b/web/app/retrieval/components/retrieval_runner.tsx
+index a4920407..e61cae38 100644
+--- a/web/app/retrieval/components/retrieval_runner.tsx
++++ b/web/app/retrieval/components/retrieval_runner.tsx
+@@ -132,7 +132,7 @@ export function RetrievalRunner() {
+                 state.kind === "scope_loading" ||
+                 state.kind === "retrieval_loading"
+               }
+-              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
++              className="border-input focus-visible:border-ring focus-visible:ring-ring/70 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+             />
+             <p className="text-muted-foreground text-xs">
+               Slice 002 only retrieves for in-scope clinical questions. The
+diff --git a/web/components/ui/button.tsx b/web/components/ui/button.tsx
+index 0d0a04a4..1343eeeb 100644
+--- a/web/components/ui/button.tsx
++++ b/web/components/ui/button.tsx
+@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
+ import { cn } from "@/lib/utils";
+ 
+ const buttonVariants = cva(
+-  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
++  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/70 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+   {
+     variants: {
+       variant: {
+diff --git a/web/components/ui/input.tsx b/web/components/ui/input.tsx
+index da4b1776..ffd55620 100644
+--- a/web/components/ui/input.tsx
++++ b/web/components/ui/input.tsx
+@@ -9,7 +9,7 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+       type={type}
+       data-slot="input"
+       className={cn(
+-        "border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm",
++        "border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/70 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm",
+         className,
+       )}
+       {...props}
+
+# canonical-diff-sha256: 1d493807ee5f227c8a9e2cfc2792477d984de3ae0c448a38046a60286171e34f

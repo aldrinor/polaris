@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief APPROVE iter 2 — design-system re-audit plan (Canada-red #C8102E on white, opaque focus ring, maroon destructive, @theme state/evidence tokens, dark-mode neutralize). iter-1 caught focus-ring a11y bug + red-on-red collision + theme-export gap; all folded.

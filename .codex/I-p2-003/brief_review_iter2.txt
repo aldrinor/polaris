@@ -1,0 +1,912 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4e7e-3bdd-7c71-a9a7-40a49c2565eb
+--------
+user
+# Codex BRIEF review — I-p2-003 (#742): design-system re-audit → white + Canada-red, evidence/state tokens
+
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Task
+Re-audit + finalize the Frontier-Minimal design system (`web/app/globals.css`, merged at #730 with a BLUE accent) under the operator design lock + the 16-dim rubric. This is the foundation every page consumes.
+
+## Acceptance criteria (the diff will implement; this brief reviews the PLAN)
+1. **Accent → dark Canada-flag red on white** (operator lock): `--primary`/`--ring` = deep red, AA-safe on white (≥4.5:1 with white fg) — propose oklch(~0.52 0.20 25) ≈ #C8102E; `--accent` = light red tint; white `--background` confirmed.
+2. **State colors SEPARATE from the national-accent red** (rubric color-token rule — "never rely on red alone"): the national red is reserved for primary action + proof-highlight. Distinct tokens for: `--verified` (success — a calm green, NOT red), `--contradiction` (amber), `--refusal` (neutral-strong), `--destructive` (must be visually distinguishable from the national red — e.g. a deeper maroon or paired with an icon, so "delete/error" ≠ "primary/proof"). Each AA on its surface.
+3. **Evidence-role tokens:** `--tier-1` / `--tier-2` / `--tier-3` (near-mono weight + one tint), `--proof-token` (mono fg), `--verified-bundle`.
+4. Type scale (12/14/16/20/24/32/48; report body 16/26 @ 68–75ch), motion tokens, dark-mode pairs (or explicitly defer dark mode with a logged note).
+5. Keeps Geist + Geist Mono; hairline borders; max whitespace.
+
+## Files I have ALSO checked and they're clean
+- web/app/globals.css (current :root has blue --primary/--ring oklch(0.5 0.18 255) + red --destructive oklch(0.577 0.245 27) — the red-on-red collision risk #2 addresses).
+- web/components/app_shell.tsx + web/app/components/home_keyboard_shell.tsx (sovereign mark — unaffected by tokens).
+
+## Review focus
+1. Is the Canada-red accent value AA-safe on white AND visually distinct from `--destructive`? Any collision the plan misses?
+2. Are the state + evidence-role token additions complete per the rubric color rule (verified/contradiction/refusal/destructive/national all distinct + AA)?
+3. Anything that would make the FOUNDATION non-top-tier or leak red-only signaling.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+---
+## iter-2 incorporations (all iter-1 P1 + P2 folded into the plan)
+- **Canonical accent (P2):** `--primary`/`--ring` = **#C8102E** (the single canonical value; AA 5.88:1 on white) — drop the oklch≈#C21725 alt.
+- **Focus ring (P1-1):** make the focus indicator OPAQUE (or ≥60% alpha) to clear the 3:1 bar — fix `globals.css:136` ring + `button.tsx:7` + `input.tsx:12` (`ring-ring/50`/`outline-ring/50` → opaque `ring`/`outline`).
+- **Destructive ≠ national red (P1-2):** lock a concrete **deep maroon** `--destructive` clearly distinct from #C8102E (≥ a clear hue/lightness gap, not same-red-plus-icon); wire through destructive buttons + `aria-invalid` states.
+- **@theme inline exports (P1-3):** every new state/evidence token gets a Tailwind `@theme inline` mapping (`--color-verified*`, `--color-contradiction*`, `--color-refusal*`, `--color-tier-1/2/3`, `--color-proof-token`, `--color-verified-bundle*`) — not naked `:root` vars.
+- **Dark mode (P2):** neutralize the silent cyan `.dark` accent (it violates the Canada-red lock); set dark accent to the red OR explicitly defer dark mode with neutralized tokens + a logged note.
+- **Follow-up (P2):** existing components hard-code emerald/amber/rose/blue (report, inspector, retrieval, contradiction, graph) — file a follow-up migration issue so the new tokens are actually consumed (this issue ships the FOUNDATION tokens; component migration is tracked separately).
+Re-confirm APPROVE or list only true remaining P0/P1.
+
+codex
+I’ll re-check the current token wiring and the affected focus/destructive paths, then validate the proposed contrast and distinctness against the plan rather than treating implementation gaps as new findings.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "ring-ring|outline-ring|destructive|aria-invalid|emerald|amber|rose|blue|tier-|verified|contradiction|refusal|proof" web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/globals.css' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/ui/button.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/ui/input.tsx' in C:\POLARIS
+ succeeded in 1203ms:
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
+import { cva, type VariantProps } from "class-variance-authority";
+
+import { cn } from "@/lib/utils";
+
+const buttonVariants = cva(
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        outline:
+          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+        ghost:
+          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/80 focus-visible:ring-destructive/30",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        // Cycle-7 P3.2 follow-up: WCAG 2.5.8 target-size requires
+        // touch targets ≥24px. Bumped default from h-8 (32px) to h-9
+        // (36px) — the prior 32px reported as ~21px effective height
+        // by axe due to inner text-bounding-box measurement quirks.
+        // h-9 puts unambiguous clearance.
+        default:
+          "h-9 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        xs: "h-7 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-8 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-10 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        icon: "size-9",
+        "icon-xs":
+          "size-7 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm":
+          "size-8 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+        "icon-lg": "size-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  },
+);
+
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  ...props
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  );
+}
+
+export { Button, buttonVariants };
+
+ succeeded in 1543ms:
+import * as React from "react";
+import { Input as InputPrimitive } from "@base-ui/react/input";
+
+import { cn } from "@/lib/utils";
+
+function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+  return (
+    <InputPrimitive
+      type={type}
+      data-slot="input"
+      className={cn(
+        "border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export { Input };
+
+ succeeded in 1952ms:
+web\AGENTS.md:23:**STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
+web\app\audit_live\_panels.tsx:128:          className="rounded border border-amber-500/40 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+web\app\audit_live\_panels.tsx:136:          data-testid="zero-verified-abort"
+web\app\audit_live\_panels.tsx:137:          className="rounded border border-rose-500/40 bg-rose-50 p-3 text-rose-900 dark:bg-rose-950/30 dark:text-rose-200"
+web\app\audit_live\_panels.tsx:139:          Zero-verified abort: no kept verify decisions across{" "}
+web\app\audit_live\_panels.tsx:150:            className="border-border rounded border px-3 py-1 text-xs hover:bg-rose-50"
+web\app\compare\page.tsx:80:          coverage overlap, and contradiction counts. This is run-vs-run — for
+web\app\compare\page.tsx:133:          className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+web\app\compare\page.tsx:166:        className="border-input focus-visible:border-ring focus-visible:ring-ring rounded-lg border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2"
+web\app\compare\page.tsx:263:          Left contradictions:{" "}
+web\app\compare\page.tsx:265:            {result.left_contradictions}
+web\app\compare\page.tsx:269:          Right contradictions:{" "}
+web\app\compare\page.tsx:271:            {result.right_contradictions}
+web\app\benchmark\page.tsx:27:          provenance density, refusal correctness, coverage completeness,
+web\app\benchmark\page.tsx:28:          latency, and auditability. POLARIS uniquely scores 1.0 on refusal
+web\app\components\recent_runs_strip.tsx:76:              className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring group flex max-w-xs flex-col gap-1 rounded-lg border px-3 py-2 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+web\lib\api.ts:75:  | "abort_no_verified_sections";
+web\lib\api.ts:236:  left_contradictions: number;
+web\lib\api.ts:237:  right_contradictions: number;
+web\lib\api.ts:267:  verdict: "success" | "abort_no_verified_sections";
+web\lib\api.ts:270:  verified_sentence_count: number;
+web\lib\api.ts:345:  refusals: RefusalReason[];
+web\lib\api.ts:403:  refusal_patterns: string[];
+web\lib\api.ts:440:  verified_sentences: VerifiedSentence[];
+web\lib\api.ts:447:  contradictions: {
+web\lib\api.ts:448:    contradiction_id: string;
+web\lib\api.ts:672:// Slice 002 — Clinical Retrieval (verified clinical sources)
+web\lib\api.ts:796:// Mirrors src/polaris_graph/generator2/verified_report.py +
+web\lib\api.ts:800:export type SectionStatus = "verified" | "regenerated" | "dropped";
+web\lib\api.ts:802:export type PipelineVerdict = "success" | "abort_no_verified_sections";
+web\lib\api.ts:820:  contradiction?: ContradictionSignal | null;
+web\lib\api.ts:860:export type ContradictionKind = "multi_source" | "self_contradiction";
+web\lib\api.ts:879:  | "prose"
+web\lib\api.ts:889:  verified_sentences: ReportVerifiedSentence[];
+web\lib\api.ts:998:/** Filter to non-dropped sections (verified + regenerated). */
+web\lib\api.ts:1007:  return section.verified_sentences.filter((s) => s.verifier_pass);
+web\lib\api.ts:1125:  | "refusal_correctness"
+web\lib\api.ts:1139:  is_refusal_bait: boolean;
+web\lib\api.ts:1173:  refusal_correctness: "Refusal correctness",
+web\lib\api.ts:1183:  "refusal_correctness",
+web\lib\api.ts:1368:  is_verified: boolean;
+web\lib\api.ts:1383:  sentences_verified: number;
+web\lib\api.ts:1487:  sentences_verified: number;
+web\lib\api.ts:1489:  contradictions_found: number;
+web\lib\api.ts:1514:  contradictions_disclosed: number;
+web\lib\api.ts:1515:  contradictions_missing: string[];
+web\lib\api.ts:1557:  contradictions: AuditIrContradictionCluster[];
+web\lib\api.ts:1560:  verified_report: AuditIrVerifiedReport;
+web\lib\api.ts:1581: * I-rdy-008 (#504) slice 7a/7b — one verified evidence span cited by a run.
+web\lib\api.ts:1596:/** The verified evidence spans for one completed run. */
+web\lib\api.ts:1603: * Fetch the verified evidence spans for a completed run from the v6
+web\app\charts_test\components\chart_source_inspector.tsx:19:  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+web\app\charts_test\components\chart_source_inspector.tsx:20:  T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+web\app\charts_test\components\chart_source_inspector.tsx:67:              className="truncate text-xs text-blue-700 underline dark:text-blue-300"
+web\app\components\command_palette.tsx:120:            className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:ring-2 focus:outline-none"
+web\app\benchmark\components\benchmark_board.tsx:36:    return "text-emerald-700 dark:text-emerald-300 font-semibold";
+web\app\benchmark\components\benchmark_board.tsx:100:        className="border-amber-500/40 bg-amber-500/5"
+web\app\benchmark\components\benchmark_board.tsx:102:        <CardContent className="text-amber-700 dark:text-amber-300">
+web\app\benchmark\components\benchmark_board.tsx:119:        className="border-amber-500/40 bg-amber-500/5"
+web\app\benchmark\components\benchmark_board.tsx:121:        <CardContent className="text-amber-700 dark:text-amber-300">
+web\app\benchmark\components\benchmark_board.tsx:138:        className="border-rose-500/40 bg-rose-500/5"
+web\app\benchmark\components\benchmark_board.tsx:140:        <CardContent className="text-rose-700 dark:text-rose-300">
+web\app\benchmark\components\benchmark_board.tsx:195:            <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+web\app\memory\page.tsx:112:          className="border-border rounded border px-3 py-1 text-sm hover:bg-blue-500/10 disabled:opacity-50"
+web\app\memory\page.tsx:134:              className="border-border shrink-0 rounded border px-2 py-1 text-xs hover:bg-rose-500/10"
+web\lib\inspector_bundle_client_loader.ts:199:  "verified_report",
+web\lib\inspector_bundle_client_loader.ts:296:  const verifiedReportFile = _findFile(files, "verified_report.json")!;
+web\lib\inspector_bundle_client_loader.ts:297:  const verifiedReport = JSON.parse(
+web\lib\inspector_bundle_client_loader.ts:298:    _decode(verifiedReportFile.bytes),
+web\lib\inspector_bundle_client_loader.ts:333:    verifiedReport,
+web\lib\pin_regression.ts:12:  verified_sentence_count_drop: 3,
+web\lib\pin_regression.ts:16:  metric: "pass_rate" | "verified_sentence_count";
+web\lib\pin_regression.ts:61:  const sentence_drop = a.verified_sentence_count - b.verified_sentence_count;
+web\lib\pin_regression.ts:62:  if (sentence_drop > REGRESSION_THRESHOLDS.verified_sentence_count_drop) {
+web\lib\pin_regression.ts:64:      metric: "verified_sentence_count",
+web\lib\pin_regression.ts:65:      a_value: a.verified_sentence_count,
+web\lib\pin_regression.ts:66:      b_value: b.verified_sentence_count,
+web\lib\pin_regression.ts:68:      threshold: REGRESSION_THRESHOLDS.verified_sentence_count_drop,
+web\app\generation\page.tsx:62:            001), retrieval against verified clinical sources (slice 002), and
+web\app\generation\page.tsx:81:            Slice 004 (audit bundle export, GPG-signed) packages this verified
+web\lib\inspector_bundle_loader.ts:32:  verifiedReport: VerifiedReportShape;
+web\lib\inspector_bundle_loader.ts:61:  verified_sentences: VerifiedSentenceShape[];
+web\lib\inspector_bundle_loader.ts:91:  const verifiedReport = (await readJson(
+web\lib\inspector_bundle_loader.ts:94:    "verified_report",
+web\lib\inspector_bundle_loader.ts:147:    verifiedReport,
+web\lib\inspector_bundle_loader.ts:158:  contentType: "scope_decision" | "evidence_pool" | "verified_report",
+web\app\layout.tsx:22:    "Two-family verified evidence pipelines for Government of Canada policy work.",
+web\app\runs\[runId]\page.tsx:163:            className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+web\app\runs\[runId]\page.tsx:235:          (it has an answerable, verified report). Failed/cancelled/in-progress
+web\app\intake\page.tsx:29:          scope + intake: refusal-bait detection, scope classification (efficacy
+web\components\ui\vega-chart.tsx:78:          className="rounded border border-rose-500/40 bg-rose-500/5 p-3 text-xs text-rose-700 dark:text-rose-300"
+web\components\ui\tabs.tsx:39:      "focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+web\components\ui\tabs.tsx:58:      "ring-offset-background focus-visible:ring-ring mt-4 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+web\components\inspector\verified_report_sections.tsx:2:// Real field names per verified_report.py:
+web\components\inspector\verified_report_sections.tsx:4://   sections[].verified_sentences
+web\components\inspector\verified_report_sections.tsx:5://   verified_sentences[].provenance_tokens (token strings)
+web\components\inspector\verified_report_sections.tsx:18:  verifiedReport: VerifiedReportShape;
+web\components\inspector\verified_report_sections.tsx:22:  verifiedReport,
+web\components\inspector\verified_report_sections.tsx:25:    <Card data-testid="verified-report-sections">
+web\components\inspector\verified_report_sections.tsx:28:          Verified report ({verifiedReport.sections.length} sections,{" "}
+web\components\inspector\verified_report_sections.tsx:29:          {(verifiedReport.overall_verify_pass_rate * 100).toFixed(0)}%
+web\components\inspector\verified_report_sections.tsx:30:          verified)
+web\components\inspector\verified_report_sections.tsx:34:        <VerdictBadge verdict={verifiedReport.pipeline_verdict} />
+web\components\inspector\verified_report_sections.tsx:35:        {verifiedReport.sections.length === 0 ? (
+web\components\inspector\verified_report_sections.tsx:37:            No verified sections (pipeline verdict:{" "}
+web\components\inspector\verified_report_sections.tsx:38:            <code className="font-mono">{verifiedReport.pipeline_verdict}</code>
+web\components\inspector\verified_report_sections.tsx:42:          verifiedReport.sections.map((s) => (
+web\components\inspector\verified_report_sections.tsx:59:          ? "inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+web\components\inspector\verified_report_sections.tsx:60:          : "inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+web\components\inspector\verified_report_sections.tsx:72:      data-testid="verified-report-section"
+web\components\inspector\verified_report_sections.tsx:82:        {section.verified_sentences.map((sentence, idx) => (
+web\components\inspector\verified_report_sections.tsx:98:      data-testid="verified-sentence"
+web\components\inspector\verified_report_sections.tsx:105:          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\app\retrieval\page.tsx:10:    "Retrieve verified clinical sources for a research question. POLARIS runs the slice 001 scope gate, then retrieves T1/T2/T3 sources from approved clinical domains.",
+web\app\dashboard\page.tsx:366:                  className={`bg-card focus-visible:ring-ring/50 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+web\app\dashboard\page.tsx:486:                ? "border-destructive/60"
+web\app\dashboard\page.tsx:489:                  : "border-emerald-500/60"
+web\app\dashboard\page.tsx:502:              {scopeDecision.refusals.length > 0 && (
+web\app\dashboard\page.tsx:504:                  Refused: {scopeDecision.refusals.join(", ")}
+web\app\dashboard\page.tsx:592:            className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+web\app\dashboard\page.tsx:601:            className="border-destructive/60 flex flex-col gap-2 rounded-md border p-3 text-sm"
+web\app\inspector\[runId]\inspector_view.tsx:13:import { VerifiedReportSections } from "@/components/inspector/verified_report_sections";
+web\app\inspector\[runId]\inspector_view.tsx:37:        verifiedReport={bundle.verifiedReport}
+web\app\inspector\[runId]\inspector_view.tsx:50:          <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
+web\app\runs\[runId]\graph\page.tsx:71:            className="border-destructive text-destructive rounded-md border p-4"
+web\app\upload\components\upload_drop_zone.tsx:237:                  <span className="text-rose-700">{f.error}</span>
+web\components\ui\input.tsx:12:        "border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm",
+web\app\retrieval\components\retrieval_runner.tsx:135:              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+web\app\retrieval\components\retrieval_runner.tsx:164:          className="border-rose-500/40 bg-rose-500/5"
+web\app\retrieval\components\retrieval_runner.tsx:166:          <CardContent className="text-rose-700 dark:text-rose-300">
+web\app\retrieval\components\retrieval_runner.tsx:175:          className="border-amber-500/40 bg-amber-500/5"
+web\app\retrieval\components\retrieval_runner.tsx:177:          <CardContent className="text-amber-700 dark:text-amber-300">
+web\app\retrieval\components\retrieval_runner.tsx:186:          className="border-rose-500/40 bg-rose-500/5"
+web\app\retrieval\components\retrieval_runner.tsx:188:          <CardContent className="text-rose-700 dark:text-rose-300">
+web\app\contracts\_editor.tsx:319:          className="text-rose-700 dark:text-rose-300"
+web\app\generation\components\evaluator_pane.tsx:42:              className="border-border rounded border bg-blue-500/5 p-2 text-xs"
+web\app\generation\components\evaluator_pane.tsx:44:              <strong className="text-blue-700 dark:text-blue-300">
+web\app\generation\components\evaluator_pane.tsx:51:              className="border-border rounded border bg-rose-500/5 p-2 text-xs"
+web\app\generation\components\evaluator_pane.tsx:53:              <strong className="text-rose-700 dark:text-rose-300">
+web\app\generation\components\contradiction_pane.tsx:38:  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+web\app\generation\components\contradiction_pane.tsx:39:  T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+web\app\generation\components\contradiction_pane.tsx:66:        data-testid="contradiction-pane"
+web\app\generation\components\contradiction_pane.tsx:71:          <SheetTitle data-testid="contradiction-pane-title">
+web\app\generation\components\contradiction_pane.tsx:75:              if (kind === "self_contradiction") {
+web\app\generation\components\contradiction_pane.tsx:76:                return `Self-contradiction: source contradicts itself across ${sides.length} spans`;
+web\app\generation\components\contradiction_pane.tsx:85:                data-testid="contradiction-category"
+web\app\generation\components\contradiction_pane.tsx:86:                className="ml-2 inline-flex items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+web\app\generation\components\contradiction_pane.tsx:97:              data-testid={`contradiction-side-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:101:                <code data-testid={`contradiction-source-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:112:                        data-testid={`contradiction-evidence-type-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:124:                        data-testid={`contradiction-jurisdiction-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:132:                    data-testid={`contradiction-tier-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:141:                  <span data-testid={`contradiction-sample-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:145:                <span data-testid={`contradiction-hedge-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:149:                  <span data-testid={`contradiction-pt08-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:155:                data-testid={`contradiction-claim-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:156:                className="border-l-2 border-amber-400 bg-amber-50 px-2 py-1 italic dark:bg-amber-900/20"
+web\app\intake\components\scope_decision_view.tsx:20:    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+web\app\intake\components\scope_decision_view.tsx:22:    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+web\app\intake\components\scope_decision_view.tsx:25:  refused: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+web\app\intake\components\scope_decision_view.tsx:58:              ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+web\app\intake\components\scope_decision_view.tsx:59:              : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+web\app\inspector\offline\page.tsx:73:            The bundle is verified and rendered entirely in your browser — no
+web\app\inspector\offline\page.tsx:99:            className={`border-border focus-visible:ring-ring flex min-h-32 cursor-pointer items-center justify-center rounded border-2 border-dashed px-6 py-8 text-center text-sm focus-visible:ring-2 focus-visible:outline-none ${
+web\app\inspector\offline\page.tsx:119:              className="rounded border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-700 dark:text-rose-300"
+web\app\retrieval\components\corpus_brief.tsx:19:  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+web\app\retrieval\components\corpus_brief.tsx:21:  T3: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+web\app\retrieval\components\corpus_brief.tsx:36:      data-testid={`tier-badge-${tier}`}
+web\app\retrieval\components\corpus_brief.tsx:64:              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+web\app\retrieval\components\corpus_brief.tsx:65:              : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+web\app\retrieval\components\corpus_brief.tsx:87:            className="rounded-md border border-rose-500/40 bg-rose-500/5 px-3 py-2 text-sm text-rose-700 dark:text-rose-300"
+web\app\generation\components\BundlePreview.tsx:22:  ["verified_report", "Verified report"],
+web\app\generation\components\BundlePreview.tsx:77:        className="border-border rounded-md border p-3 text-xs text-rose-700 dark:text-rose-300"
+web\app\intake\components\pdf_drop_banner.tsx:54:      className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200"
+web\components\inspector\reasoning_trace_timeline.tsx:99:        className="focus-visible:ring-ring mt-2 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\app\globals.css:29:  --color-destructive: var(--destructive);
+web\app\globals.css:30:  --color-destructive-foreground: var(--destructive-foreground);
+web\app\globals.css:54:     accent (default = blue oklch(0.50 0.18 255); the prior cyan read grey).
+web\app\globals.css:72:  --destructive: oklch(0.577 0.245 27.325);
+web\app\globals.css:73:  --destructive-foreground: oklch(0.985 0 0);
+web\app\globals.css:110:  --destructive: oklch(0.704 0.191 22.216);
+web\app\globals.css:111:  /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+web\app\globals.css:115:  --destructive-foreground: oklch(0.145 0 0);
+web\app\globals.css:136:    @apply border-border outline-ring/50;
+web\lib\signed_bundle.ts:28:  | "verified_report"
+web\lib\signed_bundle.ts:36:  "verified_report",
+web\app\intake\components\intake_form.tsx:169:          className="border-rose-500/40 bg-rose-500/5"
+web\app\intake\components\intake_form.tsx:171:          <CardContent className="text-rose-700 dark:text-rose-300">
+web\app\generation\components\verified_report_view.tsx:22:import { ContradictionPane } from "./contradiction_pane";
+web\app\generation\components\verified_report_view.tsx:27:  "prose",
+web\app\generation\components\verified_report_view.tsx:36:  prose: "Prose",
+web\app\generation\components\verified_report_view.tsx:48:  verified:
+web\app\generation\components\verified_report_view.tsx:49:    "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+web\app\generation\components\verified_report_view.tsx:51:    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+web\app\generation\components\verified_report_view.tsx:52:  dropped: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+web\app\generation\components\verified_report_view.tsx:66:  verdict: "success" | "abort_no_verified_sections";
+web\app\generation\components\verified_report_view.tsx:75:          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+web\app\generation\components\verified_report_view.tsx:76:          : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+web\app\generation\components\verified_report_view.tsx:80:      {ok ? "Success" : "Aborted (no verified sections)"}
+web\app\generation\components\verified_report_view.tsx:150:        "flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-blue-400 focus:outline-none",
+web\app\generation\components\verified_report_view.tsx:152:          ? "text-muted-foreground border-rose-500/30 bg-rose-500/5 line-through"
+web\app\generation\components\verified_report_view.tsx:159:          const surface = sentence.assertion_surface ?? "prose";
+web\app\generation\components\verified_report_view.tsx:160:          if (surface === "prose") return null;
+web\app\generation\components\verified_report_view.tsx:165:              className="inline-flex shrink-0 items-center rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-blue-700 uppercase dark:text-blue-300"
+web\app\generation\components\verified_report_view.tsx:194:        <span className="text-[10px] tracking-widest text-rose-700 uppercase dark:text-rose-300">
+web\app\generation\components\verified_report_view.tsx:216:          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-rose-700 uppercase hover:bg-rose-500/10 focus:ring-2 focus:ring-rose-400 focus:outline-none dark:text-rose-300"
+web\app\generation\components\verified_report_view.tsx:221:      {!dropped && sentence.contradiction ? (
+web\app\generation\components\verified_report_view.tsx:224:          data-testid={`inspector-contradiction-${sentence_id}`}
+web\app\generation\components\verified_report_view.tsx:225:          title={sentence.contradiction.summary}
+web\app\generation\components\verified_report_view.tsx:230:            if (sentence.contradiction)
+web\app\generation\components\verified_report_view.tsx:231:              onSelectContradiction(sentence.contradiction);
+web\app\generation\components\verified_report_view.tsx:239:              if (sentence.contradiction)
+web\app\generation\components\verified_report_view.tsx:240:                onSelectContradiction(sentence.contradiction);
+web\app\generation\components\verified_report_view.tsx:243:          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-300"
+web\app\generation\components\verified_report_view.tsx:246:            const kind = sentence.contradiction.kind ?? "multi_source";
+web\app\generation\components\verified_report_view.tsx:247:            if (kind === "self_contradiction") {
+web\app\generation\components\verified_report_view.tsx:248:              // Codex iter-1 P2: self-contradiction span count comes from
+web\app\generation\components\verified_report_view.tsx:250:              const span_n = sentence.contradiction.sides?.length ?? 0;
+web\app\generation\components\verified_report_view.tsx:253:            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
+web\app\generation\components\verified_report_view.tsx:261:          className="inline-flex items-center gap-1 text-[10px] tracking-widest text-amber-700 uppercase dark:text-amber-300"
+web\app\generation\components\verified_report_view.tsx:288:          className="inline-flex min-h-6 w-fit cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] font-medium tracking-widest text-blue-700 uppercase hover:bg-blue-500/10 focus:ring-2 focus:ring-blue-400 focus:outline-none dark:text-blue-300"
+web\app\generation\components\verified_report_view.tsx:320:  const dropped_count = section.verified_sentences.length - kept.length;
+web\app\generation\components\verified_report_view.tsx:344:            No verified sentences in this section.
+web\app\generation\components\verified_report_view.tsx:348:            {section.verified_sentences.map((s, idx) => (
+web\app\generation\components\verified_report_view.tsx:389:  const [contradiction_open, set_contradiction_open] =
+web\app\generation\components\verified_report_view.tsx:400:      data-testid="verified-report-view"
+web\app\generation\components\verified_report_view.tsx:425:                  className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+web\app\generation\components\verified_report_view.tsx:433:                  className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+web\app\generation\components\verified_report_view.tsx:478:          onSelectContradiction={(signal) => set_contradiction_open(signal)}
+web\app\generation\components\verified_report_view.tsx:485:        open={contradiction_open !== null}
+web\app\generation\components\verified_report_view.tsx:486:        signal={contradiction_open}
+web\app\generation\components\verified_report_view.tsx:488:          if (!open) set_contradiction_open(null);
+web\app\pin_replay\page.tsx:63:            {snapshot.verified_sentence_count}
+web\app\pin_replay\page.tsx:118:    snap_b.verified_sentence_count - snap_a.verified_sentence_count;
+web\app\pin_replay\page.tsx:134:          verified-sentence count or pass-rate raise an alert.
+web\app\pin_replay\page.tsx:140:            className="mt-4 rounded border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-700 dark:text-rose-300"
+web\app\pin_replay\page.tsx:195:          className="border-border mt-4 rounded border px-4 py-2 text-sm hover:bg-blue-500/10"
+web\app\page.tsx:235:            <span>Two-family verified evidence</span>
+web\components\ui\button.tsx:7:  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+web\components\ui\button.tsx:18:        destructive:
+web\components\ui\button.tsx:19:          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/80 focus-visible:ring-destructive/30",
+web\components\inspector\family_segregation_badge.tsx:2:// Source of truth: verified_report.evaluator_model + verified_report.family_segregation_passed
+web\components\inspector\family_segregation_badge.tsx:9:  verifiedReport: VerifiedReportShape;
+web\components\inspector\family_segregation_badge.tsx:14:  verifiedReport,
+web\components\inspector\family_segregation_badge.tsx:16:  const passed = verifiedReport.family_segregation_passed;
+web\components\inspector\family_segregation_badge.tsx:28:              ? "inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+web\components\inspector\family_segregation_badge.tsx:29:              : "inline-flex items-center rounded-md bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-900 dark:bg-rose-950 dark:text-rose-200"
+web\components\inspector\family_segregation_badge.tsx:46:          <p className="font-mono text-sm">{verifiedReport.evaluator_model}</p>
+web\lib\sse_events.ts:8:  "contradiction",
+web\lib\sse_events.ts:19:  contradiction: "Contradiction events",
+web\app\generation\components\generation_runner.tsx:22:import { VerifiedReportView } from "./verified_report_view";
+web\app\generation\components\generation_runner.tsx:146:              className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border bg-transparent px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 disabled:opacity-50"
+web\app\generation\components\generation_runner.tsx:170:          className="border-amber-500/40 bg-amber-500/5"
+web\app\generation\components\generation_runner.tsx:172:          <CardContent className="text-amber-700 dark:text-amber-300">
+web\app\generation\components\generation_runner.tsx:181:          className="border-rose-500/40 bg-rose-500/5"
+web\app\generation\components\generation_runner.tsx:183:          <CardContent className="text-rose-700 dark:text-rose-300">
+web\app\generation\components\generation_runner.tsx:271:        className="text-xs text-rose-700 dark:text-rose-300"
+web\components\inspector\evidence_pool_table.tsx:109:              ? "rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+web\components\inspector\evidence_pool_table.tsx:110:              : "rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+web\app\pin_replay\components\pin_timeseries.tsx:22:    value: s.verified_sentence_count,
+web\app\pin_replay\components\pin_timeseries.tsx:23:    series: "verified_sentences",
+web\app\generation\components\multi_source_panel.tsx:18:  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+web\app\generation\components\multi_source_panel.tsx:19:  T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+web\app\generation\components\multi_source_panel.tsx:48:        className="rounded border border-rose-500/40 p-2 text-xs text-rose-700 dark:text-rose-300"
+web\app\generation\components\multi_source_panel.tsx:65:          className="text-blue-700 underline dark:text-blue-300"
+web\app\generation\components\multi_source_panel.tsx:71:          data-testid={`multi-source-pane-tier-${source_id}`}
+web\app\generation\components\multi_source_panel.tsx:90:                className="text-rose-700 dark:text-rose-300"
+web\app\generation\components\multi_source_panel.tsx:150:            className="text-muted-foreground border-border mb-3 rounded border bg-blue-500/5 p-2 text-xs"
+web\app\generation\components\frame_coverage_panel.tsx:61:  // render nothing rather than misleading amber gaps panel.
+web\app\generation\components\frame_coverage_panel.tsx:77:          ? "border-emerald-500/40 bg-emerald-500/5"
+web\app\generation\components\frame_coverage_panel.tsx:78:          : "border-amber-500/40 bg-amber-500/5",
+web\app\generation\components\frame_coverage_panel.tsx:87:                ? "text-emerald-700 dark:text-emerald-300"
+web\app\generation\components\frame_coverage_panel.tsx:88:                : "text-amber-700 dark:text-amber-300",
+web\app\generation\components\frame_coverage_panel.tsx:96:              className="text-xs text-amber-700 dark:text-amber-300"
+web\app\generation\components\frame_coverage_panel.tsx:109:              all_covered ? "bg-emerald-500" : "bg-amber-500",
+web\app\generation\components\frame_coverage_panel.tsx:129:                className="min-h-6 cursor-pointer rounded-md px-2 py-1 text-amber-800 hover:bg-amber-500/10 focus:ring-2 focus:ring-amber-400 focus:outline-none dark:text-amber-200"
+web\app\generation\components\frame_coverage_panel.tsx:202:              className="border-border rounded-md border bg-amber-500/5 p-2 text-sm"
+web\app\generation\components\frame_coverage_panel.tsx:217:                  className="text-xs text-emerald-700 dark:text-emerald-300"
+web\app\generation\components\sentence_inspector.tsx:44:  T1: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+web\app\generation\components\sentence_inspector.tsx:45:  T2: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+web\app\generation\components\sentence_inspector.tsx:70:        className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-emerald-700 uppercase dark:text-emerald-300"
+web\app\generation\components\sentence_inspector.tsx:81:        className="inline-flex items-center gap-1 rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+web\app\generation\components\sentence_inspector.tsx:116:        className="text-rose-700 dark:text-rose-300"
+web\app\generation\components\sentence_inspector.tsx:146:        className="rounded border border-rose-500/40 p-2 text-xs text-rose-700 dark:text-rose-300"
+web\app\generation\components\sentence_inspector.tsx:164:          className="text-blue-700 underline dark:text-blue-300"
+web\app\generation\components\sentence_inspector.tsx:173:              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+web\app\generation\components\sentence_inspector.tsx:182:              className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+web\app\generation\components\sentence_inspector.tsx:191:              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+web\app\generation\components\sentence_inspector.tsx:197:            data-testid={`inspector-tier-${source.tier}`}
+web\app\generation\components\sentence_inspector.tsx:304:                  className="text-xs tracking-widest text-rose-700 uppercase dark:text-rose-300"
+web\app\runs\[runId]\components\followup_panel.tsx:71:        Scoped to this run&apos;s verified evidence — no new retrieval is run.
+web\app\runs\[runId]\components\followup_panel.tsx:82:          className="border-input focus-visible:border-ring focus-visible:ring-ring w-full rounded-lg border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2"
+web\app\runs\[runId]\components\followup_panel.tsx:97:          className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+web\app\runs\[runId]\components\run_progress.tsx:70:      verified: asNumber(e.data.verified ?? e.data.verified_sentences),
+web\app\runs\[runId]\components\run_progress.tsx:183:    ? sections.reduce((acc, s) => acc + s.verified, 0)
+web\app\runs\[runId]\components\run_progress.tsx:196:          label="Sentences verified"
+web\app\runs\[runId]\components\run_progress.tsx:305:  sections: { section: string; verified: number; dropped: number }[];
+web\app\runs\[runId]\components\run_progress.tsx:387:            — {s.verified} verified, {s.dropped} dropped
+web\app\generation\components\follow_up_append_view.tsx:5:import { VerifiedReportView } from "./verified_report_view";
+web\app\generation\components\follow_up_append_view.tsx:8:// verified report, a labeled separator, then the appended (follow-up)
+web\app\generation\components\follow_up_append_view.tsx:9:// verified report. Production wiring (graph_v4 generating the appended
+web\app\pin_replay\components\diff_side_panel.tsx:20:    key: "verified_sentence_count",
+web\app\runs\[runId]\graph\components\graph_styles.ts:126:  quality: "proof",
+web\app\sign-in\page.tsx:160:                  className="text-destructive text-sm font-medium"
+web\components\inspector\bundle_header.tsx:67:        className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200"
+web\components\inspector\bundle_header.tsx:77:      className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+web\package.json:56:    "prettier-plugin-tailwindcss": "^0.8.0",
+web\tests\e2e\accessibility.spec.ts:72:// preserves the legacy "destructive error banner" test intent.
+web\tests\e2e\accessibility.spec.ts:113:    // Preserves the legacy "/inspector/<bad-runid> destructive error banner"
+web\tests\e2e\accessibility.spec.ts:128:    // the upload-list <li> renders with the destructive-class \"remove\"
+web\tests\e2e\accessibility.spec.ts:153:// exist in the new Inspector — verified_sentences with drop_reason will
+web\tests\e2e\accessibility.spec.ts:154:// render via verified_report_sections.tsx in a future PR that extends
+web\tests\e2e\accessibility.spec.ts:287:// I-cd-013b (GH#669): the legacy /inspector/<bad-runid> destructive-error
+web\tests\e2e\accessibility.spec.ts:290:// The /runs/<bad-runid> destructive-error test below stays here — it
+web\tests\e2e\accessibility.spec.ts:294:  test("Run-detail destructive error banner (invalid runId) is WCAG-AA clean", async ({
+web\tests\e2e\accessibility.spec.ts:297:    // /runs/[runId] page also uses the destructive error pattern; verify it.
+web\package-lock.json:49:        "prettier-plugin-tailwindcss": "^0.8.0",
+web\package-lock.json:5026:      "resolved": "https://registry.npmjs.org/eslint-config-prettier/-/eslint-config-prettier-10.1.8.tgz",
+web\package-lock.json:8428:      "resolved": "https://registry.npmjs.org/prettier/-/prettier-3.8.3.tgz",
+web\package-lock.json:8442:    "node_modules/prettier-plugin-tailwindcss": {
+web\package-lock.json:8444:      "resolved": "https://registry.npmjs.org/prettier-plugin-tailwindcss/-/prettier-plugin-tailwindcss-0.8.0.tgz",
+web\package-lock.json:8452:        "@ianvs/prettier-plugin-sort-imports": "*",
+web\package-lock.json:8456:        "@shopify/prettier-plugin-liquid": "*",
+web\package-lock.json:8457:        "@trivago/prettier-plugin-sort-imports": "*",
+web\package-lock.json:8458:        "@zackad/prettier-plugin-twig": "*",
+web\package-lock.json:8460:        "prettier-plugin-astro": "*",
+web\package-lock.json:8461:        "prettier-plugin-css-order": "*",
+web\package-lock.json:8462:        "prettier-plugin-jsdoc": "*",
+web\package-lock.json:8463:        "prettier-plugin-marko": "*",
+web\package-lock.json:8464:        "prettier-plugin-multiline-arrays": "*",
+web\package-lock.json:8465:        "prettier-plugin-organize-attributes": "*",
+web\package-lock.json:8466:        "prettier-plugin-organize-imports": "*",
+web\package-lock.json:8467:        "prettier-plugin-sort-imports": "*",
+web\package-lock.json:8468:        "prettier-plugin-svelte": "*"
+web\package-lock.json:8471:        "@ianvs/prettier-plugin-sort-imports": {
+web\package-lock.json:8483:        "@shopify/prettier-plugin-liquid": {
+web\package-lock.json:8486:        "@trivago/prettier-plugin-sort-imports": {
+web\package-lock.json:8489:        "@zackad/prettier-plugin-twig": {
+web\package-lock.json:8492:        "prettier-plugin-astro": {
+web\package-lock.json:8495:        "prettier-plugin-css-order": {
+web\package-lock.json:8498:        "prettier-plugin-jsdoc": {
+web\package-lock.json:8501:        "prettier-plugin-marko": {
+web\package-lock.json:8504:        "prettier-plugin-multiline-arrays": {
+web\package-lock.json:8507:        "prettier-plugin-organize-attributes": {
+web\package-lock.json:8510:        "prettier-plugin-organize-imports": {
+web\package-lock.json:8513:        "prettier-plugin-sort-imports": {
+web\package-lock.json:8516:        "prettier-plugin-svelte": {
+web\tests\e2e\audit_live_adversarial.spec.ts:35:test("zero-verified-abort banner when all verify decisions drop", async ({
+web\tests\e2e\audit_live_adversarial.spec.ts:44:  await expect(page.getByTestId("zero-verified-abort")).toBeVisible({
+web\tests\e2e\audit_live_adversarial.spec.ts:66:  await expect(page.getByTestId("zero-verified-abort")).toBeHidden();
+web\tests\e2e\audit_bundle.spec.ts:25:    // Wait for either verified report or generation error
+web\tests\e2e\audit_bundle.spec.ts:27:      page.getByTestId("verified-report-view").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:38:    if (await page.getByTestId("verified-report-view").isVisible()) {
+web\tests\e2e\audit_bundle.spec.ts:51:      page.getByTestId("verified-report-view").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:61:    if (!(await page.getByTestId("verified-report-view").isVisible())) {
+web\scripts\capture_screenshots.mjs:69:    name: "inspector_contradiction_golden",
+web\scripts\capture_screenshots.mjs:71:    description: "Inspector view of housing contradiction golden run",
+web\tests\e2e\bundle_preview.spec.ts:52:    verified_report: { count: 1, bytes: 4096 },
+web\tests\e2e\bundle_preview.spec.ts:117:    "verified_report",
+web\tests\e2e\command_palette_adversarial.spec.ts:13: * Iter-1 + iter-2 Codex empirical scoring runs verified each corpus
+web\app\sentence_hover_test\memory_cite\page.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\memory_cite\page.tsx:16:      verified_sentences: [
+web\app\sentence_hover_test\memory_cite\page.tsx:37:      section_status: "verified",
+web\app\sentence_hover_test\_demo_coverage.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_coverage.tsx:83:        verified_sentences: [
+web\app\sentence_hover_test\_demo_coverage.tsx:94:        section_status: "verified",
+web\app\sentence_hover_test\follow_up_append\page.tsx:17:        verified_sentences: [
+web\app\sentence_hover_test\follow_up_append\page.tsx:28:        section_status: "verified",
+web\app\sentence_hover_test\_demo.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo.tsx:114:      verified_sentences: [
+web\app\sentence_hover_test\_demo.tsx:212:        // sec_x:18..22 — non-prose assertion surfaces (I-f5-009).
+web\app\sentence_hover_test\_demo.tsx:257:        // sec_x:26 — contradiction signal (I-f8-001/I-f8-002).
+web\app\sentence_hover_test\_demo.tsx:269:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:305:        // sec_x:27 — self-contradiction (I-f8-003).
+web\app\sentence_hover_test\_demo.tsx:308:          sentence_text: "Self-contradiction demo: same source on both sides.",
+web\app\sentence_hover_test\_demo.tsx:313:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:314:            kind: "self_contradiction",
+web\app\sentence_hover_test\_demo.tsx:339:        // sec_x:28 — regulatory non-numeric contradiction (I-f8-004).
+web\app\sentence_hover_test\_demo.tsx:343:            "Regulatory non-numeric contradiction: FDA approved vs not.",
+web\app\sentence_hover_test\_demo.tsx:348:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:378:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:412:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:456:      section_status: "verified",
+web\app\sentence_hover_test\_demo_perf.tsx:121:          className="border-border w-fit rounded border px-4 py-2 text-sm hover:bg-blue-500/10 disabled:opacity-50"
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:60:        verified_sentences: Array.from({ length: N }, (_, i) => ({
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:79:        section_status: "verified",
+web\app\sentence_hover_test\_demo_stress.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_stress.tsx:57:        verified_sentences: Array.from({ length: n }, (_, i) => ({
+web\app\sentence_hover_test\_demo_stress.tsx:68:        section_status: "verified",
+web\tests\e2e\demo_journey.spec.ts:8:// renders. That step's assertions cover the verified-report → claim →
+web\tests\e2e\follow_up_append.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toHaveCount(2);
+web\tests\e2e\generation.spec.ts:11: * happy path renders a verified report; without them the chain fails
+web\tests\e2e\generation.spec.ts:62:    // verified report renders. Both are valid e2e outcomes.
+web\tests\e2e\generation.spec.ts:68:        .getByTestId("verified-report-view")
+web\tests\e2e\generation.spec.ts:76:      .getByTestId("verified-report-view")
+web\tests\e2e\inspector_offline_fallback.spec.ts:50:  // Bundle header + verified report visible.
+web\tests\e2e\inspector_route.spec.ts:50:  test("family segregation badge shows pass (verified_report SoT)", async ({
+web\tests\e2e\frame_coverage_panel.spec.ts:59:test("Frame coverage panel is the first child of verified-report-view (above-the-fold)", async ({
+web\tests\e2e\frame_coverage_panel.spec.ts:65:  // Codex iter-1 P2: assert first-child of verified-report-view — the
+web\tests\e2e\frame_coverage_panel.spec.ts:68:    const rv = document.querySelector('[data-testid="verified-report-view"]');
+web\tests\e2e\multi_source_panel.spec.ts:36:      page.getByTestId(`multi-source-pane-tier-${id}`),
+web\tests\e2e\pin_regression_alert.spec.ts:24:      page.getByTestId("regression-alert-verified_sentence_count"),
+web\tests\e2e\pin_replay_diff.spec.ts:30:      page.getByTestId("pin-diff-row-verified_sentence_count"),
+web\tests\e2e\pin_retraction_handled.spec.ts:20:      page.getByTestId("regression-alert-verified_sentence_count"),
+web\tests\e2e\retrieval.spec.ts:93:      await expect(page.getByTestId("tier-badge-T1")).toBeVisible();
+web\tests\e2e\retrieval.spec.ts:94:      await expect(page.getByTestId("tier-badge-T2")).toBeVisible();
+web\tests\e2e\retrieval.spec.ts:95:      await expect(page.getByTestId("tier-badge-T3")).toBeVisible();
+web\tests\e2e\sentence_hover.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:3:test("Sentence row with contradiction signal shows ⚠ badge", async ({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:8:  const badge = row.getByTestId("inspector-contradiction-sec_x:26");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:17:test("Sentence row without contradiction shows NO contradiction badge", async ({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:22:  await expect(row.getByTestId("inspector-contradiction-sec_x:5")).toHaveCount(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:27:test("Click contradiction badge → ContradictionPane shows N sides", async ({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:31:  await page.getByTestId("inspector-contradiction-sec_x:26").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:32:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:35:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:39:  await expect(page.getByTestId("contradiction-side-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:40:  await expect(page.getByTestId("contradiction-side-1")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:41:  await expect(page.getByTestId("contradiction-side-2")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:43:  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:46:  await expect(page.getByTestId("contradiction-tier-0")).toContainText("T1");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:47:  await expect(page.getByTestId("contradiction-sample-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:50:  await expect(page.getByTestId("contradiction-hedge-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:53:  await expect(page.getByTestId("contradiction-pt08-0")).toContainText("PT04");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:54:  await expect(page.getByTestId("contradiction-claim-0")).toContainText("81mg");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:61:  await page.getByTestId("inspector-contradiction-sec_x:28").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:62:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:65:  await expect(page.getByTestId("contradiction-category")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:68:  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:71:  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:78:  await page.getByTestId("inspector-contradiction-sec_x:29").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:79:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:82:  await expect(page.getByTestId("contradiction-evidence-type-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:85:  await expect(page.getByTestId("contradiction-evidence-type-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:92:  await page.getByTestId("inspector-contradiction-sec_x:30").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:93:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:96:  await expect(page.getByTestId("contradiction-jurisdiction-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:99:  await expect(page.getByTestId("contradiction-jurisdiction-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:104:test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:106:  const badge = page.getByTestId("inspector-contradiction-sec_x:27");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:111:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:112:    "Self-contradiction",
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:114:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:118:  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:121:  await expect(page.getByTestId("contradiction-source-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:124:  await expect(page.getByTestId("contradiction-claim-0")).toContainText("safe");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:125:  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+web\tests\e2e\sentence_inspector.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector_latency.spec.ts:9:    await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector_source.spec.ts:16:  await expect(page.getByTestId("inspector-tier-T1")).toBeVisible();
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:55:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:15:    "Prose",
+web\tests\e2e\visual_60_baselines.spec.ts:50:    testid: "verified-report-view",
+web\tests\e2e\visual_60_baselines.spec.ts:60:    testid: "verified-report-view",
+web\tests\e2e\visual_60_baselines.spec.ts:65:    testid: "verified-report-view",
+
+ succeeded in 2271ms:
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* I-ui-010 (#730): Frontier Minimal — near-monochrome zinc + ONE confident
+     accent (default = blue oklch(0.50 0.18 255); the prior cyan read grey).
+     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
+     border. Accent hue is operator-confirmable (one-token swap; alt indigo
+     oklch(0.50 0.16 270) / teal oklch(0.52 0.12 215)). chart-* left mono. */
+  --background: oklch(0.985 0.001 286.375);
+  --foreground: oklch(0.21 0.006 285.9);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  --primary: oklch(0.5 0.18 255);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.21 0.006 285.9);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.96 0.02 255);
+  --accent-foreground: oklch(0.4 0.12 255);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.5 0.18 255);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  /* I-cd-ui-001 (#704): cyan accent for dark mode (slightly lighter L0.65
+     for contrast on the dark surface; dark text on the lighter cyan). */
+  --primary: oklch(0.65 0.17 200);
+  --primary-foreground: oklch(0.21 0.006 285.9);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.32 0.05 200);
+  --accent-foreground: oklch(0.92 0.04 200);
+  --destructive: oklch(0.704 0.191 22.216);
+  /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+     White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+     fails WCAG-AA 4.5:1). Use near-black text instead — dark-on-light-warning is
+     the conventional inverse pattern. */
+  --destructive-foreground: oklch(0.145 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.65 0.17 200);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+codex
+The current code confirms the earlier risks are exactly where the iter-2 plan says they are: blue root/dark accents, half-alpha focus rings, and destructive/aria-invalid using the same red family. I’m checking the proposed colors now for AA and for whether anything in the plan leaves the token layer incomplete.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+function srgbToLinear(c) {
+  c = c / 255;
+  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function luminance(hex) {
+  const m = hex.replace('#','').match(/.{2}/g).map(x => parseInt(x, 16));
+  const [r,g,b] = m.map(srgbToLinear);
+  return 0.2126*r + 0.7152*g + 0.0722*b;
+}
+function contrast(a,b) {
+  const L1 = luminance(a), L2 = luminance(b);
+  const hi = Math.max(L1,L2), lo = Math.min(L1,L2);
+  return (hi + 0.05) / (lo + 0.05);
+}
+for (const pair of [['#C8102E','#FFFFFF'], ['#C8102E','#FAFAFA'], ['#C8102E','#18181B']]) {
+  console.log(pair.join(' vs '), contrast(pair[0], pair[1]).toFixed(2));
+}
+'@ | node -" in C:\POLARIS
+ succeeded in 1159ms:
+#C8102E vs #FFFFFF 5.88
+#C8102E vs #FAFAFA 5.64
+#C8102E vs #18181B 3.01
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+function srgbToLinear(c) {
+  c = c / 255;
+  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function luminanceRgb([r,g,b]) {
+  const [R,G,B] = [r,g,b].map(srgbToLinear);
+  return 0.2126*R + 0.7152*G + 0.0722*B;
+}
+function contrastLum(a,b) { const hi=Math.max(a,b), lo=Math.min(a,b); return (hi+0.05)/(lo+0.05); }
+function hexToRgb(h) { return h.replace('#','').match(/.{2}/g).map(x=>parseInt(x,16)); }
+function composite(fg, bg, alpha) { return fg.map((v,i)=>Math.round(v*alpha + bg[i]*(1-alpha))); }
+const red = hexToRgb('#C8102E');
+const white = hexToRgb('#FFFFFF');
+for (const a of [0.5,0.6,0.65,0.7,0.75,0.8,0.9,1]) {
+  const comp = composite(red, white, a);
+  const ratio = contrastLum(luminanceRgb(comp), luminanceRgb(white));
+  const hex = '#' + comp.map(x=>x.toString(16).padStart(2,'0')).join('').toUpperCase();
+  console.log(a.toFixed(2), hex, ratio.toFixed(2));
+}
+'@ | node -" in C:\POLARIS
+ succeeded in 1317ms:
+0.50 #E48897 2.54
+0.60 #DE7082 3.11
+0.65 #DB6477 3.44
+0.70 #D9586D 3.77
+0.75 #D64C62 4.14
+0.80 #D34058 4.52
+0.90 #CE2843 5.24
+1.00 #C8102E 5.88
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+function srgbToLinear(c) { c /= 255; return c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055,2.4); }
+function lum(rgb) { const [r,g,b]=rgb.map(srgbToLinear); return .2126*r+.7152*g+.0722*b; }
+function contrast(a,b) { const [hi,lo]=[Math.max(a,b),Math.min(a,b)]; return (hi+.05)/(lo+.05); }
+function hex(h) { return h.replace('#','').match(/../g).map(x=>parseInt(x,16)); }
+function comp(f,b,a) { return f.map((v,i)=>Math.round(v*a+b[i]*(1-a))); }
+const red=hex('#C8102E');
+for (const bgHex of ['#FFFFFF','#FAFAFA','#F4F4F5','#E4E4E7']) {
+ const bg=hex(bgHex);
+ const lbg=lum(bg);
+ console.log('bg', bgHex);
+ for (const a of [0.55,0.6,0.65]) {
+  const c=comp(red,bg,a);
+  console.log(a, contrast(lum(c),lbg).toFixed(2), '#' + c.map(x=>x.toString(16).padStart(2,'0')).join('').toUpperCase());
+ }
+}
+'@ | node -" in C:\POLARIS
+ succeeded in 955ms:
+bg #FFFFFF
+0.55 2.81 #E17C8C
+0.6 3.11 #DE7082
+0.65 3.44 #DB6477
+bg #FAFAFA
+0.55 2.78 #DF798A
+0.6 3.06 #DC6E80
+0.65 3.36 #DA6275
+bg #F4F4F5
+0.55 2.71 #DC7788
+0.6 2.99 #DA6B7E
+0.65 3.29 #D76074
+bg #E4E4E7
+0.55 2.58 #D56F81
+0.6 2.80 #D36578
+0.65 3.05 #D25A6F
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "sidebar-(primary|accent|ring)|bg-sidebar|text-sidebar|border-sidebar" web' in C:\POLARIS
+ succeeded in 1133ms:
+web\app\globals.css:13:  --color-sidebar-ring: var(--sidebar-ring);
+web\app\globals.css:15:  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+web\app\globals.css:16:  --color-sidebar-accent: var(--sidebar-accent);
+web\app\globals.css:17:  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+web\app\globals.css:18:  --color-sidebar-primary: var(--sidebar-primary);
+web\app\globals.css:85:  --sidebar-primary: oklch(0.205 0 0);
+web\app\globals.css:86:  --sidebar-primary-foreground: oklch(0.985 0 0);
+web\app\globals.css:87:  --sidebar-accent: oklch(0.97 0 0);
+web\app\globals.css:88:  --sidebar-accent-foreground: oklch(0.205 0 0);
+web\app\globals.css:90:  --sidebar-ring: oklch(0.708 0 0);
+web\app\globals.css:126:  --sidebar-primary: oklch(0.488 0.243 264.376);
+web\app\globals.css:127:  --sidebar-primary-foreground: oklch(0.985 0 0);
+web\app\globals.css:128:  --sidebar-accent: oklch(0.269 0 0);
+web\app\globals.css:129:  --sidebar-accent-foreground: oklch(0.985 0 0);
+web\app\globals.css:131:  --sidebar-ring: oklch(0.556 0 0);
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+function s(c){c/=255;return c<=.03928?c/12.92:Math.pow((c+.055)/1.055,2.4)}
+function l(rgb){const [r,g,b]=rgb.map(s);return .2126*r+.7152*g+.0722*b}
+function cr(a,b){const hi=Math.max(a,b),lo=Math.min(a,b);return (hi+.05)/(lo+.05)}
+const red=[200,16,46], bg=[245,245,245]; const c=red.map((v,i)=>Math.round(v*.6+bg[i]*.4)); console.log(c, cr(l(c),l(bg)).toFixed(3));
+'@ | node -" in C:\POLARIS
+ succeeded in 1591ms:
+[ 218, 108, 126 ] 2.997
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+function s01(c){return c<=.03928?c/12.92:Math.pow((c+.055)/1.055,2.4)}
+function l01(rgb){const [r,g,b]=rgb.map(s01);return .2126*r+.7152*g+.0722*b}
+function cr(a,b){const hi=Math.max(a,b),lo=Math.min(a,b);return (hi+.05)/(lo+.05)}
+const red=[200/255,16/255,46/255], bg=[245/255,245/255,245/255]; const c=red.map((v,i)=>v*.6+bg[i]*.4); console.log(c.map(x=>x*255), cr(l01(c),l01(bg)).toFixed(6));
+'@ | node -" in C:\POLARIS
+ succeeded in 1267ms:
+[ 218.00000000000003, 107.60000000000001, 125.6 ] 3.005699
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+```
+tokens used
+54,225
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+```
