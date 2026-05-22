@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief APPROVE iter1 (own source shape + dedicated stance badge, honest fields).

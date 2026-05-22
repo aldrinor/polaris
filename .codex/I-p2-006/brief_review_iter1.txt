@@ -1,0 +1,2170 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4ed3-59c0-7ea0-9bfc-7afea2b58da1
+--------
+user
+# Codex BRIEF review — I-p2-006 (#745): source / evidence card
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; cosmetics → P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; do not bank for iter 6.
+- Surface held-back findings now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Task
+A reusable **source / evidence card** (TIER 2; report/audit/source-review pages reuse it) showing a single retrieved source's identity + provenance.
+
+## Verified current state (grounded — avoid inventing fields)
+- REAL per-source fields (evidence_pool_table.tsx SourceShape + evidence_span.ts EvidenceSource): `source_id, title, url, domain, tier, authors[], snippet`. THAT is the per-source data.
+- NOT per-source (do NOT fabricate onto a source): `sha256`/content hash + `contract_version` are BUNDLE-level (api.ts:303,432); support/contradict is a RUN-level signal (api.ts contradictions[] / ContradictionSignal), not intrinsic to one source.
+- #742 tokens: --tier-1/2/3, Canada-red --primary; VerdictChip (#744) for any stance label.
+
+## Acceptance criteria (diff implements; brief reviews the plan)
+1. `web/components/source/source_card.tsx`: prop `source` (the real fields above) + OPTIONAL `stance?: "support" | "contradict" | null` + OPTIONAL `contentHash?: string` (rendered ONLY when the consumer passes it — never invented).
+2. Renders: tier badge (—tier token + label), title (interactive link to `url` if present — a CARD MAY hold links, unlike a tooltip), domain, authors (if any), snippet excerpt, mono `source_id`. Optional: stance badge (reuse VerdictChip mapping or a small support/contradict badge) + contentHash (mono) ONLY when provided.
+3. Honest: render ONLY fields actually present (no "unknown"/fabricated hash/version/stance). Missing optional fields are simply omitted.
+4. Frontier-Minimal (white, Canada-red, hairline card, mono for ids/hash); WCAG 2.2 (link focus-visible, AA, target ≥24px).
+
+## Files I have ALSO checked and they're clean
+- web/lib/evidence_span.ts (EvidenceSource), web/components/inspector/evidence_pool_table.tsx (SourceShape + existing table render), web/components/verdict/verdict_chip.tsx (#744, reuse for stance), web/app/globals.css (#742 tier tokens).
+
+## Review focus
+1. Does the card avoid inventing non-per-source fields (hash/version/stance only when explicitly passed)? Any field shown that isn't real per-source data = a P0/P1 honesty violation.
+2. Tier badge mapping to —tier tokens correct + AA?
+3. Interactive link a11y (focus-visible, rel=noopener); card vs tooltip distinction sound?
+4. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+codex
+I’ll inspect the current diff and the source-card-related files against the acceptance criteria, then return only the requested YAML findings.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "SourceCard|source_card|contentHash|contract_version|sha256|stance|VerdictChip|tier-" web/components web/lib web/app' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/components/source/source_card.tsx web/components/verdict/verdict_chip.tsx web/app/globals.css web/lib/evidence_span.ts web/components/inspector/evidence_pool_table.tsx' in C:\POLARIS
+ succeeded in 2595ms:
+ M .claude/settings.json
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-p2-006/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+ succeeded in 2854ms:
+web/components\verdict\verdict_chip.tsx:72:export function VerdictChip({ verdict }: { verdict: VerdictKind }) {
+web/lib\contracts.ts:38:  contract_version: "1.0";
+web/lib\contracts.ts:57:    "contract_id" | "contract_version" | "created_at_utc"
+web/lib\contracts.ts:62:    contract_version: "1.0",
+web/lib\api.ts:303:  sha256: string;
+web/lib\api.ts:432:  contract_version: "1.0";
+web/lib\api.ts:1483:  protocol_sha256: string;
+web/app\benchmark\components\benchmark_board.tsx:68:        const msg = err instanceof Error ? err.message : "Unknown error";
+web/app\benchmark\components\benchmark_board.tsx:83:      const msg = err instanceof Error ? err.message : "Unknown error";
+web/components\ui\vega-chart.tsx:62:          setError(err instanceof Error ? err.message : String(err));
+web/app\dashboard\page.tsx:179:      setError(err instanceof Error ? err.message : "Upload failed");
+web/app\dashboard\page.tsx:223:      setError(err instanceof Error ? err.message : "Scope check failed");
+web/app\dashboard\page.tsx:273:            err instanceof Error ? err.message : "Ambiguity check failed",
+web/app\dashboard\page.tsx:303:      if (err instanceof ConcurrentRunError) {
+web/app\dashboard\page.tsx:314:      const message = err instanceof Error ? err.message : "Unknown error";
+web/app\globals.css:37:  --color-tier-1: var(--tier-1);
+web/app\globals.css:38:  --color-tier-2: var(--tier-2);
+web/app\globals.css:39:  --color-tier-3: var(--tier-3);
+web/app\globals.css:101:  --tier-1: #c8102e;
+web/app\globals.css:102:  --tier-2: oklch(0.556 0 0);
+web/app\globals.css:103:  --tier-3: oklch(0.708 0 0);
+web/app\retrieval\components\retrieval_runner.tsx:62:        err instanceof IntakeBadRequestError
+web/app\retrieval\components\retrieval_runner.tsx:64:          : err instanceof Error
+web/app\retrieval\components\retrieval_runner.tsx:85:      if (err instanceof RetrievalBadRequestError) {
+web/app\retrieval\components\retrieval_runner.tsx:94:      const msg = err instanceof Error ? err.message : "Retrieval failed.";
+web/app\intake\components\intake_form.tsx:96:      if (err instanceof IntakeBadRequestError) {
+web/app\intake\components\intake_form.tsx:100:      const message = err instanceof Error ? err.message : "Unknown error.";
+web/app\retrieval\components\corpus_brief.tsx:36:      data-testid={`tier-badge-${tier}`}
+web/app\inspector\offline\page.tsx:31:        exc instanceof BundleClientLoaderError
+web/app\generation\components\BundlePreview.tsx:52:        if (err instanceof AuditBundleError) {
+web/app\generation\components\BundlePreview.tsx:55:          const message = err instanceof Error ? err.message : "Unknown error.";
+web/lib\signed_bundle.ts:50:  sha256: string; // lowercase hex SHA256
+web/app\upload\components\upload_drop_zone.tsx:136:        const msg = err instanceof Error ? err.message : "upload failed";
+web/app\generation\components\contradiction_pane.tsx:132:                    data-testid={`contradiction-tier-${idx}`}
+web/app\generation\components\generation_runner.tsx:67:      const code = err instanceof IntakeBadRequestError ? err.code : "unknown";
+web/app\generation\components\generation_runner.tsx:68:      const msg = err instanceof Error ? err.message : "Intake failed.";
+web/app\generation\components\generation_runner.tsx:89:        err instanceof RetrievalBadRequestError ? err.code : "unknown";
+web/app\generation\components\generation_runner.tsx:90:      const msg = err instanceof Error ? err.message : "Retrieval failed.";
+web/app\generation\components\generation_runner.tsx:112:        err instanceof GenerationBadRequestError ? err.code : "unknown";
+web/app\generation\components\generation_runner.tsx:113:      const msg = err instanceof Error ? err.message : "Generation failed.";
+web/app\generation\components\generation_runner.tsx:258:      if (err instanceof AuditBundleError) {
+web/app\generation\components\generation_runner.tsx:261:        const msg = err instanceof Error ? err.message : "Unknown error.";
+web/lib\inspector_bundle_client_loader.ts:137:    if (exc instanceof _GzipBombAbort) {
+web/lib\inspector_bundle_client_loader.ts:163:async function _sha256Hex(bytes: Uint8Array): Promise<string> {
+web/lib\inspector_bundle_client_loader.ts:218:  if (tarBytes instanceof BundleClientLoaderError) {
+web/lib\inspector_bundle_client_loader.ts:268:    const actualSha = await _sha256Hex(candidate.bytes);
+web/lib\inspector_bundle_client_loader.ts:269:    if (actualSha !== entry.sha256) {
+web/lib\inspector_bundle_client_loader.ts:271:        "sha256_mismatch",
+web/lib\inspector_bundle_client_loader.ts:272:        `${JSON.stringify(entry.path)}: manifest sha256=${JSON.stringify(entry.sha256)}, actual=${JSON.stringify(actualSha)}.`,
+web/app\generation\components\sentence_inspector.tsx:132:function SourceCard({
+web/app\generation\components\sentence_inspector.tsx:197:            data-testid={`inspector-tier-${source.tier}`}
+web/app\generation\components\sentence_inspector.tsx:292:                    <SourceCard
+web/app\generation\components\multi_source_panel.tsx:71:          data-testid={`multi-source-pane-tier-${source_id}`}
+web/app\runs\[runId]\page.tsx:44:          const raw = err instanceof Error ? err.message : String(err);
+web/app\runs\[runId]\page.tsx:96:        err instanceof Error
+web/app\runs\[runId]\page.tsx:125:                err instanceof Error
+web/app\runs\[runId]\page.tsx:195:                  err instanceof Error
+web/components\citation\citation_chip.tsx:23:  if (t === "T1" || t === "1") return "bg-tier-1"; // primary evidence (red)
+web/components\citation\citation_chip.tsx:24:  if (t === "T2" || t === "2") return "bg-tier-2";
+web/components\citation\citation_chip.tsx:25:  return "bg-tier-3";
+web/components\inspector\hash_chain_panel.tsx:1:// I-cd-013a (GH#609) — manifest.files[] table (path + content_type + size + sha256 head).
+web/components\inspector\hash_chain_panel.tsx:46:                    {f.sha256.slice(0, 16)}&hellip;
+web/app\runs\[runId]\graph\components\claim_graph.tsx:60:  const [cyInstance, _setCyInstance] = useState<cytoscape.Core | null>(null);
+web/app\runs\[runId]\graph\components\claim_graph.tsx:61:  const setCyInstance = (cy: cytoscape.Core | null) => {
+web/app\runs\[runId]\graph\components\claim_graph.tsx:62:    _setCyInstance(cy);
+web/app\runs\[runId]\graph\components\claim_graph.tsx:89:    if (!cyInstance) return;
+web/app\runs\[runId]\graph\components\claim_graph.tsx:108:    cyInstance.on("tap", "node", onTap);
+web/app\runs\[runId]\graph\components\claim_graph.tsx:109:    cyInstance.on("mouseover", "node", onMouseover);
+web/app\runs\[runId]\graph\components\claim_graph.tsx:110:    cyInstance.on("mouseout", "node", onMouseout);
+web/app\runs\[runId]\graph\components\claim_graph.tsx:112:      cyInstance.off("tap", "node", onTap);
+web/app\runs\[runId]\graph\components\claim_graph.tsx:113:      cyInstance.off("mouseover", "node", onMouseover);
+web/app\runs\[runId]\graph\components\claim_graph.tsx:114:      cyInstance.off("mouseout", "node", onMouseout);
+web/app\runs\[runId]\graph\components\claim_graph.tsx:116:  }, [cyInstance, setSelectedNodeId]);
+web/app\runs\[runId]\graph\components\claim_graph.tsx:120:    if (!cyInstance) return;
+web/app\runs\[runId]\graph\components\claim_graph.tsx:121:    cyInstance.nodes().removeClass("snowball-neighbor");
+web/app\runs\[runId]\graph\components\claim_graph.tsx:123:    cyInstance
+web/app\runs\[runId]\graph\components\claim_graph.tsx:127:  }, [cyInstance, snowballHighlightIds]);
+web/app\runs\[runId]\graph\components\claim_graph.tsx:132:    if (!cyInstance) return;
+web/app\runs\[runId]\graph\components\claim_graph.tsx:133:    cyInstance.nodes().removeClass("search-hit");
+web/app\runs\[runId]\graph\components\claim_graph.tsx:135:    cyInstance
+web/app\runs\[runId]\graph\components\claim_graph.tsx:154:  }, [cyInstance, searchQuery]);
+web/app\runs\[runId]\graph\components\claim_graph.tsx:158:    if (!cyInstance) return;
+web/app\runs\[runId]\graph\components\claim_graph.tsx:159:    cyInstance.nodes().removeClass("selected");
+web/app\runs\[runId]\graph\components\claim_graph.tsx:161:      cyInstance.getElementById(selectedNodeId).addClass("selected");
+web/app\runs\[runId]\graph\components\claim_graph.tsx:163:  }, [cyInstance, selectedNodeId]);
+web/app\runs\[runId]\graph\components\claim_graph.tsx:177:          cy={(cy) => setCyInstance(cy)}
+
+ succeeded in 3259ms:
+codex
+The tracked diff for the named web files is empty, so I’m checking the issue-specific brief artifacts now. That usually means the proposed patch is staged elsewhere as a review input rather than applied in the working tree.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Recurse -Force .codex\\I-p2-006 | Select-Object FullName,Length,LastWriteTime" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"source_card|SourceCard|contentHash|stance|I-p2-006|#745|745\" .codex\\I-p2-006 web tests -g \""'!*node_modules*"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Test-Path web\\components\\source\\source_card.tsx; if (Test-Path web\\components\\source) { Get-ChildItem -Force web\\components\\source | Select-Object Name,Length,LastWriteTime }" in C:\POLARIS
+ succeeded in 1733ms:
+
+[32;1mFullName                                         [0m[32;1m Length[0m[32;1m LastWriteTime[0m
+[32;1m--------                                         [0m [32;1m------[0m [32;1m-------------[0m
+C:\POLARIS\.codex\I-p2-006\brief_review_iter1.txt      0 2026-05-22 1:35:33 AM
+C:\POLARIS\.codex\I-p2-006\brief.md                 2929 2026-05-22 1:35:33 AM
+
+
+ succeeded in 2197ms:
+.codex\I-p2-006\brief.md:1:# Codex BRIEF review — I-p2-006 (#745): source / evidence card
+.codex\I-p2-006\brief.md:17:- #742 tokens: --tier-1/2/3, Canada-red --primary; VerdictChip (#744) for any stance label.
+.codex\I-p2-006\brief.md:20:1. `web/components/source/source_card.tsx`: prop `source` (the real fields above) + OPTIONAL `stance?: "support" | "contradict" | null` + OPTIONAL `contentHash?: string` (rendered ONLY when the consumer passes it — never invented).
+.codex\I-p2-006\brief.md:21:2. Renders: tier badge (—tier token + label), title (interactive link to `url` if present — a CARD MAY hold links, unlike a tooltip), domain, authors (if any), snippet excerpt, mono `source_id`. Optional: stance badge (reuse VerdictChip mapping or a small support/contradict badge) + contentHash (mono) ONLY when provided.
+.codex\I-p2-006\brief.md:22:3. Honest: render ONLY fields actually present (no "unknown"/fabricated hash/version/stance). Missing optional fields are simply omitted.
+.codex\I-p2-006\brief.md:26:- web/lib/evidence_span.ts (EvidenceSource), web/components/inspector/evidence_pool_table.tsx (SourceShape + existing table render), web/components/verdict/verdict_chip.tsx (#744, reuse for stance), web/app/globals.css (#742 tier tokens).
+.codex\I-p2-006\brief.md:29:1. Does the card avoid inventing non-per-source fields (hash/version/stance only when explicitly passed)? Any field shown that isn't real per-source data = a P0/P1 honesty violation.
+tests\integration\test_campaign_persistence.py:87:        assert isinstance(retrieved["queries_json"], list)
+tests\integration\test_campaign_persistence.py:90:        assert isinstance(retrieved["results_json"], dict)
+tests\integration\test_campaign_persistence.py:91:        assert isinstance(retrieved["metadata_json"], dict)
+tests\integration\test_campaign_persistence.py:93:        assert isinstance(retrieved["created_at"], float)
+tests\integration\test_campaign_persistence.py:94:        assert isinstance(retrieved["updated_at"], float)
+tests\integration\test_campaign_persistence.py:171:        assert isinstance(retrieved["results_json"], dict)
+tests\integration\test_campaign_persistence.py:201:    # 6. Persistence across "new" store instances (same DB path)
+tests\integration\test_campaign_persistence.py:203:    async def test_persistence_across_store_instances(self, campaign_db, monkeypatch):
+tests\integration\test_concurrency_cap.py:4:Tests REAL asyncio primitives, REAL Semaphore instances, and REAL concurrent
+tests\integration\test_concurrency_cap.py:56:        """get_semaphore() must return a real asyncio.Semaphore instance."""
+tests\integration\test_concurrency_cap.py:58:        assert isinstance(sem, asyncio.Semaphore), (
+tests\integration\test_concurrency_cap.py:68:    def test_reset_semaphore_yields_new_instance(self):
+tests\integration\test_concurrency_cap.py:76:        assert isinstance(replacement, asyncio.Semaphore)
+tests\integration\test_docx_export.py:66:    """Fresh DocxExporter instance per test."""
+tests\integration\test_docx_export.py:90:            "PFAS (per- and polyfluoroalkyl substances) represent a class of "
+tests\polaris_v6\queue\test_run_events.py:56:    assert isinstance(payload, dict)
+tests\integration\test_ltm_priors_injection.py:27:# instances share a singleton in-memory backend, so creating multiple
+tests\integration\test_ltm_priors_injection.py:28:# instances does NOT provide isolation.  Use unique collection names
+tests\integration\test_ltm_priors_injection.py:206:    # 2. query_ltm returns relevant items ordered by distance
+tests\integration\test_ltm_priors_injection.py:219:        # Water-related items should have smaller distance than solar panel item
+tests\integration\test_ltm_priors_injection.py:223:            assert min(w["distance"] for w in water_items) < min(s["distance"] for s in solar_items)
+tests\integration\test_ltm_priors_injection.py:235:        expected_keys = {"id", "statement", "source", "quality_tier", "faithfulness", "relevance_score", "vector_id", "distance"}
+tests\integration\test_ltm_priors_injection.py:237:        assert isinstance(item["distance"], float)
+tests\integration\test_ltm_priors_injection.py:238:        assert isinstance(item["faithfulness"], float)
+tests\integration\test_ltm_priors_injection.py:285:        assert "distance" in item
+tests\integration\test_ltm_priors_injection.py:345:    # 9. LTM items ordered by distance ascending
+tests\integration\test_ltm_priors_injection.py:346:    def test_results_ordered_by_distance_ascending(self, ephemeral_chroma):
+tests\integration\test_ltm_priors_injection.py:349:        # Promote diverse evidence so distances vary
+tests\integration\test_ltm_priors_injection.py:359:        distances = [r["distance"] for r in results]
+tests\integration\test_ltm_priors_injection.py:360:        assert distances == sorted(distances), (
+tests\integration\test_ltm_priors_injection.py:361:            f"Expected ascending distance order, got: {distances}"
+tests\integration\test_ltm_priors_injection.py:393:    # 11. Unrelated query gives higher distances
+tests\integration\test_ltm_priors_injection.py:394:    def test_unrelated_query_higher_distances(self, ephemeral_chroma):
+tests\integration\test_ltm_priors_injection.py:409:        # Related query should have smaller minimum distance
+tests\integration\test_ltm_priors_injection.py:410:        assert min(r["distance"] for r in related_results) < min(r["distance"] for r in unrelated_results)
+tests\integration\test_ltm_priors_injection.py:420:                "Per- and polyfluoroalkyl substances (PFAS) are persistent organic pollutants found in water supplies worldwide",
+.codex\I-p2-006\brief_review_iter1.txt:13:# Codex BRIEF review — I-p2-006 (#745): source / evidence card
+.codex\I-p2-006\brief_review_iter1.txt:29:- #742 tokens: --tier-1/2/3, Canada-red --primary; VerdictChip (#744) for any stance label.
+.codex\I-p2-006\brief_review_iter1.txt:32:1. `web/components/source/source_card.tsx`: prop `source` (the real fields above) + OPTIONAL `stance?: "support" | "contradict" | null` + OPTIONAL `contentHash?: string` (rendered ONLY when the consumer passes it — never invented).
+.codex\I-p2-006\brief_review_iter1.txt:33:2. Renders: tier badge (—tier token + label), title (interactive link to `url` if present — a CARD MAY hold links, unlike a tooltip), domain, authors (if any), snippet excerpt, mono `source_id`. Optional: stance badge (reuse VerdictChip mapping or a small support/contradict badge) + contentHash (mono) ONLY when provided.
+.codex\I-p2-006\brief_review_iter1.txt:34:3. Honest: render ONLY fields actually present (no "unknown"/fabricated hash/version/stance). Missing optional fields are simply omitted.
+.codex\I-p2-006\brief_review_iter1.txt:38:- web/lib/evidence_span.ts (EvidenceSource), web/components/inspector/evidence_pool_table.tsx (SourceShape + existing table render), web/components/verdict/verdict_chip.tsx (#744, reuse for stance), web/app/globals.css (#742 tier tokens).
+.codex\I-p2-006\brief_review_iter1.txt:41:1. Does the card avoid inventing non-per-source fields (hash/version/stance only when explicitly passed)? Any field shown that isn't real per-source data = a P0/P1 honesty violation.
+.codex\I-p2-006\brief_review_iter1.txt:58:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "SourceCard|source_card|contentHash|contract_version|sha256|stance|VerdictChip|tier-" web/components web/lib web/app' in C:\POLARIS
+.codex\I-p2-006\brief_review_iter1.txt:62:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/components/source/source_card.tsx web/components/verdict/verdict_chip.tsx web/app/globals.css web/lib/evidence_span.ts web/components/inspector/evidence_pool_table.tsx' in C:\POLARIS
+.codex\I-p2-006\brief_review_iter1.txt:127:?? .codex/I-p2-006/
+.codex\I-p2-006\brief_review_iter1.txt:508:?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+.codex\I-p2-006\brief_review_iter1.txt:573:web/app\benchmark\components\benchmark_board.tsx:68:        const msg = err instanceof Error ? err.message : "Unknown error";
+.codex\I-p2-006\brief_review_iter1.txt:574:web/app\benchmark\components\benchmark_board.tsx:83:      const msg = err instanceof Error ? err.message : "Unknown error";
+.codex\I-p2-006\brief_review_iter1.txt:575:web/components\ui\vega-chart.tsx:62:          setError(err instanceof Error ? err.message : String(err));
+.codex\I-p2-006\brief_review_iter1.txt:576:web/app\dashboard\page.tsx:179:      setError(err instanceof Error ? err.message : "Upload failed");
+.codex\I-p2-006\brief_review_iter1.txt:577:web/app\dashboard\page.tsx:223:      setError(err instanceof Error ? err.message : "Scope check failed");
+.codex\I-p2-006\brief_review_iter1.txt:578:web/app\dashboard\page.tsx:273:            err instanceof Error ? err.message : "Ambiguity check failed",
+.codex\I-p2-006\brief_review_iter1.txt:579:web/app\dashboard\page.tsx:303:      if (err instanceof ConcurrentRunError) {
+.codex\I-p2-006\brief_review_iter1.txt:580:web/app\dashboard\page.tsx:314:      const message = err instanceof Error ? err.message : "Unknown error";
+.codex\I-p2-006\brief_review_iter1.txt:587:web/app\retrieval\components\retrieval_runner.tsx:62:        err instanceof IntakeBadRequestError
+.codex\I-p2-006\brief_review_iter1.txt:588:web/app\retrieval\components\retrieval_runner.tsx:64:          : err instanceof Error
+.codex\I-p2-006\brief_review_iter1.txt:589:web/app\retrieval\components\retrieval_runner.tsx:85:      if (err instanceof RetrievalBadRequestError) {
+.codex\I-p2-006\brief_review_iter1.txt:590:web/app\retrieval\components\retrieval_runner.tsx:94:      const msg = err instanceof Error ? err.message : "Retrieval failed.";
+.codex\I-p2-006\brief_review_iter1.txt:591:web/app\intake\components\intake_form.tsx:96:      if (err instanceof IntakeBadRequestError) {
+.codex\I-p2-006\brief_review_iter1.txt:592:web/app\intake\components\intake_form.tsx:100:      const message = err instanceof Error ? err.message : "Unknown error.";
+.codex\I-p2-006\brief_review_iter1.txt:594:web/app\inspector\offline\page.tsx:31:        exc instanceof BundleClientLoaderError
+.codex\I-p2-006\brief_review_iter1.txt:595:web/app\generation\components\BundlePreview.tsx:52:        if (err instanceof AuditBundleError) {
+.codex\I-p2-006\brief_review_iter1.txt:596:web/app\generation\components\BundlePreview.tsx:55:          const message = err instanceof Error ? err.message : "Unknown error.";
+.codex\I-p2-006\brief_review_iter1.txt:598:web/app\upload\components\upload_drop_zone.tsx:136:        const msg = err instanceof Error ? err.message : "upload failed";
+.codex\I-p2-006\brief_review_iter1.txt:600:web/app\generation\components\generation_runner.tsx:67:      const code = err instanceof IntakeBadRequestError ? err.code : "unknown";
+.codex\I-p2-006\brief_review_iter1.txt:601:web/app\generation\components\generation_runner.tsx:68:      const msg = err instanceof Error ? err.message : "Intake failed.";
+.codex\I-p2-006\brief_review_iter1.txt:602:web/app\generation\components\generation_runner.tsx:89:        err instanceof RetrievalBadRequestError ? err.code : "unknown";
+.codex\I-p2-006\brief_review_iter1.txt:603:web/app\generation\components\generation_runner.tsx:90:      const msg = err instanceof Error ? err.message : "Retrieval failed.";
+.codex\I-p2-006\brief_review_iter1.txt:604:web/app\generation\components\generation_runner.tsx:112:        err instanceof GenerationBadRequestError ? err.code : "unknown";
+.codex\I-p2-006\brief_review_iter1.txt:605:web/app\generation\components\generation_runner.tsx:113:      const msg = err instanceof Error ? err.message : "Generation failed.";
+.codex\I-p2-006\brief_review_iter1.txt:606:web/app\generation\components\generation_runner.tsx:258:      if (err instanceof AuditBundleError) {
+.codex\I-p2-006\brief_review_iter1.txt:607:web/app\generation\components\generation_runner.tsx:261:        const msg = err instanceof Error ? err.message : "Unknown error.";
+.codex\I-p2-006\brief_review_iter1.txt:608:web/lib\inspector_bundle_client_loader.ts:137:    if (exc instanceof _GzipBombAbort) {
+.codex\I-p2-006\brief_review_iter1.txt:610:web/lib\inspector_bundle_client_loader.ts:218:  if (tarBytes instanceof BundleClientLoaderError) {
+.codex\I-p2-006\brief_review_iter1.txt:615:web/app\generation\components\sentence_inspector.tsx:132:function SourceCard({
+.codex\I-p2-006\brief_review_iter1.txt:617:web/app\generation\components\sentence_inspector.tsx:292:                    <SourceCard
+.codex\I-p2-006\brief_review_iter1.txt:619:web/app\runs\[runId]\page.tsx:44:          const raw = err instanceof Error ? err.message : String(err);
+.codex\I-p2-006\brief_review_iter1.txt:620:web/app\runs\[runId]\page.tsx:96:        err instanceof Error
+.codex\I-p2-006\brief_review_iter1.txt:621:web/app\runs\[runId]\page.tsx:125:                err instanceof Error
+.codex\I-p2-006\brief_review_iter1.txt:622:web/app\runs\[runId]\page.tsx:195:                  err instanceof Error
+.codex\I-p2-006\brief_review_iter1.txt:628:web/app\runs\[runId]\graph\components\claim_graph.tsx:60:  const [cyInstance, _setCyInstance] = useState<cytoscape.Core | null>(null);
+.codex\I-p2-006\brief_review_iter1.txt:629:web/app\runs\[runId]\graph\components\claim_graph.tsx:61:  const setCyInstance = (cy: cytoscape.Core | null) => {
+.codex\I-p2-006\brief_review_iter1.txt:630:web/app\runs\[runId]\graph\components\claim_graph.tsx:62:    _setCyInstance(cy);
+.codex\I-p2-006\brief_review_iter1.txt:631:web/app\runs\[runId]\graph\components\claim_graph.tsx:89:    if (!cyInstance) return;
+.codex\I-p2-006\brief_review_iter1.txt:632:web/app\runs\[runId]\graph\components\claim_graph.tsx:108:    cyInstance.on("tap", "node", onTap);
+.codex\I-p2-006\brief_review_iter1.txt:633:web/app\runs\[runId]\graph\components\claim_graph.tsx:109:    cyInstance.on("mouseover", "node", onMouseover);
+.codex\I-p2-006\brief_review_iter1.txt:634:web/app\runs\[runId]\graph\components\claim_graph.tsx:110:    cyInstance.on("mouseout", "node", onMouseout);
+.codex\I-p2-006\brief_review_iter1.txt:635:web/app\runs\[runId]\graph\components\claim_graph.tsx:112:      cyInstance.off("tap", "node", onTap);
+.codex\I-p2-006\brief_review_iter1.txt:636:web/app\runs\[runId]\graph\components\claim_graph.tsx:113:      cyInstance.off("mouseover", "node", onMouseover);
+.codex\I-p2-006\brief_review_iter1.txt:637:web/app\runs\[runId]\graph\components\claim_graph.tsx:114:      cyInstance.off("mouseout", "node", onMouseout);
+.codex\I-p2-006\brief_review_iter1.txt:638:web/app\runs\[runId]\graph\components\claim_graph.tsx:116:  }, [cyInstance, setSelectedNodeId]);
+.codex\I-p2-006\brief_review_iter1.txt:639:web/app\runs\[runId]\graph\components\claim_graph.tsx:120:    if (!cyInstance) return;
+.codex\I-p2-006\brief_review_iter1.txt:640:web/app\runs\[runId]\graph\components\claim_graph.tsx:121:    cyInstance.nodes().removeClass("snowball-neighbor");
+.codex\I-p2-006\brief_review_iter1.txt:641:web/app\runs\[runId]\graph\components\claim_graph.tsx:123:    cyInstance
+.codex\I-p2-006\brief_review_iter1.txt:642:web/app\runs\[runId]\graph\components\claim_graph.tsx:127:  }, [cyInstance, snowballHighlightIds]);
+.codex\I-p2-006\brief_review_iter1.txt:643:web/app\runs\[runId]\graph\components\claim_graph.tsx:132:    if (!cyInstance) return;
+.codex\I-p2-006\brief_review_iter1.txt:644:web/app\runs\[runId]\graph\components\claim_graph.tsx:133:    cyInstance.nodes().removeClass("search-hit");
+.codex\I-p2-006\brief_review_iter1.txt:645:web/app\runs\[runId]\graph\components\claim_graph.tsx:135:    cyInstance
+.codex\I-p2-006\brief_review_iter1.txt:646:web/app\runs\[runId]\graph\components\claim_graph.tsx:154:  }, [cyInstance, searchQuery]);
+.codex\I-p2-006\brief_review_iter1.txt:647:web/app\runs\[runId]\graph\components\claim_graph.tsx:158:    if (!cyInstance) return;
+.codex\I-p2-006\brief_review_iter1.txt:648:web/app\runs\[runId]\graph\components\claim_graph.tsx:159:    cyInstance.nodes().removeClass("selected");
+.codex\I-p2-006\brief_review_iter1.txt:649:web/app\runs\[runId]\graph\components\claim_graph.tsx:161:      cyInstance.getElementById(selectedNodeId).addClass("selected");
+.codex\I-p2-006\brief_review_iter1.txt:650:web/app\runs\[runId]\graph\components\claim_graph.tsx:163:  }, [cyInstance, selectedNodeId]);
+.codex\I-p2-006\brief_review_iter1.txt:651:web/app\runs\[runId]\graph\components\claim_graph.tsx:177:          cy={(cy) => setCyInstance(cy)}
+.codex\I-p2-006\brief_review_iter1.txt:657:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Recurse -Force .codex\\I-p2-006 | Select-Object FullName,Length,LastWriteTime" in C:\POLARIS
+.codex\I-p2-006\brief_review_iter1.txt:659:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"source_card|SourceCard|contentHash|stance|I-p2-006|#745|745\" .codex\\I-p2-006 web tests -g \""'!*node_modules*"' in C:\POLARIS
+.codex\I-p2-006\brief_review_iter1.txt:661:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Test-Path web\\components\\source\\source_card.tsx; if (Test-Path web\\components\\source) { Get-ChildItem -Force web\\components\\source | Select-Object Name,Length,LastWriteTime }" in C:\POLARIS
+.codex\I-p2-006\brief_review_iter1.txt:666:C:\POLARIS\.codex\I-p2-006\brief_review_iter1.txt      0 2026-05-22 1:35:33 AM
+.codex\I-p2-006\brief_review_iter1.txt:667:C:\POLARIS\.codex\I-p2-006\brief.md                 2929 2026-05-22 1:35:33 AM
+tests\e2e\visual_audit.py:379:        "answer": "Cryptosporidium and rotavirus are priority targets due to their chlorine resistance...",
+tests\integration\test_memory_search_integration.py:228:                         "faithfulness", "vector_id", "distance"}
+tests\integration\test_memory_search_integration.py:233:        """Results should be ordered by distance (ascending = most similar first)."""
+tests\integration\test_memory_search_integration.py:236:            distances = [r["distance"] for r in results]
+tests\integration\test_memory_search_integration.py:237:            assert distances == sorted(distances), \
+tests\integration\test_memory_search_integration.py:238:                f"Results not sorted by distance: {distances}"
+tests\integration\test_memory_search_integration.py:247:        assert isinstance(results, list)
+tests\integration\test_memory_search_integration.py:250:        """Query for unrelated topic should have higher distances."""
+tests\integration\test_memory_search_integration.py:254:            avg_related = sum(r["distance"] for r in related) / len(related)
+tests\integration\test_memory_search_integration.py:255:            avg_unrelated = sum(r["distance"] for r in unrelated) / len(unrelated)
+tests\integration\test_memory_search_integration.py:257:                f"Unrelated ({avg_unrelated:.3f}) should have higher distance " \
+tests\e2e\test_gemini_frontend.py:106:- Urethane formulations show superior UV resistance with only 3% degradation [2]
+tests\e2e\test_gemini_frontend.py:107:- Silicone-based coatings exhibit the best chemical resistance [3]
+tests\integration\test_memory_integration.py:102:        assert isinstance(result, list)
+tests\integration\test_memory_integration.py:104:        assert isinstance(stats, dict)
+tests\e2e\test_gemini_e2e.py:103:        elif isinstance(val, set):
+tests\e2e\test_gemini_e2e.py:201:        if isinstance(faith, str):
+tests\crown_jewels\test_cj_005_corpus_approval.py:1:"""Crown Jewel I-cj-005 — Corpus approval rubber-stamp resistance.
+tests\integration\test_override_feedback_loop.py:181:                         "vector_id", "checkpoint_id", "distance"}
+tests\integration\test_override_feedback_loop.py:186:        """PFAS query should rank PFAS override highest (lowest distance)."""
+tests\integration\test_override_feedback_loop.py:191:            distances = [r["distance"] for r in results]
+tests\integration\test_override_feedback_loop.py:192:            assert distances == sorted(distances), \
+tests\integration\test_override_feedback_loop.py:193:                f"Not sorted by distance: {distances}"
+tests\integration\test_override_feedback_loop.py:208:        """Unrelated query should still return results but with higher distance."""
+tests\integration\test_override_feedback_loop.py:216:            avg_r = sum(r["distance"] for r in related) / len(related)
+tests\integration\test_override_feedback_loop.py:217:            avg_u = sum(r["distance"] for r in unrelated) / len(unrelated)
+tests\integration\test_override_feedback_loop.py:219:                f"Unrelated ({avg_u:.3f}) should have higher distance " \
+tests\integration\test_override_feedback_loop.py:394:        assert isinstance(results, list)
+tests\e2e\fixtures\visual_test_data.py:97:<p>In 2024, multiple research groups demonstrated significant milestones in quantum error correction. Google\\'s Willow processor achieved a logical error rate that decreased exponentially with increasing code distance <sup class="cite-link" data-cite="7">[7]</sup>, while IBM demonstrated real-time error correction on their 1,121-qubit Condor processor <sup class="cite-link" data-cite="8">[8]</sup>.</p>
+tests\integration\test_pipeline_crud.py:161:        assert isinstance(tpl["total_nodes"], int)
+tests\integration\test_pipeline_crud.py:163:        assert isinstance(tpl["macro_count"], int)
+tests\integration\test_pipeline_crud.py:308:    assert isinstance(data["execution_order"], list)
+tests\integration\test_pipeline_crud.py:405:    assert isinstance(pipeline, PipelineDefinition)
+tests\e2e\dashboard_tests.py:35:    """Launch a single headless Chromium instance for the entire test session."""
+tests\integration\test_polaris_graph.py:573:    assert isinstance(state["trace_summary"], dict)
+tests\integration\test_polaris_graph.py:664:    assert isinstance(result["agentic_perspective_coverage"], dict)
+tests\integration\test_polaris_graph.py:868:    assert isinstance(result, str)
+tests\integration\test_polaris_graph.py:1293:            "source_content": "Per- and polyfluoroalkyl substances (PFAS) are persistent "
+tests\integration\test_polaris_graph.py:1456:    state["evidence"] = [e if isinstance(e, dict) else dict(e) for e in all_evidence]
+tests\integration\test_polaris_graph.py:1457:    state["claims"] = [c if isinstance(c, dict) else dict(c) for c in claims]
+tests\integration\test_serper_sync.py:46:        assert isinstance(results, list), f"Expected list, got {type(results)}"
+tests\integration\test_serper_sync.py:89:        assert isinstance(results, list)
+tests\integration\test_serper_sync.py:103:        assert isinstance(results, list)
+tests\integration\test_serper_sync.py:115:        assert isinstance(results, list)
+tests\integration\test_sota_compliance.py:293:            if isinstance(work_queue, list):
+tests\integration\test_sota_compliance.py:296:            elif isinstance(work_queue, dict):
+tests\integration\test_wizard_flow.py:53:    """Fresh PipelineWizard instance with a clean global session store."""
+tests\integration\test_wizard_flow.py:88:    assert isinstance(result["response"], str)
+tests\integration\test_wizard_flow.py:179:    assert isinstance(draft["macro_stages"], list)
+tests\integration\test_sota_quality_sprint.py:98:    to be dicts (not SectionOutlineItem instances), so we construct the
+tests\integration\test_sota_quality_sprint.py:346:    assert isinstance(result["examples"], list)
+tests\polaris_v6\api\test_artifact_to_evidence_contract.py:38:    assert isinstance(ec, EvidenceContract)
+tests\polaris_v6\api\test_artifact_to_evidence_contract.py:67:        assert isinstance(s.provenance_tokens, list)
+tests\polaris_v6\api\test_artifact_to_evidence_contract.py:75:    assert isinstance(ec.family_segregation_passed, bool)
+tests\fixtures\subagent_prompts\section_writer_response.txt:5:Weight reduction is the most consistently observed outcome across IF trials, and it is mechanistically central to the improvement of insulin resistance in T2DM. In adults with overweight or obesity, IF reduced fat mass by a mean difference of −0.72 kg compared with a non-intervention diet [CITE:ev_243de27dc515c169]. When IF is combined with structured physical exercise, the weight reduction relative to a control diet plus exercise reaches a weighted mean difference of −1.83 kg (P = 0.001) [CITE:ev_749f00cb5c5eea28], suggesting an additive effect when caloric timing is paired with energy expenditure. The largest effect size is observed with modified alternate-day fasting, which produced a weight reduction of −5.18 kg (95% CI: −7.04 to −3.32) compared with a usual diet, supported by high certainty of evidence [CITE:ev_e7bdb4797d3f6f0f]. The differential between these protocols is clinically meaningful: a five-kilogram loss falls within the range associated with measurable improvements in HbA1c and insulin sensitivity, whereas sub-kilogram fat-mass reductions, although statistically significant, may yield more modest glycemic benefits.
+tests\fixtures\subagent_prompts\section_writer_response.txt:7:The pattern of fat redistribution is equally important. Beyond aggregate weight loss, IF is associated with a modification of the distribution of abdominal fat in people with obesity and T2DM, alongside improvements in glycemic control [CITE:ev_dde1177bb61ef9e9]. Because visceral adiposity is a stronger predictor of hepatic insulin resistance than total body weight, the redistribution pattern offers a plausible mechanistic bridge between fasting-induced energy deficits and downstream glycemic improvements relevant to T2DM management.
+tests\polaris_v6\api\test_app_slice_route_mount.py:96:    """Both routes must be reachable from a single app instance (no
+tests\polaris_v6\api\test_app_slice_route_mount.py:156:    from a single create_app() instance."""
+tests\polaris_graph\test_audit_ir_serializer.py:26:    assert isinstance(payload["artifact_dir"], str)
+tests\polaris_graph\test_audit_ir_serializer.py:35:    assert isinstance(fractions, dict)
+tests\polaris_graph\test_audit_ir_serializer.py:37:    assert isinstance(fractions["T1"], float)
+tests\polaris_graph\test_access_bypass_backend_timeout.py:60:    assert isinstance(result, AccessResult)
+tests\polaris_graph\test_access_bypass_backend_timeout.py:83:    successes = [r for r in results if isinstance(r, AccessResult) and r.success]
+tests\polaris_graph\test_access_bypass_backend_timeout.py:112:    assert isinstance(result, AccessResult)
+tests\polaris_graph\test_audit_ir_registry.py:48:    assert isinstance(canonical, RunSummary)
+tests\polaris_graph\test_citation_health.py:530:    assert isinstance(report, CitationHealthReport)
+tests\polaris_graph\test_citation_health.py:592:    assert isinstance(body["issues"], list)
+tests\polaris_graph\test_audit_ir_loader.py:60:def test_loader_returns_audit_ir_instance(ir: AuditIR) -> None:
+tests\polaris_graph\test_audit_ir_loader.py:61:    assert isinstance(ir, AuditIR)
+tests\polaris_graph\test_audit_ir_loader.py:78:    assert isinstance(m, RunManifest)
+tests\polaris_graph\test_audit_ir_loader.py:100:    assert isinstance(gate, EvaluatorGate)
+tests\polaris_graph\test_audit_ir_loader.py:106:    assert isinstance(gate.rule_blockers, tuple)
+tests\polaris_graph\test_audit_ir_loader.py:107:    assert isinstance(gate.judge_critical_axes, tuple)
+tests\polaris_graph\test_audit_ir_loader.py:121:    assert isinstance(stats, RetrievalStats)
+tests\polaris_graph\test_audit_ir_loader.py:135:    assert isinstance(ir.report_md, str)
+tests\polaris_graph\test_audit_ir_loader.py:148:    assert isinstance(first, BibliographyEntry)
+tests\polaris_graph\test_audit_ir_loader.py:181:    assert isinstance(cluster, ContradictionCluster)
+tests\polaris_graph\test_audit_ir_loader.py:221:    assert isinstance(fc, FrameCoverageReport)
+tests\polaris_graph\test_audit_ir_loader.py:253:        assert isinstance(attempt, RetrievalAttempt)
+tests\polaris_graph\test_audit_ir_loader.py:265:    assert isinstance(tm, TierMix)
+tests\polaris_graph\test_audit_ir_loader.py:286:    assert isinstance(vr, VerifiedReport)
+tests\polaris_graph\test_audit_ir_loader.py:295:    assert isinstance(section, ReportSection)
+tests\polaris_graph\test_audit_ir_loader.py:307:            assert isinstance(sentence, ReportSentence)
+tests\polaris_graph\test_audit_ir_loader.py:310:                assert isinstance(token, EvidenceSpanToken)
+tests\polaris_graph\test_audit_ir_loader.py:514:    assert isinstance(mp, ModelProvenance)
+tests\polaris_graph\test_audit_ir_loader.py:539:        assert isinstance(rc, RuleCheck)
+tests\polaris_graph\test_audit_ir_loader.py:549:    assert isinstance(mp.contradictions_missing, tuple)
+tests\polaris_graph\test_audit_ir_loader.py:555:    assert isinstance(proto, ProtocolMetadata)
+tests\polaris_graph\test_audit_ir_loader.py:567:        assert isinstance(exp, TierExpectation)
+tests\polaris_graph\intake\test_question_normalizer.py:24:    assert isinstance(result, NormalizedQuestion)
+tests\polaris_graph\intake\test_disambiguation_clusterer.py:34:    assert isinstance(result, ClusterResult)
+tests\polaris_graph\llm\test_entailment_judge_cost.py:53:    """Build a real `_EntailmentJudge` instance with a mocked httpx.Client.
+tests\polaris_graph\llm\test_entailment_judge_cost.py:149:    SAME module instance as the production sweep (which imports
+tests\polaris_graph\llm\test_off_mode_no_judge_instantiation.py:42:    constructing an `_EntailmentJudge` instance.
+tests\polaris_graph\sovereignty\test_router.py:52:    assert isinstance(decision, SovereigntyDecision)
+tests\polaris_graph\golden\test_slice_003_goldens.py:197:        assert isinstance(result, GenerationError), (
+tests\polaris_graph\golden\test_slice_003_goldens.py:208:        assert isinstance(result, VerifiedReport), (
+tests\polaris_graph\golden\test_slice_003_goldens.py:244:        if kind == "GenerationError" and not isinstance(result, GenerationError):
+tests\polaris_graph\golden\test_slice_003_goldens.py:247:            if not isinstance(result, VerifiedReport):
+tests\polaris_graph\golden\test_slice_002_goldens.py:146:        assert isinstance(result, RetrievalError), (
+tests\polaris_graph\golden\test_slice_002_goldens.py:160:        assert isinstance(result, EvidencePool), (
+tests\polaris_graph\golden\test_slice_002_goldens.py:213:        if kind == "RetrievalError" and not isinstance(result, RetrievalError):
+tests\polaris_graph\golden\test_slice_002_goldens.py:216:            if not isinstance(result, EvidencePool):
+tests\polaris_graph\test_corpus_brief.py:90:    assert isinstance(brief, CorpusBrief)
+tests\polaris_graph\golden\test_slice_001_goldens.py:132:    assert isinstance(result, ScopeDecision), \
+tests\polaris_graph\golden\test_slice_001_goldens.py:198:        if not isinstance(result, ScopeDecision):
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:754:    assert isinstance(d["paragraphs"], list)
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:755:    assert isinstance(d["verdicts"], list)
+tests\polaris_graph\scope\test_scope_decision.py:273:    assert isinstance(payload["decided_at_utc"], str)  # ISO 8601 string
+tests\polaris_graph\scope\test_scope_decision.py:274:    assert isinstance(payload["latency_ms"], int)
+tests\polaris_graph\scope\test_default_llm_completion_async_fix.py:60:    assert isinstance(result, str), (
+tests\polaris_graph\test_corpus_retriever.py:75:    assert all(isinstance(r, RetrievedChunk) for r in results)
+tests\polaris_graph\scope\test_classifier_llm_fallback.py:82:    assert isinstance(result, ScopeClass)
+tests\polaris_graph\followup\test_refusal.py:67:    assert isinstance(result, ComposedQuery)
+tests\polaris_graph\followup\test_refusal.py:73:    assert isinstance(result, RefusalDecision)
+tests\polaris_graph\followup\test_refusal.py:88:    assert isinstance(refused, RefusalDecision)
+tests\polaris_graph\followup\test_refusal.py:95:    assert isinstance(composed, ComposedQuery)
+tests\polaris_graph\test_inspector_router.py:325:    assert isinstance(bridged, int)
+tests\polaris_graph\test_inspector_router.py:937:    assert isinstance(tm["fractions"], dict)
+tests\polaris_graph\test_inspector_router.py:941:    assert isinstance(ir["report_md"], str)
+tests\polaris_graph\followup\test_multi_turn.py:44:        assert isinstance(r.composed, ComposedQuery)
+tests\polaris_graph\followup\test_inheritance.py:73:    assert isinstance(composed, ComposedQuery)
+tests\polaris_graph\followup\test_agent.py:78:    assert isinstance(composed, ComposedQuery)
+tests\polaris_graph\test_fact_dedup.py:181:    assert count_redundancy(groups) == 2  # 3 instances, 2 redundant
+tests\polaris_graph\test_job_queue.py:64:    assert isinstance(job, Job)
+tests\polaris_graph\test_external_evaluator.py:87:    assert isinstance(result, EvaluatorOutput)
+tests\polaris_graph\test_m203_outline_collapse.py:45:    assert isinstance(result, OutlineParseResult)
+tests\polaris_graph\test_m207_invariant_coverage.py:231:            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+tests\fixtures\signed_bundle\v1_canonical\manifest.yaml:16:  sha256: 89d9545e6c642c422a6d469faf24670c1fd4745ec5dc553de4f6c3fb1a0110d4
+tests\v6\test_api_followup_compare.py:63:    assert isinstance(body["shared_evidence_pct"], float)
+tests\v6\test_ambiguity_detector.py:78:    assert isinstance(result, AmbiguityResult)
+tests\v6\test_api_charts.py:114:    assert isinstance(spec["polaris_provenance"]["evidence_ids"], list)
+tests\polaris_graph\test_m28_regulatory_expander.py:261:        assert isinstance(tmpl, dict)
+tests\polaris_graph\test_m28_regulatory_expander.py:263:        assert isinstance(anchors, list) and len(anchors) > 0, (
+tests\polaris_graph\test_m28_regulatory_expander.py:268:            assert isinstance(a, str) and "/" not in a and " " not in a
+tests\polaris_graph\test_m28_regulatory_expander.py:273:        assert isinstance(tmpl.get("regulatory_anchors"), list)
+tests\polaris_graph\test_m28_regulatory_expander.py:279:        assert isinstance(tmpl.get("regulatory_anchors"), list)
+tests\polaris_graph\test_m28_regulatory_expander.py:290:            isinstance(tmpl.get("regulatory_anchors"), list)
+tests\polaris_graph\test_m28_regulatory_expander.py:316:            if isinstance(a, str) and a.strip() and "/" not in a.strip()
+tests\v6\test_actors.py:72:def test_actors_are_dramatiq_actor_instances():
+tests\polaris_graph\test_m33_section_max_tokens.py:81:        assert isinstance(default, int), (
+tests\polaris_graph\test_m35_primary_trial_expander.py:277:        assert isinstance(tmpl, dict)
+tests\polaris_graph\test_m35_primary_trial_expander.py:280:        assert isinstance(reg, list) and len(reg) > 0
+tests\polaris_graph\test_m35_primary_trial_expander.py:283:        assert isinstance(by_slug, dict) and len(by_slug) > 0
+tests\polaris_graph\test_m35_primary_trial_expander.py:298:        assert isinstance(by_slug, dict)
+tests\polaris_graph\test_m35_primary_trial_expander.py:301:            if isinstance(anchors, list) and anchors:
+tests\polaris_graph\test_m35_primary_trial_expander.py:321:        assert isinstance(tmpl.get("regulatory_anchors"), list)
+tests\polaris_graph\test_m35_primary_trial_expander.py:379:                isinstance(node, ast.Expr)
+tests\polaris_graph\test_m35_primary_trial_expander.py:380:                and isinstance(node.value, ast.Constant)
+tests\polaris_graph\test_m35_primary_trial_expander.py:381:                and isinstance(node.value.value, str)
+tests\polaris_graph\test_m35_primary_trial_expander.py:382:                and isinstance(
+tests\polaris_graph\test_m35_primary_trial_expander.py:398:                    and isinstance(node.body[0], ast.Expr)
+tests\polaris_graph\test_m35_primary_trial_expander.py:399:                    and isinstance(node.body[0].value, ast.Constant)
+tests\polaris_graph\test_m35_primary_trial_expander.py:400:                    and isinstance(node.body[0].value.value, str)
+tests\polaris_graph\test_m35_primary_trial_expander.py:408:                    and isinstance(node.body[0], ast.Expr)
+tests\polaris_graph\test_m35_primary_trial_expander.py:409:                    and isinstance(node.body[0].value, ast.Constant)
+tests\polaris_graph\test_m35_primary_trial_expander.py:410:                    and isinstance(node.body[0].value.value, str)
+tests\polaris_graph\test_m35_primary_trial_expander.py:432:                if isinstance(node.value, str):
+tests\polaris_graph\test_m37_health_canada.py:100:        assert isinstance(anchors, list)
+tests\v6\test_industry_benchmark_adapters.py:76:    assert isinstance(rec, IndustryRunRecord)
+tests\v6\test_runs_list_endpoint.py:96:    assert isinstance(body, list)
+tests\v6\test_otel_propagate_middleware.py:61:    assert isinstance(carrier, dict)
+tests\v6\test_otel_propagate_middleware.py:75:        assert isinstance(msg.options[OTEL_OPTION_KEY], dict)
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:221:# ---- D8 sycophancy_resistance ----------------------------------------------
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:223:def test_sycophancy_resistance_resists_leading(runner):
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:229:    s = runner.score_sycophancy_resistance(q, resp)
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:233:def test_sycophancy_resistance_caves_to_leading(runner):
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:239:    s = runner.score_sycophancy_resistance(q, resp)
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:249:    s = runner.score_sycophancy_resistance(q, resp)
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:265:        "two_family_agreement", "sycophancy_resistance",
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:319:                           "refusal_calibration": 0.9, "sycophancy_resistance": 0.9},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:321:                                   "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:323:                                  "refusal_calibration": 0.6, "sycophancy_resistance": 0.6},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:338:                           "refusal_calibration": 0.5, "sycophancy_resistance": 0.5},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:340:                                   "refusal_calibration": 0.9, "sycophancy_resistance": 0.9},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:342:                                  "refusal_calibration": 0.9, "sycophancy_resistance": 0.9},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:355:                           "refusal_calibration": 0.0, "sycophancy_resistance": 0.0},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:357:                                   "refusal_calibration": 0.0, "sycophancy_resistance": 0.0},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:371:                       "refusal_calibration": 0.95, "sycophancy_resistance": 0.95},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:373:                               "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:375:                              "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:387:                       "refusal_calibration": 0.9, "sycophancy_resistance": 0.9},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:389:                               "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:391:                              "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:404:                       "refusal_calibration": 0.9, "sycophancy_resistance": 0.9},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:406:                               "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:408:                              "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:420:                       "refusal_calibration": 0.9, "sycophancy_resistance": 0.9},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:421:        # ChatGPT missing sycophancy_resistance — should not count as comparable
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:425:                              "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:472:            # missing sycophancy_resistance
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:476:                                   "refusal_calibration": 0.7, "sycophancy_resistance": 0.7},
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:481:    assert "sycophancy_resistance" in out["per_template"]["clinical"]["insufficient_data_reason"]
+tests\v6\benchmark\test_api_benchmark_runner_smoke.py:489:                           "refusal_calibration": 0.9, "sycophancy_resistance": 0.9},
+tests\v6\test_inspector_route.py:155:            if isinstance(evidence_pool, str)
+tests\v6\test_chart_provenance.py:28:    assert isinstance(prov, ChartProvenance)
+tests\v6\test_template_registry.py:38:    assert isinstance(content, TemplateContent)
+tests\polaris_graph\clinical_retrieval\test_real_fetcher.py:60:    assert isinstance(fetcher, RealFetcher)
+tests\polaris_graph\clinical_retrieval\test_query_planner.py:4:QUERY_CAP. All inputs are constructed ScopeDecision instances; no LLM
+tests\v6\test_broker_init_order.py:59:    # Different instances (rebuilt), but both StubBrokers.
+tests\v6\test_broker_init_order.py:61:    assert isinstance(b1, StubBroker)
+tests\v6\test_broker_init_order.py:62:    assert isinstance(b2, StubBroker)
+tests\v6\test_broker_init_order.py:92:    assert isinstance(current, StubBroker), (
+tests\polaris_graph\clinical_retrieval\test_evidence_pool.py:321:    assert isinstance(payload["pool_id"], str)
+tests\polaris_graph\clinical_retrieval\test_corpus_adequacy_gate.py:220:    with pytest.raises(Exception):  # FrozenInstanceError
+tests\v6\test_broker.py:56:    assert isinstance(broker, StubBroker)
+tests\v6\test_broker.py:64:    assert isinstance(broker, StubBroker)
+tests\v6\test_broker.py:73:    assert isinstance(broker, RedisBroker)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:108:    assert isinstance(result, RetrievalError)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:115:    assert isinstance(result, RetrievalError)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:128:    assert isinstance(result, RetrievalError)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:135:    assert isinstance(result, RetrievalError)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:148:    assert isinstance(result, RetrievalError)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:164:    assert isinstance(result, RetrievalError)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:188:    assert isinstance(result, EvidencePool)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:208:    assert isinstance(result, EvidencePool)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:229:    assert isinstance(result, EvidencePool)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:258:    assert isinstance(result, EvidencePool)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:280:    assert isinstance(result, EvidencePool)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:294:    assert isinstance(result, EvidencePool)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:308:    assert isinstance(result, EvidencePool)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:345:    assert isinstance(result, EvidencePool)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:362:    assert isinstance(result, EvidencePool)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:377:    assert isinstance(result, EvidencePool)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:390:    assert isinstance(result, EvidencePool)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:413:    assert isinstance(result, EvidencePool)
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py:438:    assert isinstance(result, EvidencePool)
+tests\polaris_graph\test_m43_anchor_cap.py:57:            if isinstance(a, str) and a.strip()
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:274:    assert isinstance(snapshots["src-A"], str)
+tests\v6\test_sqlite_workspace_memory.py:22:def test_durability_survives_new_store_instance(db_path):
+tests\v6\test_sqlite_workspace_memory.py:138:    # use_count is persisted — a fresh store instance sees the increment.
+tests\polaris_graph\test_m42_preservation.py:76:    if not isinstance(data, list):
+tests\polaris_graph\test_m42_preservation.py:94:    return data if isinstance(data, list) else []
+tests\polaris_graph\test_m49_v28_preservation.py:117:    if not isinstance(data, list):
+tests\polaris_graph\test_m49_v28_preservation.py:127:    return data if isinstance(data, list) else []
+tests\polaris_graph\test_m49_v28_preservation.py:281:        entries = m50.get("entries", []) if isinstance(m50, dict) else []
+tests\polaris_graph\test_m49_v28_preservation.py:323:        if not isinstance(m47, dict):
+tests\polaris_graph\test_m49_v28_preservation.py:352:        assert isinstance(data, list), (
+tests\polaris_graph\test_m49_v28_preservation.py:378:        assert isinstance(data, dict), (
+tests\polaris_graph\test_m49_v28_preservation.py:404:        assert isinstance(custody_log, list), (
+tests\polaris_graph\audit_bundle\test_gpg_signer.py:201:    assert isinstance(signer, GPGSigner)
+tests\polaris_graph\test_m50_per_trial_subsections.py:61:            assert isinstance(quote, str)
+tests\polaris_graph\test_m55_frame_compiler.py:115:        assert isinstance(cf, CompiledFrame)
+tests\polaris_graph\test_m55_frame_compiler.py:122:        assert isinstance(b, EvidenceBinding)
+tests\polaris_graph\audit_bundle\test_bundle_schema.py:19:    if isinstance(text, str):
+tests\polaris_graph\test_m54_contract_schema.py:96:        assert isinstance(contract, ReportContract)
+tests\polaris_graph\test_m54_contract_schema.py:103:        assert isinstance(e, RequiredEntity)
+tests\polaris_graph\test_m54_contract_schema.py:111:        assert isinstance(s, RenderingSlot)
+tests\polaris_graph\test_m54_contract_schema.py:477:        assert isinstance(versions, frozenset)
+tests\polaris_graph\test_m57_contract_outline.py:177:        assert isinstance(outline, ContractOutline)
+tests\polaris_graph\test_m58_slot_fill.py:194:        assert isinstance(payload, SlotFillPayload)
+tests\polaris_graph\test_m56_frame_fetcher.py:181:                if isinstance(body, dict):
+tests\polaris_graph\test_m56_frame_fetcher.py:183:                if isinstance(body, str):
+tests\polaris_graph\test_m56_frame_fetcher.py:207:                if isinstance(body, dict):
+tests\polaris_graph\test_m56_frame_fetcher.py:209:                if isinstance(body, str):
+tests\polaris_graph\test_m56_frame_fetcher.py:971:            assert isinstance(a, RetrievalAttempt)
+tests\polaris_graph\test_m56_frame_fetcher.py:984:            assert isinstance(t, RetrievalTiming)
+tests\polaris_graph\test_m56_frame_fetcher.py:1148:        with pytest.raises(Exception):  # FrozenInstanceError
+web\playwright.config.ts:29:  fullyParallel: false, // single browser instance to keep memory bounded on dev
+tests\polaris_graph\test_m60_frame_manifest.py:398:        assert isinstance(back["entries"], list)
+web\package-lock.json:1935:      "integrity": "sha512-RkhPPp2zrqDAQA/2jNhnztcPAlv64XdhIp7a7454A5ovI7Bukxgt7MX7udwAu3zg1DcpPU0rz3VV1SeaqvY4+A==",
+web\tests\e2e\accessibility.spec.ts:181:        if (!(el instanceof HTMLElement)) return;
+web\tests\e2e\accessibility.spec.ts:236:        if (!(el instanceof HTMLElement)) return;
+tests\polaris_graph\clinical_generator\test_strict_verify_entailment_live.py:103:    """Real judge instance — Codex APPROVE'd on the construction path
+tests\v3\test_synthesize.py:81:        assert isinstance(result, VerifiedSectionDraft)
+tests\v3\test_synthesize.py:256:        assert isinstance(result, VerifiedSectionDraft)
+tests\v3\test_synthesize.py:305:            assert isinstance(s, VerifiedSectionDraft)
+tests\polaris_graph\clinical_generator\test_strict_verify.py:292:    assert isinstance(rec, VerifiedSentence)
+tests\v3\test_search.py:157:        assert isinstance(result, SearchRoundOutput)
+tests\v3\test_search.py:198:        assert all(isinstance(r, Reflection) for r in reflections)
+tests\v3\test_search.py:211:        assert all(isinstance(r, Reflection) for r in reflections)
+tests\v3\test_search.py:227:        assert isinstance(sample_evidence_store, dict)
+tests\v3\test_scope.py:44:        assert isinstance(result, ScopeOutput)
+tests\v3\test_scope.py:68:        assert isinstance(result, ScopeOutput)
+tests\v3\test_scope.py:189:        assert isinstance(result, ScopeOutput)
+tests\v3\test_scope.py:221:        assert isinstance(result, ScopeOutput)
+tests\v3\test_scope.py:244:        assert isinstance(result, ScopeOutput)
+tests\polaris_graph\clinical_generator\test_real_completion.py:65:    assert isinstance(rc, RealCompletion)
+tests\polaris_graph\clinical_generator\test_real_completion.py:284:        assert isinstance(parsed["messages"], list)
+tests\v3\test_reuse_components.py:31:        assert all(isinstance(q, str) for q in queries)
+tests\polaris_graph\clinical_generator\test_generator.py:136:    assert isinstance(err, GenerationError)
+tests\polaris_graph\clinical_generator\test_generator.py:142:    assert isinstance(err, GenerationError)
+tests\polaris_graph\clinical_generator\test_generator.py:151:    assert isinstance(err, GenerationError)
+tests\polaris_graph\clinical_generator\test_generator.py:167:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:179:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:197:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:209:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:235:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:257:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:271:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:288:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:298:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:309:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:320:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:363:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:400:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:427:    assert isinstance(result, VerifiedReport)
+tests\polaris_graph\clinical_generator\test_generator.py:440:    assert isinstance(result, VerifiedReport)
+tests\v3\test_react_live.py:601:        assert isinstance(entry, AnalysisEntry)
+tests\v3\test_react_live.py:883:    assert isinstance(decision, ReactDecision)
+tests\v3\test_react_agent.py:306:        assert isinstance(entry, AnalysisEntry)
+tests\v3\test_react_agent.py:2483:    assert isinstance(result, str)
+tests\v3\test_react_agent.py:3313:    assert isinstance(result, str)
+tests\v3\test_react_agent.py:3558:    assert isinstance(result, str)
+tests\v3\test_react_agent.py:4503:    assert isinstance(result, str) and len(result) > 10
+tests\v3\test_react_agent.py:4786:    assert isinstance(result, str)
+tests\v3\test_outline.py:209:        assert isinstance(result, LiveOutline)
+tests\v3\test_outline.py:307:        assert isinstance(result, LiveOutline)
+tests\polaris_graph\api\test_retrieval_route.py:156:    assert isinstance(body["pool"]["sources"], list)
+tests\v3\test_mock_llm.py:3:Validates that mock responses produce valid schema instances,
+tests\v3\test_mock_llm.py:18:    """Validate the mock LLM produces correct schema instances."""
+tests\v3\test_mock_llm.py:27:        assert isinstance(result, ScopeOutput)
+tests\v3\test_mock_llm.py:39:        assert isinstance(result, LiveOutline)
+tests\polaris_graph\api\test_intake_orchestrator.py:23:    assert isinstance(result, ScopeDecision)
+tests\polaris_graph\api\test_intake_orchestrator.py:36:    assert isinstance(result, ScopeDecision)
+tests\polaris_graph\api\test_intake_orchestrator.py:51:    assert isinstance(result, ScopeDecision)
+tests\polaris_graph\api\test_intake_orchestrator.py:60:    assert isinstance(result, ScopeDecision)
+tests\polaris_graph\api\test_intake_orchestrator.py:72:    assert isinstance(result, ScopeDecision)
+tests\polaris_graph\api\test_intake_orchestrator.py:82:    assert isinstance(result, IntakeError)
+tests\polaris_graph\api\test_intake_orchestrator.py:88:    assert isinstance(result, IntakeError)
+tests\polaris_graph\api\test_intake_orchestrator.py:94:    assert isinstance(result, IntakeError)
+tests\polaris_graph\api\test_intake_orchestrator.py:105:    assert isinstance(result, ScopeDecision)
+tests\polaris_graph\api\test_intake_orchestrator.py:148:    assert isinstance(result, ScopeDecision)
+tests\polaris_graph\api\test_intake_orchestrator.py:152:    assert isinstance(result.provenance, dict)
+tests\polaris_graph\api\test_intake_orchestrator.py:153:    assert isinstance(result.clarifications_needed, list)
+tests\polaris_graph\api\test_intake_orchestrator.py:166:    assert isinstance(result, ScopeDecision)
+web\components\ui\vega-chart.tsx:62:          setError(err instanceof Error ? err.message : String(err));
+web\app\upload\components\upload_drop_zone.tsx:136:        const msg = err instanceof Error ? err.message : "upload failed";
+tests\polaris_graph\api\conftest.py:5:dataclass instance types, so a SimpleNamespace with matching attribute
+tests\polaris_graph\benchmark\test_polaris_runner.py:113:        if isinstance(spec, int):
+tests\v3\conftest.py:79:        """Return a pre-built instance of the requested schema."""
+tests\v3\conftest.py:88:        # Default: return an empty instance
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:1:"""I-anti-002 — stance-delta computation tests."""
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:10:from polaris_graph.anti_sycophancy.stance_delta import (
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:11:    classify_stance, compute_stance_delta,
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:40:def test_classify_stance_agree() -> None:
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:41:    assert classify_stance("Yes I confirm.", False) == "agree"
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:44:def test_classify_stance_disagree() -> None:
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:45:    assert classify_stance("No that is incorrect.", False) == "disagree"
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:48:def test_classify_stance_hedge_overrides() -> None:
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:49:    assert classify_stance("Yes, however there are nuances.", False) == "hedge"
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:52:def test_classify_stance_refused_returns_refuse() -> None:
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:53:    assert classify_stance("I cannot help.", True) == "refuse"
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:56:def test_compute_stance_delta_consistent_zero() -> None:
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:57:    rep = compute_stance_delta(_paired(), _result("x", {
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:61:    assert rep.stance_delta_score == 0.0 and rep.pairwise_shifts == 0
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:64:def test_compute_stance_delta_full_drift() -> None:
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:65:    rep = compute_stance_delta(_paired(), _result("x", {
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:69:    assert rep.pairwise_shifts == 6 and rep.stance_delta_score == 1.0
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:76:def test_compute_stance_delta_rejects_duplicate_or_missing_framings(framings: list) -> None:
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:82:        compute_stance_delta(_paired(), result)
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:85:def test_compute_stance_delta_runs_against_fixture_corpus() -> None:
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:90:        rep = compute_stance_delta(p, _result(p.paired_id, {
+tests\polaris_graph\anti_sycophancy\test_stance_delta.py:94:        assert rep.stance_delta_score == 0.0
+tests\unit\test_academic_prefilter.py:97:            "chemical resistance and longer lifespans compared to polymeric "
+web\app\benchmark\components\benchmark_board.tsx:68:        const msg = err instanceof Error ? err.message : "Unknown error";
+web\app\benchmark\components\benchmark_board.tsx:83:      const msg = err instanceof Error ? err.message : "Unknown error";
+tests\unit\test_agentic_search.py:568:    mock_bypass_instance = AsyncMock()
+tests\unit\test_agentic_search.py:569:    mock_bypass_instance.fetch_with_bypass = AsyncMock(return_value=mock_result)
+tests\unit\test_agentic_search.py:571:    with patch("src.tools.access_bypass.AccessBypass", return_value=mock_bypass_instance), \
+tests\unit\test_agentic_search.py:600:    mock_bypass_instance = AsyncMock()
+tests\unit\test_agentic_search.py:601:    mock_bypass_instance.fetch_with_bypass = AsyncMock(return_value=mock_result)
+tests\unit\test_agentic_search.py:604:         patch("src.tools.access_bypass.AccessBypass", return_value=mock_bypass_instance):
+tests\unit\test_agentic_search.py:629:    mock_bypass_instance = AsyncMock()
+tests\unit\test_agentic_search.py:630:    mock_bypass_instance.fetch_with_bypass = AsyncMock(return_value=mock_result)
+tests\unit\test_agentic_search.py:636:         patch("src.tools.access_bypass.AccessBypass", return_value=mock_bypass_instance):
+tests\unit\test_bias_detector.py:105:    """Default bias detector instance."""
+tests\unit\test_bias_detector.py:298:        assert isinstance(default_detector.config, BiasConfig)
+tests\unit\test_bias_detector.py:482:        assert isinstance(report.bias_warnings, list)
+tests\unit\test_bias_detector.py:507:            assert isinstance(suggestion, str)
+tests\unit\test_bias_detector.py:545:        assert isinstance(report, BiasReport)
+tests\unit\test_bias_detector.py:551:        assert isinstance(report, BiasReport)
+tests\unit\test_bias_detector.py:556:        assert isinstance(is_balanced, bool)
+tests\unit\test_bias_detector.py:557:        assert isinstance(message, str)
+tests\unit\test_bias_detector.py:562:        assert isinstance(is_balanced, bool)
+tests\unit\test_bias_detector.py:567:        assert isinstance(suggestions, list)
+tests\unit\test_config_thresholds.py:73:        assert isinstance(value, (int, float))
+tests\unit\test_content_deduplicator.py:77:    """Default deduplicator instance."""
+tests\unit\test_content_deduplicator.py:321:        assert isinstance(fp, ContentFingerprint)
+tests\unit\test_content_deduplicator.py:413:        assert isinstance(result, DeduplicationResult)
+web\lib\inspector_bundle_client_loader.ts:137:    if (exc instanceof _GzipBombAbort) {
+web\lib\inspector_bundle_client_loader.ts:218:  if (tarBytes instanceof BundleClientLoaderError) {
+tests\unit\test_exception_handling.py:60:            if isinstance(node, ast.ExceptHandler):
+tests\unit\test_exception_handling.py:68:                    if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+tests\unit\test_exception_handling.py:71:                        if isinstance(call.func, ast.Attribute):
+tests\unit\test_exception_handling.py:72:                            if isinstance(call.func.value, ast.Name):
+tests\unit\test_exception_handling.py:77:                    if isinstance(stmt, ast.Assign):
+tests\unit\test_exception_handling.py:81:                    if isinstance(stmt, ast.Raise):
+tests\unit\test_exception_handling.py:85:                    if isinstance(stmt, ast.Return) and stmt.value is not None:
+tests\unit\test_exception_handling.py:87:                        if not (isinstance(stmt.value, ast.Constant) and stmt.value.value is None):
+web\components\citation\citation_chip.tsx:97:              // source card (#745) / Proof Replay (#756).
+tests\polaris_graph\test_md5_scope_classifier.py:93:    assert isinstance(result, GatedMatchResult)
+tests\polaris_graph\test_md5_scope_classifier.py:293:    instance, which exercises the actual `isinstance(verdict, ScopeVerdict)`
+tests\polaris_graph\test_md5_phase2_llm_classifier.py:98:def test_config_must_be_dataclass_instance() -> None:
+tests\polaris_graph\test_md5_phase2_llm_classifier.py:363:    int, so v1's `isinstance(confidence, (int, float))`
+web\app\runs\[runId]\page.tsx:44:          const raw = err instanceof Error ? err.message : String(err);
+web\app\runs\[runId]\page.tsx:96:        err instanceof Error
+web\app\runs\[runId]\page.tsx:125:                err instanceof Error
+web\app\runs\[runId]\page.tsx:195:                  err instanceof Error
+web\app\intake\components\intake_form.tsx:96:      if (err instanceof IntakeBadRequestError) {
+web\app\intake\components\intake_form.tsx:100:      const message = err instanceof Error ? err.message : "Unknown error.";
+tests\polaris_graph\test_md3_decision_telemetry.py:74:    assert isinstance(rec, DecisionRecord)
+tests\polaris_graph\test_md3_decision_telemetry.py:83:def test_record_decision_persists_across_store_instances(tmp_path: Path) -> None:
+tests\polaris_graph\test_manifest_contract.py:100:            isinstance(node, ast.Call)
+tests\polaris_graph\test_manifest_contract.py:101:            and isinstance(node.func, ast.Attribute)
+tests\polaris_graph\test_manifest_contract.py:106:            if isinstance(recv, ast.BinOp) and isinstance(recv.op, ast.Div):
+tests\polaris_graph\test_manifest_contract.py:108:                if isinstance(right, ast.Constant) and right.value == "manifest.json":
+tests\polaris_graph\test_manifest_contract.py:216:         if isinstance(n, _ast.AsyncFunctionDef) and n.name == "run_one_query"),
+tests\polaris_graph\test_manifest_contract.py:222:        (n for n in func.body if isinstance(n, _ast.Try)),
+tests\polaris_graph\test_m70_regulatory_synthesizer.py:143:            "Hypersensitivity to the active substance or to any of the excipients.\n"
+tests\polaris_graph\test_m61_human_completion.py:94:        assert isinstance(record, HumanCompletionRecord)
+tests\polaris_graph\test_m63_contract_section_runner.py:353:            assert "num" in entry and isinstance(entry["num"], int)
+tests\polaris_graph\test_md1_auto_induction_harness.py:80:    assert isinstance(s, ValidationSet)
+tests\polaris_graph\test_md1_auto_induction_harness.py:498:        if isinstance(tdict, dict):
+tests\polaris_graph\test_md11_model_pin.py:786:    # (frozen but replace returns new instance).
+tests\polaris_graph\test_md11_phase2_pin_replay.py:307:    assert isinstance(plan, ReplayPlan)
+tests\polaris_graph\test_md11_phase2_pin_replay.py:377:    assert isinstance(plan, ReplayPlan)
+tests\polaris_graph\test_md11_phase2_pin_replay.py:391:    assert isinstance(plan, ReplayPlan)
+tests\polaris_graph\test_md11_phase2_pin_replay.py:479:        e for e in errors if isinstance(e, ConcurrentReplayError)
+tests\polaris_graph\test_md11_phase2_pin_replay.py:562:    assert isinstance(plan, ReplayPlan)
+tests\polaris_graph\test_md9_phase2_beat_both.py:125:        assert isinstance(score, DimensionScore)
+tests\polaris_graph\test_md9_phase2_beat_both.py:127:        assert isinstance(score.value, float)
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:59:    assert isinstance(summary["adapter_ids"], list)
+tests\polaris_graph\test_md7_retrieval_cache.py:592:    # Both instances see the row (same DB file).
+tests\polaris_graph\test_parser_runner.py:81:        assert isinstance(prov, TextSpan)
+tests\polaris_graph\test_parser_runner.py:155:    assert isinstance(p, TextParser)
+tests\polaris_graph\test_parser_runner.py:160:    assert isinstance(p, PdfParser)
+tests\polaris_graph\test_parser_runner.py:181:        assert isinstance(text, str)
+tests\polaris_graph\test_progress_surfaces.py:28:    assert isinstance(event, SurfaceEvent)
+tests\polaris_graph\test_progress_surfaces.py:229:    assert isinstance(d["emitted_at"], float)
+tests\polaris_graph\test_prefetch_offtopic_filter.py:32:        if isinstance(texts, str):
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:64:        assert isinstance(body["slides"], list)
+web\tests\e2e\f2_walkthrough.spec.ts:65:      obs: err instanceof Error ? err.message.slice(0, 60) : String(err),
+tests\polaris_graph\test_provenance.py:194:    """Python's `bool` is a subclass of `int`, so isinstance(True, int)
+web\app\inspector\offline\page.tsx:31:        exc instanceof BundleClientLoaderError
+web\app\runs\[runId]\graph\components\claim_graph.tsx:60:  const [cyInstance, _setCyInstance] = useState<cytoscape.Core | null>(null);
+web\app\runs\[runId]\graph\components\claim_graph.tsx:61:  const setCyInstance = (cy: cytoscape.Core | null) => {
+web\app\runs\[runId]\graph\components\claim_graph.tsx:62:    _setCyInstance(cy);
+web\app\runs\[runId]\graph\components\claim_graph.tsx:89:    if (!cyInstance) return;
+web\app\runs\[runId]\graph\components\claim_graph.tsx:108:    cyInstance.on("tap", "node", onTap);
+web\app\runs\[runId]\graph\components\claim_graph.tsx:109:    cyInstance.on("mouseover", "node", onMouseover);
+web\app\runs\[runId]\graph\components\claim_graph.tsx:110:    cyInstance.on("mouseout", "node", onMouseout);
+web\app\runs\[runId]\graph\components\claim_graph.tsx:112:      cyInstance.off("tap", "node", onTap);
+web\app\runs\[runId]\graph\components\claim_graph.tsx:113:      cyInstance.off("mouseover", "node", onMouseover);
+web\app\runs\[runId]\graph\components\claim_graph.tsx:114:      cyInstance.off("mouseout", "node", onMouseout);
+web\app\runs\[runId]\graph\components\claim_graph.tsx:116:  }, [cyInstance, setSelectedNodeId]);
+web\app\runs\[runId]\graph\components\claim_graph.tsx:120:    if (!cyInstance) return;
+web\app\runs\[runId]\graph\components\claim_graph.tsx:121:    cyInstance.nodes().removeClass("snowball-neighbor");
+web\app\runs\[runId]\graph\components\claim_graph.tsx:123:    cyInstance
+web\app\runs\[runId]\graph\components\claim_graph.tsx:127:  }, [cyInstance, snowballHighlightIds]);
+web\app\runs\[runId]\graph\components\claim_graph.tsx:132:    if (!cyInstance) return;
+web\app\runs\[runId]\graph\components\claim_graph.tsx:133:    cyInstance.nodes().removeClass("search-hit");
+web\app\runs\[runId]\graph\components\claim_graph.tsx:135:    cyInstance
+web\app\runs\[runId]\graph\components\claim_graph.tsx:154:  }, [cyInstance, searchQuery]);
+web\app\runs\[runId]\graph\components\claim_graph.tsx:158:    if (!cyInstance) return;
+web\app\runs\[runId]\graph\components\claim_graph.tsx:159:    cyInstance.nodes().removeClass("selected");
+web\app\runs\[runId]\graph\components\claim_graph.tsx:161:      cyInstance.getElementById(selectedNodeId).addClass("selected");
+web\app\runs\[runId]\graph\components\claim_graph.tsx:163:  }, [cyInstance, selectedNodeId]);
+web\app\runs\[runId]\graph\components\claim_graph.tsx:177:          cy={(cy) => setCyInstance(cy)}
+tests\polaris_graph\test_regression_alerts.py:467:    assert isinstance(d["alerts"], list)
+tests\polaris_graph\test_review_store.py:317:    store_instance = ReviewStore(db)
+tests\polaris_graph\test_review_store.py:318:    inspector_router._review_store = store_instance
+tests\polaris_graph\test_review_store.py:322:    return app, store_instance
+tests\unit\test_visual_generator.py:77:    """Default visual generator instance."""
+tests\polaris_graph\test_run_diff.py:553:    assert isinstance(j, dict)
+tests\unit\test_orchestration_state.py:138:        assert isinstance(state["timestamps"], dict)
+tests\unit\test_orchestration_state.py:191:        assert isinstance(sq_dict, dict)
+tests\unit\test_orchestration_state.py:193:        assert isinstance(sq_dict["search_keywords"], list)
+tests\unit\test_orchestration_state.py:303:        assert isinstance(serialized, dict)
+tests\unit\test_mesh_store.py:456:        # Querying with emb_new should find the claim with distance ~0
+tests\unit\test_mesh_store.py:906:        zero results if the top-2 by KNN distance are outside the filter.
+tests\unit\test_mesh_store.py:968:        # would return 0 results (top-2 by distance are both ws_b and
+tests\polaris_graph\test_slide_deck.py:686:    assert isinstance(deck, SlideDeck)
+tests\unit\test_mesh_lethal_retrieve.py:16:    axes) so cosine distances are deterministic.
+tests\unit\test_mesh_lethal_retrieve.py:41:    _distance_to_cosine,
+tests\unit\test_mesh_lethal_retrieve.py:140:class TestDistanceToCosine:
+tests\unit\test_mesh_lethal_retrieve.py:141:    def test_zero_distance(self):
+tests\unit\test_mesh_lethal_retrieve.py:142:        assert abs(_distance_to_cosine(0.0) - 1.0) < 1e-6
+tests\polaris_graph\test_setup_gpg_for_demo.py:120:    real_import = __builtins__["__import__"] if isinstance(
+web\app\retrieval\components\retrieval_runner.tsx:62:        err instanceof IntakeBadRequestError
+web\app\retrieval\components\retrieval_runner.tsx:64:          : err instanceof Error
+web\app\retrieval\components\retrieval_runner.tsx:85:      if (err instanceof RetrievalBadRequestError) {
+web\app\retrieval\components\retrieval_runner.tsx:94:      const msg = err instanceof Error ? err.message : "Retrieval failed.";
+tests\unit\test_mesh_ingest.py:71:        "substances (PFOA, PFOS) at typical household concentrations.\n\n"
+web\app\generation\components\generation_runner.tsx:67:      const code = err instanceof IntakeBadRequestError ? err.code : "unknown";
+web\app\generation\components\generation_runner.tsx:68:      const msg = err instanceof Error ? err.message : "Intake failed.";
+web\app\generation\components\generation_runner.tsx:89:        err instanceof RetrievalBadRequestError ? err.code : "unknown";
+web\app\generation\components\generation_runner.tsx:90:      const msg = err instanceof Error ? err.message : "Retrieval failed.";
+web\app\generation\components\generation_runner.tsx:112:        err instanceof GenerationBadRequestError ? err.code : "unknown";
+web\app\generation\components\generation_runner.tsx:113:      const msg = err instanceof Error ? err.message : "Generation failed.";
+web\app\generation\components\generation_runner.tsx:258:      if (err instanceof AuditBundleError) {
+web\app\generation\components\generation_runner.tsx:261:        const msg = err instanceof Error ? err.message : "Unknown error.";
+web\app\generation\components\sentence_inspector.tsx:132:function SourceCard({
+web\app\generation\components\sentence_inspector.tsx:292:                    <SourceCard
+tests\unit\test_mesh_entity.py:74:    distance, and `_vec_neighbours` converts back via
+tests\polaris_graph\test_template_catalog.py:38:    assert isinstance(cat, tuple)
+tests\polaris_graph\test_template_catalog.py:39:    assert all(isinstance(t, CuratedTemplate) for t in cat)
+tests\unit\test_mesh_edge_discovery.py:16:  - _distance_to_cosine formula
+tests\unit\test_mesh_edge_discovery.py:23:  - All assertions are against the computed cosine, not raw distances.
+tests\unit\test_mesh_edge_discovery.py:43:    _distance_to_cosine,
+tests\unit\test_mesh_edge_discovery.py:118:# ───── TestDistanceToCosine ─────
+tests\unit\test_mesh_edge_discovery.py:120:class TestDistanceToCosine:
+tests\unit\test_mesh_edge_discovery.py:122:        assert abs(_distance_to_cosine(0.0) - 1.0) < 1e-6
+tests\unit\test_mesh_edge_discovery.py:125:        # L2 distance between orthogonal unit vectors = sqrt(2) ≈ 1.4142
+tests\unit\test_mesh_edge_discovery.py:126:        assert abs(_distance_to_cosine(1.4142) - 0.0) < 1e-3
+tests\unit\test_mesh_edge_discovery.py:129:        assert abs(_distance_to_cosine(2.0) - (-1.0)) < 1e-6
+tests\unit\test_mesh_edge_discovery.py:132:        # L2 distance > 2.0 (impossible for unit vectors, but defensive)
+tests\unit\test_mesh_edge_discovery.py:133:        assert _distance_to_cosine(3.0) == -1.0
+tests\polaris_graph\test_template_classifier.py:149:    assert isinstance(r.rationale, str)
+tests\polaris_graph\test_template_classifier.py:229:        assert isinstance(r, RoutingResult)
+tests\polaris_graph\test_template_classifier.py:230:        assert isinstance(r.verdict, RoutingVerdict)
+tests\polaris_graph\test_template_classifier.py:238:    assert all(isinstance(c, RoutingCandidate) for c in r.candidates)
+tests\polaris_graph\test_template_router_api.py:50:        assert isinstance(tmpl["scope_examples"], list)
+tests\polaris_graph\test_template_router_api.py:69:    assert isinstance(body["candidates"], list)
+tests\polaris_graph\test_template_router_api.py:137:    assert isinstance(top["keyword_hits"], list)
+tests\unit\test_language_handler.py:48:    """Default language handler instance."""
+tests\unit\test_language_handler.py:384:        assert isinstance(translated, str)
+web\app\generation\components\BundlePreview.tsx:52:        if (err instanceof AuditBundleError) {
+web\app\generation\components\BundlePreview.tsx:55:          const message = err instanceof Error ? err.message : "Unknown error.";
+web\app\dashboard\page.tsx:179:      setError(err instanceof Error ? err.message : "Upload failed");
+web\app\dashboard\page.tsx:223:      setError(err instanceof Error ? err.message : "Scope check failed");
+web\app\dashboard\page.tsx:273:            err instanceof Error ? err.message : "Ambiguity check failed",
+web\app\dashboard\page.tsx:303:      if (err instanceof ConcurrentRunError) {
+web\app\dashboard\page.tsx:314:      const message = err instanceof Error ? err.message : "Unknown error";
+tests\unit\test_mesh_api.py:129:        assert isinstance(data["top_claims"], list)
+tests\unit\test_live_monitor.py:27:    """Fresh AnomalyDetector instance."""
+tests\unit\test_mesh_claim_extract.py:487:        # first claim statement must retrieve that claim at distance ~0.
+tests\unit\test_live_dashboard_playwright.py:326:        source_cards = page.query_selector_all(".source-card")
+tests\unit\test_live_dashboard_playwright.py:327:        assert len(source_cards) >= 2
+tests\unit\test_forensic_audit.py:155:        assert isinstance(result, str)
+tests\unit\test_fix_048.py:99:        assert result is None or isinstance(result, list)
+tests\unit\test_fix_048.py:198:    def test_high_authority_low_substance_gets_demoted(self, monkeypatch):
+tests\unit\test_fix_048.py:218:        # 2-word quote -> substance = 0.0 -> forces BRONZE
+tests\unit\test_fix_048.py:530:    so Signal 3 (Content Density, 20% weight) computed quote_substance from the LLM's
+tests\unit\test_fix_048.py:532:    grounding strategies had understated substance scores.
+tests\unit\test_fix_048.py:535:    def test_grounded_longer_quote_increases_substance(self, monkeypatch):
+tests\unit\test_fix_048.py:536:        """A short LLM quote grounded to longer verbatim text should produce higher substance.
+tests\unit\test_fix_048.py:547:            _compute_quote_substance,
+tests\unit\test_fix_048.py:559:        short_substance = _compute_quote_substance(short_quote)
+tests\unit\test_fix_048.py:560:        grounded_substance = _compute_quote_substance(grounded_quote)
+tests\unit\test_fix_048.py:562:        # Grounded quote has more words, numbers, sentence structure -> higher substance
+tests\unit\test_fix_048.py:563:        assert grounded_substance > short_substance, (
+tests\unit\test_fix_048.py:564:            f"Grounded quote substance ({grounded_substance:.3f}) should exceed "
+tests\unit\test_fix_048.py:565:            f"short LLM quote substance ({short_substance:.3f})"
+tests\unit\test_fix_048.py:637:        < 5 words get substance=0.0 (absolute veto to BRONZE).
+tests\unit\test_fix_048.py:658:        assert result[0]["quote_substance"] == 0.0
+tests\unit\test_hle_benchmark.py:110:        assert all(isinstance(q, HLEQuestion) for q in sample)
+tests\unit\test_gemini_docx.py:28:    """Return a fresh DocxExporter instance."""
+tests\unit\test_gemini_fixes.py:2430:            assert isinstance(cluster["topic"], str)
+tests\unit\test_gemini_fixes.py:2431:            assert isinstance(cluster["evidence"], list)
+tests\unit\test_gemini_fixes.py:2952:        assert isinstance(hedged, list)
+tests\unit\test_gemini_fixes.py:3113:        assert isinstance(CLUSTER_SYNTHESIS_ENABLED, bool)
+tests\unit\test_gemini_fixes.py:3805:                    if isinstance(data, list):
+tests\polaris_graph\test_v30_contract_doi_pmid_consistency.py:43:        if not isinstance(contracts, dict):
+tests\polaris_graph\test_v30_contract_doi_pmid_consistency.py:46:            if not isinstance(ctr, dict):
+tests\polaris_graph\test_v30_contract_doi_pmid_consistency.py:62:                if not isinstance(e, dict):
+tests\polaris_graph\test_v30_contract_doi_pmid_consistency.py:82:                if not isinstance(e, dict):
+tests\polaris_graph\test_v30_contract_doi_pmid_consistency.py:85:                if isinstance(eid, str) and pattern.match(eid):
+tests\polaris_graph\test_v30_contract_doi_pmid_consistency.py:111:                if not isinstance(e, dict):
+tests\polaris_graph\test_workspace_store.py:298:    bounded_errors = [r for r in results if isinstance(r, BoundedError)]
+
+ succeeded in 2589ms:
+False
+
+codex
+I’m treating this as a brief/plan review, not an implementation review: the target component does not exist in the working tree yet. I’m validating the referenced contracts and token/component affordances so the verdict is grounded.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\components\\inspector\\evidence_pool_table.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\components\\verdict\\verdict_chip.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\lib\\evidence_span.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\globals.css | Select-Object -First 140" in C:\POLARIS
+ succeeded in 2207ms:
+// I-cd-013a (GH#609) — Sources table + adequacy verdict.
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+interface SourceShape {
+  source_id: string;
+  url: string;
+  domain: string;
+  tier: string;
+  title: string;
+  authors: string[];
+  snippet: string;
+}
+
+interface AdequacyShape {
+  is_adequate: boolean;
+  failure_reason: string | null;
+  sources_per_tier: Record<string, number>;
+  min_required_per_tier: Record<string, number>;
+}
+
+interface EvidencePoolShape {
+  pool_id: string;
+  decision_id: string;
+  sources: SourceShape[];
+  adequacy: AdequacyShape;
+  queries_executed: string[];
+  cost_usd: number;
+  latency_ms: number;
+}
+
+function asPool(value: unknown): EvidencePoolShape {
+  return value as EvidencePoolShape;
+}
+
+export function EvidencePoolTable({ value }: { value: unknown }) {
+  const p = asPool(value);
+  return (
+    <Card data-testid="evidence-pool-table">
+      <CardHeader>
+        <CardTitle>Evidence pool ({p.sources.length} sources)</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        <AdequacyBadge adequacy={p.adequacy} />
+        {p.sources.length === 0 ? (
+          <p className="border-border text-muted-foreground rounded-md border border-dashed p-4 text-center">
+            No sources captured for this run.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="border-border text-muted-foreground border-b text-xs tracking-wide uppercase">
+                <tr>
+                  <th className="px-2 py-2">Tier</th>
+                  <th className="px-2 py-2">Domain</th>
+                  <th className="px-2 py-2">Title</th>
+                  <th className="px-2 py-2">Snippet</th>
+                </tr>
+              </thead>
+              <tbody>
+                {p.sources.map((s) => (
+                  <tr
+                    key={s.source_id}
+                    className="border-border border-b last:border-0"
+                  >
+                    <td className="px-2 py-2 align-top">
+                      <span className="bg-muted inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium">
+                        {s.tier}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2 align-top font-mono text-xs">
+                      {s.domain}
+                    </td>
+                    <td className="px-2 py-2 align-top">
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="hover:text-foreground underline"
+                      >
+                        {s.title}
+                      </a>
+                    </td>
+                    <td className="text-muted-foreground px-2 py-2 align-top text-xs">
+                      {s.snippet}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AdequacyBadge({ adequacy }: { adequacy: AdequacyShape }) {
+  return (
+    <div
+      data-testid="adequacy-badge"
+      data-state={adequacy.is_adequate ? "adequate" : "inadequate"}
+      className="border-border bg-muted/40 rounded-md border p-3"
+    >
+      <div className="flex items-center justify-between">
+        <p className="font-medium">Adequacy</p>
+        <span
+          className={
+            adequacy.is_adequate
+              ? "rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+              : "rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+          }
+        >
+          {adequacy.is_adequate ? "Adequate" : "Inadequate"}
+        </span>
+      </div>
+      {adequacy.failure_reason && (
+        <p className="text-muted-foreground mt-2 text-xs">
+          {adequacy.failure_reason}
+        </p>
+      )}
+    </div>
+  );
+}
+
+ succeeded in 2643ms:
+// I-p2-005 (#744): per-claim verdict chip. THREE signals (state color + icon +
+// label) so a verdict is never distinguished by color alone (WCAG 1.4.1).
+// Consumes the #742 state tokens. Display-only (non-interactive). Honest
+// labels — FABRICATED and UNREACHABLE are real, distinct, serious verdicts.
+import {
+  BadgeCheck,
+  Ban,
+  CircleHelp,
+  CircleSlash,
+  Minus,
+  TriangleAlert,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+
+export type VerdictKind =
+  | "VERIFIED"
+  | "PARTIAL"
+  | "UNSUPPORTED"
+  | "FABRICATED"
+  | "UNREACHABLE"
+  | "contradiction"
+  | "refusal";
+
+interface VerdictMeta {
+  label: string;
+  Icon: LucideIcon;
+  /** Tint bg + readable text + border, all AA from #742 tokens. */
+  className: string;
+}
+
+const VERDICT_META: Record<VerdictKind, VerdictMeta> = {
+  VERIFIED: {
+    label: "Verified",
+    Icon: BadgeCheck,
+    className: "bg-verified/10 text-verified border-verified/30",
+  },
+  PARTIAL: {
+    label: "Partial",
+    Icon: CircleSlash,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  UNSUPPORTED: {
+    label: "Unsupported",
+    Icon: Minus,
+    className: "bg-muted text-foreground border-border",
+  },
+  FABRICATED: {
+    label: "Fabricated",
+    Icon: X,
+    className: "bg-destructive/10 text-destructive border-destructive/40",
+  },
+  UNREACHABLE: {
+    label: "Unreachable",
+    Icon: CircleHelp,
+    className: "bg-muted text-foreground border-border border-dashed",
+  },
+  contradiction: {
+    label: "Contradiction",
+    Icon: TriangleAlert,
+    className:
+      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+  },
+  refusal: {
+    label: "Refusal",
+    Icon: Ban,
+    className: "bg-refusal/10 text-refusal border-refusal/30",
+  },
+};
+
+export function VerdictChip({ verdict }: { verdict: VerdictKind }) {
+  const meta = VERDICT_META[verdict];
+  return (
+    <span
+      data-testid="verdict-chip"
+      data-verdict={verdict}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
+    >
+      <meta.Icon aria-hidden className="h-3 w-3 shrink-0" />
+      {meta.label}
+    </span>
+  );
+}
+
+ succeeded in 3154ms:
+// I-p2-004 (#743): the SINGLE shared resolver for provenance-token → exact
+// source span. Consumed by the citation chip now and by the Proof-Replay
+// inspector (#756) — one resolver boundary, no duplicate parsing.
+//
+// No-synthetic-proof contract (Codex brief iter-2/3): returns quote=null
+// (→ honest fallback) unless the bounds are fully valid against the actual
+// source body. NEVER a silently-clamped slice (that would be synthetic proof).
+
+import { parseProvenanceToken } from "@/lib/provenance_tokens";
+
+export interface EvidenceSource {
+  source_id: string;
+  full_text?: string | null;
+  snippet?: string | null;
+  title?: string | null;
+  url?: string | null;
+  tier?: string | number | null;
+}
+
+export interface ResolvedSpan {
+  raw: string;
+  sourceId: string;
+  source: EvidenceSource | null;
+  start: number;
+  end: number;
+  /** The EXACT cited passage `full_text[start:end]`, or null when unresolved
+   * (missing source / no full_text / out-of-range bounds) — never clamped. */
+  quote: string | null;
+}
+
+function sourcesOf(evidencePool: unknown): EvidenceSource[] {
+  const s = (evidencePool as { sources?: unknown } | null)?.sources;
+  return Array.isArray(s) ? (s as EvidenceSource[]) : [];
+}
+
+/** Resolve a `[#ev:<id>:<start>-<end>]` token against the evidence pool.
+ * Returns null if the token itself is malformed; otherwise a ResolvedSpan
+ * whose `quote` is null unless every bound is valid against the real body. */
+export function resolveSpan(
+  token: string,
+  evidencePool: unknown,
+): ResolvedSpan | null {
+  const parsed = parseProvenanceToken(token);
+  if (!parsed) return null;
+  // sources is an ARRAY → look up by source_id (never index).
+  const source =
+    sourcesOf(evidencePool).find((s) => s?.source_id === parsed.source_id) ??
+    null;
+  const body = source?.full_text ?? null; // exact span only from full_text
+  let quote: string | null = null;
+  if (
+    typeof body === "string" &&
+    body.length > 0 &&
+    parsed.start >= 0 &&
+    parsed.end <= body.length &&
+    parsed.start <= parsed.end
+  ) {
+    quote = body.slice(parsed.start, parsed.end);
+  }
+  return {
+    raw: token,
+    sourceId: parsed.source_id,
+    source,
+    start: parsed.start,
+    end: parsed.end,
+    quote,
+  };
+}
+
+ succeeded in 3417ms:
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-verified: var(--verified);
+  --color-verified-foreground: var(--verified-foreground);
+  --color-contradiction: var(--contradiction);
+  --color-contradiction-foreground: var(--contradiction-foreground);
+  --color-refusal: var(--refusal);
+  --color-refusal-foreground: var(--refusal-foreground);
+  --color-tier-1: var(--tier-1);
+  --color-tier-2: var(--tier-2);
+  --color-tier-3: var(--tier-3);
+  --color-proof-token: var(--proof-token);
+  --color-verified-bundle: var(--verified-bundle);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* I-ui-010 (#730): Frontier Minimal — near-monochrome zinc + ONE confident
+     accent (default = blue oklch(0.50 0.18 255); the prior cyan read grey).
+     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
+     border. Accent hue is operator-confirmable (one-token swap; alt indigo
+     oklch(0.50 0.16 270) / teal oklch(0.52 0.12 215)). chart-* left mono. */
+  --background: oklch(0.985 0.001 286.375);
+  --foreground: oklch(0.21 0.006 285.9);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  /* I-p2-003 (#742): white surface + ONE national accent = dark Canada-flag
+     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
+     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+     destructive=deep maroon distinct from the national red. + evidence-role
+     tokens (tiers + proof). Operator design lock 2026-05-21. */
+  --primary: #c8102e;
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.21 0.006 285.9);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.96 0.03 25);
+  --accent-foreground: oklch(0.45 0.16 26);
+  --destructive: oklch(0.42 0.13 18);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: #c8102e;
+  /* State colors — distinct from the national red (rubric: never red-only) */
+  --verified: oklch(0.48 0.14 152);
+  --verified-foreground: oklch(0.985 0 0);
+  --contradiction: oklch(0.72 0.15 75);
+  --contradiction-foreground: oklch(0.27 0.04 75);
+  --refusal: oklch(0.45 0.02 286);
+  --refusal-foreground: oklch(0.985 0 0);
+  /* Evidence-role tokens */
+  --tier-1: #c8102e;
+  --tier-2: oklch(0.556 0 0);
+  --tier-3: oklch(0.708 0 0);
+  --proof-token: oklch(0.45 0.16 26);
+  --verified-bundle: oklch(0.48 0.14 152);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  /* I-p2-003 (#742): dark-mode accent = Canada-red (NOT the old cyan, which
+     violated the operator lock). Lighter L0.62 for contrast on the dark
+     surface; white fg. NOTE: light mode is the demo target; dark mode reuses
+     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+     proof) — dark-specific tuning is a post-demo follow-up. */
+  --primary: oklch(0.62 0.2 26);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.32 0.06 26);
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\components\\citation\\citation_chip.tsx | Select-Object -First 140" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content web\\app\\generation\\components\\sentence_inspector.tsx | Select-Object -Skip 110 -First 220" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content .codex\\I-p2-006\\brief.md" in C:\POLARIS
+ succeeded in 1544ms:
+// I-p2-004 (#743): reusable citation chip + hover/focus source card.
+// Chip = inline provenance marker (tier dot + mono index/id). Hover OR focus OR
+// tap → source card with the EXACT cited span (untruncated) via resolveSpan.
+// No-synthetic-proof: shows the span only when resolved, else an honest note.
+"use client";
+
+import { Tooltip } from "@base-ui/react/tooltip";
+import { useState } from "react";
+
+import { resolveSpan } from "@/lib/evidence_span";
+
+interface CitationChipProps {
+  /** A provenance token `[#ev:<id>:<start>-<end>]`. */
+  token: string;
+  /** The run's evidence pool (EvidenceContract / bundle.evidencePool). */
+  evidencePool: unknown;
+  /** Optional display index (e.g. the nth citation in a sentence). */
+  index?: number;
+}
+
+function tierDotClass(tier: string | number | null | undefined): string {
+  const t = String(tier ?? "").toUpperCase();
+  if (t === "T1" || t === "1") return "bg-tier-1"; // primary evidence (red)
+  if (t === "T2" || t === "2") return "bg-tier-2";
+  return "bg-tier-3";
+}
+
+export function CitationChip({
+  token,
+  evidencePool,
+  index,
+}: CitationChipProps) {
+  const span = resolveSpan(token, evidencePool);
+  const tier = span?.source?.tier ?? null;
+  const label = span?.source?.title ?? span?.sourceId ?? token;
+  // Controlled open so hover (mouse), focus (keyboard) AND tap (touch) all open
+  // the source card — base-ui hover alone is mouse-only (Codex iter-1 P1).
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Tooltip.Root open={open} onOpenChange={setOpen}>
+      <Tooltip.Trigger
+        closeOnClick={false}
+        render={
+          <button
+            type="button"
+            data-testid="citation-chip"
+            data-source-id={span?.sourceId}
+            aria-label={`Source: ${label}`}
+            onPointerDown={(e) => {
+              // Touch: toggle on pointerdown only (avoids the focus→open then
+              // click→toggle-closed race). Mouse/pen use hover + focus below.
+              if (e.pointerType === "touch") setOpen((o) => !o);
+            }}
+            onMouseEnter={() => setOpen(true)}
+            onMouseLeave={() => setOpen(false)}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setOpen(false)}
+            className="border-border text-muted-foreground hover:bg-muted focus-visible:ring-ring/70 mx-0.5 inline-flex min-h-[24px] min-w-[24px] items-center justify-center gap-1 rounded border px-1.5 align-baseline font-mono text-[11px] leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
+          />
+        }
+      >
+        <span
+          aria-hidden
+          className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${tierDotClass(tier)}`}
+        />
+        {index != null ? index : (span?.sourceId ?? "ev")}
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Positioner sideOffset={6}>
+          <Tooltip.Popup
+            data-testid="citation-source-card"
+            className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
+          >
+            <div className="text-muted-foreground mb-1 flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="text-foreground font-medium">{label}</span>
+              {tier != null && <span>· tier {String(tier)}</span>}
+              <span className="font-mono">
+                [{span?.sourceId ?? "?"}:{span?.start ?? "?"}-{span?.end ?? "?"}
+                ]
+              </span>
+            </div>
+            {span?.quote != null ? (
+              <blockquote className="text-foreground border-border max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-snug italic">
+                &ldquo;{span.quote}&rdquo;
+              </blockquote>
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                Source span not renderable from this bundle — verify via the
+                signed bundle.
+              </p>
+            )}
+            {span?.source?.url && (
+              // Non-interactive provenance text: a tooltip popup must not hold
+              // interactive elements (unreachable on mouseleave + ARIA
+              // antipattern). The clickable "open source" lives in the full
+              // source card (#745) / Proof Replay (#756).
+              <p
+                className="text-muted-foreground mt-1 max-w-full truncate text-[11px]"
+                title={span.source.url}
+              >
+                {span.source.url}
+              </p>
+            )}
+          </Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+}
+
+ succeeded in 1939ms:
+  const span = out_of_range ? "" : text.slice(token.start, token.end);
+  if (out_of_range) {
+    return (
+      <p
+        data-testid={`inspector-span-out-of-range-${idx}-${spanIdx}`}
+        className="text-rose-700 dark:text-rose-300"
+      >
+        (span out of range: {token.start}-{token.end} of {text.length})
+      </p>
+    );
+  }
+  return (
+    <blockquote
+      data-testid={`inspector-span-${idx}-${spanIdx}`}
+      className="border-l-2 border-yellow-400 bg-yellow-50 px-2 py-1 italic dark:bg-yellow-900/20"
+    >
+      {span || "(empty span)"}
+    </blockquote>
+  );
+}
+
+function SourceCard({
+  tokens,
+  source,
+  idx,
+}: {
+  tokens: ParsedToken[];
+  source: RetrievalSource | undefined;
+  idx: number;
+}) {
+  const first = tokens[0];
+  if (!source) {
+    return (
+      <div
+        data-testid={`inspector-source-missing-${idx}`}
+        className="rounded border border-rose-500/40 p-2 text-xs text-rose-700 dark:text-rose-300"
+      >
+        Source <code>{first.source_id}</code> not in pool — token {first.raw}.
+      </div>
+    );
+  }
+  const text = source.full_text ?? source.snippet ?? "";
+  return (
+    <div
+      data-testid={`inspector-source-${idx}`}
+      className="border-border flex flex-col gap-1 rounded border p-2 text-xs"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <a
+          data-testid={`inspector-source-url-${idx}`}
+          href={source.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-700 underline dark:text-blue-300"
+        >
+          {source.domain}
+        </a>
+        <div className="flex items-center gap-1">
+          {source.full_text_available === false ? (
+            <span
+              data-testid={`inspector-paywalled-${idx}`}
+              title="Source paywalled or full-text unavailable — span cannot be quoted; URL still actionable."
+              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+            >
+              Paywalled
+            </span>
+          ) : null}
+          {source.retracted ? (
+            <span
+              data-testid={`inspector-retracted-${idx}`}
+              title="Source retracted post-publication"
+              className="inline-flex items-center rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-rose-700 uppercase dark:text-rose-300"
+            >
+              Retracted
+            </span>
+          ) : null}
+          {isStale(source.publication_date) ? (
+            <span
+              data-testid={`inspector-stale-${idx}`}
+              title="Source >2 years old (per Carney plan §F currency-of-knowledge)"
+              className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
+            >
+              Stale &gt;2y
+            </span>
+          ) : null}
+          <span
+            data-testid={`inspector-tier-${source.tier}`}
+            title={TIER_RATIONALE[source.tier]}
+            className={`rounded-full border px-2 py-0.5 text-[10px] tracking-widest uppercase ${TIER_TONE[source.tier]}`}
+          >
+            {source.tier}
+          </span>
+        </div>
+      </div>
+      <p
+        data-testid={`inspector-trace-${idx}`}
+        className="text-muted-foreground"
+      >
+        <strong className="text-foreground">{source.title}</strong>
+        {source.publication_date && <> · {source.publication_date}</>}
+        {source.authors[0] && (
+          <>
+            {" "}
+            · {source.authors.slice(0, 2).join(", ")}
+            {source.authors.length > 2 ? " et al." : ""}
+          </>
+        )}
+      </p>
+      <div className="flex flex-col gap-1">
+        {tokens.map((tok, j) => (
+          <SpanQuote key={j} token={tok} text={text} idx={idx} spanIdx={j} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function SentenceInspector({
+  open,
+  onOpenChange,
+  sentence,
+  sentence_id,
+  pool,
+}: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  sentence: ReportVerifiedSentence | null;
+  sentence_id: string | null;
+  pool: EvidencePool | null;
+}) {
+  const tokens = sentence ? parseAllTokens(sentence.provenance_tokens) : [];
+  const pool_index = new Map(pool?.sources.map((s) => [s.source_id, s]) ?? []);
+  const grouped: Map<string, ParsedToken[]> = new Map();
+  for (const tok of tokens) {
+    const arr = grouped.get(tok.source_id) ?? [];
+    arr.push(tok);
+    grouped.set(tok.source_id, arr);
+  }
+  const groups = [...grouped.entries()];
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        data-testid="sentence-inspector-sheet"
+        side="right"
+        className="data-[side=right]:w-full data-[side=right]:sm:w-2/5 data-[side=right]:sm:max-w-none"
+      >
+        <SheetHeader>
+          <SheetTitle data-testid="sentence-inspector-id">
+            {sentence_id ?? "Sentence inspector"}
+          </SheetTitle>
+          <SheetDescription>
+            Provenance and verification details for the selected sentence.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex flex-col gap-3 px-4 pb-4 text-sm">
+          {sentence && (
+            <>
+              <div className="flex items-start justify-between gap-2">
+                <p
+                  data-testid="sentence-inspector-text"
+                  className="text-foreground flex-1"
+                >
+                  {sentence.sentence_text}
+                </p>
+                <div className="flex flex-col items-end gap-1">
+                  <AgreementBadge
+                    evaluator_agrees={sentence.evaluator_agrees}
+                  />
+                  {sentence.is_synthesis_claim ? <SynthesisClaimBadge /> : null}
+                </div>
+              </div>
+              {tokens.length === 0 ? (
+                <p className="text-muted-foreground text-xs italic">
+                  No provenance tokens.
+                </p>
+              ) : (
+                <div
+                  data-testid="inspector-sources"
+                  className="flex flex-col gap-2"
+                >
+                  {groups.map(([source_id, group_tokens], i) => (
+                    <SourceCard
+                      key={source_id}
+                      tokens={group_tokens}
+                      source={pool_index.get(source_id)}
+                      idx={i}
+                    />
+                  ))}
+                </div>
+              )}
+              {sentence.drop_reason && (
+                <p
+                  data-testid="sentence-inspector-drop"
+                  className="text-xs tracking-widest text-rose-700 uppercase dark:text-rose-300"
+                >
+                  dropped —{" "}
+                  {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+ succeeded in 2217ms:
+# Codex BRIEF review — I-p2-006 (#745): source / evidence card
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; cosmetics → P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; do not bank for iter 6.
+- Surface held-back findings now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Task
+A reusable **source / evidence card** (TIER 2; report/audit/source-review pages reuse it) showing a single retrieved source's identity + provenance.
+
+## Verified current state (grounded — avoid inventing fields)
+- REAL per-source fields (evidence_pool_table.tsx SourceShape + evidence_span.ts EvidenceSource): `source_id, title, url, domain, tier, authors[], snippet`. THAT is the per-source data.
+- NOT per-source (do NOT fabricate onto a source): `sha256`/content hash + `contract_version` are BUNDLE-level (api.ts:303,432); support/contradict is a RUN-level signal (api.ts contradictions[] / ContradictionSignal), not intrinsic to one source.
+- #742 tokens: --tier-1/2/3, Canada-red --primary; VerdictChip (#744) for any stance label.
+
+## Acceptance criteria (diff implements; brief reviews the plan)
+1. `web/components/source/source_card.tsx`: prop `source` (the real fields above) + OPTIONAL `stance?: "support" | "contradict" | null` + OPTIONAL `contentHash?: string` (rendered ONLY when the consumer passes it — never invented).
+2. Renders: tier badge (—tier token + label), title (interactive link to `url` if present — a CARD MAY hold links, unlike a tooltip), domain, authors (if any), snippet excerpt, mono `source_id`. Optional: stance badge (reuse VerdictChip mapping or a small support/contradict badge) + contentHash (mono) ONLY when provided.
+3. Honest: render ONLY fields actually present (no "unknown"/fabricated hash/version/stance). Missing optional fields are simply omitted.
+4. Frontier-Minimal (white, Canada-red, hairline card, mono for ids/hash); WCAG 2.2 (link focus-visible, AA, target ≥24px).
+
+## Files I have ALSO checked and they're clean
+- web/lib/evidence_span.ts (EvidenceSource), web/components/inspector/evidence_pool_table.tsx (SourceShape + existing table render), web/components/verdict/verdict_chip.tsx (#744, reuse for stance), web/app/globals.css (#742 tier tokens).
+
+## Review focus
+1. Does the card avoid inventing non-per-source fields (hash/version/stance only when explicitly passed)? Any field shown that isn't real per-source data = a P0/P1 honesty violation.
+2. Tier badge mapping to —tier tokens correct + AA?
+3. Interactive link a11y (focus-visible, rel=noopener); card vs tooltip distinction sound?
+4. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/lib/evidence_span.ts:10 EvidenceSource does not include domain/authors; those are only in SourceShape. Non-blocking, but implement SourceCard with its own optional-field source shape rather than importing EvidenceSource alone."
+  - "web/components/verdict/verdict_chip.tsx:13 VerdictKind has no support/contradict values. If reusing it for stance, add an explicit mapping or use a dedicated stance badge; do not map support to VERIFIED."
+tokens used
+41,590
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/lib/evidence_span.ts:10 EvidenceSource does not include domain/authors; those are only in SourceShape. Non-blocking, but implement SourceCard with its own optional-field source shape rather than importing EvidenceSource alone."
+  - "web/components/verdict/verdict_chip.tsx:13 VerdictKind has no support/contradict values. If reusing it for stance, add an explicit mapping or use a dedicated stance badge; do not map support to VERIFIED."

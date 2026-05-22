@@ -1,0 +1,117 @@
+diff --git a/web/components/source/source_card.tsx b/web/components/source/source_card.tsx
+new file mode 100644
+index 00000000..81108846
+--- /dev/null
++++ b/web/components/source/source_card.tsx
+@@ -0,0 +1,109 @@
++// I-p2-006 (#745): source / evidence card — a single retrieved source's
++// identity + provenance. Renders ONLY fields actually present (no fabricated
++// hash/version/stance). #742 tier tokens; Frontier-Minimal hairline card.
++import { Check, ExternalLink, TriangleAlert } from "lucide-react";
++
++export interface SourceCardSource {
++  source_id: string;
++  title?: string | null;
++  url?: string | null;
++  domain?: string | null;
++  tier?: string | number | null;
++  authors?: string[] | null;
++  snippet?: string | null;
++}
++
++interface SourceCardProps {
++  source: SourceCardSource;
++  /** Run-level stance toward a claim — rendered ONLY when the consumer passes
++   * it (not intrinsic to a source). */
++  stance?: "support" | "contradict" | null;
++  /** Bundle/source content hash — rendered ONLY when provided (never invented). */
++  contentHash?: string | null;
++}
++
++function tierDotClass(tier: string | number | null | undefined): string {
++  const t = String(tier ?? "").toUpperCase();
++  if (t === "T1" || t === "1") return "bg-tier-1";
++  if (t === "T2" || t === "2") return "bg-tier-2";
++  return "bg-tier-3";
++}
++
++function StanceBadge({ stance }: { stance: "support" | "contradict" }) {
++  // Dedicated stance badge (NOT the claim VerdictChip): support=green,
++  // contradict=amber, each with icon + label (never color-only).
++  if (stance === "support") {
++    return (
++      <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
++        <Check aria-hidden className="h-3 w-3 shrink-0" />
++        Supports
++      </span>
++    );
++  }
++  return (
++    <span className="bg-contradiction/15 text-contradiction-foreground border-contradiction/40 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
++      <TriangleAlert aria-hidden className="h-3 w-3 shrink-0" />
++      Contradicts
++    </span>
++  );
++}
++
++export function SourceCard({ source, stance, contentHash }: SourceCardProps) {
++  const { source_id, title, url, domain, tier, authors, snippet } = source;
++  return (
++    <article
++      data-testid="source-card"
++      data-source-id={source_id}
++      className="border-border bg-card flex flex-col gap-2 rounded-md border p-4 text-sm"
++    >
++      <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-[11px]">
++        {tier != null && (
++          <span className="border-border inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
++            <span
++              aria-hidden
++              className={`inline-block h-1.5 w-1.5 rounded-full ${tierDotClass(tier)}`}
++            />
++            Tier {String(tier).replace(/^T/i, "")}
++          </span>
++        )}
++        {stance && <StanceBadge stance={stance} />}
++        <span className="ml-auto font-mono">{source_id}</span>
++      </div>
++
++      {title &&
++        (url ? (
++          <a
++            href={url}
++            target="_blank"
++            rel="noopener noreferrer"
++            className="text-foreground hover:text-primary focus-visible:ring-ring/70 inline-flex items-start gap-1 font-medium underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:outline-none"
++          >
++            {title}
++            <ExternalLink aria-hidden className="mt-0.5 h-3 w-3 shrink-0" />
++          </a>
++        ) : (
++          <p className="text-foreground font-medium">{title}</p>
++        ))}
++
++      {(domain || (authors && authors.length > 0)) && (
++        <p className="text-muted-foreground text-xs">
++          {domain}
++          {domain && authors && authors.length > 0 && " · "}
++          {authors && authors.length > 0 && authors.join(", ")}
++        </p>
++      )}
++
++      {snippet && (
++        <p className="text-foreground/80 line-clamp-3 text-xs leading-snug">
++          {snippet}
++        </p>
++      )}
++
++      {contentHash && (
++        <p className="text-muted-foreground truncate font-mono text-[10px]">
++          sha256 {contentHash}
++        </p>
++      )}
++    </article>
++  );
++}
+
+# canonical-diff-sha256: 4dba0c5b8328fdbdb94d145e7335011fb4aaed6749089e9d24aeffde9e578ac9
