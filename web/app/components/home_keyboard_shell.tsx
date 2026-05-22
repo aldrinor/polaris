@@ -5,6 +5,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { NavLink } from "@/components/nav_link";
 import { Button } from "@/components/ui/button";
+import { PRIMARY_NAV, navForRole } from "@/lib/nav";
+import { DEFAULT_ROLE } from "@/lib/roles";
 
 import { CommandPalette } from "./command_palette";
 
@@ -19,21 +21,10 @@ type Template = {
 
 type Props = { templates: Template[]; signInHref: string; children: ReactNode };
 
-// I-cd-022 (#612): primary nav now lives in the home header too, so /
-// matches the global app-shell nav (G1: "global header/sidebar nav is
-// present and identical"). When AppShell is suppressed on `/` via
-// AppShellGate, the home page's <header> is THE app shell for this route.
-const PRIMARY_NAV: ReadonlyArray<{ href: string; label: string }> = [
-  { href: "/", label: "Home" },
-  { href: "/intake", label: "Intake" },
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/upload", label: "Upload" },
-  { href: "/benchmark", label: "Benchmark" },
-  { href: "/compare", label: "Compare" },
-  { href: "/contracts", label: "Contracts" },
-  { href: "/pin_replay", label: "Pin Replay" },
-  { href: "/memory", label: "Memory" },
-];
+// I-cd-022 (#612): the home header carries the same nav as AppShell (G1:
+// "global header nav present and identical"). I-p2-029 (#768): that nav is now
+// the single shared source @/lib/nav (no more duplicated const), role-aware via
+// navForRole (presentation-only).
 
 export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
   const [palette_open, set_palette_open] = useState(false);
@@ -62,7 +53,7 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
             POLARIS · Canada
           </Link>
           <nav className="flex items-center gap-1" aria-label="Primary">
-            {PRIMARY_NAV.map((item) => (
+            {navForRole(PRIMARY_NAV, DEFAULT_ROLE).map((item) => (
               <NavLink key={item.href} href={item.href}>
                 {item.label}
               </NavLink>
