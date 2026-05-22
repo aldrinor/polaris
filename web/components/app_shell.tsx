@@ -1,8 +1,6 @@
 import Link from "next/link";
 
-import { NavLink } from "@/components/nav_link";
-import { PRIMARY_NAV, navForRole } from "@/lib/nav";
-import { DEFAULT_ROLE } from "@/lib/roles";
+import { PrimaryNav } from "@/components/primary_nav";
 
 /**
  * I-cd-004: the global app shell. A server component that wraps every prod
@@ -35,13 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             POLARIS · Canada
           </Link>
-          <nav className="flex items-center gap-1" aria-label="Primary">
-            {navForRole(PRIMARY_NAV, DEFAULT_ROLE).map((item) => (
-              <NavLink key={item.href} href={item.href}>
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
+          <PrimaryNav />
           {/* I-ui-010 (#730): sovereign mark — honest wording (NOT a false
               air-gap claim; we retrieve public sources via logged Canadian
               egress). Eye-level badge of strength, not fine print. */}

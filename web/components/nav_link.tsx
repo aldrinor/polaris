@@ -13,9 +13,12 @@ import { usePathname } from "next/navigation";
 export function NavLink({
   href,
   children,
+  onClick,
 }: {
   href: string;
   children: React.ReactNode;
+  /** I-p2-034 (#790): lets the mobile menu close itself on navigation. */
+  onClick?: () => void;
 }) {
   const pathname = usePathname();
   const is_active =
@@ -23,6 +26,7 @@ export function NavLink({
   return (
     <Link
       href={href}
+      onClick={onClick}
       aria-current={is_active ? "page" : undefined}
       className={
         "rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +

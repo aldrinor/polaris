@@ -3,10 +3,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { NavLink } from "@/components/nav_link";
 import { Button } from "@/components/ui/button";
-import { PRIMARY_NAV, navForRole } from "@/lib/nav";
-import { DEFAULT_ROLE } from "@/lib/roles";
+import { PrimaryNav } from "@/components/primary_nav";
 
 import { CommandPalette } from "./command_palette";
 
@@ -44,7 +42,7 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
 
   return (
     <>
-      <header className="border-border bg-background border-b">
+      <header className="border-border bg-background relative border-b">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-3">
           <Link
             href="/"
@@ -52,13 +50,7 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
           >
             POLARIS · Canada
           </Link>
-          <nav className="flex items-center gap-1" aria-label="Primary">
-            {navForRole(PRIMARY_NAV, DEFAULT_ROLE).map((item) => (
-              <NavLink key={item.href} href={item.href}>
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
+          <PrimaryNav />
           {/* I-ui-010 (#730): sovereign mark — honest wording (no air-gap
               overclaim). */}
           <span
