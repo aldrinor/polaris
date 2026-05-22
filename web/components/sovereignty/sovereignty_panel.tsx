@@ -1,0 +1,107 @@
+// I-p2-009 (#748): sovereignty proof panel + signed-bundle mark. Surfaces the
+// sovereignty + integrity story as VERIFIABLE facts, not a marketing badge.
+// HONESTY: never claims "cryptographically signed" without a signature, never
+// "air-gapped", never asserts the two-family invariant passed without the real
+// family_segregation_passed field. Renders only fields present.
+import { BadgeCheck, ShieldCheck } from "lucide-react";
+
+interface SovereigntyPanelProps {
+  generatorModel?: string | null;
+  evaluatorModel?: string | null;
+  /** verified_report.family_segregation_passed — the real source of truth. */
+  familySegregationPassed?: boolean;
+  polarisVersion?: string | null;
+  bundleId?: string | null;
+  bundleCreatedAt?: string | null;
+  /** metadata.schema_version / manifest.bundle_version — rendered only if present. */
+  schemaVersion?: string | null;
+  /** Number of integrity-hashed files in the manifest (each carries a sha256). */
+  fileCount?: number | null;
+  /** A real detached signature — only then is "cryptographically signed" shown. */
+  signature?: string | null;
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-foreground font-mono">{value}</span>
+    </div>
+  );
+}
+
+export function SovereigntyPanel({
+  generatorModel,
+  evaluatorModel,
+  familySegregationPassed,
+  polarisVersion,
+  bundleId,
+  bundleCreatedAt,
+  schemaVersion,
+  fileCount,
+  signature,
+}: SovereigntyPanelProps) {
+  return (
+    <section
+      data-testid="sovereignty-panel"
+      className="border-border bg-card flex flex-col gap-4 rounded-md border p-4 text-sm"
+    >
+      {/* (a) Sovereignty — the honest shell wording */}
+      <div className="flex items-start gap-2">
+        <ShieldCheck
+          aria-hidden
+          className="text-primary mt-0.5 h-4 w-4 shrink-0"
+        />
+        <div>
+          <p className="text-foreground font-medium">Sovereign processing</p>
+          <p className="text-muted-foreground text-xs">
+            Canadian AI processing · public-source retrieval via logged Canadian
+            egress · no external AI vendor.
+          </p>
+        </div>
+      </div>
+
+      {/* (b) Two-family invariant — passed claim ONLY from the real field */}
+      {(generatorModel || evaluatorModel) && (
+        <div className="border-border flex flex-col gap-1 border-t pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-foreground font-medium">Two-family invariant</p>
+            {familySegregationPassed === true ? (
+              <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+                <BadgeCheck aria-hidden className="h-3 w-3 shrink-0" />
+                Verified
+              </span>
+            ) : familySegregationPassed === false ? (
+              <span className="bg-muted text-foreground border-border inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium">
+                Not verified
+              </span>
+            ) : null}
+          </div>
+          {generatorModel && <Row label="Generator" value={generatorModel} />}
+          {evaluatorModel && <Row label="Evaluator" value={evaluatorModel} />}
+        </div>
+      )}
+
+      {/* (c) Bundle integrity / signed mark — honest about what's proven */}
+      {(bundleId || polarisVersion || bundleCreatedAt || schemaVersion) && (
+        <div className="border-border flex flex-col gap-1 border-t pt-3">
+          <p className="text-foreground mb-1 font-medium">Signed bundle</p>
+          {bundleId && <Row label="Bundle" value={bundleId} />}
+          {schemaVersion && <Row label="Schema" value={schemaVersion} />}
+          {polarisVersion && <Row label="POLARIS" value={polarisVersion} />}
+          {bundleCreatedAt && <Row label="Created" value={bundleCreatedAt} />}
+          {signature ? (
+            <p className="text-verified mt-1 text-[11px]">
+              Cryptographically signed.
+            </p>
+          ) : fileCount != null ? (
+            <p className="text-muted-foreground mt-1 text-[11px]">
+              Integrity-hashed · {fileCount} files, sha256 per file
+              (tamper-evident).
+            </p>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
