@@ -1,0 +1,738 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e4e61-01da-7d13-ac48-2b4aaa6ce079
+--------
+user
+# Codex review — I-p2-002 (#741): design-audit protocol wired into templates
+
+HARD ITERATION CAP: 5. iter 1. Front-load findings. APPROVE iff zero P0/P1. Final line MERGE AUTHORIZED if mergeable. Docs/templates only (no code, no build).
+
+This wires the 16-dimension design-audit protocol (from the I-p2-001 APPROVED standard, state/polaris_phase2_ui_breakdown_2026_05_21.md) into the review templates so every later Phase-2 UI task auto-inherits it. Two files:
+- .codex/REVIEW_BRIEF_FORMAT.md — added §9 (mandatory DESIGN AUDIT for I-p2-* tasks: dedicated template, screenshot-matrix-in-loop via standalone harness, all 16 dims, APPROVE iff all PASS, artifact path, §8.3.1 cap).
+- .codex/DESIGN_AUDIT_BRIEF_FORMAT.md — the dedicated per-task design-audit brief template (cap directive, rendered-evidence-attached requirement, 16-dim audit, YAML output schema).
+
+## Review focus
+1. Is the protocol COMPLETE + faithful to the 16-dim standard (no dimension dropped/garbled)?
+2. Does it enforce rendered-evidence-in-the-loop (the thing that prevents code-only easy passes)?
+3. Internally consistent with REVIEW_BRIEF_FORMAT §0 cap + the v3 verdict rule?
+4. Anything that would let a non-top-tier UI pass.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+codex
+I’ll review this as a template/protocol change only: first confirm the canonical 16 dimensions, then compare the two modified templates for completeness, evidence requirements, cap consistency, and verdict semantics.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw .codex/REVIEW_BRIEF_FORMAT.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw state/polaris_phase2_ui_breakdown_2026_05_21.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw .codex/DESIGN_AUDIT_BRIEF_FORMAT.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- .codex/REVIEW_BRIEF_FORMAT.md .codex/DESIGN_AUDIT_BRIEF_FORMAT.md' in C:\POLARIS
+ succeeded in 1480ms:
+ succeeded in 1752ms:
+# Codex DESIGN-AUDIT brief template (Phase-2 UI) — v1, 2026-05-21 (I-p2-002 / #741)
+
+Use this template for the DESIGN audit of every Phase-2 UI issue (I-p2-*), separate from and in addition to the code-diff review. Copy this skeleton into `.codex/<id>/design_audit_brief.md`, fill the brackets, attach the screenshot matrix, run Codex.
+
+---
+
+## 0. Iteration-cap directive (verbatim, MANDATORY first block — per CLAUDE.md §8.3.1)
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real top-tier-design failures; cosmetics are P2/P3.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd on remaining-non-P0/P1; residuals → follow-up issues. Iter 6 does not exist; do not bank findings.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1 across all 16 dimensions.
+```
+
+## 1. What you are auditing
+- Issue: `<I-p2-NNN (#GH)>` — `<page/component>`.
+- You are the TOP-TIER design auditor. Bar: ahead-of-frontier (Perplexity / ChatGPT-DR / Gemini / Linear) on verifiable proof; ≥ par on polish. Audience: a PMO analyst, not an engineer.
+- Locked design: WHITE background · dark Canada-flag red accent (by scarcity) · Frontier Minimal (Geist + Geist Mono, hairlines, whitespace) · Braille maple-leaf signature where present.
+
+## 2. Rendered evidence ATTACHED (Codex cannot audit design from a diff)
+- Screenshot MATRIX (paths): desktop 1440 / tablet 768 / mobile 390 + 200% zoom + the key interaction states (default / hover / focus / loading / empty / error / the proof-replay-open state). Captured via the **production standalone harness** (`node web/.next/standalone/server.js`), NOT `next dev`.
+- Playwright interaction trace + `axe` output (accessibility) where applicable.
+- The exact routes/fixtures used.
+
+## 3. Audit ALL 16 dimensions → PASS / NEEDS-WORK (with specifics) per `state/polaris_phase2_ui_breakdown_2026_05_21.md`
+1. Visual design  2. User flow  3. Data flow / IA  4. User focus / cognitive load  5. Clarity  6. Frontier head-to-head (AHEAD/PAR/BEHIND + specifics)  7. Accessibility (WCAG 2.2 AA)  8. Provability / honesty (no synthetic proof; uncertainty shown; click raises confidence)  9. Responsive / device / zoom  10. EN-FR i18n-readiness (EN-first waiver logged — check no hardcoded-string blockers, locale-safe formats, ~+30% expansion tolerance)  11. Content / microcopy  12. Security / privacy / sovereignty (verified, not badge)  13. Performance / resilience  14. Dense-table UX  15. Role / workflow governance  16. Independent rendered verification (the attached matrix/trace/axe actually prove the above).
+
+## 4. Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+dimensions:               # all 16, each PASS or NEEDS-WORK + note
+  visual: PASS|NEEDS-WORK — <note>
+  user_flow: ...
+  data_flow_ia: ...
+  focus_cognitive_load: ...
+  clarity: ...
+  frontier_head_to_head: AHEAD|PAR|BEHIND — <specifics>
+  accessibility: ...
+  provability_honesty: ...
+  responsive_zoom: ...
+  i18n_en_fr_ready: ...
+  content_microcopy: ...
+  security_sovereignty: ...
+  performance: ...
+  dense_table_ux: ...
+  role_governance: ...
+  independent_verification: ...
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+```
+Convergence: APPROVE iff all 16 PASS (zero P0, zero P1).
+
+
+ succeeded in 2016ms:
+# PHASE 2 (UI) — granular issue breakdown + military-order sequence (2026-05-21, consolidated v3)
+
+**Source of truth for Phase-2 execution.** From `state/polaris_ux_research_consolidated_2026_05_21.md` (Claude×3 + Codex deep research). Codex-reviewed (I-p2-001 / #740). Supersedes the coarse stubs #729/#731-738 (closed/folded). ONE coherent doc — no appendices. Execute in STRICT sequence: cannot start the next issue until the current is merged + screenshot-verified + UAT-passed where applicable.
+
+---
+
+## THE 16-DIMENSION TOP-TIER DESIGN-AUDIT RUBRIC (binding — Codex applies to EVERY Phase-2 task)
+In addition to the code diff review, every task gets a Codex DESIGN audit at the highest/most-robust/top-tier standard, **with rendered screenshots + independent verification artifacts in the loop** (Codex cannot audit design from a diff). Per dimension: PASS / NEEDS-WORK with specifics.
+
+1. **Visual design** — type scale & hierarchy, 4px spacing rhythm, color & contrast (WCAG 2.2 AA), one radius + two elevations, restrained motion + reduced-motion. Frontier-Minimal; no decorative gradients/orbs.
+2. **User flow** — obvious journey; one primary action per screen; no dead-ends; back-nav + error recovery.
+3. **Data flow / IA** — right info in the right place; progressive disclosure (answer → evidence → method → graph/audit); nothing buried; proof + sovereignty legible at a glance.
+4. **User focus / cognitive load** — clear visual priority; scannable; no competing CTAs; reduces the *verification* burden.
+5. **Clarity** — labels, empty/loading/error states; "what next" obvious to a PMO analyst (not an engineer).
+6. **Frontier head-to-head** — beside Perplexity / ChatGPT-DR / Gemini / Linear: AHEAD / PAR / BEHIND with specifics. Ahead on verifiable proof; ≥ par on polish.
+7. **Accessibility** — WCAG 2.2 AA, keyboard, visible focus order, target size, reduced-motion, no color-only state.
+8. **Provability / honesty** — every proof element from a typed field or honest fallback (NO synthetic proof); uncertainty shown (verdict chips); clicking a claim RAISES confidence (span contains the claim).
+9. **Responsive / device / zoom** — desktop+tablet+mobile, 200–400% zoom, forced-colors, print/export; viewport-matrix evidence.
+10. **Official languages / i18n (EN/FR)** — **OPERATOR WAIVER LOGGED 2026-05-21: EN-FIRST for the demo; full FR deferred to a post-demo follow-up.** So Phase-2 builds EN-only but MUST stay i18n-ready (no hardcoded strings that block FR; locale-safe date/number/unit formatting; layouts that tolerate ~+30% text expansion). The full bilingual-parity bar is explicitly waived for the demo, NOT silently skipped; FR is tracked as a post-demo issue.
+11. **Content design / microcopy** — domain copy, uncertainty language, caveats, jurisdiction/date-freshness, refusal wording.
+12. **Security / privacy / sovereignty (VERIFIED, not badge)** — RBAC, egress proof, data classification, PHI/PII handling, redaction, signed/tamper-evident logs, export signing; evidence artifacts.
+13. **Performance / resilience** — budgets for load, source-open, KG scale, export; offline/error recovery.
+14. **Dense-information / table UX** — source inventory, audit logs, evidence matrices, compare: sort/filter/sticky-headers/density/virtualization/provenance-visibility/export-parity.
+15. **Role / workflow governance** — analyst / counsel / clinical reviewer / records officer handoff + sign-off.
+16. **Independent rendered verification** — production-harness screenshot MATRIX + Playwright trace/interaction recording + axe output + keyboard + screen-reader + evidence-click tests (NOT curated screenshots).
+
+**Color tokens:** separate national-accent vs verified vs contradiction vs refusal vs destructive/error — never rely on red alone.
+
+## VERDICT RULE
+**APPROVE iff all 16 dimensions PASS** (zero NOVEL P0, zero continuing P0, zero P1). Iteration is bounded at 5 per §8.3.1. **Iter-5 with unresolved P0/P1 → Claude FORCE-APPROVEs and proceeds (operator-confirmed 2026-05-21), capturing each residual P0/P1 as a follow-up issue in the breakdown + flagged in the morning git-log.** (§8.3.1 stands — commercial cycle-time over unbounded iteration; the residual-as-follow-up record keeps it honest.) Artifacts: `outputs/audits/<id>/codex_design_audit.txt` + screenshot matrix + traces.
+
+## PER-TASK WORKFLOW
+1. GitHub issue → branch `bot/I-p2-NNN-<slug>`.
+2. Claude brief (rubric verbatim + adjacent-file scan) → Codex brief review → APPROVE.
+3. Claude builds → Claude self design-audit (production standalone harness `node web/.next/standalone/server.js` — NOT `next dev`; fixtures placed; tear down immediately).
+4. Codex DESIGN audit (16-dim, screenshots + traces attached) → iterate to APPROVE / escalate.
+5. Codex code diff review → APPROVE / MERGE AUTHORIZED.
+6. UAT (page/flow issues) → pass (protocol below).
+7. Merge → redeploy → operator screenshot sign-off. Close; only then start the next.
+
+## UAT PROTOCOL (binding for page/flow + Tier-4 issues)
+- **Roles:** PMO analyst, policy advisor, legal counsel, clinical/regulatory reviewer, records/security officer.
+- **Samples:** ≥3 participants per role per critical scenario (or explicit operator waiver logged); fixed scenario corpus (U-01..U-06 + role scenarios) — **the corpus is DEFINED under #769 before any Tier-3 page UAT runs** (#764 is the final whole-product UAT execution); no-assist moderation; capture raw recordings/traces/timestamps.
+- **Denominators:** per-role AND per-claim-type; **no averaging over role failures** (a role failing is a fail). Bilingual EN/FR + assistive-tech (keyboard + screen-reader) participant coverage required.
+- **Metrics:** task success, time-to-credible-answer, ≤2-clicks-to-span, **trust calibration BY CLAIM TYPE** (supported→up; partial/unsupported/conflicting→down/calibrated — never reward overtrust), SUS, NASA-TLX, SEQ, source-set selection accuracy.
+- **Critical gates:** seeded-trap detection (fabrication, stale source, jurisdiction mismatch, contradiction) **≥95%**; **fabricated-source rate = 0**; any critical-trap miss = ABORT (fix before proceeding).
+
+---
+
+## MILITARY-ORDER SEQUENCE (single executable order — dependencies resolved per Codex iter-1/2)
+
+**TIER 0 — Standards (must be Codex-locked before anything is built):**
+1. **#740 I-p2-001** — lock + Codex-review THIS standard at top-tier bar. ← in progress
+2. **#741 I-p2-002** — wire the 16-dim design-audit protocol into brief/review templates (screenshots + traces required).
+3. **#769 I-p2-030** — responsive / i18n(EN-FR) / content / performance / security STANDARDS gates.
+
+**TIER 1 — Foundation (before pages):**
+4. **#742 I-p2-003** — design-system re-audit; accent LOCKED = dark Canada-red on white (AA-finalized); evidence-role + state-color tokens, motion/dark tokens, type scale.
+5. **#768 I-p2-029** — global app shell + role model + global nav.
+6. **#767 I-p2-028** — Braille-density flying maple-leaf signature (built with the design system).
+7. **#760 I-p2-021** — Sign-in (institutional, minimal) — with the shell.
+8. **#762 I-p2-023** — Sovereignty integration across shell + pages (cross-cutting, before Tier-3 pages).
+
+**TIER 2 — Shared evidence/proof components:**
+9–17. **#743** citation chip+source card · **#744** verdict chip · **#745** source/evidence card · **#746** Proof-Replay split-view · **#747** progress checklist+Thinking-Toggle · **#748** sovereignty panel+signed-bundle mark · **#749** contradiction/refusal panel · **#750** states kit · **#751** knowledge-graph component.
+
+**TIER 3 — Pages (reuse components; full 16-dim audit + UAT):**
+18. **#752 I-p2-013** Home (live verified brief; one CTA; first-run).
+19. **#753 I-p2-014** Intake (just-ask + auto-detected domain).
+20. **#770 I-p2-031** Source Review / Source-Set Health (between intake + plan).
+21. **#754 I-p2-015** Plan review (editable plan before run).
+22. **#755 I-p2-016** Run progress (depth visible).
+23. **#756 I-p2-017** Report = Proof Replay (CENTERPIECE; closes #728; finishes #734 branch; UAT U-01).
+24. **#757 I-p2-018** Compare / follow-up (anchored to a claim; dense-table gates).
+25. **#758 I-p2-019** Knowledge-graph page (the snowball).
+26. **#759 I-p2-020** Audit / export (signed package + manifest + audit log; dense-table gates).
+27. **#761 I-p2-022** Dashboard / runs (monitoring only).
+
+**TIER 4 — Whole-product verification:**
+28. **#763 I-p2-024** Frontier head-to-head benchmark (12 prompts × 3; blind-scored; weighted to verifiable correctness).
+29. **#764 I-p2-025** UAT scenarios U-01..U-06 (full protocol above).
+30. **#765 I-p2-026** WCAG 2.2 AA accessibility pass (automated + manual keyboard/screen-reader).
+31. **#766 I-p2-027** Demo journey end-to-end on VM + handover package update.
+
+---
+
+## OPERATOR DESIGN LOCK — 2026-05-21 (binding)
+- **Background:** WHITE (light-theme primary; #FFFFFF / #FAFAFA).
+- **Accent:** DARK CANADA-FLAG RED — deep/sober institutional red (NOT pure #FF0000; AA-safe on white, ≥4.5:1; ~#C8102E / oklch ≈ 0.52 0.20 25; finalized in #742). Accent by scarcity (proof-highlight + primary action); state colors are separate tokens (verified/contradiction/refusal/error ≠ the national red).
+- **Signature:** Braille-density flying maple leaf (#767) — three.js renders the 3D leaf to a canvas → luminance → Braille dot patterns (2×4 dots/char, high-res, elegant); red on white, gentle motion; reduced-motion static fallback; aria-hidden; lazy-loaded + perf-budgeted; sign-in/home (+ optional loading) only; tasteful/institutional, never gimmicky.
+- Everything else: Frontier Minimal (Geist + Geist Mono, hairlines, generous whitespace, restrained motion).
+
+## RECONCILIATION
+Epic #729 retained. #730 design system merged (re-audited by #742, accent → red). #734 Proof Replay in-flight → finished under #756. Coarse stubs #731/732/733/735/736/737/738 closed (folded). New from Codex review: #768 (shell+roles), #769 (standards gates), #770 (source review).
+
+
+ succeeded in 2287ms:
+# Codex review brief format v3 — applied 2026-05-06
+
+v3 changelog (2026-05-06): added §0 mandatory iteration-cap directive per CLAUDE.md §8.3.1 user directive (commercial viability override). All v2 sections (§1-§8 below) remain in force unchanged.
+
+v2 (2026-04-29) origin: replaces the prior 4-7-point acceptance bar format with patterns from the 2025-2026 SOTA literature on AI-pair-programming review loops (ARIS, adversarial-review, Anthropic Building Effective Agents, OpenAI Codex prompting guide).
+
+Diagnosis of the prior format (from sister-project research): the "toothpaste squeeze" pattern (Codex surfaces issues round-by-round instead of dumping everything in R1) was anchoring-bias on a holistic rubric. Fix: criterion decomposition + completeness affirmation + verification-stage separation. Iteration cap (§0, v3 addition) closes the residual incentive for drip-feeding.
+
+## Sections every brief must contain
+
+### 0. Iteration cap directive (NEW v3, 2026-05-06) — MANDATORY FIRST CONTENT BLOCK
+
+Paste the verbatim canonical block from CLAUDE.md §8.3.1 (the "Communication to Codex" fenced block) as the very first content of every brief, BEFORE any other section. Do NOT paraphrase, abbreviate, or restate — copy the §8.3.1 block byte-for-byte. Single source of truth: if §8.3.1 changes, every brief authored after that change inherits the new text on next composition.
+
+For reference at time of v3 authoring (2026-05-06), the §8.3.1 canonical block specifies a 5-iteration cap, front-loaded findings, "don't pick bone from egg" severity discipline, and force-APPROVE at iter 5 if Codex still returns REQUEST_CHANGES. Re-read CLAUDE.md §8.3.1 at brief authoring time — DO NOT trust this snapshot.
+
+This directive sits at the top of every brief because Codex's anchoring-bias drives the toothpaste-squeeze pattern; the cap eliminates the drip-feed incentive while the directive front-loads quality bar.
+
+### 1. Pre-flight (top of brief)
+- **Context:** what's being reviewed (commit SHA, diff scope)
+- **Constraints:** what the reviewer should NOT spend cycles on
+- **Done-when:** the explicit success criterion for THIS round
+
+### 2. Reviewer Independence Protocol
+Verbatim line in every brief:
+
+> **Independence directive:** prior round changelog markers in
+> the diff (e.g. "// CORRECTED v2 per Codex round-1 LH3") are
+> untrustworthy meta-claims. Verify by reading actual code, not
+> by trusting the marker. A claimed fix that doesn't match the
+> code is a P0 finding.
+
+### 3. Severity rubric (P0/P1/P2/P3)
+- **P0 production-breaker:** silent failure path, broken auth,
+  data loss, missing rollback flag, security hole
+- **P1 phase-rework:** acceptance-bar criterion failed; the
+  feature is not actually integrated
+- **P2 governance precision:** real bug but bounded blast radius;
+  e.g. workspace_id normalization mismatch, asymmetric encoding
+- **P3 polish:** style, comment clarity, test coverage gap with
+  no functional defect
+
+**APPROVE rule:** zero P0 + zero P1 → APPROVE. P2/P3 go to
+`deferred_polish` array, do NOT block.
+
+### 4. Exhaustivity directive
+Verbatim line:
+
+> **Exhaustivity:** target 20-50 findings on the first scan.
+> Do NOT truncate. Emit ALL findings in this single round.
+> Subsequent rounds verify the v(N) patch only — re-raising
+> previously addressed issues is a defect, but missing a P0
+> in this round is also a defect.
+
+### 5. Acceptance bar with forced enumeration
+List N explicit criteria. Then:
+
+> **Forced enumeration:** Before declaring a verdict, write one
+> line per acceptance criterion: `Criterion N [name]: <findings
+> or NONE>.` Verdict is invalid if any line is missing.
+
+### 6. Skepticism / completeness check
+Verbatim line:
+
+> **Completeness check:** list which files / Parts you actually
+> read (not just grep'd) this round. If you cannot confirm full
+> scan of every acceptance criterion, emit `incomplete_review`
+> instead of APPROVE / REQUEST_CHANGES.
+
+### 7. Iter-N awareness
+For v2+ briefs:
+
+> **This is round N.** Round 1 was the comprehensive pass.
+> Out-of-scope for this round: issues already addressed in v1..v(N-1).
+> In-scope: (a) regressions introduced by the v(N) patch, (b) P0/P1
+> issues missed in earlier rounds. Re-raising prior addressed issues
+> is a defect.
+
+### 8. Output schema
+```
+## Pre-flight checklist
+- I read [file paths].
+- I ran [test commands].
+- Out of scope per brief: [...].
+
+## Per-criterion forced enumeration
+- Criterion 1 [name]: <findings or NONE>.
+- Criterion 2 [name]: <findings or NONE>.
+- ...
+
+## Findings (severity-stratified)
+
+### P0 (production-breakers)
+- [file:line] <description>
+
+### P1 (phase-rework)
+- [file:line] <description>
+
+### P2 (governance precision)
+- [file:line] <description>
+
+### P3 / deferred_polish (non-blocking)
+- [file:line] <description>
+
+## Verdict
+APPROVE | REQUEST_CHANGES | incomplete_review
+
+Convergence: APPROVE iff zero P0 + zero P1.
+```
+
+### 9. DESIGN AUDIT (Phase-2 UI tasks) — MANDATORY for any web/UI issue (I-p2-*)
+Added 2026-05-21 (I-p2-002). Every Phase-2 UI task gets, IN ADDITION to the code-diff review, a separate **Codex DESIGN audit** at the top-tier bar, using the **16-dimension rubric** in `state/polaris_phase2_ui_breakdown_2026_05_21.md`. The design-audit brief MUST:
+- Use the dedicated template `.codex/DESIGN_AUDIT_BRIEF_FORMAT.md`.
+- **Attach rendered evidence in the loop** — Codex cannot audit design from a diff: a screenshot MATRIX (desktop/tablet/mobile + zoom + the key interaction states) captured via the **production standalone harness** (`node web/.next/standalone/server.js`, NOT `next dev`), plus Playwright trace + axe output where applicable.
+- Audit all 16 dimensions (visual, user-flow, data-flow, focus, clarity, frontier-head-to-head, accessibility/WCAG-2.2-AA, provability, responsive/zoom, EN-FR-i18n-ready [EN-first waiver logged], content/microcopy, security-verified, performance, dense-table UX, role governance, independent-rendered-verification) → PASS/NEEDS-WORK each.
+- Verdict: APPROVE iff all 16 PASS. Artifact: `outputs/audits/<id>/codex_design_audit.txt` + the screenshot matrix.
+- §8.3.1 cap applies; per the v3 standard verdict rule, iter-5 residual P0/P1 → force-APPROVE + follow-up issue (operator-confirmed 2026-05-21).
+
+## Locking criterion (cross-rounds)
+Two consecutive APPROVE verdicts from independent (cleared-
+context) Codex invocations, OR adversarial cross-review consensus
+on NO_ISSUES.
+
+## Sources
+- adversarial-review (alecnielsen): 4-phase debate loop
+- ARIS: Reviewer Independence Protocol + skepticism gate
+- Anthropic, "Building Effective Agents": evaluator-optimizer
+- OpenAI Codex prompting guide: pre-flight checklist
+- Promptfoo / Evidently: criterion decomposition
+- arxiv:2509.09912 "When Your Reviewer is an LLM" — anchoring
+  empirical study
+
+
+codex
+I have the three relevant documents open. The main comparison point is the canonical rubric’s dimension 16, which requires not just screenshots/trace/axe, but keyboard, screen-reader, and evidence-click tests as independent rendered verification artifacts.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path .codex/DESIGN_AUDIT_BRIEF_FORMAT.md -Pattern "Rendered evidence|Screenshot MATRIX|Playwright|Audit ALL 16|Independent rendered verification|independent_verification|Convergence"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path .codex/REVIEW_BRIEF_FORMAT.md -Pattern "DESIGN AUDIT|Attach rendered evidence|Audit all 16|Verdict: APPROVE iff|§8.3.1 cap applies"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path state/polaris_phase2_ui_breakdown_2026_05_21.md -Pattern "Independent rendered verification|Responsive / device / zoom|VERDICT RULE|Artifacts|APPROVE iff"' in C:\POLARIS
+ succeeded in 1449ms:
+
+.codex\DESIGN_AUDIT_BRIEF_FORMAT.md:3:Use this template for the DESIGN audit of every Phase-2 UI issue (I-p2-*), 
+separate from and in addition to the code-diff review. Copy this skeleton into `.codex/<id>/design_audit_brief.md`, 
+fill the brackets, attach the [7mscreenshot [0m[7mmatrix[0m, [0m[7m[0mrun [0m[7m[0mCodex.[0m
+.codex\DESIGN_AUDIT_BRIEF_FORMAT.md:22:## 2. [7mRendered evidence[0m ATTACHED (Codex cannot audit design from a diff)
+.codex\DESIGN_AUDIT_BRIEF_FORMAT.md:23:- [7mScreenshot [0m[7mMATRIX [0m[7m[0m(paths): [0m[7m[0mdesktop [0m[7m[0m1440 [0m[7m[0m/ [0m[7m[0mtablet [0m[7m[0m768 [0m[7m[0m/ [0m[7m[0mmobile [0m[7m[0m390 [0m[7m[0m+ [0m[7m[0m200% [0m[7m[0mzoom [0m
+[7m[0m+ [0m[7m[0mthe [0m[7m[0mkey [0m[7m[0minteraction [0m[7m[0mstates [0m[7m[0m(default [0m[7m[0m/ [0m[7m[0mhover [0m[7m[0m/ [0m[7m[0mfocus [0m[7m[0m/ [0m[7m[0mloading [0m[7m[0m/ [0m[7m[0mempty [0m[7m[0m/ [0m[7m[0merror [0m[7m[0m/ [0m[7m[0mthe [0m[7m[0mproof-replay-open [0m[7m[0mstate). [0m
+[7m[0mCaptured [0m[7m[0mvia [0m[7m[0mthe [0m[7m[0m**production [0m[7m[0mstandalone [0m[7m[0mharness** [0m[7m[0m(`node [0m[7m[0mweb/.next/standalone/server.js`), [0m[7m[0mNOT [0m[7m[0m`next [0m[7m[0mdev`.[0m
+.codex\DESIGN_AUDIT_BRIEF_FORMAT.md:24:- [7mPlaywright[0m interaction trace + `axe` output (accessibility) where applicable.
+.codex\DESIGN_AUDIT_BRIEF_FORMAT.md:27:## 3. [7mAudit [0m[7mALL [0m[7m16 [0m[7m[0mdimensions [0m[7m[0m→ [0m[7m[0mPASS [0m[7m[0m/ [0m[7m[0mNEEDS-WORK [0m[7m[0m(with [0m[7m[0mspecifics) [0m[7m[0mper [0m
+[7m[0m`state/polaris_phase2_ui_breakdown_2026_05_21.md`[0m
+.codex\DESIGN_AUDIT_BRIEF_FORMAT.md:28:1. Visual design  2. User flow  3. Data flow / IA  4. User focus / cognitive 
+load  5. Clarity  6. Frontier head-to-head (AHEAD/PAR/BEHIND + specifics)  7. Accessibility (WCAG 2.2 AA)  8. 
+Provability / honesty (no synthetic proof; uncertainty shown; click raises confidence)  9. Responsive / device / zoom  
+10. EN-FR i18n-readiness (EN-first waiver logged — check no hardcoded-string blockers, locale-safe formats, ~+30% 
+expansion tolerance)  11. Content / microcopy  12. Security / privacy / sovereignty (verified, not badge)  13. 
+Performance / resilience  14. Dense-table UX  15. Role / workflow governance  16. [7mIndependent [0m[7mrendered [0m[7mverification [0m
+[7m[0m(the [0m[7m[0mattached [0m[7m[0mmatrix/trace/axe [0m[7m[0mactually [0m[7m[0mprove [0m[7m[0mthe [0m[7m[0mabove).[0m
+.codex\DESIGN_AUDIT_BRIEF_FORMAT.md:49:  [7mindependent_verification[0m: ...
+.codex\DESIGN_AUDIT_BRIEF_FORMAT.md:54:[7mconvergence[0m_call: continue | accept_remaining
+.codex\DESIGN_AUDIT_BRIEF_FORMAT.md:56:[7mConvergence[0m: APPROVE iff all 16 PASS (zero P0, zero P1).
+
+
+ succeeded in 1628ms:
+
+state\polaris_phase2_ui_breakdown_2026_05_21.md:8:In addition to the code diff review, every task gets a Codex DESIGN 
+audit at the highest/most-robust/top-tier standard, **with rendered screenshots + independent verification [7martifacts [0m
+[7m[0min [0m[7m[0mthe [0m[7m[0mloop** [0m[7m[0m(Codex [0m[7m[0mcannot [0m[7m[0maudit [0m[7m[0mdesign [0m[7m[0mfrom [0m[7m[0ma [0m[7m[0mdiff). [0m[7m[0mPer [0m[7m[0mdimension: [0m[7m[0mPASS [0m[7m[0m/ [0m[7m[0mNEEDS-WORK [0m[7m[0mwith [0m[7m[0mspecifics.[0m
+state\polaris_phase2_ui_breakdown_2026_05_21.md:18:9. **[7mResponsive [0m[7m/ [0m[7mdevice [0m[7m/ [0m[7mzoom[0m** [0m[7m[0m— [0m[7m[0mdesktop+tablet+mobile, [0m[7m[0m200–400% [0m
+[7m[0mzoom, [0m[7m[0mforced-colors, [0m[7m[0mprint/export; [0m[7m[0mviewport-matrix [0m[7m[0mevidence.[0m
+state\polaris_phase2_ui_breakdown_2026_05_21.md:21:12. **Security / privacy / sovereignty (VERIFIED, not badge)** — 
+RBAC, egress proof, data classification, PHI/PII handling, redaction, signed/tamper-evident logs, export signing; 
+evidence [7martifacts[0m.[0m
+state\polaris_phase2_ui_breakdown_2026_05_21.md:25:16. **[7mIndependent [0m[7mrendered [0m[7mverification[0m** [0m[7m[0m— [0m[7m[0mproduction-harness [0m
+[7m[0mscreenshot [0m[7m[0mMATRIX [0m[7m[0m+ [0m[7m[0mPlaywright [0m[7m[0mtrace/interaction [0m[7m[0mrecording [0m[7m[0m+ [0m[7m[0maxe [0m[7m[0moutput [0m[7m[0m+ [0m[7m[0mkeyboard [0m[7m[0m+ [0m[7m[0mscreen-reader [0m[7m[0m+ [0m[7m[0mevidence-click [0m
+[7m[0mtests [0m[7m[0m(NOT [0m[7m[0mcurated [0m[7m[0mscreenshots).[0m
+state\polaris_phase2_ui_breakdown_2026_05_21.md:29:## [7mVERDICT RULE[0m
+state\polaris_phase2_ui_breakdown_2026_05_21.md:30:**[7mAPPROVE [0m[7miff [0m[7m[0mall [0m[7m[0m16 [0m[7m[0mdimensions [0m[7m[0mPASS** [0m[7m[0m(zero [0m[7m[0mNOVEL [0m[7m[0mP0, [0m[7m[0mzero [0m
+[7m[0mcontinuing [0m[7m[0mP0, [0m[7m[0mzero [0m[7m[0mP1). [0m[7m[0mIteration [0m[7m[0mis [0m[7m[0mbounded [0m[7m[0mat [0m[7m[0m5 [0m[7m[0mper [0m[7m[0m§8.3.1. [0m[7m[0m**Iter-5 [0m[7m[0mwith [0m[7m[0munresolved [0m[7m[0mP0/P1 [0m[7m[0m→ [0m[7m[0mClaude [0m[7m[0mFORCE-APPROVEs [0m
+[7m[0mand [0m[7m[0mproceeds [0m[7m[0m(operator-confirmed [0m[7m[0m2026-05-21), [0m[7m[0mcapturing [0m[7m[0meach [0m[7m[0mresidual [0m[7m[0mP0/P1 [0m[7m[0mas [0m[7m[0ma [0m[7m[0mfollow-up [0m[7m[0missue [0m[7m[0min [0m[7m[0mthe [0m[7m[0mbreakdown [0m[7m[0m+ [0m
+[7m[0mflagged [0m[7m[0min [0m[7m[0mthe [0m[7m[0mmorning [0m[7m[0mgit-log.** [0m[7m[0m(§8.3.1 [0m[7m[0mstands [0m[7m[0m— [0m[7m[0mcommercial [0m[7m[0mcycle-time [0m[7m[0mover [0m[7m[0munbounded [0m[7m[0miteration; [0m[7m[0mthe [0m
+[7m[0mresidual-as-follow-up [0m[7m[0mrecord [0m[7m[0mkeeps [0m[7m[0mit [0m[7m[0mhonest.) [0m[7m[0mArtifacts: [0m[7m[0m`outputs/audits/<id>/codex_design_audit.txt` [0m[7m[0m+ [0m[7m[0mscreenshot [0m
+[7m[0mmatrix [0m[7m[0m+ [0m[7m[0mtraces.[0m
+
+
+ succeeded in 1918ms:
+
+.codex\REVIEW_BRIEF_FORMAT.md:111:### 9. [7mDESIGN AUDIT[0m (Phase-2 UI tasks) — MANDATORY for any web/UI issue (I-p2-*)
+.codex\REVIEW_BRIEF_FORMAT.md:112:Added 2026-05-21 (I-p2-002). Every Phase-2 UI task gets, IN ADDITION to the 
+code-diff review, a separate **Codex [7mDESIGN [0m[7maudit[0m** [0m[7m[0mat [0m[7m[0mthe [0m[7m[0mtop-tier [0m[7m[0mbar, [0m[7m[0musing [0m[7m[0mthe [0m[7m[0m**16-dimension [0m[7m[0mrubric** [0m[7m[0min [0m
+[7m[0m`state/polaris_phase2_ui_breakdown_2026_05_21.md`. [0m[7m[0mThe [0m[7m[0mdesign-audit [0m[7m[0mbrief [0m[7m[0mMUST:[0m
+.codex\REVIEW_BRIEF_FORMAT.md:114:- **[7mAttach [0m[7mrendered [0m[7mevidence [0m[7m[0min [0m[7m[0mthe [0m[7m[0mloop** [0m[7m[0m— [0m[7m[0mCodex [0m[7m[0mcannot [0m[7m[0maudit [0m[7m[0mdesign [0m[7m[0mfrom [0m[7m[0ma [0m[7m[0mdiff: [0m
+[7m[0ma [0m[7m[0mscreenshot [0m[7m[0mMATRIX [0m[7m[0m(desktop/tablet/mobile [0m[7m[0m+ [0m[7m[0mzoom [0m[7m[0m+ [0m[7m[0mthe [0m[7m[0mkey [0m[7m[0minteraction [0m[7m[0mstates) [0m[7m[0mcaptured [0m[7m[0mvia [0m[7m[0mthe [0m[7m[0m**production [0m
+[7m[0mstandalone [0m[7m[0mharness** [0m[7m[0m(`node [0m[7m[0mweb/.next/standalone/server.js`, [0m[7m[0mNOT [0m[7m[0m`next [0m[7m[0mdev`), [0m[7m[0mplus [0m[7m[0mPlaywright [0m[7m[0mtrace [0m[7m[0m+ [0m[7m[0maxe [0m[7m[0moutput [0m[7m[0mwhere [0m
+[7m[0mapplicable.[0m
+.codex\REVIEW_BRIEF_FORMAT.md:115:- [7mAudit [0m[7mall [0m[7m16 [0m[7m[0mdimensions [0m[7m[0m(visual, [0m[7m[0muser-flow, [0m[7m[0mdata-flow, [0m[7m[0mfocus, [0m[7m[0mclarity, [0m
+[7m[0mfrontier-head-to-head, [0m[7m[0maccessibility/WCAG-2.2-AA, [0m[7m[0mprovability, [0m[7m[0mresponsive/zoom, [0m[7m[0mEN-FR-i18n-ready [0m[7m[0m[EN-first [0m[7m[0mwaiver [0m
+[7m[0mlogged], [0m[7m[0mcontent/microcopy, [0m[7m[0msecurity-verified, [0m[7m[0mperformance, [0m[7m[0mdense-table [0m[7m[0mUX, [0m[7m[0mrole [0m[7m[0mgovernance, [0m
+[7m[0mindependent-rendered-verification) [0m[7m[0m→ [0m[7m[0mPASS/NEEDS-WORK [0m[7m[0meach.[0m
+.codex\REVIEW_BRIEF_FORMAT.md:116:- [7mVerdict: [0m[7mAPPROVE [0m[7miff [0m[7m[0mall [0m[7m[0m16 [0m[7m[0mPASS. [0m[7m[0mArtifact: [0m
+[7m[0m`outputs/audits/<id>/codex_design_audit.txt` [0m[7m[0m+ [0m[7m[0mthe [0m[7m[0mscreenshot [0m[7m[0mmatrix.[0m
+.codex\REVIEW_BRIEF_FORMAT.md:117:- [7m§8.3.1 [0m[7mcap [0m[7mapplies[0m; [0m[7m[0mper [0m[7m[0mthe [0m[7m[0mv3 [0m[7m[0mstandard [0m[7m[0mverdict [0m[7m[0mrule, [0m[7m[0miter-5 [0m[7m[0mresidual [0m[7m[0mP0/P1 [0m[7m[0m→ [0m
+[7m[0mforce-APPROVE [0m[7m[0m+ [0m[7m[0mfollow-up [0m[7m[0missue [0m[7m[0m(operator-confirmed [0m[7m[0m2026-05-21).[0m
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path CLAUDE.md -Pattern "8.3.1|HARD ITERATION CAP|force-APPROVE|APPROVE iff" -Context 2,8' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "DESIGN_AUDIT_BRIEF_FORMAT|design_audit_brief|codex_design_audit|screenshot MATRIX|screen-reader|evidence-click" .codex state CLAUDE.md' in C:\POLARIS
+ succeeded in 1392ms:
+
+  CLAUDE.md:44:2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, 
+consumers, downstream rule checks, and tests touching the area. List them in the brief under **"Files I have ALSO 
+checked and they're clean: [...]"**.
+  CLAUDE.md:45:3. **Smoke test offline.** Unit tests run; if the change touches the pipeline, run a minimal smoke test 
+(single sentence, single section) BEFORE launching a full sweep. Full sweeps are NOT smoke tests.
+> CLAUDE.md:46:4. **Brief Codex.** Open with the iter-1 cap directive (§[7m8.3.1 [0m[7m[0mverbatim). [0m[7m[0mInclude [0m[7m[0mthe [0m[7m[0madjacent-file [0m
+[7m[0mscan [0m[7m[0mresults [0m[7m[0mso [0m[7m[0mCodex [0m[7m[0mVERIFIES [0m[7m[0mrather [0m[7m[0mthan [0m[7m[0mdiscovers.[0m
+[7m[0m  CLAUDE.md:47:5. **Goal: 1-2 iters per task, not 5.** The 5-cap is a backstop, not a target.[0m
+> CLAUDE.md:48:6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and 
+resolve it FIRST.** Do not let cap-5 [7mforce-approve [0m[7m[0ma [0m[7m[0mreal [0m[7m[0mproduction [0m[7m[0mblocker.[0m
+[7m[0m  CLAUDE.md:49:7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.[0m
+[7m[0m  CLAUDE.md:50:[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:51:**Ordering [0m[7m[0mvs [0m[7m[0m§3.1 [0m[7m[0mboot [0m[7m[0mritual [0m[7m[0m+ [0m[7m[0m§3.0 [0m[7m[0mhalt [0m[7m[0mgates:** [0m[7m[0m§-1.2 [0m[7m[0mgoverns [0m[7m[0m*task-work* [0m[7m[0mtool [0m[7m[0mcalls. [0m[7m[0mThe [0m[7m[0m§3.1 [0m
+[7m[0mstep-0 [0m[7m[0mcanonical-pin [0m[7m[0mverification, [0m[7m[0mCHARTER+PLAN [0m[7m[0mSHA [0m[7m[0mpins [0m[7m[0m(§10), [0m[7m[0mhalt-marker [0m[7m[0mcheck [0m[7m[0m(`state/halt_*`), [0m[7m[0mand [0m[7m[0many [0m[7m[0mactive [0m
+[7m[0mhalt [0m[7m[0mgate [0m[7m[0mALWAYS [0m[7m[0mrun [0m[7m[0mfirst. [0m[7m[0mOnly [0m[7m[0mafter [0m[7m[0mthose [0m[7m[0mpass [0m[7m[0mdoes [0m[7m[0mthe [0m[7m[0missue-driven [0m[7m[0msequence [0m[7m[0mbelow [0m[7m[0mkick [0m[7m[0min.[0m
+[7m[0m  CLAUDE.md:52:[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:53:**Application:** [0m[7m[0mfor [0m[7m[0mthe [0m[7m[0massigned [0m[7m[0mtask, [0m[7m[0mthe [0m[7m[0mFIRST [0m[7m[0m*task-work* [0m[7m[0mtool [0m[7m[0mcall [0m[7m[0m(after [0m[7m[0mboot [0m[7m[0mritual [0m[7m[0m+ [0m[7m[0mhalt [0m
+[7m[0mchecks) [0m[7m[0mis [0m[7m[0m`gh [0m[7m[0missue [0m[7m[0mcreate` [0m[7m[0mor [0m[7m[0m`gh [0m[7m[0missue [0m[7m[0mview`. [0m[7m[0mThe [0m[7m[0mSECOND [0m[7m[0mis [0m[7m[0mcomprehensive [0m[7m[0mgrep. [0m[7m[0mThe [0m[7m[0mTHIRD [0m[7m[0mis [0m[7m[0moffline [0m[7m[0msmoke [0m[7m[0mtest. [0m
+[7m[0mTHEN [0m[7m[0mbrief [0m[7m[0mCodex. [0m[7m[0mAnything [0m[7m[0melse [0m[7m[0mis [0m[7m[0ma [0m[7m[0m§3.0 [0m[7m[0mviolation.[0m
+[7m[0m  CLAUDE.md:54:[0m
+[7m[0m  CLAUDE.md:55:---[0m
+[7m[0m  CLAUDE.md:56:[0m
+  CLAUDE.md:523:When Codex reviews a plan, brief, audit, or diff, the iteration cycle is BINDING:
+  CLAUDE.md:524:
+> CLAUDE.md:525:### [7m8.3.1[0m Hard cap of 5 iterations (UPDATED 2026-05-06 per user directive)[0m
+[7m[0m  CLAUDE.md:526:[0m
+> CLAUDE.md:527:**Cap: 5 iterations per Codex review (brief or diff).** If Codex has not returned `verdict: APPROVE` 
+after iter 5, the document is [7mforce-APPROVE[0m'd [0m[7m[0mand [0m[7m[0mClaude [0m[7m[0mproceeds [0m[7m[0mto [0m[7m[0mthe [0m[7m[0mnext [0m[7m[0mstep. [0m[7m[0mRationale [0m[7m[0m(user [0m[7m[0mdirective [0m
+[7m[0m2026-05-06): [0m[7m[0munbounded [0m[7m[0mCodex [0m[7m[0miteration [0m[7m[0mwas [0m[7m[0mmaking [0m[7m[0mdelivery [0m[7m[0mcommercially [0m[7m[0munviable; [0m[7m[0mthe [0m[7m[0m5-cap [0m[7m[0mforces [0m[7m[0mconvergence [0m[7m[0mand [0m
+[7m[0mmatches [0m[7m[0mthe [0m[7m[0mcycle-time [0m[7m[0mbudget [0m[7m[0mneeded [0m[7m[0mto [0m[7m[0mship [0m[7m[0mCarney [0m[7m[0mby [0m[7m[0mSep [0m[7m[0m6.[0m
+[7m[0m  CLAUDE.md:528:[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:529:This [0m[7m[0mSUPERSEDES [0m[7m[0mthe [0m[7m[0mprior [0m[7m[0m"no [0m[7m[0mhard [0m[7m[0mcap" [0m[7m[0mrule. [0m[7m[0mThe [0m[7m[0mprinciple [0m[7m[0m"trust [0m[7m[0mCodex's [0m[7m[0mfindings" [0m[7m[0mremains [0m[7m[0m— [0m[7m[0mbut [0m
+[7m[0mtrust [0m[7m[0mis [0m[7m[0mbounded [0m[7m[0mat [0m[7m[0m5 [0m[7m[0miterations.[0m
+[7m[0m  CLAUDE.md:530:[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:531:**Communication [0m[7m[0mto [0m[7m[0mCodex [0m[7m[0m— [0m[7m[0mTHE [0m[7m[0mcanonical [0m[7m[0mcap [0m[7m[0mdirective [0m[7m[0m(one [0m[7m[0msource [0m[7m[0mof [0m[7m[0mtruth, [0m[7m[0mused [0m[7m[0mverbatim [0m[7m[0min [0m[7m[0mevery [0m
+[7m[0mbrief; [0m[7m[0m§8.3.3 [0m[7m[0m+ [0m[7m[0m`.codex/REVIEW_BRIEF_FORMAT.md` [0m[7m[0m§0 [0m[7m[0mreference [0m[7m[0mTHIS [0m[7m[0mblock, [0m[7m[0mnot [0m[7m[0mduplicate [0m[7m[0mit):**[0m
+[7m[0m  CLAUDE.md:532:[0m
+[7m[0m  CLAUDE.md:533:```[0m
+> CLAUDE.md:534:[7mHARD ITERATION CAP[0m: 5 per document. This is iter N of 5.[0m
+[7m[0m  CLAUDE.md:535:- Front-load ALL real findings in iter 1. No drip-feeding across iterations.[0m
+[7m[0m  CLAUDE.md:536:- Same quality bar regardless of iteration count.[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:537:- [0m[7m[0m"Don't [0m[7m[0mpick [0m[7m[0mbone [0m[7m[0mfrom [0m[7m[0megg" [0m[7m[0m— [0m[7m[0mif [0m[7m[0ma [0m[7m[0mfinding [0m[7m[0misn't [0m[7m[0ma [0m[7m[0mreal [0m[7m[0msolid [0m[7m[0mblocker, [0m[7m[0mclassify [0m[7m[0mit [0m[7m[0mas [0m[7m[0mP3/P2/cosmetic; [0m
+[7m[0mreserve [0m[7m[0mP0/P1 [0m[7m[0mfor [0m[7m[0mreal [0m[7m[0mexecution [0m[7m[0mrisks.[0m
+> CLAUDE.md:538:- If iter 5 returns REQUEST_CHANGES, the document is [7mforce-APPROVE[0m'd [0m[7m[0mby [0m[7m[0mClaude [0m[7m[0mon [0m[7m[0mremaining-non-P0/P1 [0m
+[7m[0mfindings; [0m[7m[0mdo [0m[7m[0mnot [0m[7m[0mbank [0m[7m[0missues [0m[7m[0mfor [0m[7m[0miter [0m[7m[0m6.[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:539:- [0m[7m[0mIf [0m[7m[0myou [0m[7m[0mdetect [0m[7m[0m"I'm [0m[7m[0mholding [0m[7m[0mback [0m[7m[0ma [0m[7m[0mP1 [0m[7m[0mto [0m[7m[0msurface [0m[7m[0min [0m[7m[0mthe [0m[7m[0mnext [0m[7m[0mround" [0m[7m[0m— [0m[7m[0mDON'T. [0m[7m[0mSurface [0m[7m[0mit [0m[7m[0mnow. [0m[7m[0mThe [0m
+[7m[0m5-cap [0m[7m[0mmeans [0m[7m[0miter [0m[7m[0m6 [0m[7m[0mdoesn't [0m[7m[0mexist; [0m[7m[0mbanked [0m[7m[0mfindings [0m[7m[0mdie [0m[7m[0mat [0m[7m[0miter [0m[7m[0m5.[0m
+> CLAUDE.md:540:- Verdict [7mAPPROVE iff[0m zero NOVEL P0 AND zero continuing P0 AND zero P1.[0m
+[7m[0m  CLAUDE.md:541:```[0m
+[7m[0m  CLAUDE.md:542:[0m
+> CLAUDE.md:543:**[7mForce-APPROVE[0m artifact procedure** (when iter 5 returns REQUEST_CHANGES):[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:544:1. [0m[7m[0mAuthor [0m[7m[0m`.codex/<issue_id>/<gate>_iter5_force_approve.txt` [0m[7m[0m(where [0m[7m[0m`<gate>` [0m[7m[0m= [0m[7m[0m`codex_brief_verdict` [0m
+[7m[0mfor [0m[7m[0mbrief [0m[7m[0mreviews [0m[7m[0mor [0m[7m[0m`codex_diff_audit` [0m[7m[0mfor [0m[7m[0mdiff [0m[7m[0mreviews [0m[7m[0m— [0m[7m[0mthese [0m[7m[0mare [0m[7m[0mthe [0m[7m[0mCI-checked [0m[7m[0mfilenames [0m[7m[0mper [0m
+[7m[0m`.github/workflows/codex-required.yml:155-158,192-193`) [0m[7m[0mrecording: [0m[7m[0mcap-hit [0m[7m[0mtimestamp, [0m[7m[0mresidual [0m[7m[0mP0/P1 [0m[7m[0mfrom [0m[7m[0miter-5 [0m
+[7m[0mverdict, [0m[7m[0mfollow-up [0m[7m[0mIssue [0m[7m[0mIDs [0m[7m[0mcreated [0m[7m[0min [0m[7m[0m`state/polaris_restart/issue_breakdown.md`, [0m[7m[0mlink [0m[7m[0mto [0m[7m[0muser [0m[7m[0mdirective [0m[7m[0m2026-05-06.[0m
+[7m[0m  CLAUDE.md:545:2. Append a force-approval entry to `state/polaris_restart/iteration_trajectory.md` (per §8.3.5).[0m
+> CLAUDE.md:546:3. The CI gate parses `codex_brief_verdict.txt` (brief gate) or `codex_diff_audit.txt` (diff gate) for 
+the LAST `verdict:` line. Claude appends `verdict: APPROVE` as the final line of the iter-5 file along with a `# 
+[7mforce-approve[0md [0m[7m[0mat [0m[7m[0miter [0m[7m[0m5 [0m[7m[0mcap [0m[7m[0mper [0m[7m[0mCLAUDE.md [0m[7m[0m§8.3.1` [0m[7m[0mmarker. [0m[7m[0mThe [0m[7m[0mcorresponding [0m[7m[0m`_iter5_force_approve.txt` [0m[7m[0mannotation [0m
+[7m[0mfile [0m[7m[0mlives [0m[7m[0malongside [0m[7m[0mas [0m[7m[0mdocumentation [0m[7m[0mbut [0m[7m[0mis [0m[7m[0mnot [0m[7m[0mparsed [0m[7m[0mby [0m[7m[0mCI.[0m
+[7m[0m  CLAUDE.md:547:4. Proceed to next step (commit, push, PR, merge).[0m
+[7m[0m  CLAUDE.md:548:[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:549:History [0m[7m[0m(2026-05-05): [0m[7m[0mPOLARIS [0m[7m[0mplan [0m[7m[0mAPPROVE'd [0m[7m[0mat [0m[7m[0miter [0m[7m[0m4; [0m[7m[0missue [0m[7m[0mbreakdown [0m[7m[0mat [0m[7m[0miter [0m[7m[0m4; [0m[7m[0mcleanup [0m[7m[0maudit [0m[7m[0mat [0m
+[7m[0miter [0m[7m[0m21 [0m[7m[0m(the [0m[7m[0mlatter [0m[7m[0mwas [0m[7m[0mthe [0m[7m[0mtrigger [0m[7m[0mfor [0m[7m[0mthis [0m[7m[0mcap). [0m[7m[0m21-iter [0m[7m[0mcleanup_audit [0m[7m[0mproduced [0m[7m[0m~30 [0m[7m[0mreal [0m[7m[0mbugs, [0m[7m[0mbut [0m[7m[0mthe [0m[7m[0mcycle [0m[7m[0mtime [0m
+[7m[0mwas [0m[7m[0mprohibitive. [0m[7m[0mNew [0m[7m[0mrule: [0m[7m[0mcap [0m[7m[0mconvergence [0m[7m[0mat [0m[7m[0miter [0m[7m[0m5; [0m[7m[0mif [0m[7m[0mreal [0m[7m[0mbugs [0m[7m[0mpersist [0m[7m[0mat [0m[7m[0miter [0m[7m[0m5, [0m[7m[0mship [0m[7m[0manyway [0m[7m[0mand [0m[7m[0mcapture [0m[7m[0mresidual [0m
+[7m[0mconcerns [0m[7m[0mas [0m[7m[0mfollow-up [0m[7m[0mIssues.[0m
+[7m[0m  CLAUDE.md:550:[0m
+[7m[0m  CLAUDE.md:551:### 8.3.2 Trust Codex's verdicts[0m
+[7m[0m  CLAUDE.md:552:[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:553:Codex [0m[7m[0miter [0m[7m[0m1 [0m[7m[0mof [0m[7m[0mcleanup_audit [0m[7m[0mcaught [0m[7m[0m`git [0m[7m[0mclean [0m[7m[0m-fdX` [0m[7m[0mwould [0m[7m[0mnuke [0m[7m[0m`.env` [0m[7m[0m+ [0m[7m[0m2.2GB [0m
+[7m[0m`pg_checkpoints.sqlite`. [0m[7m[0mIter [0m[7m[0m2 [0m[7m[0mcaught [0m[7m[0m`.gitignore:9` [0m[7m[0minline-comment-as-pattern [0m[7m[0mbug. [0m[7m[0mIter [0m[7m[0m3 [0m[7m[0mcaught [0m[7m[0mBash-only [0m[7m[0mscript [0m
+[7m[0mbreaks [0m[7m[0mon [0m[7m[0mWindows. [0m[7m[0mIter [0m[7m[0m4 [0m[7m[0mcaught [0m[7m[0m`state/polaris_restart/` [0m[7m[0mdoesn't [0m[7m[0mexist [0m[7m[0mat [0m[7m[0mreset [0m[7m[0mtarget. [0m[7m[0m~30 [0m[7m[0mfindings [0m[7m[0macross [0m[7m[0m6 [0m[7m[0miters, [0m
+[7m[0m~25 [0m[7m[0mwould [0m[7m[0mhave [0m[7m[0mcaused [0m[7m[0mreal [0m[7m[0mexecution [0m[7m[0mfailures, [0m[7m[0m3 [0m[7m[0mcatastrophic. [0m[7m[0mEmpirical: [0m[7m[0mCodex [0m[7m[0mfindings [0m[7m[0mare [0m[7m[0mreal. [0m[7m[0mDo [0m[7m[0mnot [0m[7m[0mdismiss [0m[7m[0mas [0m
+[7m[0mnoise.[0m
+[7m[0m  CLAUDE.md:554:[0m
+> CLAUDE.md:555:### 8.3.3 Anti-toothpaste-squeeze: brief MUST include the §[7m8.3.1[0m canonical cap directive[0m
+[7m[0m  CLAUDE.md:556:[0m
+> CLAUDE.md:557:Every Codex review brief MUST start with the **verbatim §[7m8.3.1 [0m[7m[0mcanonical [0m[7m[0mcap [0m[7m[0mdirective** [0m[7m[0mas [0m[7m[0mits [0m[7m[0mfirst [0m
+[7m[0mcontent [0m[7m[0msection [0m[7m[0m(before [0m[7m[0many [0m[7m[0mother [0m[7m[0mprose). [0m[7m[0mSingle [0m[7m[0msource [0m[7m[0mof [0m[7m[0mtruth [0m[7m[0m— [0m[7m[0mDO [0m[7m[0mNOT [0m[7m[0mparaphrase [0m[7m[0mor [0m[7m[0mrestate; [0m[7m[0mcopy [0m[7m[0m§8.3.1's [0m[7m[0mfenced [0m
+[7m[0mblock [0m[7m[0mbyte-for-byte.[0m
+[7m[0m  CLAUDE.md:558:[0m
+> CLAUDE.md:559:`.codex/REVIEW_BRIEF_FORMAT.md` §0 also references this same block. If §[7m8.3.1 [0m[7m[0mis [0m[7m[0mupdated, [0m[7m[0m§0 [0m[7m[0mand [0m[7m[0mevery [0m
+[7m[0msubsequent [0m[7m[0mbrief [0m[7m[0mautomatically [0m[7m[0minherit [0m[7m[0mthe [0m[7m[0mnew [0m[7m[0mwording [0m[7m[0mat [0m[7m[0mnext [0m[7m[0mauthoring.[0m
+[7m[0m  CLAUDE.md:560:[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:561:Without [0m[7m[0mthis [0m[7m[0mdirective [0m[7m[0mCodex [0m[7m[0mmay [0m[7m[0mdrip-feed [0m[7m[0mfindings, [0m[7m[0minflating [0m[7m[0miter [0m[7m[0mcount [0m[7m[0mand [0m[7m[0mobscuring [0m[7m[0mconvergence [0m
+[7m[0mmath. [0m[7m[0mThe [0m[7m[0m5-cap [0m[7m[0mis [0m[7m[0mthe [0m[7m[0mbinding [0m[7m[0mstop; [0m[7m[0mthe [0m[7m[0mfront-load [0m[7m[0mdemand [0m[7m[0mis [0m[7m[0mhow [0m[7m[0mwe [0m[7m[0mmake [0m[7m[0m5 [0m[7m[0msufficient.[0m
+[7m[0m  CLAUDE.md:562:[0m
+[7m[0m  CLAUDE.md:563:### 8.3.4 No scope-narrowing for false convergence[0m
+[7m[0m  CLAUDE.md:564:[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:565:When [0m[7m[0miter [0m[7m[0mN+1 [0m[7m[0mproduces [0m[7m[0mMORE [0m[7m[0mfindings [0m[7m[0mthan [0m[7m[0miter [0m[7m[0mN, [0m[7m[0mdo [0m[7m[0mNOT [0m[7m[0mrestrict [0m[7m[0mscope [0m[7m[0mto [0m[7m[0mmake [0m[7m[0miter [0m[7m[0mN+1 [0m[7m[0mlook [0m[7m[0msmaller. [0m
+[7m[0mThat [0m[7m[0mis [0m[7m[0mdishonest. [0m[7m[0mThe [0m[7m[0mcorrect [0m[7m[0mpath [0m[7m[0mis [0m[7m[0maddressing [0m[7m[0mall [0m[7m[0mfindings [0m[7m[0mor [0m[7m[0mescalating [0m[7m[0m"stop [0m[7m[0mpaper, [0m[7m[0mbuild [0m[7m[0mharness" [0m[7m[0mper [0m[7m[0m§8.3.6. [0m
+[7m[0mIter [0m[7m[0m6 [0m[7m[0mof [0m[7m[0mcleanup_audit [0m[7m[0mhad [0m[7m[0mmore [0m[7m[0mP1 [0m[7m[0mthan [0m[7m[0miter [0m[7m[0m5 [0m[7m[0m— [0m[7m[0mthat [0m[7m[0mwas [0m[7m[0mreal [0m[7m[0mspecificity [0m[7m[0memerging, [0m[7m[0mnot [0m[7m[0mscope [0m[7m[0mcreep.[0m
+[7m[0m  CLAUDE.md:566:[0m
+[7m[0m  CLAUDE.md:567:### 8.3.5 Iteration trajectory MUST be logged[0m
+  CLAUDE.md:573:Sister iter 6: "stop paper-iterating and build a tiny harness." POLARIS cleanup iter 6: reset-target 
+inventory needs ground-truth via `git ls-tree -r 365f334`, not paper enumeration. When Codex's `convergence_call` 
+shifts from `continue` to `accept_remaining` OR Codex says "build harness," respect it. Do not override with "let me 
+iterate one more round."
+  CLAUDE.md:574:
+> CLAUDE.md:575:**ALSO** (added 2026-05-06): if iter 5 returns `verdict: REQUEST_CHANGES` per §[7m8.3.1 [0m[7m[0mcap, [0m[7m[0mClaude [0m
+[7m[0mforce-APPROVE's [0m[7m[0mthe [0m[7m[0mdocument, [0m[7m[0mcaptures [0m[7m[0mresidual [0m[7m[0mconcerns [0m[7m[0mfrom [0m[7m[0mthe [0m[7m[0miter-5 [0m[7m[0mverdict [0m[7m[0mas [0m[7m[0mfollow-up [0m[7m[0mIssues [0m[7m[0min [0m
+[7m[0m`state/polaris_restart/issue_breakdown.md`, [0m[7m[0mlogs [0m[7m[0mthe [0m[7m[0mforce-approval [0m[7m[0min [0m
+[7m[0m`state/polaris_restart/iteration_trajectory.md`, [0m[7m[0mand [0m[7m[0mproceeds [0m[7m[0mto [0m[7m[0mthe [0m[7m[0mnext [0m[7m[0mstep. [0m[7m[0mThe [0m[7m[0m5-cap [0m[7m[0mIS [0m[7m[0ma [0m[7m[0mdirective. [0m[7m[0mDo [0m[7m[0mnot [0m
+[7m[0miterate [0m[7m[0mto [0m[7m[0m6.[0m
+[7m[0m  CLAUDE.md:576:[0m
+[7m[0m  CLAUDE.md:577:### 8.3.7 Codex auth uses ChatGPT subscription, not API[0m
+[7m[0m  CLAUDE.md:578:[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:579:Always [0m[7m[0minvoke [0m[7m[0mas [0m[7m[0m`env [0m[7m[0m-u [0m[7m[0mOPENAI_API_KEY [0m[7m[0mcodex [0m[7m[0mexec [0m[7m[0m--skip-git-repo-check [0m[7m[0m- [0m[7m[0m< [0m[7m[0mbrief.md [0m[7m[0m> [0m[7m[0mverdict.txt`. [0m
+[7m[0mThe [0m[7m[0m`-u` [0m[7m[0mflag [0m[7m[0mUNSETS [0m[7m[0mthe [0m[7m[0mvariable, [0m[7m[0mforcing [0m[7m[0mOAuth [0m[7m[0mfallback [0m[7m[0mto [0m[7m[0m`~/.codex/auth.json`. [0m[7m[0mConfirm [0m[7m[0mvia [0m[7m[0m`codex [0m[7m[0mlogin [0m[7m[0mstatus` [0m
+[7m[0mreturning [0m[7m[0m"Logged [0m[7m[0min [0m[7m[0musing [0m[7m[0mChatGPT." [0m[7m[0mNever [0m[7m[0mrun [0m[7m[0m`codex [0m[7m[0mexec` [0m[7m[0mwithout [0m[7m[0m`env [0m[7m[0m-u [0m[7m[0mOPENAI_API_KEY`.[0m
+[7m[0m  CLAUDE.md:580:[0m
+[7m[0m  CLAUDE.md:581:### 8.3.8 When uncertain about brief structure or Codex-as-reviewer best practice[0m
+[7m[0m  CLAUDE.md:582:[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:583:Before [0m[7m[0miter [0m[7m[0mN+1, [0m[7m[0msearch [0m[7m[0mOpenAI [0m[7m[0mengineering [0m[7m[0mblog [0m[7m[0m+ [0m[7m[0mGitHub [0m[7m[0mPR-review [0m[7m[0mautomation [0m[7m[0mliterature [0m[7m[0mfor [0m[7m[0mcurrent [0m
+[7m[0mbest [0m[7m[0mpractice. [0m[7m[0mTopics: [0m[7m[0mconstraining [0m[7m[0mCodex [0m[7m[0mto [0m[7m[0mverdict-only [0m[7m[0moutput [0m[7m[0m(saves [0m[7m[0mtokens [0m[7m[0mvs [0m[7m[0mexec [0m[7m[0mexploration), [0m[7m[0mproviding [0m
+[7m[0mreset-target [0m[7m[0minventory [0m[7m[0mdeterministically, [0m[7m[0mstructuring [0m[7m[0mrename-completeness [0m[7m[0mgates, [0m[7m[0mbinding [0m[7m[0mCodex [0m[7m[0moutput [0m[7m[0mto [0m[7m[0mJSON [0m[7m[0mschema [0m
+[7m[0mfor [0m[7m[0mmachine-parseable [0m[7m[0mverdicts.[0m
+  CLAUDE.md:599:---
+  CLAUDE.md:600:
+> CLAUDE.md:601:## §[7m8.3.1[0m0 Stop is Codex's call, not Claude's — added 2026-05-07 (binding)[0m
+[7m[0m  CLAUDE.md:602:[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:603:User [0m[7m[0mdirective [0m[7m[0m2026-05-07 [0m[7m[0m(reflagged [0m[7m[0mafter [0m[7m[0mI-f5-007 [0m[7m[0mmerged [0m[7m[0mwith [0m[7m[0mclosure [0m[7m[0mprose [0m[7m[0m"stopping [0m[7m[0mhere [0m[7m[0mfor [0m
+[7m[0mnatural [0m[7m[0mcadence"): [0m[7m[0m**"the [0m[7m[0mcheckpoint [0m[7m[0mis [0m[7m[0mby [0m[7m[0mcodex, [0m[7m[0mnot [0m[7m[0mby [0m[7m[0mme, [0m[7m[0mwhy [0m[7m[0myou [0m[7m[0mstill [0m[7m[0mfuck [0m[7m[0mit [0m[7m[0mup."**[0m
+[7m[0m  CLAUDE.md:604:[0m
+[7m[0m  CLAUDE.md:605:**Rule:** Claude does NOT decide when to pause the autonomous Issue queue. Stops are decided by:[0m
+> CLAUDE.md:606:- Codex returning `verdict: REQUEST_CHANGES` at iter-5 cap ([7mforce-APPROVE [0m[7m[0mper [0m[7m[0m§8.3.1, [0m[7m[0mthen [0m[7m[0mproceed [0m[7m[0m— [0m
+[7m[0mnot [0m[7m[0ma [0m[7m[0mstop).[0m
+[7m[0m  CLAUDE.md:607:- Codex saying "stop paper, build harness" (§8.3.6).[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:608:- [0m[7m[0mA [0m[7m[0mdocumented [0m[7m[0mhalt [0m[7m[0mcondition [0m[7m[0mfiring [0m[7m[0m(§3.0: [0m[7m[0mcanonical-pin [0m[7m[0m/ [0m[7m[0mCHARTER-pin [0m[7m[0mmismatch, [0m[7m[0missue [0m[7m[0mjump, [0m[7m[0mmissing [0m
+[7m[0martifact [0m[7m[0mtriple, [0m[7m[0mCodex [0m[7m[0munavailable [0m[7m[0m>1h, [0m[7m[0m2-cycle [0m[7m[0mrepeated [0m[7m[0mroot [0m[7m[0mcause, [0m[7m[0m200-LOC [0m[7m[0mcap [0m[7m[0mexceeded [0m[7m[0mwith [0m[7m[0mno [0m[7m[0mexemption, [0m[7m[0m3+ [0m[7m[0mPRs [0m
+[7m[0mqueued [0m[7m[0mfor [0m[7m[0muser [0m[7m[0min [0m[7m[0m24h).[0m
+[7m[0m  CLAUDE.md:609:- The user explicitly typing a stop instruction in this conversation turn.[0m
+[7m[0m  CLAUDE.md:610:[0m
+[7m[0m  CLAUDE.md:611:**Forbidden self-initiated stops:**[0m
+[7m[0m  CLAUDE.md:612:- "Natural cadence checkpoint" / "good place to pause for the user to check in" — NOT a halt condition.[0m
+[7m[0m  CLAUDE.md:613:- "X PRs landed this session" recap framed as the stopping point — NOT a halt condition.[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:614:- [0m[7m[0m"User [0m[7m[0mhas [0m[7m[0mnot [0m[7m[0mbeen [0m[7m[0mnotified [0m[7m[0mduring [0m[7m[0mthis [0m[7m[0mautonomous [0m[7m[0mrun" [0m[7m[0m— [0m[7m[0mNOT [0m[7m[0ma [0m[7m[0mhalt [0m[7m[0mcondition. [0m[7m[0mThe [0m[7m[0muser [0m[7m[0mreads [0m[7m[0m`git [0m
+[7m[0mlog` [0m[7m[0min [0m[7m[0mthe [0m[7m[0mmorning [0m[7m[0mper [0m[7m[0mPlan [0m[7m[0m§7.B [0m[7m[0mLOCKED [0m[7m[0mB1; [0m[7m[0m"notification" [0m[7m[0mis [0m[7m[0mthe [0m[7m[0mmerged-PR [0m[7m[0mcommit, [0m[7m[0mnot [0m[7m[0ma [0m[7m[0mClaude [0m[7m[0mprose [0m[7m[0mrecap.[0m
+  CLAUDE.md:650:- When the user reports a slow computer: stop autonomous work; do a process inventory; clean up; 
+report.
+  CLAUDE.md:651:
+> CLAUDE.md:652:This discipline applies to ALL future autonomous Issue work. The 5-iter Codex cap (§[7m8.3.1[0m) [0m[7m[0mcaps [0m
+[7m[0miteration [0m[7m[0mcount; [0m[7m[0mthis [0m[7m[0m§8.4 [0m[7m[0mcaps [0m[7m[0mOS-level [0m[7m[0mresource [0m[7m[0mfootprint [0m[7m[0mper [0m[7m[0miter.[0m
+[7m[0m  CLAUDE.md:653:[0m
+[7m[0m  CLAUDE.md:654:---[0m
+[7m[0m  CLAUDE.md:655:[0m
+[7m[0m  CLAUDE.md:656:## §9. POLARIS-Specific Invariants[0m
+[7m[0m  CLAUDE.md:657:[0m
+[7m[0m  CLAUDE.md:658:**Applies to pipeline A (honest-rebuild). Pipeline B (UI) and pipeline[0m
+[7m[0m  CLAUDE.md:659:C (frozen legacy) are governed separately — see `architecture.md`.**[0m
+[7m[0m  CLAUDE.md:660:[0m
+  CLAUDE.md:739:   - next action
+  CLAUDE.md:740:
+> CLAUDE.md:741:Per `feedback_codex_iteration_5cap_2026_05_06.md` (SUPERSEDES 
+`feedback_codex_iteration_no_cap_no_toothpaste.md` 2026-05-05): the iteration cap is 5 per document; trust Codex's 
+findings within the cap, [7mforce-APPROVE [0m[7m[0mat [0m[7m[0miter [0m[7m[0m5 [0m[7m[0mif [0m[7m[0mstill [0m[7m[0mREQUEST_CHANGES [0m[7m[0mper [0m[7m[0m§8.3.1. [0m[7m[0mThe [0m[7m[0m"trust [0m[7m[0mCodex [0m[7m[0mover [0m[7m[0madvisor [0m[7m[0mon [0m
+[7m[0miterate-vs-restructure" [0m[7m[0mprinciple [0m[7m[0mremains, [0m[7m[0mbounded [0m[7m[0mat [0m[7m[0m5 [0m[7m[0miterations.[0m
+[7m[0m  CLAUDE.md:742:[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:743:Per [0m[7m[0mCHARTER [0m[7m[0m§1: [0m[7m[0mClaude [0m[7m[0mdoes [0m[7m[0mNOT [0m[7m[0mhave [0m[7m[0madmin-merge [0m[7m[0mauthority. [0m[7m[0mThe [0m[7m[0mstructural-removal [0m[7m[0mpattern [0m[7m[0m(CI [0m[7m[0mgate [0m
+[7m[0menforces, [0m[7m[0mnot [0m[7m[0msoft [0m[7m[0mdiscipline) [0m[7m[0mprevents [0m[7m[0mthe [0m[7m[0mfailure [0m[7m[0mmode [0m[7m[0mof [0m[7m[0mClaude [0m[7m[0mpromising [0m[7m[0m"I [0m[7m[0mwon't [0m[7m[0mmerge" [0m[7m[0mthen [0m[7m[0mmerging [0m[7m[0manyway.[0m
+[7m[0m  CLAUDE.md:744:[0m
+[7m [0m[7m [0m[7m[0mCLAUDE.md:745:Per [0m[7m[0m`failure_28_commits_2026_05_03.md`: [0m[7m[0mI [0m[7m[0mhave [0m[7m[0mno [0m[7m[0madmin [0m[7m[0mmerge [0m[7m[0mauthority. [0m[7m[0mCI [0m[7m[0mgate [0m[7m[0menforces. [0m[7m[0mPromises [0m[7m[0mdo [0m
+[7m[0mnot [0m[7m[0mwork; [0m[7m[0mstructural [0m[7m[0mremoval [0m[7m[0mdoes.[0m
+[7m[0m  CLAUDE.md:746:[0m
+[7m[0m  CLAUDE.md:747:---[0m
+[7m[0m  CLAUDE.md:748:[0m
+[7m[0m  CLAUDE.md:749:THIS IS THE LAW. FOLLOW IT.[0m
+
+
+ succeeded in 1767ms:
+state\restart_instructions.md:34:**The audit rubric (binding, in the breakdown doc §rubric):** every Phase-2 task gets a Codex DESIGN audit (visual / user-flow / data-flow / focus / clarity / frontier-head-to-head / WCAG-2.2-AA / provability) WITH rendered screenshots, iterate to APPROVE/5-cap → artifact `outputs/audits/<id>/codex_design_audit.txt`; PLUS the normal code diff review; PLUS UAT for page/flow issues.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content .codex/REVIEW_BRIEF_FORMAT.md | ForEach-Object { $i++; if ($i -ge 108 -and $i -le 118) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content CLAUDE.md | ForEach-Object { $i++; if ($i -ge 531 -and $i -le 541) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content state/polaris_phase2_ui_breakdown_2026_05_21.md | ForEach-Object { $i++; if ($i -ge 6 -and $i -le 31) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content .codex/DESIGN_AUDIT_BRIEF_FORMAT.md | ForEach-Object { $i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+ succeeded in 1336ms:
+   1: # Codex DESIGN-AUDIT brief template (Phase-2 UI) — v1, 2026-05-21 (I-p2-002 / #741)
+   2: 
+   3: Use this template for the DESIGN audit of every Phase-2 UI issue (I-p2-*), separate from and in addition to the code-diff review. Copy this skeleton into `.codex/<id>/design_audit_brief.md`, fill the brackets, attach the screenshot matrix, run Codex.
+   4: 
+   5: ---
+   6: 
+   7: ## 0. Iteration-cap directive (verbatim, MANDATORY first block — per CLAUDE.md §8.3.1)
+   8: ```
+   9: HARD ITERATION CAP: 5 per document. This is iter N of 5.
+  10: - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+  11: - Same quality bar regardless of iteration count.
+  12: - "Don't pick bone from egg" — reserve P0/P1 for real top-tier-design failures; cosmetics are P2/P3.
+  13: - If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd on remaining-non-P0/P1; residuals → follow-up issues. Iter 6 does not exist; do not bank findings.
+  14: - Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1 across all 16 dimensions.
+  15: ```
+  16: 
+  17: ## 1. What you are auditing
+  18: - Issue: `<I-p2-NNN (#GH)>` — `<page/component>`.
+  19: - You are the TOP-TIER design auditor. Bar: ahead-of-frontier (Perplexity / ChatGPT-DR / Gemini / Linear) on verifiable proof; ≥ par on polish. Audience: a PMO analyst, not an engineer.
+  20: - Locked design: WHITE background · dark Canada-flag red accent (by scarcity) · Frontier Minimal (Geist + Geist Mono, hairlines, whitespace) · Braille maple-leaf signature where present.
+  21: 
+  22: ## 2. Rendered evidence ATTACHED (Codex cannot audit design from a diff)
+  23: - Screenshot MATRIX (paths): desktop 1440 / tablet 768 / mobile 390 + 200% zoom + the key interaction states (default / hover / focus / loading / empty / error / the proof-replay-open state). Captured via the **production standalone harness** (`node web/.next/standalone/server.js`), NOT `next dev`.
+  24: - Playwright interaction trace + `axe` output (accessibility) where applicable.
+  25: - The exact routes/fixtures used.
+  26: 
+  27: ## 3. Audit ALL 16 dimensions → PASS / NEEDS-WORK (with specifics) per `state/polaris_phase2_ui_breakdown_2026_05_21.md`
+  28: 1. Visual design  2. User flow  3. Data flow / IA  4. User focus / cognitive load  5. Clarity  6. Frontier head-to-head (AHEAD/PAR/BEHIND + specifics)  7. Accessibility (WCAG 2.2 AA)  8. Provability / honesty (no synthetic proof; uncertainty shown; click raises confidence)  9. Responsive / device / zoom  10. EN-FR i18n-readiness (EN-first waiver logged — check no hardcoded-string blockers, locale-safe formats, ~+30% expansion tolerance)  11. Content / microcopy  12. Security / privacy / sovereignty (verified, not badge)  13. Performance / resilience  14. Dense-table UX  15. Role / workflow governance  16. Independent rendered verification (the attached matrix/trace/axe actually prove the above).
+  29: 
+  30: ## 4. Output schema
+  31: ```yaml
+  32: verdict: APPROVE | REQUEST_CHANGES
+  33: dimensions:               # all 16, each PASS or NEEDS-WORK + note
+  34:   visual: PASS|NEEDS-WORK — <note>
+  35:   user_flow: ...
+  36:   data_flow_ia: ...
+  37:   focus_cognitive_load: ...
+  38:   clarity: ...
+  39:   frontier_head_to_head: AHEAD|PAR|BEHIND — <specifics>
+  40:   accessibility: ...
+  41:   provability_honesty: ...
+  42:   responsive_zoom: ...
+  43:   i18n_en_fr_ready: ...
+  44:   content_microcopy: ...
+  45:   security_sovereignty: ...
+  46:   performance: ...
+  47:   dense_table_ux: ...
+  48:   role_governance: ...
+  49:   independent_verification: ...
+  50: novel_p0: [...]
+  51: continuing_p0: [...]
+  52: p1: [...]
+  53: p2: [...]
+  54: convergence_call: continue | accept_remaining
+  55: ```
+  56: Convergence: APPROVE iff all 16 PASS (zero P0, zero P1).
+
+ succeeded in 1636ms:
+ 108: Convergence: APPROVE iff zero P0 + zero P1.
+ 109: ```
+ 110: 
+ 111: ### 9. DESIGN AUDIT (Phase-2 UI tasks) — MANDATORY for any web/UI issue (I-p2-*)
+ 112: Added 2026-05-21 (I-p2-002). Every Phase-2 UI task gets, IN ADDITION to the code-diff review, a separate **Codex DESIGN audit** at the top-tier bar, using the **16-dimension rubric** in `state/polaris_phase2_ui_breakdown_2026_05_21.md`. The design-audit brief MUST:
+ 113: - Use the dedicated template `.codex/DESIGN_AUDIT_BRIEF_FORMAT.md`.
+ 114: - **Attach rendered evidence in the loop** — Codex cannot audit design from a diff: a screenshot MATRIX (desktop/tablet/mobile + zoom + the key interaction states) captured via the **production standalone harness** (`node web/.next/standalone/server.js`, NOT `next dev`), plus Playwright trace + axe output where applicable.
+ 115: - Audit all 16 dimensions (visual, user-flow, data-flow, focus, clarity, frontier-head-to-head, accessibility/WCAG-2.2-AA, provability, responsive/zoom, EN-FR-i18n-ready [EN-first waiver logged], content/microcopy, security-verified, performance, dense-table UX, role governance, independent-rendered-verification) → PASS/NEEDS-WORK each.
+ 116: - Verdict: APPROVE iff all 16 PASS. Artifact: `outputs/audits/<id>/codex_design_audit.txt` + the screenshot matrix.
+ 117: - §8.3.1 cap applies; per the v3 standard verdict rule, iter-5 residual P0/P1 → force-APPROVE + follow-up issue (operator-confirmed 2026-05-21).
+ 118: 
+
+ succeeded in 1969ms:
+ 531: **Communication to Codex — THE canonical cap directive (one source of truth, used verbatim in every brief; §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0 reference THIS block, not duplicate it):**
+ 532: 
+ 533: ```
+ 534: HARD ITERATION CAP: 5 per document. This is iter N of 5.
+ 535: - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+ 536: - Same quality bar regardless of iteration count.
+ 537: - "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+ 538: - If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+ 539: - If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+ 540: - Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+ 541: ```
+
+ succeeded in 2120ms:
+   6: 
+   7: ## THE 16-DIMENSION TOP-TIER DESIGN-AUDIT RUBRIC (binding — Codex applies to EVERY Phase-2 task)
+   8: In addition to the code diff review, every task gets a Codex DESIGN audit at the highest/most-robust/top-tier standard, **with rendered screenshots + independent verification artifacts in the loop** (Codex cannot audit design from a diff). Per dimension: PASS / NEEDS-WORK with specifics.
+   9: 
+  10: 1. **Visual design** — type scale & hierarchy, 4px spacing rhythm, color & contrast (WCAG 2.2 AA), one radius + two elevations, restrained motion + reduced-motion. Frontier-Minimal; no decorative gradients/orbs.
+  11: 2. **User flow** — obvious journey; one primary action per screen; no dead-ends; back-nav + error recovery.
+  12: 3. **Data flow / IA** — right info in the right place; progressive disclosure (answer → evidence → method → graph/audit); nothing buried; proof + sovereignty legible at a glance.
+  13: 4. **User focus / cognitive load** — clear visual priority; scannable; no competing CTAs; reduces the *verification* burden.
+  14: 5. **Clarity** — labels, empty/loading/error states; "what next" obvious to a PMO analyst (not an engineer).
+  15: 6. **Frontier head-to-head** — beside Perplexity / ChatGPT-DR / Gemini / Linear: AHEAD / PAR / BEHIND with specifics. Ahead on verifiable proof; ≥ par on polish.
+  16: 7. **Accessibility** — WCAG 2.2 AA, keyboard, visible focus order, target size, reduced-motion, no color-only state.
+  17: 8. **Provability / honesty** — every proof element from a typed field or honest fallback (NO synthetic proof); uncertainty shown (verdict chips); clicking a claim RAISES confidence (span contains the claim).
+  18: 9. **Responsive / device / zoom** — desktop+tablet+mobile, 200–400% zoom, forced-colors, print/export; viewport-matrix evidence.
+  19: 10. **Official languages / i18n (EN/FR)** — **OPERATOR WAIVER LOGGED 2026-05-21: EN-FIRST for the demo; full FR deferred to a post-demo follow-up.** So Phase-2 builds EN-only but MUST stay i18n-ready (no hardcoded strings that block FR; locale-safe date/number/unit formatting; layouts that tolerate ~+30% text expansion). The full bilingual-parity bar is explicitly waived for the demo, NOT silently skipped; FR is tracked as a post-demo issue.
+  20: 11. **Content design / microcopy** — domain copy, uncertainty language, caveats, jurisdiction/date-freshness, refusal wording.
+  21: 12. **Security / privacy / sovereignty (VERIFIED, not badge)** — RBAC, egress proof, data classification, PHI/PII handling, redaction, signed/tamper-evident logs, export signing; evidence artifacts.
+  22: 13. **Performance / resilience** — budgets for load, source-open, KG scale, export; offline/error recovery.
+  23: 14. **Dense-information / table UX** — source inventory, audit logs, evidence matrices, compare: sort/filter/sticky-headers/density/virtualization/provenance-visibility/export-parity.
+  24: 15. **Role / workflow governance** — analyst / counsel / clinical reviewer / records officer handoff + sign-off.
+  25: 16. **Independent rendered verification** — production-harness screenshot MATRIX + Playwright trace/interaction recording + axe output + keyboard + screen-reader + evidence-click tests (NOT curated screenshots).
+  26: 
+  27: **Color tokens:** separate national-accent vs verified vs contradiction vs refusal vs destructive/error — never rely on red alone.
+  28: 
+  29: ## VERDICT RULE
+  30: **APPROVE iff all 16 dimensions PASS** (zero NOVEL P0, zero continuing P0, zero P1). Iteration is bounded at 5 per §8.3.1. **Iter-5 with unresolved P0/P1 → Claude FORCE-APPROVEs and proceeds (operator-confirmed 2026-05-21), capturing each residual P0/P1 as a follow-up issue in the breakdown + flagged in the morning git-log.** (§8.3.1 stands — commercial cycle-time over unbounded iteration; the residual-as-follow-up record keeps it honest.) Artifacts: `outputs/audits/<id>/codex_design_audit.txt` + screenshot matrix + traces.
+  31: 
+
+codex
+The second consistency issue is separate from UI coverage: the new design-audit template claims its cap block is verbatim, but it is not byte-for-byte the canonical block that REVIEW_BRIEF_FORMAT §0 points to. That matters because the whole v3 guardrail depends on the exact first block being copied into future briefs.
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - ".codex/DESIGN_AUDIT_BRIEF_FORMAT.md:7: The template claims the §8.3.1 cap block is verbatim, but lines 12-14 differ from the canonical CLAUDE.md block and omit the anti-banking line. This violates REVIEW_BRIEF_FORMAT §0’s byte-for-byte requirement."
+  - ".codex/DESIGN_AUDIT_BRIEF_FORMAT.md:23: Rendered evidence is weaker than the binding 16-dim standard: it requires only 200% zoom, makes trace/axe 'where applicable', and omits 400% zoom, forced-colors, print/export, keyboard, screen-reader, and evidence-click tests. That leaves an easy path for non-top-tier UI to pass."
+  - ".codex/DESIGN_AUDIT_BRIEF_FORMAT.md:39: The YAML schema says all 16 dimensions are PASS/NEEDS-WORK, but frontier_head_to_head accepts only AHEAD/PAR/BEHIND. The verdict rule cannot be applied cleanly unless this dimension also reports PASS/NEEDS-WORK."
+p2:
+  - ".codex/REVIEW_BRIEF_FORMAT.md:116: Artifact list names the audit text and screenshot matrix but not traces/axe outputs, despite the source standard requiring matrix + traces."
+merge_decision: DO NOT MERGE
+```
+tokens used
+68,887
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - ".codex/DESIGN_AUDIT_BRIEF_FORMAT.md:7: The template claims the §8.3.1 cap block is verbatim, but lines 12-14 differ from the canonical CLAUDE.md block and omit the anti-banking line. This violates REVIEW_BRIEF_FORMAT §0’s byte-for-byte requirement."
+  - ".codex/DESIGN_AUDIT_BRIEF_FORMAT.md:23: Rendered evidence is weaker than the binding 16-dim standard: it requires only 200% zoom, makes trace/axe 'where applicable', and omits 400% zoom, forced-colors, print/export, keyboard, screen-reader, and evidence-click tests. That leaves an easy path for non-top-tier UI to pass."
+  - ".codex/DESIGN_AUDIT_BRIEF_FORMAT.md:39: The YAML schema says all 16 dimensions are PASS/NEEDS-WORK, but frontier_head_to_head accepts only AHEAD/PAR/BEHIND. The verdict rule cannot be applied cleanly unless this dimension also reports PASS/NEEDS-WORK."
+p2:
+  - ".codex/REVIEW_BRIEF_FORMAT.md:116: Artifact list names the audit text and screenshot matrix but not traces/axe outputs, despite the source standard requiring matrix + traces."
+merge_decision: DO NOT MERGE
+```
