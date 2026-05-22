@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex APPROVE iter1 (real bundle, §-1.1 gate sound, schema correct).
