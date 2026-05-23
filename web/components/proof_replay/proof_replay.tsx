@@ -135,7 +135,7 @@ function ProofPane({
                           <>
                             {ctx.leadingEllipsis ? "… " : "“"}
                             {ctx.before}
-                            <mark className="bg-primary/10 text-foreground rounded-[3px] decoration-clone px-0.5 font-medium">
+                            <mark className="bg-primary/10 text-foreground box-decoration-clone rounded-[3px] px-0.5 font-medium">
                               {ctx.span}
                             </mark>
                             {ctx.after}
