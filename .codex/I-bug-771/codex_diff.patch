@@ -587,3 +587,5 @@ index 00000000..349e4817
 +    assert _is_low_quality_oa("", "https://doi.org/10.33901/xyz") is False
 +    assert _is_low_quality_oa("", "https://example.org/10.33901/abc") is False
 +    assert _is_low_quality_oa("", "https://doi.org/10.1056/NEJMoa2107519") is False
+
+# canonical-diff-sha256: 2af45a169c67f6adc054aa5393a347c79473306d0ddafb10419947285da4432d
