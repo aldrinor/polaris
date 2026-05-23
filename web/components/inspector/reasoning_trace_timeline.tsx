@@ -68,26 +68,29 @@ function TraceRecordCard({ record }: { record: ReasoningTraceRecord }) {
         className="text-muted-foreground mt-2 grid grid-cols-1 gap-x-3 gap-y-1 text-xs sm:grid-cols-3"
         data-testid="reasoning-record-meta"
       >
-        <span data-field="model">
+        {/* I-p2-026 (#765): a <dl> may only contain <dt>/<dd>/<div> — the
+            <span> wrappers tripped axe definition-list + dlitem (WCAG). <div>
+            grid-item wrappers are HTML5-valid and render identically. */}
+        <div data-field="model">
           <dt className="inline font-medium">model:</dt>{" "}
           <dd className="inline font-mono">{record.model}</dd>
-        </span>
-        <span data-field="attempt_n">
+        </div>
+        <div data-field="attempt_n">
           <dt className="inline font-medium">attempt:</dt>{" "}
           <dd className="inline font-mono">{record.attempt_n}</dd>
-        </span>
-        <span data-field="timestamp">
+        </div>
+        <div data-field="timestamp">
           <dt className="inline font-medium">timestamp:</dt>{" "}
           <dd className="inline font-mono">{record.timestamp}</dd>
-        </span>
-        <span data-field="parent_call_id">
+        </div>
+        <div data-field="parent_call_id">
           <dt className="inline font-medium">parent:</dt>{" "}
           <dd className="inline font-mono">{record.parent_call_id ?? "—"}</dd>
-        </span>
-        <span data-field="regen_reason">
+        </div>
+        <div data-field="regen_reason">
           <dt className="inline font-medium">regen:</dt>{" "}
           <dd className="inline font-mono">{record.regen_reason ?? "—"}</dd>
-        </span>
+        </div>
       </dl>
       <div className="text-muted-foreground mt-2 grid grid-cols-3 gap-2 text-xs">
         <span>input: {record.input_tokens}</span>
