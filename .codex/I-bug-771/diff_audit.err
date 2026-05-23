@@ -1,0 +1,3277 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e5458-36ce-7401-9be7-f2d1fc0512dd
+--------
+user
+# Codex DIFF review — I-bug-771 (#812): tier_classifier fix. Iter 5 of 5 (CAP).
+
+HARD ITERATION CAP: 5 per document. This is iter 5 of 5 — the LAST iteration.
+- Front-load ALL real findings NOW. Iter 6 does not exist.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks.
+- If this iter returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude
+  on remaining non-P0/P1 findings; residuals captured as a follow-up Issue.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+Canonical-diff-sha256 `c3014b0e2a94ebb6c5c97786b8e823423e4a306350933073e2b9bed63e25eb17`. MERGE AUTHORIZED if mergeable + APPROVE iff zero
+P0/P1. Clinical-safety core.
+
+## Convergence note (iters 1-4 all addressed)
+- iter-1 P1 (canonical guideline DOI articles missed by path-only) -> FIXED (title detection).
+- iter-1 P2 (DOI substring) -> FIXED (exact prefix).
+- iter-2 P1 (GDMT 'guideline-directed' false-promote) -> FIXED (exclusions-first).
+- iter-3 P1 (guideline-comparison commentary false-promote) -> FIXED (year-anchor; dropped bare substrings).
+- iter-3 P2 ('Guideline for Coronary Artery Revascularization' missed) -> FIXED (year-anchor).
+- iter-4 P1 ('Guideline Focused Update on...' false-demote) -> FIXED (added update|focused update).
+
+The trajectory has been false-promote vs false-demote on guideline TITLE forms.
+Current detector `_title_signals_clinical_guideline`:
+  exclusions FIRST (GDMT/adherence/concordant/implementation/based/recommended/
+  non-/off-guideline) -> then statement-type markers (consensus/scientific/
+  position statement, practice bulletin) -> then year-anchored regex
+  `\b(?:19|20)\d{2}\b.{0,80}\bguidelines?\s+(?:for|on|update|focused update)\b`.
+
+## Important framing for this final iter
+A residual TITLE-form miss is a false-DEMOTE (a real guideline tiered T4 instead
+of T2) — the SAFE direction clinically (under-counts secondary evidence; never
+fabricates or over-credits). False-PROMOTE (non-guideline -> T2) is the dangerous
+direction and is guarded by exclusions + the year-anchor + statement markers +
+the dropped bare substrings. If your only remaining finding is another rare
+title FORM that under-tiers a guideline, that is P2 (precision), not P0/P1.
+
+## Full change
+1. jacc.org/onlinejacc.org -> PEER_REVIEWED_JOURNAL_DOMAINS.
+2. Rule 8c (after Rule 1 stub, before R8b/R9/R10): society tool/dosing -> T3;
+   guideline path OR issued-guideline-document title -> T2; else fall through.
+3. MDPI primary -> T4 (R9+R10), MDPI SR/MA -> T2 (reconcile-B).
+
+## Test evidence
+253 classifier tests green (229 regression + 24 new #812 invariants covering all
+iter-1..4 cases). 154 downstream consumers green. Stub guardrail asserted.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+diff --git a/src/polaris_graph/retrieval/tier_classifier.py b/src/polaris_graph/retrieval/tier_classifier.py
+index f83380a8..b94a8ae4 100644
+--- a/src/polaris_graph/retrieval/tier_classifier.py
++++ b/src/polaris_graph/retrieval/tier_classifier.py
+@@ -477,6 +477,11 @@ PEER_REVIEWED_JOURNAL_DOMAINS = frozenset({
+     "frontiersin.org", "mdpi.com", "plos.org", "plosone.org",
+     "ahajournals.org", "diabetesjournals.org", "endocrine.org",
+     "acc.org", "acpjournals.org",
++    # I-bug-771 (#812): jacc.org (J. Am. Coll. Cardiology) is a flagship
++    # cardiology journal (Elsevier 10.1016) but was absent — its articles
++    # demoted to T4 via the R9 unverified-host guard. acc.org alone did not
++    # cover the jacc.org host.
++    "jacc.org", "onlinejacc.org",
+     "acs.org", "pubs.acs.org", "rsc.org", "pubs.rsc.org",
+     "ieee.org", "acm.org",
+     "academic.oup.com",  # OUP journals
+@@ -485,6 +490,100 @@ PEER_REVIEWED_JOURNAL_DOMAINS = frozenset({
+     "jme.bmj.com",  # Journal of Medical Ethics
+ })
+ 
++# I-bug-771 (#812): low-quality / high-volume open-access publishers whose
++# PRIMARY articles must NOT earn T1 (variable methodological quality), but
++# whose genuine full-title systematic reviews / meta-analyses remain T2 (Codex
++# #812 reconcile B — discriminator, not a hard ceiling). The primary-path
++# demotion is applied in R9/R10; the SR/MA branches (which fire first) are
++# untouched, preserving the deliberate pass-12 MDPI-SR/MA->T2 distinction.
++LOW_QUALITY_OA_DOMAINS = frozenset({
++    "mdpi.com",
++})
++# DOI prefixes for the same publishers (URL-embedded).
++LOW_QUALITY_OA_DOI_PREFIXES = frozenset({
++    "10.3390",  # MDPI
++})
++
++# I-bug-771 (#812): recognized guideline-issuing bodies. A document on one of
++# these hosts whose path signals a clinical practice guideline is high-authority
++# SECONDARY evidence (T2 — counts toward the clinical T2 minimum), reasoned as
++# "guideline authority", explicitly NOT a primary study. Society tool / dosing /
++# practice-support paths are EXCLUDED here and stay T3 (Codex #812: "acc.org
++# tools/dosing PDFs do not get T1/T2"). Content stubs are unaffected — Rule 1
++# returns T7 before this rule, so a 297-char fetch can never be laundered up.
++GUIDELINE_AUTHORITY_DOMAINS = frozenset({
++    "escardio.org",      # European Society of Cardiology
++    "nice.org.uk",       # NICE (UK)
++    "ahajournals.org",   # AHA/ACC guidelines published in Circulation
++    "jacc.org", "onlinejacc.org",
++    "acc.org",           # ACC guideline pages (NOT /tools/ — excluded below)
++})
++_GUIDELINE_PATH_MARKERS = (
++    "/guidelines/", "/guideline/", "/guidance/", "/recommendations/",
++    "/scientific-documents/recom",  # ESC scientific-documents recommendations
++)
++# I-bug-771 (#812) iter-2 (Codex P1): canonical ACC/AHA guidelines are published
++# as DOI ARTICLES (e.g. ahajournals.org/doi/10.1161/CIR..., jacc.org/doi/...),
++# NOT on a /guidelines/ path — so a path-only check misses them. On a recognized
++# guideline-authority domain, these NARROW clinical-guideline title markers also
++# promote to T2. Deliberately EXCLUDES the broad explainer/whitepaper/industry
++# markers in _GUIDELINE_EXPLAINER_TITLE_MARKERS (those stay T4): a guideline is a
++# practice/consensus/scientific statement, not a fact sheet or market insight.
++# iter-4 (Codex P1+P2): distinguish an ISSUED guideline DOCUMENT from primary
++# studies and from commentary ABOUT guidelines. Two robust signals:
++#  (a) a year-anchored "<YYYY> ... guideline(s) for|on ..." pattern — issued
++#      clinical guidelines are year-dated society documents whose title reads
++#      "2021 ACC/AHA/SCAI Guideline for Coronary Artery Revascularization" /
++#      "2024 ESC Guidelines for the management of AF". The phrase "guideline(s)
++#      FOR/ON" (not "guideline recommendations for") + a year is the document
++#      signal. This catches main-title-only forms (Codex P2: no "for the"
++#      required) AND rejects undated guideline-comparison commentary like
++#      "International Clinical Practice Guideline Recommendations for Acute PE:
++#      Harmony, Dissonance, and Silence" (no year + "guideline recommendations
++#      for", not "guideline for") (Codex P1).
++#  (b) explicit document-TYPE statements that are themselves the artifact.
++# Bare "guideline" / "clinical practice guideline" substrings are DELIBERATELY
++# NOT markers (they appear in GDMT primaries + guideline-comparison commentary).
++_GUIDELINE_DOC_STATEMENT_MARKERS = (
++    "consensus statement", "expert consensus",
++    "scientific statement",            # AHA scientific statements
++    "position statement",
++    "practice bulletin",
++)
++_GUIDELINE_YEAR_DOC_RE = re.compile(
++    r"\b(?:19|20)\d{2}\b.{0,80}\bguidelines?\s+(?:for|on|update|focused update)\b"
++)
++# Primary-study / commentary titles that MENTION guidelines but are NOT
++# guideline documents — never promoted (checked FIRST).
++_GUIDELINE_TITLE_EXCLUSIONS = (
++    "guideline-directed", "guideline directed",      # GDMT — a therapy, studied in primaries
++    "guideline adherence", "guideline-adherent", "guideline adherent",
++    "adherence to guideline", "adherence to the guideline",
++    "guideline-concordant", "guideline concordant",
++    "guideline implementation", "guideline-based", "guideline based",
++    "guideline-recommended", "guideline recommended",
++    "non-guideline", "off-guideline",
++)
++
++
++def _title_signals_clinical_guideline(title: str) -> bool:
++    """I-bug-771 (#812): detect an ISSUED clinical-practice-guideline DOCUMENT
++    title for the guideline-authority promotion in Rule 8c. Exclusions checked
++    FIRST (GDMT / adherence / implementation primaries). Then a year-anchored
++    "guideline(s) for|on" document pattern OR an explicit document-type statement
++    (consensus / scientific / position statement / practice bulletin). Rejects
++    undated guideline-comparison commentary. Narrower than
++    _detect_guideline_or_explainer_title (which fires on explainer/policy titles
++    that must stay T4)."""
++    if not title:
++        return False
++    t = title.lower()
++    if any(x in t for x in _GUIDELINE_TITLE_EXCLUSIONS):
++        return False
++    if any(m in t for m in _GUIDELINE_DOC_STATEMENT_MARKERS):
++        return True
++    return bool(_GUIDELINE_YEAR_DOC_RE.search(t))
++
+ # M-18a (DR audit pass 1): when the fetcher records the URL as
+ # doi.org/<prefix>/<suffix>, the classifier cannot know from the
+ # domain alone that this is a peer-reviewed journal. These DOI
+@@ -535,6 +634,29 @@ def _has_peer_reviewed_doi_prefix(url: str) -> bool:
+     except (IndexError, ValueError):
+         return False
+ 
++
++def _is_low_quality_oa(domain: str, url: str) -> bool:
++    """I-bug-771 (#812): True if the source is a low-quality / high-volume OA
++    publisher (MDPI) by domain OR by URL-embedded DOI prefix. Used to deny T1
++    primary credit in R9/R10 (SR/MA still routes to T2 in the earlier branch)."""
++    if _domain_matches(domain, LOW_QUALITY_OA_DOMAINS):
++        return True
++    u = (url or "").lower()
++    # Exact DOI-prefix match (iter-2 Codex P2: avoid substring false-positives
++    # such as 10.33901 matching 10.3390). Extract the registrant prefix after
++    # doi.org/ exactly, mirroring _has_peer_reviewed_doi_prefix.
++    if "doi.org/" in u:
++        try:
++            prefix = u.split("doi.org/", 1)[1].split("/", 1)[0]
++            if prefix in LOW_QUALITY_OA_DOI_PREFIXES:
++                return True
++        except (IndexError, ValueError):
++            pass
++    # DOI embedded in a publisher path (e.g. /10.3390/...): require both
++    # boundary slashes so 10.33901 cannot match 10.3390.
++    return any(f"/{p}/" in u for p in LOW_QUALITY_OA_DOI_PREFIXES)
++
++
+ # Preprint servers (T4/T5 candidates — not peer-reviewed; caller may
+ # tier-down further based on funding disclosure).
+ PREPRINT_DOMAINS = frozenset({
+@@ -1279,6 +1401,59 @@ def classify_source_tier(
+         )
+         return result
+ 
++    # ── Rule 8c (I-bug-771 #812): recognized guideline-issuing bodies. Fires
++    # AFTER Rule 1 stub (so 297-char fetches stay T7, never laundered) and
++    # BEFORE R8b/R9/R10 (so it pre-empts both the body-signal demotion AND the
++    # R9 OpenAlex-article path that was granting society tool PDFs T1). Two
++    # outcomes on these domains:
++    #   * society tool / dosing / practice-support path  -> T3 (clinical
++    #     decision-support reference; Codex #812: never T1/T2)
++    #   * clinical-practice-guideline / recommendation path -> T2 (high-
++    #     authority secondary evidence; "guideline authority" NOT primary)
++    # A plain research article on these hosts (no tool/guideline path marker)
++    # falls through to the normal journal path (R9/R10) and tiers as usual.
++    # (NICE is matched here for documentation, but nice.org.uk is in
++    # REGULATORY_DOMAINS and R2d already returned T3 above — a defensible
++    # government/HTA classification; flagged for Codex in the diff review.)
++    _gl_url = (signals.url or "").lower()
++    _society_tool_path_markers = (
++        "/tools/", "/tool/", "/practice-support/", "/practice-resources/",
++        "/information-graphics/", "/infographic", "/dosing/", "-dosing-",
++        "/clinical-tools/", "tools-and-practice-support",
++    )
++    if _domain_matches(domain, GUIDELINE_AUTHORITY_DOMAINS):
++        if any(m in _gl_url for m in _society_tool_path_markers):
++            result.tier = TierLevel.T3
++            result.confidence = 0.85
++            result.matched_rules.append("R8c_society_tool_demoted")
++            result.reasons.append(
++                f"Domain {domain!r} is a professional-society host and the URL "
++                f"path matches a tool / dosing / practice-support pattern. "
++                f"Clinical decision-support reference, not primary research or "
++                f"a guideline document. T3 (never T1/T2 per #812)."
++            )
++            return result
++        if (
++            (
++                any(m in _gl_url for m in _GUIDELINE_PATH_MARKERS)
++                or _title_signals_clinical_guideline(signals.title)
++            )
++            and not _detect_conference_abstract(signals.title, signals.url)
++        ):
++            result.tier = TierLevel.T2
++            result.confidence = 0.85
++            result.matched_rules.append("R8c_guideline_authority")
++            result.reasons.append(
++                f"Domain {domain!r} is a recognized guideline-issuing body and "
++                f"the URL path OR title signals a clinical practice guideline / "
++                f"consensus / scientific statement. High-authority secondary "
++                f"evidence (T2 — guideline authority, NOT a primary study). "
++                f"Canonical ACC/AHA guidelines are DOI articles with guideline "
++                f"titles (no /guidelines/ path), so the title check is required. "
++                f"Content stubs already returned T7 at Rule 1."
++            )
++            return result
++
+     # ── Rule 8b (BUG-M-17, Codex pass 2): body-inspection override.
+     # When live_retriever._detect_article_type_from_body found explicit
+     # article-type metadata (meta tag / JSON-LD / Frontiers section
+@@ -1476,6 +1651,24 @@ def classify_source_tier(
+             # live_retriever (so SR/MA suffixes aren't truncated) and
+             # (ii) expanded narrative markers ("perspective for",
+             # "for clinicians") to catch guidance articles.
++            # I-bug-771 (#812, Codex reconcile B): low-quality OA (MDPI)
++            # primary articles do NOT earn T1. The SR/MA branch above
++            # already routed genuine MDPI systematic reviews to T2, so this
++            # only catches the primary path (the demonstrated afib over-credit
++            # was MDPI-primary -> T1). Demote to T4.
++            if _is_low_quality_oa(domain, signals.url):
++                result.tier = TierLevel.T4
++                result.confidence = 0.7
++                result.matched_rules.append("R9_low_quality_oa_primary_demoted")
++                result.reasons.append(
++                    f"OpenAlex: peer-reviewed {pub_type!r} in journal, but "
++                    f"domain {domain!r} (or DOI prefix) is a low-quality / "
++                    f"high-volume OA publisher. Primary articles do not earn "
++                    f"T1 (variable methodological quality); T4 ceiling. A "
++                    f"genuine full-title systematic review / meta-analysis "
++                    f"would have routed to T2 in the earlier branch."
++                )
++                return result
+             result.tier = TierLevel.T1
+             result.confidence = 0.8
+             result.matched_rules.append("R9_openalex_primary_study")
+@@ -1580,6 +1773,20 @@ def classify_source_tier(
+             )
+             return result
+ 
++        # I-bug-771 (#812, Codex reconcile B): low-quality OA (MDPI) primary
++        # articles do NOT earn presumed-T1 here either (the SR/MA-title branch
++        # above already routed genuine reviews to T2). Demote to T4.
++        if _is_low_quality_oa(domain, signals.url):
++            result.tier = TierLevel.T4
++            result.confidence = 0.6
++            result.matched_rules.append("R10_low_quality_oa_primary_demoted")
++            result.reasons.append(
++                f"Domain {domain!r} (or DOI prefix) is a low-quality / "
++                f"high-volume OA publisher; presumed-primary articles do not "
++                f"earn T1. T4 ceiling. A genuine SR/MA title would have routed "
++                f"to T2 above."
++            )
++            return result
+         # Journal domain without OpenAlex, not NIH aggregator, not
+         # society-tool URL pattern, title not truncated, and no
+         # SR/MA/narrative/guideline signals fired in earlier branches:
+diff --git a/tests/polaris_graph/test_bug771_tier_authority_and_oa_ceiling.py b/tests/polaris_graph/test_bug771_tier_authority_and_oa_ceiling.py
+new file mode 100644
+index 00000000..89ccf454
+--- /dev/null
++++ b/tests/polaris_graph/test_bug771_tier_authority_and_oa_ceiling.py
+@@ -0,0 +1,282 @@
++"""I-bug-771 (#812) — tier-classifier invariants.
++
++The dominant #763-benchmark abort was `abort_corpus_inadequate`: the content-
++based classifier mis-tiered authoritative cardiology sources (ahajournals->T7
++stub, escardio guidelines->T4, jacc.org->T4) while over-crediting low-quality OA
++(mdpi->T1). Codex DECIDED C+D and RECONCILED the MDPI conflict to option B
++(discriminator): MDPI PRIMARY loses T1, but a genuine MDPI systematic review /
++meta-analysis still routes to T2 (preserving the deliberate pass-12 distinction).
++
++These assert Codex's required invariants. Each is claim-by-claim against the
++exact domain/path the afib run actually retrieved.
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.retrieval.tier_classifier import (
++    ClassificationSignals,
++    _is_low_quality_oa,
++    classify_source_tier,
++)
++
++
++def _classify(url: str, title: str = "Generic study of X in Y", content_length: int = 8000, **openalex):
++    sig = ClassificationSignals(
++        url=url,
++        title=title,
++        publisher="",
++        fetched_content_length=content_length,
++        openalex_publication_type=openalex.get("pub_type", "article"),
++        openalex_source_type=openalex.get("source_type", "journal"),
++        openalex_is_peer_reviewed=openalex.get("is_peer_reviewed", True),
++        source_type_hint="",
++    )
++    return classify_source_tier(sig)
++
++
++# ── JACC: flagship cardiology journal, was demoted to T4 (not in allowlist) ──
++
++def test_jacc_org_primary_is_t1() -> None:
++    r = _classify(
++        url="https://www.jacc.org/doi/10.1016/j.jacasi.2023.08.007",
++        title="Anticoagulation outcomes in atrial fibrillation in Asia",
++    )
++    assert r.tier.value == "T1", f"JACC primary should be T1, got {r.tier.value}"
++
++
++def test_jacc_org_systematic_review_is_t2() -> None:
++    r = _classify(
++        url="https://www.jacc.org/doi/10.1016/j.jacc.2024.01.001",
++        title="Direct oral anticoagulants in AF: a systematic review and meta-analysis",
++    )
++    assert r.tier.value == "T2", f"JACC SR/MA should be T2, got {r.tier.value}"
++
++
++# ── ESC / guideline-authority bodies → T2 (was T4 via unverified-host demote) ──
++
++def test_escardio_guideline_is_t2() -> None:
++    r = _classify(
++        url="https://www.escardio.org/guidelines/scientific-documents/recommendations-af",
++        title="2024 ESC Guidelines for the management of atrial fibrillation",
++    )
++    assert r.tier.value == "T2", f"ESC guideline should be T2, got {r.tier.value}"
++    assert r.matched_rules[-1] == "R8c_guideline_authority"
++
++
++def test_ahajournals_guideline_path_is_t2() -> None:
++    r = _classify(
++        url="https://www.ahajournals.org/doi/guidelines/10.1161/CIR.0000000000001193",
++        title="2023 ACC/AHA Guideline for the Management of Atrial Fibrillation",
++    )
++    assert r.tier.value == "T2", f"AHA guideline-path should be T2, got {r.tier.value}"
++
++
++def test_escardio_guideline_content_stub_stays_t7() -> None:
++    """Stub guardrail: a 297-char fetch on a guideline body is NOT laundered to
++    T2 — Rule 1 returns T7 first (Codex: never launder content-starved fetches)."""
++    r = _classify(
++        url="https://www.escardio.org/guidelines/recommendations-af",
++        title="AF guidelines",
++        content_length=297,
++    )
++    assert r.tier.value == "T7", f"Guideline stub should be T7, got {r.tier.value}"
++
++
++# ── AHA journal: research article T1 when usable; 297-char stub T7 ──
++
++def test_ahajournals_research_article_is_t1() -> None:
++    r = _classify(
++        url="https://www.ahajournals.org/doi/10.1161/CIRCOUTCOMES.124.011890",
++        title="Outcomes after anticoagulation in atrial fibrillation: a cohort study",
++    )
++    assert r.tier.value == "T1", f"AHA research article should be T1, got {r.tier.value}"
++
++
++def test_ahajournals_stub_stays_t7() -> None:
++    r = _classify(
++        url="https://www.ahajournals.org/doi/10.1161/JAHA.120.017559",
++        title="AF outcomes",
++        content_length=297,
++    )
++    assert r.tier.value == "T7", f"AHA 297-char stub should be T7, got {r.tier.value}"
++
++
++# ── MDPI / low-quality OA: primary loses T1 (T4), but genuine SR/MA keeps T2 ──
++
++def test_mdpi_primary_is_demoted_to_t4() -> None:
++    """The demonstrated afib over-credit: an MDPI primary article got T1."""
++    r = _classify(
++        url="https://www.mdpi.com/2077-0383/14/22/8079",
++        title="Anticoagulation strategies in atrial fibrillation",
++    )
++    assert r.tier.value == "T4", f"MDPI primary should be T4 ceiling, got {r.tier.value}"
++    assert r.matched_rules[-1] == "R9_low_quality_oa_primary_demoted"
++
++
++def test_mdpi_doi_prefix_primary_is_demoted_to_t4() -> None:
++    """MDPI by URL-embedded DOI prefix (10.3390) also loses T1 primary credit."""
++    r = _classify(
++        url="https://doi.org/10.3390/jcm14228079",
++        title="Anticoagulation strategies in atrial fibrillation",
++    )
++    assert r.tier.value == "T4", f"MDPI DOI primary should be T4, got {r.tier.value}"
++
++
++def test_mdpi_systematic_review_stays_t2() -> None:
++    """Codex reconcile B: a genuine full-title MDPI SR/MA is still secondary
++    evidence (T2). The discriminator only denies the PRIMARY bucket."""
++    r = _classify(
++        url="https://www.mdpi.com/1424-8247/18/5/668",
++        title="The Efficacy and Safety of Tirzepatide: Systematic Review and Meta-Analysis of Randomized Clinical Trials",
++    )
++    assert r.tier.value == "T2", f"MDPI SR/MA should stay T2, got {r.tier.value}"
++
++
++# ── Society tool / dosing PDFs → T3, never T1/T2 (even with OpenAlex metadata) ──
++
++def test_acc_org_dosing_tool_pdf_is_t3() -> None:
++    r = _classify(
++        url="https://www.acc.org/-/media/Non-Clinical/Tools-and-Practice-Support/DOAC-Dosing.pdf",
++        title="DOAC Dosing in Atrial Fibrillation",
++    )
++    assert r.tier.value == "T3", f"ACC dosing tool PDF should be T3, got {r.tier.value}"
++    assert r.matched_rules[-1] == "R8c_society_tool_demoted"
++
++
++def test_jacc_tools_path_is_t3() -> None:
++    r = _classify(
++        url="https://www.jacc.org/tools/risk-calculator",
++        title="AF Stroke Risk Calculator",
++    )
++    assert r.tier.value == "T3", f"JACC tools path should be T3, got {r.tier.value}"
++
++
++# ── Precision guards: the fix must NOT start over-crediting low-quality hosts ──
++
++def test_unknown_openalex_host_still_t4() -> None:
++    """M-11 guard intact: OpenAlex article on an unknown host stays T4."""
++    r = _classify(
++        url="https://some-random-unknown-site.example/paper-2025",
++        title="Effect of Drug X on Condition Y: A Study",
++    )
++    assert r.tier.value == "T4", f"Unknown host should stay T4, got {r.tier.value}"
++
++
++def test_mdpi_news_style_not_laundered() -> None:
++    """An MDPI page that is a stub is still T7 (Rule 1), not laundered."""
++    r = _classify(
++        url="https://www.mdpi.com/2077-0383/14/22/8079",
++        title="Editorial note",
++        content_length=300,
++    )
++    assert r.tier.value == "T7", f"MDPI stub should be T7, got {r.tier.value}"
++
++
++# ── iter-2 (Codex P1): canonical ACC/AHA guidelines are DOI ARTICLES, no path ──
++
++def test_aha_guideline_doi_article_is_t2() -> None:
++    """Real ACC/AHA guideline: a DOI article (no /guidelines/ path) with a
++    guideline title must reach T2, not fall to T4/T1."""
++    r = _classify(
++        url="https://www.ahajournals.org/doi/10.1161/CIR.0000000000001193",
++        title="2023 ACC/AHA/ACCP/HRS Guideline for the Diagnosis and Management of Atrial Fibrillation",
++    )
++    assert r.tier.value == "T2", f"AHA guideline DOI article should be T2, got {r.tier.value}"
++    assert r.matched_rules[-1] == "R8c_guideline_authority"
++
++
++def test_jacc_consensus_statement_is_t2() -> None:
++    r = _classify(
++        url="https://www.jacc.org/doi/10.1016/j.jacc.2024.02.001",
++        title="2024 Expert Consensus Statement on anticoagulation in AF",
++    )
++    assert r.tier.value == "T2", f"JACC consensus statement should be T2, got {r.tier.value}"
++
++
++def test_aha_primary_rct_not_promoted_by_guideline_check() -> None:
++    """A primary RCT on an authority domain (no guideline title) stays T1 — the
++    narrow guideline-title detector must not catch primary studies."""
++    r = _classify(
++        url="https://www.ahajournals.org/doi/10.1161/CIRCULATIONAHA.124.012345",
++        title="Apixaban versus warfarin in atrial fibrillation: a randomized controlled trial",
++    )
++    assert r.tier.value == "T1", f"AHA primary RCT should stay T1, got {r.tier.value}"
++
++
++def test_authority_domain_explainer_title_not_promoted_to_t2() -> None:
++    """An explainer/whitepaper title on an authority domain must NOT be promoted
++    to T2 (the narrow guideline set deliberately excludes explainer markers)."""
++    r = _classify(
++        url="https://www.ahajournals.org/doi/10.1161/whitepaper.2024",
++        title="An explainer on anticoagulation pricing trends",
++    )
++    assert r.tier.value != "T2", f"Explainer title should NOT be T2, got {r.tier.value}"
++
++
++def test_gdmt_primary_study_not_promoted_to_t2() -> None:
++    """iter-3 (Codex P1): 'Guideline-Directed Medical Therapy' (GDMT) is a
++    therapy studied in PRIMARY studies, not a guideline document. The bare
++    'guideline' substring must NOT promote it to T2 via Rule 8c. (It resolves to
++    T4 via the pre-existing broad R9_openalex_guideline_explainer demotion — a
++    separate, pre-#812 behavior; the #812 invariant is simply: NOT T2, NOT
++    promoted by R8c.)"""
++    r = _classify(
++        url="https://www.jacc.org/doi/10.1016/j.jacc.2024.03.010",
++        title="Guideline-Directed Medical Therapy in Heart Failure: A Prospective Cohort Study",
++    )
++    assert r.tier.value != "T2", f"GDMT primary should NOT be T2, got {r.tier.value}"
++    assert r.matched_rules[-1] != "R8c_guideline_authority"
++
++
++def test_guideline_adherence_study_not_promoted_to_t2() -> None:
++    r = _classify(
++        url="https://www.ahajournals.org/doi/10.1161/CIRCOUTCOMES.124.099999",
++        title="Guideline Adherence and Outcomes in Atrial Fibrillation: A Registry Analysis",
++    )
++    assert r.tier.value != "T2", f"Guideline-adherence study should not be T2, got {r.tier.value}"
++
++
++def test_guideline_comparison_commentary_not_promoted() -> None:
++    """iter-4 (Codex P1): a guideline-COMPARISON/analysis article is commentary
++    ABOUT guidelines, not an issued guideline document. Undated + 'guideline
++    recommendations for' (not 'guideline for') -> must NOT be T2."""
++    r = _classify(
++        url="https://www.jacc.org/doi/abs/10.1016/j.jacc.2024.07.044",
++        title="International Clinical Practice Guideline Recommendations for Acute Pulmonary Embolism: Harmony, Dissonance, and Silence",
++    )
++    assert r.tier.value != "T2", f"Guideline-comparison commentary should NOT be T2, got {r.tier.value}"
++    assert r.matched_rules[-1] != "R8c_guideline_authority"
++
++
++def test_revascularization_guideline_main_title_only_is_t2() -> None:
++    """iter-4 (Codex P2): a real issued guideline whose title lacks 'for the'
++    ('2021 ACC/AHA/SCAI Guideline for Coronary Artery Revascularization') must
++    still reach T2 via the year-anchored 'guideline for' pattern."""
++    r = _classify(
++        url="https://www.jacc.org/doi/10.1016/j.jacc.2021.09.006",
++        title="2021 ACC/AHA/SCAI Guideline for Coronary Artery Revascularization",
++    )
++    assert r.tier.value == "T2", f"Revascularization guideline should be T2, got {r.tier.value}"
++    assert r.matched_rules[-1] == "R8c_guideline_authority"
++
++
++def test_guideline_focused_update_is_t2() -> None:
++    """iter-5 (Codex P1): a 'Guideline Focused Update' is an issued guideline
++    document and must reach T2 (the year-anchored pattern accepts focused-update/
++    update forms, not only 'guideline for/on')."""
++    r = _classify(
++        url="https://www.jacc.org/doi/10.1016/j.jacc.2016.03.513",
++        title="2016 ACC/AHA Guideline Focused Update on Duration of Dual Antiplatelet Therapy in Patients With Coronary Artery Disease",
++    )
++    assert r.tier.value == "T2", f"Guideline focused update should be T2, got {r.tier.value}"
++    assert r.matched_rules[-1] == "R8c_guideline_authority"
++
++
++def test_doi_prefix_exact_no_false_positive() -> None:
++    """iter-2 (Codex P2): low-quality-OA DOI matching is exact-prefix, so a
++    longer prefix beginning with 10.3390 (e.g. 10.33901) is NOT treated as MDPI."""
++    assert _is_low_quality_oa("", "https://doi.org/10.3390/jcm14228079") is True
++    assert _is_low_quality_oa("", "https://example.org/10.3390/abc") is True
++    assert _is_low_quality_oa("", "https://doi.org/10.33901/xyz") is False
++    assert _is_low_quality_oa("", "https://example.org/10.33901/abc") is False
++    assert _is_low_quality_oa("", "https://doi.org/10.1056/NEJMoa2107519") is False
+
+codex
+I’ll review this as a diff-level safety/code review, focusing only on execution risks that could change tiering in unsafe directions. I’m going to inspect the surrounding classifier order and relevant helper behavior before deciding whether any P0/P1 remains.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "Rule 8c|R8c|_title_signals_clinical_guideline|_detect_guideline_or_explainer_title|Rule 1|REGULATORY_DOMAINS|LOW_QUALITY_OA|PEER_REVIEWED_JOURNAL_DOMAINS|def classify_source_tier|R9_openalex|R10" src/polaris_graph/retrieval/tier_classifier.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "bug771|guideline|mdpi|jacc|low_quality|R8c" tests/polaris_graph -g "*.py"' in C:\POLARIS
+ succeeded in 776ms:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:5:stub, escardio guidelines->T4, jacc.org->T4) while over-crediting low-quality OA
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:6:(mdpi->T1). Codex DECIDED C+D and RECONCILED the MDPI conflict to option B
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:18:    _is_low_quality_oa,
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:39:def test_jacc_org_primary_is_t1() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:41:        url="https://www.jacc.org/doi/10.1016/j.jacasi.2023.08.007",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:47:def test_jacc_org_systematic_review_is_t2() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:49:        url="https://www.jacc.org/doi/10.1016/j.jacc.2024.01.001",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:55:# ── ESC / guideline-authority bodies → T2 (was T4 via unverified-host demote) ──
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:57:def test_escardio_guideline_is_t2() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:59:        url="https://www.escardio.org/guidelines/scientific-documents/recommendations-af",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:62:    assert r.tier.value == "T2", f"ESC guideline should be T2, got {r.tier.value}"
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:63:    assert r.matched_rules[-1] == "R8c_guideline_authority"
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:66:def test_ahajournals_guideline_path_is_t2() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:68:        url="https://www.ahajournals.org/doi/guidelines/10.1161/CIR.0000000000001193",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:71:    assert r.tier.value == "T2", f"AHA guideline-path should be T2, got {r.tier.value}"
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:74:def test_escardio_guideline_content_stub_stays_t7() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:75:    """Stub guardrail: a 297-char fetch on a guideline body is NOT laundered to
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:78:        url="https://www.escardio.org/guidelines/recommendations-af",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:79:        title="AF guidelines",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:106:def test_mdpi_primary_is_demoted_to_t4() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:109:        url="https://www.mdpi.com/2077-0383/14/22/8079",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:113:    assert r.matched_rules[-1] == "R9_low_quality_oa_primary_demoted"
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:116:def test_mdpi_doi_prefix_primary_is_demoted_to_t4() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:125:def test_mdpi_systematic_review_stays_t2() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:129:        url="https://www.mdpi.com/1424-8247/18/5/668",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:143:    assert r.matched_rules[-1] == "R8c_society_tool_demoted"
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:146:def test_jacc_tools_path_is_t3() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:148:        url="https://www.jacc.org/tools/risk-calculator",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:165:def test_mdpi_news_style_not_laundered() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:168:        url="https://www.mdpi.com/2077-0383/14/22/8079",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:175:# ── iter-2 (Codex P1): canonical ACC/AHA guidelines are DOI ARTICLES, no path ──
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:177:def test_aha_guideline_doi_article_is_t2() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:178:    """Real ACC/AHA guideline: a DOI article (no /guidelines/ path) with a
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:179:    guideline title must reach T2, not fall to T4/T1."""
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:184:    assert r.tier.value == "T2", f"AHA guideline DOI article should be T2, got {r.tier.value}"
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:185:    assert r.matched_rules[-1] == "R8c_guideline_authority"
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:188:def test_jacc_consensus_statement_is_t2() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:190:        url="https://www.jacc.org/doi/10.1016/j.jacc.2024.02.001",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:196:def test_aha_primary_rct_not_promoted_by_guideline_check() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:197:    """A primary RCT on an authority domain (no guideline title) stays T1 — the
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:198:    narrow guideline-title detector must not catch primary studies."""
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:208:    to T2 (the narrow guideline set deliberately excludes explainer markers)."""
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:218:    therapy studied in PRIMARY studies, not a guideline document. The bare
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:219:    'guideline' substring must NOT promote it to T2 via Rule 8c. (It resolves to
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:220:    T4 via the pre-existing broad R9_openalex_guideline_explainer demotion — a
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:222:    promoted by R8c.)"""
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:224:        url="https://www.jacc.org/doi/10.1016/j.jacc.2024.03.010",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:228:    assert r.matched_rules[-1] != "R8c_guideline_authority"
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:231:def test_guideline_adherence_study_not_promoted_to_t2() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:239:def test_guideline_comparison_commentary_not_promoted() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:240:    """iter-4 (Codex P1): a guideline-COMPARISON/analysis article is commentary
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:241:    ABOUT guidelines, not an issued guideline document. Undated + 'guideline
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:242:    recommendations for' (not 'guideline for') -> must NOT be T2."""
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:244:        url="https://www.jacc.org/doi/abs/10.1016/j.jacc.2024.07.044",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:248:    assert r.matched_rules[-1] != "R8c_guideline_authority"
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:251:def test_revascularization_guideline_main_title_only_is_t2() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:252:    """iter-4 (Codex P2): a real issued guideline whose title lacks 'for the'
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:254:    still reach T2 via the year-anchored 'guideline for' pattern."""
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:256:        url="https://www.jacc.org/doi/10.1016/j.jacc.2021.09.006",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:259:    assert r.tier.value == "T2", f"Revascularization guideline should be T2, got {r.tier.value}"
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:260:    assert r.matched_rules[-1] == "R8c_guideline_authority"
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:263:def test_guideline_focused_update_is_t2() -> None:
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:264:    """iter-5 (Codex P1): a 'Guideline Focused Update' is an issued guideline
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:266:    update forms, not only 'guideline for/on')."""
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:268:        url="https://www.jacc.org/doi/10.1016/j.jacc.2016.03.513",
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:272:    assert r.matched_rules[-1] == "R8c_guideline_authority"
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:278:    assert _is_low_quality_oa("", "https://doi.org/10.3390/jcm14228079") is True
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:279:    assert _is_low_quality_oa("", "https://example.org/10.3390/abc") is True
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:280:    assert _is_low_quality_oa("", "https://doi.org/10.33901/xyz") is False
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:281:    assert _is_low_quality_oa("", "https://example.org/10.33901/abc") is False
+tests/polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py:282:    assert _is_low_quality_oa("", "https://doi.org/10.1056/NEJMoa2107519") is False
+tests/polaris_graph\test_corpus_adequacy_r6_gap1.py:40:    # low_quality_fraction = 8/9 ≈ 0.89, > 0.50 * 1.5 = 0.75 → critical
+tests/polaris_graph\test_cross_jurisdiction_synthesizer.py:351:def test_negation_forces_divergence_regardless_of_jaccard(values: tuple[str, str]) -> None:
+tests/polaris_graph\clinical_retrieval\test_query_planner.py:262:def test_jaccard_threshold_is_sensible():
+tests/polaris_graph\clinical_generator\test_verified_report.py:230:        "guideline",
+tests/polaris_graph\clinical_retrieval\test_clinical_source_registry.py:70:# ---------- T3 (registries + guidelines + agencies) ----------
+tests/polaris_graph\test_m12_pass12_primary_study_signal.py:49:def test_full_mdpi_title_with_sr_ma_suffix_is_t2() -> None:
+tests/polaris_graph\test_m12_pass12_primary_study_signal.py:54:        url="https://www.mdpi.com/1424-8247/18/5/668",
+tests/polaris_graph\test_m10_pass10_broader_tier_overrides.py:164:# Title-based demotion (guideline/explainer on legit journal host)
+tests/polaris_graph\test_m10_pass10_broader_tier_overrides.py:168:def test_pmc_guideline_title_demotes_to_t4() -> None:
+tests/polaris_graph\test_m10_pass10_broader_tier_overrides.py:231:    """Guard: real RCT papers in PMC without guideline/explainer
+tests/polaris_graph\test_m17_body_article_type.py:185:def test_this_clinical_practice_guideline() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:187:        "This clinical practice guideline provides evidence-based "
+tests/polaris_graph\test_m17_body_article_type.py:257:def test_primary_paper_citing_guidelines_as_background_not_flagged() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:258:    """Codex pass 3 reproducer #4: guidelines as cited background."""
+tests/polaris_graph\test_m17_body_article_type.py:261:        "Background: Current guidelines recommend GLP-1 receptor agonists "
+tests/polaris_graph\test_m17_body_article_type.py:337:def test_this_guideline_reference_not_flagged() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:338:    """Codex pass 4 reproducer #3: bare 'this guideline' reference
+tests/polaris_graph\test_m17_body_article_type.py:342:        "Methods: We chose the primary endpoint per this guideline. "
+tests/polaris_graph\test_m17_body_article_type.py:381:def test_this_clinical_practice_guideline_still_flags() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:383:        "This clinical practice guideline provides evidence-based "
+tests/polaris_graph\test_m17_body_article_type.py:389:def test_guideline_with_descriptive_verb_still_flags() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:391:        "This guideline provides recommendations for tirzepatide "
+tests/polaris_graph\test_m17_body_article_type.py:413:# M-17d (Codex pass 5): dated/external guideline citation must NOT flag
+tests/polaris_graph\test_m17_body_article_type.py:417:def test_dated_external_guideline_citation_not_flagged() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:418:    """Codex pass 5 blocker: external cited guideline with year and verb
+tests/polaris_graph\test_m17_body_article_type.py:420:    an external guideline as background, not a guideline itself."""
+tests/polaris_graph\test_m17_body_article_type.py:423:        "The 2025 clinical practice guideline recommends GLP-1 receptor "
+tests/polaris_graph\test_m17_body_article_type.py:429:def test_the_guideline_recommends_not_flagged() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:430:    """Generic 'The guideline recommends' without 'this' is an external
+tests/polaris_graph\test_m17_body_article_type.py:434:        "The guideline recommends metformin as first-line therapy."
+tests/polaris_graph\test_m17_body_article_type.py:442:def test_this_guideline_offers_recommendations_flags() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:444:        "This guideline offers recommendations for tirzepatide "
+tests/polaris_graph\test_m17_body_article_type.py:451:# the guideline verb list because they apply equally to cited external
+tests/polaris_graph\test_m17_body_article_type.py:452:# guidelines. They are now anaphoric-risk verbs — no longer flag alone.
+tests/polaris_graph\test_m17_body_article_type.py:455:def test_this_guideline_summarizes_no_longer_flags_alone() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:456:    """After M-17e, 'summarizes' is NOT in the guideline verb list
+tests/polaris_graph\test_m17_body_article_type.py:458:    guideline. A self-declarative guideline should use provides/
+tests/polaris_graph\test_m17_body_article_type.py:461:        "This clinical practice guideline summarizes evidence on "
+tests/polaris_graph\test_m17_body_article_type.py:464:    # "This clinical practice guideline" at sentence start still fires
+tests/polaris_graph\test_m17_body_article_type.py:469:def test_this_guideline_describes_alone_does_not_flag() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:470:    """'describes' dropped from verb list (M-17e). Bare 'this guideline
+tests/polaris_graph\test_m17_body_article_type.py:473:        "Background: We present our RCT. This guideline describes the "
+tests/polaris_graph\test_m17_body_article_type.py:482:def test_this_guideline_updates_flags() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:484:        "This guideline updates the 2020 recommendations on "
+tests/polaris_graph\test_m17_body_article_type.py:493:def test_anaphoric_external_guideline_citation_not_flagged() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:495:    guideline then referring to it as 'this guideline summarizes'
+tests/polaris_graph\test_m17_body_article_type.py:498:        "We followed the 2025 ADA guideline for trial design. "
+tests/polaris_graph\test_m17_body_article_type.py:499:        "This guideline summarizes standards of care. Our "
+tests/polaris_graph\test_m17_body_article_type.py:507:    guideline' in object position is a methodological reference,
+tests/polaris_graph\test_m17_body_article_type.py:511:        "practice guideline during trial design. Tirzepatide "
+tests/polaris_graph\test_m17_body_article_type.py:517:def test_nice_guideline_citation_then_this_guideline_not_flagged() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:518:    """Primary paper citing external NICE guideline, then
+tests/polaris_graph\test_m17_body_article_type.py:519:    'this guideline offers' anaphoric reference."""
+tests/polaris_graph\test_m17_body_article_type.py:521:        "According to the NICE guideline for type 2 diabetes, "
+tests/polaris_graph\test_m17_body_article_type.py:522:        "metformin is first line. This guideline offers "
+tests/polaris_graph\test_m17_body_article_type.py:670:def test_m17g_primary_trial_title_with_false_guideline_body_protected() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:736:    # override applies. Result is T4 (body guideline override).
+tests/polaris_graph\test_m17_body_article_type.py:740:    assert "R8b_body_guideline" in r.matched_rules
+tests/polaris_graph\test_m17_body_article_type.py:743:def test_m17f_sr_ma_title_with_false_guideline_body_stays_t2() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:746:    a guideline) must NOT be demoted to T4 by the body override.
+tests/polaris_graph\test_m17_body_article_type.py:781:def test_m17f_truncated_title_body_guideline_still_overrides() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:784:    practice guideline provides...'. Title is NOT diagnostic → body
+tests/polaris_graph\test_m17_body_article_type.py:787:        url="https://www.endocrine.org/guideline/tirzepatide",
+tests/polaris_graph\test_m17_body_article_type.py:795:    assert "R8b_body_guideline" in r.matched_rules
+tests/polaris_graph\test_m17_body_article_type.py:814:def test_m17f_guideline_title_with_false_sr_body_uses_title_path() -> None:
+tests/polaris_graph\test_m17_body_article_type.py:815:    """Title says 'clinical practice guideline'; body fires SR_MA
+tests/polaris_graph\test_m17_body_article_type.py:820:        title="Clinical practice guideline for tirzepatide in obesity",
+tests/polaris_graph\test_m17_body_article_type.py:829:    # a guideline title to T2 SR/MA via override path).
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:48:        url="https://www.mdpi.com/1424-8247/18/5/668",
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:93:        f"and no narrative/guideline markers fire. Got: {r.tier.value}"
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:127:        url="https://www.acc.org/practice-support/guidelines/af-care.pdf",
+tests/polaris_graph\test_m15_pass15_targeted_r10_guards.py:151:    guideline-adjacent marker."""
+tests/polaris_graph\test_m13_pass13_doi_content_title.py:63:def test_mdpi_url_yields_no_doi() -> None:
+tests/polaris_graph\test_m13_pass13_doi_content_title.py:65:    url = "https://www.mdpi.com/1424-8247/18/5/668"
+tests/polaris_graph\test_m13_pass13_doi_content_title.py:85:        "URL Source: https://www.mdpi.com/abc\n"
+tests/polaris_graph\test_m41_v24_regression_fixes.py:278:            "ICH-E6 guidelines were followed [6].",
+tests/polaris_graph\test_template_classifier.py:345:def test_drug_hit_alone_does_not_route_without_jaccard() -> None:
+tests/polaris_graph\test_template_classifier.py:464:def test_stopword_filter_disables_scaffold_jaccard() -> None:
+tests/polaris_graph\test_template_classifier.py:467:    'What is the efficacy of X for Y?' shapes inflate jaccard from
+tests/polaris_graph\test_template_classifier.py:577:    # example_jaccard scores, putting both above floor_high but
+tests/polaris_graph\test_template_classifier.py:700:    class-only scope_examples so jaccard hits Tier A and the
+tests/polaris_graph\test_template_router_api.py:136:    assert "example_jaccard" in top
+
+ succeeded in 858ms:
+136:REGULATORY_DOMAINS = frozenset({
+355:    "cdc.gov",        # already in REGULATORY_DOMAINS but safe to list
+471:PEER_REVIEWED_JOURNAL_DOMAINS = frozenset({
+497:# demotion is applied in R9/R10; the SR/MA branches (which fire first) are
+499:LOW_QUALITY_OA_DOMAINS = frozenset({
+503:LOW_QUALITY_OA_DOI_PREFIXES = frozenset({
+512:# tools/dosing PDFs do not get T1/T2"). Content stubs are unaffected — Rule 1
+569:def _title_signals_clinical_guideline(title: str) -> bool:
+571:    title for the guideline-authority promotion in Rule 8c. Exclusions checked
+576:    _detect_guideline_or_explainer_title (which fires on explainer/policy titles
+591:# can be trusted as equivalent to PEER_REVIEWED_JOURNAL_DOMAINS
+641:    primary credit in R9/R10 (SR/MA still routes to T2 in the earlier branch)."""
+642:    if _domain_matches(domain, LOW_QUALITY_OA_DOMAINS):
+651:            if prefix in LOW_QUALITY_OA_DOI_PREFIXES:
+657:    return any(f"/{p}/" in u for p in LOW_QUALITY_OA_DOI_PREFIXES)
+919:def _detect_guideline_or_explainer_title(title: str) -> bool:
+937:# we trust the title (R9/R10 path) and log the body signal as
+970:    diagnostic, we trust R9/R10 and relegate the body signal to
+981:# signals. R9_openalex_primary_study previously granted T1 on any
+1043:def classify_source_tier(
+1098:    # ── Rule 1 (T7 stub): Tiny content = stub regardless of venue
+1272:    if _domain_matches(domain, REGULATORY_DOMAINS):
+1404:    # ── Rule 8c (I-bug-771 #812): recognized guideline-issuing bodies. Fires
+1405:    # AFTER Rule 1 stub (so 297-char fetches stay T7, never laundered) and
+1406:    # BEFORE R8b/R9/R10 (so it pre-empts both the body-signal demotion AND the
+1414:    # falls through to the normal journal path (R9/R10) and tiers as usual.
+1416:    # REGULATORY_DOMAINS and R2d already returned T3 above — a defensible
+1428:            result.matched_rules.append("R8c_society_tool_demoted")
+1439:                or _title_signals_clinical_guideline(signals.title)
+1445:            result.matched_rules.append("R8c_guideline_authority")
+1453:                f"Content stubs already returned T7 at Rule 1."
+1462:    # Applied BEFORE R9/R10 so OpenAlex metadata can't upgrade a
+1468:    # "clinical practice guideline", etc.), R9/R10 already has enough
+1497:            # to R9/R10 (do not return).
+1503:                f"(title is diagnostic [{gate_reason}]; trusting R9/R10)"
+1507:            # article-type evidence and wins over R9/R10.
+1567:            result.matched_rules.append("R9_openalex_sr_or_ma")
+1575:            result.matched_rules.append("R9_openalex_narrative_review")
+1590:            result.matched_rules.append("R9_openalex_pubtype_review")
+1598:        elif _detect_guideline_or_explainer_title(signals.title):
+1609:            result.matched_rules.append("R9_openalex_guideline_explainer")
+1625:            if not (_domain_matches(domain, PEER_REVIEWED_JOURNAL_DOMAINS)
+1631:                    "R9_openalex_unverified_host_demoted_to_t4"
+1637:                    f"(PEER_REVIEWED_JOURNAL_DOMAINS or NIH_LITERATURE_HOSTS "
+1674:            result.matched_rules.append("R9_openalex_primary_study")
+1683:    # ── Rule 10: Peer-reviewed-journal-domain heuristic when no OpenAlex data.
+1687:    if _domain_matches(domain, PEER_REVIEWED_JOURNAL_DOMAINS) or is_nih_lit:
+1693:            result.matched_rules.append("R10_conference_abstract")
+1703:            result.matched_rules.append("R10_journal_domain_sr_title")
+1712:            result.matched_rules.append("R10_journal_domain_narrative")
+1725:        # full title, R10 can't distinguish primary from SR/MA /
+1731:            result.matched_rules.append("R10_journal_domain_truncated_title_demoted")
+1767:            result.matched_rules.append("R10_society_tool_demoted")
+1782:            result.matched_rules.append("R10_low_quality_oa_primary_demoted")
+1796:        result.matched_rules.append("R10_journal_domain_presumed_primary")
+1804:    # ── Rule 11 fallthrough: OpenAlex preprint/book-chapter/dataset
+1830:        "REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; "
+
+ succeeded in 887ms:
+ M .claude/settings.json
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-bug-771/codex_diff.patch
+?? .codex/I-bug-771/codex_diff_audit.txt
+?? .codex/I-bug-771/diff_audit.err
+?? .codex/I-bug-771/diff_review_brief.md
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/I-p2-024/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/benchmark_claim_extract.py
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+codex
+The new rule is present where expected: after the stub guard and before the body/OpenAlex/journal heuristics. I’m checking the surrounding priority rules now, because the main residual risk is whether a later or earlier branch silently defeats the intended guideline/MDPI behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/tier_classifier.py | Select-Object -Skip 1000 -First 720' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/tier_classifier.py | Select-Object -Skip 100 -First 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/tier_classifier.py | Select-Object -Skip 900 -First 120' in C:\POLARIS
+ succeeded in 764ms:
+    "as compared with", "as compared to",
+    # Phase markers (clinical)
+    "phase 1", "phase 2", "phase 3", "phase 4",
+    "phase i ", "phase ii ", "phase iii ", "phase iv ",
+    "phase-1", "phase-2", "phase-3", "phase-4",
+    # Specific named trials / acronyms that unambiguously name a study
+    "surpass-", "surmount-", "step ", "select trial",
+    "leader trial", "sustain trial", "rewind trial", "pioneer ",
+    # Observational study markers
+    "cohort study", "cohort-study",
+    "case-control", "case control",
+    "cross-sectional",
+    "prospective study", "retrospective study",
+    "observational study",
+    "registry analysis", "registry-based",
+    "longitudinal study",
+    "post-marketing surveillance", "post marketing surveillance",
+    "real-world evidence study", "real-world data study",
+    # Primary lab / mechanism markers (for tech/bench research)
+    "effect of ", "effects of ",  # "Effect of X on Y" pattern
+    # Explicit "trial"
+    " trial:", " trial of ", " a trial ",
+    "first-in-human", "first in human",
+)
+
+
+def _detect_primary_study_signal(title: str) -> bool:
+    """Return True if the title contains a positive primary-research
+    signal (randomized trial, cohort study, named phase trial, etc.).
+    Used by R9 to require positive evidence before granting T1 —
+    merely passing OpenAlex article+journal is not enough.
+    """
+    if not title:
+        return False
+    t = title.lower()
+    return any(k in t for k in _PRIMARY_STUDY_TITLE_MARKERS)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The classifier
+# ─────────────────────────────────────────────────────────────────────────────
+
+def classify_source_tier(
+    signals: ClassificationSignals,
+) -> ClassificationResult:
+    """Classify a source into T1-T7 (or UNKNOWN) using rules.
+
+    Rules fire in priority order. The first match wins; later rules
+    cannot overturn an earlier decision (so rule ordering is
+    load-bearing). Every match appends to result.reasons so the user
+    can audit why a tier was assigned.
+
+    Returns TierLevel.UNKNOWN rather than silent BRONZE when no rule
+    matches — see module docstring for rationale.
+    """
+    result = ClassificationResult(
+        tier=TierLevel.UNKNOWN,
+        confidence=0.0,
+    )
+    domain = _normalize_domain(signals.url)
+    result.signals_used = {
+        "domain": domain,
+        "source_type_hint": signals.source_type_hint,
+        "publication_type": signals.openalex_publication_type,
+        "content_length": signals.fetched_content_length,
+    }
+
+    # ── Rule 0 (BLOCKED): Retracted papers are never classified positively
+    if signals.openalex_is_retracted:
+        result.tier = TierLevel.UNKNOWN  # caller should exclude; not T1-T7
+        result.confidence = 1.0
+        result.matched_rules.append("R0_retracted")
+        result.reasons.append(
+            "Paper flagged retracted by OpenAlex; excluded from tier scoring. "
+            "Caller should filter retracted sources before composition."
+        )
+        return result
+
+    # ── Rule Pre-1 (T6, M-18b from DR audit pass 1): Social platform
+    # / general-interest portal exclusion. Must fire BEFORE R1 stub-
+    # content so that Facebook/Twitter/Reddit pages are classified by
+    # domain authority, not by how much text happened to be fetched.
+    # A Facebook "Black Box Warning" post is not more citable just
+    # because its body happens to be > 1000 chars.
+    if _domain_matches(domain, SOCIAL_PLATFORM_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.98
+        result.matched_rules.append("RP1_social_platform_early")
+        result.reasons.append(
+            f"Domain {domain!r} is a social platform / general-interest "
+            f"portal. User-generated or aggregator content; never T1 "
+            f"primary research regardless of content length or OpenAlex "
+            f"metadata. M-18b: fires BEFORE R1 stub so tier cannot be "
+            f"laundered via large body text."
+        )
+        return result
+
+    # ── Rule 1 (T7 stub): Tiny content = stub regardless of venue
+    # This runs early because even a JAMA paper fetched as 500-char
+    # abstract is effectively a stub for evaluator purposes.
+    if signals.fetched_content_length and signals.fetched_content_length < T7_STUB_CONTENT_CHARS:
+        result.tier = TierLevel.T7
+        result.confidence = 1.0
+        result.matched_rules.append("R1_stub_content_length")
+        result.reasons.append(
+            f"Fetched body is {signals.fetched_content_length} chars "
+            f"(< {T7_STUB_CONTENT_CHARS} threshold) — classified T7 stub "
+            f"regardless of venue. Full-text retrieval would be needed "
+            f"to upgrade."
+        )
+        return result
+
+    # ── Rule 2a (T6): Low-provenance document hosts. A government PDF
+    # re-hosted on Scribd has unknown authenticity; do NOT elevate to T3
+    # just because source_type_hint says "government_report". This fires
+    # before the regulatory rule specifically to catch laundering.
+    if _domain_matches(domain, LOW_PROVENANCE_HOSTS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.95
+        result.matched_rules.append("R2a_low_provenance_host")
+        result.reasons.append(
+            f"Domain {domain!r} is a user-upload document host with no "
+            f"provenance guarantees. T6 regardless of upstream metadata "
+            f"hints; the authentic source should be located at the "
+            f"original issuer's URL."
+        )
+        return result
+
+    # ── Rule 2b (T6): Legal / consulting commentary
+    if _domain_matches(domain, LEGAL_COMMENTARY_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.95
+        result.matched_rules.append("R2b_legal_commentary")
+        result.reasons.append(
+            f"Domain {domain!r} is a law-firm or legal-commentary site. "
+            f"Not peer-reviewed research. T6."
+        )
+        return result
+
+    # ── Rule 2b-social (T6, BUG-M-7): Social platforms + general-interest
+    # portals. Per Codex pass 9 findings, Facebook / Reddit / AOL pages
+    # were being classified as T1 via OpenAlex because those domains
+    # sometimes appear as journal source_type in upstream metadata.
+    # User-generated content and aggregator portals are never T1.
+    if _domain_matches(domain, SOCIAL_PLATFORM_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.95
+        result.matched_rules.append("R2b_social_platform")
+        result.reasons.append(
+            f"Domain {domain!r} is a social platform or general-interest "
+            f"portal. User-generated or aggregator content; never T1 "
+            f"primary research regardless of OpenAlex metadata."
+        )
+        return result
+
+    # ── Rule 2b-market (T5/T6, BUG-M-7): Market research / consulting.
+    # Per Codex pass 9, DelveInsight / Statista / MatrixBCG /
+    # PortersFiveForce / PharmaVoice were being classified T1 via
+    # OpenAlex. These are paid industry analyses — typically T5 when
+    # they're primary market research, T6 when they're strategy-blog
+    # summaries. Tier at T5 by default (industry-funded) because most
+    # specific reports cited in POLARIS runs are paid research, not
+    # vendor marketing collateral.
+    if _domain_matches(domain, MARKET_RESEARCH_DOMAINS):
+        result.tier = TierLevel.T5
+        result.confidence = 0.9
+        result.matched_rules.append("R2b_market_research")
+        result.reasons.append(
+            f"Domain {domain!r} is a market-research / consulting firm. "
+            f"Paid industry analysis, not peer-reviewed research. T5."
+        )
+        return result
+
+    # ── Rule 2b-clinref (T4, BUG-M-10): Clinical reference products.
+    # UpToDate, DynaMed, ClinicalKey, BMJ Best Practice, etc. are
+    # clinical decision-support summaries. Useful for practitioners
+    # but not primary research. Tier at T4 (narrative / commentary).
+    if _domain_matches(domain, CLINICAL_REFERENCE_PRODUCTS):
+        result.tier = TierLevel.T4
+        result.confidence = 0.9
+        result.matched_rules.append("R2b_clinical_reference_product")
+        result.reasons.append(
+            f"Domain {domain!r} is a clinical reference product (UpToDate "
+            f"/ DynaMed / etc.). Practitioner-oriented decision-support "
+            f"summaries of existing evidence, not primary research. T4."
+        )
+        return result
+
+    # ── Rule 2b-policy (T4, BUG-M-10): Policy think-tanks / advocacy.
+    # KFF, Commonwealth Fund, Brookings, Rand, PhRMA, etc. produce
+    # policy analyses, explainers, and advocacy content. Useful
+    # references but not peer-reviewed primary research. Tier at T4
+    # as narrative analysis by default.
+    if _domain_matches(domain, POLICY_THINK_TANK_DOMAINS):
+        result.tier = TierLevel.T4
+        result.confidence = 0.85
+        result.matched_rules.append("R2b_policy_think_tank")
+        result.reasons.append(
+            f"Domain {domain!r} is a policy think-tank / advocacy / "
+            f"trade-association site. Policy analysis or explainer "
+            f"content, not peer-reviewed primary research. T4."
+        )
+        return result
+
+    # ── Rule 2b-gov-agency (T3, BUG-M-10): non-regulatory government
+    # agency content. CMS.gov, HHS.gov etc. produce administrative,
+    # policy, and fact-sheet content. T3 government/regulatory is
+    # correct here — but crucially NOT T1 primary research via
+    # OpenAlex metadata misclassification.
+    if _domain_matches(domain, GOV_AGENCY_DOMAINS):
+        result.tier = TierLevel.T3
+        result.confidence = 0.95
+        result.matched_rules.append("R2b_gov_agency")
+        result.reasons.append(
+            f"Domain {domain!r} is a US government agency (non-regulatory). "
+            f"Administrative / policy / fact-sheet content, not primary "
+            f"research. T3."
+        )
+        return result
+
+    # ── Rule 2b-bizness (T6, BUG-M-10): Business / general news.
+    # Fast Company, Forbes, etc. When OpenAlex mis-labels them as
+    # 'article'/'journal', they should still be T6 news.
+    if _domain_matches(domain, BUSINESS_NEWS_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.95
+        result.matched_rules.append("R2b_business_news")
+        result.reasons.append(
+            f"Domain {domain!r} is a business / general news publisher. "
+            f"Not peer-reviewed research. T6."
+        )
+        return result
+
+    # ── Rule 2b-webguide (T6, BUG-M-10): SEO / web-guide content.
+    # Chitika, PCMag, etc. Consumer-style "best X of year" articles.
+    if _domain_matches(domain, WEB_GUIDE_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.95
+        result.matched_rules.append("R2b_web_guide")
+        result.reasons.append(
+            f"Domain {domain!r} is an SEO / consumer web-guide site. T6."
+        )
+        return result
+
+    # ── Rule 2c (T3): Industry-hosted regulatory content (product
+    # monographs, prescribing information) — overrides industry-marketing
+    # classification because the CONTENT is a regulatory-approved label
+    # even though the HOSTING is manufacturer-controlled.
+    _url_lower = (signals.url or "").lower()
+    _title_lower = (signals.title or "").lower()
+    _regulatory_content_markers = (
+        "product-monograph", "product_monograph",
+        "prescribing-information", "prescribing_information",
+        "215256s",  # FDA label revision pattern
+    )
+    _regulatory_title_markers = (
+        "product monograph", "prescribing information",
+    )
+    if any(m in _url_lower for m in _regulatory_content_markers) or \
+       any(m in _title_lower for m in _regulatory_title_markers):
+        result.tier = TierLevel.T3
+        result.confidence = 0.9
+        result.matched_rules.append("R2c_regulatory_content_marker")
+        result.reasons.append(
+            "URL or title contains regulatory-content marker (product "
+            "monograph / prescribing information / FDA label revision "
+            "pattern). T3 regardless of hosting domain."
+        )
+        return result
+
+    # ── Rule 2d (T3): Regulatory domains
+    if _domain_matches(domain, REGULATORY_DOMAINS):
+        result.tier = TierLevel.T3
+        result.confidence = 1.0
+        result.matched_rules.append("R2d_regulatory_domain")
+        result.reasons.append(
+            f"Domain {domain!r} matches regulatory body list. "
+            f"T3 regulatory/government source."
+        )
+        return result
+
+    # ── Rule 3 (T5): Pharmaceutical-industry HCP portals / brand sites
+    # (This fires BEFORE peer-reviewed-journal rule because some pharma
+    # companies host their own pseudo-journal content.)
+    if _domain_matches(domain, INDUSTRY_MARKETING_DOMAINS):
+        result.tier = TierLevel.T5
+        result.confidence = 1.0
+        result.matched_rules.append("R3_industry_marketing_domain")
+        result.reasons.append(
+            f"Domain {domain!r} is a pharmaceutical-industry HCP portal or "
+            f"brand site. Industry marketing material — T5 regardless of "
+            f"OpenAlex indexing. (Peer-reviewed papers from the same "
+            f"company published in a journal should be cited via the "
+            f"journal URL, where they classify to T1/T2/T4.)"
+        )
+        return result
+
+    # ── Rule 3b (T5): Branded physician-portal commentary (touchX, medscape)
+    if _domain_matches(domain, PHYSICIAN_PORTAL_COMMENTARY_DOMAINS):
+        result.tier = TierLevel.T5
+        result.confidence = 0.9
+        result.matched_rules.append("R3b_physician_portal_commentary")
+        result.reasons.append(
+            f"Domain {domain!r} is a branded physician-portal commentary "
+            f"site (CME + sponsored content, not peer-reviewed primary "
+            f"research). T5 industry-adjacent."
+        )
+        return result
+
+    # ── Rule 4 (T6): News / blog domains
+    if _domain_matches(domain, NEWS_BLOG_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 1.0
+        result.matched_rules.append("R4_news_blog_domain")
+        result.reasons.append(
+            f"Domain {domain!r} is a news / blog / commentary source. T6."
+        )
+        return result
+
+    # ── Rule 4a (T5): Vendor / SaaS product blogs. R-5 Fix A.
+    # These domains appear in search results for tech/policy queries
+    # with specific benchmark numbers that look authoritative but are
+    # product marketing. Tier T5 (industry) not T1 primary.
+    if _domain_matches(domain, VENDOR_BLOG_DOMAINS):
+        result.tier = TierLevel.T5
+        result.confidence = 0.95
+        result.matched_rules.append("R4a_vendor_blog_domain")
+        result.reasons.append(
+            f"Domain {domain!r} is a vendor / SaaS product blog. "
+            f"Benchmark numbers and product claims originate from the "
+            f"vendor; treat as industry-adjacent (T5), not peer-reviewed."
+        )
+        return result
+
+    # ── Rule 4b (T6): Self-publishing platforms with a path marker.
+    # LinkedIn pulse articles, personal Medium pages etc. R-5 Fix A.
+    url_lower = (signals.url or "").lower()
+    if any(m in url_lower for m in SELF_PUBLISH_PATH_MARKERS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.9
+        result.matched_rules.append("R4b_self_publish_path")
+        result.reasons.append(
+            f"URL {signals.url!r} matches a self-publishing path marker "
+            f"(LinkedIn Pulse, personal profile). T6 commentary."
+        )
+        return result
+
+    # ── Rule 5: source_type_hint dominates when caller knows what it has
+    hint = (signals.source_type_hint or "").strip().lower()
+    hint_to_tier: dict[str, TierLevel] = {
+        "government_report": TierLevel.T3,
+        "industry_report": TierLevel.T5,
+        "news": TierLevel.T6,
+        "news_blog": TierLevel.T6,
+        "blog": TierLevel.T6,
+        "commercial": TierLevel.T6,
+        "marketing": TierLevel.T5,
+        "opinion": TierLevel.T6,
+        "affiliate": TierLevel.T6,
+        "sponsored": TierLevel.T6,
+    }
+    if hint in hint_to_tier:
+        result.tier = hint_to_tier[hint]
+        result.confidence = 0.9
+        result.matched_rules.append(f"R5_source_type_hint:{hint}")
+        result.reasons.append(
+            f"Upstream source_type hint {hint!r} -> {result.tier.value}"
+        )
+        return result
+
+    # ── Rule 6 (T7): Abstract-only domain stubs
+    if _domain_matches(domain, ABSTRACT_ONLY_DOMAINS):
+        result.tier = TierLevel.T7
+        result.confidence = 0.95
+        result.matched_rules.append("R6_abstract_only_domain")
+        result.reasons.append(
+            f"Domain {domain!r} typically serves abstracts/stubs only "
+            f"without full-text retrieval. T7."
+        )
+        return result
+
+    # ── Rule 7: Preprint servers (T4 — not peer-reviewed yet)
+    if _domain_matches(domain, PREPRINT_DOMAINS):
+        result.tier = TierLevel.T4
+        result.confidence = 0.9
+        result.matched_rules.append("R7_preprint_domain")
+        result.reasons.append(
+            f"Domain {domain!r} is a preprint server. Not peer-reviewed "
+            f"(yet); T4 narrative/unreviewed."
+        )
+        return result
+
+    # ── Rule 8: Student-journal domains (T4 ceiling at best; often T6)
+    if _domain_matches(domain, STUDENT_JOURNAL_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.95
+        result.matched_rules.append("R8_student_journal_domain")
+        result.reasons.append(
+            f"Domain {domain!r} is a student-authored journal — does not "
+            f"meet peer-review standards for T1/T2. T6."
+        )
+        return result
+
+    # ── Rule 8c (I-bug-771 #812): recognized guideline-issuing bodies. Fires
+    # AFTER Rule 1 stub (so 297-char fetches stay T7, never laundered) and
+    # BEFORE R8b/R9/R10 (so it pre-empts both the body-signal demotion AND the
+    # R9 OpenAlex-article path that was granting society tool PDFs T1). Two
+    # outcomes on these domains:
+    #   * society tool / dosing / practice-support path  -> T3 (clinical
+    #     decision-support reference; Codex #812: never T1/T2)
+    #   * clinical-practice-guideline / recommendation path -> T2 (high-
+    #     authority secondary evidence; "guideline authority" NOT primary)
+    # A plain research article on these hosts (no tool/guideline path marker)
+    # falls through to the normal journal path (R9/R10) and tiers as usual.
+    # (NICE is matched here for documentation, but nice.org.uk is in
+    # REGULATORY_DOMAINS and R2d already returned T3 above — a defensible
+    # government/HTA classification; flagged for Codex in the diff review.)
+    _gl_url = (signals.url or "").lower()
+    _society_tool_path_markers = (
+        "/tools/", "/tool/", "/practice-support/", "/practice-resources/",
+        "/information-graphics/", "/infographic", "/dosing/", "-dosing-",
+        "/clinical-tools/", "tools-and-practice-support",
+    )
+    if _domain_matches(domain, GUIDELINE_AUTHORITY_DOMAINS):
+        if any(m in _gl_url for m in _society_tool_path_markers):
+            result.tier = TierLevel.T3
+            result.confidence = 0.85
+            result.matched_rules.append("R8c_society_tool_demoted")
+            result.reasons.append(
+                f"Domain {domain!r} is a professional-society host and the URL "
+                f"path matches a tool / dosing / practice-support pattern. "
+                f"Clinical decision-support reference, not primary research or "
+                f"a guideline document. T3 (never T1/T2 per #812)."
+            )
+            return result
+        if (
+            (
+                any(m in _gl_url for m in _GUIDELINE_PATH_MARKERS)
+                or _title_signals_clinical_guideline(signals.title)
+            )
+            and not _detect_conference_abstract(signals.title, signals.url)
+        ):
+            result.tier = TierLevel.T2
+            result.confidence = 0.85
+            result.matched_rules.append("R8c_guideline_authority")
+            result.reasons.append(
+                f"Domain {domain!r} is a recognized guideline-issuing body and "
+                f"the URL path OR title signals a clinical practice guideline / "
+                f"consensus / scientific statement. High-authority secondary "
+                f"evidence (T2 — guideline authority, NOT a primary study). "
+                f"Canonical ACC/AHA guidelines are DOI articles with guideline "
+                f"titles (no /guidelines/ path), so the title check is required. "
+                f"Content stubs already returned T7 at Rule 1."
+            )
+            return result
+
+    # ── Rule 8b (BUG-M-17, Codex pass 2): body-inspection override.
+    # When live_retriever._detect_article_type_from_body found explicit
+    # article-type metadata (meta tag / JSON-LD / Frontiers section
+    # header / PRISMA marker / "we report a case" etc.) in the fetched
+    # content, that secondary signal trumps the title-only heuristics.
+    # Applied BEFORE R9/R10 so OpenAlex metadata can't upgrade a
+    # body-detected case-report/perspective to T1.
+    #
+    # M-17f (Codex pass 7 structural pivot): gate the override by the
+    # title-diagnostic check. If the title already carries explicit
+    # article-type keywords ("systematic review", "case report",
+    # "clinical practice guideline", etc.), R9/R10 already has enough
+    # evidence to classify correctly, and body-signal false positives
+    # must NOT demote primary papers. Body signal is logged as
+    # advisory in this branch and does not change tier.
+    body_signal = (signals.body_article_type or "").upper()
+    if body_signal in ("SR_MA", "CASE_REPORT", "PERSPECTIVE", "GUIDELINE"):
+        # M-17f: suppress override when title is article-type diagnostic
+        title_has_article_type = _title_is_diagnostic_for_article_type(signals.title)
+        # M-17g (Codex pass 8 CONDITIONAL): also suppress when title has
+        # strong primary-study evidence AND OpenAlex confirms peer-
+        # reviewed journal article. This prevents body-signal false
+        # positives from demoting RCT titles such as "Randomized
+        # placebo-controlled trial" or named-trial titles like
+        # "SURPASS-9 trial".
+        pub_type_for_gate = (signals.openalex_publication_type or "").lower()
+        src_type_for_gate = (signals.openalex_source_type or "").lower()
+        is_peer_reviewed_for_gate = (
+            signals.openalex_is_peer_reviewed is True
+            or src_type_for_gate == "journal"
+        )
+        title_is_primary_study = (
+            _detect_primary_study_signal(signals.title)
+            and is_peer_reviewed_for_gate
+            and pub_type_for_gate in ("article", "review")
+        )
+        if title_has_article_type or title_is_primary_study:
+            # Title already carries diagnostic evidence (article-type
+            # keyword OR strong primary-study signal on a peer-reviewed
+            # journal article). Log body as advisory and FALL THROUGH
+            # to R9/R10 (do not return).
+            gate_reason = (
+                "article-type" if title_has_article_type else "primary-study"
+            )
+            result.reasons.append(
+                f"R8b_body_signal_advisory_only: body={body_signal} "
+                f"(title is diagnostic [{gate_reason}]; trusting R9/R10)"
+            )
+        else:
+            # Title is NOT diagnostic — body signal is the primary
+            # article-type evidence and wins over R9/R10.
+            if body_signal == "SR_MA":
+                result.tier = TierLevel.T2
+                result.confidence = 0.85
+                result.matched_rules.append("R8b_body_sr_ma")
+                result.reasons.append(
+                    "Body-inspection detected systematic review / meta-"
+                    "analysis signal (meta tag, JSON-LD, PRISMA "
+                    "reference, or abstract lead). T2 regardless of "
+                    "title."
+                )
+            elif body_signal == "CASE_REPORT":
+                result.tier = TierLevel.T4
+                result.confidence = 0.8
+                result.matched_rules.append("R8b_body_case_report")
+                result.reasons.append(
+                    "Body-inspection detected case-report signal. T4 "
+                    "regardless of title."
+                )
+            elif body_signal == "GUIDELINE":
+                result.tier = TierLevel.T4
+                result.confidence = 0.8
+                result.matched_rules.append("R8b_body_guideline")
+                result.reasons.append(
+                    "Body-inspection detected guideline / consensus / "
+                    "practice-guide signal. T4 regardless of title."
+                )
+            else:  # PERSPECTIVE
+                result.tier = TierLevel.T4
+                result.confidence = 0.75
+                result.matched_rules.append("R8b_body_perspective")
+                result.reasons.append(
+                    "Body-inspection detected perspective / commentary "
+                    "/ editorial signal. T4 regardless of title."
+                )
+            return result
+
+    # ── Rule 9: OpenAlex-indexed peer-reviewed journal article
+    # Needs: publication_type in {article, review} AND source_type=journal
+    pub_type = (signals.openalex_publication_type or "").lower()
+    src_type = (signals.openalex_source_type or "").lower()
+    is_peer_reviewed_hint = (
+        signals.openalex_is_peer_reviewed is True
+        or src_type == "journal"
+    )
+    if is_peer_reviewed_hint and pub_type in ("article", "review"):
+        # Conference abstract check first (supplement paths, numbered abstracts)
+        if _detect_conference_abstract(signals.title, signals.url):
+            result.tier = TierLevel.T7
+            result.confidence = 0.85
+            result.matched_rules.append("R9_conference_abstract")
+            result.reasons.append(
+                f"OpenAlex: peer-reviewed journal {pub_type!r}, but title "
+                f"or URL signals conference abstract / supplement issue. T7."
+            )
+            return result
+        # Determine T1 / T2 / T4 from title heuristics + OpenAlex pub_type
+        if _detect_systematic_review_from_title(signals.title):
+            result.tier = TierLevel.T2
+            result.confidence = 0.85
+            result.matched_rules.append("R9_openalex_sr_or_ma")
+            result.reasons.append(
+                f"OpenAlex: peer-reviewed {pub_type!r} in journal; title "
+                f"signals systematic review / meta-analysis. T2."
+            )
+        elif _detect_narrative_flavor_from_title(signals.title):
+            result.tier = TierLevel.T4
+            result.confidence = 0.8
+            result.matched_rules.append("R9_openalex_narrative_review")
+            result.reasons.append(
+                f"OpenAlex: peer-reviewed {pub_type!r} in journal; title "
+                f"signals narrative review / commentary / perspective / "
+                f"update. T4."
+            )
+        elif pub_type == "review":
+            # OpenAlex explicitly marks this as a "review" but the title
+            # didn't trip the SR/MA or narrative-flavor detectors. Default
+            # to T4 narrative review — OpenAlex's type field is informative
+            # even when the title is a bare drug-plus-condition phrasing.
+            # If it were actually a systematic review, the title would
+            # contain the SR/MA marker (PRISMA requires it).
+            result.tier = TierLevel.T4
+            result.confidence = 0.7
+            result.matched_rules.append("R9_openalex_pubtype_review")
+            result.reasons.append(
+                f"OpenAlex: publication_type == 'review' but title does "
+                f"not signal systematic review. Defaulting to T4 narrative "
+                f"review; manual review recommended if this paper is "
+                f"actually a network-meta-analysis or scoping review with "
+                f"a non-standard title."
+            )
+        elif _detect_guideline_or_explainer_title(signals.title):
+            # BUG-M-10 (Codex pass 10): OpenAlex sometimes returns
+            # clinical-practice guidelines or policy-explainer content
+            # (e.g., PMC-hosted "2025 Guidelines for direct oral
+            # anticoagulants" or "Predetermined Change Control Plans:
+            # Guiding Principles") as pub_type=article. That metadata
+            # is syntactically an article but the content is practice
+            # guidance or policy analysis, not primary research. Route
+            # to T4 narrative / analytical content.
+            result.tier = TierLevel.T4
+            result.confidence = 0.8
+            result.matched_rules.append("R9_openalex_guideline_explainer")
+            result.reasons.append(
+                f"OpenAlex: peer-reviewed {pub_type!r} in journal, but "
+                f"title signals guideline / guiding principles / "
+                f"explainer / policy brief. Practice guidance or policy "
+                f"analysis, not primary research. T4."
+            )
+        else:
+            # BUG-M-11 (Codex pass 11): require the domain to be on a
+            # known peer-reviewed-journal allowlist (or NIH literature
+            # aggregator) before granting T1. OpenAlex alone is not
+            # enough: it sometimes returns article+journal metadata
+            # for trade-association whitepapers, industry insights,
+            # web explainers, and trade news (Codex named 7 such
+            # hallucinations in cycle 3). Domains outside the
+            # allowlist route to T4 narrative instead.
+            if not (_domain_matches(domain, PEER_REVIEWED_JOURNAL_DOMAINS)
+                    or _domain_matches(domain, NIH_LITERATURE_HOSTS)
+                    or _has_peer_reviewed_doi_prefix(signals.url)):
+                result.tier = TierLevel.T4
+                result.confidence = 0.65
+                result.matched_rules.append(
+                    "R9_openalex_unverified_host_demoted_to_t4"
+                )
+                result.reasons.append(
+                    f"OpenAlex said peer-reviewed {pub_type!r} in journal, "
+                    f"but domain {domain!r} is NOT on the known "
+                    f"peer-reviewed-journal allowlist "
+                    f"(PEER_REVIEWED_JOURNAL_DOMAINS or NIH_LITERATURE_HOSTS "
+                    f"or PEER_REVIEWED_DOI_PREFIXES). "
+                    f"Routing to T4 to avoid overclassifying industry / "
+                    f"trade / web content as primary research. Add the "
+                    f"domain to the allowlist if it is genuinely a "
+                    f"peer-reviewed journal."
+                )
+                return result
+            # BUG-M-12 (Codex pass 12): the primary-signal requirement
+            # was too strict — bare NEJM/Lancet/JAMA papers with
+            # titles like "Tirzepatide in type 2 diabetes" or
+            # "Semaglutide in Obesity" are legitimate primary trials
+            # but lack positive RCT/phase markers in the title. Rely
+            # instead on (i) OpenAlex full-title enrichment in
+            # live_retriever (so SR/MA suffixes aren't truncated) and
+            # (ii) expanded narrative markers ("perspective for",
+            # "for clinicians") to catch guidance articles.
+            # I-bug-771 (#812, Codex reconcile B): low-quality OA (MDPI)
+            # primary articles do NOT earn T1. The SR/MA branch above
+            # already routed genuine MDPI systematic reviews to T2, so this
+            # only catches the primary path (the demonstrated afib over-credit
+            # was MDPI-primary -> T1). Demote to T4.
+            if _is_low_quality_oa(domain, signals.url):
+                result.tier = TierLevel.T4
+                result.confidence = 0.7
+                result.matched_rules.append("R9_low_quality_oa_primary_demoted")
+                result.reasons.append(
+                    f"OpenAlex: peer-reviewed {pub_type!r} in journal, but "
+                    f"domain {domain!r} (or DOI prefix) is a low-quality / "
+                    f"high-volume OA publisher. Primary articles do not earn "
+                    f"T1 (variable methodological quality); T4 ceiling. A "
+                    f"genuine full-title systematic review / meta-analysis "
+                    f"would have routed to T2 in the earlier branch."
+                )
+                return result
+            result.tier = TierLevel.T1
+            result.confidence = 0.8
+            result.matched_rules.append("R9_openalex_primary_study")
+            result.reasons.append(
+                f"OpenAlex: peer-reviewed {pub_type!r} in journal; "
+                f"title does not signal review. Classified as T1 primary "
+                f"study. (A stronger classifier would inspect study-design "
+                f"keywords in the title / abstract.)"
+            )
+        return result
+
+    # ── Rule 10: Peer-reviewed-journal-domain heuristic when no OpenAlex data.
+    # Also fires for NIH_LITERATURE_HOSTS (PMC, PubMed) which are peer-
+    # reviewed literature aggregators, NOT regulatory.
+    is_nih_lit = _domain_matches(domain, NIH_LITERATURE_HOSTS)
+    if _domain_matches(domain, PEER_REVIEWED_JOURNAL_DOMAINS) or is_nih_lit:
+        # Conference abstract check BEFORE anything else — '1745-P:' and
+        # similar prefixes are T7 regardless of journal prestige.
+        if _detect_conference_abstract(signals.title, signals.url):
+            result.tier = TierLevel.T7
+            result.confidence = 0.85
+            result.matched_rules.append("R10_conference_abstract")
+            result.reasons.append(
+                f"Domain {domain!r} is a peer-reviewed journal but title "
+                f"or URL signals conference abstract / poster / supplement "
+                f"issue. T7."
+            )
+            return result
+        if _detect_systematic_review_from_title(signals.title):
+            result.tier = TierLevel.T2
+            result.confidence = 0.75
+            result.matched_rules.append("R10_journal_domain_sr_title")
+            result.reasons.append(
+                f"Domain {domain!r} is a peer-reviewed journal; title "
+                f"signals SR / MA. T2."
+            )
+            return result
+        if _detect_narrative_flavor_from_title(signals.title):
+            result.tier = TierLevel.T4
+            result.confidence = 0.7
+            result.matched_rules.append("R10_journal_domain_narrative")
+            result.reasons.append(
+                f"Domain {domain!r} is a peer-reviewed journal; title "
+                f"signals narrative review / commentary / perspective. T4."
+            )
+            return result
+        # BUG-M-14 revert + BUG-M-15 (Codex pass 15 CONDITIONAL):
+        # Blanket primary-signal requirement was too strict (cycle 7 =
+        # 0 releases). Instead, apply narrow targeted guards for the
+
+ succeeded in 753ms:
+    title: str = ""
+    # BUG-M-17 (Codex pass 2): body-inspection secondary signal.
+    # One of "SR_MA", "CASE_REPORT", "PERSPECTIVE", "GUIDELINE", or "".
+    # Populated by live_retriever._detect_article_type_from_body when
+    # fetched content contains article-type metadata or SR/MA/case-
+    # report markers in the first 8KB. Used by classifier to override
+    # title-only decisions when body evidence contradicts.
+    body_article_type: str = ""
+
+
+@dataclass
+class ClassificationResult:
+    """What the classifier returns. Always includes the reasoning trail."""
+
+    tier: TierLevel
+    confidence: float  # 0.0-1.0; 1.0 for deterministic rules, <1 for fuzzy
+    reasons: list[str] = field(default_factory=list)
+    matched_rules: list[str] = field(default_factory=list)
+    signals_used: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_decided(self) -> bool:
+        return self.tier != TierLevel.UNKNOWN
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Domain sets.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Regulatory bodies (T3). Extendable via config later.
+#
+# CRITICAL: Do NOT include ncbi.nlm.nih.gov, pmc.ncbi.nlm.nih.gov,
+# pubmed.ncbi.nlm.nih.gov here. Those are NIH-hosted peer-reviewed
+# journal aggregators — T1/T2/T4 based on content, NOT T3 regulatory.
+# The subdomain overlap with nih.gov is misleading.
+REGULATORY_DOMAINS = frozenset({
+    # US
+    "fda.gov", "accessdata.fda.gov", "nctr-crs.fda.gov",
+    "cdc.gov", "nasa.gov",
+    "clinicaltrials.gov",
+    # EU
+    "ema.europa.eu", "europa.eu",
+    # UK
+    "nice.org.uk", "mhra.gov.uk", "gov.uk",
+    # Canada
+    "cda-amc.ca", "hc-sc.gc.ca", "canada.ca",
+    "hres.ca",   # M-37: Health Canada DPD Product Monograph PDFs
+                 # (pdf.hres.ca via parent-domain match). Without this
+                 # the MOUNJARO monograph fell through to R9 OpenAlex
+                 # and got demoted T4 instead of T3 regulatory.
+    # Australia / NZ
+    "tga.gov.au", "medsafe.govt.nz",
+    # Japan
+    "pmda.go.jp",
+    # International
+    "who.int", "iarc.who.int",
+    # Other national
+    "bfarm.de", "ansm.sante.fr",
+})
+
+# Explicit NIH literature-aggregator hosts. These are peer-reviewed
+# journal content; route through the peer-review journal rule, not
+# through regulatory.
+NIH_LITERATURE_HOSTS = frozenset({
+    "ncbi.nlm.nih.gov", "www.ncbi.nlm.nih.gov",
+    "pmc.ncbi.nlm.nih.gov",
+    "pubmed.ncbi.nlm.nih.gov",
+    "nlm.nih.gov",
+})
+
+# Pharmaceutical-industry HCP portals and brand sites (T5). These are
+# manufacturer-controlled pages; peer-reviewed content from the same
+# company (e.g., an investigator-authored RCT paper) is T1/T4 via its
+# journal URL, not via these domains. MEMORY lesson: Patch D tagged
+# these GOLD; they are industry-marketing.
+INDUSTRY_MARKETING_DOMAINS = frozenset({
+    # Novo Nordisk — corporate, HCP, medical education, research portal.
+    # Live-run FP-1 (2026-04-18): OpenAlex tiered novonordiskmedical.com
+    # as T1 peer-reviewed. Added medical / sciencehub / nnmedinfo variants.
+    "novomedlink.com", "wegovy.com", "ozempic.com", "novonordisk.com",
+    "novonordisk.ca", "novomedinfo.com", "nnmedinfo.com",
+    "novonordiskmedical.com", "novonordiskpro.com",
+    "sciencehub.novonordisk.com",
+    # Eli Lilly
+    "lilly.com", "mounjaro.com", "zepbound.com",
+    "lillymedical.com", "lillypro.com",
+    # Pfizer
+    "pfizer.com", "pfizermedicalinformation.com", "pfizermedical.com",
+    "pfizerpro.com",
+    # Merck
+    "merck.com", "merckconnect.com", "merckmanuals.com",
+    # GSK
+    "gsk.com", "gskpro.com", "gskmedical.com",
+    # AstraZeneca
+    "astrazeneca.com", "azmedical.us", "azmerck.com",
+    # Roche / Genentech
+    "roche.com", "genentech.com", "gene.com", "rochemedical.com",
+    # Sanofi
+    "sanofi.com", "sanofimedicalinformation.com", "sanofimedical.com",
+    # Bayer
+    "bayer.com", "pharma.bayer.com",
+    # Boehringer Ingelheim
+    "boehringer-ingelheim.com", "bipharma.com",
+    # Takeda
+    "takeda.com",
+    # Johnson & Johnson
+    "jnj.com", "janssen.com", "janssenmd.com",
+    # Bristol Myers Squibb
+    "bms.com", "bmsstudyconnect.com",
+    # Abbvie
+    "abbvie.com", "abbviepro.com",
+})
+
+# Branded physician-portal domains that LOOK like journals but are
+# industry-adjacent commentary sites (T5 / T6 depending on sponsorship
+# transparency). Added in response to PG_LB_SA_02 spot-check: [16] and
+# [30] touchendocrinology.com "game-changer" commentary got T1'd by
+# rules; these domains do not do independent peer review.
+PHYSICIAN_PORTAL_COMMENTARY_DOMAINS = frozenset({
+    "touchendocrinology.com", "touchneurology.com",
+    "touchoncology.com", "touchcardio.com", "touchrespiratory.com",
+    "touchimmunology.com", "touchgastroenterology.com",
+    "medscape.com",  # often commentary + CME, not primary
+})
+
+# Low-provenance document hosts (T6). A government document re-hosted
+# on Scribd is not a guaranteed-authentic copy; tier down regardless
+# of source_type_hint. Patch C / Patch D called these GOLD/government
+# via upstream metadata, which was the F-05-adjacent defect.
+LOW_PROVENANCE_HOSTS = frozenset({
+    "scribd.com", "slideshare.net", "academia.edu",
+    "researchgate.net",  # author-uploaded reprints; not a peer-review venue
+    "issuu.com", "docdroid.net",
+})
+
+# Law-firm and consulting-firm commentary sites (T6). Legal opinions
+# and pharma-regulatory analysis; not peer-reviewed research.
+LEGAL_COMMENTARY_DOMAINS = frozenset({
+    "bipc.com", "buchananingersoll.com",
+    "ropesgray.com", "reedsmith.com",
+    "cov.com", "sullcrom.com",
+    "natlawreview.com", "lexology.com",
+    "law360.com", "mcguirewoods.com",
+    # R-5 Fix A: healthcare regulatory consulting firms were being
+    # tiered T1 via OpenAlex because they publish blog-style analysis
+    # of FDA decisions. Not peer-reviewed research.
+    "mcdermottplus.com", "mcdermottwill.com",
+    "hoganlovells.com", "faegredrinker.com",
+    "ropesandgray.com",
+    # Pass-9 additions (Codex found these classified as T1 in released
+    # reports): IP / pharma law-firm blogs that OpenAlex sometimes
+    # flags as 'article' in 'journal' source_type because they publish
+    # alerts and client advisories.
+    "knobbe.com", "finnegan.com", "foley.com",
+    "jonesday.com", "goodwinlaw.com", "gibsondunn.com",
+    "kirkland.com", "lathamwatkins.com", "skadden.com",
+    "wsgr.com", "bakermckenzie.com", "whitecase.com",
+    "fenwick.com", "cooley.com",
+})
+
+# Pass-9 addition (BUG-M-7): social media + general-interest portals.
+# Per Codex pass 9 findings, facebook.com, aol.com, reddit.com threads
+# were being classified as T1 peer-reviewed via OpenAlex because those
+# domains sometimes appear as 'journal' source_type in metadata. They
+# are user-generated content, not primary research, full stop.
+SOCIAL_PLATFORM_DOMAINS = frozenset({
+    # User-generated content
+    "facebook.com", "instagram.com", "twitter.com", "x.com",
+    "reddit.com", "old.reddit.com", "np.reddit.com",
+    "tiktok.com", "youtube.com", "pinterest.com",
+    "quora.com", "stackexchange.com", "stackoverflow.com",
+    "tumblr.com", "telegram.org",
+    # General-interest portals (news-aggregated, blog-style)
+    "aol.com", "yahoo.com", "msn.com",
+    "buzzfeed.com", "huffpost.com", "vox.com",
+    "slate.com", "salon.com", "vice.com",
+    # Q&A / forum
+    "answers.com", "quora.com", "hubpages.com",
+})
+
+
+ succeeded in 781ms:
+    # Pass-11 additions (Codex pass 11): industry insight, whitepaper,
+    # checklist, early-impacts language
+    "whitepaper", "white paper", "white-paper",
+    "checklist",
+    "early impacts", "early impact",
+    "industry report", "industry insight", "industry insights",
+    "market insight", "market insights",
+    "pricing trends", "pricing trend",
+    "case study",  # can be primary but often is narrative; over-demote OK
+    # Pass-15 additions (Codex pass 15): biomedical guidance / consensus
+    "guidance", "practical guidance", "clinical guidance",
+    "consensus", "consensus statement", "expert consensus",
+    "practice guide", "practice bulletin", "practice recommendation",
+    "clinical overview", "clinical summary",
+    "position statement", "position paper",
+)
+
+
+def _detect_guideline_or_explainer_title(title: str) -> bool:
+    """Return True if the title signals guideline / explainer / policy-
+    brief content. Used by R9 to demote T1 for titles that OpenAlex
+    classified as 'article' in 'journal' but whose content is
+    clinical-practice guidance or policy analysis, not primary research.
+    """
+    if not title:
+        return False
+    t = title.lower()
+    return any(k in t for k in _GUIDELINE_EXPLAINER_TITLE_MARKERS)
+
+
+# M-17f (Codex pass 7 structural pivot): gate R8b body override.
+# The body-inspection detector cannot reliably disambiguate primary
+# papers citing external guidelines from new guidelines citing prior
+# ones. Passes 3-7 chased the regex tail without converging. Solution:
+# body-signal override only fires when the title is NOT already
+# diagnostic. When the title already carries article-type evidence,
+# we trust the title (R9/R10 path) and log the body signal as
+# advisory.
+_DIAGNOSTIC_TITLE_ARTICLE_TYPE_KEYWORDS = (
+    # SR/MA keywords
+    "systematic review", "meta-analysis", "meta analysis",
+    "network meta-analysis", "cochrane review", "umbrella review",
+    "scoping review", "rapid review",
+    # Case report / case series
+    "case report", "case-report",
+    "case series", "case-series",
+    "a case of ", "report of a case",
+    # Guideline / consensus / statement
+    "clinical practice guideline", "practice guideline",
+    "consensus statement", "consensus recommendation",
+    "position statement", "expert consensus",
+    # Perspective / commentary / editorial
+    "perspective:", "commentary:", "editorial:",
+    "opinion:", "viewpoint:",
+    "letter to the editor",
+    # Conference abstract markers in title
+    " abstract ", "[abstract]", "(abstract)",
+    # Narrative review
+    "narrative review", "scoping review", "umbrella review",
+    "literature review",
+)
+
+
+def _title_is_diagnostic_for_article_type(title: str) -> bool:
+    """Return True if the title already contains explicit article-type
+    evidence (systematic review, case report, guideline, etc.).
+
+    Used by R8b to decide whether the body-inspection signal should
+    override the title-based classification. When the title is
+    diagnostic, we trust R9/R10 and relegate the body signal to
+    advisory; when the title is non-diagnostic (truncated, generic,
+    bare product name), the body signal remains the primary override.
+    """
+    if not title:
+        return False
+    t = title.lower()
+    return any(k in t for k in _DIAGNOSTIC_TITLE_ARTICLE_TYPE_KEYWORDS)
+
+
+# Pass-12 addition (BUG-M-12, Codex pass 12): positive primary-study
+# signals. R9_openalex_primary_study previously granted T1 on any
+# allowlisted journal host when OpenAlex said article+journal. Codex
+# found that truncated Serper snippet titles hid SR/MA suffixes, so
+# real meta-analyses (MDPI + Frontiers tirzepatide papers) slipped
+# through to T1. Codex recommendation: require at least one positive
+# primary-study marker before granting T1, not just absence of
+# SR/MA/narrative markers.
+_PRIMARY_STUDY_TITLE_MARKERS = (
+    # Randomized / controlled trial markers
+    "randomized", "randomised",
+    "controlled trial", "controlled-trial",
+    "rct",
+    "double-blind", "double blind",
+    "single-blind", "single blind",
+    "placebo-controlled", "placebo controlled",
+    # M-18a (DR audit pass 1): NEJM head-to-head RCTs often use the
+    # "X as Compared with Y" formula (e.g. "Tirzepatide as Compared
+    # with Semaglutide for the Treatment of Obesity"). Without this
+    # marker, the "for the treatment of" narrative-flavor keyword
+    # wins and the primary RCT is demoted to T4.
+    "as compared with", "as compared to",
+    # Phase markers (clinical)
+    "phase 1", "phase 2", "phase 3", "phase 4",
+    "phase i ", "phase ii ", "phase iii ", "phase iv ",
+    "phase-1", "phase-2", "phase-3", "phase-4",
+    # Specific named trials / acronyms that unambiguously name a study
+    "surpass-", "surmount-", "step ", "select trial",
+    "leader trial", "sustain trial", "rewind trial", "pioneer ",
+    # Observational study markers
+    "cohort study", "cohort-study",
+    "case-control", "case control",
+    "cross-sectional",
+    "prospective study", "retrospective study",
+    "observational study",
+    "registry analysis", "registry-based",
+    "longitudinal study",
+    "post-marketing surveillance", "post marketing surveillance",
+    "real-world evidence study", "real-world data study",
+    # Primary lab / mechanism markers (for tech/bench research)
+    "effect of ", "effects of ",  # "Effect of X on Y" pattern
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/tier_classifier.py | Select-Object -Skip 460 -First 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/tier_classifier.py | Select-Object -Skip 1680 -First 145' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def _domain_matches|def _normalize_domain|T7_STUB_CONTENT_CHARS|PEER_REVIEWED_DOI_PREFIXES|_has_peer_reviewed_doi_prefix" src/polaris_graph/retrieval/tier_classifier.py' in C:\POLARIS
+ succeeded in 746ms:
+        return result
+
+    # ── Rule 10: Peer-reviewed-journal-domain heuristic when no OpenAlex data.
+    # Also fires for NIH_LITERATURE_HOSTS (PMC, PubMed) which are peer-
+    # reviewed literature aggregators, NOT regulatory.
+    is_nih_lit = _domain_matches(domain, NIH_LITERATURE_HOSTS)
+    if _domain_matches(domain, PEER_REVIEWED_JOURNAL_DOMAINS) or is_nih_lit:
+        # Conference abstract check BEFORE anything else — '1745-P:' and
+        # similar prefixes are T7 regardless of journal prestige.
+        if _detect_conference_abstract(signals.title, signals.url):
+            result.tier = TierLevel.T7
+            result.confidence = 0.85
+            result.matched_rules.append("R10_conference_abstract")
+            result.reasons.append(
+                f"Domain {domain!r} is a peer-reviewed journal but title "
+                f"or URL signals conference abstract / poster / supplement "
+                f"issue. T7."
+            )
+            return result
+        if _detect_systematic_review_from_title(signals.title):
+            result.tier = TierLevel.T2
+            result.confidence = 0.75
+            result.matched_rules.append("R10_journal_domain_sr_title")
+            result.reasons.append(
+                f"Domain {domain!r} is a peer-reviewed journal; title "
+                f"signals SR / MA. T2."
+            )
+            return result
+        if _detect_narrative_flavor_from_title(signals.title):
+            result.tier = TierLevel.T4
+            result.confidence = 0.7
+            result.matched_rules.append("R10_journal_domain_narrative")
+            result.reasons.append(
+                f"Domain {domain!r} is a peer-reviewed journal; title "
+                f"signals narrative review / commentary / perspective. T4."
+            )
+            return result
+        # BUG-M-14 revert + BUG-M-15 (Codex pass 15 CONDITIONAL):
+        # Blanket primary-signal requirement was too strict (cycle 7 =
+        # 0 releases). Instead, apply narrow targeted guards for the
+        # specific false-T1 patterns Codex pass 15 named.
+
+        # M-15 guard 1: truncated title (ends with "..." or is very
+        # short). Serper snippets are often cut mid-title. Without a
+        # full title, R10 can't distinguish primary from SR/MA /
+        # perspective / guideline — demote to T4.
+        _title_stripped = (signals.title or "").strip()
+        if _title_stripped.endswith("...") or _title_stripped.endswith("…"):
+            result.tier = TierLevel.T4
+            result.confidence = 0.55
+            result.matched_rules.append("R10_journal_domain_truncated_title_demoted")
+            result.reasons.append(
+                f"Domain {domain!r} is a peer-reviewed journal but the "
+                f"title appears truncated (ends with ellipsis). Can't "
+                f"reliably detect SR/MA/perspective/guideline from a "
+                f"partial title, so defaulting to T4. Fetch the full "
+                f"title via OpenAlex display_name or page content to "
+                f"reclassify."
+            )
+            return result
+
+        # M-15 guard 2 REVERTED: the blanket "NIH aggregator → T4 when
+        # no OpenAlex metadata" demoted too many legitimate PMC/PubMed
+        # primaries (cycle 9: 0 releases / 8 aborts, T1=0% everywhere).
+        # OpenAlex lookups fail often enough that the fallback path
+        # hits NIH content regularly. Keeping truncated-title guard
+        # (guard 1) and society-tool guard (guard 3) which are more
+        # surgical. Codex pass 16 can assess whether remaining NIH
+        # hallucinations need a narrower fix.
+
+        # M-15 guard 3: professional-society tool / dosing / practice-
+        # support PDFs on acc.org, ahajournals.org, etc. These pages
+        # ship clinical decision-support tools, not research reports.
+        _url_lower = (signals.url or "").lower()
+        _society_tool_markers = (
+            "/tools/", "/tool/",
+            "/practice-support/", "/practice-resources/",
+            "/information-graphics/", "/infographic",
+            "/dosing/", "-dosing-",
+            "/clinical-tools/",
+        )
+        if domain.endswith("acc.org") and any(
+            m in _url_lower for m in _society_tool_markers
+        ):
+            result.tier = TierLevel.T3
+            result.confidence = 0.85
+            result.matched_rules.append("R10_society_tool_demoted")
+            result.reasons.append(
+                f"URL path on {domain!r} matches professional-society "
+                f"tool / practice-support / dosing / infographic pattern. "
+                f"Clinical decision-support reference, not primary "
+                f"research. T3 (professional-society guidance)."
+            )
+            return result
+
+        # I-bug-771 (#812, Codex reconcile B): low-quality OA (MDPI) primary
+        # articles do NOT earn presumed-T1 here either (the SR/MA-title branch
+        # above already routed genuine reviews to T2). Demote to T4.
+        if _is_low_quality_oa(domain, signals.url):
+            result.tier = TierLevel.T4
+            result.confidence = 0.6
+            result.matched_rules.append("R10_low_quality_oa_primary_demoted")
+            result.reasons.append(
+                f"Domain {domain!r} (or DOI prefix) is a low-quality / "
+                f"high-volume OA publisher; presumed-primary articles do not "
+                f"earn T1. T4 ceiling. A genuine SR/MA title would have routed "
+                f"to T2 above."
+            )
+            return result
+        # Journal domain without OpenAlex, not NIH aggregator, not
+        # society-tool URL pattern, title not truncated, and no
+        # SR/MA/narrative/guideline signals fired in earlier branches:
+        # default T1 presumed-primary.
+        result.tier = TierLevel.T1
+        result.confidence = 0.6
+        result.matched_rules.append("R10_journal_domain_presumed_primary")
+        result.reasons.append(
+            f"Domain {domain!r} is a peer-reviewed journal "
+            f"and title does not signal review or abstract. "
+            f"Presumed T1 primary (low confidence — consider manual review)."
+        )
+        return result
+
+    # ── Rule 11 fallthrough: OpenAlex preprint/book-chapter/dataset
+    if pub_type == "preprint" or src_type == "repository":
+        result.tier = TierLevel.T4
+        result.confidence = 0.7
+        result.matched_rules.append("R11_openalex_preprint_or_repo")
+        result.reasons.append(
+            f"OpenAlex: {pub_type!r} / {src_type!r} — preprint or "
+            f"repository; not peer-reviewed. T4."
+        )
+        return result
+    if pub_type in ("book-chapter", "book", "dataset", "editorial", "letter"):
+        result.tier = TierLevel.T4
+        result.confidence = 0.65
+        result.matched_rules.append(f"R11_openalex_{pub_type}")
+        result.reasons.append(
+            f"OpenAlex: {pub_type!r}. T4 narrative/unreviewed."
+        )
+        return result
+
+    # ── No rule matched: honest UNKNOWN
+    result.tier = TierLevel.UNKNOWN
+    result.confidence = 0.0
+
+ succeeded in 825ms:
+    # Tech news (for tech-domain queries)
+    "techcrunch.com", "theverge.com", "wired.com", "arstechnica.com",
+    "venturebeat.com", "siliconangle.com",
+    # Affiliate / content-farm markers
+    "aimultiple.com", "intuitionlabs.ai", "serenitiesai.com",
+})
+
+# Peer-reviewed medical / scientific journal domains where articles
+# are typically T1 (primary) or T2 (SR/MA) unless OpenAlex says
+# otherwise. Venue-level hints only — not definitive on their own.
+PEER_REVIEWED_JOURNAL_DOMAINS = frozenset({
+    "nejm.org", "jamanetwork.com", "thelancet.com", "bmj.com",
+    "nature.com", "science.org", "cell.com",
+    "sciencedirect.com", "springer.com", "wiley.com",
+    "onlinelibrary.wiley.com",
+    "ncbi.nlm.nih.gov", "pubmed.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov",
+    "frontiersin.org", "mdpi.com", "plos.org", "plosone.org",
+    "ahajournals.org", "diabetesjournals.org", "endocrine.org",
+    "acc.org", "acpjournals.org",
+    # I-bug-771 (#812): jacc.org (J. Am. Coll. Cardiology) is a flagship
+    # cardiology journal (Elsevier 10.1016) but was absent — its articles
+    # demoted to T4 via the R9 unverified-host guard. acc.org alone did not
+    # cover the jacc.org host.
+    "jacc.org", "onlinejacc.org",
+    "acs.org", "pubs.acs.org", "rsc.org", "pubs.rsc.org",
+    "ieee.org", "acm.org",
+    "academic.oup.com",  # OUP journals
+    "cureus.com",  # peer-reviewed but low-barrier; caller should tier-down
+    "bmcmedicine.com", "biomedcentral.com",
+    "jme.bmj.com",  # Journal of Medical Ethics
+})
+
+# I-bug-771 (#812): low-quality / high-volume open-access publishers whose
+# PRIMARY articles must NOT earn T1 (variable methodological quality), but
+# whose genuine full-title systematic reviews / meta-analyses remain T2 (Codex
+# #812 reconcile B — discriminator, not a hard ceiling). The primary-path
+# demotion is applied in R9/R10; the SR/MA branches (which fire first) are
+# untouched, preserving the deliberate pass-12 MDPI-SR/MA->T2 distinction.
+LOW_QUALITY_OA_DOMAINS = frozenset({
+    "mdpi.com",
+})
+# DOI prefixes for the same publishers (URL-embedded).
+LOW_QUALITY_OA_DOI_PREFIXES = frozenset({
+    "10.3390",  # MDPI
+})
+
+# I-bug-771 (#812): recognized guideline-issuing bodies. A document on one of
+# these hosts whose path signals a clinical practice guideline is high-authority
+# SECONDARY evidence (T2 — counts toward the clinical T2 minimum), reasoned as
+# "guideline authority", explicitly NOT a primary study. Society tool / dosing /
+# practice-support paths are EXCLUDED here and stay T3 (Codex #812: "acc.org
+# tools/dosing PDFs do not get T1/T2"). Content stubs are unaffected — Rule 1
+# returns T7 before this rule, so a 297-char fetch can never be laundered up.
+GUIDELINE_AUTHORITY_DOMAINS = frozenset({
+    "escardio.org",      # European Society of Cardiology
+    "nice.org.uk",       # NICE (UK)
+    "ahajournals.org",   # AHA/ACC guidelines published in Circulation
+    "jacc.org", "onlinejacc.org",
+    "acc.org",           # ACC guideline pages (NOT /tools/ — excluded below)
+})
+_GUIDELINE_PATH_MARKERS = (
+    "/guidelines/", "/guideline/", "/guidance/", "/recommendations/",
+    "/scientific-documents/recom",  # ESC scientific-documents recommendations
+)
+# I-bug-771 (#812) iter-2 (Codex P1): canonical ACC/AHA guidelines are published
+# as DOI ARTICLES (e.g. ahajournals.org/doi/10.1161/CIR..., jacc.org/doi/...),
+# NOT on a /guidelines/ path — so a path-only check misses them. On a recognized
+# guideline-authority domain, these NARROW clinical-guideline title markers also
+# promote to T2. Deliberately EXCLUDES the broad explainer/whitepaper/industry
+# markers in _GUIDELINE_EXPLAINER_TITLE_MARKERS (those stay T4): a guideline is a
+# practice/consensus/scientific statement, not a fact sheet or market insight.
+# iter-4 (Codex P1+P2): distinguish an ISSUED guideline DOCUMENT from primary
+# studies and from commentary ABOUT guidelines. Two robust signals:
+#  (a) a year-anchored "<YYYY> ... guideline(s) for|on ..." pattern — issued
+#      clinical guidelines are year-dated society documents whose title reads
+#      "2021 ACC/AHA/SCAI Guideline for Coronary Artery Revascularization" /
+#      "2024 ESC Guidelines for the management of AF". The phrase "guideline(s)
+#      FOR/ON" (not "guideline recommendations for") + a year is the document
+#      signal. This catches main-title-only forms (Codex P2: no "for the"
+#      required) AND rejects undated guideline-comparison commentary like
+#      "International Clinical Practice Guideline Recommendations for Acute PE:
+#      Harmony, Dissonance, and Silence" (no year + "guideline recommendations
+#      for", not "guideline for") (Codex P1).
+#  (b) explicit document-TYPE statements that are themselves the artifact.
+# Bare "guideline" / "clinical practice guideline" substrings are DELIBERATELY
+# NOT markers (they appear in GDMT primaries + guideline-comparison commentary).
+_GUIDELINE_DOC_STATEMENT_MARKERS = (
+    "consensus statement", "expert consensus",
+    "scientific statement",            # AHA scientific statements
+    "position statement",
+    "practice bulletin",
+)
+_GUIDELINE_YEAR_DOC_RE = re.compile(
+    r"\b(?:19|20)\d{2}\b.{0,80}\bguidelines?\s+(?:for|on|update|focused update)\b"
+)
+# Primary-study / commentary titles that MENTION guidelines but are NOT
+# guideline documents — never promoted (checked FIRST).
+_GUIDELINE_TITLE_EXCLUSIONS = (
+    "guideline-directed", "guideline directed",      # GDMT — a therapy, studied in primaries
+    "guideline adherence", "guideline-adherent", "guideline adherent",
+    "adherence to guideline", "adherence to the guideline",
+    "guideline-concordant", "guideline concordant",
+    "guideline implementation", "guideline-based", "guideline based",
+    "guideline-recommended", "guideline recommended",
+    "non-guideline", "off-guideline",
+)
+
+
+def _title_signals_clinical_guideline(title: str) -> bool:
+    """I-bug-771 (#812): detect an ISSUED clinical-practice-guideline DOCUMENT
+    title for the guideline-authority promotion in Rule 8c. Exclusions checked
+    FIRST (GDMT / adherence / implementation primaries). Then a year-anchored
+    "guideline(s) for|on" document pattern OR an explicit document-type statement
+    (consensus / scientific / position statement / practice bulletin). Rejects
+    undated guideline-comparison commentary. Narrower than
+    _detect_guideline_or_explainer_title (which fires on explainer/policy titles
+    that must stay T4)."""
+    if not title:
+        return False
+    t = title.lower()
+    if any(x in t for x in _GUIDELINE_TITLE_EXCLUSIONS):
+        return False
+    if any(m in t for m in _GUIDELINE_DOC_STATEMENT_MARKERS):
+        return True
+    return bool(_GUIDELINE_YEAR_DOC_RE.search(t))
+
+# M-18a (DR audit pass 1): when the fetcher records the URL as
+# doi.org/<prefix>/<suffix>, the classifier cannot know from the
+# domain alone that this is a peer-reviewed journal. These DOI
+# prefixes are registered to specific peer-reviewed publishers and
+# can be trusted as equivalent to PEER_REVIEWED_JOURNAL_DOMAINS
+# membership. Source: Crossref registrant records.
+PEER_REVIEWED_DOI_PREFIXES = frozenset({
+    "10.1056",  # NEJM
+    "10.1001",  # JAMA Network
+    "10.1016",  # Elsevier (Lancet, Cell, Cell Metabolism, etc.)
+    "10.1038",  # Nature Publishing Group
+    "10.1126",  # Science / AAAS
+    "10.1136",  # BMJ
+    "10.1002",  # Wiley
+    "10.1007",  # Springer
+    "10.1111",  # Wiley
+    "10.1210",  # Endocrine Society
+    "10.2337",  # American Diabetes Association
+    "10.1093",  # Oxford University Press
+    "10.1161",  # American Heart Association
+    "10.1152",  # American Physiological Society
+    "10.4239",  # World Journal of Diabetes
+    "10.1172",  # J Clin Invest
+    "10.1059",  # Am Coll Physicians / ACP
+    "10.3389",  # Frontiers
+    "10.3390",  # MDPI
+    "10.1371",  # PLOS
+    "10.7759",  # Cureus
+    "10.1080",  # Taylor & Francis
+    "10.1089",  # Mary Ann Liebert
+    "10.1155",  # Hindawi (peer-reviewed but mixed quality)
+})
+
+
+def _has_peer_reviewed_doi_prefix(url: str) -> bool:
+    """Return True if URL points at a DOI with a peer-reviewed
+    publisher prefix (M-18a DR audit fix)."""
+    if not url:
+        return False
+    u = url.lower()
+    if "doi.org/" not in u:
+        return False
+    # Extract DOI after doi.org/
+    try:
+        tail = u.split("doi.org/", 1)[1]
+        prefix = tail.split("/", 1)[0]
+        return prefix in PEER_REVIEWED_DOI_PREFIXES
+    except (IndexError, ValueError):
+        return False
+
+
+def _is_low_quality_oa(domain: str, url: str) -> bool:
+    """I-bug-771 (#812): True if the source is a low-quality / high-volume OA
+    publisher (MDPI) by domain OR by URL-embedded DOI prefix. Used to deny T1
+    primary credit in R9/R10 (SR/MA still routes to T2 in the earlier branch)."""
+    if _domain_matches(domain, LOW_QUALITY_OA_DOMAINS):
+        return True
+    u = (url or "").lower()
+    # Exact DOI-prefix match (iter-2 Codex P2: avoid substring false-positives
+    # such as 10.33901 matching 10.3390). Extract the registrant prefix after
+    # doi.org/ exactly, mirroring _has_peer_reviewed_doi_prefix.
+    if "doi.org/" in u:
+        try:
+            prefix = u.split("doi.org/", 1)[1].split("/", 1)[0]
+            if prefix in LOW_QUALITY_OA_DOI_PREFIXES:
+                return True
+        except (IndexError, ValueError):
+            pass
+    # DOI embedded in a publisher path (e.g. /10.3390/...): require both
+    # boundary slashes so 10.33901 cannot match 10.3390.
+    return any(f"/{p}/" in u for p in LOW_QUALITY_OA_DOI_PREFIXES)
+
+
+# Preprint servers (T4/T5 candidates — not peer-reviewed; caller may
+# tier-down further based on funding disclosure).
+PREPRINT_DOMAINS = frozenset({
+    "arxiv.org", "biorxiv.org", "medrxiv.org", "ssrn.com",
+    "preprints.org", "researchsquare.com", "papers.ssrn.com",
+    "osf.io",
+})
+
+# Student-journal / low-credibility-journal patterns. Plan A-S3-A note
+# flagged nhsjs.com (National High School Journal of Science) as
+# inappropriately tagged GOLD in PG_LB_SA_02. These are not predatory
+# per se but don't meet T1/T2 peer-review standards.
+STUDENT_JOURNAL_DOMAINS = frozenset({
+    "nhsjs.com",
+})
+
+# Abstract-only / stub-content domains where typical content is just a
+# title + abstract. Used as a hint; falls through to content-length check.
+ABSTRACT_ONLY_DOMAINS = frozenset({
+    "semanticscholar.org",
+    "openalex.org",
+
+ succeeded in 778ms:
+593:PEER_REVIEWED_DOI_PREFIXES = frozenset({
+621:def _has_peer_reviewed_doi_prefix(url: str) -> bool:
+633:        return prefix in PEER_REVIEWED_DOI_PREFIXES
+647:    # doi.org/ exactly, mirroring _has_peer_reviewed_doi_prefix.
+685:T7_STUB_CONTENT_CHARS = 1000    # below this, always T7 stub
+692:def _normalize_domain(url: str) -> str:
+704:def _domain_matches(domain: str, domain_set: frozenset[str]) -> bool:
+1101:    if signals.fetched_content_length and signals.fetched_content_length < T7_STUB_CONTENT_CHARS:
+1107:            f"(< {T7_STUB_CONTENT_CHARS} threshold) — classified T7 stub "
+1627:                    or _has_peer_reviewed_doi_prefix(signals.url)):
+1638:                    f"or PEER_REVIEWED_DOI_PREFIXES). "
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/tier_classifier.py | Select-Object -Skip 684 -First 36' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/tier_classifier.py | Select-Object -Skip 840 -First 90' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/test_bug771_tier_authority_and_oa_ceiling.py | Select-Object -First 310' in C:\POLARIS
+ succeeded in 725ms:
+T7_STUB_CONTENT_CHARS = 1000    # below this, always T7 stub
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _normalize_domain(url: str) -> str:
+    """Extract lowercase domain from URL, stripping www. and path."""
+    if not url:
+        return ""
+    try:
+        parsed = urlparse(url if "://" in url else f"https://{url}")
+        host = (parsed.hostname or "").lower()
+        return host[4:] if host.startswith("www.") else host
+    except Exception:
+        return ""
+
+
+def _domain_matches(domain: str, domain_set: frozenset[str]) -> bool:
+    """Check whether domain (or any parent) is in the set."""
+    if not domain:
+        return False
+    if domain in domain_set:
+        return True
+    # Parent-domain match: foo.fda.gov matches fda.gov
+    parts = domain.split(".")
+    for i in range(len(parts)):
+        parent = ".".join(parts[i:])
+        if parent in domain_set:
+            return True
+    return False
+
+
+def _detect_systematic_review_from_title(title: str) -> bool:
+    """Heuristic: title contains 'systematic review' / 'meta-analysis'."""
+
+ succeeded in 769ms:
+    "perspectives for",
+    "primary care providers", "primary care physician",
+    "for clinicians", "for physicians",
+    "prescribing ",
+    "what the clinician", "what clinicians",
+)
+
+# Preserve the combined tuple for backwards compatibility with any
+# downstream code that imports _NARRATIVE_FLAVOR_KEYWORDS directly.
+_NARRATIVE_FLAVOR_KEYWORDS = (
+    _NARRATIVE_FLAVOR_STRONG_MARKERS + _NARRATIVE_FLAVOR_WEAK_MARKERS
+)
+
+
+def _detect_narrative_flavor_from_title(title: str) -> bool:
+    """Stronger-than-generic detector for narrative / commentary flavor.
+
+    M-18a (DR audit pass 1): split narrative markers into STRONG (case
+    report, post-hoc analysis, pooled analysis, program-level) and
+    WEAK (for the treatment of, update on, perspective for). Strong
+    markers always fire. Weak markers defer to primary-study signals
+    so NEJM head-to-head RCTs like "Tirzepatide as Compared with
+    Semaglutide for the Treatment of Obesity" are not demoted.
+    """
+    if not title:
+        return False
+    t = title.lower()
+    if _detect_narrative_review_from_title(title):
+        return True
+    # STRONG narrative markers fire regardless of primary-study signals.
+    if any(k in t for k in _NARRATIVE_FLAVOR_STRONG_MARKERS):
+        return True
+    # WEAK markers defer to primary-study signals.
+    if _detect_primary_study_signal(title):
+        return False
+    return any(k in t for k in _NARRATIVE_FLAVOR_WEAK_MARKERS)
+
+
+# Pass-10 addition (BUG-M-10): title markers that indicate guideline,
+# explainer, or policy-brief content even when OpenAlex says the host
+# is a journal (e.g., PMC hosting a policy paper titled "Predetermined
+# Change Control Plans: Guiding Principles" or a guideline titled
+# "2025 Guidelines for direct oral anticoagulants"). These are T4
+# narrative / analytical content, not T1 primary studies.
+_GUIDELINE_EXPLAINER_TITLE_MARKERS = (
+    "guideline", "guidelines",
+    "guiding principle", "guiding principles",
+    "key facts", "fact sheet", "fact-sheet",
+    "issue brief", "policy brief",
+    "explainer",
+    "chartbook", "dashboard",
+    "primer on",
+    "introduction to",
+    # "Q&A:" / "Frequently asked" style
+    "q&a:", "frequently asked",
+    # Government/regulator briefing language
+    "agency overview", "program overview",
+    # Policy explainer prefix
+    "what is ", "what are ",
+    "how does ", "how do ",
+    # Pass-11 additions (Codex pass 11): industry insight, whitepaper,
+    # checklist, early-impacts language
+    "whitepaper", "white paper", "white-paper",
+    "checklist",
+    "early impacts", "early impact",
+    "industry report", "industry insight", "industry insights",
+    "market insight", "market insights",
+    "pricing trends", "pricing trend",
+    "case study",  # can be primary but often is narrative; over-demote OK
+    # Pass-15 additions (Codex pass 15): biomedical guidance / consensus
+    "guidance", "practical guidance", "clinical guidance",
+    "consensus", "consensus statement", "expert consensus",
+    "practice guide", "practice bulletin", "practice recommendation",
+    "clinical overview", "clinical summary",
+    "position statement", "position paper",
+)
+
+
+def _detect_guideline_or_explainer_title(title: str) -> bool:
+    """Return True if the title signals guideline / explainer / policy-
+    brief content. Used by R9 to demote T1 for titles that OpenAlex
+    classified as 'article' in 'journal' but whose content is
+    clinical-practice guidance or policy analysis, not primary research.
+    """
+    if not title:
+        return False
+    t = title.lower()
+    return any(k in t for k in _GUIDELINE_EXPLAINER_TITLE_MARKERS)
+
+
+
+ succeeded in 787ms:
+"""I-bug-771 (#812) — tier-classifier invariants.
+
+The dominant #763-benchmark abort was `abort_corpus_inadequate`: the content-
+based classifier mis-tiered authoritative cardiology sources (ahajournals->T7
+stub, escardio guidelines->T4, jacc.org->T4) while over-crediting low-quality OA
+(mdpi->T1). Codex DECIDED C+D and RECONCILED the MDPI conflict to option B
+(discriminator): MDPI PRIMARY loses T1, but a genuine MDPI systematic review /
+meta-analysis still routes to T2 (preserving the deliberate pass-12 distinction).
+
+These assert Codex's required invariants. Each is claim-by-claim against the
+exact domain/path the afib run actually retrieved.
+"""
+
+from __future__ import annotations
+
+from src.polaris_graph.retrieval.tier_classifier import (
+    ClassificationSignals,
+    _is_low_quality_oa,
+    classify_source_tier,
+)
+
+
+def _classify(url: str, title: str = "Generic study of X in Y", content_length: int = 8000, **openalex):
+    sig = ClassificationSignals(
+        url=url,
+        title=title,
+        publisher="",
+        fetched_content_length=content_length,
+        openalex_publication_type=openalex.get("pub_type", "article"),
+        openalex_source_type=openalex.get("source_type", "journal"),
+        openalex_is_peer_reviewed=openalex.get("is_peer_reviewed", True),
+        source_type_hint="",
+    )
+    return classify_source_tier(sig)
+
+
+# ── JACC: flagship cardiology journal, was demoted to T4 (not in allowlist) ──
+
+def test_jacc_org_primary_is_t1() -> None:
+    r = _classify(
+        url="https://www.jacc.org/doi/10.1016/j.jacasi.2023.08.007",
+        title="Anticoagulation outcomes in atrial fibrillation in Asia",
+    )
+    assert r.tier.value == "T1", f"JACC primary should be T1, got {r.tier.value}"
+
+
+def test_jacc_org_systematic_review_is_t2() -> None:
+    r = _classify(
+        url="https://www.jacc.org/doi/10.1016/j.jacc.2024.01.001",
+        title="Direct oral anticoagulants in AF: a systematic review and meta-analysis",
+    )
+    assert r.tier.value == "T2", f"JACC SR/MA should be T2, got {r.tier.value}"
+
+
+# ── ESC / guideline-authority bodies → T2 (was T4 via unverified-host demote) ──
+
+def test_escardio_guideline_is_t2() -> None:
+    r = _classify(
+        url="https://www.escardio.org/guidelines/scientific-documents/recommendations-af",
+        title="2024 ESC Guidelines for the management of atrial fibrillation",
+    )
+    assert r.tier.value == "T2", f"ESC guideline should be T2, got {r.tier.value}"
+    assert r.matched_rules[-1] == "R8c_guideline_authority"
+
+
+def test_ahajournals_guideline_path_is_t2() -> None:
+    r = _classify(
+        url="https://www.ahajournals.org/doi/guidelines/10.1161/CIR.0000000000001193",
+        title="2023 ACC/AHA Guideline for the Management of Atrial Fibrillation",
+    )
+    assert r.tier.value == "T2", f"AHA guideline-path should be T2, got {r.tier.value}"
+
+
+def test_escardio_guideline_content_stub_stays_t7() -> None:
+    """Stub guardrail: a 297-char fetch on a guideline body is NOT laundered to
+    T2 — Rule 1 returns T7 first (Codex: never launder content-starved fetches)."""
+    r = _classify(
+        url="https://www.escardio.org/guidelines/recommendations-af",
+        title="AF guidelines",
+        content_length=297,
+    )
+    assert r.tier.value == "T7", f"Guideline stub should be T7, got {r.tier.value}"
+
+
+# ── AHA journal: research article T1 when usable; 297-char stub T7 ──
+
+def test_ahajournals_research_article_is_t1() -> None:
+    r = _classify(
+        url="https://www.ahajournals.org/doi/10.1161/CIRCOUTCOMES.124.011890",
+        title="Outcomes after anticoagulation in atrial fibrillation: a cohort study",
+    )
+    assert r.tier.value == "T1", f"AHA research article should be T1, got {r.tier.value}"
+
+
+def test_ahajournals_stub_stays_t7() -> None:
+    r = _classify(
+        url="https://www.ahajournals.org/doi/10.1161/JAHA.120.017559",
+        title="AF outcomes",
+        content_length=297,
+    )
+    assert r.tier.value == "T7", f"AHA 297-char stub should be T7, got {r.tier.value}"
+
+
+# ── MDPI / low-quality OA: primary loses T1 (T4), but genuine SR/MA keeps T2 ──
+
+def test_mdpi_primary_is_demoted_to_t4() -> None:
+    """The demonstrated afib over-credit: an MDPI primary article got T1."""
+    r = _classify(
+        url="https://www.mdpi.com/2077-0383/14/22/8079",
+        title="Anticoagulation strategies in atrial fibrillation",
+    )
+    assert r.tier.value == "T4", f"MDPI primary should be T4 ceiling, got {r.tier.value}"
+    assert r.matched_rules[-1] == "R9_low_quality_oa_primary_demoted"
+
+
+def test_mdpi_doi_prefix_primary_is_demoted_to_t4() -> None:
+    """MDPI by URL-embedded DOI prefix (10.3390) also loses T1 primary credit."""
+    r = _classify(
+        url="https://doi.org/10.3390/jcm14228079",
+        title="Anticoagulation strategies in atrial fibrillation",
+    )
+    assert r.tier.value == "T4", f"MDPI DOI primary should be T4, got {r.tier.value}"
+
+
+def test_mdpi_systematic_review_stays_t2() -> None:
+    """Codex reconcile B: a genuine full-title MDPI SR/MA is still secondary
+    evidence (T2). The discriminator only denies the PRIMARY bucket."""
+    r = _classify(
+        url="https://www.mdpi.com/1424-8247/18/5/668",
+        title="The Efficacy and Safety of Tirzepatide: Systematic Review and Meta-Analysis of Randomized Clinical Trials",
+    )
+    assert r.tier.value == "T2", f"MDPI SR/MA should stay T2, got {r.tier.value}"
+
+
+# ── Society tool / dosing PDFs → T3, never T1/T2 (even with OpenAlex metadata) ──
+
+def test_acc_org_dosing_tool_pdf_is_t3() -> None:
+    r = _classify(
+        url="https://www.acc.org/-/media/Non-Clinical/Tools-and-Practice-Support/DOAC-Dosing.pdf",
+        title="DOAC Dosing in Atrial Fibrillation",
+    )
+    assert r.tier.value == "T3", f"ACC dosing tool PDF should be T3, got {r.tier.value}"
+    assert r.matched_rules[-1] == "R8c_society_tool_demoted"
+
+
+def test_jacc_tools_path_is_t3() -> None:
+    r = _classify(
+        url="https://www.jacc.org/tools/risk-calculator",
+        title="AF Stroke Risk Calculator",
+    )
+    assert r.tier.value == "T3", f"JACC tools path should be T3, got {r.tier.value}"
+
+
+# ── Precision guards: the fix must NOT start over-crediting low-quality hosts ──
+
+def test_unknown_openalex_host_still_t4() -> None:
+    """M-11 guard intact: OpenAlex article on an unknown host stays T4."""
+    r = _classify(
+        url="https://some-random-unknown-site.example/paper-2025",
+        title="Effect of Drug X on Condition Y: A Study",
+    )
+    assert r.tier.value == "T4", f"Unknown host should stay T4, got {r.tier.value}"
+
+
+def test_mdpi_news_style_not_laundered() -> None:
+    """An MDPI page that is a stub is still T7 (Rule 1), not laundered."""
+    r = _classify(
+        url="https://www.mdpi.com/2077-0383/14/22/8079",
+        title="Editorial note",
+        content_length=300,
+    )
+    assert r.tier.value == "T7", f"MDPI stub should be T7, got {r.tier.value}"
+
+
+# ── iter-2 (Codex P1): canonical ACC/AHA guidelines are DOI ARTICLES, no path ──
+
+def test_aha_guideline_doi_article_is_t2() -> None:
+    """Real ACC/AHA guideline: a DOI article (no /guidelines/ path) with a
+    guideline title must reach T2, not fall to T4/T1."""
+    r = _classify(
+        url="https://www.ahajournals.org/doi/10.1161/CIR.0000000000001193",
+        title="2023 ACC/AHA/ACCP/HRS Guideline for the Diagnosis and Management of Atrial Fibrillation",
+    )
+    assert r.tier.value == "T2", f"AHA guideline DOI article should be T2, got {r.tier.value}"
+    assert r.matched_rules[-1] == "R8c_guideline_authority"
+
+
+def test_jacc_consensus_statement_is_t2() -> None:
+    r = _classify(
+        url="https://www.jacc.org/doi/10.1016/j.jacc.2024.02.001",
+        title="2024 Expert Consensus Statement on anticoagulation in AF",
+    )
+    assert r.tier.value == "T2", f"JACC consensus statement should be T2, got {r.tier.value}"
+
+
+def test_aha_primary_rct_not_promoted_by_guideline_check() -> None:
+    """A primary RCT on an authority domain (no guideline title) stays T1 — the
+    narrow guideline-title detector must not catch primary studies."""
+    r = _classify(
+        url="https://www.ahajournals.org/doi/10.1161/CIRCULATIONAHA.124.012345",
+        title="Apixaban versus warfarin in atrial fibrillation: a randomized controlled trial",
+    )
+    assert r.tier.value == "T1", f"AHA primary RCT should stay T1, got {r.tier.value}"
+
+
+def test_authority_domain_explainer_title_not_promoted_to_t2() -> None:
+    """An explainer/whitepaper title on an authority domain must NOT be promoted
+    to T2 (the narrow guideline set deliberately excludes explainer markers)."""
+    r = _classify(
+        url="https://www.ahajournals.org/doi/10.1161/whitepaper.2024",
+        title="An explainer on anticoagulation pricing trends",
+    )
+    assert r.tier.value != "T2", f"Explainer title should NOT be T2, got {r.tier.value}"
+
+
+def test_gdmt_primary_study_not_promoted_to_t2() -> None:
+    """iter-3 (Codex P1): 'Guideline-Directed Medical Therapy' (GDMT) is a
+    therapy studied in PRIMARY studies, not a guideline document. The bare
+    'guideline' substring must NOT promote it to T2 via Rule 8c. (It resolves to
+    T4 via the pre-existing broad R9_openalex_guideline_explainer demotion — a
+    separate, pre-#812 behavior; the #812 invariant is simply: NOT T2, NOT
+    promoted by R8c.)"""
+    r = _classify(
+        url="https://www.jacc.org/doi/10.1016/j.jacc.2024.03.010",
+        title="Guideline-Directed Medical Therapy in Heart Failure: A Prospective Cohort Study",
+    )
+    assert r.tier.value != "T2", f"GDMT primary should NOT be T2, got {r.tier.value}"
+    assert r.matched_rules[-1] != "R8c_guideline_authority"
+
+
+def test_guideline_adherence_study_not_promoted_to_t2() -> None:
+    r = _classify(
+        url="https://www.ahajournals.org/doi/10.1161/CIRCOUTCOMES.124.099999",
+        title="Guideline Adherence and Outcomes in Atrial Fibrillation: A Registry Analysis",
+    )
+    assert r.tier.value != "T2", f"Guideline-adherence study should not be T2, got {r.tier.value}"
+
+
+def test_guideline_comparison_commentary_not_promoted() -> None:
+    """iter-4 (Codex P1): a guideline-COMPARISON/analysis article is commentary
+    ABOUT guidelines, not an issued guideline document. Undated + 'guideline
+    recommendations for' (not 'guideline for') -> must NOT be T2."""
+    r = _classify(
+        url="https://www.jacc.org/doi/abs/10.1016/j.jacc.2024.07.044",
+        title="International Clinical Practice Guideline Recommendations for Acute Pulmonary Embolism: Harmony, Dissonance, and Silence",
+    )
+    assert r.tier.value != "T2", f"Guideline-comparison commentary should NOT be T2, got {r.tier.value}"
+    assert r.matched_rules[-1] != "R8c_guideline_authority"
+
+
+def test_revascularization_guideline_main_title_only_is_t2() -> None:
+    """iter-4 (Codex P2): a real issued guideline whose title lacks 'for the'
+    ('2021 ACC/AHA/SCAI Guideline for Coronary Artery Revascularization') must
+    still reach T2 via the year-anchored 'guideline for' pattern."""
+    r = _classify(
+        url="https://www.jacc.org/doi/10.1016/j.jacc.2021.09.006",
+        title="2021 ACC/AHA/SCAI Guideline for Coronary Artery Revascularization",
+    )
+    assert r.tier.value == "T2", f"Revascularization guideline should be T2, got {r.tier.value}"
+    assert r.matched_rules[-1] == "R8c_guideline_authority"
+
+
+def test_guideline_focused_update_is_t2() -> None:
+    """iter-5 (Codex P1): a 'Guideline Focused Update' is an issued guideline
+    document and must reach T2 (the year-anchored pattern accepts focused-update/
+    update forms, not only 'guideline for/on')."""
+    r = _classify(
+        url="https://www.jacc.org/doi/10.1016/j.jacc.2016.03.513",
+        title="2016 ACC/AHA Guideline Focused Update on Duration of Dual Antiplatelet Therapy in Patients With Coronary Artery Disease",
+    )
+    assert r.tier.value == "T2", f"Guideline focused update should be T2, got {r.tier.value}"
+    assert r.matched_rules[-1] == "R8c_guideline_authority"
+
+
+def test_doi_prefix_exact_no_false_positive() -> None:
+    """iter-2 (Codex P2): low-quality-OA DOI matching is exact-prefix, so a
+    longer prefix beginning with 10.3390 (e.g. 10.33901) is NOT treated as MDPI."""
+    assert _is_low_quality_oa("", "https://doi.org/10.3390/jcm14228079") is True
+    assert _is_low_quality_oa("", "https://example.org/10.3390/abc") is True
+    assert _is_low_quality_oa("", "https://doi.org/10.33901/xyz") is False
+    assert _is_low_quality_oa("", "https://example.org/10.33901/abc") is False
+    assert _is_low_quality_oa("", "https://doi.org/10.1056/NEJMoa2107519") is False
+
+codex
+The critical ordering looks coherent: Rule 1 still wins, guideline-authority promotion happens before the broader T4 guideline/explainer demotion, and MDPI demotion sits only after SR/MA title routing. I’m going to run the targeted regression file to catch any mismatch between the diff and the actual workspace.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/test_bug771_tier_authority_and_oa_ceiling.py -q' in C:\POLARIS
+ succeeded in 5199ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 24 items
+
+tests\polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py ....... [ 29%]
+.................                                                        [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 24 passed, 1 warning in 2.18s ========================
+
+codex
+Targeted regressions pass locally. I’m doing a few adversarial probes against the new title detector now, especially year-anchored guideline mentions and authority-domain fallthrough, to make sure there isn’t an obvious false-promote left.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from src.polaris_graph.retrieval.tier_classifier import ClassificationSignals, classify_source_tier
+
+def c(url,title, **kw):
+    sig=ClassificationSignals(url=url,title=title,publisher='',fetched_content_length=8000,openalex_publication_type=kw.get('pub_type','article'),openalex_source_type=kw.get('source_type','journal'),openalex_is_peer_reviewed=kw.get('pr', True),source_type_hint='')
+    r=classify_source_tier(sig)
+    print(r.tier.value, r.matched_rules[-1] if r.matched_rules else None, title)
+
+cases=[
+('https://www.jacc.org/doi/abs/10.1016/j.jacc.2024.07.044','International Clinical Practice Guideline Recommendations for Acute Pulmonary Embolism: Harmony, Dissonance, and Silence'),
+('https://www.jacc.org/doi/10.1016/j.jacc.2024.02.001','2024 ESC Guidelines for the management of atrial fibrillation: Key points for clinicians'),
+('https://www.acc.org/latest-in-cardiology/ten-points-to-remember/2023/11/27/2023-guideline-for-af','2023 ACC/AHA/ACCP/HRS Guideline for the Diagnosis and Management of Atrial Fibrillation: Key Perspectives'),
+('https://www.jacc.org/doi/10.1016/j.jacc.2024.02.001','Guideline-Directed Medical Therapy in Heart Failure: A Prospective Cohort Study'),
+('https://www.jacc.org/doi/10.1016/j.jacc.2024.02.001','2024 Study of Guideline-Recommended Therapy for Heart Failure'),
+('https://www.jacc.org/doi/10.1016/j.jacc.2024.02.001','A randomized trial of anticoagulation after an expert consensus statement'),
+]
+for url,title in cases:
+    c(url,title)
+'@ | python -" in C:\POLARIS
+ succeeded in 1888ms:
+T4 R9_openalex_guideline_explainer International Clinical Practice Guideline Recommendations for Acute Pulmonary Embolism: Harmony, Dissonance, and Silence
+T2 R8c_guideline_authority 2024 ESC Guidelines for the management of atrial fibrillation: Key points for clinicians
+T2 R8c_guideline_authority 2023 ACC/AHA/ACCP/HRS Guideline for the Diagnosis and Management of Atrial Fibrillation: Key Perspectives
+T4 R9_openalex_guideline_explainer Guideline-Directed Medical Therapy in Heart Failure: A Prospective Cohort Study
+T4 R9_openalex_guideline_explainer 2024 Study of Guideline-Recommended Therapy for Heart Failure
+T2 R8c_guideline_authority A randomized trial of anticoagulation after an expert consensus statement
+
+web search: 
+web search: site:jacc.org "Expert Consensus" "cohort" "study" ...
+codex
+I found a concrete false-promote class in the statement-marker path: primary validation/adherence studies that mention an ACC expert consensus pathway in the title are promoted to T2 before the normal article heuristics can classify them. I’m pinning the exact lines so the review output is actionable.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"_GUIDELINE_DOC_STATEMENT_MARKERS|expert consensus|def _title_signals_clinical_guideline|R8c_guideline_authority|any\\(m in t\" src/polaris_graph/retrieval/tier_classifier.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from src.polaris_graph.retrieval.tier_classifier import ClassificationSignals, classify_source_tier
+cases = [
+    (\"https://www.jacc.org/doi/10.1016/j.jcin.2021.03.010\", \"Validation of the 2019 Expert Consensus Algorithm for the Management of Conduction Disturbances After TAVR\"),
+    (\"https://www.jacc.org/doi/10.1016/j.jacc.2024.02.004\", \"Validation of the ACC Expert Consensus Decision Pathway for Patients With Chest Pain\"),
+]
+for url, title in cases:
+    sig = ClassificationSignals(url=url, title=title, publisher=\"\", fetched_content_length=8000, openalex_publication_type=\"article\", openalex_source_type=\"journal\", openalex_is_peer_reviewed=True, source_type_hint=\"\")
+    r = classify_source_tier(sig)
+    print(r.tier.value, r.matched_rules[-1], title)
+'@ | python -" in C:\POLARIS
+ succeeded in 639ms:
+547:_GUIDELINE_DOC_STATEMENT_MARKERS = (
+548:    "consensus statement", "expert consensus",
+569:def _title_signals_clinical_guideline(title: str) -> bool:
+583:    if any(m in t for m in _GUIDELINE_DOC_STATEMENT_MARKERS):
+912:    "consensus", "consensus statement", "expert consensus",
+951:    "position statement", "expert consensus",
+1445:            result.matched_rules.append("R8c_guideline_authority")
+
+ succeeded in 1952ms:
+T2 R8c_guideline_authority Validation of the 2019 Expert Consensus Algorithm for the Management of Conduction Disturbances After TAVR
+T2 R8c_guideline_authority Validation of the ACC Expert Consensus Decision Pathway for Patients With Chest Pain
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/polaris_graph/retrieval/tier_classifier.py:547 and :583: `expert consensus` is an unconditional R8c title marker. That false-promotes real primary validation studies on JACC to T2 before R9 can classify them, e.g. https://www.jacc.org/doi/10.1016/j.jcin.2021.03.010 (`Validation of the 2019 Expert Consensus Algorithm...`) and https://www.jacc.org/doi/10.1016/j.jacc.2024.02.004 (`Validation of the ACC Expert Consensus Decision Pathway...`). These are studies validating/using consensus documents, not issued guideline/consensus documents, so this is the same unsafe false-promote direction as the earlier GDMT/adherence class. Add exclusions/anchoring for validation/implementation/adherence/impact/use-of consensus/pathway titles, or make statement markers require issued-document title shape."
+p2: []
+merge_decision: DO NOT MERGE
+```
+tokens used
+77,500
