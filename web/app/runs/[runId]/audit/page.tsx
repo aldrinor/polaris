@@ -154,10 +154,16 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
           <h2 className="text-foreground text-sm font-semibold">
             Integrity &amp; provenance
           </h2>
-          {/* HONEST signature status — never claims a seal that isn't on disk. */}
+          {/* HONEST signature status — never claims a seal that isn't on disk.
+              I-p2-020 Codex iter-3 P1: `signaturePresent` is only an .asc
+              PRESENCE check (loader), not a cryptographic verify — say
+              "present" + point to operator-side gpg --verify, never "signed". */}
           {signaturePresent ? (
-            <span className="border-verified bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold">
-              ⬡ GPG-signed (manifest.yaml.asc present)
+            <span
+              className="border-verified bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+              title="A detached signature file (manifest.yaml.asc) is present. Confirm validity offline with `gpg --verify manifest.yaml.asc` against the published signing key — presence here is not a cryptographic verification."
+            >
+              ⬡ Detached signature present · verify with gpg
             </span>
           ) : (
             <span
@@ -353,16 +359,19 @@ export default async function AuditExportPage({ params }: AuditPageProps) {
         </div>
       </header>
 
-      <main
-        data-testid="audit-export-page"
-        className="mx-auto w-full max-w-5xl flex-1 px-6 py-8"
-      >
-        {bundle === null ? (
-          <BundlePendingCta runId={runId} />
-        ) : (
+      {/* I-p2-020 Codex iter-3 P2: BundlePendingCta renders its OWN <main>, so
+          the null path must NOT be wrapped in this page's <main> (single-main
+          landmark contract). Only the loaded path provides the <main>. */}
+      {bundle === null ? (
+        <BundlePendingCta runId={runId} />
+      ) : (
+        <main
+          data-testid="audit-export-page"
+          className="mx-auto w-full max-w-5xl flex-1 px-6 py-8"
+        >
           <AuditExportBody bundle={bundle} />
-        )}
-      </main>
+        </main>
+      )}
     </div>
   );
 }
