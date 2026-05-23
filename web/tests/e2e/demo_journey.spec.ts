@@ -30,8 +30,8 @@ test("demo journey: home → intake → dashboard → inspector (canonical fixtu
   await expect(page).toHaveURL(/\/intake/);
   await expect(page.getByTestId("intake-page")).toBeVisible();
 
-  // Step 3: dashboard is reachable directly (the "ask a question" UX
-  // entry). The intake page funnels here for clinical questions.
+  // Step 3: the monitoring dashboard is reachable (run-start lives at
+  // intake→plan now, I-p2-022 #761; the dashboard is monitoring-only).
   await page.goto("/dashboard");
   await expect(page.getByTestId("dashboard-page")).toBeVisible();
 

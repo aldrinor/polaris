@@ -52,13 +52,20 @@ test.describe("WCAG-AA — research dashboard", () => {
     await expectNoA11yViolations(page);
   });
 
-  test("/dashboard after scope rejection is WCAG-AA clean", async ({
-    page,
-  }) => {
-    await page.goto("/dashboard", { waitUntil: "networkidle" });
-    await page.fill("#question", "Should I take ozempic for my diabetes?");
-    await page.getByRole("button", { name: /Check scope/ }).click();
-    await expect(page.getByText(/Rejected/i)).toBeVisible({ timeout: 8_000 });
+  // I-p2-022 (#761): run-start + scope-check moved off the dashboard (now
+  // monitoring-only) to /plan (I-p2-015 #754). The plan page re-runs the full
+  // intake gate on mount; an out-of-scope question renders the "Can't start
+  // this run" blocked alert. a11y-check that surface.
+  test("/plan scope-rejection surface is WCAG-AA clean", async ({ page }) => {
+    await page.goto(
+      "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
+      { waitUntil: "networkidle" },
+    );
+    // Wait for the gate to resolve + the "Can't start this run" blocked alert
+    // to render, so axe actually covers the scope-rejection surface (Codex P2).
+    await expect(page.getByTestId("plan-blocked")).toBeVisible({
+      timeout: 10_000,
+    });
     await expectNoA11yViolations(page);
   });
 });
@@ -117,36 +124,10 @@ test.describe("WCAG-AA — Inspector (signed-bundle, post-I-cd-013a)", () => {
   });
 });
 
-test.describe("WCAG-AA — dashboard upload list with files", () => {
-  test('Upload list "remove" button is WCAG-AA clean (real upload)', async ({
-    page,
-  }) => {
-    // Closes cycle-3 audit P1.1 — F-7 fixed dashboard/page.tsx:324
-    // (\"remove\" button on upload list) but no test exercised it because
-    // no fixture populated the upload state. This test posts a real file
-    // through the live /api/upload endpoint, then asserts axe-clean once
-    // the upload-list <li> renders with the destructive-class \"remove\"
-    // button.
-    await page.goto("/dashboard", { waitUntil: "networkidle" });
-
-    const fileInput = page.locator('input[type="file"]');
-    await fileInput.setInputFiles({
-      name: "polaris_a11y_probe.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from("hello-from-a11y-probe"),
-    });
-
-    // Wait for the upload-list item to appear with our filename + the
-    // \"remove\" button. The list rendering depends on POST /api/upload
-    // returning successfully.
-    await expect(page.getByText("polaris_a11y_probe.txt")).toBeVisible({
-      timeout: 8_000,
-    });
-    await expect(page.getByRole("button", { name: /^remove$/ })).toBeVisible();
-
-    await expectNoA11yViolations(page);
-  });
-});
+// I-p2-022 (#761): the "dashboard upload list" a11y test was REMOVED — the
+// document-upload form lived on the old dashboard run-start workflow, which was
+// relocated off the (now monitoring-only) dashboard. Upload a11y belongs to the
+// /upload route's own suite when uploads are wired into the new intake→plan flow.
 
 // I-cd-013b (GH#669): the legacy `/inspector/golden_with_drop_reason`
 // a11y test exercised a "Dropped: <reason>" annotation that doesn't
@@ -258,31 +239,11 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => 
   });
 });
 
-test.describe("WCAG 2.1.1 keyboard sweep — template radiogroup operable", () => {
-  // F-26 (cycle-8 P1.2 root_cause) regression gate: dashboard template
-  // selection MUST be reachable via Tab + activatable via Space/Enter.
-  // Survived 7 prior cycles as <Card onClick> with no keyboard handler.
-  test("Dashboard template radiogroup is keyboard-operable", async ({
-    page,
-  }) => {
-    await page.goto("/dashboard", { waitUntil: "networkidle" });
-    // The radiogroup should expose role="radiogroup".
-    const group = page.locator('[role="radiogroup"]');
-    await expect(group).toBeVisible();
-    // Each template option should expose role="radio" with aria-checked.
-    const radios = page.locator('[role="radio"]');
-    expect(await radios.count()).toBeGreaterThanOrEqual(2);
-    // Default selection.
-    const initiallyChecked = await page
-      .locator('[role="radio"][aria-checked="true"]')
-      .count();
-    expect(initiallyChecked).toBe(1);
-    // Tab into the first radio + Space-activate; aria-checked moves.
-    await radios.nth(1).focus();
-    await page.keyboard.press("Space");
-    await expect(radios.nth(1)).toHaveAttribute("aria-checked", "true");
-  });
-});
+// I-p2-022 (#761): the "Dashboard template radiogroup keyboard-operable" gate
+// (F-26) was REMOVED here — the template radiogroup lived on the old dashboard
+// run-start workflow, which was relocated to /intake → /plan and is no longer a
+// radiogroup picker (template is carried via the intake handoff). No radiogroup
+// to guard on the monitoring-only dashboard.
 
 // I-cd-013b (GH#669): the legacy /inspector/<bad-runid> destructive-error
 // axe test was MIGRATED into the "WCAG-AA — Inspector (signed-bundle,

@@ -30,30 +30,19 @@ const targets = [
   {
     name: "research_dashboard",
     path: "/dashboard",
-    description: "Research-run dashboard with 8-template selector",
+    description: "Runs monitoring dashboard (recent verified briefs)",
   },
   {
-    name: "research_dashboard_scope_rejected",
-    path: "/dashboard",
-    description: "Dashboard with scope-rejected response visible",
-    interact: async (page) => {
-      await page.fill("#question", "Should I take ozempic for my diabetes?");
-      await page.getByRole("button", { name: /Check scope/ }).click();
-      await page.waitForSelector("text=/Refused/i", { timeout: 5000 });
-    },
+    // I-p2-022 (#761): scope-check relocated to /plan (run-start surface).
+    name: "plan_scope_rejected",
+    path: "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
+    description: "Plan page: an out-of-scope question is blocked from running",
   },
   {
-    name: "research_dashboard_scope_accepted",
-    path: "/dashboard",
-    description: "Dashboard with scope-accepted research question",
-    interact: async (page) => {
-      await page.fill(
-        "#question",
-        "What does the latest CMHC data say about Q3 2025 housing starts across Canadian metros?",
-      );
-      await page.getByRole("button", { name: /Check scope/ }).click();
-      await page.waitForSelector("text=/Accepted/i", { timeout: 5000 });
-    },
+    // I-p2-022 (#761): scope-check + run-start relocated to /plan.
+    name: "plan_scope_accepted",
+    path: "/plan?q=What%20is%20the%20efficacy%20of%20tirzepatide%20for%20type%202%20diabetes",
+    description: "Plan page: an in-scope question ready to start a run",
   },
   {
     name: "inspector_clinical_golden",
