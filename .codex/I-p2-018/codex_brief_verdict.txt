@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex APPROVE iter1 — compare/follow-up consistency, run-scoped honesty.
