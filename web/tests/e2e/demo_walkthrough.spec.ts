@@ -60,9 +60,7 @@ test.describe("Slice 005 — full demo walkthrough", () => {
     ).toBeVisible();
     // The three differentiator pillars replace the old template grid.
     for (const pillar of ["Provable", "Sovereign", "Snowball"]) {
-      await expect(
-        page.getByRole("heading", { name: pillar }),
-      ).toBeVisible();
+      await expect(page.getByRole("heading", { name: pillar })).toBeVisible();
     }
     // The old templates grid is gone.
     await expect(page.getByTestId("template-grid")).toHaveCount(0);
