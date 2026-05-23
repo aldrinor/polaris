@@ -174,6 +174,7 @@ Selected files:
 | `file_directory.md` | THIS file — inventory of active code |
 | `todo_list.md` | Prioritized backlog |
 | `runbook.md` | How to run each pipeline end-to-end |
+| `web/s_tier_design_system.md` | Canonical S-tier UI design system (tokens, signature move, per-PR dual-visual+e2e protocol, build order) — #829 |
 | `live_code_audit.md` | Static import-closure analysis (human-readable) |
 | `live_code_audit.json` | Same, machine-readable |
 | `compliance/` | Compliance reference materials |
