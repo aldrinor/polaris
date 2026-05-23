@@ -25,7 +25,7 @@ export function SiteFooter() {
             POLARIS · Canada
           </span>
           <p className="text-muted-foreground text-xs leading-relaxed">
-            Sovereign Canadian deep research. Every claim in a POLARIS brief is
+            Canadian-hosted deep research. Every claim in a POLARIS brief is
             verified — span by span — against its primary source by an
             independent evaluator family.
           </p>
@@ -53,7 +53,7 @@ export function SiteFooter() {
 
       <div className="border-border/60 border-t">
         <div className="text-muted-foreground/70 mx-auto flex w-full max-w-7xl flex-col gap-1 px-6 py-4 text-[11px] sm:flex-row sm:items-center sm:justify-between">
-          <span>© {year} POLARIS · Sovereign Canadian deep research</span>
+          <span>© {year} POLARIS · Canadian-hosted deep research</span>
           <span>
             LLM inference is currently routed via OpenRouter (US), disclosed at{" "}
             <Link
