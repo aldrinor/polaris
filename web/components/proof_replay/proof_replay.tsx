@@ -12,7 +12,7 @@ import {
   type SourceCardSource,
 } from "@/components/source/source_card";
 import { VerdictChip } from "@/components/verdict/verdict_chip";
-import { resolveSpan } from "@/lib/evidence_span";
+import { resolveSpan, spanInContext } from "@/lib/evidence_span";
 import type { VerifiedReportSectionShape } from "@/lib/inspector_bundle_loader";
 
 interface ProofReplayProps {
@@ -119,9 +119,36 @@ function ProofPane({
               <div key={`${token}-${i}`} className="flex flex-col gap-1">
                 <SourceCard source={cardSource} />
                 {span.quote != null ? (
-                  <blockquote className="border-primary text-foreground max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-snug italic">
-                    &ldquo;{span.quote}&rdquo;
-                  </blockquote>
+                  (() => {
+                    // I-p2-038 (#821): show the EXACT cited span highlighted in
+                    // its real source context (the raw span often starts
+                    // mid-token and reads as broken). Faithful: <mark> === the
+                    // exact full_text[start:end]; context is real adjacent text.
+                    const ctx = spanInContext(
+                      span.source?.full_text,
+                      span.start,
+                      span.end,
+                    );
+                    return (
+                      <blockquote className="border-primary text-muted-foreground max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-relaxed">
+                        {ctx ? (
+                          <>
+                            {ctx.leadingEllipsis ? "… " : "“"}
+                            {ctx.before}
+                            <mark className="bg-primary/10 text-foreground rounded-[3px] box-decoration-clone px-0.5 font-medium">
+                              {ctx.span}
+                            </mark>
+                            {ctx.after}
+                            {ctx.trailingEllipsis ? " …" : "”"}
+                          </>
+                        ) : (
+                          <span className="text-foreground italic">
+                            &ldquo;{span.quote}&rdquo;
+                          </span>
+                        )}
+                      </blockquote>
+                    );
+                  })()
                 ) : (
                   <p className="text-muted-foreground text-xs">
                     Span not renderable from this bundle.

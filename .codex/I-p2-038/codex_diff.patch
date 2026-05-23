@@ -1,63 +1,216 @@
-diff --git a/web/app/plan/page.tsx b/web/app/plan/page.tsx
-index f29ba6eb..5df298a7 100644
---- a/web/app/plan/page.tsx
-+++ b/web/app/plan/page.tsx
-@@ -100,11 +100,13 @@ function PlanContent() {
-   // On mount: re-run the FULL intake gate over the (immutable) question. This
-   // is the same clinical + PICO classifier intake uses, so /plan is safe even
-   // when reached by direct URL.
-+  //
-+  // I-p2-038 (#805): no synchronous setState in the effect body (react-hooks/
-+  // set-state-in-effect). The no-question case is a render-time concern, not an
-+  // async side effect — the render guard below short-circuits on `!question`,
-+  // so the effect just skips the intake fetch when there's nothing to check.
-   useEffect(() => {
--    if (!question) {
--      setState({ kind: "error", message: "no-question" });
--      return;
--    }
-+    if (!question) return;
-     let cancelled = false;
-     (async () => {
-       try {
-@@ -145,10 +147,10 @@ function PlanContent() {
-     };
-   }, [question]);
+diff --git a/web/app/components/proof_showcase.tsx b/web/app/components/proof_showcase.tsx
+index d666d40a..1ac3e353 100644
+--- a/web/app/components/proof_showcase.tsx
++++ b/web/app/components/proof_showcase.tsx
+@@ -7,7 +7,11 @@
+ import { ArrowRight, BadgeCheck, Quote } from "lucide-react";
+ import Link from "next/link";
  
--  if (
--    !question ||
--    (state.kind === "error" && state.message === "no-question")
--  ) {
-+  // I-p2-038 (#805): the no-question state is now purely render-derived from
-+  // the (immutable) `question` searchParam — no effect sets a "no-question"
-+  // error anymore.
-+  if (!question) {
-     return (
-       <section
-         data-testid="plan-page"
-@@ -289,7 +291,7 @@ function PlanContent() {
-           className="border-refusal/30 bg-refusal/10 flex flex-col gap-1 rounded-lg border p-4"
-         >
-           <p className="text-foreground text-sm font-medium">
--            Can't start this run
-+            Can&apos;t start this run
-           </p>
-           <p className="text-muted-foreground text-xs">
-             {notInScopeMessage(decision)} Edit the question to continue.
-diff --git a/web/tests/e2e/demo_walkthrough.spec.ts b/web/tests/e2e/demo_walkthrough.spec.ts
-index 9c83488c..b568eb04 100644
---- a/web/tests/e2e/demo_walkthrough.spec.ts
-+++ b/web/tests/e2e/demo_walkthrough.spec.ts
-@@ -60,9 +60,7 @@ test.describe("Slice 005 — full demo walkthrough", () => {
-     ).toBeVisible();
-     // The three differentiator pillars replace the old template grid.
-     for (const pillar of ["Provable", "Sovereign", "Snowball"]) {
--      await expect(
--        page.getByRole("heading", { name: pillar }),
--      ).toBeVisible();
-+      await expect(page.getByRole("heading", { name: pillar })).toBeVisible();
-     }
-     // The old templates grid is gone.
-     await expect(page.getByTestId("template-grid")).toHaveCount(0);
-
-# canonical-diff-sha256: 7c03739624afd95a67d27f6472c0c396c364f3fb6abc951504f97a882df348cf
+-import { resolveSpan } from "@/lib/evidence_span";
++import {
++  resolveSpan,
++  spanInContext,
++  type SpanInContext,
++} from "@/lib/evidence_span";
+ import { loadBundle } from "@/lib/inspector_bundle_loader";
+ 
+ const DEMO_RUN_ID = "v1-canonical-success";
+@@ -27,6 +31,7 @@ export async function ProofShowcase() {
+   const sections = bundle.verifiedReport?.sections ?? [];
+   let claim: string | null = null;
+   let quote: string | null = null;
++  let ctx: SpanInContext | null = null;
+   let sourceTitle: string | null = null;
+   let sourceUrl: string | null = null;
+   let tier: string | null = null;
+@@ -48,6 +53,10 @@ export async function ProofShowcase() {
+         if (span?.quote && span.quote.trim().length > 40) {
+           claim = s.sentence_text;
+           quote = span.quote;
++          // I-p2-038 (#821): render the exact span IN its real source context
++          // (so it doesn't read as a mid-word fragment), with the exact cited
++          // passage highlighted. Faithful: span === full_text[start:end].
++          ctx = spanInContext(span.source?.full_text, span.start, span.end);
+           sourceTitle = span.source?.title ?? null;
+           sourceUrl = span.source?.url ?? null;
+           tier = tierLabel(span.source?.tier);
+@@ -102,9 +111,24 @@ export async function ProofShowcase() {
+             <Quote aria-hidden className="h-4 w-4" />
+             The exact passage it came from
+           </div>
+-          <blockquote className="border-primary/40 text-foreground/90 border-l-2 pl-3 text-sm leading-relaxed">
+-            “{quote}”
++          <blockquote className="border-primary/40 text-muted-foreground border-l-2 pl-3 text-sm leading-relaxed">
++            {ctx ? (
++              <span className="font-serif">
++                {ctx.leadingEllipsis ? "… " : "“"}
++                {ctx.before}
++                <mark className="bg-primary/10 text-foreground rounded-[3px] decoration-clone px-0.5 font-medium">
++                  {ctx.span}
++                </mark>
++                {ctx.after}
++                {ctx.trailingEllipsis ? " …" : "”"}
++              </span>
++            ) : (
++              <span className="text-foreground/90">“{quote}”</span>
++            )}
+           </blockquote>
++          <p className="text-muted-foreground/80 text-[11px]">
++            Highlighted text is the exact span cited by the claim.
++          </p>
+           {sourceTitle ? (
+             <p className="text-muted-foreground truncate text-xs">
+               {sourceUrl ? (
+diff --git a/web/app/intake/page.tsx b/web/app/intake/page.tsx
+index 402fec61..b22246c0 100644
+--- a/web/app/intake/page.tsx
++++ b/web/app/intake/page.tsx
+@@ -4,9 +4,9 @@ import { IntakeForm } from "./components/intake_form";
+ import { PdfDropBanner } from "./components/pdf_drop_banner";
+ 
+ export const metadata = {
+-  title: "Intake — POLARIS Canada",
++  title: "Ask a research question — POLARIS Canada",
+   description:
+-    "Submit a clinical research question. POLARIS classifies scope and detects PICO ambiguity before any retrieval is run.",
++    "Ask a clinical research question. POLARIS confirms it's answerable from clinical evidence and flags anything ambiguous or out of scope before running any search.",
+ };
+ 
+ // I-cd-023 (#613): /intake rebuild — G1/G6 fix. Page no longer renders
+@@ -22,14 +22,14 @@ export default function IntakePage() {
+     >
+       <div className="flex flex-col gap-2">
+         <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+-          Clinical scope discovery
++          Ask a clinical research question
+         </h1>
+         <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+-          Type a clinical research question and POLARIS will run it through the
+-          scope + intake: refusal-bait detection, scope classification (efficacy
+-          / safety / diagnosis / prognosis), and PICO axis ambiguity detection.
+-          No retrieval is run yet — this is the gate that decides if a question
+-          is researchable as written.
++          POLARIS first confirms your question can be answered from clinical
++          evidence — and flags anything ambiguous or out of scope — before it
++          runs a single search. You&apos;ll see exactly how it&apos;s
++          interpreted, so no run is wasted on a question that can&apos;t be
++          answered as written.
+         </p>
+       </div>
+ 
+diff --git a/web/components/proof_replay/proof_replay.tsx b/web/components/proof_replay/proof_replay.tsx
+index 497d2892..7fbaf519 100644
+--- a/web/components/proof_replay/proof_replay.tsx
++++ b/web/components/proof_replay/proof_replay.tsx
+@@ -12,7 +12,7 @@ import {
+   type SourceCardSource,
+ } from "@/components/source/source_card";
+ import { VerdictChip } from "@/components/verdict/verdict_chip";
+-import { resolveSpan } from "@/lib/evidence_span";
++import { resolveSpan, spanInContext } from "@/lib/evidence_span";
+ import type { VerifiedReportSectionShape } from "@/lib/inspector_bundle_loader";
+ 
+ interface ProofReplayProps {
+@@ -119,9 +119,36 @@ function ProofPane({
+               <div key={`${token}-${i}`} className="flex flex-col gap-1">
+                 <SourceCard source={cardSource} />
+                 {span.quote != null ? (
+-                  <blockquote className="border-primary text-foreground max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-snug italic">
+-                    &ldquo;{span.quote}&rdquo;
+-                  </blockquote>
++                  (() => {
++                    // I-p2-038 (#821): show the EXACT cited span highlighted in
++                    // its real source context (the raw span often starts
++                    // mid-token and reads as broken). Faithful: <mark> === the
++                    // exact full_text[start:end]; context is real adjacent text.
++                    const ctx = spanInContext(
++                      span.source?.full_text,
++                      span.start,
++                      span.end,
++                    );
++                    return (
++                      <blockquote className="border-primary text-muted-foreground max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-relaxed">
++                        {ctx ? (
++                          <>
++                            {ctx.leadingEllipsis ? "… " : "“"}
++                            {ctx.before}
++                            <mark className="bg-primary/10 text-foreground rounded-[3px] decoration-clone px-0.5 font-medium">
++                              {ctx.span}
++                            </mark>
++                            {ctx.after}
++                            {ctx.trailingEllipsis ? " …" : "”"}
++                          </>
++                        ) : (
++                          <span className="text-foreground italic">
++                            &ldquo;{span.quote}&rdquo;
++                          </span>
++                        )}
++                      </blockquote>
++                    );
++                  })()
+                 ) : (
+                   <p className="text-muted-foreground text-xs">
+                     Span not renderable from this bundle.
+diff --git a/web/lib/evidence_span.ts b/web/lib/evidence_span.ts
+index 71b58e0c..9a08fcaa 100644
+--- a/web/lib/evidence_span.ts
++++ b/web/lib/evidence_span.ts
+@@ -33,6 +33,58 @@ function sourcesOf(evidencePool: unknown): EvidenceSource[] {
+   return Array.isArray(s) ? (s as EvidenceSource[]) : [];
+ }
+ 
++/** A cited span rendered WITH its real surrounding source context so it reads
++ * naturally, while the EXACT cited passage stays auditable. `span` is exactly
++ * `full_text[start:end]` (unchanged — faithful); `before`/`after` are real
++ * adjacent source text snapped to word boundaries; the ellipsis flags signal
++ * the context is a window, not the whole body. No synthetic text is introduced. */
++export interface SpanInContext {
++  before: string;
++  span: string;
++  after: string;
++  leadingEllipsis: boolean;
++  trailingEllipsis: boolean;
++}
++
++/** I-p2-038 (#821): build a word-boundary-snapped context window around an exact
++ * cited span so the proof reads naturally (the raw span often starts mid-token).
++ * Returns null when the span itself can't be sliced from `fullText`. */
++export function spanInContext(
++  fullText: string | null | undefined,
++  start: number,
++  end: number,
++  window = 90,
++): SpanInContext | null {
++  if (
++    typeof fullText !== "string" ||
++    start < 0 ||
++    end > fullText.length ||
++    start > end
++  ) {
++    return null;
++  }
++  const span = fullText.slice(start, end);
++  // Expand left to a word boundary (so `before` doesn't itself start mid-word).
++  let ctxStart = Math.max(0, start - window);
++  if (ctxStart > 0) {
++    const sp = fullText.indexOf(" ", ctxStart);
++    if (sp !== -1 && sp < start) ctxStart = sp + 1;
++  }
++  // Expand right to a word boundary.
++  let ctxEnd = Math.min(fullText.length, end + window);
++  if (ctxEnd < fullText.length) {
++    const sp = fullText.lastIndexOf(" ", ctxEnd);
++    if (sp !== -1 && sp > end) ctxEnd = sp;
++  }
++  return {
++    before: fullText.slice(ctxStart, start),
++    span,
++    after: fullText.slice(end, ctxEnd),
++    leadingEllipsis: ctxStart > 0,
++    trailingEllipsis: ctxEnd < fullText.length,
++  };
++}
++
+ /** Resolve a `[#ev:<id>:<start>-<end>]` token against the evidence pool.
+  * Returns null if the token itself is malformed; otherwise a ResolvedSpan
+  * whose `quote` is null unless every bound is valid against the real body. */

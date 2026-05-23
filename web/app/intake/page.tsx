@@ -4,9 +4,9 @@ import { IntakeForm } from "./components/intake_form";
 import { PdfDropBanner } from "./components/pdf_drop_banner";
 
 export const metadata = {
-  title: "Intake — POLARIS Canada",
+  title: "Ask a research question — POLARIS Canada",
   description:
-    "Submit a clinical research question. POLARIS classifies scope and detects PICO ambiguity before any retrieval is run.",
+    "Ask a clinical research question. POLARIS confirms it's answerable from clinical evidence and flags anything ambiguous or out of scope before running any search.",
 };
 
 // I-cd-023 (#613): /intake rebuild — G1/G6 fix. Page no longer renders
@@ -22,14 +22,14 @@ export default function IntakePage() {
     >
       <div className="flex flex-col gap-2">
         <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
-          Clinical scope discovery
+          Ask a clinical research question
         </h1>
         <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
-          Type a clinical research question and POLARIS will run it through the
-          scope + intake: refusal-bait detection, scope classification (efficacy
-          / safety / diagnosis / prognosis), and PICO axis ambiguity detection.
-          No retrieval is run yet — this is the gate that decides if a question
-          is researchable as written.
+          POLARIS first confirms your question can be answered from clinical
+          evidence — and flags anything ambiguous or out of scope — before it
+          runs a single search. You&apos;ll see exactly how it&apos;s
+          interpreted, so no run is wasted on a question that can&apos;t be
+          answered as written.
         </p>
       </div>
 
