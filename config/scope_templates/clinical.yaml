@@ -196,6 +196,20 @@ per_query_primary_trial_variants:
     RE-LY: Connolly NEJM dabigatran warfarin atrial fibrillation
     ENGAGE-AF-TIMI-48: Giugliano NEJM edoxaban warfarin atrial fibrillation
 
+# I-bug-776 (#817) LAYER 4 (Codex decision b): per-anchor primary-trial DOIs,
+# injected as DIRECT doi.org candidate URLs (not search queries). For a
+# guideline-synthesis question, search ranking buries the pivotal primaries, so
+# the layer-3 anchor SEARCH queries don't surface them. These DOIs are OA-verified
+# (Unpaywall returns NEJM PDFs) and were fact-checked by Codex against the NEJM
+# article DOIs. They pass the same fetch/OA/extraction/tier/adequacy gates — a
+# seed counts as T1 only if the classifier identifies the fetched primary trial.
+per_query_primary_trial_dois:
+  clinical_afib_anticoagulation:
+    ARISTOTLE: 10.1056/NEJMoa1107039          # Granger, NEJM 2011 — apixaban
+    ROCKET-AF: 10.1056/NEJMoa1009638          # Patel, NEJM 2011 — rivaroxaban
+    RE-LY: 10.1056/NEJMoa0905561              # Connolly, NEJM 2009 — dabigatran
+    ENGAGE-AF-TIMI-48: 10.1056/NEJMoa1310907  # Giugliano, NEJM 2013 — edoxaban
+
 # M-48 (2026-04-22): per-anchor population-scope labels.
 # Codex V28 plan pass-2 verbatim requirement: SURMOUNT-2 is direct T2D
 # + obesity evidence; SURMOUNT-1, -3, -4 are obesity-only and indirect
