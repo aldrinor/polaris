@@ -52,13 +52,15 @@ test.describe("WCAG-AA — research dashboard", () => {
     await expectNoA11yViolations(page);
   });
 
-  test("/dashboard after scope rejection is WCAG-AA clean", async ({
-    page,
-  }) => {
-    await page.goto("/dashboard", { waitUntil: "networkidle" });
-    await page.fill("#question", "Should I take ozempic for my diabetes?");
-    await page.getByRole("button", { name: /Check scope/ }).click();
-    await expect(page.getByText(/Rejected/i)).toBeVisible({ timeout: 8_000 });
+  // I-p2-022 (#761): run-start + scope-check moved off the dashboard (now
+  // monitoring-only) to /plan (I-p2-015 #754). The plan page re-runs the full
+  // intake gate on mount; an out-of-scope question renders the "Can't start
+  // this run" blocked alert. a11y-check that surface.
+  test("/plan scope-rejection surface is WCAG-AA clean", async ({ page }) => {
+    await page.goto(
+      "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
+      { waitUntil: "networkidle" },
+    );
     await expectNoA11yViolations(page);
   });
 });
@@ -258,31 +260,11 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => 
   });
 });
 
-test.describe("WCAG 2.1.1 keyboard sweep — template radiogroup operable", () => {
-  // F-26 (cycle-8 P1.2 root_cause) regression gate: dashboard template
-  // selection MUST be reachable via Tab + activatable via Space/Enter.
-  // Survived 7 prior cycles as <Card onClick> with no keyboard handler.
-  test("Dashboard template radiogroup is keyboard-operable", async ({
-    page,
-  }) => {
-    await page.goto("/dashboard", { waitUntil: "networkidle" });
-    // The radiogroup should expose role="radiogroup".
-    const group = page.locator('[role="radiogroup"]');
-    await expect(group).toBeVisible();
-    // Each template option should expose role="radio" with aria-checked.
-    const radios = page.locator('[role="radio"]');
-    expect(await radios.count()).toBeGreaterThanOrEqual(2);
-    // Default selection.
-    const initiallyChecked = await page
-      .locator('[role="radio"][aria-checked="true"]')
-      .count();
-    expect(initiallyChecked).toBe(1);
-    // Tab into the first radio + Space-activate; aria-checked moves.
-    await radios.nth(1).focus();
-    await page.keyboard.press("Space");
-    await expect(radios.nth(1)).toHaveAttribute("aria-checked", "true");
-  });
-});
+// I-p2-022 (#761): the "Dashboard template radiogroup keyboard-operable" gate
+// (F-26) was REMOVED here — the template radiogroup lived on the old dashboard
+// run-start workflow, which was relocated to /intake → /plan and is no longer a
+// radiogroup picker (template is carried via the intake handoff). No radiogroup
+// to guard on the monitoring-only dashboard.
 
 // I-cd-013b (GH#669): the legacy /inspector/<bad-runid> destructive-error
 // axe test was MIGRATED into the "WCAG-AA — Inspector (signed-bundle,
