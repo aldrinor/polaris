@@ -1,0 +1,59 @@
+diff --git a/web/app/compare/page.tsx b/web/app/compare/page.tsx
+index 599e473b..944c5017 100644
+--- a/web/app/compare/page.tsx
++++ b/web/app/compare/page.tsx
+@@ -2,6 +2,7 @@
+ 
+ import { useEffect, useState } from "react";
+ 
++import { ErrorState } from "@/components/states/state_kit";
+ import { Button } from "@/components/ui/button";
+ import {
+   compareRuns,
+@@ -127,13 +128,9 @@ export default function ComparePage() {
+         </div>
+       )}
+ 
++      {/* I-p2-018 (#757): #750 ErrorState for design-system consistency. */}
+       {error && (
+-        <p
+-          role="alert"
+-          className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+-        >
+-          {error}
+-        </p>
++        <ErrorState title="Couldn't compare those runs" message={error} />
+       )}
+ 
+       {result && <ComparisonView result={result} />}
+diff --git a/web/app/runs/[runId]/components/followup_panel.tsx b/web/app/runs/[runId]/components/followup_panel.tsx
+index ff601da0..d11b9ab3 100644
+--- a/web/app/runs/[runId]/components/followup_panel.tsx
++++ b/web/app/runs/[runId]/components/followup_panel.tsx
+@@ -2,6 +2,7 @@
+ 
+ import { useState } from "react";
+ 
++import { ErrorState } from "@/components/states/state_kit";
+ import { Button } from "@/components/ui/button";
+ import { askFollowup, type FollowUpAnswer } from "@/lib/api";
+ 
+@@ -91,13 +92,10 @@ export function FollowupPanel({ runId }: { runId: string }) {
+         </div>
+       </form>
+ 
++      {/* I-p2-018 (#757): #750 ErrorState (design tokens + role=alert) for
++          consistency with every other page. */}
+       {state.kind === "error" && (
+-        <p
+-          role="alert"
+-          className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+-        >
+-          {state.message}
+-        </p>
++        <ErrorState title="Follow-up failed" message={state.message} />
+       )}
+ 
+       {state.kind === "answered" && <AnswerView answer={state.answer} />}
+
+# canonical-diff-sha256: ae62259f78bbe46db8fca46ef917ff00438f107a42225bbe3c9a26f2294f05b4

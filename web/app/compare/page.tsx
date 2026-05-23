@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { ErrorState } from "@/components/states/state_kit";
 import { Button } from "@/components/ui/button";
 import {
   compareRuns,
@@ -127,13 +128,9 @@ export default function ComparePage() {
         </div>
       )}
 
+      {/* I-p2-018 (#757): #750 ErrorState for design-system consistency. */}
       {error && (
-        <p
-          role="alert"
-          className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
-        >
-          {error}
-        </p>
+        <ErrorState title="Couldn't compare those runs" message={error} />
       )}
 
       {result && <ComparisonView result={result} />}

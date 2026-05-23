@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { ErrorState } from "@/components/states/state_kit";
 import { Button } from "@/components/ui/button";
 import { askFollowup, type FollowUpAnswer } from "@/lib/api";
 
@@ -91,13 +92,10 @@ export function FollowupPanel({ runId }: { runId: string }) {
         </div>
       </form>
 
+      {/* I-p2-018 (#757): #750 ErrorState (design tokens + role=alert) for
+          consistency with every other page. */}
       {state.kind === "error" && (
-        <p
-          role="alert"
-          className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
-        >
-          {state.message}
-        </p>
+        <ErrorState title="Follow-up failed" message={state.message} />
       )}
 
       {state.kind === "answered" && <AnswerView answer={state.answer} />}
