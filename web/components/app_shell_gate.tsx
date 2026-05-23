@@ -25,7 +25,12 @@ const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
 // full-screen view that renders its OWN header (with "Back to Inspector") +
 // <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
 // header + G6 nested main).
-const CHROMELESS_PATTERNS = [/^\/runs\/[^/]+\/graph$/];
+// I-p2-020 (#759): the audit/export drill-down (/runs/<id>/audit) follows the
+// same focused full-screen pattern (own header + <main>).
+const CHROMELESS_PATTERNS = [
+  /^\/runs\/[^/]+\/graph$/,
+  /^\/runs\/[^/]+\/audit$/,
+];
 
 function isChromeless(pathname: string): boolean {
   return (
