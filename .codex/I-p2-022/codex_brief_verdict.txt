@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex diff APPROVE iter4 + MERGE AUTHORIZED, 0 P0/P1. Monitoring-only dashboard; run-start gone (now /plan); test tail cleaned; AA chip.

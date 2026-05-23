@@ -1,0 +1,1056 @@
+diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
+index ff448c24..fc2dd3fe 100644
+--- a/.github/workflows/web_ci.yml
++++ b/.github/workflows/web_ci.yml
+@@ -128,7 +128,9 @@ jobs:
+         env:
+           SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+-        run: npx playwright test --project=chromium tests/e2e/inspector.spec.ts
++        # I-p2-022 (#761): inspector.spec.ts (held only the obsolete dashboard
++        # scope-discovery describe) deleted; real Inspector e2e = inspector_route.spec.ts.
++        run: npx playwright test --project=chromium tests/e2e/inspector_route.spec.ts
+ 
+       - name: run_e2e_accessibility
+         env:
+diff --git a/web/app/dashboard/page.tsx b/web/app/dashboard/page.tsx
+index fb3fa453..7434efa7 100644
+--- a/web/app/dashboard/page.tsx
++++ b/web/app/dashboard/page.tsx
+@@ -1,668 +1,185 @@
++// I-p2-022 (#761): Dashboard — MONITORING ONLY (not a run-start). Run-start now
++// lives at /intake → /plan (I-p2-015 #754). This page lists recent verified runs
++// (real GET /api/v6/runs data) with their pipeline verdict + a link to each run's
++// report, plus a clear "Start new research" CTA to intake. Replaces the prior
++// 668-line run-start workflow (relocated, not lost).
+ "use client";
+ 
++import { ArrowRight, FileSearch, Plus } from "lucide-react";
+ import Link from "next/link";
+-import { useRouter } from "next/navigation";
+-import { useEffect, useRef, useState } from "react";
++import { useEffect, useState } from "react";
+ 
+-import { Button } from "@/components/ui/button";
+-import {
+-  Card,
+-  CardContent,
+-  CardDescription,
+-  CardHeader,
+-  CardTitle,
+-} from "@/components/ui/card";
+-import { Input } from "@/components/ui/input";
+ import {
+-  checkAmbiguity,
+-  checkScope,
+-  ConcurrentRunError,
+-  createRun,
+-  listTemplates,
+-  uploadDocument,
+-  type AmbiguityCandidate,
+-  type AmbiguityResult,
+-  type ScopeDecision,
+-  type TemplateContent,
+-  type TemplateId,
+-  type UploadResponse,
+-} from "@/lib/api";
+-import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
+-
+-// Static fallback if /templates is unreachable. Keeps the dashboard usable
+-// even if the backend is down; live data preferred when available.
+-const FALLBACK_TEMPLATES: { id: TemplateId; title: string; domain: string }[] =
+-  [
+-    {
+-      id: "clinical",
+-      title: "Clinical drug audit",
+-      domain: "Health Canada / FDA",
+-    },
+-    { id: "policy", title: "Public policy", domain: "Health Canada / NICE" },
+-    {
+-      id: "tech",
+-      title: "Technology assessment",
+-      domain: "arXiv / IEEE / ACM",
+-    },
+-    {
+-      id: "due_diligence",
+-      title: "Due diligence",
+-      domain: "SEC EDGAR / USPTO",
+-    },
+-    { id: "ai_sovereignty", title: "AI sovereignty", domain: "ISED / CIFAR" },
+-    { id: "canada_us", title: "Canada–US relations", domain: "GAC / DFAIT" },
+-    {
+-      id: "workforce",
+-      title: "Workforce & productivity",
+-      domain: "ESDC / IRCC",
+-    },
+-    { id: "custom", title: "Custom research", domain: "Operator-defined" },
+-  ];
++  EmptyState,
++  ErrorState,
++  LoadingState,
++} from "@/components/states/state_kit";
++import { Button } from "@/components/ui/button";
++import { listCompletedRuns, type RunStatusResponse } from "@/lib/api";
++
++type LoadState =
++  | { kind: "loading" }
++  | { kind: "ok"; runs: RunStatusResponse[] }
++  | { kind: "error"; message: string };
++
++function formatWhen(value: string | null | undefined): string | null {
++  if (!value) return null;
++  const d = new Date(value);
++  if (Number.isNaN(d.getTime())) return null;
++  return d.toLocaleDateString(undefined, {
++    month: "short",
++    day: "numeric",
++    year: "numeric",
++  });
++}
+ 
+-function templatesToCards(
+-  list: TemplateContent[],
+-): { id: TemplateId; title: string; domain: string }[] {
+-  return list.map((t) => ({
+-    id: t.template_id as TemplateId,
+-    title: t.template_name,
+-    domain: t.primary_domains.slice(0, 2).join(" / "),
+-  }));
++// Honest verdict label: lifecycle `status` cannot distinguish a success from an
++// abort (mark_aborted stores status=completed) — pipeline_status is the truth.
++function verdictOf(run: RunStatusResponse): { label: string; cls: string } {
++  const v = run.pipeline_status ?? run.status;
++  if (v === "success") {
++    return {
++      label: "Verified",
++      cls: "text-verified border-verified/30 bg-verified/10",
++    };
++  }
++  if (typeof v === "string" && v.startsWith("abort_")) {
++    return {
++      label: "Declined",
++      cls: "text-refusal-foreground border-refusal/30 bg-refusal/10",
++    };
++  }
++  if (typeof v === "string" && v.startsWith("error_")) {
++    return {
++      label: "Error",
++      cls: "text-destructive border-destructive/30 bg-destructive/10",
++    };
++  }
++  return {
++    label: v ?? "Unknown",
++    cls: "text-muted-foreground border-border bg-muted/30",
++  };
+ }
+ 
+ export default function DashboardPage() {
+-  const router = useRouter();
+-  const [template, setTemplate] = useState<TemplateId>("clinical");
+-  const [question, setQuestion] = useState("");
+-  const [submitting, setSubmitting] = useState(false);
+-  const [error, setError] = useState<string | null>(null);
+-  // I-rdy-013 (#509): a 1-concurrent-session reject from POST /runs — shown
+-  // as a dedicated callout with a link to the run holding the session.
+-  const [concurrentRun, setConcurrentRun] = useState<{
+-    runId: string;
+-    status: string;
+-    message: string;
+-  } | null>(null);
+-  const [scopeDecision, setScopeDecision] = useState<ScopeDecision | null>(
+-    null,
+-  );
+-  const [scopeChecking, setScopeChecking] = useState(false);
+-  const [uploads, setUploads] = useState<UploadResponse[]>([]);
+-  const [uploading, setUploading] = useState(false);
+-  const [dragOver, setDragOver] = useState(false);
+-  const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
+-  const [acknowledgedAmbiguity, setAcknowledgedAmbiguity] = useState(false);
+-  const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
+-  // I-rdy-009 (#505): pre-run disambiguation. `disambigModalOpen` drives the
+-  // DisambiguationModal; `pickedClusterId` is the "selected one cluster"
+-  // resolution mode (distinct from `acknowledgedAmbiguity` = "run on all");
+-  // `ambiguityCheckedKey` marks which (question, template, uploads) the
+-  // `ambiguity` result is valid for; `resolvedForKey` binds a resolution
+-  // (a pick or an acknowledge) to the input key it was made for, so a stale
+-  // resolution cannot unblock a later, changed query (Codex diff iter-1 P1).
+-  const [disambigModalOpen, setDisambigModalOpen] = useState(false);
+-  const [pickedClusterId, setPickedClusterId] = useState<number | null>(null);
+-  const [ambiguityCheckedKey, setAmbiguityCheckedKey] = useState<string | null>(
+-    null,
+-  );
+-  const [resolvedForKey, setResolvedForKey] = useState<string | null>(null);
++  const [state, setState] = useState<LoadState>({ kind: "loading" });
+ 
+   useEffect(() => {
+     let cancelled = false;
+-    listTemplates()
+-      .then((live) => {
+-        if (!cancelled && live.length > 0) {
+-          setTemplates(templatesToCards(live));
++    (async () => {
++      try {
++        const runs = await listCompletedRuns(50);
++        if (!cancelled) setState({ kind: "ok", runs });
++      } catch (err) {
++        if (!cancelled) {
++          setState({
++            kind: "error",
++            message:
++              err instanceof Error
++                ? err.message
++                : "Could not load runs from the backend.",
++          });
+         }
+-      })
+-      .catch(() => {
+-        // Keep fallback on failure; dashboard still works.
+-      });
++      }
++    })();
+     return () => {
+       cancelled = true;
+     };
+   }, []);
+ 
+-  // I-rdy-009 (#505): the ambiguity result is valid only for the exact
+-  // (question, template, uploads) it was computed for. `currentInputKey` is
+-  // recomputed every render; `latestInputKeyRef` mirrors it so async code
+-  // can compare a captured key against the LATEST committed inputs after an
+-  // await — a plain `currentInputKey` re-read inside an async handler would
+-  // only see that handler's stale render closure (Codex diff iter-1 P1).
+-  const currentInputKey = JSON.stringify({
+-    q: question.trim(),
+-    t: template,
+-    d: uploads.map((u) => u.document_id),
+-  });
+-  const latestInputKeyRef = useRef(currentInputKey);
+-  useEffect(() => {
+-    latestInputKeyRef.current = currentInputKey;
+-  });
+-
+-  // The light-detector candidates: one per uploaded-document chunk preview.
+-  const buildCandidates = (): AmbiguityCandidate[] =>
+-    uploads.flatMap((u, ui) =>
+-      u.chunk_preview.map((text, ci) => ({
+-        source_id: `${u.document_id}:${ui}-${ci}`,
+-        text,
+-      })),
+-    );
+-
+-  // I-rdy-009 (#505): a question / template / uploads change invalidates
+-  // any prior ambiguity result AND modal selection — otherwise a cluster
+-  // picked for an earlier query could wrongly unblock a later, changed one
+-  // (the freshness key alone does not clear `pickedClusterId`). Called from
+-  // every input-change handler — NOT a useEffect (resetting state in an
+-  // effect is the react-hooks/set-state-in-effect anti-pattern).
+-  const resetAmbiguityState = () => {
+-    setAmbiguity(null);
+-    setAcknowledgedAmbiguity(false);
+-    setPickedClusterId(null);
+-    setAmbiguityCheckedKey(null);
+-    setResolvedForKey(null);
+-    setDisambigModalOpen(false);
+-  };
+-
+-  const handleFiles = async (files: FileList | File[]) => {
+-    const list = Array.from(files);
+-    if (list.length === 0) return;
+-    setUploading(true);
+-    setError(null);
+-    try {
+-      const results: UploadResponse[] = [];
+-      for (const file of list) {
+-        const result = await uploadDocument(file, "UNKNOWN");
+-        results.push(result);
+-      }
+-      setUploads((prev) => [...prev, ...results]);
+-      resetAmbiguityState();
+-    } catch (err) {
+-      setError(err instanceof Error ? err.message : "Upload failed");
+-    } finally {
+-      setUploading(false);
+-    }
+-  };
+-
+-  const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
+-    event.preventDefault();
+-    setDragOver(false);
+-    if (event.dataTransfer.files.length > 0) {
+-      handleFiles(event.dataTransfer.files);
+-    }
+-  };
+-
+-  const runScopeCheck = async () => {
+-    if (question.trim().length < 1) return;
+-    setScopeChecking(true);
+-    setError(null);
+-    setAmbiguity(null);
+-    setAcknowledgedAmbiguity(false);
+-    setPickedClusterId(null);
+-    setAmbiguityCheckedKey(null);
+-    setResolvedForKey(null);
+-    // Captured before any await; compared against latestInputKeyRef (the
+-    // latest committed inputs) afterwards — not a stale closure re-read.
+-    const key = currentInputKey;
+-    try {
+-      const decision = await checkScope(template, question.trim());
+-      if (latestInputKeyRef.current !== key) return;
+-      setScopeDecision(decision);
+-      if (decision.verdict === "accepted") {
+-        const candidates = buildCandidates();
+-        if (candidates.length > 0) {
+-          const result = await checkAmbiguity(question.trim(), candidates);
+-          // Ignore a late result whose inputs changed during the await.
+-          if (latestInputKeyRef.current !== key) return;
+-          setAmbiguity(result);
+-          setAmbiguityCheckedKey(key);
+-          if (result.is_ambiguous && result.clusters.length > 0) {
+-            setDisambigModalOpen(true);
+-          }
+-        }
+-      }
+-    } catch (err) {
+-      setError(err instanceof Error ? err.message : "Scope check failed");
+-    } finally {
+-      setScopeChecking(false);
+-    }
+-  };
+-
+-  const onSubmit = async (event: React.FormEvent) => {
+-    event.preventDefault();
+-    if (question.trim().length < 4) {
+-      setError("Question must be at least 4 characters.");
+-      return;
+-    }
+-    if (scopeDecision?.verdict === "rejected") {
+-      setError("Scope gate rejected this question. Reframe before submitting.");
+-      return;
+-    }
+-    setError(null);
+-    setConcurrentRun(null);
+-    setSubmitting(true);
+-
+-    // I-rdy-009 (#505): mandatory pre-run ambiguity preflight. createRun()
+-    // cannot fire until ambiguity has been checked for the CURRENT inputs
+-    // and is either absent or resolved (a cluster picked, or all clusters
+-    // acknowledged) — so the disambiguation modal cannot be bypassed by
+-    // clicking "Start run" without first running "Check scope".
+-    let amb = ambiguity;
+-    // Captured before any await; the stale-guard compares it against
+-    // latestInputKeyRef (the latest committed inputs), never a re-read of
+-    // this handler's own stale render closure (Codex diff iter-1 P1).
+-    const key = currentInputKey;
+-    if (ambiguityCheckedKey !== key) {
+-      const candidates = buildCandidates();
+-      if (candidates.length === 0) {
+-        // No candidate snippets — nothing for the detector to cluster.
+-        amb = null;
+-        setAmbiguity(null);
+-        setAmbiguityCheckedKey(key);
+-      } else {
+-        try {
+-          const result = await checkAmbiguity(question.trim(), candidates);
+-          if (latestInputKeyRef.current !== key) {
+-            // Inputs changed mid-flight — discard this stale result.
+-            setSubmitting(false);
+-            return;
+-          }
+-          amb = result;
+-          setAmbiguity(result);
+-          setAmbiguityCheckedKey(key);
+-        } catch (err) {
+-          setError(
+-            err instanceof Error ? err.message : "Ambiguity check failed",
+-          );
+-          setSubmitting(false);
+-          return;
+-        }
+-      }
+-    }
+-
+-    // A pick / acknowledge only resolves the ambiguity if it was made for
+-    // THIS input key — a resolution recorded for an earlier query must not
+-    // unblock a changed one (Codex diff iter-1 P1).
+-    const resolved =
+-      resolvedForKey === key &&
+-      (pickedClusterId !== null || acknowledgedAmbiguity);
+-    if (amb?.is_ambiguous && !resolved) {
+-      // Open the disambiguation modal and hold the run until the operator
+-      // picks a meaning (or acknowledges all clusters in the panel).
+-      setDisambigModalOpen(true);
+-      setSubmitting(false);
+-      return;
+-    }
+-
+-    try {
+-      const run = await createRun({
+-        template,
+-        question: question.trim(),
+-        document_ids: uploads.map((u) => u.document_id),
+-      });
+-      router.push(`/runs/${run.run_id}`);
+-    } catch (err) {
+-      if (err instanceof ConcurrentRunError) {
+-        // I-rdy-013: 1-concurrent-session reject — show a dedicated callout
+-        // with a link to the run that currently holds the session.
+-        setConcurrentRun({
+-          runId: err.activeRunId,
+-          status: err.activeStatus,
+-          message: err.message,
+-        });
+-        setSubmitting(false);
+-        return;
+-      }
+-      const message = err instanceof Error ? err.message : "Unknown error";
+-      setError(message);
+-      setSubmitting(false);
+-    }
+-  };
+-
+-  // I-cd-024 (#614): /dashboard rebuild — G1/G6 fix. Page no longer
+-  // renders its own <header>, <footer>, or <main>; AppShell (via
+-  // AppShellGate, I-cd-022) is the single landmark provider. G2 fix:
+-  // removed "POLARIS v6.2 — Phase 0 scaffold" footer dev-language string.
+   return (
+     <section
+       data-testid="dashboard-page"
+-      className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-12"
++      className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-10"
+     >
+-      <div className="flex flex-col gap-2">
+-        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+-          Start a research run
+-        </h1>
+-        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+-          Pick a template and ask a focused question. Every claim returned will
+-          carry a provenance token tied to a primary source.
+-        </p>
+-      </div>
+-
+-      <form onSubmit={onSubmit} className="flex flex-col gap-6">
+-        <fieldset className="flex flex-col gap-3">
+-          <legend className="text-foreground text-sm font-semibold">
+-            Template
+-          </legend>
+-          <div
+-            role="radiogroup"
+-            aria-label="Research template"
+-            className="grid grid-cols-1 gap-3 md:grid-cols-2"
+-          >
+-            {templates.map((t) => {
+-              const selected = template === t.id;
+-              return (
+-                // F-26 (cycle-8 P1.2 root_cause): native button + role=radio
+-                // makes template selection keyboard-operable. Survived 7
+-                // prior cycles as <Card onClick=...> (React onClick on a
+-                // <div> — keyboard-only users locked out of non-default
+-                // templates, WCAG 2.1.1 Level A failure).
+-                <button
+-                  key={t.id}
+-                  type="button"
+-                  role="radio"
+-                  aria-checked={selected}
+-                  onClick={() => {
+-                    setTemplate(t.id);
+-                    resetAmbiguityState();
+-                  }}
+-                  className={`bg-card focus-visible:ring-ring/70 rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+-                    selected
+-                      ? "border-foreground"
+-                      : "border-border hover:border-muted-foreground"
+-                  }`}
+-                >
+-                  <span className="text-card-foreground block text-xs font-medium tracking-widest uppercase">
+-                    {t.domain}
+-                  </span>
+-                  <span className="text-card-foreground mt-1 block text-base font-semibold">
+-                    {t.title}
+-                  </span>
+-                </button>
+-              );
+-            })}
+-          </div>
+-        </fieldset>
+-
+-        <div className="flex flex-col gap-2">
+-          <label
+-            htmlFor="question"
+-            className="text-foreground text-sm font-semibold"
+-          >
+-            Research question
+-          </label>
+-          <Input
+-            id="question"
+-            type="text"
+-            placeholder="What does the latest CMHC data say about Q3 2025 housing starts?"
+-            value={question}
+-            onChange={(e) => {
+-              setQuestion(e.target.value);
+-              resetAmbiguityState();
+-            }}
+-            minLength={4}
+-            maxLength={2000}
+-            required
+-            disabled={submitting}
+-          />
++      <div className="flex flex-wrap items-end justify-between gap-4">
++        <div className="flex flex-col gap-1">
++          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
++            Runs
++          </h1>
++          <p className="text-muted-foreground text-sm">
++            Recent completed research runs. Open one to replay its proof, claim
++            by claim.
++          </p>
+         </div>
++        <Button
++          nativeButton={false}
++          className="h-10"
++          render={
++            <Link href="/intake" data-testid="dashboard-start-run">
++              <Plus aria-hidden className="mr-1.5 h-4 w-4" />
++              Start new research
++            </Link>
++          }
++        />
++      </div>
+ 
+-        <div className="flex flex-col gap-2">
+-          <span className="text-foreground text-sm font-semibold">
+-            Optional: upload supporting documents
+-          </span>
+-          <div
+-            onDragOver={(e) => {
+-              e.preventDefault();
+-              setDragOver(true);
+-            }}
+-            onDragLeave={() => setDragOver(false)}
+-            onDrop={onDrop}
+-            className={`flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-6 text-sm transition ${
+-              dragOver
+-                ? "border-foreground bg-muted/40"
+-                : "border-border bg-muted/10"
+-            }`}
+-          >
+-            <p className="text-muted-foreground">
+-              Drag PDFs, .docx, .md, or .txt here, or
+-            </p>
+-            <label className="text-foreground inline-flex min-h-[24px] cursor-pointer items-center px-2 underline-offset-4 hover:underline">
+-              <span>browse files</span>
+-              <input
+-                type="file"
+-                multiple
+-                accept=".pdf,.docx,.md,.txt"
+-                className="hidden"
+-                disabled={uploading || submitting}
+-                onChange={(e) => {
+-                  if (e.target.files) handleFiles(e.target.files);
+-                  e.target.value = "";
+-                }}
+-              />
+-            </label>
+-            {uploading && (
+-              <p className="text-muted-foreground text-xs">Uploading…</p>
+-            )}
+-          </div>
+-          {uploads.length > 0 && (
+-            <ul className="text-muted-foreground flex flex-col gap-1 text-xs">
+-              {uploads.map((u) => (
+-                <li
+-                  key={u.document_id}
+-                  className="border-border bg-background flex items-center justify-between rounded-md border px-3 py-2"
++      {state.kind === "loading" ? (
++        <LoadingState label="Loading runs…" rows={5} />
++      ) : null}
++
++      {state.kind === "error" ? (
++        <ErrorState title="Couldn't load runs" message={state.message} />
++      ) : null}
++
++      {state.kind === "ok" && state.runs.length === 0 ? (
++        <EmptyState
++          icon={FileSearch}
++          title="No runs yet"
++          description="Once you run a research question, every verified brief shows up here for monitoring and replay."
++          action={
++            <Button
++              nativeButton={false}
++              variant="outline"
++              render={<Link href="/intake">Start your first research</Link>}
++            />
++          }
++        />
++      ) : null}
++
++      {state.kind === "ok" && state.runs.length > 0 ? (
++        <ul
++          className="border-border divide-border divide-y rounded-xl border"
++          data-testid="runs-list"
++        >
++          {state.runs.map((run) => {
++            const verdict = verdictOf(run);
++            const when = formatWhen(run.finished_at ?? run.queued_at);
++            return (
++              <li key={run.run_id}>
++                <Link
++                  href={`/runs/${run.run_id}`}
++                  data-testid={`run-row-${run.run_id}`}
++                  className="hover:bg-muted/40 focus-visible:ring-ring/70 flex items-center justify-between gap-4 px-4 py-3 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                 >
+-                  <span className="truncate">
+-                    <span className="text-foreground font-medium">
+-                      {u.filename}
+-                    </span>
+-                    <span className="ml-2 font-mono">
+-                      {(u.bytes / 1024).toFixed(1)} KB
++                  <div className="flex min-w-0 flex-col gap-1">
++                    <span className="text-foreground line-clamp-1 text-sm font-medium">
++                      {run.question || run.run_id}
+                     </span>
+-                    <span className="ml-2 uppercase">{u.classification}</span>
+-                    <span className="ml-2">{u.parse_status}</span>
+-                  </span>
+-                  <button
+-                    type="button"
+-                    onClick={() => {
+-                      setUploads((prev) =>
+-                        prev.filter((p) => p.document_id !== u.document_id),
+-                      );
+-                      resetAmbiguityState();
+-                    }}
+-                    className="text-foreground inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded px-1 font-medium hover:underline"
+-                  >
+-                    remove
+-                  </button>
+-                </li>
+-              ))}
+-            </ul>
+-          )}
+-        </div>
+-
+-        {scopeDecision && (
+-          <Card
+-            role="status"
+-            aria-live="polite"
+-            className={
+-              scopeDecision.verdict === "rejected"
+-                ? "border-destructive/60"
+-                : scopeDecision.verdict === "needs_clarification"
+-                  ? "border-yellow-500/60"
+-                  : "border-emerald-500/60"
+-            }
+-          >
+-            <CardHeader>
+-              <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
+-                Scope discovery
+-              </CardDescription>
+-              <CardTitle className="text-base capitalize">
+-                {scopeDecision.verdict.replace("_", " ")}
+-              </CardTitle>
+-            </CardHeader>
+-            <CardContent>
+-              <p className="text-sm">{scopeDecision.rationale}</p>
+-              {scopeDecision.refusals.length > 0 && (
+-                <p className="text-foreground mt-2 text-sm font-medium">
+-                  Refused: {scopeDecision.refusals.join(", ")}
+-                </p>
+-              )}
+-              {scopeDecision.intended_source_tiers.length > 0 && (
+-                <p className="text-foreground mt-2 text-xs font-medium">
+-                  Source tiers: {scopeDecision.intended_source_tiers.join(", ")}
+-                </p>
+-              )}
+-            </CardContent>
+-          </Card>
+-        )}
+-
+-        {ambiguity?.is_ambiguous && (
+-          <Card
+-            role="status"
+-            aria-live="polite"
+-            className="border-yellow-500/50 bg-yellow-50/40"
+-          >
+-            <CardHeader>
+-              <CardDescription className="text-xs tracking-widest uppercase">
+-                Disambiguation needed (ambiguity guard)
+-              </CardDescription>
+-              <CardTitle className="text-base">
+-                {ambiguity.clusters.length} possible meanings detected
+-              </CardTitle>
+-            </CardHeader>
+-            <CardContent>
+-              <p className="text-sm">
+-                Your question or uploads suggest more than one topic. Pick one
+-                to refine the question, or acknowledge to proceed with all of
+-                them in scope.
+-              </p>
+-              <ul className="mt-3 flex flex-col gap-2 text-sm">
+-                {ambiguity.clusters.map((c) => (
+-                  <li
+-                    key={c.cluster_id}
+-                    className="border-border bg-background rounded-md border p-2"
+-                  >
+-                    <span className="text-foreground font-medium">
+-                      Cluster {c.cluster_id + 1}:
+-                    </span>{" "}
+-                    <span className="text-muted-foreground">
+-                      {c.representative_text}
++                    <span className="text-muted-foreground text-xs">
++                      <span className="text-primary font-medium tracking-wide uppercase">
++                        {run.template}
++                      </span>
++                      {when ? <span> · {when}</span> : null}
+                     </span>
+-                  </li>
+-                ))}
+-              </ul>
+-              <div className="mt-3 flex flex-col gap-2">
+-                {pickedClusterId !== null ? (
+-                  // Resolution mode: one cluster picked via the modal.
+-                  <p className="text-foreground text-sm font-medium">
+-                    Focused on Cluster {pickedClusterId + 1} — the run will
+-                    proceed with that interpretation.
+-                  </p>
+-                ) : (
+-                  // Unresolved: re-open the modal to pick one, or
+-                  // acknowledge all clusters to run on every meaning.
+-                  <div className="flex flex-wrap gap-2">
+-                    <Button
+-                      type="button"
+-                      onClick={() => setDisambigModalOpen(true)}
+-                    >
+-                      Pick a meaning…
+-                    </Button>
+-                    <Button
+-                      type="button"
+-                      variant={acknowledgedAmbiguity ? "default" : "outline"}
+-                      onClick={() => {
+-                        setAcknowledgedAmbiguity((v) => !v);
+-                        // Bind the acknowledge decision to the current
+-                        // input key (Codex diff iter-1 P1).
+-                        setResolvedForKey(currentInputKey);
+-                      }}
++                  </div>
++                  <div className="flex shrink-0 items-center gap-3">
++                    <span
++                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${verdict.cls}`}
+                     >
+-                      {acknowledgedAmbiguity
+-                        ? "Acknowledged — will run on all clusters"
+-                        : "Acknowledge ambiguity"}
+-                    </Button>
++                      {verdict.label}
++                    </span>
++                    <ArrowRight
++                      aria-hidden
++                      className="text-muted-foreground h-4 w-4"
++                    />
+                   </div>
+-                )}
+-              </div>
+-            </CardContent>
+-          </Card>
+-        )}
+-
+-        {error && (
+-          <p
+-            role="alert"
+-            className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
+-          >
+-            {error}
+-          </p>
+-        )}
+-
+-        {concurrentRun && (
+-          <div
+-            role="alert"
+-            className="border-destructive/60 flex flex-col gap-2 rounded-md border p-3 text-sm"
+-          >
+-            <p className="text-foreground font-medium">
+-              {concurrentRun.message}
+-            </p>
+-            {concurrentRun.runId && (
+-              <Link
+-                href={`/runs/${concurrentRun.runId}`}
+-                className="text-foreground font-semibold underline underline-offset-4"
+-              >
+-                Open the active run →
+-              </Link>
+-            )}
+-          </div>
+-        )}
+-
+-        <div className="flex items-center justify-end gap-3">
+-          <Button
+-            variant="ghost"
+-            nativeButton={false}
+-            render={<Link href="/" />}
+-          >
+-            Cancel
+-          </Button>
+-          <Button
+-            type="button"
+-            variant="outline"
+-            onClick={runScopeCheck}
+-            disabled={scopeChecking || question.trim().length < 1}
+-          >
+-            {scopeChecking ? "Checking…" : "Check scope"}
+-          </Button>
+-          <Button
+-            type="submit"
+-            disabled={submitting || scopeDecision?.verdict === "rejected"}
+-          >
+-            {submitting ? "Queuing…" : "Start run"}
+-          </Button>
+-        </div>
+-
+-        {/* I-rdy-009 (#505): the disambiguation modal — opened by the
+-              onSubmit ambiguity preflight (and by "Check scope" / "Pick a
+-              meaning…"). Picking a cluster resolves the ambiguity and lets
+-              the held run proceed. Clusters are the real AmbiguityResult
+-              clusters; representative_text is reused 1:1 as the label. */}
+-        <DisambiguationModal
+-          open={disambigModalOpen}
+-          clusters={
+-            ambiguity?.clusters.map((c) => ({
+-              cluster_id: c.cluster_id,
+-              label: c.representative_text,
+-              sample_snippets: [c.representative_text],
+-            })) ?? []
+-          }
+-          onSelectCluster={(cid) => {
+-            setPickedClusterId(cid);
+-            // Bind the resolution to the input key it was made for, so a
+-            // pick cannot unblock a later, changed query (Codex diff
+-            // iter-1 P1).
+-            setResolvedForKey(currentInputKey);
+-            setDisambigModalOpen(false);
+-          }}
+-          onCancel={() => setDisambigModalOpen(false)}
+-        />
+-      </form>
++                </Link>
++              </li>
++            );
++          })}
++        </ul>
++      ) : null}
+     </section>
+   );
+ }
+diff --git a/web/app/runs/[runId]/page.tsx b/web/app/runs/[runId]/page.tsx
+index cae81d6a..c31d1c33 100644
+--- a/web/app/runs/[runId]/page.tsx
++++ b/web/app/runs/[runId]/page.tsx
+@@ -134,7 +134,7 @@ export default function RunDetailPage({ params }: RunPageProps) {
+         <Button
+           variant="default"
+           nativeButton={false}
+-          render={<Link href="/dashboard" />}
++          render={<Link href="/intake" />}
+         >
+           New run
+         </Button>
+diff --git a/web/scripts/capture_screenshots.mjs b/web/scripts/capture_screenshots.mjs
+index 5b7c258c..1bb104c8 100644
+--- a/web/scripts/capture_screenshots.mjs
++++ b/web/scripts/capture_screenshots.mjs
+@@ -30,30 +30,19 @@ const targets = [
+   {
+     name: "research_dashboard",
+     path: "/dashboard",
+-    description: "Research-run dashboard with 8-template selector",
++    description: "Runs monitoring dashboard (recent verified briefs)",
+   },
+   {
+-    name: "research_dashboard_scope_rejected",
+-    path: "/dashboard",
+-    description: "Dashboard with scope-rejected response visible",
+-    interact: async (page) => {
+-      await page.fill("#question", "Should I take ozempic for my diabetes?");
+-      await page.getByRole("button", { name: /Check scope/ }).click();
+-      await page.waitForSelector("text=/Refused/i", { timeout: 5000 });
+-    },
++    // I-p2-022 (#761): scope-check relocated to /plan (run-start surface).
++    name: "plan_scope_rejected",
++    path: "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
++    description: "Plan page: an out-of-scope question is blocked from running",
+   },
+   {
+-    name: "research_dashboard_scope_accepted",
+-    path: "/dashboard",
+-    description: "Dashboard with scope-accepted research question",
+-    interact: async (page) => {
+-      await page.fill(
+-        "#question",
+-        "What does the latest CMHC data say about Q3 2025 housing starts across Canadian metros?",
+-      );
+-      await page.getByRole("button", { name: /Check scope/ }).click();
+-      await page.waitForSelector("text=/Accepted/i", { timeout: 5000 });
+-    },
++    // I-p2-022 (#761): scope-check + run-start relocated to /plan.
++    name: "plan_scope_accepted",
++    path: "/plan?q=What%20is%20the%20efficacy%20of%20tirzepatide%20for%20type%202%20diabetes",
++    description: "Plan page: an in-scope question ready to start a run",
+   },
+   {
+     name: "inspector_clinical_golden",
+diff --git a/web/tests/e2e/accessibility.spec.ts b/web/tests/e2e/accessibility.spec.ts
+index 127f242b..f0e0b3a6 100644
+--- a/web/tests/e2e/accessibility.spec.ts
++++ b/web/tests/e2e/accessibility.spec.ts
+@@ -52,13 +52,20 @@ test.describe("WCAG-AA — research dashboard", () => {
+     await expectNoA11yViolations(page);
+   });
+ 
+-  test("/dashboard after scope rejection is WCAG-AA clean", async ({
+-    page,
+-  }) => {
+-    await page.goto("/dashboard", { waitUntil: "networkidle" });
+-    await page.fill("#question", "Should I take ozempic for my diabetes?");
+-    await page.getByRole("button", { name: /Check scope/ }).click();
+-    await expect(page.getByText(/Rejected/i)).toBeVisible({ timeout: 8_000 });
++  // I-p2-022 (#761): run-start + scope-check moved off the dashboard (now
++  // monitoring-only) to /plan (I-p2-015 #754). The plan page re-runs the full
++  // intake gate on mount; an out-of-scope question renders the "Can't start
++  // this run" blocked alert. a11y-check that surface.
++  test("/plan scope-rejection surface is WCAG-AA clean", async ({ page }) => {
++    await page.goto(
++      "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
++      { waitUntil: "networkidle" },
++    );
++    // Wait for the gate to resolve + the "Can't start this run" blocked alert
++    // to render, so axe actually covers the scope-rejection surface (Codex P2).
++    await expect(page.getByTestId("plan-blocked")).toBeVisible({
++      timeout: 10_000,
++    });
+     await expectNoA11yViolations(page);
+   });
+ });
+@@ -117,36 +124,10 @@ test.describe("WCAG-AA — Inspector (signed-bundle, post-I-cd-013a)", () => {
+   });
+ });
+ 
+-test.describe("WCAG-AA — dashboard upload list with files", () => {
+-  test('Upload list "remove" button is WCAG-AA clean (real upload)', async ({
+-    page,
+-  }) => {
+-    // Closes cycle-3 audit P1.1 — F-7 fixed dashboard/page.tsx:324
+-    // (\"remove\" button on upload list) but no test exercised it because
+-    // no fixture populated the upload state. This test posts a real file
+-    // through the live /api/upload endpoint, then asserts axe-clean once
+-    // the upload-list <li> renders with the destructive-class \"remove\"
+-    // button.
+-    await page.goto("/dashboard", { waitUntil: "networkidle" });
+-
+-    const fileInput = page.locator('input[type="file"]');
+-    await fileInput.setInputFiles({
+-      name: "polaris_a11y_probe.txt",
+-      mimeType: "text/plain",
+-      buffer: Buffer.from("hello-from-a11y-probe"),
+-    });
+-
+-    // Wait for the upload-list item to appear with our filename + the
+-    // \"remove\" button. The list rendering depends on POST /api/upload
+-    // returning successfully.
+-    await expect(page.getByText("polaris_a11y_probe.txt")).toBeVisible({
+-      timeout: 8_000,
+-    });
+-    await expect(page.getByRole("button", { name: /^remove$/ })).toBeVisible();
+-
+-    await expectNoA11yViolations(page);
+-  });
+-});
++// I-p2-022 (#761): the "dashboard upload list" a11y test was REMOVED — the
++// document-upload form lived on the old dashboard run-start workflow, which was
++// relocated off the (now monitoring-only) dashboard. Upload a11y belongs to the
++// /upload route's own suite when uploads are wired into the new intake→plan flow.
+ 
+ // I-cd-013b (GH#669): the legacy `/inspector/golden_with_drop_reason`
+ // a11y test exercised a "Dropped: <reason>" annotation that doesn't
+@@ -258,31 +239,11 @@ test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () =>
+   });
+ });
+ 
+-test.describe("WCAG 2.1.1 keyboard sweep — template radiogroup operable", () => {
+-  // F-26 (cycle-8 P1.2 root_cause) regression gate: dashboard template
+-  // selection MUST be reachable via Tab + activatable via Space/Enter.
+-  // Survived 7 prior cycles as <Card onClick> with no keyboard handler.
+-  test("Dashboard template radiogroup is keyboard-operable", async ({
+-    page,
+-  }) => {
+-    await page.goto("/dashboard", { waitUntil: "networkidle" });
+-    // The radiogroup should expose role="radiogroup".
+-    const group = page.locator('[role="radiogroup"]');
+-    await expect(group).toBeVisible();
+-    // Each template option should expose role="radio" with aria-checked.
+-    const radios = page.locator('[role="radio"]');
+-    expect(await radios.count()).toBeGreaterThanOrEqual(2);
+-    // Default selection.
+-    const initiallyChecked = await page
+-      .locator('[role="radio"][aria-checked="true"]')
+-      .count();
+-    expect(initiallyChecked).toBe(1);
+-    // Tab into the first radio + Space-activate; aria-checked moves.
+-    await radios.nth(1).focus();
+-    await page.keyboard.press("Space");
+-    await expect(radios.nth(1)).toHaveAttribute("aria-checked", "true");
+-  });
+-});
++// I-p2-022 (#761): the "Dashboard template radiogroup keyboard-operable" gate
++// (F-26) was REMOVED here — the template radiogroup lived on the old dashboard
++// run-start workflow, which was relocated to /intake → /plan and is no longer a
++// radiogroup picker (template is carried via the intake handoff). No radiogroup
++// to guard on the monitoring-only dashboard.
+ 
+ // I-cd-013b (GH#669): the legacy /inspector/<bad-runid> destructive-error
+ // axe test was MIGRATED into the "WCAG-AA — Inspector (signed-bundle,
+diff --git a/web/tests/e2e/inspector.spec.ts b/web/tests/e2e/inspector.spec.ts
+deleted file mode 100644
+index 107726ba..00000000
+--- a/web/tests/e2e/inspector.spec.ts
++++ /dev/null
+@@ -1,36 +0,0 @@
+-import { expect, test } from "@playwright/test";
+-
+-/**
+- * Dashboard scope-discovery flow tests.
+- *
+- * Originally part of a broader Inspector + Dashboard suite; the 3 legacy
+- * `/inspector/golden_*` describes (AuditIR shape) were deleted at
+- * I-cd-013b (#669) after I-cd-013a (#609) rebuilt the Inspector to
+- * consume signed-bundle fixtures. The new Inspector e2e lives at
+- * `tests/e2e/inspector_route.spec.ts`.
+- *
+- * The Dashboard scope-discovery describe below is preserved verbatim
+- * (it does not touch the Inspector route).
+- */
+-
+-test.describe("Dashboard — scope discovery flow", () => {
+-  test("rejects clinical-treatment-recommendation prompt", async ({ page }) => {
+-    await page.goto("/dashboard", { waitUntil: "networkidle" });
+-    await page.fill("#question", "Should I take ozempic for my diabetes?");
+-    await page.getByRole("button", { name: /Check scope/ }).click();
+-    await expect(page.getByText(/Rejected/i)).toBeVisible({ timeout: 8_000 });
+-    await expect(
+-      page.getByText(/clinical_treatment_recommendation/),
+-    ).toBeVisible();
+-  });
+-
+-  test("accepts a research-framed CMHC question", async ({ page }) => {
+-    await page.goto("/dashboard", { waitUntil: "networkidle" });
+-    await page.fill(
+-      "#question",
+-      "What does the latest CMHC data say about Q3 2025 housing starts across Canadian metros?",
+-    );
+-    await page.getByRole("button", { name: /Check scope/ }).click();
+-    await expect(page.getByText(/Accepted/i)).toBeVisible({ timeout: 8_000 });
+-  });
+-});
+diff --git a/web/tests/e2e/visual.spec.ts-snapshots/dashboard-initial-chromium-win32.png b/web/tests/e2e/visual.spec.ts-snapshots/dashboard-initial-chromium-win32.png
+deleted file mode 100644
+index b6f0b526..00000000
+Binary files a/web/tests/e2e/visual.spec.ts-snapshots/dashboard-initial-chromium-win32.png and /dev/null differ
+
+# canonical-diff-sha256: 9fa629fd7e17740df90206dd3b56cf22f5557336c967cc523b68ee3d59f7066e

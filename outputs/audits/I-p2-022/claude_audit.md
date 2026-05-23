@@ -1,0 +1,2 @@
+# Claude audit — I-p2-022 (#761)
+Dashboard → monitoring-only: real runs list (listCompletedRuns) w/ honest pipeline_status verdicts + Start-new-research→intake; 668-line run-start removed (relocated to /plan #754). Codex 4 iters cleaned the test tail (deleted obsolete inspector.spec, retargeted web_ci to inspector_route.spec, removed dashboard upload/radiogroup a11y, deleted stale visual baseline, retargeted capture+a11y to /plan, runs-page New-run→intake, AA Declined chip). Screenshot-verified.
