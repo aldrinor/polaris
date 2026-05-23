@@ -1,0 +1,11 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/tests/a11y/wcag_axe_scan.mjs:98-129: The scanner fails open on page errors. Per-page exceptions are logged then ignored for the final exit code, and there is no HTTP-status/readiness assertion before axe runs. A bad BASE, 500/404 page, timeout, or missed API intercept can still end with blocking=0 and exit 0. Treat any page error/non-2xx/readiness miss as blocking, and assert expected loaded content before analyze()."
+p2:
+  - "web/tests/a11y/wcag_axe_scan.mjs:113-129: Moderate/minor WCAG-tagged violations are reported but allowed to pass. If this is meant to be a WCAG 2.2 AA pass, fail on all WCAG-tagged violations or explicitly label the harness as serious/critical-only."
+  - "web/tests/a11y/wcag_axe_scan.mjs:36-80: The inspector scan only analyzes the default tab state. It catches the visible tab-trigger contrast issue, but not hidden tab-panel content unless the harness clicks through tabs before axe."
+merge_decision: DO NOT MERGE
+```

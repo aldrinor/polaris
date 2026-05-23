@@ -1,0 +1,10 @@
+# I-p2-026 (#765) — Codex DIFF audit (Red-Team checklist), iter 2 → APPROVE
+# canonical-diff-sha256 71a923c560d262eaedb14cb10bbeb1caf093c6018b8012f95d125bc3da519220
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/tests/a11y/wcag_axe_scan.mjs: readiness hardening is slightly overstated: the status gate allows 3xx, and home/sign-in selectors are generic. Current scanned pages still render correctly, so this is not a merge blocker."
+  - "web/tests/a11y/wcag_axe_scan.mjs: Playwright page runtime errors are not explicitly captured via page.on('pageerror'); only navigation/readiness/axe exceptions fail the run. Worth hardening later, but not P1 for this slice."
+merge_decision: MERGE AUTHORIZED
