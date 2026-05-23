@@ -4,6 +4,7 @@ novel_p0: []
 continuing_p0: []
 p1: []
 p2:
-  - "web/app/components/proof_showcase.tsx:119 and web/components/proof_replay/proof_replay.tsx:138 use inert Tailwind class `decoration-clone`; if cloned mark backgrounds across wrapped lines are intended, this should be `box-decoration-clone`. Non-blocking visual polish only."
-merge_decision: MERGE AUTHORIZED
+  - "web/components/app_shell.tsx:31 plus web/components/primary_nav.tsx:31: Medium-width header overflow risk. The full 9-item primary nav switches to inline at md, and AppShell now also carries the Canadian-hosted mark plus AuthButton in the same row. Mobile right-alignment is fine below md, but tablet/small-desktop widths may run out of horizontal budget. Follow-up: keep hamburger until lg/xl, shrink gaps, or hide the mark earlier."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
 ```

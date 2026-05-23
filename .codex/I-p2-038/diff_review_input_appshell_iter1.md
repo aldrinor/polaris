@@ -1,3 +1,90 @@
+# Codex diff review — I-p2-038 (#821): global app-shell top-tier pass (footer + auth button)
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## What this diff does (umbrella issue #821 = top-tier visual overhaul across ALL P2 pages)
+
+Two every-page top-tier defects found by screenshotting the live site:
+1. Only the home route had a `<footer>`; every AppShell route (intake, upload,
+   contracts, pin_replay, dashboard, benchmark, memory, compare, …) ended in an
+   empty void below the fold — the operator's explicit "empty space" complaint.
+2. The auth affordance was inconsistent: home had a static "Sign in" button;
+   every AppShell route had NONE (no way to sign in once off home), and there
+   was NO "Sign out" anywhere in the product.
+
+Fix:
+- NEW `web/components/site_footer.tsx`: ONE shared footer used by home + AppShell.
+- NEW `web/components/auth_button.tsx`: hydration-safe Sign in / Sign out for the
+  AppShell header.
+- `web/components/app_shell.tsx`: mount `<AuthButton/>` in header + `<SiteFooter/>`
+  after `<main>` (sticky footer via the existing `body.flex.min-h-full.flex-col`
+  + `main.flex-1`).
+- `web/app/page.tsx`: replace the thin inline home footer with `<SiteFooter/>`.
+
+## HARD CONSTRAINTS (operator-locked / project law — do NOT reopen)
+- **Honesty (CLAUDE.md §-1.1 + LAW II):** the footer microcopy must NOT overclaim
+  sovereignty. Production LLM inference is currently OpenRouter (US, transitional).
+  Verify the footer says exactly that and links /transparency — no "no US vendor",
+  no false present-tense sovereignty. This is the SAME honest framing already
+  shipped in the header "Canadian-hosted" mark (app_shell.tsx title attr).
+- **No nav-item-visibility change.** I deliberately did NOT touch PRIMARY_NAV or
+  hide gated nav items, because the G1 nav-parity e2e specs assert all nav labels
+  are visible unauthenticated. That redesign is a separate future issue. Confirm
+  this diff does not break that contract.
+- Next.js 16 App Router; server vs client component boundaries matter.
+
+## Files I have ALSO checked and they're clean (verify, don't rediscover)
+- `web/app/layout.tsx`: `body` is `flex min-h-full flex-col`; `main` is `flex-1`
+  → footer after main pins to the bottom (sticky-footer). Confirmed.
+- `web/components/app_shell_gate.tsx`: CHROMELESS_ROUTES = `/` and `/sign-in`
+  (+ `/runs/<id>/graph|audit`). So AppShell (and thus the new AuthButton +
+  SiteFooter) does NOT render on home or sign-in → no double Sign-in on home
+  (home keeps its own button), and sign-in stays chromeless. Verified by
+  screenshot: home shows ONE Sign in; /upload shows the AppShell Sign in + footer.
+- `web/lib/auth.ts`: `isAuthenticated()` (reads sessionStorage token+expiry),
+  `clearToken()`, exist and are exported. AuthButton uses them.
+- `web/app/components/home_keyboard_shell.tsx`: home's own static Sign in button +
+  command-palette focus ref left UNTOUCHED (out of scope this iter; noted as
+  follow-up that home's button is not yet auth-aware).
+- e2e specs `tests/e2e/{dashboard,contracts,benchmark}_g1_g8.spec.ts` +
+  `demo_journey.spec.ts`: assert header count==1, main count==1, and that
+  `nav[aria-label='Primary']` shows all labels. This diff adds a `<footer>` and a
+  header button but does NOT change nav items or add a second header/main → these
+  assertions still hold. No spec asserts footer-absence (grepped: none).
+- `/transparency` returns 200 on the live site; `/intake` and
+  `/inspector/v1-canonical-success` are public → footer links are not dead-ends.
+- Local `next build` (prod) is GREEN with these changes; prettier (local 3.8.3,
+  matches CI) `--check` clean on all 4 files.
+
+## Review focus
+1. Honesty of footer microcopy (no sovereignty overclaim) — clinical/Carney bar.
+2. Hydration safety of AuthButton (server/first-client render must match — does
+   `useState(false)` + post-mount `setAuthed(isAuthenticated())` avoid mismatch?).
+3. Header layout: I dropped the sovereign mark's `ml-auto` reliance by wrapping
+   AuthButton in `ml-auto sm:ml-0`. Confirm right-alignment works at mobile
+   (mark hidden) AND desktop (mark visible) without overflow.
+4. Any a11y regression (footer `<nav aria-label>`, focus-visible on links/button).
+5. Sticky-footer correctness on short pages.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## The diff
+```diff
 diff --git a/web/app/page.tsx b/web/app/page.tsx
 index 10bc8e70..2d5f9e23 100644
 --- a/web/app/page.tsx
@@ -193,3 +280,5 @@ index 00000000..4306d518
 +    </footer>
 +  );
 +}
+
+```
