@@ -1,0 +1,1412 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e558a-5620-7460-ab20-b88e665b1fe1
+--------
+user
+# Codex DECISION request — I-bug-775 (#815, URGENT): authoritative clinical sources fetch as stubs
+
+You are the DECISION-MAKER (CHARTER §1). Decide the fix approach + priority +
+guardrails + verification. Clinical-safety: this is the DOMINANT cause of
+corpus_inadequate (the dominant benchmark abort, 5/13 vectors). Front-load all
+real findings; I will execute your decision then bring you the diff to review.
+
+## Problem
+Authoritative clinical journals fetch as content-starved stubs (<200 chars →
+skipped; <1000 → T7), so clinical corpus adequacy (T1≥3, T2≥2) is unmet. Verified
+live: a fresh afib re-run STILL aborts corpus_inadequate (T1=0) with 8/20 sources
+stubbed — incl JACC, AHA, ScienceDirect, a PMC article.
+
+## The fetch layer is ALREADY sophisticated (src/tools/access_bypass.py, 2406 lines)
+`fetch_with_bypass`: Unpaywall (M-23a, DOI→OA) → PDF detect+extract (docling/
+PyMuPDF, FIX-GAP4) → concurrent Crawl4AI+Jina+Firecrawl, quality-scored
+(`_score_content_quality`), per-backend 60s wall-clock (PG_BACKEND_FETCH_TIMEOUT).
+So this is NOT a missing-feature; the stubs are in the LONG TAIL.
+
+## Precise failure modes (from the afib re-run log — real evidence)
+1. **Unpaywall "publisher OA landing" → doi.org/ LANDING page → stub.**
+   `10.1111/eci.13803` → swapped to `doi.org/...` → crawl4ai 305 chars.
+   `10.1097/AAP...` → 283 chars. The landing isn't full text; the swap made it
+   no better than the paywalled original.
+2. **Unpaywall PDF swap, but PDF extraction FAILS → fallback stub.**
+   `jacc.org/doi/10.1016/j.jacasi.2023.08.007` → Unpaywall found
+   `pmc.../PMC10715890/pdf/main.pdf` → swapped → but fetch returned **54 chars**
+   (PDF extraction failed → fell back, content-starved).
+3. **Direct PMC HTML extraction is INCONSISTENT.**
+   `PMC12240022` → trafilatura → **25000** ✓ (works!).
+   `PMC6490750` → jina timed out (60s) → crawl4ai → **111** ✗.
+   Same host, opposite outcomes — scraping is flaky on PMC's JS-heavy pages.
+
+## Key leverage observation
+Most clinical OA — both Unpaywall results AND direct hits — resolve to **PMC
+PMCIDs**. A structured **PMC-OA full-text API by PMCID** would be far more
+reliable than scraping PMC HTML/PDF, and would fix BOTH failure-mode 2 (use the
+API instead of the flaky PDF) AND mode 3 (API instead of HTML). Options:
+- NCBI BioC: `https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/pmcoa.cgi/BioC_xml/<PMCID>/unicode`
+- efetch: `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=<PMCID>&rettype=xml`
+`NCBI_API_KEY` is already configured (`src/config/core.py:290`). (Note: the
+efetch code in `src/agents/search_agent.py:1342-1370` is a PubMed-ABSTRACT
+fetcher in legacy pipeline C — NOT wired into the active access_bypass path, and
+it returns abstracts, not PMC full text.)
+
+## Decide (one or combination)
+- **A. PMC-OA-by-PMCID fetcher** wired into fetch_with_bypass: when a URL is (or
+  Unpaywall resolves to) a pmc.ncbi PMCID, fetch full text via BioC/efetch
+  db=pmc BEFORE/instead of scraping. Highest leverage (PMC is where OA lands).
+  BioC vs efetch — which?
+- **B. Prefer Unpaywall best_oa_location PDF/repository over "landing"**: don't
+  swap to a doi.org landing (mode 1); only swap to a real PDF/PMC URL.
+- **C. PDF-extraction robustness** (mode 2): why did the PMC PDF give 54 chars?
+- **D. Accept genuinely-paywalled stubs** (AHA/JACC non-OA) as unfixable; don't
+  lower the stub threshold (would launder junk).
+
+## Hard constraints
+- Full text ONLY — never lower the <200/<1000 stub thresholds to admit stubs
+  (clinical-safety: a stub can't support a claim; #812's no-laundering guardrail).
+- API content is genuine full text (not laundering).
+- Respect NCBI rate limits (the legacy code backs off on 429).
+
+## Return
+1. Approach (A/B/C/D/combo)? If A: BioC or efetch, and where in fetch_with_bypass?
+2. Priority order + the guardrail/invariant to test.
+3. Verification (re-run which vectors, pass bar).
+4. Anything mis-diagnosed?
+Return a decision, not a menu.
+
+## Files I have ALSO checked and they're clean
+- `live_retriever.py`: `is_content_starved` (min 200 chars, L1046); skip at L1504.
+- `tier_classifier.py`: T7_STUB at <1000 (Rule 1) — correct, not the bug.
+- Unpaywall (`_try_unpaywall`) + `_extract_doi` (L2370, handles 10.x + doi.org/).
+- `_extract_pdf_text` (FIX-GAP4 PDF path) — mode-2 failure is here.
+- search_agent.py efetch = PubMed abstracts, legacy, not active path.
+
+codex
+I’ll ground the decision in the active fetch path and verify the NCBI full-text endpoints/rate-limit assumptions before deciding placement and guardrails.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "NCBI_API_KEY|efetch|pmcoa|BioC|429|rate" src/config/core.py src/agents/search_agent.py src/tools/access_bypass.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path src\\tools\\access_bypass.py | Select-Object FullName,Length,LastWriteTime" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "function fetch|def fetch_with_bypass|_try_unpaywall|_extract_pdf_text|_score_content_quality|PG_BACKEND_FETCH_TIMEOUT|_extract_doi|pmc|PMC|stub|content_starved" src/tools/access_bypass.py' in C:\POLARIS
+ succeeded in 876ms:
+src/agents/search_agent.py:48:# Gemini Deep Audit identified 429 rate limit errors as a "Supply Chain" blocker
+src/agents/search_agent.py:51:# - Semantic Scholar: max 3 concurrent (their rate limit is generous)
+src/agents/search_agent.py:52:# - PubMed: max 1 concurrent (very strict rate limits)
+src/agents/search_agent.py:53:# - arXiv: max 2 concurrent (moderate)
+src/agents/search_agent.py:55:# This prevents the "supply chain" failure where rate limits block evidence
+src/agents/search_agent.py:59:# Semaphores for rate limiting (thread-safe)
+src/agents/search_agent.py:61:    int(os.environ.get("POLARIS_SEMANTIC_SCHOLAR_CONCURRENCY", "1"))  # FIX: Reduced from 3 to 1 (429 errors)
+src/agents/search_agent.py:73:# Track last request time for additional rate limiting
+src/agents/search_agent.py:78:    "serper": 0.0,  # FIX: Add Serper rate limiting
+src/agents/search_agent.py:89:def _wait_for_rate_limit(api_name: str):
+src/agents/search_agent.py:122:    """Load search configuration (preferred domains, diversity, rate limits)."""
+src/agents/search_agent.py:357:def graph_search(query: str, strategy: str = "hybrid", max_results: int = 20) -> List[dict]:
+src/agents/search_agent.py:363:        strategy: Retrieval strategy (entity_hop, path_based, subgraph, hybrid)
+src/agents/search_agent.py:370:        from src.graph import get_graph_retriever, RetrievalStrategy
+src/agents/search_agent.py:375:        strategy_map = {
+src/agents/search_agent.py:376:            "entity_hop": RetrievalStrategy.ENTITY_HOP,
+src/agents/search_agent.py:377:            "path_based": RetrievalStrategy.PATH_BASED,
+src/agents/search_agent.py:378:            "subgraph": RetrievalStrategy.SUBGRAPH,
+src/agents/search_agent.py:379:            "hybrid": RetrievalStrategy.HYBRID,
+src/agents/search_agent.py:381:        strategy_enum = strategy_map.get(strategy, RetrievalStrategy.HYBRID)
+src/agents/search_agent.py:383:        result = retriever.retrieve(query=query, strategy=strategy_enum)
+src/agents/search_agent.py:494:        # FIX: Rate limit Serper requests to avoid 429 errors
+src/agents/search_agent.py:495:        _wait_for_rate_limit("serper")
+src/agents/search_agent.py:1017:        'exist', 'rates', 'patterns', 'applications',
+src/agents/search_agent.py:1099:    P1.6 FIX: Added exponential backoff for rate limiting (429 errors).
+src/agents/search_agent.py:1123:    # FIX: Add Semantic Scholar API key for higher rate limits (1 RPS vs shared pool)
+src/agents/search_agent.py:1124:    # Without API key: unauthenticated users share a global rate limit pool
+src/agents/search_agent.py:1125:    # With API key: dedicated 1 request/second rate limit
+src/agents/search_agent.py:1134:            "(shared global rate limit, expect 429 errors)"
+src/agents/search_agent.py:1144:    # Example: "Legionella household water filter North America contamination rates"
+src/agents/search_agent.py:1152:                       'exist', 'rates', 'patterns', 'applications'}
+src/agents/search_agent.py:1201:    # FIX 105C: Acquire semaphore for rate limiting (max 3 concurrent requests)
+src/agents/search_agent.py:1204:        _wait_for_rate_limit("semantic_scholar")
+src/agents/search_agent.py:1217:                    # P1.6 FIX: Check for rate limiting
+src/agents/search_agent.py:1218:                    if response.status_code == 429:
+src/agents/search_agent.py:1221:                            f"[FIX-122] Semantic Scholar 429 rate limit, waiting {wait_time:.1f}s "
+src/agents/search_agent.py:1270:                        # FIX-123: Fetch next page with rate limit compliance
+src/agents/search_agent.py:1277:                        if page_response.status_code == 429:
+src/agents/search_agent.py:1293:                # P1.6 FIX: Handle rate limiting with backoff
+src/agents/search_agent.py:1294:                if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
+src/agents/search_agent.py:1297:                        f"[FIX 105C] Semantic Scholar HTTP 429, waiting {wait_time:.1f}s "
+src/agents/search_agent.py:1308:                # Don't retry on non-rate-limit errors
+src/agents/search_agent.py:1322:    PubMed has strict rate limits, so we use max 1 concurrent request.
+src/agents/search_agent.py:1331:    # FIX 105C: Acquire semaphore for rate limiting (max 1 concurrent request to PubMed)
+src/agents/search_agent.py:1334:        _wait_for_rate_limit("pubmed")
+src/agents/search_agent.py:1352:            # FIX 105C: Check for rate limiting
+src/agents/search_agent.py:1353:            if search_response.status_code == 429:
+src/agents/search_agent.py:1354:                logger.warning("[FIX 105C] PubMed 429 rate limit hit, backing off...")
+src/agents/search_agent.py:1367:            _wait_for_rate_limit("pubmed")
+src/agents/search_agent.py:1370:            fetch_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+src/agents/search_agent.py:1379:            # FIX 105C: Check for rate limiting on fetch
+src/agents/search_agent.py:1380:            if fetch_response.status_code == 429:
+src/agents/search_agent.py:1381:                logger.warning("[FIX 105C] PubMed fetch 429 rate limit hit, backing off...")
+src/agents/search_agent.py:1455:    search_strategy: Literal["web_first", "academic_first", "parallel", "domain_specific", "graph_augmented"] = Field(
+src/agents/search_agent.py:1456:        description="Strategy for this search"
+src/agents/search_agent.py:1555:   - Use graph_augmented strategy when entities are mentioned
+src/agents/search_agent.py:1632:            for i, result in enumerate(query_results):
+src/agents/search_agent.py:1635:                # Generate content hash
+src/agents/search_agent.py:1771:1. Search strategy (web_first, academic_first, parallel, domain_specific)
+src/agents/search_agent.py:1810:        # Use amplified variants (limit to avoid API rate limits)
+src/agents/search_agent.py:1824:            silent perspective failures due to rate limits (429) or transient errors.
+src/agents/search_agent.py:1857:                            "strategy": "hybrid",
+src/agents/search_agent.py:1871:                    is_rate_limit = "429" in error_str or "rate" in error_str or "too many" in error_str
+src/agents/search_agent.py:1875:                        if is_rate_limit:
+src/agents/search_agent.py:1893:        # FIX 95: Separate academic from web searches for different concurrency
+src/agents/search_agent.py:1906:        # FIX 95: Academic APIs need much lower concurrency to avoid 429 blocks
+src/agents/search_agent.py:1909:        academic_concurrency = 1  # FIX: Set to 1 (Semantic Scholar rate limit)
+src/agents/search_agent.py:1951:        # FIX 95: Execute academic searches with LOWER concurrency to avoid 429 rate limits
+src/agents/search_agent.py:2061:                    "strategy": "hybrid",
+src/tools/access_bypass.py:8:- Respect rate limits and fair use policies
+src/tools/access_bypass.py:51:# `brotli` package installed, causing 100% failure rate on servers that honour it.
+src/tools/access_bypass.py:89:# Firecrawl free-plan hardening: rate limiter + credit tracker
+src/tools/access_bypass.py:101:async def _firecrawl_rate_limit() -> None:
+src/tools/access_bypass.py:109:            "[ACCESS] Firecrawl rate limit: waiting %.1fs (10 RPM free plan)",
+src/tools/access_bypass.py:433:         finalized (cancelled) when the standard shutdown iterates it.
+src/tools/access_bypass.py:874:        Crawl4AI: Free, local, Playwright-based web crawler that generates
+src/tools/access_bypass.py:927:                from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
+src/tools/access_bypass.py:928:                from crawl4ai.content_filter_strategy import PruningContentFilter
+src/tools/access_bypass.py:1005:            # FIX-EPIPE: Separate try for __aenter__ to catch startup failures.
+src/tools/access_bypass.py:1425:        FIX-QM2: Exponential backoff on 429 (up to 2 retries).
+src/tools/access_bypass.py:1475:                            # FIX-JINA: Retry on 401 (concurrency exceeded) AND 429
+src/tools/access_bypass.py:1476:                            if response.status in (401, 429):
+src/tools/access_bypass.py:1592:        FIX-D2 Hardened: Firecrawl with rate limiting, credit tracking,
+src/tools/access_bypass.py:1656:        await _firecrawl_rate_limit()
+src/tools/access_bypass.py:1679:                    if status_code == 429:
+src/tools/access_bypass.py:1682:                            "[ACCESS] Firecrawl 429 rate limited for %s — "
+src/tools/access_bypass.py:1694:                                "status": 429,
+src/tools/access_bypass.py:2357:                r"\brate\s+limit(ed)?\b",
+src/config/core.py:64:    # NEUTRAL is treated as non-supporting (stricter but more accurate)
+src/config/core.py:105:    min_success_rate: float = 0.50  # Allow more attempts
+src/config/core.py:244:    rate_limit: Optional[int] = None
+src/config/core.py:290:    ncbi_api_key: str = Field(default="", alias="NCBI_API_KEY")
+
+ succeeded in 921ms:
+
+[32;1mFullName                             [0m[32;1m Length[0m[32;1m LastWriteTime[0m
+[32;1m--------                             [0m [32;1m------[0m [32;1m-------------[0m
+C:\POLARIS\src\tools\access_bypass.py 109359 2026-05-20 2:09:51 PM
+
+
+ succeeded in 1003ms:
+190:# (vs paywall stub or landing page).
+200:def _score_content_quality(content: str) -> float:
+204:    density. Fully stripped stubs and paywall shells score low; full
+208:    Jina stubs beat Crawl4AI full-article fetches.
+330:# `asyncio.gather`. `_bounded_backend` returns within PG_BACKEND_FETCH_TIMEOUT
+345:        return float(os.getenv("PG_BACKEND_FETCH_TIMEOUT", "60.0"))
+522:    Returns within PG_BACKEND_FETCH_TIMEOUT + PG_BACKEND_CLEANUP_GRACE
+612:    async def fetch_with_bypass(
+649:        # Unpaywall frequently returns a PMC or arXiv OA PDF that is the
+651:        # return 400-char paywall stubs" problem upstream of any paywall
+654:            candidate_doi = self._extract_doi(url) or resolved_doi
+656:                oa_url = await self._try_unpaywall(candidate_doi)
+670:                pdf_text = await self._extract_pdf_text(url)
+753:        # OLD BUG: Jina 422-char paywall stub won the race over Crawl4AI's
+776:            scored = [(c, _score_content_quality(c.content)) for c in candidates]
+796:                    "[ACCESS] M-23b: rejected %d stub/paywall candidates: %s",
+1256:    async def _extract_pdf_text(self, url: str) -> str:
+1839:    async def _try_unpaywall(self, doi: str) -> Optional[str]:
+1843:        PMC, institutional) and publisher DOIs. Returns the best OA URL
+1846:        whose authors frequently post preprints or PMC copies.
+1881:                    # any location gets clean extraction via _extract_pdf_text.
+2305:        """Detect if content is behind paywall OR an HTTP-error stub.
+2307:        M-23d: Extended to detect HTTP error stubs (403/404/5xx proxied
+2311:        those stubs wait through all paywall patterns (which don't
+2344:        # M-23d: HTTP error stubs. Short pages (<2K chars) containing
+2370:    def _extract_doi(self, url: str) -> Optional[str]:
+2395:        return any(domain in url_lower for domain in academic_domains) or bool(self._extract_doi(url))
+
+codex
+The active path confirms this is an insertion into `fetch_with_bypass`, not the legacy PubMed search code. I’m checking the exact branch order now so the decision can be specific about what should happen before scraper fan-out.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\tools\\access_bypass.py | Select-Object -Skip 1240 -First 125" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\tools\\access_bypass.py | Select-Object -Skip 600 -First 230" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\agents\\search_agent.py | Select-Object -Skip 1320 -First 75" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\tools\\access_bypass.py | Select-Object -Skip 1825 -First 95" in C:\POLARIS
+ succeeded in 988ms:
+            )
+            _crawl4ai_track_failure()
+            return _crawl4ai_failure_result(
+                url, f"BaseException: {type(be).__name__}: {str(be)}"
+            )
+
+        finally:
+            # FIX-EPIPE: Safety close in case crawler was not closed above
+            # (e.g., exception during __aenter__ after partial init).
+            if crawler is not None:
+                await _safe_close_crawler(crawler, url)
+            # FIX-UNICODE: Do NOT restore original encoding. Multiple
+            # concurrent Crawl4AI calls race: one call's restore undoes
+            # another call's reconfigure. utf-8 is strictly superior.
+
+    async def _extract_pdf_text(self, url: str) -> str:
+        """FIX-CITE-3/GAP4: Download and extract text from academic PDF.
+
+        Uses PyMuPDF (fitz) for extraction. Falls back to basic text
+        extraction if PyMuPDF is not available.
+        """
+        import aiohttp
+        import tempfile
+
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    return ""
+                pdf_bytes = await resp.read()
+                if len(pdf_bytes) < 1000:
+                    return ""
+
+        # FIX-DOCLING-OOM-V2: Guard against docling std::bad_alloc on large PDFs.
+        # Docling's C++ preprocess stage has memory complexity proportional to
+        # total_pages x image_resolution^2, doesn't release memory between
+        # pages, and throws std::bad_alloc on 100+ page PDFs — killing the
+        # Python process with SIGSEGV.
+        #
+        # V2 improvement: check BOTH byte size AND page count. A 3MB 200-page
+        # dense-text PDF wouldn't trip a bytes-only guard but would still OOM
+        # docling. PyMuPDF page count costs ~50ms and is memory-safe.
+        #
+        # Env overrides:
+        #   PG_MAX_DOCLING_PDF_BYTES (default 5MB)
+        #   PG_MAX_DOCLING_PDF_PAGES (default 40 pages)
+        max_docling_bytes = int(
+            os.getenv("PG_MAX_DOCLING_PDF_BYTES", str(5 * 1024 * 1024))
+        )
+        max_docling_pages = int(
+            os.getenv("PG_MAX_DOCLING_PDF_PAGES", "40")
+        )
+
+        _skip_docling_reason = None
+        if len(pdf_bytes) > max_docling_bytes:
+            _skip_docling_reason = f"bytes={len(pdf_bytes)}>{max_docling_bytes}"
+        else:
+            # Cheap page count via PyMuPDF before committing to docling.
+            try:
+                import fitz as _fitz
+                import tempfile as _tempfile
+                with _tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as _tmp:
+                    _tmp.write(pdf_bytes)
+                    _tmp_path = _tmp.name
+                _doc = _fitz.open(_tmp_path)
+                _page_count = _doc.page_count
+                _doc.close()
+                import os as _os_pc
+                _os_pc.unlink(_tmp_path)
+                if _page_count > max_docling_pages:
+                    _skip_docling_reason = f"pages={_page_count}>{max_docling_pages}"
+            except Exception as _exc:
+                # If PyMuPDF can't even open it, docling probably can't either.
+                # Skip docling and let PyMuPDF fallback handle with its own error.
+                logger.debug(
+                    "[ACCESS] FIX-DOCLING-OOM-V2: page count failed (%s), skipping docling",
+                    str(_exc)[:80],
+                )
+                _skip_docling_reason = "pymupdf_open_failed"
+
+        if _skip_docling_reason:
+            logger.warning(
+                "[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (%s), using PyMuPDF: %s",
+                _skip_docling_reason, url[:50],
+            )
+        else:
+            # PL: Try Docling first (97.9% table accuracy), PyMuPDF fallback
+            try:
+                import asyncio as _aio
+                loop = _aio.get_event_loop()
+                docling_text = await loop.run_in_executor(None, self._docling_extract, pdf_bytes)
+                if docling_text and len(docling_text) > 500:
+                    logger.info("[ACCESS] PL: Docling extracted %d chars from PDF %s", len(docling_text), url[:50])
+                    return docling_text
+            except Exception as exc:
+                logger.debug("[ACCESS] PL: Docling failed, trying PyMuPDF: %s", str(exc)[:80])
+
+        # Fallback: PyMuPDF (text-only, no table structure)
+        try:
+            import fitz
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp.write(pdf_bytes)
+                tmp_path = tmp.name
+
+            doc = fitz.open(tmp_path)
+            pages_text = []
+            for page in doc:
+                pages_text.append(page.get_text())
+            doc.close()
+
+            import os as _os
+            _os.unlink(tmp_path)
+
+            full_text = "\n\n".join(pages_text)
+            return full_text.strip()
+        except ImportError:
+            logger.warning("[ACCESS] FIX-GAP4: PyMuPDF not installed, PDF extraction unavailable")
+            return ""
+        except Exception as exc:
+            logger.warning("[ACCESS] FIX-GAP4: PDF extraction error: %s", str(exc)[:100])
+            return ""
+
+    async def _try_trafilatura(self, url: str) -> Optional[AccessResult]:
+        """Fetch content via trafilatura in thread pool (non-blocking).
+
+
+ succeeded in 1051ms:
+            # bare phrase "members only" or "sign in to access" in a
+            # 50K article body is almost always incidental.
+            r"\bsubscribe\s+to\s+read\b",
+            r"\bsign\s+in\s+to\s+access\b",
+            r"\bpurchase\s+(this\s+)?article\b",
+            r"\bmembers\s+only\b",
+        ]
+        # Back-compat: tests or callers referencing .paywall_patterns get
+        # the strict-always list (the safer set).
+        self.paywall_patterns = self.paywall_patterns_strict
+
+    async def fetch_with_bypass(
+        self,
+        url: str,
+        prefer_legal: bool = True,
+    ) -> AccessResult:
+        """
+        Fetch content with bypass mechanisms.
+
+        FIX-QM2: Crawl4AI, Jina and Firecrawl run concurrently -- first
+        success wins.  Crawl4AI is checked first (free, local, no API credits).
+
+        Fallback cascade (if concurrent fetch fails):
+        1. Direct HTTP with Accept: text/markdown
+        2. Unpaywall (legal open access)
+        3. Archive.org (historical)
+        4. Institutional proxy
+        5. Sci-Hub (last resort for academic papers)
+        """
+        # PL: Skip S2 landing pages — they're metadata, not content.
+        # S2 bulk search returns paper IDs that are 404 via individual API.
+        # S2's value is the search metadata (title, abstract, DOI), not the landing page.
+        if "semanticscholar.org/paper/" in url:
+            logger.debug("[ACCESS] PL: Skipping S2 landing page: %s", url[:60])
+            return AccessResult(
+                url=url, content="", access_method="skipped_s2_landing",
+                legal_alternative=None, success=False,
+                metadata={"reason": "S2 landing pages have no content"},
+            )
+
+        # PL: Resolve ScienceDirect PIIs and extract DOIs for Sci-Hub fallback.
+        resolved_url, resolved_doi = await self._resolve_academic_url(url)
+        if resolved_url and resolved_url != url:
+            logger.info("[ACCESS] PL: Resolved %s -> %s", url[:50], resolved_url[:50])
+            url = resolved_url
+
+        # M-23a: Unpaywall step 0 — try legal OA before anything else.
+        # For DOI-bearing URLs (NEJM, Lancet, JAMA, Elsevier, Springer...)
+        # Unpaywall frequently returns a PMC or arXiv OA PDF that is the
+        # same article, legally free, full-text. This fixes the "NEJM/Lancet
+        # return 400-char paywall stubs" problem upstream of any paywall
+        # bypass logic.
+        if os.getenv("PG_UNPAYWALL_ENABLED", "1") == "1":
+            candidate_doi = self._extract_doi(url) or resolved_doi
+            if candidate_doi:
+                oa_url = await self._try_unpaywall(candidate_doi)
+                if oa_url and oa_url != url:
+                    logger.info(
+                        "[ACCESS] M-23a: Swapping %s -> OA %s",
+                        url[:60], oa_url[:80],
+                    )
+                    url = oa_url
+
+        # FIX-CITE-3/GAP4: Detect PDF URLs and extract text directly.
+        # Academic open-access PDFs (from S2 openAccessPdf) need PDF parsing,
+        # not HTML scraping. This gives the analyzer full paper content with
+        # forest plots, I² values, GRADE ratings — the detail Gemini captures.
+        if url.lower().endswith(".pdf") or "/pdf/" in url.lower():
+            try:
+                pdf_text = await self._extract_pdf_text(url)
+                if pdf_text and len(pdf_text) > 500:
+                    logger.info(
+                        "[ACCESS] FIX-GAP4: PDF text extracted for %s (%d chars)",
+                        url[:60], len(pdf_text),
+                    )
+                    return AccessResult(
+                        url=url,
+                        content=pdf_text[:50000],  # Cap at 50K chars
+                        # FIX-GAP4-KWARG: was `method=`, dataclass field is
+                        # `access_method`. The old kwarg triggered TypeError
+                        # every successful docling/PyMuPDF extraction, which
+                        # was then caught as "PDF extraction failed" and
+                        # replaced with a 153-char snippet. Every successful
+                        # 10K-50K char PDF extract was being silently discarded.
+                        access_method="pdf_extract",
+                        legal_alternative=None,
+                        success=True,
+                        metadata={"content_type": "application/pdf"},
+                    )
+            except Exception as pdf_exc:
+                logger.warning(
+                    "[ACCESS] FIX-GAP4: PDF extraction failed for %s: %s — falling back to HTML",
+                    url[:60], str(pdf_exc)[:100],
+                )
+
+        # FIX-QM2: Run Crawl4AI, Jina and Firecrawl concurrently -- first success wins
+        logger.info("[ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for %s", url[:60])
+
+        # Build concurrent task list: Crawl4AI first (free/local), then Jina, then Firecrawl
+        concurrent_tasks: list = []
+
+        # I-bug-114 (#551): every concurrent backend is wrapped in
+        # `_bounded_backend` so a single wedged backend (e.g. a Playwright op
+        # stuck on an anti-bot interstitial) cannot freeze the gather. Each
+        # wrapper returns an AccessResult within the per-backend wall-clock.
+        crawl4ai_enabled = os.getenv("PG_CRAWL4AI_ENABLED", "1") == "1"
+        if crawl4ai_enabled:
+            concurrent_tasks.append(
+                _bounded_backend("crawl4ai", self._try_crawl4ai(url), url))
+
+        concurrent_tasks.append(
+            _bounded_backend("jina_reader", self._try_jina_reader(url), url))
+
+        firecrawl_enabled = os.getenv("PG_FIRECRAWL_ENABLED", "1") == "1"
+        firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY")
+        if firecrawl_enabled and firecrawl_api_key and _firecrawl_has_credits():
+            concurrent_tasks.append(
+                _bounded_backend("firecrawl", self._try_firecrawl(url), url))
+
+        # FIX-039/B.3: Add trafilatura to concurrent group (was dead-code fallback)
+        if os.getenv("PG_TRAFILATURA_ENABLED", "0") == "1":
+            concurrent_tasks.append(
+                _bounded_backend("trafilatura", self._try_trafilatura(url), url))
+
+        # FIX-EPIPE: Wrap gather in try/except to catch CancelledError and
+        # any BaseException that escapes from subprocess crashes in crawl4ai.
+        # asyncio.gather(return_exceptions=True) captures Exception subclasses
+        # as return values, but CancelledError (BaseException in Python 3.9+)
+        # can still propagate if the gather task itself is cancelled.
+        try:
+            concurrent_results = await asyncio.gather(
+                *concurrent_tasks, return_exceptions=True
+            )
+        except asyncio.CancelledError:
+            logger.warning(
+                "[ACCESS] FIX-EPIPE: Concurrent fetch cancelled for %s "
+                "(likely subprocess crash or task cancellation)",
+                url[:60],
+            )
+            concurrent_results = []
+        except BaseException as gather_err:
+            # Safety net for anything that escapes gather
+            if isinstance(gather_err, (KeyboardInterrupt, SystemExit)):
+                raise
+            logger.warning(
+                "[ACCESS] FIX-EPIPE: Unexpected %s from concurrent fetch "
+                "for %s: %s -- server protected",
+                type(gather_err).__name__, url[:60], str(gather_err)[:150],
+            )
+            concurrent_results = []
+
+        # M-23b/c: Replace first-success-wins with quality-scored winner.
+        # OLD BUG: Jina 422-char paywall stub won the race over Crawl4AI's
+        # 45K-char NEJM SURPASS-5 fetch, because Jina's task finished first.
+        # NEW: Collect ALL successful candidates, strip boilerplate FIRST
+        # (so nav chrome containing "sign in" doesn't trigger paywall
+        # false-positives on full article bodies), filter by paywall check,
+        # then pick the highest-scoring candidate by content quality
+        # (length + structural markers + numeric density).
+        candidates: list[AccessResult] = []
+        rejected_log: list[tuple[str, str, int]] = []
+        for r in concurrent_results:
+            if not isinstance(r, AccessResult):
+                continue
+            if not r.success:
+                continue
+            # M-23b: strip boilerplate BEFORE paywall check
+            r.content = _strip_navigation_boilerplate(r.content)
+            if self._detect_paywall(r.content):
+                rejected_log.append((r.access_method, "paywall", len(r.content)))
+                continue
+            candidates.append(r)
+
+        if candidates:
+            # M-23c: quality-scored winner
+            scored = [(c, _score_content_quality(c.content)) for c in candidates]
+            scored.sort(key=lambda x: x[1], reverse=True)
+            winner, winner_score = scored[0]
+            winner.metadata = {
+                **(winner.metadata or {}),
+                "quality_score": round(winner_score, 3),
+                "n_candidates": len(candidates),
+                "all_scores": {
+                    c.access_method: round(s, 3) for c, s in scored
+                },
+            }
+            logger.info(
+                "[ACCESS] M-23c: %s won quality-scored fetch for %s "
+                "(%d chars, score=%.3f, %d candidates, scores=%s)",
+                winner.access_method, url[:60], len(winner.content),
+                winner_score, len(candidates),
+                {c.access_method: round(s, 3) for c, s in scored},
+            )
+            if rejected_log:
+                logger.debug(
+                    "[ACCESS] M-23b: rejected %d stub/paywall candidates: %s",
+                    len(rejected_log), rejected_log,
+                )
+            return winner
+
+        # FIX-039/B.3: Trafilatura now runs in concurrent group above (no standalone fallback)
+
+        # Direct HTTP fetch with markdown Accept header (FIX-D6/A3)
+        logger.info("[ACCESS] Trying direct fetch for %s", url[:60])
+        timeout_occurred = False
+        direct_result = await self._direct_fetch(url)
+
+        if direct_result.success:
+            # M-23b: strip BEFORE paywall detection
+            direct_result.content = _strip_navigation_boilerplate(direct_result.content)
+            if not self._detect_paywall(direct_result.content):
+                return direct_result
+
+        # Track if direct fetch failed due to timeout for retry logic (FIX-D5)
+        if not direct_result.success and "timeout" in str(direct_result.metadata.get("error", "")).lower():
+            timeout_occurred = True
+
+        logger.info("[ACCESS] Direct access blocked for %s, trying alternatives", url[:80])
+
+        # Try Archive.org
+        if self.use_archive_org:
+            logger.info("[ACCESS] Trying Archive.org for %s", url[:60])
+            archive_result = await self._try_archive_org(url)
+            if archive_result.success:
+                # FIX-045B: Strip navigation boilerplate
+                archive_result.content = _strip_navigation_boilerplate(archive_result.content)
+                return archive_result
+
+        # Try institutional proxy
+        if self.proxy:
+
+ succeeded in 1128ms:
+                "[ACCESS] Firecrawl failed for %s: %s",
+                url[:80],
+                str(e)[:150],
+            )
+            return AccessResult(
+                url=url,
+                content="",
+                access_method="firecrawl",
+                legal_alternative=None,
+                success=False,
+                metadata={"error": str(e)},
+            )
+
+    async def _try_unpaywall(self, doi: str) -> Optional[str]:
+        """M-23a: Query Unpaywall for best legal open-access URL for a DOI.
+
+        Unpaywall indexes 30M+ OA articles from repositories (arXiv,
+        PMC, institutional) and publisher DOIs. Returns the best OA URL
+        (PDF preferred) if available, else None. Free, ethical, and the
+        first thing to try for paywalled journals like NEJM/Lancet/JAMA
+        whose authors frequently post preprints or PMC copies.
+
+        Reference: https://unpaywall.org/products/api
+        Endpoint: https://api.unpaywall.org/v2/{doi}?email={email}
+        Rate limit: 100K/day with free email-tagged access.
+        """
+        import aiohttp
+
+        email = os.getenv("UNPAYWALL_EMAIL")
+        if not email:
+            return None
+
+        api_url = f"https://api.unpaywall.org/v2/{doi}?email={email}"
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    api_url, headers=_NO_BROTLI_HEADERS
+                ) as response:
+                    if response.status == 404:
+                        # Unknown DOI — normal, don't log noisily
+                        return None
+                    if response.status != 200:
+                        logger.info(
+                            "[ACCESS] M-23a: Unpaywall HTTP %d for DOI %s",
+                            response.status, doi,
+                        )
+                        return None
+                    data = await response.json()
+                    if not data.get("is_oa"):
+                        return None
+                    # M-23e: Prefer a direct PDF URL across ALL oa_locations.
+                    # Live testing exposed: Unpaywall's best_oa_location may
+                    # be a repository landing page (figshare, discovery.ucl)
+                    # whose bare URL 403s on headless fetch. A PDF URL from
+                    # any location gets clean extraction via _extract_pdf_text.
+                    # Only fall back to best.url when NO location has a PDF.
+                    oa_locations = data.get("oa_locations") or []
+                    pdf_urls = [
+                        loc.get("url_for_pdf")
+                        for loc in oa_locations
+                        if loc.get("url_for_pdf")
+                    ]
+                    if pdf_urls:
+                        oa_url = pdf_urls[0]
+                        host_type = next(
+                            (loc.get("host_type", "unknown")
+                             for loc in oa_locations
+                             if loc.get("url_for_pdf") == oa_url),
+                            "unknown",
+                        )
+                        logger.info(
+                            "[ACCESS] M-23a: Unpaywall PDF OA for %s: %s (%s)",
+                            doi, oa_url[:80], host_type,
+                        )
+                        return oa_url
+                    # No PDF — fall back to best.url, but ONLY if it's not
+                    # a known-403 repository pattern. Repository landing
+                    # pages that aren't PDFs tend to fail; better to let
+                    # the main cascade attempt the original publisher URL.
+                    best = data.get("best_oa_location") or {}
+                    landing = best.get("url")
+                    host_type = best.get("host_type", "unknown")
+                    if landing and host_type != "repository":
+                        # Publisher OA landing is usually fetchable
+                        logger.info(
+                            "[ACCESS] M-23a: Unpaywall %s OA landing for %s: %s",
+                            host_type, doi, landing[:80],
+                        )
+                        return landing
+                    # Repository landing without PDF — don't swap, let the
+                    # cascade try the original URL (which may have Crawl4AI
+                    # render the publisher full-text page).
+                    if landing:
+                        logger.info(
+
+ succeeded in 1197ms:
+    FIX 105C: Added semaphore-based concurrency control (Polite Throttling).
+    PubMed has strict rate limits, so we use max 1 concurrent request.
+
+    Args:
+        query: Search query
+        max_results: Maximum results to return
+
+    Returns:
+        List of PubMed articles with url, title, abstract
+    """
+    # FIX 105C: Acquire semaphore for rate limiting (max 1 concurrent request to PubMed)
+    with _PUBMED_SEMAPHORE:
+        # FIX 105C: Enforce minimum interval between requests (1 second for PubMed)
+        _wait_for_rate_limit("pubmed")
+
+        logger.debug(f"[FIX 105C] Acquired PubMed semaphore for query: {query[:50]}...")
+
+        try:
+            import requests
+
+            # Search for IDs
+            search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+            search_params = {
+                "db": "pubmed",
+                "term": query,
+                "retmax": max_results,
+                "retmode": "json",
+            }
+
+            search_response = requests.get(search_url, params=search_params, timeout=30)
+
+            # FIX 105C: Check for rate limiting
+            if search_response.status_code == 429:
+                logger.warning("[FIX 105C] PubMed 429 rate limit hit, backing off...")
+                time.sleep(2.0)  # PubMed requires longer backoff
+                search_response = requests.get(search_url, params=search_params, timeout=30)
+
+            search_response.raise_for_status()
+            search_data = search_response.json()
+
+            id_list = search_data.get("esearchresult", {}).get("idlist", [])
+
+            if not id_list:
+                return []
+
+            # FIX 105C: Wait before fetch request
+            _wait_for_rate_limit("pubmed")
+
+            # Fetch details
+            fetch_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+            fetch_params = {
+                "db": "pubmed",
+                "id": ",".join(id_list),
+                "retmode": "xml",
+            }
+
+            fetch_response = requests.get(fetch_url, params=fetch_params, timeout=30)
+
+            # FIX 105C: Check for rate limiting on fetch
+            if fetch_response.status_code == 429:
+                logger.warning("[FIX 105C] PubMed fetch 429 rate limit hit, backing off...")
+                time.sleep(2.0)
+                fetch_response = requests.get(fetch_url, params=fetch_params, timeout=30)
+
+            fetch_response.raise_for_status()
+
+            # Parse XML
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(fetch_response.content)
+
+            results = []
+            for article in root.findall(".//PubmedArticle"):
+                pmid = article.findtext(".//PMID", "")
+                title = article.findtext(".//ArticleTitle", "")
+                abstract_elem = article.find(".//Abstract/AbstractText")
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\tools\\access_bypass.py | Select-Object -Skip 1890 -First 65" in C:\POLARIS
+ succeeded in 664ms:
+                        host_type = next(
+                            (loc.get("host_type", "unknown")
+                             for loc in oa_locations
+                             if loc.get("url_for_pdf") == oa_url),
+                            "unknown",
+                        )
+                        logger.info(
+                            "[ACCESS] M-23a: Unpaywall PDF OA for %s: %s (%s)",
+                            doi, oa_url[:80], host_type,
+                        )
+                        return oa_url
+                    # No PDF — fall back to best.url, but ONLY if it's not
+                    # a known-403 repository pattern. Repository landing
+                    # pages that aren't PDFs tend to fail; better to let
+                    # the main cascade attempt the original publisher URL.
+                    best = data.get("best_oa_location") or {}
+                    landing = best.get("url")
+                    host_type = best.get("host_type", "unknown")
+                    if landing and host_type != "repository":
+                        # Publisher OA landing is usually fetchable
+                        logger.info(
+                            "[ACCESS] M-23a: Unpaywall %s OA landing for %s: %s",
+                            host_type, doi, landing[:80],
+                        )
+                        return landing
+                    # Repository landing without PDF — don't swap, let the
+                    # cascade try the original URL (which may have Crawl4AI
+                    # render the publisher full-text page).
+                    if landing:
+                        logger.info(
+                            "[ACCESS] M-23a: Unpaywall found repo landing "
+                            "without PDF for %s — keeping original URL",
+                            doi,
+                        )
+                    return None
+        except asyncio.TimeoutError:
+            logger.info("[ACCESS] M-23a: Unpaywall timeout for DOI %s", doi)
+            return None
+        except Exception as e:
+            logger.warning(
+                "[ACCESS] M-23a: Unpaywall failed for DOI %s: %s",
+                doi, str(e)[:120],
+            )
+            return None
+
+    async def _direct_fetch(self, url: str) -> AccessResult:
+        """Direct HTTP fetch with markdown Accept header (FIX-D6/A3) and 5xx retry (FIX-D5)."""
+        import aiohttp
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                # FIX-D6/A3: Add markdown Accept header to prefer markdown responses
+                headers = {
+                    **_NO_BROTLI_HEADERS,
+                    "User-Agent": self.user_agent,
+                    "Accept": "text/markdown, text/html;q=0.9, */*;q=0.8",
+                }
+
+                async with session.get(url, headers=headers) as response:
+                    # FIX-D6/A3: Log if server returned markdown content type
+                    content_type = response.headers.get("Content-Type", "")
+                    if "text/markdown" in content_type.lower():
+                        logger.info(
+                            "[ACCESS] Server returned markdown content for %s",
+
+web search: 
+web search: NCBI PMC OA BioC RESTful API pmcoa.cgi BioC_xml PMCID unicode official ...
+web search: 
+web search: https://www.ncbi.nlm.nih.gov/research/bionlp/APIs/BioC-PMC/
+web search: 
+web search: 'db=pmc' in https://www.ncbi.nlm.nih.gov/books/NBK25499/
+web search: 
+web search: 
+web search: 
+web search: https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/pmcoa.cgi/BioC_xml/PMC6490750/unicode ...
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\tools\\access_bypass.py | Select-Object -First 130" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"class AccessResult|@dataclass|class AccessBypass|__init__|self\\.user_agent\" src/tools/access_bypass.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "AccessBypass|fetch_with_bypass|access_bypass|_try_unpaywall|_extract_pdf_text" tests src -g "*.py"' in C:\POLARIS
+ succeeded in 817ms:
+"""
+Access Bypass Mechanisms (Research Access)
+===========================================
+Provides research access through multiple channels.
+
+ETHICAL GUIDELINES:
+- Only use for legitimate research purposes
+- Respect rate limits and fair use policies
+- Prefer legal open access when available
+- Document all access methods used
+
+Supports:
+- Crawl4AI (free, local Playwright-based markdown extraction)
+- Jina Reader (primary markdown extraction)
+- Firecrawl (secondary markdown extraction)
+- robots.txt bypass (for research indexing)
+- Paywall detection and alternatives
+- Archive.org fallback
+- Institutional proxy support
+"""
+
+import asyncio
+import logging
+import os
+import re
+import sys
+import time as _time_module
+from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
+
+
+def _safe_log_str(text: str, max_len: int = 200) -> str:
+    """Sanitize text for Windows console logging (cp1252 safe).
+
+    Unicode chars like arrows, Greek letters, and math symbols cause
+    UnicodeEncodeError on Windows cp1252 console handler. This replaces
+    non-encodable chars with '?' before logging.
+    """
+    truncated = text[:max_len]
+    try:
+        truncated.encode("cp1252")
+        return truncated
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return truncated.encode("ascii", errors="replace").decode("ascii")
+
+# FIX-BR: Suppress Brotli Accept-Encoding to prevent decompression failures.
+# aiohttp advertises `br` (Brotli) by default but cannot decode it without the
+# `brotli` package installed, causing 100% failure rate on servers that honour it.
+# Explicitly request only gzip/deflate across ALL aiohttp sessions.
+_NO_BROTLI_HEADERS = {"Accept-Encoding": "gzip, deflate"}
+
+# FIX-JINA: Jina concurrency semaphore (initialized lazily in _try_jina_reader)
+_jina_semaphore: "asyncio.Semaphore | None" = None
+
+# RC-9: Circuit breaker for fetch providers.
+# After N consecutive failures, skip the provider for a cooldown period.
+_jina_consecutive_failures: int = 0
+_jina_circuit_open_until: float = 0.0
+_firecrawl_consecutive_failures: int = 0
+_firecrawl_circuit_open_until: float = 0.0
+# FIX-G: Raised defaults — threshold 5→8, cooldown 60→120s for transient tolerance
+_CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("PG_CIRCUIT_BREAKER_THRESHOLD", "8"))
+_CIRCUIT_BREAKER_COOLDOWN = float(os.getenv("PG_CIRCUIT_BREAKER_COOLDOWN", "120.0"))
+
+# ---------------------------------------------------------------------------
+# Crawl4AI availability flag (set on first import attempt)
+# ---------------------------------------------------------------------------
+_crawl4ai_available: "bool | None" = None
+
+# ---------------------------------------------------------------------------
+# FIX-EPIPE: Crawl4AI circuit breaker for subprocess crashes.
+# After consecutive subprocess crashes (EPIPE, BrokenPipeError, OSError),
+# skip crawl4ai entirely for a cooldown period to avoid cascading failures
+# from a broken Playwright installation or dead browser process.
+# ---------------------------------------------------------------------------
+_crawl4ai_consecutive_failures: int = 0
+_crawl4ai_circuit_open_until: float = 0.0
+_CRAWL4AI_CIRCUIT_BREAKER_THRESHOLD = int(
+    os.getenv("PG_CRAWL4AI_CIRCUIT_BREAKER_THRESHOLD", "3")
+)
+_CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN = float(
+    os.getenv("PG_CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN", "120.0")
+)
+
+# ---------------------------------------------------------------------------
+# Firecrawl free-plan hardening: rate limiter + credit tracker
+# ---------------------------------------------------------------------------
+
+_firecrawl_last_request_time: float = 0.0
+_firecrawl_credits_used: int = 0
+
+# Load config from env (imported at module level for speed)
+_FIRECRAWL_MIN_INTERVAL = float(os.getenv("FIRECRAWL_MIN_INTERVAL_SECONDS", "6.0"))
+_FIRECRAWL_MONTHLY_QUOTA = int(os.getenv("FIRECRAWL_MONTHLY_QUOTA", "500"))
+_FIRECRAWL_WARN_PCT = float(os.getenv("FIRECRAWL_WARN_THRESHOLD_PCT", "0.80"))
+
+
+async def _firecrawl_rate_limit() -> None:
+    """Enforce minimum interval between Firecrawl requests (free plan: 10 RPM)."""
+    global _firecrawl_last_request_time
+    now = _time_module.monotonic()
+    elapsed = now - _firecrawl_last_request_time
+    if elapsed < _FIRECRAWL_MIN_INTERVAL and _firecrawl_last_request_time > 0:
+        wait = _FIRECRAWL_MIN_INTERVAL - elapsed
+        logger.info(
+            "[ACCESS] Firecrawl rate limit: waiting %.1fs (10 RPM free plan)",
+            wait,
+        )
+        await asyncio.sleep(wait)
+    _firecrawl_last_request_time = _time_module.monotonic()
+
+
+def _firecrawl_has_credits() -> bool:
+    """Check if monthly Firecrawl credit quota has remaining credits."""
+    if _firecrawl_credits_used >= _FIRECRAWL_MONTHLY_QUOTA:
+        logger.error(
+            "[ACCESS] Firecrawl monthly quota exhausted: %d/%d credits used",
+            _firecrawl_credits_used,
+            _FIRECRAWL_MONTHLY_QUOTA,
+        )
+        return False
+    return True
+
+
+def _firecrawl_track_credit() -> None:
+    """Increment Firecrawl credit counter and warn at threshold."""
+    global _firecrawl_credits_used
+
+ succeeded in 869ms:
+src\polaris_graph\agents\analyzer.py:1466:    """Fetch content for all search results using AccessBypass.
+src\polaris_graph\agents\analyzer.py:1468:    AccessBypass provides: direct fetch -> Unpaywall -> Archive.org -> Sci-Hub.
+src\polaris_graph\agents\analyzer.py:1477:        from src.tools.access_bypass import AccessBypass
+src\polaris_graph\agents\analyzer.py:1479:        bypass = AccessBypass()
+src\polaris_graph\agents\analyzer.py:1482:        logger.warning("[polaris graph] AccessBypass not available, using direct fetch")
+src\polaris_graph\agents\analyzer.py:1575:                        bypass.fetch_with_bypass(url),
+src\polaris_graph\agents\evidence_deepener.py:227:        # battle-tested access_bypass.py stack (Jina, Crawl4AI, PDF extract).
+src\polaris_graph\agents\evidence_deepener.py:888:# OP-6: Full-text fetch via access_bypass.py
+src\polaris_graph\agents\evidence_deepener.py:892:    """Fetch full text for papers using the access_bypass.py stack.
+src\polaris_graph\agents\evidence_deepener.py:903:        from src.tools.access_bypass import AccessBypass
+src\polaris_graph\agents\evidence_deepener.py:905:        logger.warning("[deepener] OP-6: access_bypass not importable — skipping")
+src\polaris_graph\agents\evidence_deepener.py:908:    bypass = AccessBypass()
+src\polaris_graph\agents\evidence_deepener.py:926:                result = await bypass.fetch_with_bypass(url)
+src\orchestration\graph.py:432:            AccessBypass,
+src\orchestration\graph.py:453:            "access_bypass": AccessBypass,
+src\orchestration\graph.py:676:def enhanced_fetch_with_bypass_node(state: ResearchState) -> ResearchState:
+src\orchestration\graph.py:678:    Retry failed URL fetches using AccessBypass.
+src\orchestration\graph.py:706:        bypass = get_tool_instance("access_bypass")
+src\orchestration\graph.py:709:            logger.warning("[TOOLS] AccessBypass not available")
+src\orchestration\graph.py:716:                # Correct method name: fetch_with_bypass (not fetch_with_fallback)
+src\orchestration\graph.py:717:                result = bypass.fetch_with_bypass(url)
+src\orchestration\graph.py:2999:    graph.add_node("access_bypass", enhanced_fetch_with_bypass_node)  # Retry failed fetches
+src\orchestration\graph.py:3046:    # KIMI Parity: search → access_bypass (retry failed fetches)
+src\orchestration\graph.py:3047:    graph.add_edge("search", "access_bypass")
+src\orchestration\graph.py:3049:    # access_bypass → analyst (always)
+src\orchestration\graph.py:3050:    graph.add_edge("access_bypass", "analyst")
+src\polaris_graph\agents\searcher.py:1411:    fetches via AccessBypass with per-page timeout, truncates content.
+src\polaris_graph\agents\searcher.py:1415:    from src.tools.access_bypass import AccessBypass
+src\polaris_graph\agents\searcher.py:1439:    bypass = AccessBypass()
+src\polaris_graph\agents\searcher.py:1445:                bypass.fetch_with_bypass(url),
+src\tools\__init__.py:11:broke `from src.tools import AccessBypass` after the archive move.
+src\tools\__init__.py:17:from .access_bypass import AccessBypass, AccessResult  # noqa: F401
+src\tools\__init__.py:20:    "AccessBypass",
+src\tools\access_bypass.py:562:class AccessBypass:
+src\tools\access_bypass.py:612:    async def fetch_with_bypass(
+src\tools\access_bypass.py:656:                oa_url = await self._try_unpaywall(candidate_doi)
+src\tools\access_bypass.py:670:                pdf_text = await self._extract_pdf_text(url)
+src\tools\access_bypass.py:1256:    async def _extract_pdf_text(self, url: str) -> str:
+src\tools\access_bypass.py:1839:    async def _try_unpaywall(self, doi: str) -> Optional[str]:
+src\tools\access_bypass.py:1881:                    # any location gets clean extraction via _extract_pdf_text.
+src\polaris_graph\graph_v2.py:255:    Reuses v1's content fetching infrastructure (AccessBypass chain,
+src\polaris_graph\retrieval\frame_fetcher.py:654:# no-blockers approved). Wraps POLARIS's existing AccessBypass
+src\polaris_graph\retrieval\frame_fetcher.py:672:    """Fetch content at `url` via AccessBypass. Returns
+src\polaris_graph\retrieval\frame_fetcher.py:680:    AccessBypass.fetch_with_bypass is async; M-56 is sync. The
+src\polaris_graph\retrieval\frame_fetcher.py:690:        from src.tools.access_bypass import AccessBypass
+src\polaris_graph\retrieval\frame_fetcher.py:693:            ab = AccessBypass()
+src\polaris_graph\retrieval\frame_fetcher.py:694:            result = await ab.fetch_with_bypass(url)
+src\polaris_graph\retrieval\frame_fetcher.py:722:        # AccessBypass raised — don't propagate; M-56 treats as
+src\polaris_graph\retrieval\frame_fetcher.py:774:    # be fetched via the POLARIS AccessBypass helper. Codex pass-3
+src\polaris_graph\retrieval\frame_fetcher.py:784:                source="access_bypass",
+src\polaris_graph\retrieval\frame_fetcher.py:813:            source="access_bypass",
+src\polaris_graph\retrieval\frame_fetcher.py:917:                source="access_bypass",
+src\polaris_graph\retrieval\frame_fetcher.py:925:                source="access_bypass",
+src\polaris_graph\retrieval\live_retriever.py:149:        # AccessBypass deliberately skips and that inflate the T7
+src\polaris_graph\retrieval\live_retriever.py:691:    AccessBypass is unavailable (tests that don't want Crawl4AI browser
+src\polaris_graph\retrieval\live_retriever.py:768:    """M-45 pass-2: record the final AccessBypass method + failure
+src\polaris_graph\retrieval\live_retriever.py:791:    AccessBypass cascade existing. This variant records WHY each
+src\polaris_graph\retrieval\live_retriever.py:804:          method: str — AccessBypass method that produced content
+src\polaris_graph\retrieval\live_retriever.py:846:    # M-45 pass-2 (Codex audit HIGH): read the winning AccessBypass
+src\polaris_graph\retrieval\live_retriever.py:892:    """Fetch URL content using the AccessBypass cascade (Crawl4AI +
+src\polaris_graph\retrieval\live_retriever.py:898:    previous naive httpx.Client. `src/tools/access_bypass.py` already
+src\polaris_graph\retrieval\live_retriever.py:903:    The AccessBypass call is async; live_retriever's fetch loop is
+src\polaris_graph\retrieval\live_retriever.py:915:            url, "httpx_naive", "pg_disable_access_bypass=1"
+src\polaris_graph\retrieval\live_retriever.py:919:        from src.tools.access_bypass import AccessBypass
+src\polaris_graph\retrieval\live_retriever.py:922:            "[live_retriever] AccessBypass unavailable (%s); "
+src\polaris_graph\retrieval\live_retriever.py:926:            url, "httpx_naive", f"access_bypass_import_failed: {exc}"
+src\polaris_graph\retrieval\live_retriever.py:930:    # Run AccessBypass in a dedicated thread so each call gets its own
+src\polaris_graph\retrieval\live_retriever.py:939:            bypass = AccessBypass()
+src\polaris_graph\retrieval\live_retriever.py:941:                bypass.fetch_with_bypass(url, prefer_legal=True)
+src\polaris_graph\retrieval\live_retriever.py:950:    # indefinitely. AccessBypass has internal timeouts but they don't
+src\polaris_graph\retrieval\live_retriever.py:961:            "[live_retriever] AccessBypass timed out after %.0fs for %s "
+src\polaris_graph\retrieval\live_retriever.py:965:        # M-45 pass-2: record AccessBypass timeout so diagnostics can
+src\polaris_graph\retrieval\live_retriever.py:968:            url, "httpx_naive", f"access_bypass_timeout_{int(deadline)}s",
+src\polaris_graph\retrieval\live_retriever.py:975:            "[live_retriever] AccessBypass raised for %s: %s: %s",
+src\polaris_graph\retrieval\live_retriever.py:980:            f"access_bypass_raised_{type(exc).__name__}",
+src\polaris_graph\retrieval\live_retriever.py:985:            "[live_retriever] AccessBypass produced no result for %s",
+src\polaris_graph\retrieval\live_retriever.py:989:            url, "httpx_naive", "access_bypass_no_result"
+tests\integration\test_sota_quality_sprint.py:15:- FIX-D1: Jina Reader fetch (AccessBypass._try_jina_reader)
+tests\integration\test_sota_quality_sprint.py:703:    """FIX-D1: AccessBypass._try_jina_reader returns content on 200 response.
+tests\integration\test_sota_quality_sprint.py:709:    import src.tools.access_bypass as ab_mod
+tests\integration\test_sota_quality_sprint.py:710:    from src.tools.access_bypass import AccessBypass
+tests\integration\test_sota_quality_sprint.py:716:    bypass = AccessBypass()
+tests\integration\test_sota_quality_sprint.py:759:    """FIX-D1: AccessBypass._try_jina_reader returns failure on non-200."""
+tests\integration\test_sota_quality_sprint.py:761:    from src.tools.access_bypass import AccessBypass
+tests\integration\test_sota_quality_sprint.py:763:    bypass = AccessBypass()
+tests\integration\test_polaris_graph.py:860:    from src.tools.access_bypass import _safe_log_str
+tests\integration\test_polaris_graph.py:900:    from src.tools.access_bypass import AccessBypass
+tests\integration\test_polaris_graph.py:902:    bypass = AccessBypass()
+tests\integration\test_polaris_graph.py:1634:    from src.tools.access_bypass import AccessBypass
+tests\integration\test_polaris_graph.py:1636:    bypass = AccessBypass()
+tests\polaris_graph\test_access_bypass_backend_timeout.py:19:from src.tools.access_bypass import AccessResult, _bounded_backend
+tests\polaris_graph\test_access_bypass_backend_timeout.py:68:    """The exact pattern `fetch_with_bypass` uses — `asyncio.gather` over
+tests\polaris_graph\test_access_bypass_teardown_drain.py:29:from src.tools.access_bypass import (
+tests\polaris_graph\test_access_bypass_teardown_drain.py:88:    from src.tools.access_bypass import _force_drop_detached_task
+tests\unit\test_fix_045.py:26:from src.tools.access_bypass import _strip_navigation_boilerplate
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:1:"""BUG-FETCH-R8d: confirm _fetch_content routes through AccessBypass
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:3:failure inside AccessBypass falls back to the naive httpx path
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:10:- v2: wired AccessBypass via asyncio.new_event_loop() +
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:15:- v3 (current): wrap AccessBypass in a dedicated daemon thread so
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:38:    async def fetch_with_bypass(self, url, prefer_legal=True):
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:43:    async def fetch_with_bypass(self, url, prefer_legal=True):
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:48:    async def fetch_with_bypass(self, url, prefer_legal=True):
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:57:def test_fetch_content_uses_access_bypass_from_sync_context(monkeypatch):
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:61:    import src.tools.access_bypass as ab
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:62:    monkeypatch.setattr(ab, "AccessBypass", _FakeBypass)
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:80:    import src.tools.access_bypass as ab
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:81:    monkeypatch.setattr(ab, "AccessBypass", _FakeBypass)
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:94:    """When AccessBypass raises inside the thread, the fallback
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:98:    import src.tools.access_bypass as ab
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:99:    monkeypatch.setattr(ab, "AccessBypass", _FailingBypass)
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:121:    """S2 landing pages are deliberately skipped by AccessBypass.
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:126:    import src.tools.access_bypass as ab
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:127:    monkeypatch.setattr(ab, "AccessBypass", _EmptyBypass)
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:149:    """BUG-FETCH-R8d M-1 (Codex pass 4): a wedged AccessBypass
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:156:        async def fetch_with_bypass(self, url, prefer_legal=True):
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:162:    import src.tools.access_bypass as ab
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:163:    monkeypatch.setattr(ab, "AccessBypass", _HangingBypass)
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:185:    """PG_DISABLE_ACCESS_BYPASS=1 must bypass AccessBypass entirely
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:197:    # Even if AccessBypass would succeed, the env opt-out must win.
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:198:    import src.tools.access_bypass as ab
+tests\polaris_graph\test_fetch_access_bypass_wiring.py:199:    monkeypatch.setattr(ab, "AccessBypass", _FakeBypass)
+tests\unit\test_agentic_search.py:546:# Test 15: _fetch_top_pages — basic (mock AccessBypass)
+tests\unit\test_agentic_search.py:552:    """Mock AccessBypass, verify fetches top N, skips already-fetched."""
+tests\unit\test_agentic_search.py:563:    # Mock AccessBypass.fetch_with_bypass to return success
+tests\unit\test_agentic_search.py:569:    mock_bypass_instance.fetch_with_bypass = AsyncMock(return_value=mock_result)
+tests\unit\test_agentic_search.py:571:    with patch("src.tools.access_bypass.AccessBypass", return_value=mock_bypass_instance), \
+tests\unit\test_agentic_search.py:601:    mock_bypass_instance.fetch_with_bypass = AsyncMock(return_value=mock_result)
+tests\unit\test_agentic_search.py:604:         patch("src.tools.access_bypass.AccessBypass", return_value=mock_bypass_instance):
+tests\unit\test_agentic_search.py:630:    mock_bypass_instance.fetch_with_bypass = AsyncMock(return_value=mock_result)
+tests\unit\test_agentic_search.py:636:         patch("src.tools.access_bypass.AccessBypass", return_value=mock_bypass_instance):
+tests\polaris_graph\test_m23_access_bypass_fixes.py:3:Covers iteration 6 access_bypass.py changes:
+tests\polaris_graph\test_m23_access_bypass_fixes.py:23:from src.tools.access_bypass import (
+tests\polaris_graph\test_m23_access_bypass_fixes.py:24:    AccessBypass,
+tests\polaris_graph\test_m23_access_bypass_fixes.py:102:    bypass = AccessBypass()
+tests\polaris_graph\test_m23_access_bypass_fixes.py:125:    bypass = AccessBypass()
+tests\polaris_graph\test_m23_access_bypass_fixes.py:146:    bypass = AccessBypass()
+tests\polaris_graph\test_m23_access_bypass_fixes.py:159:    bypass = AccessBypass()
+tests\polaris_graph\test_m23_access_bypass_fixes.py:167:    bypass = AccessBypass()
+tests\polaris_graph\test_m23_access_bypass_fixes.py:173:    bypass = AccessBypass()
+tests\polaris_graph\test_m23_access_bypass_fixes.py:183:    bypass = AccessBypass()
+tests\polaris_graph\test_m23_access_bypass_fixes.py:207:    bypass = AccessBypass()
+tests\polaris_graph\test_m23_access_bypass_fixes.py:228:    bypass = AccessBypass()
+tests\polaris_graph\test_m23_access_bypass_fixes.py:241:    bypass = AccessBypass()
+tests\polaris_graph\test_m23_access_bypass_fixes.py:324:async def test_try_unpaywall_returns_none_when_no_email(monkeypatch) -> None:
+tests\polaris_graph\test_m23_access_bypass_fixes.py:328:    bypass = AccessBypass()
+tests\polaris_graph\test_m23_access_bypass_fixes.py:329:    result = await bypass._try_unpaywall("10.1056/NEJMoa2416394")
+tests\polaris_graph\test_m23_access_bypass_fixes.py:335:    bypass = AccessBypass()
+tests\polaris_graph\test_m23_access_bypass_fixes.py:343:    bypass = AccessBypass()
+tests\polaris_graph\test_m45_refetch_diagnostics.py:3:Codex V28 plan pass-2 APPROVED. Instead of assuming the AccessBypass
+tests\polaris_graph\test_m45_refetch_diagnostics.py:159:        """When AccessBypass times out, _fetch_content records
+tests\polaris_graph\test_m45_refetch_diagnostics.py:171:                    "access_bypass_timeout_90s",
+tests\polaris_graph\test_m56_frame_fetcher.py:539:    AccessBypass (`_fetch_url_pattern`) instead of emitting
+tests\polaris_graph\test_m56_frame_fetcher.py:548:        """Successful AccessBypass fetch produces OPEN_ACCESS
+tests\polaris_graph\test_m56_frame_fetcher.py:577:        # Attempt log records the AccessBypass success
+tests\polaris_graph\test_m56_frame_fetcher.py:579:            a for a in row.retrieval_attempts if a.source == "access_bypass"
+tests\polaris_graph\test_m56_frame_fetcher.py:587:        """AccessBypass fetch returns empty → METADATA_ONLY, not
+tests\polaris_graph\test_m56_frame_fetcher.py:613:            a for a in row.retrieval_attempts if a.source == "access_bypass"
+tests\polaris_graph\test_m56_frame_fetcher.py:621:    trigger an AccessBypass full-text fetch, enriching
+tests\polaris_graph\test_m56_frame_fetcher.py:659:        # Attempt log has the access_bypass success entry
+tests\polaris_graph\test_m56_frame_fetcher.py:661:            a for a in row.retrieval_attempts if a.source == "access_bypass"
+tests\polaris_graph\test_m56_frame_fetcher.py:697:        AccessBypass.fetch_with_bypass is async and returns an
+tests\polaris_graph\test_m56_frame_fetcher.py:703:        from src.tools.access_bypass import AccessResult
+tests\polaris_graph\test_m56_frame_fetcher.py:711:            async def fetch_with_bypass(
+tests\polaris_graph\test_m56_frame_fetcher.py:722:            "src.tools.access_bypass.AccessBypass", _StubAB,
+tests\polaris_graph\test_m56_frame_fetcher.py:789:        through `_fetch_url_pattern` (AccessBypass). When the
+tests\polaris_graph\test_m56_frame_fetcher.py:813:        # has no DOI/PMID; only AccessBypass is consulted, which
+tests\polaris_graph\test_m56_frame_fetcher.py:965:        # access_bypass RetrievalAttempt that can be success OR
+tests\polaris_graph\test_m56_frame_fetcher.py:976:        # Timings only emitted for http sources; access_bypass
+tests\polaris_graph\test_m56_frame_fetcher.py:978:        # doesn't instrument AccessBypass internals).
+tests\polaris_graph\test_m55_frame_compiler.py:642:        URL to dispatch AccessBypass.
+tests\polaris_graph\test_m62_non_clinical_regression.py:446:    def test_url_pattern_entity_fetches_content_via_access_bypass(
+tests\polaris_graph\test_m62_non_clinical_regression.py:450:        fetch content via _fetch_url_pattern (AccessBypass) and
+
+ succeeded in 889ms:
+142:@dataclass
+143:class AccessResult:
+562:class AccessBypass:
+569:    def __init__(
+579:        self.user_agent = user_agent
+922:        # crawl4ai's __init__.py may spawn subprocesses or load native libs
+1465:                        "User-Agent": self.user_agent,
+1946:                    "User-Agent": self.user_agent,
+2285:                async with session.get(proxied_url, headers={**_NO_BROTLI_HEADERS, "User-Agent": self.user_agent}) as response:
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_graph\\test_m23_access_bypass_fixes.py | Select-Object -Skip 300 -First 70" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\tools\\access_bypass.py | Select-Object -Skip 130 -First 85" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\tools\\access_bypass.py | Select-Object -Skip 560 -First 40" in C:\POLARIS
+ succeeded in 833ms:
+    """When only one backend returns successfully, it wins uncontested."""
+    only = AccessResult(
+        url="https://example.org/paper",
+        content=(
+            "Abstract. Methods. Results. Discussion. Conclusion. "
+            "8.5% p<0.001 524 patients."
+        ) * 20,
+        access_method="trafilatura",
+        legal_alternative=None,
+        success=True,
+        metadata={},
+    )
+    scored = [(only, _score_content_quality(only.content))]
+    winner, _ = scored[0]
+    assert winner is only
+
+
+# ---------------------------------------------------------------------------
+# M-23a: Unpaywall shape
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_try_unpaywall_returns_none_when_no_email(monkeypatch) -> None:
+    """Without UNPAYWALL_EMAIL set, the method must bail early with
+    None rather than making a malformed API call."""
+    monkeypatch.delenv("UNPAYWALL_EMAIL", raising=False)
+    bypass = AccessBypass()
+    result = await bypass._try_unpaywall("10.1056/NEJMoa2416394")
+    assert result is None
+
+
+def test_extract_doi_finds_nejm_doi() -> None:
+    """Sanity-check the DOI extraction the Unpaywall step depends on."""
+    bypass = AccessBypass()
+    doi = bypass._extract_doi(
+        "https://www.nejm.org/doi/full/10.1056/NEJMoa2416394"
+    )
+    assert doi == "10.1056/NEJMoa2416394"
+
+
+def test_extract_doi_finds_lancet_doi() -> None:
+    bypass = AccessBypass()
+    doi = bypass._extract_doi(
+        "https://www.thelancet.com/journals/lancet/article/PIIS0140-6736(21)01324-6"
+    )
+    # Lancet PII URLs may not contain a canonical DOI; this just asserts
+    # no crash. The resolver handles PII->DOI via _resolve_academic_url.
+    assert doi is None or re.match(r"10\.\d{4,9}/.+", doi)
+
+ succeeded in 869ms:
+    _firecrawl_credits_used += 1
+    pct = _firecrawl_credits_used / _FIRECRAWL_MONTHLY_QUOTA
+    if pct >= _FIRECRAWL_WARN_PCT:
+        logger.warning(
+            "[ACCESS] Firecrawl credit warning: %d/%d used (%.0f%% of monthly quota)",
+            _firecrawl_credits_used,
+            _FIRECRAWL_MONTHLY_QUOTA,
+            pct * 100,
+        )
+
+
+@dataclass
+class AccessResult:
+    """Result from access attempt."""
+    url: str
+    content: str
+    access_method: str
+    legal_alternative: Optional[str]
+    success: bool
+    metadata: Dict[str, Any]
+
+
+# FIX-045B: Navigation boilerplate patterns to strip from fetched content
+_BOILERPLATE_RE = re.compile(
+    r"|".join([
+        r"\[Skip to [^\]]*\]",           # [Skip to Main Content], [Skip to Navigation]
+        r"\[Jump to [^\]]*\]",           # [Jump to Content]
+        r"^\s*Menu\s*$",                 # Standalone "Menu" lines
+        r"^\s*Navigation\s*$",           # Standalone "Navigation" lines
+        r"^\s*Toggle navigation\s*$",    # Mobile nav toggle
+        r"^\s*Search\.\.\.\s*$",         # Search placeholder
+        r"^\s*Sign [Ii]n\s*$",          # Standalone sign-in links
+        r"^\s*Create [Aa]ccount\s*$",   # Standalone create account
+        r"^\s*Log [Ii]n\s*$",           # Standalone login
+        r"^\s*Subscribe\s*$",            # Standalone subscribe
+        r"^\s*Share on .*$",             # Share on Twitter/Facebook/etc.
+        r"^\s*Cookie [Pp]olicy\s*$",    # Cookie policy links
+    ]),
+    re.MULTILINE,
+)
+
+
+def _strip_navigation_boilerplate(content: str) -> str:
+    """FIX-045B: Strip navigation boilerplate from fetched content.
+
+    Removes common HTML-to-markdown artifacts like [Skip to Main Content],
+    standalone navigation links, and similar boilerplate that degrades
+    evidence quality.
+    """
+    if not content:
+        return content
+    cleaned = _BOILERPLATE_RE.sub("", content)
+    # Remove runs of blank lines left by stripping
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+# M-23c: Structural markers for content quality scoring.
+# Presence of academic-paper markers indicates full article body
+# (vs paywall stub or landing page).
+_STRUCTURAL_MARKERS = (
+    "abstract", "methods", "results", "conclusion",
+    "discussion", "introduction", "background", "references",
+    "materials and methods", "statistical analysis",
+)
+
+_NUMERIC_TOKEN_RE = re.compile(r"\d+\.\d+|\d+\s*%|\d{3,}|\bp\s*[<=>]\s*0\.\d+\b")
+
+
+def _score_content_quality(content: str) -> float:
+    """Score a fetched-content candidate on quality (0.0 .. ~1.5).
+
+    Combines normalized length, structural-marker hits, and numeric
+    density. Fully stripped stubs and paywall shells score low; full
+    article bodies with numeric data score high. Used to pick the winner
+    when multiple concurrent backends (Crawl4AI, Jina, Trafilatura)
+    return successful results — replaces first-success-wins, which let
+    Jina stubs beat Crawl4AI full-article fetches.
+
+    This is NOT just length: a long paywall page with repeated
+    "subscribe to read" blocks will have no structural markers and low
+    numeric density, so it loses to a shorter true article body.
+    """
+    if not content:
+        return 0.0
+
+ succeeded in 872ms:
+
+class AccessBypass:
+    """
+    Research access manager.
+
+    Provides multiple methods to access research content.
+    """
+
+    def __init__(
+        self,
+        respect_robots_txt: bool = False,  # For research indexing
+        use_archive_org: bool = True,
+        institutional_proxy: Optional[str] = None,
+        user_agent: str = "POLARIS Research Bot (academic research)",
+    ):
+        self.respect_robots = respect_robots_txt
+        self.use_archive_org = use_archive_org
+        self.proxy = institutional_proxy
+        self.user_agent = user_agent
+
+        # Paywall detection patterns.
+        # M-23f: Tightened to fix false positives on long article bodies.
+        # The old patterns used greedy `.*` across arbitrary spans, which
+        # meant a 50K-char NEJM article saying "the authors had full
+        # access to the data" (far from any "sign in") would match
+        # `sign.*in.*to.*access` because regex `.*` spans ~49K chars.
+        # New patterns use `\s+` / `\s*[.:]?\s*` for tight token adjacency
+        # and word boundaries. Length-gating in `_detect_paywall`
+        # further protects long article bodies from the loosest patterns.
+        self.paywall_patterns_strict = [
+            # These fire on ANY content length — extremely specific
+            r"\bpaywall\b",
+            r"\bpremium\s+content\b",
+            r"\bunlock\s+(the\s+)?full\s+article\b",
+            r"\bthis\s+article\s+is\s+available\s+to\s+subscribers\b",
+            r"\blog\s+in\s+to\s+read\s+this\s+article\b",
+            r"\bsubscribe\s+to\s+read\s+the\s+full\s+article\b",
+        ]
+        self.paywall_patterns_short_only = [
+            # These fire ONLY when content is short (<2K chars) — the
+
+codex
+**Decision**
+
+Implement **A + B + D now**. Treat **C as follow-up hardening**, not the primary rescue path.
+
+Use **PMC BioC as the primary PMCID full-text fetcher**, preferably `BioC_json/<PMCID>/unicode` for easier structured parsing. Do **not** make `efetch db=pmc` the P0 path. BioC is explicitly the PMC full-text API for Open Access Subset articles and supports PMCID input【turn1view0†L43-L61】; PMC also lists BioC and E-Utilities as allowed automated retrieval paths【turn1view1†L109-L138】.
+
+Place it in `src/tools/access_bypass.py` inside `fetch_with_bypass`:
+
+1. After `_resolve_academic_url`, extract PMCID from the original/resolved URL. If present, call `_try_pmc_bioc_fulltext(pmcid)` **before Unpaywall, PDF extraction, and scraper fan-out**.
+2. After `_try_unpaywall(candidate_doi)`, if the returned OA URL contains a PMCID, call BioC immediately and return only if it passes full-text guards.
+3. Only if BioC is unavailable/empty should the existing PDF/scraper cascade continue.
+
+**Priority**
+
+P0:
+- Add `_extract_pmcid`.
+- Add `_try_pmc_bioc_fulltext`.
+- Add an NCBI limiter: max 1 concurrent, default <=3 req/sec, exponential backoff on 429. Do not assume the BioC endpoint gets the E-Utilities API-key 10 rps allowance; keep it conservative. E-Utilities’ documented limits are 3 rps unauthenticated and 10 rps with key【turn1view2†L41-L47】【turn1view2†L73-L86】.
+- Accept BioC content only if normalized text is `>=1000` chars and contains body-like article sections/passages. Never emit a successful `AccessResult` for API error text, citation-only text, abstract-only text, or references-only text.
+
+P0:
+- Tighten `_try_unpaywall`: never swap to `doi.org`, DOI resolver pages, or publisher DOI landing pages. Return only a direct PDF URL or a PMCID-bearing PMC URL. This fixes mode 1. The current code already prefers PDFs; the bug is the permissive `best.url` publisher-landing fallback.
+
+P1:
+- Harden PDF extraction diagnostics: send existing no-brotli + user-agent headers, validate `%PDF` or PDF content-type before parsing, log final URL/content-type/byte length on failure. This explains the 54-char case, but BioC should bypass PMC PDFs first.
+
+P2:
+- Keep D: genuinely paywalled AHA/JACC/non-OA sources stay skipped or T7. Do not lower `<200` or `<1000`.
+
+**Guardrail/Invariants**
+
+- No threshold changes.
+- No `AccessResult(success=True)` from `pmc_bioc` unless content is full text.
+- No Unpaywall swap log may show `doi.org` or publisher DOI landing.
+- PMCID API failures fall through; they do not become accepted stubs.
+- API text must still go through boilerplate/error/paywall checks before return.
+
+**Verification**
+
+First re-run the fresh **afib** vector. Pass bar:
+- no `corpus_inadequate`;
+- `T1 >= 3`, `T2 >= 2`;
+- prior PMC failures `PMC6490750` and `PMC10715890` fetch via `pmc_bioc` with full text, not 111/54-char stubs;
+- no accepted source under 1000 chars.
+
+Then re-run the **5 clinical vectors** that previously aborted with `corpus_inadequate`. Pass bar: all 5 no longer abort, and no new T7 laundering.
+
+Finally run the full 13-vector benchmark to catch regressions in non-clinical paths and PDF handling.
+
+**Misdiagnosed / Refined**
+
+Mode 3 is not necessarily “PMC JS-heavy”; the real bug is relying on scrapers for a host with an official structured full-text API. Mode 2 is likely PDF response validation/parser failure, but for PMC PDFs it should stop mattering once PMCID BioC runs first.
+tokens used
+76,918

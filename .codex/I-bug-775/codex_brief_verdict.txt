@@ -1,0 +1,4 @@
+# I-bug-775 (#815) brief-level (approach) verdict.
+# Codex DECISION (decision-maker, CHARTER §1): A+B+D — PMC BioC full-text fetcher
+# + tighten Unpaywall landing-swaps + no threshold changes. See decision_verdict.txt.
+verdict: APPROVE
