@@ -10,12 +10,45 @@ These assert the deterministic core (_extract_pmcid + _parse_bioc_fulltext).
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
+
+import pytest
 
 from src.tools.access_bypass import (
     AccessBypass,
     _parse_bioc_fulltext,
     _PMC_BIOC_MIN_FULLTEXT_CHARS,
 )
+
+
+class _FakeResp:
+    def __init__(self, payload: dict):
+        self._payload = payload
+        self.status = 200
+
+    async def json(self):
+        return self._payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+class _FakeSession:
+    """Minimal aiohttp.ClientSession stand-in returning a canned Unpaywall payload."""
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    def get(self, *a, **k):
+        return _FakeResp(self._payload)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
 
 
 def _bioc(passages: list[tuple[str, str]]) -> str:
@@ -90,3 +123,50 @@ def test_parse_accepts_large_unsectioned_article() -> None:
         {"infons": {}, "text": "short"}, {"infons": {}, "text": "also short"}
     ]}]}])
     assert _parse_bioc_fulltext(small) == ""
+
+
+# ── _try_unpaywall (B): never swap to a publisher/doi.org landing (iter-1 P2) ──
+
+def _patch_unpaywall(monkeypatch, payload: dict) -> None:
+    import aiohttp
+    monkeypatch.setenv("UNPAYWALL_EMAIL", "test@example.org")
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: _FakeSession(payload))
+
+
+@pytest.mark.asyncio
+async def test_unpaywall_rejects_publisher_landing(monkeypatch) -> None:
+    """Mode-1 fix: a publisher/doi.org OA landing (no PDF, not PMC) → None
+    (do not swap; keep the original URL for the cascade)."""
+    _patch_unpaywall(monkeypatch, {
+        "is_oa": True,
+        "oa_locations": [{"url": "https://doi.org/10.1111/eci.13803", "host_type": "publisher"}],
+        "best_oa_location": {"url": "https://doi.org/10.1111/eci.13803", "host_type": "publisher"},
+    })
+    result = await AccessBypass()._try_unpaywall("10.1111/eci.13803")
+    assert result is None, f"publisher landing must NOT be swapped, got {result!r}"
+
+
+@pytest.mark.asyncio
+async def test_unpaywall_returns_direct_pdf(monkeypatch) -> None:
+    _patch_unpaywall(monkeypatch, {
+        "is_oa": True,
+        "oa_locations": [{
+            "url_for_pdf": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10715890/pdf/main.pdf",
+            "host_type": "repository",
+        }],
+    })
+    result = await AccessBypass()._try_unpaywall("10.1016/j.jacasi.2023.08.007")
+    assert result and "PMC10715890" in result
+
+
+@pytest.mark.asyncio
+async def test_unpaywall_returns_pmc_url_when_no_pdf(monkeypatch) -> None:
+    """A PMCID-bearing PMC URL (no PDF) IS allowed — the caller's BioC path
+    resolves it to full text."""
+    _patch_unpaywall(monkeypatch, {
+        "is_oa": True,
+        "oa_locations": [{"url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12240022/", "host_type": "repository"}],
+        "best_oa_location": {"url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12240022/", "host_type": "repository"},
+    })
+    result = await AccessBypass()._try_unpaywall("10.0000/x")
+    assert result and "PMC12240022" in result
