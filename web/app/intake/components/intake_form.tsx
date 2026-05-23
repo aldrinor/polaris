@@ -180,12 +180,16 @@ export function IntakeForm() {
               page, which is the run-start surface. */}
           {state.decision.status === "in_scope" ? (
             <div className="flex justify-end">
+              {/* I-p2-031 (#770): route through source-review (see the source
+                  set + adequacy bar) before the plan/run-start surface. */}
               <Button
                 nativeButton={false}
                 data-testid="intake-continue-to-plan"
                 render={
-                  <Link href={`/plan?q=${encodeURIComponent(question.trim())}`}>
-                    Continue to plan →
+                  <Link
+                    href={`/source_review?q=${encodeURIComponent(question.trim())}`}
+                  >
+                    Review sources →
                   </Link>
                 }
               />
