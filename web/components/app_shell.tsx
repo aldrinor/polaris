@@ -1,6 +1,8 @@
 import Link from "next/link";
 
+import { AuthButton } from "@/components/auth_button";
 import { PrimaryNav } from "@/components/primary_nav";
+import { SiteFooter } from "@/components/site_footer";
 
 /**
  * I-cd-004: the global app shell. A server component that wraps every prod
@@ -45,9 +47,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             ⬡ Canadian-hosted
           </span>
+          {/* I-p2-038 (#821): auth affordance was MISSING on every non-home
+              route. ml-auto on the sovereign mark above is dropped to sm: only,
+              so on mobile (mark hidden) this button still right-aligns. */}
+          <div className="ml-auto sm:ml-0">
+            <AuthButton />
+          </div>
         </div>
       </header>
       <main className="flex-1">{children}</main>
+      <SiteFooter />
     </>
   );
 }
