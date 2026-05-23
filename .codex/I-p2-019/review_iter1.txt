@@ -1,0 +1,9 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/tests/e2e/graph_page_smoke.spec.ts:64 still asserts the removed copy 'Failed to load graph'. With this diff, the 404 path renders ErrorState title/message ('Couldn’t load the graph' + friendly not-found copy), so the existing graph smoke test will fail until updated."
+p2: []
+merge_decision: DO NOT MERGE
+```
