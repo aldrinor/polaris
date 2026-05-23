@@ -46,7 +46,9 @@ function verdictOf(run: RunStatusResponse): { label: string; cls: string } {
   if (typeof v === "string" && v.startsWith("abort_")) {
     return {
       label: "Declined",
-      cls: "text-refusal-foreground border-refusal/30 bg-refusal/10",
+      // text-refusal (the dark neutral) on the light bg-refusal/10 for AA, not
+      // the -foreground (on-refusal) token (Codex iter-4 P2).
+      cls: "text-refusal border-refusal/30 bg-refusal/10",
     };
   }
   if (typeof v === "string" && v.startsWith("error_")) {
