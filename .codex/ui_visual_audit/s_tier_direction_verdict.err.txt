@@ -1,0 +1,216 @@
+Reading prompt from stdin...
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e5736-f0f0-7462-8a0c-1440f0d6dbfc
+--------
+user
+# Codex S-TIER design direction + per-screen audit (DECISION + VISUAL)
+
+You are a world-class product designer + the design decision-maker (CHARTER §1). The operator's bar has moved: **not B-, not "good enough" — A++ to S-tier**, visually competitive with AND differentiated from Perplexity / ChatGPT Deep Research / Gemini. Every tab, page, and step. You will define the design system AND audit each attached screen at that bar.
+
+## Product
+POLARIS — sovereign Canadian **clinical deep-research** product; one-shot demo to the PM of Canada (Mark Carney). The DIFFERENTIATOR is **per-sentence verifiability**: every claim links to the exact cited source span (the "Proof Replay" inspector). Lean into that harder than Perplexity leans into sources — proof IS the product.
+
+## Research-backed S-tier invariants (from Stripe/Linear/Vercel + 2026 best practice — use as the floor, then exceed)
+- Typography as brand: ONE family (Geist is in use), 4–6 sizes (12/14/16/18/20/24/32), weights 400/500/700, tabular nums + mono for IDs/data, optical alignment.
+- Systematic spacing grid: one base scale (4/8/12/16/24/32…), consistent gaps/padding everywhere; generous whitespace (expansive = "expensive").
+- Color restraint: near-neutral + ONE brand accent (Canada red) used once/screen, meaning-only (never decoration); semantic tokens (danger/verified/primary).
+- SIX microstates on every interactive element: default / hover / focus(custom 2–3px ring, offset) / active / disabled(40–50% opacity) / loading(skeleton matching layout, not a spinner).
+- Hairline borders (0.5–1px low-alpha), brand-temperature-tinted shadows (not pure gray), consistent radius (cards 8–12px, inputs ~8, controls). Motion 150–200ms ease, defined once.
+- Designed empty/loading/error states (high-trust moments), memorable not generic.
+- "Interaction-dense, not visually dense." Every screen has ONE obvious primary action the composition guides toward.
+
+## Attached screens (current live, except #5 is the just-rebuilt Contracts)
+1. Home (/) 2. Intake (/intake) 3. Inspector / Proof Replay centerpiece 4. Upload 5. Contracts (REBUILT B-) 6. Pin Replay 7. Sign-in.
+NOTE: cred-gated pages (dashboard, benchmark, memory, source-review, and the Plan→Run→Compare journey) are NOT attached — operator will provide a demo cred so they join the audit.
+
+## Deliver (readable markdown)
+1. **POLARIS S-tier design language** — the specific token + pattern decisions (type scale, spacing grid, color/semantic tokens, the 6 microstate specs, focus ring, border/shadow/radius, motion, empty/loading) tuned for a clinical-institutional research workbench that out-classes frontier. Be concrete (values).
+2. **The signature move** — what ONE design idea makes POLARIS visually unmistakable + S-tier (the proof/verification interface is the candidate). How to make it the hero across the product.
+3. **Per-screen audit at the A++/S bar** — for each attached screen: current grade, the gap to S, and the specific moves to get there. Be harsh.
+4. **Build order** — foundation-first (which shared tokens/primitives to ship before per-page rebuilds) + the per-tab sequence. Note what's blocked on the demo cred.
+
+Honest constraint: sovereignty wording stays "Canadian-hosted" + OpenRouter-US disclosure (intentional). Judge everything else at the S bar.
+
+codex
+**1. POLARIS S-Tier Design Language**
+
+POLARIS should feel like a clinical research terminal made legible for government: restrained, expensive, verifiable, Canadian without being decorative. The interface should say: “this system can be audited under pressure.”
+
+**Typography**
+
+Use Geist only.
+
+| Token | Size / LH | Weight | Use |
+|---|---:|---:|---|
+| `display` | 40 / 44 | 700 | Home hero only |
+| `h1` | 32 / 38 | 700 | Page titles |
+| `h2` | 24 / 30 | 700 | Major panels |
+| `h3` | 18 / 26 | 600 | Card headings |
+| `body` | 16 / 24 | 400 | Main prose |
+| `body-sm` | 14 / 21 | 400 | Forms, supporting text |
+| `caption` | 12 / 16 | 500 | Labels, metadata |
+| `mono` | 13 / 18 | 500 | IDs, hashes, model names |
+
+Rules: use tabular numbers everywhere clinical values appear. IDs, hashes, bundle names, dates, and model names use mono. No letter-spacing except uppercase metadata labels: `0.08em`.
+
+**Spacing**
+
+Base scale: `4, 8, 12, 16, 24, 32, 48, 64, 96`.
+
+Page shell:
+- Max content width: `1120px`.
+- Workbench width: `1200px`.
+- Page top padding: `64px desktop`, `32px mobile`.
+- Section gap: `48px`.
+- Card padding: `24px`.
+- Dense inspector padding: `16px`.
+- Form field vertical gap: `16px`.
+
+The current UI feels assembled from similar but not identical spacings. S-tier requires the spacing to become invisible because it is systematized.
+
+**Color**
+
+Near-neutral plus one brand accent. Canada red is action and verification emphasis, not decoration.
+
+```css
+--bg: #FAFAF9;
+--surface: #FFFFFF;
+--surface-raised: #FFFDFC;
+--text: #09090B;
+--text-muted: #626A73;
+--text-faint: #8A929C;
+--border: rgba(9, 9, 11, 0.10);
+--border-strong: rgba(9, 9, 11, 0.16);
+
+--brand: #D8062F;
+--brand-hover: #B90528;
+--brand-soft: #FFF1F4;
+--brand-border: rgba(216, 6, 47, 0.22);
+
+--verified: #047857;
+--verified-soft: #ECFDF5;
+--verified-border: rgba(4, 120, 87, 0.22);
+
+--warning: #B45309;
+--warning-soft: #FFFBEB;
+
+--danger: #B91C1C;
+--danger-soft: #FEF2F2;
+```
+
+Red appears once per screen as the primary action or active proof mark. Not in every icon. Verification uses green. Warnings use amber. Clinical source highlights use pale red only when linked to the selected claim.
+
+**Radius, Borders, Shadows**
+
+- Cards: `12px`.
+- Inputs/buttons: `8px`.
+- Pills: `999px`.
+- Inspector panes: `10px`.
+- Borders: `1px rgba(9,9,11,.10)`.
+- Shadow: `0 20px 60px rgba(216, 6, 47, 0.06), 0 2px 8px rgba(9, 9, 11, 0.06)`.
+
+No heavy gray shadows. The shadow temperature should subtly belong to POLARIS.
+
+**Motion**
+
+One motion primitive:
+
+```css
+transition: 160ms cubic-bezier(.2, .8, .2, 1);
+```
+
+Use it for hover, focus, tab selection, inspector selection, source-span reveal, and skeleton fade. No ornamental animation. Motion should communicate inspection, selection, and evidence binding.
+
+**Interactive Microstates**
+
+Every button, tab, chip, card row, source span, nav item, and form control needs six states.
+
+| State | Spec |
+|---|---|
+| Default | Neutral surface, clear affordance |
+| Hover | Background tint `brand-soft` or neutral `rgba(9,9,11,.035)` |
+| Focus | `2px` ring `rgba(216,6,47,.38)`, `2px` offset |
+| Active | Slight inset or darker fill, transform `translateY(1px)` only for buttons |
+| Disabled | `opacity: .45`, no shadow, cursor default |
+| Loading | Skeleton matching final layout, never centered spinner-only |
+
+Focus ring must be custom and visible. Current controls mostly look browser-default or under-specified.
+
+**Empty / Loading / Error States**
+
+POLARIS empty states should be evidence-native, not generic.
+
+- Empty upload: show “No documents indexed yet” plus a small document ledger placeholder.
+- Empty pin replay: show a horizontal date rail with ghost snapshots.
+- Empty contracts: show a contract preview shell.
+- Loading brief: show claim rows, source cards, and proof spans as skeletons.
+- Error: explain whether the failure is scope, source coverage, evaluator disagreement, or infrastructure.
+
+**2. The Signature Move**
+
+The signature move should be **Proof Replay as the product’s visual grammar**.
+
+Every important screen should contain or preview the same interaction model:
+
+`Claim sentence -> provenance token -> cited source span -> evaluator verdict -> hash/audit trail`
+
+Make this visually unmistakable:
+
+- Each generated sentence gets a small inline provenance token, e.g. `P4`, `S2`, `E1`.
+- Clicking a sentence opens the Proof Replay inspector with the exact source span highlighted.
+- Source highlights use a distinct left proof rail: red for selected span, green for verified, amber for unresolved.
+- The inspector should have a “claim stack” on the left and “source span” on the right everywhere.
+- The home page hero should not just say “line by line”; it should demonstrate a sentence being selected and its source span lighting up.
+- Reports, uploads, contracts, pin replay, and dashboard should all reuse the same proof token, proof rail, and span highlight language.
+
+Perplexity owns “sources near answers.” POLARIS should own “every sentence is cross-examinable.”
+
+**3. Per-Screen Audit**
+
+| Screen | Grade | Gap To S | Moves |
+|---|---:|---|---|
+| Home | B | Strong concept, but too quiet and generic. The proof card is good, but the hero does not yet feel like a category-defining product. | Make Proof Replay the hero interaction, not an example below the fold. Replace the dotted maple mark with a functional proof constellation. Tighten headline to one premium line break. Make the input feel like a research command bar with provenance preview. Reduce footer weight. |
+| Intake | B- | Functional, but visually plain and underpowered for the first real workflow. It feels like a form, not an intelligent clinical scope gate. | Add a two-step interpretation panel: “Question parsed as…” and “Evidence type required.” Primary action should become a scope verdict flow. Suggested chips need stronger hierarchy and hover/focus states. Show possible outcomes: answerable, ambiguous, out of scope. |
+| Inspector / Proof Replay | B+ | This is the strongest screen and should become the product’s center. Current layout is clear but still resembles an admin audit page. | Promote Proof Replay above metadata. Turn the selected claim into a sentence-level object with provenance token, tier, verdict, source span, evaluator agreement, and hash. Make tabs feel like workbench modes. Use sticky claim list and keyboardable span navigation. |
+| Upload | C+ | Too empty, too generic. It undersells ingestion as a trust-critical step. | Replace large blank drop zone with an ingestion pipeline: parse, chunk, classify, dedupe, index. Show accepted source types as compact chips. Selected docs should render as a ledger with status, chunk count, hash, and jurisdiction. Add upload error states. |
+| Contracts | B- | Rebuild is cleaner, but it still feels like a settings form. The “contract” does not yet look binding or auditable. | Make it read as an evidence policy document. Left: contract builder. Right: live “generation gate” verdict. Required claims should become structured clauses. Jurisdiction chips need stronger selected state. Save action should preview the refusal/pass rule. |
+| Pin Replay | C | Empty page is too bare for a feature that could differentiate the product. | Design the empty state as a ghost timeseries: date rail, unavailable snapshots, and a sample delta. When populated, make it a temporal Proof Replay: same question, different dates, changed claims, changed sources, changed verdicts. |
+| Sign In | B- | Split layout is serviceable, but the left side feels sparse and the form lacks institutional polish. | Make sign-in feel like secure reviewer access. Add deployment region, audit mode, and reviewer role hints. Button disabled/loading states need polish. Left visual should preview proof tokens, not decorative dots. Footer text should align optically with the split. |
+
+**Harsh Overall Read**
+
+The current product is coherent and credible, but not yet S-tier. It is too close to “well-made internal tool with nice copy.” The differentiator is present, but not systemized enough. S-tier POLARIS must make proof feel like a first-class material: tokens, rails, spans, verdicts, hashes, evaluator agreement, and replay should appear consistently across the product.
+
+The biggest issue is not color or typography. It is that the product’s unique proof mechanic is currently a component, when it should be the visual operating system.
+
+**4. Build Order**
+
+1. **Foundation Tokens**
+Ship global type, spacing, color, radius, border, shadow, motion, focus ring, and skeleton tokens first. Remove one-off page styling.
+
+2. **Primitive Components**
+Build shared primitives before page rebuilds:
+`Button`, `Input`, `Textarea`, `Select`, `Chip`, `Tab`, `Card`, `Badge`, `Skeleton`, `EmptyState`, `SourceSpan`, `ProofToken`, `ProofRail`, `VerdictBadge`, `MetadataRow`.
+
+3. **Proof System**
+Build the reusable proof interface:
+`ClaimRow`, `ClaimStack`, `SourceExcerpt`, `ProofReplayPanel`, `EvaluatorVerdict`, `AuditHashChain`.
+
+4. **Page Sequence**
+Start with the differentiator, then flow outward:
+`Inspector / Proof Replay` -> `Home` -> `Intake` -> `Contracts` -> `Upload` -> `Pin Replay` -> `Sign In`.
+
+5. **Blocked On Demo Cred**
+Dashboard, benchmark, memory, source-review, and the Plan -> Run -> Compare journey are blocked until the demo credential is available. Those likely need the same audit because they are where POLARIS will either feel like a frontier-grade research workbench or collapse back into ordinary admin UI.
+
+Decision: make **Proof Replay** the canonical interaction and visual language. Everything else should orbit it.
+tokens used
+24,126
