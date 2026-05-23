@@ -1,0 +1,52 @@
+**Decision**
+
+Implement **A + B + D now**. Treat **C as follow-up hardening**, not the primary rescue path.
+
+Use **PMC BioC as the primary PMCID full-text fetcher**, preferably `BioC_json/<PMCID>/unicode` for easier structured parsing. Do **not** make `efetch db=pmc` the P0 path. BioC is explicitly the PMC full-text API for Open Access Subset articles and supports PMCID input【turn1view0†L43-L61】; PMC also lists BioC and E-Utilities as allowed automated retrieval paths【turn1view1†L109-L138】.
+
+Place it in `src/tools/access_bypass.py` inside `fetch_with_bypass`:
+
+1. After `_resolve_academic_url`, extract PMCID from the original/resolved URL. If present, call `_try_pmc_bioc_fulltext(pmcid)` **before Unpaywall, PDF extraction, and scraper fan-out**.
+2. After `_try_unpaywall(candidate_doi)`, if the returned OA URL contains a PMCID, call BioC immediately and return only if it passes full-text guards.
+3. Only if BioC is unavailable/empty should the existing PDF/scraper cascade continue.
+
+**Priority**
+
+P0:
+- Add `_extract_pmcid`.
+- Add `_try_pmc_bioc_fulltext`.
+- Add an NCBI limiter: max 1 concurrent, default <=3 req/sec, exponential backoff on 429. Do not assume the BioC endpoint gets the E-Utilities API-key 10 rps allowance; keep it conservative. E-Utilities’ documented limits are 3 rps unauthenticated and 10 rps with key【turn1view2†L41-L47】【turn1view2†L73-L86】.
+- Accept BioC content only if normalized text is `>=1000` chars and contains body-like article sections/passages. Never emit a successful `AccessResult` for API error text, citation-only text, abstract-only text, or references-only text.
+
+P0:
+- Tighten `_try_unpaywall`: never swap to `doi.org`, DOI resolver pages, or publisher DOI landing pages. Return only a direct PDF URL or a PMCID-bearing PMC URL. This fixes mode 1. The current code already prefers PDFs; the bug is the permissive `best.url` publisher-landing fallback.
+
+P1:
+- Harden PDF extraction diagnostics: send existing no-brotli + user-agent headers, validate `%PDF` or PDF content-type before parsing, log final URL/content-type/byte length on failure. This explains the 54-char case, but BioC should bypass PMC PDFs first.
+
+P2:
+- Keep D: genuinely paywalled AHA/JACC/non-OA sources stay skipped or T7. Do not lower `<200` or `<1000`.
+
+**Guardrail/Invariants**
+
+- No threshold changes.
+- No `AccessResult(success=True)` from `pmc_bioc` unless content is full text.
+- No Unpaywall swap log may show `doi.org` or publisher DOI landing.
+- PMCID API failures fall through; they do not become accepted stubs.
+- API text must still go through boilerplate/error/paywall checks before return.
+
+**Verification**
+
+First re-run the fresh **afib** vector. Pass bar:
+- no `corpus_inadequate`;
+- `T1 >= 3`, `T2 >= 2`;
+- prior PMC failures `PMC6490750` and `PMC10715890` fetch via `pmc_bioc` with full text, not 111/54-char stubs;
+- no accepted source under 1000 chars.
+
+Then re-run the **5 clinical vectors** that previously aborted with `corpus_inadequate`. Pass bar: all 5 no longer abort, and no new T7 laundering.
+
+Finally run the full 13-vector benchmark to catch regressions in non-clinical paths and PDF handling.
+
+**Misdiagnosed / Refined**
+
+Mode 3 is not necessarily “PMC JS-heavy”; the real bug is relying on scrapers for a host with an official structured full-text API. Mode 2 is likely PDF response validation/parser failure, but for PMC PDFs it should stop mattering once PMCID BioC runs first.
