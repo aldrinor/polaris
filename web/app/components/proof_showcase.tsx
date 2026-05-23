@@ -7,7 +7,11 @@
 import { ArrowRight, BadgeCheck, Quote } from "lucide-react";
 import Link from "next/link";
 
-import { resolveSpan, spanInContext, type SpanInContext } from "@/lib/evidence_span";
+import {
+  resolveSpan,
+  spanInContext,
+  type SpanInContext,
+} from "@/lib/evidence_span";
 import { loadBundle } from "@/lib/inspector_bundle_loader";
 
 const DEMO_RUN_ID = "v1-canonical-success";
@@ -112,7 +116,7 @@ export async function ProofShowcase() {
               <span className="font-serif">
                 {ctx.leadingEllipsis ? "… " : "“"}
                 {ctx.before}
-                <mark className="bg-primary/10 text-foreground rounded-[3px] px-0.5 font-medium decoration-clone">
+                <mark className="bg-primary/10 text-foreground rounded-[3px] decoration-clone px-0.5 font-medium">
                   {ctx.span}
                 </mark>
                 {ctx.after}
