@@ -53,10 +53,15 @@ export function SovereigntyPanel({
           className="text-primary mt-0.5 h-4 w-4 shrink-0"
         />
         <div>
-          <p className="text-foreground font-medium">Sovereign processing</p>
+          <p className="text-foreground font-medium">Canadian-hosted</p>
+          {/* I-p2-023 (#762): HONEST — dropped the false present-tense "no
+              external AI vendor". Production LLM inference currently routes via
+              OpenRouter (US, transitional, disclosed in /transparency); the
+              sovereign Canadian GPU cluster is the target, not yet live. */}
           <p className="text-muted-foreground text-xs">
-            Canadian AI processing · public-source retrieval via logged Canadian
-            egress · no external AI vendor.
+            Hosted in Canada; public sources fetched via logged Canadian egress.
+            LLM inference is currently routed via OpenRouter (US, disclosed)
+            pending the sovereign Canadian GPU cluster.
           </p>
         </div>
       </div>
