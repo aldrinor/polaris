@@ -1,0 +1,5 @@
+# I-bug-776 (#817) brief-level (approach) verdict.
+# Codex DECISION (decision-maker, CHARTER §1): b1 — per-slug primary-trial anchors
+# for afib (+ dd_novo follow-on), NO clinical.json adequacy relaxation. See
+# decision_verdict.txt.
+verdict: APPROVE

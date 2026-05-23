@@ -1,0 +1,13 @@
+```yaml
+# fact-check sources:
+# ARISTOTLE: https://www.nejm.org/doi/full/10.1056/NEJMoa1107039
+# ROCKET-AF: https://www.nejm.org/doi/full/10.1056/NEJMoa1009638
+# RE-LY: https://www.nejm.org/doi/full/10.1056/NEJMoa0905561
+# ENGAGE-AF-TIMI-48: https://www.nejm.org/doi/full/10.1056/NEJMoa1310907
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+merge_decision: MERGE AUTHORIZED
+```
