@@ -1,15 +1,3 @@
-OpenAI Codex v0.128.0 (research preview)
---------
-workdir: C:\POLARIS
-model: gpt-5.5
-provider: openai
-approval: never
-sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
-reasoning effort: xhigh
-reasoning summaries: none
-session id: 019e56a8-67bd-7f31-950e-0ed873b98802
---------
-user
 # Codex diff review (ITER 3/5) — I-p2-038 (#821): app-shell footer + auth button
 
 HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
@@ -256,18 +244,3 @@ index 00000000..429800e0
 +}
 
 ```
-
-codex
-```yaml
-verdict: APPROVE
-novel_p0: []
-continuing_p0: []
-p1: []
-p2: []
-convergence_call: accept_remaining
-remaining_blockers_for_execution: []
-```
-
-Footer copy is now honest for AC2: both visible claims use “Canadian-hosted,” and the footer explicitly discloses OpenRouter US inference via `/transparency`. I don’t see a new issue introduced by the copy change or any P0/P1 issue in the full diff.
-tokens used
-4,706

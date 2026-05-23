@@ -1,2 +1,9 @@
-# I-p2-038 (#821) — brief/approach verdict. UI overhaul (visual + faithfulness).
 verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Continuing/deferred: AppShell header still has tight tablet/small-desktop horizontal budget with 9 nav items, the Canadian-hosted mark, and the new AuthButton; acceptable for this slice and belongs in the planned nav-IA follow-up."
+convergence_call: accept_remaining
+remaining_blockers_for_execution:
+  - "None from the diff. Local `next build` could not be fully reproduced because this sandbox rejects Next child-process spawn with `EPERM`; `tsc --noEmit` passed, `eslint` exited 0 with unrelated warnings, and targeted Prettier on the 4 touched files passed."

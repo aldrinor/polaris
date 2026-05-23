@@ -58,35 +58,44 @@ index 7bfc496d..f0774b6d 100644
  }
 diff --git a/web/components/auth_button.tsx b/web/components/auth_button.tsx
 new file mode 100644
-index 00000000..1369c145
+index 00000000..e4a4d9e1
 --- /dev/null
 +++ b/web/components/auth_button.tsx
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,62 @@
 +// I-p2-038 (#821): auth-aware Sign in / Sign out for the AppShell header.
 +// Before this, AppShell (every non-home route) had NO auth affordance at all —
 +// an unauthenticated reviewer who navigated off the home page had no way to
 +// sign in, and a signed-in reviewer had no way to sign out anywhere.
 +//
-+// Hydration-safe: the server render and the FIRST client render both show the
-+// unauthenticated "Sign in" link (the token lives in sessionStorage, which the
-+// server can't see). Only AFTER mount do we read the real auth state and, if
-+// signed in, swap to "Sign out". This avoids a server/client markup mismatch.
++// Auth state lives in sessionStorage (not React state), so we read it via
++// useSyncExternalStore: SSR-safe (getServerSnapshot returns the unauthenticated
++// "Sign in" view, matching the first client paint → no hydration mismatch) and
++// without a setState-in-effect (which the react-hooks/set-state-in-effect lint
++// rule forbids — see #805).
 +"use client";
 +
 +import Link from "next/link";
 +import { useRouter } from "next/navigation";
-+import { useEffect, useState } from "react";
++import { useSyncExternalStore } from "react";
 +
 +import { Button } from "@/components/ui/button";
 +import { clearToken, isAuthenticated } from "@/lib/auth";
 +
++// Cross-tab auth changes fire a `storage` event; same-tab sign-in/out re-mounts
++// the shell on navigation, so the snapshot is re-read either way.
++function subscribe(onChange: () => void): () => void {
++  if (typeof window === "undefined") return () => {};
++  window.addEventListener("storage", onChange);
++  return () => window.removeEventListener("storage", onChange);
++}
++
 +export function AuthButton() {
 +  const router = useRouter();
-+  const [authed, setAuthed] = useState(false);
-+
-+  useEffect(() => {
-+    setAuthed(isAuthenticated());
-+  }, []);
++  const authed = useSyncExternalStore(
++    subscribe,
++    () => isAuthenticated(), // client: real auth state (boolean — stable by value)
++    () => false, // server / first hydration paint: always "Sign in"
++  );
 +
 +  if (authed) {
 +    return (
@@ -95,7 +104,6 @@ index 00000000..1369c145
 +        data-testid="appshell-sign-out"
 +        onClick={() => {
 +          clearToken();
-+          setAuthed(false);
 +          router.push("/");
 +        }}
 +      >
@@ -118,7 +126,7 @@ index 00000000..1369c145
 +}
 diff --git a/web/components/site_footer.tsx b/web/components/site_footer.tsx
 new file mode 100644
-index 00000000..4306d518
+index 00000000..429800e0
 --- /dev/null
 +++ b/web/components/site_footer.tsx
 @@ -0,0 +1,71 @@
@@ -149,7 +157,7 @@ index 00000000..4306d518
 +            POLARIS · Canada
 +          </span>
 +          <p className="text-muted-foreground text-xs leading-relaxed">
-+            Sovereign Canadian deep research. Every claim in a POLARIS brief is
++            Canadian-hosted deep research. Every claim in a POLARIS brief is
 +            verified — span by span — against its primary source by an
 +            independent evaluator family.
 +          </p>
@@ -177,7 +185,7 @@ index 00000000..4306d518
 +
 +      <div className="border-border/60 border-t">
 +        <div className="text-muted-foreground/70 mx-auto flex w-full max-w-7xl flex-col gap-1 px-6 py-4 text-[11px] sm:flex-row sm:items-center sm:justify-between">
-+          <span>© {year} POLARIS · Sovereign Canadian deep research</span>
++          <span>© {year} POLARIS · Canadian-hosted deep research</span>
 +          <span>
 +            LLM inference is currently routed via OpenRouter (US), disclosed at{" "}
 +            <Link
@@ -193,3 +201,5 @@ index 00000000..4306d518
 +    </footer>
 +  );
 +}
+
+# canonical-diff-sha256: 44ff61bb2be251b54f5b2da39fd54c77e2e5a13f93eb9d0e06b5592ded0e5ed8

@@ -3,8 +3,9 @@ verdict: APPROVE
 novel_p0: []
 continuing_p0: []
 p1: []
-p2:
-  - "web/components/app_shell.tsx:31 plus web/components/primary_nav.tsx:31: Medium-width header overflow risk. The full 9-item primary nav switches to inline at md, and AppShell now also carries the Canadian-hosted mark plus AuthButton in the same row. Mobile right-alignment is fine below md, but tablet/small-desktop widths may run out of horizontal budget. Follow-up: keep hamburger until lg/xl, shrink gaps, or hide the mark earlier."
+p2: []
 convergence_call: accept_remaining
 remaining_blockers_for_execution: []
 ```
+
+Footer copy is now honest for AC2: both visible claims use “Canadian-hosted,” and the footer explicitly discloses OpenRouter US inference via `/transparency`. I don’t see a new issue introduced by the copy change or any P0/P1 issue in the full diff.

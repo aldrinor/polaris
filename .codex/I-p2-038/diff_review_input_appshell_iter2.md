@@ -1,41 +1,34 @@
-OpenAI Codex v0.128.0 (research preview)
---------
-workdir: C:\POLARIS
-model: gpt-5.5
-provider: openai
-approval: never
-sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
-reasoning effort: xhigh
-reasoning summaries: none
-session id: 019e56a8-67bd-7f31-950e-0ed873b98802
---------
-user
-# Codex diff review (ITER 3/5) — I-p2-038 (#821): app-shell footer + auth button
+# Codex diff review (ITER 2/5) — I-p2-038 (#821): app-shell footer + auth button
 
-HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
-- Front-load ALL real findings. No drip-feeding. Same quality bar each iter.
-- "Don't pick bone from egg" — reserve P0/P1 for real execution risks.
-- If iter 5 returns REQUEST_CHANGES, force-APPROVE on remaining non-P0/P1.
-- Don't bank a P1 for a later round — surface it now.
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the doc is force-APPROVE'd on remaining non-P0/P1 findings; do not bank issues for iter 6.
+- If you're holding back a P1 for the next round — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist.
 - Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
 
-## Trajectory
-- iter 1: APPROVE (zero P0/P1; one deferred P2 = header tablet budget).
-- iter 2: APPROVE (after fixing the auth_button setState-in-effect lint error → useSyncExternalStore).
-- iter 3 (this): ONE more change — the SiteFooter honesty fix (below).
+## Iter-1 verdict: APPROVE
+Zero P0, zero P1. One P2 = header horizontal-budget at tablet/small-desktop (9-item
+inline nav + Canadian-hosted mark + AuthButton), deferred to the planned nav-IA redesign.
 
-## ITER-3 DELTA (the ONLY change since iter-2 APPROVE)
-The separate Codex BRIEF review flagged a P1 honesty issue (AC2): the footer said
-"Sovereign Canadian deep research" (tagline + bottom bar), which overclaims
-sovereignty while production LLM inference is OpenRouter (US). Fixed: both
-instances now read "Canadian-hosted deep research" — matching the header
-"Canadian-hosted" mark + the footer's OpenRouter/`/transparency` disclosure. No
-other change. The brief review re-ran → APPROVE. Footer now contains NO "Sovereign"
-string.
+## ITER-2 DELTA (the ONLY change since iter-1 APPROVE)
+The CI `lint` lane (which my local `next build` does not run) caught a REAL error in
+`web/components/auth_button.tsx`: a synchronous `setState` inside a `useEffect`
+body -> `react-hooks/set-state-in-effect` (the same rule #805 cleaned in
+`plan/page.tsx`). Fix: the auth read is now
+`useSyncExternalStore(subscribe, () => isAuthenticated(), () => false)` — SSR-safe
+(`getServerSnapshot` returns `false`, matching the first client paint, so no
+hydration mismatch) and effect-free. The Sign in / Sign out branch and everything
+else are UNCHANGED. ESLint is now clean on the file; local prettier `--check` clean.
 
 Please CONFIRM:
-1. The footer copy is now honest (no sovereignty overclaim) and §-1.1 / LAW II compliant.
-2. No NEW issue introduced by the copy change.
+1. `useSyncExternalStore` usage is correct: `getSnapshot` returns a boolean
+   (stable by value -> no infinite re-render loop); `getServerSnapshot = () => false`
+   is hydration-safe; `subscribe` guards `typeof window === "undefined"`.
+2. No NEW issue introduced by the change (the Sign-out path calls `clearToken()`
+   then `router.push("/")`; a sessionStorage change doesn't fire a same-tab
+   `storage` event, but we navigate to a chromeless route immediately — acceptable?).
 3. Verdict for the FULL diff below (this is exactly what will merge).
 
 ## Output schema (required)
@@ -179,7 +172,7 @@ index 00000000..e4a4d9e1
 +}
 diff --git a/web/components/site_footer.tsx b/web/components/site_footer.tsx
 new file mode 100644
-index 00000000..429800e0
+index 00000000..4306d518
 --- /dev/null
 +++ b/web/components/site_footer.tsx
 @@ -0,0 +1,71 @@
@@ -210,7 +203,7 @@ index 00000000..429800e0
 +            POLARIS · Canada
 +          </span>
 +          <p className="text-muted-foreground text-xs leading-relaxed">
-+            Canadian-hosted deep research. Every claim in a POLARIS brief is
++            Sovereign Canadian deep research. Every claim in a POLARIS brief is
 +            verified — span by span — against its primary source by an
 +            independent evaluator family.
 +          </p>
@@ -238,7 +231,7 @@ index 00000000..429800e0
 +
 +      <div className="border-border/60 border-t">
 +        <div className="text-muted-foreground/70 mx-auto flex w-full max-w-7xl flex-col gap-1 px-6 py-4 text-[11px] sm:flex-row sm:items-center sm:justify-between">
-+          <span>© {year} POLARIS · Canadian-hosted deep research</span>
++          <span>© {year} POLARIS · Sovereign Canadian deep research</span>
 +          <span>
 +            LLM inference is currently routed via OpenRouter (US), disclosed at{" "}
 +            <Link
@@ -256,18 +249,3 @@ index 00000000..429800e0
 +}
 
 ```
-
-codex
-```yaml
-verdict: APPROVE
-novel_p0: []
-continuing_p0: []
-p1: []
-p2: []
-convergence_call: accept_remaining
-remaining_blockers_for_execution: []
-```
-
-Footer copy is now honest for AC2: both visible claims use “Canadian-hosted,” and the footer explicitly discloses OpenRouter US inference via `/transparency`. I don’t see a new issue introduced by the copy change or any P0/P1 issue in the full diff.
-tokens used
-4,706
