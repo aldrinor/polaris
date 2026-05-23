@@ -4,6 +4,7 @@ import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
 import { ProofShowcase } from "@/app/components/proof_showcase";
 import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
 import { MapleLeafSignatureLazy } from "@/components/signature/maple_leaf_signature_lazy";
+import { SiteFooter } from "@/components/site_footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -187,12 +188,9 @@ export default function HomePage() {
           <RecentRunsStrip />
         </main>
 
-        <footer className="border-border bg-background border-t">
-          <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
-            <span>POLARIS · Sovereign Canadian deep research</span>
-            <span>Two-family verified evidence</span>
-          </div>
-        </footer>
+        {/* I-p2-038 (#821): shared SiteFooter — replaces the thin inline home
+            footer so home + every AppShell route render one identical footer. */}
+        <SiteFooter />
       </HomeKeyboardShell>
     </div>
   );

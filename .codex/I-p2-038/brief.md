@@ -1,85 +1,68 @@
-# Codex DIFF review — I-p2-038 (#805): fix lint lane RED on polaris base
+# Brief — I-p2-038 (#821) app-shell slice: shared SiteFooter + auth-aware AuthButton
 
-HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
 - Same quality bar regardless of iteration count.
-- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
-- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
-- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the doc is force-APPROVE'd on remaining non-P0/P1 findings.
+- If you're holding back a P1 for the next round — DON'T. Surface it now.
 - Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
 
-Canonical-diff-sha256 `7c03739624afd95a67d27f6472c0c396c364f3fb6abc951504f97a882df348cf`. web/ only, 61-line diff (2 files, under 200-LOC cap). MERGE AUTHORIZED if mergeable. APPROVE iff zero P0/P1.
-
-## iter-1 → iter-2 delta (you APPROVE'd iter 1; this adds a SECOND lane sub-step fix)
-Your iter-1 APPROVE covered the 2 plan/page.tsx lint errors. But the lane is
-"lint + format + typecheck + build" — and **format_check (prettier --check) was a
-SECOND red sub-step**, masked behind the lint errors. On the Linux CI checkout
-(LF), the ONLY genuinely-unformatted file is `web/tests/e2e/demo_walkthrough.spec.ts`
-(prettier collapses a 3-line `await expect(page.getByRole("heading",{name:pillar})).toBeVisible()`
-into one line). Added that one-file format fix so the FULL lane goes green —
-same issue's "green lane" acceptance criterion, not scope creep.
-(The 40+ files prettier flags on a Windows working tree are pure CRLF-vs-`endOfLine:lf`
-noise; the committed blobs are LF — verified via `git show HEAD:… | file -`.)
-
-(Issue-id note: GitHub #805. The internal issue_id is **I-p2-038** — I-p2-029 was already taken by the merged #768 (global app shell). Branch `bot/I-p2-038-lint-lane-fix`.)
-
 ## Context
-URGENT issue: the `lint + format + typecheck + build` GitHub Actions lane was RED
-on the `polaris` base branch (merging red since #754), so every Phase-2 PR shows
-a red lane. `npm run lint` reported **2 errors + 3 warnings**; only errors fail
-the lane (the script is bare `eslint`, no `--max-warnings`). Both errors are in
-`web/app/plan/page.tsx` (the #754 plan run-start page). Operator (2026-05-22)
-directed: file URGENT issue + fix the errors next, before #759.
+Umbrella issue #821 = top-tier visual overhaul across ALL P2 pages. This slice fixes
+two every-page defects found by screenshotting the live site. (This brief replaces
+stale content the shared `.codex/I-p2-038/` dir carried from an earlier sub-task.)
 
-## Diff (1 file: web/app/plan/page.tsx)
-1. **react-hooks/set-state-in-effect (:105)** — the on-mount `useEffect` called
-   `setState({ kind: "error", message: "no-question" })` **synchronously** in the
-   no-question guard branch. Fix: the no-question case is render-derived, not an
-   async side effect. The render guard already short-circuits on `!question`, so
-   the effect now just `if (!question) return;` (skips the intake fetch). Dropped
-   the now-dead render clause `state.kind === "error" && state.message ===
-   "no-question"` → simplified to `if (!question)`. **Behavior identical**:
-   no-question still renders the "Nothing to plan yet" section.
-2. **react/no-unescaped-entities (:292)** — `Can't` → `Can&apos;t` in the
-   not-in-scope ("Can't start this run") alert.
+## Problem (acceptance-criteria correctness review)
+1. Only the home route (`/`) renders a `<footer>`. Every AppShell route (intake,
+   upload, contracts, pin_replay, dashboard, benchmark, memory, compare, …) ends in
+   an empty void below the fold — the operator's explicit "empty space" complaint.
+2. The auth affordance is inconsistent: home has a static "Sign in" button; every
+   AppShell route has NONE (no way to sign in once off home); there is NO "Sign out"
+   anywhere in the product.
+
+## Acceptance criteria
+- AC1: a single shared footer renders on home AND every AppShell (non-chromeless)
+  route. One source of truth (no per-shell duplication).
+- AC2: footer microcopy is HONEST (§-1.1 / LAW II): no sovereignty overclaim;
+  states OpenRouter (US) inference + links /transparency; matches the existing
+  header "Canadian-hosted" framing. All footer links are PUBLIC routes (no
+  auth-gated dead-ends).
+- AC3: AppShell header shows an auth affordance: "Sign in" unauthenticated,
+  "Sign out" authenticated. Hydration-safe (no SSR/client mismatch).
+- AC4: NO nav-item-visibility change → the G1 nav-parity e2e contract
+  (`nav[aria-label='Primary']` shows all labels) stays intact.
+- AC5: home does not get a double Sign-in (home is chromeless → AppShell's button
+  must not render there; home keeps its own button).
+- AC6: prod `next build` green; prettier `--check` clean; CI `lint` lane clean.
+
+## Approach
+- `web/components/site_footer.tsx` (new): the shared footer.
+- `web/components/auth_button.tsx` (new): `useSyncExternalStore`-based Sign in/out
+  (SSR-safe, effect-free — avoids react-hooks/set-state-in-effect).
+- `web/components/app_shell.tsx`: mount both.
+- `web/app/page.tsx`: replace the thin inline home footer with the shared one.
+
+## Out of scope (deferred to a follow-up nav-IA issue)
+- Auth-aware nav-item visibility / de-clutter / "Intake"→"Ask" rename (rewrites the
+  G1 nav-parity e2e contract + needs e2e auth; #720 e2e lane is broken).
+- Header horizontal-budget at tablet/small-desktop (raise inline nav breakpoint).
+- Making home's own Sign-in button auth-aware.
 
 ## Files I have ALSO checked and they're clean
-- `grep "no-question"` across web/: ONLY lines 105 (removed) + 150 (the dead
-  clause, removed). No other consumer; no test asserts the no-question error
-  state.
-- `web/tests/e2e/accessibility.spec.ts:61` hits `/plan?q=Should I take ozempic…`
-  (WITH a question) and waits for `plan-blocked` — never exercises the
-  no-question path, so unaffected.
-- `setState` is still used by the async success (`kind:"ready"`) + catch
-  (`kind:"error"`) branches; the `State` error variant is still produced. No
-  unused type/var introduced.
-- The 3 remaining lint WARNINGS are out of scope (do not fail the lane):
-  `benchmark_board.tsx:12` unused `BenchmarkDimension`,
-  `inspector_bundle_client_loader.ts:130` unused `_status`,
-  `frame_coverage_panel.spec.ts:44` unused `_text`. The `_`-prefixed two would
-  ideally be silenced via an eslint `varsIgnorePattern` config change — a
-  separate concern, not folded here (no scope creep).
+- `web/app/layout.tsx` (body flex-col + main flex-1 → sticky footer), `app_shell_gate.tsx`
+  (CHROMELESS = `/` + `/sign-in` → no double Sign-in on home), `lib/auth.ts`
+  (`isAuthenticated`/`clearToken` exported), `home_keyboard_shell.tsx` (own button left
+  untouched), e2e g1_g8 + demo_journey specs (assert nav labels + header/main counts —
+  unaffected; no spec asserts footer-absence), `/transparency` (200 live).
 
-## Verification
-- `cd web && npm run lint` → exit 0, "3 problems (0 errors, 3 warnings)".
-- `npm run typecheck` clean; `npm run build` Compiled successfully.
-- Standalone harness @1366: `/plan` (no q) → "Nothing to plan yet" + "Ask a
-  question" CTA; `/plan?q=…&template=clinical` → "Review the plan" + question +
-  4-step plan (Start disabled offline — correct, gate can't resolve w/o backend).
-
-## Review focus
-1. Is the set-state-in-effect fix correct + behavior-preserving (no-question
-   still renders, no regression to the async intake gate / disambiguation)?
-2. Is dropping the dead `state.message === "no-question"` clause safe (nothing
-   sets it post-fix)?
-3. Any P0/P1.
-
-## Output schema
+## Output schema (required)
 ```yaml
 verdict: APPROVE | REQUEST_CHANGES
 novel_p0: [...]
 continuing_p0: [...]
 p1: [...]
 p2: [...]
-merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
 ```

@@ -1,3 +1,44 @@
+# Codex diff review (ITER 3/5) — I-p2-038 (#821): app-shell footer + auth button
+
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+- Front-load ALL real findings. No drip-feeding. Same quality bar each iter.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on remaining non-P0/P1.
+- Don't bank a P1 for a later round — surface it now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Trajectory
+- iter 1: APPROVE (zero P0/P1; one deferred P2 = header tablet budget).
+- iter 2: APPROVE (after fixing the auth_button setState-in-effect lint error → useSyncExternalStore).
+- iter 3 (this): ONE more change — the SiteFooter honesty fix (below).
+
+## ITER-3 DELTA (the ONLY change since iter-2 APPROVE)
+The separate Codex BRIEF review flagged a P1 honesty issue (AC2): the footer said
+"Sovereign Canadian deep research" (tagline + bottom bar), which overclaims
+sovereignty while production LLM inference is OpenRouter (US). Fixed: both
+instances now read "Canadian-hosted deep research" — matching the header
+"Canadian-hosted" mark + the footer's OpenRouter/`/transparency` disclosure. No
+other change. The brief review re-ran → APPROVE. Footer now contains NO "Sovereign"
+string.
+
+Please CONFIRM:
+1. The footer copy is now honest (no sovereignty overclaim) and §-1.1 / LAW II compliant.
+2. No NEW issue introduced by the copy change.
+3. Verdict for the FULL diff below (this is exactly what will merge).
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## The full diff (what merges)
+```diff
 diff --git a/web/app/page.tsx b/web/app/page.tsx
 index 10bc8e70..2d5f9e23 100644
 --- a/web/app/page.tsx
@@ -202,4 +243,4 @@ index 00000000..429800e0
 +  );
 +}
 
-# canonical-diff-sha256: 44ff61bb2be251b54f5b2da39fd54c77e2e5a13f93eb9d0e06b5592ded0e5ed8
+```

@@ -3,7 +3,9 @@ verdict: APPROVE
 novel_p0: []
 continuing_p0: []
 p1: []
-p2:
-  - "web/app/components/proof_showcase.tsx:119 and web/components/proof_replay/proof_replay.tsx:138 use inert Tailwind class `decoration-clone`; if cloned mark backgrounds across wrapped lines are intended, this should be `box-decoration-clone`. Non-blocking visual polish only."
-merge_decision: MERGE AUTHORIZED
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
 ```
+
+Footer copy is now honest for AC2: both visible claims use “Canadian-hosted,” and the footer explicitly discloses OpenRouter US inference via `/transparency`. I don’t see a new issue introduced by the copy change or any P0/P1 issue in the full diff.
