@@ -34,14 +34,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             POLARIS · Canada
           </Link>
           <PrimaryNav />
-          {/* I-ui-010 (#730): sovereign mark — honest wording (NOT a false
-              air-gap claim; we retrieve public sources via logged Canadian
-              egress). Eye-level badge of strength, not fine print. */}
+          {/* I-p2-023 (#762): sovereign mark — HONEST. Dropped the false
+              present-tense "no external AI vendor": production LLM inference
+              currently routes via OpenRouter (US, transitional, disclosed in
+              /transparency) until the sovereign Canadian GPU cluster lands. The
+              VM IS hosted in OVH Québec, so "Canadian-hosted" is true today. */}
           <span
             className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
-            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+            title="Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (US, disclosed in /transparency) pending the sovereign Canadian GPU cluster."
           >
-            ⬡ Canadian AI · no external AI vendor
+            ⬡ Canadian-hosted
           </span>
         </div>
       </header>

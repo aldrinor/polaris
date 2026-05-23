@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex brief direction-APPROVE (drop "no external AI vendor", use Canadian-hosted) iter2.

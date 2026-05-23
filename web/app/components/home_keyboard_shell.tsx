@@ -51,13 +51,15 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
             POLARIS · Canada
           </Link>
           <PrimaryNav />
-          {/* I-ui-010 (#730): sovereign mark — honest wording (no air-gap
-              overclaim). */}
+          {/* I-p2-023 (#762): honest sovereign mark — dropped the false
+              present-tense "no external AI vendor" (prod LLM is OpenRouter US,
+              transitional, disclosed in /transparency). The VM is hosted in OVH
+              Québec → "Canadian-hosted" is true today. */}
           <span
             className="text-muted-foreground border-border mr-2 ml-auto hidden rounded-full border px-2.5 py-1 text-xs lg:inline-flex"
-            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+            title="Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (US, disclosed in /transparency) pending the sovereign Canadian GPU cluster."
           >
-            ⬡ Canadian AI · no external AI vendor
+            ⬡ Canadian-hosted
           </span>
           <Button
             variant="outline"
