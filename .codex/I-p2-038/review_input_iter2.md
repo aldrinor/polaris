@@ -83,3 +83,70 @@ p1: [...]
 p2: [...]
 merge_decision: MERGE AUTHORIZED | DO NOT MERGE
 ```
+
+===== ACTUAL DIFF (codex_diff.patch) =====
+```diff
+diff --git a/web/app/plan/page.tsx b/web/app/plan/page.tsx
+index f29ba6eb..5df298a7 100644
+--- a/web/app/plan/page.tsx
++++ b/web/app/plan/page.tsx
+@@ -100,11 +100,13 @@ function PlanContent() {
+   // On mount: re-run the FULL intake gate over the (immutable) question. This
+   // is the same clinical + PICO classifier intake uses, so /plan is safe even
+   // when reached by direct URL.
++  //
++  // I-p2-038 (#805): no synchronous setState in the effect body (react-hooks/
++  // set-state-in-effect). The no-question case is a render-time concern, not an
++  // async side effect — the render guard below short-circuits on `!question`,
++  // so the effect just skips the intake fetch when there's nothing to check.
+   useEffect(() => {
+-    if (!question) {
+-      setState({ kind: "error", message: "no-question" });
+-      return;
+-    }
++    if (!question) return;
+     let cancelled = false;
+     (async () => {
+       try {
+@@ -145,10 +147,10 @@ function PlanContent() {
+     };
+   }, [question]);
+ 
+-  if (
+-    !question ||
+-    (state.kind === "error" && state.message === "no-question")
+-  ) {
++  // I-p2-038 (#805): the no-question state is now purely render-derived from
++  // the (immutable) `question` searchParam — no effect sets a "no-question"
++  // error anymore.
++  if (!question) {
+     return (
+       <section
+         data-testid="plan-page"
+@@ -289,7 +291,7 @@ function PlanContent() {
+           className="border-refusal/30 bg-refusal/10 flex flex-col gap-1 rounded-lg border p-4"
+         >
+           <p className="text-foreground text-sm font-medium">
+-            Can't start this run
++            Can&apos;t start this run
+           </p>
+           <p className="text-muted-foreground text-xs">
+             {notInScopeMessage(decision)} Edit the question to continue.
+diff --git a/web/tests/e2e/demo_walkthrough.spec.ts b/web/tests/e2e/demo_walkthrough.spec.ts
+index 9c83488c..b568eb04 100644
+--- a/web/tests/e2e/demo_walkthrough.spec.ts
++++ b/web/tests/e2e/demo_walkthrough.spec.ts
+@@ -60,9 +60,7 @@ test.describe("Slice 005 — full demo walkthrough", () => {
+     ).toBeVisible();
+     // The three differentiator pillars replace the old template grid.
+     for (const pillar of ["Provable", "Sovereign", "Snowball"]) {
+-      await expect(
+-        page.getByRole("heading", { name: pillar }),
+-      ).toBeVisible();
++      await expect(page.getByRole("heading", { name: pillar })).toBeVisible();
+     }
+     // The old templates grid is gone.
+     await expect(page.getByTestId("template-grid")).toHaveCount(0);
+
+# canonical-diff-sha256: 7c03739624afd95a67d27f6472c0c396c364f3fb6abc951504f97a882df348cf
+```

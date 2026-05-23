@@ -1,4 +1,5 @@
-# I-p2-038 (#805) — Codex DIFF review, iter 1 of 5 → APPROVE
+# I-p2-038 (#805) — Codex DIFF review, iter 2 of 5 → APPROVE
+# iter 1 APPROVE'd the 2 lint errors; iter 2 adds the format_check fix (demo_walkthrough.spec.ts)
 verdict: APPROVE
 novel_p0: []
 continuing_p0: []

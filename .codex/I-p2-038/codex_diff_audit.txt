@@ -1,5 +1,5 @@
-# I-p2-038 (#805) — Codex DIFF audit (Red-Team checklist), iter 1 → APPROVE
-# canonical-diff-sha256 d0dce4e2cd8a59e17fc4c484851ae32b191334fdcca89bb8374a80cf7e070490
+# I-p2-038 (#805) — Codex DIFF audit (Red-Team checklist), iter 2 → APPROVE
+# canonical-diff-sha256 7c03739624afd95a67d27f6472c0c396c364f3fb6abc951504f97a882df348cf
 verdict: APPROVE
 novel_p0: []
 continuing_p0: []

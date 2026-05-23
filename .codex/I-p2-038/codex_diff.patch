@@ -44,5 +44,20 @@ index f29ba6eb..5df298a7 100644
            </p>
            <p className="text-muted-foreground text-xs">
              {notInScopeMessage(decision)} Edit the question to continue.
+diff --git a/web/tests/e2e/demo_walkthrough.spec.ts b/web/tests/e2e/demo_walkthrough.spec.ts
+index 9c83488c..b568eb04 100644
+--- a/web/tests/e2e/demo_walkthrough.spec.ts
++++ b/web/tests/e2e/demo_walkthrough.spec.ts
+@@ -60,9 +60,7 @@ test.describe("Slice 005 — full demo walkthrough", () => {
+     ).toBeVisible();
+     // The three differentiator pillars replace the old template grid.
+     for (const pillar of ["Provable", "Sovereign", "Snowball"]) {
+-      await expect(
+-        page.getByRole("heading", { name: pillar }),
+-      ).toBeVisible();
++      await expect(page.getByRole("heading", { name: pillar })).toBeVisible();
+     }
+     // The old templates grid is gone.
+     await expect(page.getByTestId("template-grid")).toHaveCount(0);
 
-# canonical-diff-sha256: d0dce4e2cd8a59e17fc4c484851ae32b191334fdcca89bb8374a80cf7e070490
+# canonical-diff-sha256: 7c03739624afd95a67d27f6472c0c396c364f3fb6abc951504f97a882df348cf
