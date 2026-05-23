@@ -1,0 +1,62 @@
+diff --git a/web/app/pin_replay/page.tsx b/web/app/pin_replay/page.tsx
+index 0629c42c..9d13252e 100644
+--- a/web/app/pin_replay/page.tsx
++++ b/web/app/pin_replay/page.tsx
+@@ -1,7 +1,11 @@
+ "use client";
+ 
++import { History } from "lucide-react";
++import Link from "next/link";
+ import { useState } from "react";
+ 
++import { EmptyState } from "@/components/states/state_kit";
++import { Button } from "@/components/ui/button";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { DEMO_PIN_REGISTRY, type PinSnapshot } from "@/lib/pin_replay_demo";
+ import { detectRegressions } from "@/lib/pin_regression";
+@@ -73,21 +77,35 @@ function SnapshotCard({
+ }
+ 
+ function EmptyPinReplay() {
+-  // I-cd-029 (#619): /pin_replay rebuild — empty-state copy. G1+G6 fix:
+-  // <main> dropped (AppShell provides it). G2 fix: removed Issue id
+-  // breadcrumbs from user-visible copy.
++  // I-cd-029 (#619): /pin_replay rebuild. I-p2-040 (#827): the empty state now
++  // routes through the shared EmptyState kit (#750) — matching the 8 other pages
++  // that use it — instead of a bare <p> that read as a void; + an intro that
++  // explains the feature and a CTA so the page is informative, not barren.
++  // "query"→"question" (jargon kill).
+   return (
+     <section
+       data-testid="pin-replay-empty"
+       className="mx-auto max-w-5xl px-6 py-8"
+     >
+-      <h1 className="text-2xl font-semibold tracking-tight">
+-        Pin replay — same query on different dates
++      <h1 className="text-foreground text-2xl font-semibold tracking-tight">
++        Pin replay — same question on different dates
+       </h1>
+-      <p className="text-muted-foreground mt-4 text-sm">
+-        No pin data available yet. Open a completed research run and the
+-        timeseries of its pin snapshots will render here.
++      <p className="text-muted-foreground mt-1 mb-6 max-w-2xl text-sm">
++        Pin a completed run, then re-run the same question later — POLARIS lines
++        up the snapshots so you can see how the evidence and the verified answer
++        shift over time.
+       </p>
++      <EmptyState
++        icon={History}
++        title="No pinned runs yet"
++        description="Run a research question and pin its result to start a timeline here."
++        action={
++          <Button
++            nativeButton={false}
++            render={<Link href="/intake">Ask a question</Link>}
++          />
++        }
++      />
+     </section>
+   );
+ }
+
+# canonical-diff-sha256: 6581a1f74d4d45d94dc6fec3c03de4b0eaa2a8665797a58e03e90dd9130346e1

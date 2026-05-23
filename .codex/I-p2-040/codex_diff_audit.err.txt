@@ -1,0 +1,994 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e56fb-4427-7362-a262-7c67d7ccdc67
+--------
+user
+# Codex DIFF review — I-p2-040 (#827): pin_replay empty state → EmptyState kit. Iter 1 of 5.
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the doc is force-APPROVE'd on remaining non-P0/P1 findings.
+- If you're holding back a P1 for the next round — DON'T. Surface it now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## You APPROVE'd the brief. This is the one-file diff.
+
+Routes pin_replay's hand-rolled empty `<p>` through the shared `EmptyState` kit (#750) —
+icon (History) + title + description + a `/intake` CTA — matching the 8 kit-using pages;
+keeps the heading (jargon-killed "query"→"question") + an intro explaining the feature; the
+populated view (SnapshotCard/timeseries) is untouched. `data-testid="pin-replay-empty"` kept.
+
+Verified: next build compiled; eslint + prettier clean; local screenshot shows the structured
+empty state (no more void). pin_replay_g1_g8 asserts no empty-state copy → no spec break.
+
+## Review focus
+1. Correct EmptyState usage (props match the kit signature).
+2. No regression to the populated branch; imports correct; "use client" intact.
+3. Any NEW issue.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## The diff
+```diff
+diff --git a/web/app/pin_replay/page.tsx b/web/app/pin_replay/page.tsx
+index 0629c42c..9d13252e 100644
+--- a/web/app/pin_replay/page.tsx
++++ b/web/app/pin_replay/page.tsx
+@@ -1,7 +1,11 @@
+ "use client";
+ 
++import { History } from "lucide-react";
++import Link from "next/link";
+ import { useState } from "react";
+ 
++import { EmptyState } from "@/components/states/state_kit";
++import { Button } from "@/components/ui/button";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { DEMO_PIN_REGISTRY, type PinSnapshot } from "@/lib/pin_replay_demo";
+ import { detectRegressions } from "@/lib/pin_regression";
+@@ -73,21 +77,35 @@ function SnapshotCard({
+ }
+ 
+ function EmptyPinReplay() {
+-  // I-cd-029 (#619): /pin_replay rebuild — empty-state copy. G1+G6 fix:
+-  // <main> dropped (AppShell provides it). G2 fix: removed Issue id
+-  // breadcrumbs from user-visible copy.
++  // I-cd-029 (#619): /pin_replay rebuild. I-p2-040 (#827): the empty state now
++  // routes through the shared EmptyState kit (#750) — matching the 8 other pages
++  // that use it — instead of a bare <p> that read as a void; + an intro that
++  // explains the feature and a CTA so the page is informative, not barren.
++  // "query"→"question" (jargon kill).
+   return (
+     <section
+       data-testid="pin-replay-empty"
+       className="mx-auto max-w-5xl px-6 py-8"
+     >
+-      <h1 className="text-2xl font-semibold tracking-tight">
+-        Pin replay — same query on different dates
++      <h1 className="text-foreground text-2xl font-semibold tracking-tight">
++        Pin replay — same question on different dates
+       </h1>
+-      <p className="text-muted-foreground mt-4 text-sm">
+-        No pin data available yet. Open a completed research run and the
+-        timeseries of its pin snapshots will render here.
++      <p className="text-muted-foreground mt-1 mb-6 max-w-2xl text-sm">
++        Pin a completed run, then re-run the same question later — POLARIS lines
++        up the snapshots so you can see how the evidence and the verified answer
++        shift over time.
+       </p>
++      <EmptyState
++        icon={History}
++        title="No pinned runs yet"
++        description="Run a research question and pin its result to start a timeline here."
++        action={
++          <Button
++            nativeButton={false}
++            render={<Link href="/intake">Ask a question</Link>}
++          />
++        }
++      />
+     </section>
+   );
+ }
+
+```
+
+codex
+I’ll check the local `EmptyState` and `Button` APIs plus the current `pin_replay` file so the verdict is grounded in the actual component signatures, not just the diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "function EmptyState|export .*EmptyState|type .*EmptyState|interface .*EmptyState|const EmptyState" web/app web/components' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "nativeButton|render=|function Button|const Button|export .*Button" web/components web/app -g "*.tsx"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/pin_replay/page.tsx' in C:\POLARIS
+ succeeded in 842ms:
+"use client";
+
+import { History } from "lucide-react";
+import Link from "next/link";
+import { useState } from "react";
+
+import { EmptyState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DEMO_PIN_REGISTRY, type PinSnapshot } from "@/lib/pin_replay_demo";
+import { detectRegressions } from "@/lib/pin_regression";
+
+import { DiffSidePanel } from "./components/diff_side_panel";
+import { PinTimeseries } from "./components/pin_timeseries";
+
+const PIN_DATES = Object.keys(DEMO_PIN_REGISTRY).sort();
+
+function SnapshotCard({
+  testid,
+  label,
+  selected_date,
+  on_change,
+  snapshot,
+}: {
+  testid: string;
+  label: string;
+  selected_date: string;
+  on_change: (next: string) => void;
+  snapshot: PinSnapshot;
+}) {
+  return (
+    <Card data-testid={testid}>
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{label}</CardTitle>
+        <select
+          data-testid={`${testid}-date`}
+          value={selected_date}
+          onChange={(e) => on_change(e.target.value)}
+          className="border-border bg-background rounded border px-2 py-1 text-sm"
+        >
+          {PIN_DATES.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
+      </CardHeader>
+      <CardContent className="text-sm">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+          <dt className="text-muted-foreground">Query</dt>
+          <dd
+            data-testid={`${testid}-query`}
+            className="text-foreground truncate"
+          >
+            {snapshot.query}
+          </dd>
+          <dt className="text-muted-foreground">Verdict</dt>
+          <dd data-testid={`${testid}-verdict`} className="text-foreground">
+            {snapshot.verdict}
+          </dd>
+          <dt className="text-muted-foreground">Sections kept / dropped</dt>
+          <dd data-testid={`${testid}-sections`} className="text-foreground">
+            {snapshot.section_count_kept} / {snapshot.section_count_dropped}
+          </dd>
+          <dt className="text-muted-foreground">Verified sentences</dt>
+          <dd data-testid={`${testid}-sentences`} className="text-foreground">
+            {snapshot.verified_sentence_count}
+          </dd>
+          <dt className="text-muted-foreground">Pass rate</dt>
+          <dd data-testid={`${testid}-pass-rate`} className="text-foreground">
+            {Math.round(snapshot.pass_rate * 100)}%
+          </dd>
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmptyPinReplay() {
+  // I-cd-029 (#619): /pin_replay rebuild. I-p2-040 (#827): the empty state now
+  // routes through the shared EmptyState kit (#750) — matching the 8 other pages
+  // that use it — instead of a bare <p> that read as a void; + an intro that
+  // explains the feature and a CTA so the page is informative, not barren.
+  // "query"→"question" (jargon kill).
+  return (
+    <section
+      data-testid="pin-replay-empty"
+      className="mx-auto max-w-5xl px-6 py-8"
+    >
+      <h1 className="text-foreground text-2xl font-semibold tracking-tight">
+        Pin replay — same question on different dates
+      </h1>
+      <p className="text-muted-foreground mt-1 mb-6 max-w-2xl text-sm">
+        Pin a completed run, then re-run the same question later — POLARIS lines
+        up the snapshots so you can see how the evidence and the verified answer
+        shift over time.
+      </p>
+      <EmptyState
+        icon={History}
+        title="No pinned runs yet"
+        description="Run a research question and pin its result to start a timeline here."
+        action={
+          <Button
+            nativeButton={false}
+            render={<Link href="/intake">Ask a question</Link>}
+          />
+        }
+      />
+    </section>
+  );
+}
+
+export default function PinReplayPage() {
+  // I-cd-017 (#627): DEMO_PIN_REGISTRY removed — page falls back to empty
+  // state until Seq 29 / I-A-12 / #619 wires the live route client. The
+  // guard runs BEFORE detectRegressions / delta math (Codex iter-2 P2.2)
+  // so undefined snapshot dereferences cannot crash the empty-state path.
+  const [date_a, set_date_a] = useState(PIN_DATES[0] ?? "");
+  const [date_b, set_date_b] = useState(
+    PIN_DATES.includes("2026-04-30") ? "2026-04-30" : (PIN_DATES[0] ?? ""),
+  );
+  const [diff_open, set_diff_open] = useState(false);
+
+  if (PIN_DATES.length === 0) {
+    return <EmptyPinReplay />;
+  }
+
+  const snap_a = DEMO_PIN_REGISTRY[date_a];
+  const snap_b = DEMO_PIN_REGISTRY[date_b];
+  const all_snapshots = Object.values(DEMO_PIN_REGISTRY);
+  const alerts = detectRegressions(snap_a, snap_b);
+
+  const delta_pass_rate =
+    Math.round(snap_b.pass_rate * 100) - Math.round(snap_a.pass_rate * 100);
+  const delta_sentences =
+    snap_b.verified_sentence_count - snap_a.verified_sentence_count;
+
+  // I-cd-029 (#619): /pin_replay populated-state. G1+G6 fix: <main>
+  // dropped (AppShell provides it). G2 fix: removed "M-INT-0b
+  // post-Carney" dev-language marker; subtitle is now neutral.
+  return (
+    <section
+      data-testid="pin-replay-page"
+      className="mx-auto max-w-5xl px-6 py-8"
+    >
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Pin replay — same query on different dates
+        </h1>
+        <p className="text-muted-foreground mt-2 text-sm">
+          Compare two completed run snapshots side-by-side; regressions in
+          verified-sentence count or pass-rate raise an alert.
+        </p>
+        {alerts.length > 0 ? (
+          <div
+            data-testid="regression-alert"
+            role="alert"
+            className="mt-4 rounded border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-700 dark:text-rose-300"
+          >
+            <strong className="block">⚠ Regression detected</strong>
+            <ul className="mt-1 space-y-1 text-xs">
+              {alerts.map((alert) => (
+                <li
+                  key={alert.metric}
+                  data-testid={`regression-alert-${alert.metric}`}
+                >
+                  {alert.metric}: dropped {alert.drop}
+                  {alert.unit === "pct" ? " pct points" : " sentences"} ( A=
+                  {alert.a_value}
+                  {alert.unit === "pct" ? "%" : ""}, B=
+                  {alert.b_value}
+                  {alert.unit === "pct" ? "%" : ""}, threshold=
+                  {alert.threshold}
+                  {alert.unit === "pct" ? " pct" : ""})
+                  {alert.attributed_to_retraction &&
+                  alert.attributed_to_retraction.length > 0 ? (
+                    <span
+                      data-testid="regression-retraction-attribution"
+                      className="text-muted-foreground ml-1"
+                    >
+                      (attributed to retraction of:{" "}
+                      {alert.attributed_to_retraction.join(", ")})
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <SnapshotCard
+            testid="pin-snapshot-a"
+            label="Snapshot A"
+            selected_date={date_a}
+            on_change={set_date_a}
+            snapshot={snap_a}
+          />
+          <SnapshotCard
+            testid="pin-snapshot-b"
+            label="Snapshot B"
+            selected_date={date_b}
+            on_change={set_date_b}
+            snapshot={snap_b}
+          />
+        </div>
+        <div className="mt-6">
+          <PinTimeseries snapshots={all_snapshots} />
+        </div>
+        <button
+          type="button"
+          data-testid="pin-show-diff"
+          onClick={() => set_diff_open(true)}
+          className="border-border mt-4 rounded border px-4 py-2 text-sm hover:bg-blue-500/10"
+        >
+          Show snapshot diff
+        </button>
+        <DiffSidePanel
+          open={diff_open}
+          onOpenChange={set_diff_open}
+          snapshot_a={snap_a}
+          snapshot_b={snap_b}
+        />
+        <Card data-testid="pin-replay-delta" className="mt-4">
+          <CardHeader>
+            <CardTitle className="text-base">Delta (B − A)</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
+            <p>
+              Pass rate:{" "}
+              <span data-testid="pin-replay-delta-pass-rate">
+                {delta_pass_rate >= 0 ? "+" : ""}
+                {delta_pass_rate}%
+              </span>
+            </p>
+            <p>
+              Verified sentences:{" "}
+              <span data-testid="pin-replay-delta-sentences">
+                {delta_sentences >= 0 ? "+" : ""}
+                {delta_sentences}
+              </span>
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+  );
+}
+
+ succeeded in 969ms:
+web/components\auth_button.tsx:28:export function AuthButton() {
+web/components\auth_button.tsx:54:      nativeButton={false}
+web/components\auth_button.tsx:55:      render={
+web/app\dashboard\page.tsx:108:          nativeButton={false}
+web/app\dashboard\page.tsx:110:          render={
+web/app\dashboard\page.tsx:134:              nativeButton={false}
+web/app\dashboard\page.tsx:136:              render={<Link href="/intake">Start your first research</Link>}
+web/app\generation\page.tsx:29:              nativeButton={false}
+web/app\generation\page.tsx:30:              render={<Link href="/intake" />}
+web/app\generation\page.tsx:36:              nativeButton={false}
+web/app\generation\page.tsx:37:              render={<Link href="/retrieval" />}
+web/app\generation\page.tsx:43:              nativeButton={false}
+web/app\generation\page.tsx:44:              render={<Link href="/" />}
+web/app\components\home_keyboard_shell.tsx:66:            nativeButton={false}
+web/app\components\home_keyboard_shell.tsx:67:            render={
+web/app\intake\components\disambiguation_modal.tsx:85:              render={
+web/app\intake\components\ambiguity_modal.tsx:95:              render={
+web/app\intake\components\intake_form.tsx:186:                nativeButton={false}
+web/app\intake\components\intake_form.tsx:188:                render={
+web/app\plan\page.tsx:168:            nativeButton={false}
+web/app\plan\page.tsx:169:            render={<Link href="/intake">Ask a question</Link>}
+web/app\plan\page.tsx:338:          nativeButton={false}
+web/app\plan\page.tsx:339:          render={<Link href="/intake">Cancel</Link>}
+web/app\source_review\page.tsx:249:              nativeButton={false}
+web/app\source_review\page.tsx:250:              render={<Link href={planHref} />}
+web/app\retrieval\page.tsx:29:              nativeButton={false}
+web/app\retrieval\page.tsx:30:              render={<Link href="/intake" />}
+web/app\retrieval\page.tsx:36:              nativeButton={false}
+web/app\retrieval\page.tsx:37:              render={<Link href="/" />}
+web/components\ui\sheet.tsx:65:            render={
+web/components\ui\button.tsx:48:function Button({
+web/components\ui\button.tsx:63:export { Button, buttonVariants };
+web/app\runs\[runId]\page.tsx:137:          nativeButton={false}
+web/app\runs\[runId]\page.tsx:138:          render={<Link href="/intake" />}
+web/app\runs\[runId]\page.tsx:178:            nativeButton={false}
+web/app\runs\[runId]\page.tsx:179:            render={<Link href={`/inspector/${runId}`} />}
+web/app\runs\[runId]\page.tsx:187:            nativeButton={false}
+web/app\runs\[runId]\page.tsx:188:            render={<Link href={`/runs/${runId}/audit`} />}
+web/app\pin_replay\page.tsx:104:            nativeButton={false}
+web/app\pin_replay\page.tsx:105:            render={<Link href="/intake">Ask a question</Link>}
+web/components\ui\evidence-tooltip.tsx:141:        render={
+web/app\sign-in\page.tsx:227:                  nativeButton={false}
+web/app\sign-in\page.tsx:228:                  render={<Link href="/" />}
+web/app\runs\[runId]\graph\page.tsx:67:            nativeButton={false}
+web/app\runs\[runId]\graph\page.tsx:68:            render={<Link href={`/inspector/${runId}`} />}
+web/components\citation\citation_chip.tsx:44:        render={
+web/app\runs\[runId]\audit\page.tsx:312:            nativeButton={false}
+web/app\runs\[runId]\audit\page.tsx:313:            render={
+web/app\runs\[runId]\audit\page.tsx:324:            nativeButton={false}
+web/app\runs\[runId]\audit\page.tsx:325:            render={<Link href={`/inspector/${runId}`} />}
+web/app\runs\[runId]\audit\page.tsx:354:            nativeButton={false}
+web/app\runs\[runId]\audit\page.tsx:355:            render={<Link href={`/inspector/${runId}`} />}
+web/app\runs\[runId]\graph\components\accessible_graph_list.tsx:163:                nativeButton={false}
+web/app\runs\[runId]\graph\components\accessible_graph_list.tsx:164:                render={<Link href={inspectorHref(n.data.id)} />}
+web/app\runs\[runId]\graph\components\graph_export_buttons.tsx:15:export function GraphExportButtons({ cy, payload }: GraphExportButtonsProps) {
+
+ succeeded in 1029ms:
+web/components\states\state_kit.tsx:10:export function EmptyState({
+
+codex
+The page has the expected `"use client"` directive and the populated branch is still structurally unchanged. I’m checking the component APIs now for any signature or composition mismatch.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/states/state_kit.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/ui/button.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"<EmptyState|EmptyState\\(\" web/app web/components -g \"*.tsx\"" in C:\POLARIS
+ succeeded in 801ms:
+// I-p2-011 (#750): empty / loading / error states kit. Consistent + honest
+// states every page adopts (G-CONTENT: no generic "Something went wrong" / bare
+// spinners). Reduced-motion handled locally; a11y role=status/alert.
+"use client";
+
+import { useEffect, type ReactNode } from "react";
+
+import type { LucideIcon } from "lucide-react";
+
+export function EmptyState({
+  title,
+  description,
+  icon: Icon,
+  action,
+}: {
+  title: string;
+  description?: string;
+  icon?: LucideIcon;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="border-border text-muted-foreground flex flex-col items-center gap-2 rounded-md border border-dashed p-8 text-center">
+      {Icon && <Icon aria-hidden className="h-6 w-6" />}
+      <p className="text-foreground text-sm font-medium">{title}</p>
+      {description && <p className="max-w-sm text-xs">{description}</p>}
+      {action && <div className="mt-2">{action}</div>}
+    </div>
+  );
+}
+
+export function LoadingState({
+  label = "Loading…",
+  rows = 3,
+}: {
+  label?: string;
+  rows?: number;
+}) {
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+      className="flex flex-col gap-2"
+    >
+      {Array.from({ length: rows }).map((_, i) => (
+        <div
+          key={i}
+          aria-hidden
+          className="bg-muted h-4 w-full animate-pulse rounded motion-reduce:animate-none"
+        />
+      ))}
+      <span className="sr-only">{label}</span>
+    </div>
+  );
+}
+
+// G-CONTENT guardrail: catch lazy generic error copy in dev (full enforcement
+// is the per-page G-CONTENT design audit).
+const GENERIC_MESSAGE =
+  /something went wrong|unknown error|failed to load|an error occurred/i;
+
+export function ErrorState({
+  title = "Couldn't load this",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  /** REQUIRED — the specific, operational error (never generic). */
+  message: string;
+  onRetry?: () => void;
+}) {
+  useEffect(() => {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      GENERIC_MESSAGE.test(message)
+    ) {
+      console.warn(
+        `[ErrorState] generic message "${message}" — G-CONTENT: use a specific, operational error.`,
+      );
+    }
+  }, [message]);
+
+  return (
+    <div
+      role="alert"
+      className="border-destructive/30 bg-destructive/5 flex flex-col gap-2 rounded-md border p-4"
+    >
+      <p className="text-foreground text-sm font-medium">{title}</p>
+      <p className="text-muted-foreground text-xs">{message}</p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="text-primary focus-visible:ring-ring/70 self-start rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+        >
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+
+ succeeded in 927ms:
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
+import { cva, type VariantProps } from "class-variance-authority";
+
+import { cn } from "@/lib/utils";
+
+const buttonVariants = cva(
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/70 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        outline:
+          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+        ghost:
+          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/80 focus-visible:ring-destructive/30",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        // Cycle-7 P3.2 follow-up: WCAG 2.5.8 target-size requires
+        // touch targets ≥24px. Bumped default from h-8 (32px) to h-9
+        // (36px) — the prior 32px reported as ~21px effective height
+        // by axe due to inner text-bounding-box measurement quirks.
+        // h-9 puts unambiguous clearance.
+        default:
+          "h-9 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        xs: "h-7 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-8 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-10 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        icon: "size-9",
+        "icon-xs":
+          "size-7 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm":
+          "size-8 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+        "icon-lg": "size-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  },
+);
+
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  ...props
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  );
+}
+
+export { Button, buttonVariants };
+
+ succeeded in 977ms:
+web/components\states\state_kit.tsx:10:export function EmptyState({
+web/app\dashboard\page.tsx:128:        <EmptyState
+web/app\pin_replay\page.tsx:98:      <EmptyState
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/dashboard/page.tsx | Select-Object -First 170' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/plan/page.tsx | Select-Object -First 190' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/app/pin_replay/page.tsx' in C:\POLARIS
+ succeeded in 870ms:
+ succeeded in 1020ms:
+// I-p2-022 (#761): Dashboard — MONITORING ONLY (not a run-start). Run-start now
+// lives at /intake → /plan (I-p2-015 #754). This page lists recent verified runs
+// (real GET /api/v6/runs data) with their pipeline verdict + a link to each run's
+// report, plus a clear "Start new research" CTA to intake. Replaces the prior
+// 668-line run-start workflow (relocated, not lost).
+"use client";
+
+import { ArrowRight, FileSearch, Plus } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import { listCompletedRuns, type RunStatusResponse } from "@/lib/api";
+
+type LoadState =
+  | { kind: "loading" }
+  | { kind: "ok"; runs: RunStatusResponse[] }
+  | { kind: "error"; message: string };
+
+function formatWhen(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+// Honest verdict label: lifecycle `status` cannot distinguish a success from an
+// abort (mark_aborted stores status=completed) — pipeline_status is the truth.
+function verdictOf(run: RunStatusResponse): { label: string; cls: string } {
+  const v = run.pipeline_status ?? run.status;
+  if (v === "success") {
+    return {
+      label: "Verified",
+      cls: "text-verified border-verified/30 bg-verified/10",
+    };
+  }
+  if (typeof v === "string" && v.startsWith("abort_")) {
+    return {
+      label: "Declined",
+      // text-refusal (the dark neutral) on the light bg-refusal/10 for AA, not
+      // the -foreground (on-refusal) token (Codex iter-4 P2).
+      cls: "text-refusal border-refusal/30 bg-refusal/10",
+    };
+  }
+  if (typeof v === "string" && v.startsWith("error_")) {
+    return {
+      label: "Error",
+      cls: "text-destructive border-destructive/30 bg-destructive/10",
+    };
+  }
+  return {
+    label: v ?? "Unknown",
+    cls: "text-muted-foreground border-border bg-muted/30",
+  };
+}
+
+export default function DashboardPage() {
+  const [state, setState] = useState<LoadState>({ kind: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const runs = await listCompletedRuns(50);
+        if (!cancelled) setState({ kind: "ok", runs });
+      } catch (err) {
+        if (!cancelled) {
+          setState({
+            kind: "error",
+            message:
+              err instanceof Error
+                ? err.message
+                : "Could not load runs from the backend.",
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <section
+      data-testid="dashboard-page"
+      className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-10"
+    >
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+            Runs
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            Recent completed research runs. Open one to replay its proof, claim
+            by claim.
+          </p>
+        </div>
+        <Button
+          nativeButton={false}
+          className="h-10"
+          render={
+            <Link href="/intake" data-testid="dashboard-start-run">
+              <Plus aria-hidden className="mr-1.5 h-4 w-4" />
+              Start new research
+            </Link>
+          }
+        />
+      </div>
+
+      {state.kind === "loading" ? (
+        <LoadingState label="Loading runs…" rows={5} />
+      ) : null}
+
+      {state.kind === "error" ? (
+        <ErrorState title="Couldn't load runs" message={state.message} />
+      ) : null}
+
+      {state.kind === "ok" && state.runs.length === 0 ? (
+        <EmptyState
+          icon={FileSearch}
+          title="No runs yet"
+          description="Once you run a research question, every verified brief shows up here for monitoring and replay."
+          action={
+            <Button
+              nativeButton={false}
+              variant="outline"
+              render={<Link href="/intake">Start your first research</Link>}
+            />
+          }
+        />
+      ) : null}
+
+      {state.kind === "ok" && state.runs.length > 0 ? (
+        <ul
+          className="border-border divide-border divide-y rounded-xl border"
+          data-testid="runs-list"
+        >
+          {state.runs.map((run) => {
+            const verdict = verdictOf(run);
+            const when = formatWhen(run.finished_at ?? run.queued_at);
+            return (
+              <li key={run.run_id}>
+                <Link
+                  href={`/runs/${run.run_id}`}
+                  data-testid={`run-row-${run.run_id}`}
+                  className="hover:bg-muted/40 focus-visible:ring-ring/70 flex items-center justify-between gap-4 px-4 py-3 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                >
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <span className="text-foreground line-clamp-1 text-sm font-medium">
+                      {run.question || run.run_id}
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      <span className="text-primary font-medium tracking-wide uppercase">
+                        {run.template}
+                      </span>
+                      {when ? <span> · {when}</span> : null}
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${verdict.cls}`}
+
+ succeeded in 1092ms:
+// I-p2-015 (#754): Plan review — the run-start surface (relocated off the
+// dashboard so #761 can become monitoring-only). "Confirm + start": the
+// question is DISPLAY-ONLY here (single source of preflight truth = intake);
+// editing routes back to /intake. On mount it re-runs the FULL intake gate
+// (runIntake — the clinical + PICO classifier, NOT the lenient /scope/check) so
+// direct navigation to /plan?q=… is gated identically. "Start research run" is
+// enabled ONLY for an in_scope, disambiguation-resolved question. Question-only
+// run-start (no uploads here — document grounding keeps its /upload home until a
+// follow-up wires it into this flow).
+"use client";
+
+import {
+  ArrowLeft,
+  BadgeCheck,
+  FileSearch,
+  Layers,
+  ShieldCheck,
+} from "lucide-react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+
+import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
+import { ErrorState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import {
+  ConcurrentRunError,
+  createRun,
+  runDisambiguation,
+  runIntake,
+  type DisambiguationCluster,
+  type IntakeScopeDecision,
+  type TemplateId,
+} from "@/lib/api";
+
+const TEMPLATE_IDS: readonly TemplateId[] = [
+  "clinical",
+  "policy",
+  "tech",
+  "ai_sovereignty",
+  "canada_us",
+  "due_diligence",
+  "custom",
+  "workforce",
+];
+
+function asTemplate(value: string | null): TemplateId {
+  return value && (TEMPLATE_IDS as readonly string[]).includes(value)
+    ? (value as TemplateId)
+    : "clinical";
+}
+
+const PLAN_STEPS = [
+  {
+    icon: FileSearch,
+    title: "Retrieve primary sources",
+    body: "POLARIS searches via logged Canadian egress and snapshots each source it draws from.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Corpus-adequacy + approval gate",
+    body: "The source set must meet per-tier adequacy and pass the approval gate before any brief is generated.",
+  },
+  {
+    icon: Layers,
+    title: "Generate, then verify every claim",
+    body: "Each sentence is generated section by section, then span-verified against its primary source by an independent evaluator family.",
+  },
+  {
+    icon: BadgeCheck,
+    title: "Produce an auditable bundle",
+    body: "You get a brief where every claim links to the exact source passage behind it.",
+  },
+] as const;
+
+type State =
+  | { kind: "loading" }
+  | { kind: "ready"; decision: IntakeScopeDecision }
+  | { kind: "error"; message: string };
+
+function PlanContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const question = (searchParams.get("q") ?? "").trim();
+  const template = asTemplate(searchParams.get("template"));
+
+  const [state, setState] = useState<State>({ kind: "loading" });
+  const [disambigClusters, setDisambigClusters] = useState<
+    DisambiguationCluster[]
+  >([]);
+  const [disambigOpen, setDisambigOpen] = useState(false);
+  const [disambigResolved, setDisambigResolved] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [concurrent, setConcurrent] = useState<{
+    runId: string;
+    message: string;
+  } | null>(null);
+
+  // On mount: re-run the FULL intake gate over the (immutable) question. This
+  // is the same clinical + PICO classifier intake uses, so /plan is safe even
+  // when reached by direct URL.
+  //
+  // I-p2-038 (#805): no synchronous setState in the effect body (react-hooks/
+  // set-state-in-effect). The no-question case is a render-time concern, not an
+  // async side effect — the render guard below short-circuits on `!question`,
+  // so the effect just skips the intake fetch when there's nothing to check.
+  useEffect(() => {
+    if (!question) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await runIntake(question);
+        if (cancelled) return;
+        setState({ kind: "ready", decision: result.decision });
+        if (
+          result.decision.needs_disambiguation &&
+          result.decision.candidate_snippets &&
+          result.decision.candidate_snippets.length > 0
+        ) {
+          const dis = await runDisambiguation(
+            result.decision.candidate_snippets,
+          );
+          if (cancelled) return;
+          if (dis.is_ambiguous && dis.clusters.length > 1) {
+            setDisambigClusters(dis.clusters);
+            setDisambigOpen(true);
+          } else {
+            setDisambigResolved(true); // nothing to disambiguate
+          }
+        } else {
+          setDisambigResolved(true);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setState({
+          kind: "error",
+          message:
+            err instanceof Error
+              ? err.message
+              : "Could not check this question.",
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [question]);
+
+  // I-p2-038 (#805): the no-question state is now purely render-derived from
+  // the (immutable) `question` searchParam — no effect sets a "no-question"
+  // error anymore.
+  if (!question) {
+    return (
+      <section
+        data-testid="plan-page"
+        className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-6 py-16 text-center"
+      >
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight">
+          Nothing to plan yet
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Start from a research question and POLARIS will lay out the plan
+          before running it.
+        </p>
+        <div>
+          <Button
+            nativeButton={false}
+            render={<Link href="/intake">Ask a question</Link>}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  const decision = state.kind === "ready" ? state.decision : null;
+  const inScope = decision?.status === "in_scope";
+  const canStart = inScope && disambigResolved && !starting;
+
+  async function onStart() {
+    // Defense-in-depth (Codex diff P2): re-assert the gate at call time, not
+    // only via the disabled button — a run must never start unless the question
+    // is in_scope + disambiguation-resolved.
+    if (!inScope || !disambigResolved || starting) return;
+    setStartError(null);
+    setConcurrent(null);
+    setStarting(true);
+    try {
+      const run = await createRun({ template, question, document_ids: [] });
+      router.push(`/runs/${run.run_id}`);
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+14,044
