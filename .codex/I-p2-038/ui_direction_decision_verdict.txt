@@ -1,0 +1,18 @@
+```yaml
+decision_summary: "Confirm Claude's lean with one correction: P1 is not generic polish, it is live auth-gated journey verification plus targeted polish of Plan, Run-progress, and Compare. Nav-IA is P2 because the current 9-item public bar weakens institutional credibility on every page; broad utility-page polish waits."
+priority_order:
+  - "1: Demo-journey-middle verify+polish — Carney-critical path, built but unseen live, highest unknown and highest leverage."
+  - "2: Nav-IA redesign — every-page credibility issue; replace flat dev-tool nav with lean auth-aware public/app navigation and rename Intake to plain user language."
+  - "3: Thin design-system consistency pass — not a giant redesign; standardize page shells, spacing, empty states, proof/citation surfaces, and responsive behavior while touching P1/P2."
+  - "4: Knowledge-graph + audit/export polish — important to audit-grade story, but secondary unless it appears in the live demo path."
+  - "5: Utility-page polish — Upload, Contracts, Pin Replay are functional but not central; improve only after the demo path and shell are credible."
+journey_middle_verification: "Required path: operator provides a scoped demo reviewer credential for polarisresearch.ca plus at least one real completed demo run ID. Claude must screenshot-audit the live authenticated journey across desktop, tablet/small-desktop, and mobile: /plan, /runs/<id>, /compare, plus transitions between them. Local authed render and offline fixtures may be built for repeatable regression coverage, but they do not certify completion because the bar is top-tier visually-verified live."
+systemic_gap: "Yes, but the right grain is a constrained consistency pass, not page-by-page aesthetic tuning first. The gap is shared product chrome and page composition: nav hierarchy, auth-aware public/app split, responsive horizontal budget, empty-state treatment, spacing rhythm, and consistent evidence/proof components across the 20 routes."
+first_issue_to_open: "P1: Unblock live authenticated visual audit of Plan → Run-progress → Compare using a scoped demo reviewer credential and a real completed run, then polish those pages to top-tier/audit-grade."
+risks:
+  - "Without live credentials, Claude cannot certify the Carney-critical path as complete."
+  - "A fixture-only or local-only review can hide production auth, data, layout, and deployment defects."
+  - "The current public 9-item nav makes POLARIS read like an internal tool suite rather than an institutional research product."
+  - "A broad design-system project could sprawl; constrain it to shell, page templates, responsive budgets, empty states, and proof/citation surfaces."
+  - "Any sovereignty wording touched during UI work must preserve the honest Canadian-hosted plus OpenRouter disclosure."
+```
