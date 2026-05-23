@@ -1,0 +1,9 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/retrieval/primary_trial_expander.py:134: _is_valid_doi accepts empty-component malformed DOIs such as `10./x` or `10.1056/`; config-controlled and not a T1-laundering path, but tighter validation would better match the stated contract."
+merge_decision: MERGE AUTHORIZED
+```
