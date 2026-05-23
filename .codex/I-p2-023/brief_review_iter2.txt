@@ -1,0 +1,1107 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e52ee-6e85-7601-af29-d9f462471a67
+--------
+user
+# Codex BRIEF review — I-p2-023 (#762): honest sovereignty wording across shell + panel
+
+HARD ITERATION CAP: 5. iter 1.
+- Front-load ALL real findings. Reserve P0/P1 for real risks.
+- Verdict APPROVE iff zero NOVEL/continuing P0 AND zero P1.
+
+## OPERATOR-LOCKED context (HARD constraints)
+- Sovereignty GOAL = non-US LLM inference at runtime + Canadian data residency (operator memory). The GPU sovereign cluster (OVH Québec vLLM) lands at Session-A (#644), NOT YET live.
+- GROUND TRUTH (docs/transparency.md:59 + carney_demo_runbook.md:12): production LLM inference is CURRENTLY OpenRouter (US, deepseek-v4-pro + gemma-4-31b), explicitly "transitional" until the sovereign GPU. transparency.md already discloses this honestly.
+
+## THE PROBLEM (live honesty violation, §-1.1)
+The shell mark asserts "⬡ Canadian AI · no external AI vendor" as a PRESENT FACT on every page (app_shell.tsx:44, home_keyboard_shell.tsx:60, + sovereignty_panel.tsx:59). But OpenRouter IS an external US AI vendor at runtime RIGHT NOW. So the mark is FALSE today — it claims the sovereignty goal is already achieved when it isn't (it's disclosed-transitional). This is the same overclaim Codex caught on the #752 home ("no external AI vendor").
+
+## FIX (make the UI tell the truth about current state vs goal)
+Replace the false present-tense "no external AI vendor" with TRUE claims + honest transitional disclosure:
+- Visible mark → "⬡ Sovereign Canadian deep research" (positioning/mission — same wording the home eyebrow already uses, Codex-APPROVE'd as honest) OR "⬡ Canadian-hosted". (Both true: the app is hosted in OVH Québec.)
+- Tooltip (title) → honest: "Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (disclosed in /transparency) pending the sovereign Canadian GPU cluster."
+- sovereignty_panel.tsx:59 → drop "no external AI vendor"; keep "logged Canadian egress"; add the transitional-LLM honest line (the panel already has honesty guards for signature/two-family — extend the same discipline to the vendor claim).
+- 3 files: app_shell.tsx, home_keyboard_shell.tsx, sovereignty_panel.tsx. transparency.md already honest — no change.
+
+## Files I have ALSO checked
+- docs/transparency.md (already discloses OpenRouter honestly — the source of truth), docs/carney_demo_runbook.md (LLM=OpenRouter US, transitional), sovereignty_panel.tsx (existing honesty guards).
+
+## Review focus
+1. Is dropping "no external AI vendor" + the transitional-LLM disclosure the correct honest reconciliation? Any remaining present-tense sovereignty overclaim in the mark/panel/tooltip?
+2. Is "Sovereign Canadian deep research" / "Canadian-hosted" honest (the VM IS in Québec)? Or does even "sovereign" overclaim given transitional US LLM? (If so, prefer "Canadian-hosted".)
+3. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+---
+## iter-2 revision (all iter-1 findings folded)
+Implementation targets (the 4 live overclaim sites):
+1. **web/components/app_shell.tsx:42,44** — mark → `⬡ Canadian-hosted` (Codex P2: safest visible wording; the VM IS in OVH Québec). Tooltip → "Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (US, disclosed in /transparency) pending the sovereign Canadian GPU cluster." DROP "no external AI vendor".
+2. **web/app/components/home_keyboard_shell.tsx:58,60** — same mark + tooltip.
+3. **web/components/sovereignty/sovereignty_panel.tsx:56-59** — drop "no external AI vendor"; keep "logged Canadian egress"; add an honest transitional-LLM line ("LLM inference currently via OpenRouter, disclosed; sovereign GPU pending").
+4. **docs/transparency.md:72** — reconcile the self-contradiction: it currently says the LLM inference path "run on … Vexxhost + OVH H200 inference" (overclaims sovereign-now). Fix to honest CURRENT state consistent with line 59: the LLM inference path is DESIGNED for sovereign Canadian infra (OVH H200 vLLM) but CURRENTLY routes via OpenRouter (US, transitional, disclosed above); the sovereignty constraint is the TARGET, met at the Session-A GPU bring-up.
+
+Net: every present-tense "no external AI vendor" / "runs on sovereign infra" claim becomes honest about the transitional OpenRouter reality + the sovereign target. transparency.md stays the single honest source; the tooltip can safely point there once :72 is fixed (this PR).
+Re-confirm APPROVE or list only true remaining P0/P1.
+
+codex
+I’ll review the live files against the stated honesty constraints, focusing only on remaining present-tense vendor/sovereignty claims and any high-severity risk.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "no external AI vendor|Canadian-hosted|Sovereign Canadian deep research|OpenRouter|sovereign Canadian GPU|sovereign GPU|OVH H200|runs on|run on" web/components/app_shell.tsx web/app/components/home_keyboard_shell.tsx web/components/sovereignty/sovereignty_panel.tsx docs/transparency.md docs/carney_demo_runbook.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/components/app_shell.tsx web/app/components/home_keyboard_shell.tsx web/components/sovereignty/sovereignty_panel.tsx docs/transparency.md' in C:\POLARIS
+ succeeded in 1273ms:
+docs/transparency.md:59:- `openrouter.ai`, `api.openrouter.ai` — LLM API (transitional; replaced by private OVH H200 vLLM endpoint when `POLARIS_LLM_BACKEND=vllm`)
+docs/transparency.md:72:The rationale for accepting the exception: POLARIS's sovereignty constraint protects the **LLM inference path and the generated report data** — those run on Canadian/non-US infrastructure (Vexxhost orchestrator + OVH H200 inference). A web-search query is a short keyword string carrying no confidential research content; the sensitive artifact is the synthesized report, which never transits Serper. A reviewer who wants zero US touch in the search path can swap Serper for a non-US provider (Mojeek UK / Qwant FR / Ecosia DE) — the retrieval code is provider-shaped — but that is not required for the sovereignty posture as scoped.
+docs/carney_demo_runbook.md:12:| LLM inference (production) | OpenRouter (`deepseek/deepseek-v4-pro` generator + `google/gemma-4-31b-it` evaluator per I-cd-009) | US — disclosed in `/transparency`; sovereign GPU lands at the Session-A cluster bring-up (Seq 39 / #644) before the dress rehearsal |
+docs/carney_demo_runbook.md:13:| LLM inference (sovereign target) | OVH H200 (Beauharnois QC) OR Scaleway/Hetzner EU per operator directive 2026-05-18 (Canada-only GPU was too hard/expensive/slow; EU GPU allowed at demo stage) running DeepSeek V4 Pro + Gemma 4 31B via vLLM | French / EU-owned (non-US) |
+docs/carney_demo_runbook.md:40:| OVH H200 + Vexxhost private-network peering confirmed | Ops | private IPv4 reachable from Vexxhost VM (vLLM endpoint `http://<priv-ip>:8000/v1`) |
+docs/carney_demo_runbook.md:45:**Current LLM backend (2026-05-20):** `POLARIS_LLM_BACKEND=openrouter` is the **production deploy-state-of-record** on `polaris-orchestrator`, with `deepseek/deepseek-v4-pro` (generator) + `google/gemma-4-31b-it` (evaluator) per I-cd-009 (#624). The `/transparency` page discloses OpenRouter as the active US-routed inference backend. This is NOT a "transitional fallback" today — it is production. Sovereign GPU bring-up (OVH H200 OR EU per the 2026-05-18 EU-relax) lands at Seq 39 / I-cd-039 / #644 before the dress rehearsal; the flip to `POLARIS_LLM_BACKEND=vllm` happens then (after the sovereign GPU is online + GH#199 vLLM client ships).
+docs/carney_demo_runbook.md:51:**Prereqs done in §0 (original Vexxhost path):** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, Serper API key obtained, OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
+docs/carney_demo_runbook.md:228:**Fallback LLM backend:** the laptop cannot reach OVH H200's private IP. Set `POLARIS_LLM_BACKEND=openrouter` in the laptop `.env` and document this in the demo narration: "Vexxhost down → OpenRouter (US) used as transitional fallback for inference; the sovereign deploy path uses self-hosted vLLM."
+web/components/sovereignty/sovereignty_panel.tsx:59:            egress · no external AI vendor.
+web/components/app_shell.tsx:42:            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+web/components/app_shell.tsx:44:            ⬡ Canadian AI · no external AI vendor
+web/app/components/home_keyboard_shell.tsx:58:            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+web/app/components/home_keyboard_shell.tsx:60:            ⬡ Canadian AI · no external AI vendor
+
+ succeeded in 1290ms:
+ succeeded in 1425ms:
+ M .claude/settings.json
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-p2-023/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+codex
+The checked worktree does not contain the iter-2 edits in the named live files: the old “no external AI vendor” strings and the contradictory transparency sentence are still present. I’m checking the issue scratch area in case the patch was staged somewhere outside the worktree.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files .codex/I-p2-023' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/app_shell.tsx -TotalCount 80' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/sovereignty/sovereignty_panel.tsx -TotalCount 90' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/components/home_keyboard_shell.tsx -TotalCount 90' in C:\POLARIS
+ succeeded in 1480ms:
+"use client";
+
+import Link from "next/link";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
+import { Button } from "@/components/ui/button";
+import { PrimaryNav } from "@/components/primary_nav";
+
+import { CommandPalette } from "./command_palette";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+
+// I-cd-022 (#612): the home header carries the same nav as AppShell (G1:
+// "global header nav present and identical"). I-p2-029 (#768): that nav is now
+// the single shared source @/lib/nav (no more duplicated const), role-aware via
+// navForRole (presentation-only).
+
+export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+  const [palette_open, set_palette_open] = useState(false);
+  const sign_in_link_ref = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    function on_keydown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+        event.preventDefault();
+        event.stopPropagation();
+        set_palette_open((p) => !p);
+      }
+    }
+    window.addEventListener("keydown", on_keydown);
+    return () => window.removeEventListener("keydown", on_keydown);
+  }, []);
+
+  return (
+    <>
+      <header className="border-border bg-background relative border-b">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <PrimaryNav />
+          {/* I-ui-010 (#730): sovereign mark — honest wording (no air-gap
+              overclaim). */}
+          <span
+            className="text-muted-foreground border-border mr-2 ml-auto hidden rounded-full border px-2.5 py-1 text-xs lg:inline-flex"
+            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+          >
+            ⬡ Canadian AI · no external AI vendor
+          </span>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={
+              <Link
+                ref={sign_in_link_ref}
+                data-testid="header-sign-in-link"
+                href={signInHref}
+              />
+            }
+          >
+            Sign in
+          </Button>
+        </div>
+      </header>
+      {children}
+      <CommandPalette
+        open={palette_open}
+        onOpenChange={set_palette_open}
+        templates={templates}
+        signInLinkRef={sign_in_link_ref}
+      />
+    </>
+  );
+}
+
+ succeeded in 1607ms:
+.codex/I-p2-023\brief_review_iter2.txt
+.codex/I-p2-023\brief_review_iter1.txt
+.codex/I-p2-023\brief.md
+
+ succeeded in 1602ms:
+import Link from "next/link";
+
+import { PrimaryNav } from "@/components/primary_nav";
+
+/**
+ * I-cd-004: the global app shell. A server component that wraps every prod
+ * route with a single header + primary nav. The 8 primary nav entries are
+ * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+ *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+ *
+ * Out of scope for this issue (each its own later issue per the Seq-N order):
+ *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+ *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+ *    /dashboard rather than top-nav entries.
+ *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+ *    retired at that point (not merely hidden — per Codex P2).
+ *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+ *    I-cd-015.
+ *  - Auth gating of the nav itself is deferred to I-cd-014.
+ *  - Per-page rebuilds happen in the I-cd-013..030 series.
+ */
+// I-p2-029 (#768): PRIMARY_NAV now lives in @/lib/nav (single source of truth,
+// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <header className="border-border bg-background sticky top-0 z-40 border-b">
+        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <PrimaryNav />
+          {/* I-ui-010 (#730): sovereign mark — honest wording (NOT a false
+              air-gap claim; we retrieve public sources via logged Canadian
+              egress). Eye-level badge of strength, not fine print. */}
+          <span
+            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+          >
+            ⬡ Canadian AI · no external AI vendor
+          </span>
+        </div>
+      </header>
+      <main className="flex-1">{children}</main>
+    </>
+  );
+}
+
+ succeeded in 1630ms:
+// I-p2-009 (#748): sovereignty proof panel + signed-bundle mark. Surfaces the
+// sovereignty + integrity story as VERIFIABLE facts, not a marketing badge.
+// HONESTY: never claims "cryptographically signed" without a signature, never
+// "air-gapped", never asserts the two-family invariant passed without the real
+// family_segregation_passed field. Renders only fields present.
+import { BadgeCheck, ShieldCheck } from "lucide-react";
+
+interface SovereigntyPanelProps {
+  generatorModel?: string | null;
+  evaluatorModel?: string | null;
+  /** verified_report.family_segregation_passed — the real source of truth. */
+  familySegregationPassed?: boolean;
+  polarisVersion?: string | null;
+  bundleId?: string | null;
+  bundleCreatedAt?: string | null;
+  /** metadata.schema_version / manifest.bundle_version — rendered only if present. */
+  schemaVersion?: string | null;
+  /** Number of integrity-hashed files in the manifest (each carries a sha256). */
+  fileCount?: number | null;
+  /** A real detached signature — only then is "cryptographically signed" shown. */
+  signature?: string | null;
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-foreground font-mono">{value}</span>
+    </div>
+  );
+}
+
+export function SovereigntyPanel({
+  generatorModel,
+  evaluatorModel,
+  familySegregationPassed,
+  polarisVersion,
+  bundleId,
+  bundleCreatedAt,
+  schemaVersion,
+  fileCount,
+  signature,
+}: SovereigntyPanelProps) {
+  return (
+    <section
+      data-testid="sovereignty-panel"
+      className="border-border bg-card flex flex-col gap-4 rounded-md border p-4 text-sm"
+    >
+      {/* (a) Sovereignty — the honest shell wording */}
+      <div className="flex items-start gap-2">
+        <ShieldCheck
+          aria-hidden
+          className="text-primary mt-0.5 h-4 w-4 shrink-0"
+        />
+        <div>
+          <p className="text-foreground font-medium">Sovereign processing</p>
+          <p className="text-muted-foreground text-xs">
+            Canadian AI processing · public-source retrieval via logged Canadian
+            egress · no external AI vendor.
+          </p>
+        </div>
+      </div>
+
+      {/* (b) Two-family invariant — passed claim ONLY from the real field */}
+      {(generatorModel || evaluatorModel) && (
+        <div className="border-border flex flex-col gap-1 border-t pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-foreground font-medium">Two-family invariant</p>
+            {familySegregationPassed === true ? (
+              <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+                <BadgeCheck aria-hidden className="h-3 w-3 shrink-0" />
+                Verified
+              </span>
+            ) : familySegregationPassed === false ? (
+              <span className="bg-muted text-foreground border-border inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium">
+                Not verified
+              </span>
+            ) : null}
+          </div>
+          {generatorModel && <Row label="Generator" value={generatorModel} />}
+          {evaluatorModel && <Row label="Evaluator" value={evaluatorModel} />}
+        </div>
+      )}
+
+      {/* (c) Bundle integrity / signed mark — honest about what's proven */}
+      {(bundleId || polarisVersion || bundleCreatedAt || schemaVersion) && (
+        <div className="border-border flex flex-col gap-1 border-t pt-3">
+          <p className="text-foreground mb-1 font-medium">Signed bundle</p>
+          {bundleId && <Row label="Bundle" value={bundleId} />}
+          {schemaVersion && <Row label="Schema" value={schemaVersion} />}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "no external AI vendor|Canadian AI processing|Sovereign processing|Sovereign Canadian deep research|Canadian-hosted|sovereign.+infrastructure|runs? on Canadian/non-US|OVH H200 inference|Vexxhost orchestrator" web docs -g "*.tsx" -g "*.ts" -g "*.md"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path .codex/I-p2-023/brief_review_iter2.txt -TotalCount 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path docs/transparency.md | Select-Object -First 90' in C:\POLARIS
+ succeeded in 1472ms:
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e52ee-6e85-7601-af29-d9f462471a67
+--------
+user
+# Codex BRIEF review — I-p2-023 (#762): honest sovereignty wording across shell + panel
+
+HARD ITERATION CAP: 5. iter 1.
+- Front-load ALL real findings. Reserve P0/P1 for real risks.
+- Verdict APPROVE iff zero NOVEL/continuing P0 AND zero P1.
+
+## OPERATOR-LOCKED context (HARD constraints)
+- Sovereignty GOAL = non-US LLM inference at runtime + Canadian data residency (operator memory). The GPU sovereign cluster (OVH Québec vLLM) lands at Session-A (#644), NOT YET live.
+- GROUND TRUTH (docs/transparency.md:59 + carney_demo_runbook.md:12): production LLM inference is CURRENTLY OpenRouter (US, deepseek-v4-pro + gemma-4-31b), explicitly "transitional" until the sovereign GPU. transparency.md already discloses this honestly.
+
+## THE PROBLEM (live honesty violation, §-1.1)
+The shell mark asserts "⬡ Canadian AI · no external AI vendor" as a PRESENT FACT on every page (app_shell.tsx:44, home_keyboard_shell.tsx:60, + sovereignty_panel.tsx:59). But OpenRouter IS an external US AI vendor at runtime RIGHT NOW. So the mark is FALSE today — it claims the sovereignty goal is already achieved when it isn't (it's disclosed-transitional). This is the same overclaim Codex caught on the #752 home ("no external AI vendor").
+
+## FIX (make the UI tell the truth about current state vs goal)
+Replace the false present-tense "no external AI vendor" with TRUE claims + honest transitional disclosure:
+- Visible mark → "⬡ Sovereign Canadian deep research" (positioning/mission — same wording the home eyebrow already uses, Codex-APPROVE'd as honest) OR "⬡ Canadian-hosted". (Both true: the app is hosted in OVH Québec.)
+- Tooltip (title) → honest: "Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (disclosed in /transparency) pending the sovereign Canadian GPU cluster."
+- sovereignty_panel.tsx:59 → drop "no external AI vendor"; keep "logged Canadian egress"; add the transitional-LLM honest line (the panel already has honesty guards for signature/two-family — extend the same discipline to the vendor claim).
+- 3 files: app_shell.tsx, home_keyboard_shell.tsx, sovereignty_panel.tsx. transparency.md already honest — no change.
+
+## Files I have ALSO checked
+- docs/transparency.md (already discloses OpenRouter honestly — the source of truth), docs/carney_demo_runbook.md (LLM=OpenRouter US, transitional), sovereignty_panel.tsx (existing honesty guards).
+
+## Review focus
+1. Is dropping "no external AI vendor" + the transitional-LLM disclosure the correct honest reconciliation? Any remaining present-tense sovereignty overclaim in the mark/panel/tooltip?
+2. Is "Sovereign Canadian deep research" / "Canadian-hosted" honest (the VM IS in Québec)? Or does even "sovereign" overclaim given transitional US LLM? (If so, prefer "Canadian-hosted".)
+3. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+```
+
+---
+## iter-2 revision (all iter-1 findings folded)
+Implementation targets (the 4 live overclaim sites):
+1. **web/components/app_shell.tsx:42,44** — mark → `⬡ Canadian-hosted` (Codex P2: safest visible wording; the VM IS in OVH Québec). Tooltip → "Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (US, disclosed in /transparency) pending the sovereign Canadian GPU cluster." DROP "no external AI vendor".
+2. **web/app/components/home_keyboard_shell.tsx:58,60** — same mark + tooltip.
+3. **web/components/sovereignty/sovereignty_panel.tsx:56-59** — drop "no external AI vendor"; keep "logged Canadian egress"; add an honest transitional-LLM line ("LLM inference currently via OpenRouter, disclosed; sovereign GPU pending").
+4. **docs/transparency.md:72** — reconcile the self-contradiction: it currently says the LLM inference path "run on … Vexxhost + OVH H200 inference" (overclaims sovereign-now). Fix to honest CURRENT state consistent with line 59: the LLM inference path is DESIGNED for sovereign Canadian infra (OVH H200 vLLM) but CURRENTLY routes via OpenRouter (US, transitional, disclosed above); the sovereignty constraint is the TARGET, met at the Session-A GPU bring-up.
+
+Net: every present-tense "no external AI vendor" / "runs on sovereign infra" claim becomes honest about the transitional OpenRouter reality + the sovereign target. transparency.md stays the single honest source; the tooltip can safely point there once :72 is fixed (this PR).
+Re-confirm APPROVE or list only true remaining P0/P1.
+
+codex
+I’ll review the live files against the stated honesty constraints, focusing only on remaining present-tense vendor/sovereignty claims and any high-severity risk.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "no external AI vendor|Canadian-hosted|Sovereign Canadian deep research|OpenRouter|sovereign Canadian GPU|sovereign GPU|OVH H200|runs on|run on" web/components/app_shell.tsx web/app/components/home_keyboard_shell.tsx web/components/sovereignty/sovereignty_panel.tsx docs/transparency.md docs/carney_demo_runbook.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/components/app_shell.tsx web/app/components/home_keyboard_shell.tsx web/components/sovereignty/sovereignty_panel.tsx docs/transparency.md' in C:\POLARIS
+ succeeded in 1273ms:
+docs/transparency.md:59:- `openrouter.ai`, `api.openrouter.ai` — LLM API (transitional; replaced by private OVH H200 vLLM endpoint when `POLARIS_LLM_BACKEND=vllm`)
+docs/transparency.md:72:The rationale for accepting the exception: POLARIS's sovereignty constraint protects the **LLM inference path and the generated report data** — those run on Canadian/non-US infrastructure (Vexxhost orchestrator + OVH H200 inference). A web-search query is a short keyword string carrying no confidential research content; the sensitive artifact is the synthesized report, which never transits Serper. A reviewer who wants zero US touch in the search path can swap Serper for a non-US provider (Mojeek UK / Qwant FR / Ecosia DE) — the retrieval code is provider-shaped — but that is not required for the sovereignty posture as scoped.
+docs/carney_demo_runbook.md:12:| LLM inference (production) | OpenRouter (`deepseek/deepseek-v4-pro` generator + `google/gemma-4-31b-it` evaluator per I-cd-009) | US — disclosed in `/transparency`; sovereign GPU lands at the Session-A cluster bring-up (Seq 39 / #644) before the dress rehearsal |
+docs/carney_demo_runbook.md:13:| LLM inference (sovereign target) | OVH H200 (Beauharnois QC) OR Scaleway/Hetzner EU per operator directive 2026-05-18 (Canada-only GPU was too hard/expensive/slow; EU GPU allowed at demo stage) running DeepSeek V4 Pro + Gemma 4 31B via vLLM | French / EU-owned (non-US) |
+docs/carney_demo_runbook.md:40:| OVH H200 + Vexxhost private-network peering confirmed | Ops | private IPv4 reachable from Vexxhost VM (vLLM endpoint `http://<priv-ip>:8000/v1`) |
+docs/carney_demo_runbook.md:45:**Current LLM backend (2026-05-20):** `POLARIS_LLM_BACKEND=openrouter` is the **production deploy-state-of-record** on `polaris-orchestrator`, with `deepseek/deepseek-v4-pro` (generator) + `google/gemma-4-31b-it` (evaluator) per I-cd-009 (#624). The `/transparency` page discloses OpenRouter as the active US-routed inference backend. This is NOT a "transitional fallback" today — it is production. Sovereign GPU bring-up (OVH H200 OR EU per the 2026-05-18 EU-relax) lands at Seq 39 / I-cd-039 / #644 before the dress rehearsal; the flip to `POLARIS_LLM_BACKEND=vllm` happens then (after the sovereign GPU is online + GH#199 vLLM client ships).
+docs/carney_demo_runbook.md:51:**Prereqs done in §0 (original Vexxhost path):** Vexxhost VM provisioned, DNS A record pointing at it, GPG keys generated, Serper API key obtained, OVH H200 server delivered + private network peered, `.env` filled, `static_accounts.yaml` filled.
+docs/carney_demo_runbook.md:228:**Fallback LLM backend:** the laptop cannot reach OVH H200's private IP. Set `POLARIS_LLM_BACKEND=openrouter` in the laptop `.env` and document this in the demo narration: "Vexxhost down → OpenRouter (US) used as transitional fallback for inference; the sovereign deploy path uses self-hosted vLLM."
+web/components/sovereignty/sovereignty_panel.tsx:59:            egress · no external AI vendor.
+web/components/app_shell.tsx:42:            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+web/components/app_shell.tsx:44:            ⬡ Canadian AI · no external AI vendor
+web/app/components/home_keyboard_shell.tsx:58:            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+web/app/components/home_keyboard_shell.tsx:60:            ⬡ Canadian AI · no external AI vendor
+
+ succeeded in 1290ms:
+ succeeded in 1425ms:
+ M .claude/settings.json
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+
+ succeeded in 1519ms:
+# POLARIS Carney demo — public transparency reference
+
+This document tells reviewers (incl. PM Mark Carney's office) how to audit that this POLARIS deploy is sovereign, signed, and bound by the policies it claims.
+
+The machine-readable companion is `GET /transparency` on the live deploy.
+
+## 1. Sovereignty filter
+
+POLARIS' clinical-grade filter accepts only **Tier 1 (T1)** sources by default. T1 is the regulatory + clinical guideline corpus (FDA, EMA, NICE, Health Canada, etc.) marked `legal_cleared` in the evidence pool.
+
+Sentences citing non-T1 sources are **redacted** from the bundle. If a section has zero passing sentences after the cascade, the section is **dropped**. If a report has zero passing sections, the pipeline raises `SovereigntyFilterEmptiedReportError` (HTTP 422 from `/runs/{id}/bundle.tar.gz`).
+
+Tier definitions:
+
+| Tier | Description | Default sovereignty status |
+|---|---|---|
+| T1 | Regulatory + clinical guideline corpora | legal_cleared = true |
+| T2 | Peer-reviewed primary literature | requires explicit operator clearance |
+| T3 | Unverified web content + raw uploads | excluded; fallback on unknown tiers |
+
+Verify: `curl https://polaris.<domain>/transparency/policy` returns the `sovereignty_filter` block.
+
+## 2. Evaluator models
+
+Pipeline-A uses a **two-family evaluator**: generator and verifier are from different training lineages so an internal failure in one family can't pass the other.
+
+Current models in production (from `/transparency`):
+- **Generator:** `${PG_GENERATOR_MODEL}` (default `deepseek/deepseek-v4-pro`)
+- **Evaluator:** `${PG_EVALUATOR_MODEL}` (default `google/gemma-4-31b-it`)
+
+`openrouter_client.check_family_segregation` raises `RuntimeError` at construction if the configured models are not from different families.
+
+## 3. GPG signing — verifying a bundle
+
+Every audit bundle returned by `GET /runs/{run_id}/bundle.tar.gz` contains a `manifest.yaml.asc` GPG detached signature over `manifest.yaml`. Verify on your workstation:
+
+```bash
+# Fetch the demo signing public key.
+curl -fsS https://polaris.<domain>/transparency/pubkey.asc > polaris.pubkey.asc
+gpg --import polaris.pubkey.asc
+
+# Fetch a bundle.
+curl -fsS https://polaris.<domain>/api/v6/runs/<run_id>/bundle.tar.gz > bundle.tar.gz
+tar -xzf bundle.tar.gz
+cd audit_*/
+
+# Verify the signature over manifest.yaml.
+gpg --verify manifest.yaml.asc manifest.yaml
+```
+
+A successful verification prints `Good signature from "POLARIS Carney Demo <signing@polaris.local>"`. The fingerprint must match the `signing_key_fingerprint` field in `/transparency`.
+
+## 4. Egress allowlist
+
+The Vexxhost host (Canadian-owned hosting, Montréal) runs `scripts/egress_lockdown.sh` which installs iptables rules in BOTH `OUTPUT` (host-originated) and `DOCKER-USER` (container-forwarded) chains. Off-allowlist traffic on 80/443 is **dropped + logged via the kernel iptables LOG target** with prefix `[POLARIS-EGRESS-DROP]`. The script's own install/config events go to `/var/log/polaris-egress.log`; the drop log lines land wherever rsyslog/journald is configured to forward kernel facility messages (typically `/var/log/kern.log` or `journalctl -k`).
+
+Current allowlist domains (from `/transparency`, sovereign pivot per I-carney-008, search per I-carney-010):
+
+- `openrouter.ai`, `api.openrouter.ai` — LLM API (transitional; replaced by private OVH H200 vLLM endpoint when `POLARIS_LLM_BACKEND=vllm`)
+- `google.serper.dev` — Serper web search (US-based; see "Web search provider" below)
+- `api.semanticscholar.org` — Semantic Scholar (US AI2 non-profit; disclosed; removable for stricter sovereignty)
+- T1 corpus endpoints — `fda.gov`, `accessdata.fda.gov`, `clinicaltrials.gov`, `ncbi.nlm.nih.gov`, `pmc.ncbi.nlm.nih.gov`, `pubmed.ncbi.nlm.nih.gov`, `ema.europa.eu`, `nice.org.uk`, `mhra.gov.uk`, `www.gov.uk`, `canada.ca`, `hc-sc.gc.ca`, `recalls-rappels.canada.ca`, `health-products.canada.ca`, `hres.ca`, `cda-amc.ca`, `who.int`, `iarc.who.int`
+- Bibliographic / DOI infrastructure — `doi.org`, `dx.doi.org`, `api.crossref.org` (UK non-profit), `api.unpaywall.org`, `api.openalex.org`, `arxiv.org`, `export.arxiv.org`, `efts.sec.gov`, `www.sec.gov`
+- `github.com`, `codeload.github.com` — source clones
+- `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` — Docker registry
+- `acme-v02.api.letsencrypt.org`, `r3.o.lencr.org` — Let's Encrypt TLS cert renewal (public attestation only; no data leaves)
+
+**Web search provider:** Serper (`google.serper.dev`), a US-based search API. This is a deliberate, disclosed exception to the "no US company" posture, accepted per operator directive 2026-05-13.
+
+What Serper receives: the search query string itself, plus the normal request metadata any HTTP API call carries — the API account/key, source IP, timestamp, and user-agent — which Serper's privacy policy (serper.dev/privacy) describes it logging as system/access activity. What Serper does NOT receive: the uploaded corpus, the evidence pool, the generated report, or any operator-entered content. Serper returns only result URLs + snippets; POLARIS then fetches the actual T1 evidence directly from the government corpus endpoints listed above.
+
+The rationale for accepting the exception: POLARIS's sovereignty constraint protects the **LLM inference path and the generated report data** — those run on Canadian/non-US infrastructure (Vexxhost orchestrator + OVH H200 inference). A web-search query is a short keyword string carrying no confidential research content; the sensitive artifact is the synthesized report, which never transits Serper. A reviewer who wants zero US touch in the search path can swap Serper for a non-US provider (Mojeek UK / Qwant FR / Ecosia DE) — the retrieval code is provider-shaped — but that is not required for the sovereignty posture as scoped.
+
+Build-time hosts (`pypi.org`, `files.pythonhosted.org`, `deb.debian.org`, `security.debian.org`, `registry.npmjs.org`, `dl.cloudsmith.io`) are in the allowlist for first-boot image build; operators tighten further by removing them post-build. Full set in `config/egress_allowlist.txt`.
+
+**No AWS endpoints.** SSM, EC2 messages, and S3 hosts are explicitly NOT in the allowlist (per I-carney-008 sovereignty audit).
+
+**Tier-1 evidence fetching under lockdown.** Pipeline-A's sovereignty filter accepts only T1 (regulatory + clinical guideline) sources by default. The allowlist covers those T1 corpus hosts + the bib/DOI resolution infrastructure needed to attach them to cites. Arbitrary publisher domains (nature.com, nejm.org, thelancet.com, etc.) are NOT in the allowlist — they're T2/T3 and excluded by the sovereignty filter anyway; the egress drop is defense-in-depth.
+
+DNS (53), NTP (123), and link-local metadata (169.254.169.254) remain unrestricted as required substrate.
+
+Verify: `curl https://polaris.<domain>/transparency/policy` returns the `egress_allowlist` array and the `enforcement_layer` list (host iptables + Docker DOCKER-USER).
+
+## 5. Code provenance
+
+`/transparency` returns:
+- **`git_commit`** — short SHA of the POLARIS commit deployed
+- **`polaris_version`** — `__version__` from `src/polaris_v6/__init__.py`
+- **`deploy_timestamp`** — server-side UTC timestamp at /transparency request
+- **`provider`** — orchestrator hosting provider (`vexxhost` for the sovereign deploy; `fallback_laptop` for the offline fallback in `docs/carney_demo_runbook.md §5`)
+
+ succeeded in 1560ms:
+docs\admin_provisioning_email_2026_05_13.md:3:Single email to forward to the admin. Three tasks: OVH H200 procurement, Vexxhost orchestrator VM, Canadian DNS. Each task is self-contained; admin should be able to execute without coming back for clarification.
+docs\admin_provisioning_email_2026_05_13.md:84:> This server runs the LLM inference layer only. The orchestrator runs on a separate Canadian-hosted VM. The two communicate over VPN.
+docs\admin_provisioning_email_2026_05_13.md:102:## Task 2 — Vexxhost orchestrator VM (subscribe + provision)
+docs\carney_delivery_plan_v5_draft.md:163:| 4.1 Provision OVH Canada BHS 8× H200 cluster (verify availability via API) | working cluster, sovereign | "verified Canadian-hosted? CLOUD Act exposure documented?" |
+docs\carney_handover\5min_video_script.md:67:The cluster running this is sitting in OVH Beauharnois — Canadian sovereign infrastructure. Cognition stays Canadian. CDN and observability use US providers; no Canadian-resident data crosses for those.
+web\components\app_shell.tsx:42:            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+web\components\app_shell.tsx:44:            ⬡ Canadian AI · no external AI vendor
+docs\compliance\eu_ai_act_template.md:20:| **Deployment Model** | On-premises sovereign deployment (air-gapped option) or cloud-hosted with customer-controlled infrastructure |
+web\components\sovereignty\sovereignty_panel.tsx:56:          <p className="text-foreground font-medium">Sovereign processing</p>
+web\components\sovereignty\sovereignty_panel.tsx:58:            Canadian AI processing · public-source retrieval via logged Canadian
+web\components\sovereignty\sovereignty_panel.tsx:59:            egress · no external AI vendor.
+web\app\retrieval\page.tsx:80:          <span>Sovereign Canadian deep research</span>
+docs\ovh_h200_procurement_spec.md:11:POLARIS sovereign Canadian deep research AI. Self-hosted inference of two open-weight LLMs (DeepSeek V4 Pro + Gemma 4 31B) for a Canadian government demo. Data must remain in Canadian jurisdiction; no US-owned infrastructure anywhere in the stack.
+docs\sovereign_gpu_capacity_confirm.md:24:> "Canada GPU procurement was too hard/expensive/slow; EU GPU allowed at demo stage. Sovereignty still non-US-OK; OVH France/Scaleway/Hetzner back in scope; Carney 'Canadian-hosted' framing + transparency.md must be reconciled."
+docs\sovereign_gpu_capacity_confirm.md:30:| **(1) OVH Canada sales** (preferred for "Canadian-hosted" narrative) | Beauharnois, QC (BHS) | 8×H200 bare-metal HGX, or 8×H100 SXM fallback | 4×H100 SXM dedicated, or 4×H100 NVL Public Cloud | Canada-resident; OVH Canada is the controller |
+web\app\sign-in\page.tsx:141:          Sovereign Canadian deep research · auditable evidence
+docs\transparency.md:72:The rationale for accepting the exception: POLARIS's sovereignty constraint protects the **LLM inference path and the generated report data** — those run on Canadian/non-US infrastructure (Vexxhost orchestrator + OVH H200 inference). A web-search query is a short keyword string carrying no confidential research content; the sensitive artifact is the synthesized report, which never transits Serper. A reviewer who wants zero US touch in the search path can swap Serper for a non-US provider (Mojeek UK / Qwant FR / Ecosia DE) — the retrieval code is provider-shaped — but that is not required for the sovereignty posture as scoped.
+docs\transparency.md:78:**Tier-1 evidence fetching under lockdown.** Pipeline-A's sovereignty filter accepts only T1 (regulatory + clinical guideline) sources by default. The allowlist covers those T1 corpus hosts + the bib/DOI resolution infrastructure needed to attach them to cites. Arbitrary publisher domains (nature.com, nejm.org, thelancet.com, etc.) are NOT in the allowlist — they're T2/T3 and excluded by the sovereignty filter anyway; the egress drop is defense-in-depth.
+web\app\page.tsx:113:    body: "Built for Canadian-hosted, sovereign deployment. Public sources are fetched via logged Canadian egress, and every brief is integrity-hashed and auditable.",
+web\app\page.tsx:132:              ⬡ Sovereign Canadian deep research
+web\app\page.tsx:192:            <span>POLARIS · Sovereign Canadian deep research</span>
+docs\walkthroughs\5.1\briefing.md:13:> sovereign infrastructure happens between 2026-08-31 and 2026-09-02.
+docs\walkthroughs\5.1\briefing.md:19:This is the final gate before Carney delivery. Everything must work end-to-end on the sovereign Canadian infrastructure.
+web\app\generation\page.tsx:92:          <span>Sovereign Canadian deep research</span>
+web\app\components\home_keyboard_shell.tsx:58:            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
+web\app\components\home_keyboard_shell.tsx:60:            ⬡ Canadian AI · no external AI vendor
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/components/app_shell.tsx:42 and web/components/app_shell.tsx:44 still claim 'no external AI vendor' in the tooltip and visible mark, despite production LLM inference currently routing through OpenRouter US."
+  - "web/app/components/home_keyboard_shell.tsx:58 and web/app/components/home_keyboard_shell.tsx:60 still claim 'no external AI vendor' in the tooltip and visible mark."
+  - "web/components/sovereignty/sovereignty_panel.tsx:56-59 still presents 'Sovereign processing' as 'Canadian AI processing ... no external AI vendor' with no OpenRouter transitional disclosure."
+  - "docs/transparency.md:72 still contradicts docs/transparency.md:59 by saying the LLM inference path and generated report data 'run on Canadian/non-US infrastructure (Vexxhost orchestrator + OVH H200 inference)' even though OpenRouter US is the current production inference backend."
+p2: []
+```
+tokens used
+44,513
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/components/app_shell.tsx:42 and web/components/app_shell.tsx:44 still claim 'no external AI vendor' in the tooltip and visible mark, despite production LLM inference currently routing through OpenRouter US."
+  - "web/app/components/home_keyboard_shell.tsx:58 and web/app/components/home_keyboard_shell.tsx:60 still claim 'no external AI vendor' in the tooltip and visible mark."
+  - "web/components/sovereignty/sovereignty_panel.tsx:56-59 still presents 'Sovereign processing' as 'Canadian AI processing ... no external AI vendor' with no OpenRouter transitional disclosure."
+  - "docs/transparency.md:72 still contradicts docs/transparency.md:59 by saying the LLM inference path and generated report data 'run on Canadian/non-US infrastructure (Vexxhost orchestrator + OVH H200 inference)' even though OpenRouter US is the current production inference backend."
+p2: []
+```

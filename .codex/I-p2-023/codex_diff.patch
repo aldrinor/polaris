@@ -1,0 +1,88 @@
+diff --git a/docs/transparency.md b/docs/transparency.md
+index 05268d67..9b64115b 100644
+--- a/docs/transparency.md
++++ b/docs/transparency.md
+@@ -69,7 +69,7 @@ Current allowlist domains (from `/transparency`, sovereign pivot per I-carney-00
+ 
+ What Serper receives: the search query string itself, plus the normal request metadata any HTTP API call carries — the API account/key, source IP, timestamp, and user-agent — which Serper's privacy policy (serper.dev/privacy) describes it logging as system/access activity. What Serper does NOT receive: the uploaded corpus, the evidence pool, the generated report, or any operator-entered content. Serper returns only result URLs + snippets; POLARIS then fetches the actual T1 evidence directly from the government corpus endpoints listed above.
+ 
+-The rationale for accepting the exception: POLARIS's sovereignty constraint protects the **LLM inference path and the generated report data** — those run on Canadian/non-US infrastructure (Vexxhost orchestrator + OVH H200 inference). A web-search query is a short keyword string carrying no confidential research content; the sensitive artifact is the synthesized report, which never transits Serper. A reviewer who wants zero US touch in the search path can swap Serper for a non-US provider (Mojeek UK / Qwant FR / Ecosia DE) — the retrieval code is provider-shaped — but that is not required for the sovereignty posture as scoped.
++The rationale for accepting the exception: POLARIS's sovereignty constraint protects the **LLM inference path and the generated report data**. The orchestrator + report data run on Canadian/non-US infrastructure (Vexxhost / OVH Québec); the LLM inference path is *designed* for the sovereign OVH H200 vLLM endpoint but **currently routes via OpenRouter (US, transitional — see the egress entry above)** until the sovereign GPU cluster is brought up at the Session-A window. That transitional US dependency is the one inference-path exception, disclosed here and surfaced in-product. A web-search query is a short keyword string carrying no confidential research content; the sensitive artifact is the synthesized report, which never transits Serper. A reviewer who wants zero US touch in the search path can swap Serper for a non-US provider (Mojeek UK / Qwant FR / Ecosia DE) — the retrieval code is provider-shaped — but that is not required for the sovereignty posture as scoped.
+ 
+ Build-time hosts (`pypi.org`, `files.pythonhosted.org`, `deb.debian.org`, `security.debian.org`, `registry.npmjs.org`, `dl.cloudsmith.io`) are in the allowlist for first-boot image build; operators tighten further by removing them post-build. Full set in `config/egress_allowlist.txt`.
+ 
+diff --git a/web/app/components/home_keyboard_shell.tsx b/web/app/components/home_keyboard_shell.tsx
+index db46af16..e29e2c27 100644
+--- a/web/app/components/home_keyboard_shell.tsx
++++ b/web/app/components/home_keyboard_shell.tsx
+@@ -51,13 +51,15 @@ export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+             POLARIS · Canada
+           </Link>
+           <PrimaryNav />
+-          {/* I-ui-010 (#730): sovereign mark — honest wording (no air-gap
+-              overclaim). */}
++          {/* I-p2-023 (#762): honest sovereign mark — dropped the false
++              present-tense "no external AI vendor" (prod LLM is OpenRouter US,
++              transitional, disclosed in /transparency). The VM is hosted in OVH
++              Québec → "Canadian-hosted" is true today. */}
+           <span
+             className="text-muted-foreground border-border mr-2 ml-auto hidden rounded-full border px-2.5 py-1 text-xs lg:inline-flex"
+-            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
++            title="Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (US, disclosed in /transparency) pending the sovereign Canadian GPU cluster."
+           >
+-            ⬡ Canadian AI · no external AI vendor
++            ⬡ Canadian-hosted
+           </span>
+           <Button
+             variant="outline"
+diff --git a/web/components/app_shell.tsx b/web/components/app_shell.tsx
+index dee70905..7bfc496d 100644
+--- a/web/components/app_shell.tsx
++++ b/web/components/app_shell.tsx
+@@ -34,14 +34,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
+             POLARIS · Canada
+           </Link>
+           <PrimaryNav />
+-          {/* I-ui-010 (#730): sovereign mark — honest wording (NOT a false
+-              air-gap claim; we retrieve public sources via logged Canadian
+-              egress). Eye-level badge of strength, not fine print. */}
++          {/* I-p2-023 (#762): sovereign mark — HONEST. Dropped the false
++              present-tense "no external AI vendor": production LLM inference
++              currently routes via OpenRouter (US, transitional, disclosed in
++              /transparency) until the sovereign Canadian GPU cluster lands. The
++              VM IS hosted in OVH Québec, so "Canadian-hosted" is true today. */}
+           <span
+             className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+-            title="Canadian AI processing · public-source retrieval via logged Canadian egress · no external AI vendor"
++            title="Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (US, disclosed in /transparency) pending the sovereign Canadian GPU cluster."
+           >
+-            ⬡ Canadian AI · no external AI vendor
++            ⬡ Canadian-hosted
+           </span>
+         </div>
+       </header>
+diff --git a/web/components/sovereignty/sovereignty_panel.tsx b/web/components/sovereignty/sovereignty_panel.tsx
+index f5f4cc30..2e8a8d4a 100644
+--- a/web/components/sovereignty/sovereignty_panel.tsx
++++ b/web/components/sovereignty/sovereignty_panel.tsx
+@@ -53,10 +53,15 @@ export function SovereigntyPanel({
+           className="text-primary mt-0.5 h-4 w-4 shrink-0"
+         />
+         <div>
+-          <p className="text-foreground font-medium">Sovereign processing</p>
++          <p className="text-foreground font-medium">Canadian-hosted</p>
++          {/* I-p2-023 (#762): HONEST — dropped the false present-tense "no
++              external AI vendor". Production LLM inference currently routes via
++              OpenRouter (US, transitional, disclosed in /transparency); the
++              sovereign Canadian GPU cluster is the target, not yet live. */}
+           <p className="text-muted-foreground text-xs">
+-            Canadian AI processing · public-source retrieval via logged Canadian
+-            egress · no external AI vendor.
++            Hosted in Canada; public sources fetched via logged Canadian egress.
++            LLM inference is currently routed via OpenRouter (US, disclosed)
++            pending the sovereign Canadian GPU cluster.
+           </p>
+         </div>
+       </div>
+
+# canonical-diff-sha256: 5994acabb64c440c59f71a05f0c60ff85d334ce24b53655a4f6ba928fe549d03

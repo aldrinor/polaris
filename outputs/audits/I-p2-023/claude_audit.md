@@ -1,0 +1,2 @@
+# Claude audit — I-p2-023 (#762)
+Honest sovereignty wording: dropped the live false present-tense "no external AI vendor" (prod LLM=OpenRouter US transitional) across shell mark (app_shell + home_keyboard_shell), sovereignty_panel, + reconciled transparency.md:72 self-contradiction. Now "Canadian-hosted" (true: OVH Québec) + explicit transitional-OpenRouter disclosure pointing to /transparency. Codex brief direction-APPROVE + diff APPROVE iter1. build green.
