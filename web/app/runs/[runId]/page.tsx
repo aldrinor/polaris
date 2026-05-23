@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
 
+import { ErrorState } from "@/components/states/state_kit";
 import { Button } from "@/components/ui/button";
 import {
   cancelRun,
@@ -145,7 +146,8 @@ export default function RunDetailPage({ params }: RunPageProps) {
           Run {runId}
         </span>
         <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
-          {status?.question ?? "Loading…"}
+          {/* I-p2-016 (#755): don't show "Loading…" once an error has fired. */}
+          {status?.question ?? (error ? "Couldn't load this run" : "Loading…")}
         </h1>
         {status && (
           <p className="text-muted-foreground text-sm">
@@ -157,14 +159,9 @@ export default function RunDetailPage({ params }: RunPageProps) {
             Queued at <time>{status.queued_at}</time>
           </p>
         )}
-        {error && (
-          <p
-            role="alert"
-            className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
-          >
-            {error}
-          </p>
-        )}
+        {/* I-p2-016 (#755): #750 ErrorState (design tokens + role=alert) instead
+            of the hand-rolled banner — consistent with every other page. */}
+        {error && <ErrorState title="Couldn't load this run" message={error} />}
       </div>
 
       <div className="border-border flex flex-col gap-2 rounded-md border p-4">
