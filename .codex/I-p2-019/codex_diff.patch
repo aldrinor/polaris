@@ -1,0 +1,122 @@
+diff --git a/web/app/runs/[runId]/graph/page.tsx b/web/app/runs/[runId]/graph/page.tsx
+index a0446f6e..e5a20cad 100644
+--- a/web/app/runs/[runId]/graph/page.tsx
++++ b/web/app/runs/[runId]/graph/page.tsx
+@@ -4,6 +4,7 @@ import Link from "next/link";
+ import { useRouter } from "next/navigation";
+ import { use, useEffect, useRef, useState } from "react";
+ 
++import { ErrorState, LoadingState } from "@/components/states/state_kit";
+ import { Button } from "@/components/ui/button";
+ import { Input } from "@/components/ui/input";
+ import { getRunGraph, type GraphPayload } from "@/lib/api";
+@@ -32,7 +33,16 @@ export default function GraphPage({ params }: GraphPageProps) {
+         if (!cancelled) setPayload(p);
+       })
+       .catch((e: Error) => {
+-        if (!cancelled) setError(e.message);
++        // I-p2-019 (#758): map raw API errors to friendly copy (mirrors the
++        // /runs/[runId] G4 fix) — never leak "HTTP 500" / fn names to the user.
++        if (!cancelled) {
++          const raw = e.message.toLowerCase();
++          setError(
++            raw.includes("404")
++              ? "This run was not found. Check the URL or start a new run."
++              : "We couldn't load the knowledge graph right now. Please retry shortly.",
++          );
++        }
+       });
+     return () => {
+       cancelled = true;
+@@ -44,11 +54,12 @@ export default function GraphPage({ params }: GraphPageProps) {
+       <header className="border-border bg-background border-b">
+         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
+           <div className="flex flex-col">
++            {/* I-p2-019 (#758): G2 — dropped the "F-snowball" dev-language. */}
+             <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+-              POLARIS — F-snowball
++              Knowledge graph
+             </span>
+             <span className="text-foreground text-base font-semibold">
+-              Claim graph: {runId}
++              How this run&apos;s claims + sources connect
+             </span>
+           </div>
+           <Button
+@@ -65,26 +76,14 @@ export default function GraphPage({ params }: GraphPageProps) {
+         data-testid="graph-page"
+         className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 px-6 py-6"
+       >
++        {/* I-p2-019 (#758): #750 ErrorState/LoadingState (design tokens +
++            role=alert/status + motion-reduce) instead of hand-rolled. */}
+         {error && (
+-          <div
+-            role="alert"
+-            className="border-destructive text-destructive rounded-md border p-4"
+-          >
+-            Failed to load graph: {error}
+-          </div>
++          <ErrorState title="Couldn't load the graph" message={error} />
+         )}
+ 
+         {!payload && !error && (
+-          <div
+-            role="status"
+-            className="text-muted-foreground flex items-center gap-2"
+-          >
+-            <span
+-              aria-hidden
+-              className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
+-            />
+-            Loading graph for run {runId}…
+-          </div>
++          <LoadingState label="Loading the knowledge graph…" rows={6} />
+         )}
+ 
+         {payload && <GraphSurface payload={payload} runId={runId} />}
+diff --git a/web/components/app_shell_gate.tsx b/web/components/app_shell_gate.tsx
+index 7c4c3650..28bf9e95 100644
+--- a/web/components/app_shell_gate.tsx
++++ b/web/components/app_shell_gate.tsx
+@@ -21,9 +21,22 @@ interface AppShellGateProps {
+ //                 nav is auth-gated anyway, so it must not show pre-login.
+ const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
+ 
++// I-p2-019 (#762): the claim-graph drill-down (/runs/<id>/graph) is a focused
++// full-screen view that renders its OWN header (with "Back to Inspector") +
++// <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
++// header + G6 nested main).
++const CHROMELESS_PATTERNS = [/^\/runs\/[^/]+\/graph$/];
++
++function isChromeless(pathname: string): boolean {
++  return (
++    CHROMELESS_ROUTES.has(pathname) ||
++    CHROMELESS_PATTERNS.some((re) => re.test(pathname))
++  );
++}
++
+ export function AppShellGate({ children }: AppShellGateProps) {
+   const pathname = usePathname();
+-  if (CHROMELESS_ROUTES.has(pathname)) {
++  if (isChromeless(pathname)) {
+     return <>{children}</>;
+   }
+   return <AppShell>{children}</AppShell>;
+diff --git a/web/tests/e2e/graph_page_smoke.spec.ts b/web/tests/e2e/graph_page_smoke.spec.ts
+index b4cb65d6..5c9b9990 100644
+--- a/web/tests/e2e/graph_page_smoke.spec.ts
++++ b/web/tests/e2e/graph_page_smoke.spec.ts
+@@ -61,6 +61,10 @@ test.describe("Claim graph page (I-snowball-006)", () => {
+       route.fulfill({ status: 404, body: "run not found" }),
+     );
+     await page.goto("/runs/no_such_run/graph");
+-    await expect(page.getByRole("alert")).toContainText("Failed to load graph");
++    // I-p2-019 (#758): error UI is now the #750 ErrorState (role=alert, title
++    // + friendly message). 404 → not-found copy; raw "HTTP 404" is not leaked.
++    const alert = page.getByRole("alert");
++    await expect(alert).toContainText("Couldn't load the graph");
++    await expect(alert).toContainText("This run was not found");
+   });
+ });
+
+# canonical-diff-sha256: dd13cabc97ebcb4a5cfb71fbfa6950f54a93f1d0d329071fe0c8b9589e08e660

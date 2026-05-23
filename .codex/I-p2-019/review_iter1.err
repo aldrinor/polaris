@@ -1,0 +1,1639 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e530f-2193-7a52-80f8-e63cbe8490a8
+--------
+user
+# Codex DESIGN+DIFF review — I-p2-019 (#758): knowledge-graph page (the snowball)
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+Canonical-diff-sha256 `2c9b3ab003a0888a885520a4d323c75b3eff77bcb3941e5f9e4869451aff2c1b`. web/ only, 104-line diff (under 200-LOC cap). MERGE AUTHORIZED if mergeable. APPROVE iff zero P0/P1.
+
+## Context
+#758 = "Page: Knowledge-graph (the snowball)". The page `web/app/runs/[runId]/graph/page.tsx` was ALREADY feature-complete from #751 (I-p2-012): cytoscape ClaimGraph + AccessibleGraphList (a11y fallback) + GraphExportButtons (PNG/JSON) + 2-hop snowball expansion + node search + Open-Inspector deep-link. This PR is the design-system + landmark + honesty delta only — NOT a rebuild.
+
+## Diff (2 files)
+1. `web/components/app_shell_gate.tsx`: added `CHROMELESS_PATTERNS = [/^\/runs\/[^/]+\/graph$/]` + `isChromeless()` helper. The graph page renders its OWN `<header>` (with "Back to Inspector") + `<main data-testid="graph-page">`. Before this, AppShellGate wrapped it in AppShell → **G1 double-header + G6 nested-main**. Now the route is chromeless and owns its full viewport, exactly like `/` and `/sign-in`.
+2. `web/app/runs/[runId]/graph/page.tsx`:
+   - **G2**: header dev-language `POLARIS — F-snowball` → `Knowledge graph` / `How this run's claims + sources connect`.
+   - **#750 swap**: hand-rolled error banner (`border-destructive text-destructive`) + hand-rolled spinner (no motion-reduce) → `ErrorState` + `LoadingState` from the #750 kit (design tokens + role=alert/status + motion-reduce honored).
+   - **G4 (raw-error leak)**: `.catch` was `setError(e.message)` → leaked `getRunGraph(demo-1) HTTP 500: Internal Server Error` to the user. Now maps to friendly copy ("This run was not found…" / "We couldn't load the knowledge graph right now…"), mirroring the existing `/runs/[runId]` G4 fix.
+
+## Files I have ALSO checked and they're clean
+- `web/app/runs/[runId]/graph/components/{claim_graph,accessible_graph_list,graph_export_buttons,snowball,use_graph_state}.tsx` — unchanged; the page only re-labels its header + swaps error/loading. GraphSurface (the actual graph UI) is untouched.
+- `web/components/states/state_kit.tsx` — ErrorState(title,message)/LoadingState(label,rows) signatures match the call sites (verified against #755/#757 usage).
+- `web/components/app_shell.tsx` — unchanged; AppShellGate is the only gate, single landmark provider for non-chromeless routes.
+- Chromeless regex tested against `/runs/demo-1/graph` (matches) and `/runs/demo-1` (does NOT match — the run-detail page stays inside AppShell, correct).
+
+## Claude visual audit (standalone harness @1366, NOT next dev)
+Rendered `/runs/demo-1/graph` in the standalone server (no v6 backend → getRunGraph 500 → error path):
+- Chromeless verified: `grep -c 'aria-label="Primary"'` = 0 (no global nav), `<header` count = 1 (own header only). No double-header, no nested-main.
+- Header reads "KNOWLEDGE GRAPH / How this run's claims + sources connect" + "Back to Inspector" button. No dev-language.
+- Error path shows the #750 ErrorState card: "Couldn't load the graph" + friendly "We couldn't load the knowledge graph right now. Please retry shortly." (no HTTP 500 / fn-name leak). Design-token red-tint bordered card, role=alert.
+
+## Review focus
+1. Is the chromeless regex correct + scoped (only `/runs/<id>/graph`, not `/runs/<id>` or `/runs/<id>/graph/foo`)? Any route that should NOT be chromeless now caught?
+2. ErrorState/LoadingState swaps clean (no unused imports, props match)?
+3. G4 error mapping honest (404→not-found, else→generic-retry; no swallowed error)?
+4. Any P0/P1 (landmark regression, a11y regression, behavior change to GraphSurface).
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+===== ACTUAL DIFF (codex_diff.patch, canonical body) =====
+```diff
+diff --git a/web/app/runs/[runId]/graph/page.tsx b/web/app/runs/[runId]/graph/page.tsx
+index a0446f6e..e5a20cad 100644
+--- a/web/app/runs/[runId]/graph/page.tsx
++++ b/web/app/runs/[runId]/graph/page.tsx
+@@ -4,6 +4,7 @@ import Link from "next/link";
+ import { useRouter } from "next/navigation";
+ import { use, useEffect, useRef, useState } from "react";
+ 
++import { ErrorState, LoadingState } from "@/components/states/state_kit";
+ import { Button } from "@/components/ui/button";
+ import { Input } from "@/components/ui/input";
+ import { getRunGraph, type GraphPayload } from "@/lib/api";
+@@ -32,7 +33,16 @@ export default function GraphPage({ params }: GraphPageProps) {
+         if (!cancelled) setPayload(p);
+       })
+       .catch((e: Error) => {
+-        if (!cancelled) setError(e.message);
++        // I-p2-019 (#758): map raw API errors to friendly copy (mirrors the
++        // /runs/[runId] G4 fix) — never leak "HTTP 500" / fn names to the user.
++        if (!cancelled) {
++          const raw = e.message.toLowerCase();
++          setError(
++            raw.includes("404")
++              ? "This run was not found. Check the URL or start a new run."
++              : "We couldn't load the knowledge graph right now. Please retry shortly.",
++          );
++        }
+       });
+     return () => {
+       cancelled = true;
+@@ -44,11 +54,12 @@ export default function GraphPage({ params }: GraphPageProps) {
+       <header className="border-border bg-background border-b">
+         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
+           <div className="flex flex-col">
++            {/* I-p2-019 (#758): G2 — dropped the "F-snowball" dev-language. */}
+             <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+-              POLARIS — F-snowball
++              Knowledge graph
+             </span>
+             <span className="text-foreground text-base font-semibold">
+-              Claim graph: {runId}
++              How this run&apos;s claims + sources connect
+             </span>
+           </div>
+           <Button
+@@ -65,26 +76,14 @@ export default function GraphPage({ params }: GraphPageProps) {
+         data-testid="graph-page"
+         className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 px-6 py-6"
+       >
++        {/* I-p2-019 (#758): #750 ErrorState/LoadingState (design tokens +
++            role=alert/status + motion-reduce) instead of hand-rolled. */}
+         {error && (
+-          <div
+-            role="alert"
+-            className="border-destructive text-destructive rounded-md border p-4"
+-          >
+-            Failed to load graph: {error}
+-          </div>
++          <ErrorState title="Couldn't load the graph" message={error} />
+         )}
+ 
+         {!payload && !error && (
+-          <div
+-            role="status"
+-            className="text-muted-foreground flex items-center gap-2"
+-          >
+-            <span
+-              aria-hidden
+-              className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
+-            />
+-            Loading graph for run {runId}…
+-          </div>
++          <LoadingState label="Loading the knowledge graph…" rows={6} />
+         )}
+ 
+         {payload && <GraphSurface payload={payload} runId={runId} />}
+diff --git a/web/components/app_shell_gate.tsx b/web/components/app_shell_gate.tsx
+index 7c4c3650..28bf9e95 100644
+--- a/web/components/app_shell_gate.tsx
++++ b/web/components/app_shell_gate.tsx
+@@ -21,9 +21,22 @@ interface AppShellGateProps {
+ //                 nav is auth-gated anyway, so it must not show pre-login.
+ const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
+ 
++// I-p2-019 (#762): the claim-graph drill-down (/runs/<id>/graph) is a focused
++// full-screen view that renders its OWN header (with "Back to Inspector") +
++// <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
++// header + G6 nested main).
++const CHROMELESS_PATTERNS = [/^\/runs\/[^/]+\/graph$/];
++
++function isChromeless(pathname: string): boolean {
++  return (
++    CHROMELESS_ROUTES.has(pathname) ||
++    CHROMELESS_PATTERNS.some((re) => re.test(pathname))
++  );
++}
++
+ export function AppShellGate({ children }: AppShellGateProps) {
+   const pathname = usePathname();
+-  if (CHROMELESS_ROUTES.has(pathname)) {
++  if (isChromeless(pathname)) {
+     return <>{children}</>;
+   }
+   return <AppShell>{children}</AppShell>;
+
+# canonical-diff-sha256: 2c9b3ab003a0888a885520a4d323c75b3eff77bcb3941e5f9e4869451aff2c1b
+```
+
+===== FULL FILE: web/components/app_shell_gate.tsx =====
+```tsx
+// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+// the AppShell header AND its <main> wrapper so the home route can
+// provide its own header (with the same primary nav) + its own <main>.
+// This avoids G1 (double header) + G6 (nested main) landmark violations.
+//
+// Tiny "use client" boundary so the otherwise server-rendered AppShell
+// can still wrap every non-home route on the server.
+"use client";
+
+import { usePathname } from "next/navigation";
+
+import { AppShell } from "@/components/app_shell";
+
+interface AppShellGateProps {
+  children: React.ReactNode;
+}
+
+// Chromeless routes own their full viewport (no app header/nav):
+//  - `/`        : home owns its own header + main.
+//  - `/sign-in` : institutional full-screen auth (I-p2-021 #760); the primary
+//                 nav is auth-gated anyway, so it must not show pre-login.
+const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
+
+// I-p2-019 (#762): the claim-graph drill-down (/runs/<id>/graph) is a focused
+// full-screen view that renders its OWN header (with "Back to Inspector") +
+// <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
+// header + G6 nested main).
+const CHROMELESS_PATTERNS = [/^\/runs\/[^/]+\/graph$/];
+
+function isChromeless(pathname: string): boolean {
+  return (
+    CHROMELESS_ROUTES.has(pathname) ||
+    CHROMELESS_PATTERNS.some((re) => re.test(pathname))
+  );
+}
+
+export function AppShellGate({ children }: AppShellGateProps) {
+  const pathname = usePathname();
+  if (isChromeless(pathname)) {
+    return <>{children}</>;
+  }
+  return <AppShell>{children}</AppShell>;
+}
+```
+
+===== FULL FILE: web/app/runs/[runId]/graph/page.tsx =====
+```tsx
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { use, useEffect, useRef, useState } from "react";
+
+import { ErrorState, LoadingState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { getRunGraph, type GraphPayload } from "@/lib/api";
+
+import type cytoscape from "cytoscape";
+
+import { AccessibleGraphList } from "./components/accessible_graph_list";
+import { ClaimGraph } from "./components/claim_graph";
+import { GraphExportButtons } from "./components/graph_export_buttons";
+import { snowballNeighbors } from "./components/snowball";
+import { useGraphState } from "./components/use_graph_state";
+
+interface GraphPageProps {
+  params: Promise<{ runId: string }>;
+}
+
+export default function GraphPage({ params }: GraphPageProps) {
+  const { runId } = use(params);
+  const [payload, setPayload] = useState<GraphPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRunGraph(runId)
+      .then((p) => {
+        if (!cancelled) setPayload(p);
+      })
+      .catch((e: Error) => {
+        // I-p2-019 (#758): map raw API errors to friendly copy (mirrors the
+        // /runs/[runId] G4 fix) — never leak "HTTP 500" / fn names to the user.
+        if (!cancelled) {
+          const raw = e.message.toLowerCase();
+          setError(
+            raw.includes("404")
+              ? "This run was not found. Check the URL or start a new run."
+              : "We couldn't load the knowledge graph right now. Please retry shortly.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
+          <div className="flex flex-col">
+            {/* I-p2-019 (#758): G2 — dropped the "F-snowball" dev-language. */}
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              Knowledge graph
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              How this run&apos;s claims + sources connect
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/inspector/${runId}`} />}
+          >
+            Back to Inspector
+          </Button>
+        </div>
+      </header>
+
+      <main
+        data-testid="graph-page"
+        className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 px-6 py-6"
+      >
+        {/* I-p2-019 (#758): #750 ErrorState/LoadingState (design tokens +
+            role=alert/status + motion-reduce) instead of hand-rolled. */}
+        {error && (
+          <ErrorState title="Couldn't load the graph" message={error} />
+        )}
+
+        {!payload && !error && (
+          <LoadingState label="Loading the knowledge graph…" rows={6} />
+        )}
+
+        {payload && <GraphSurface payload={payload} runId={runId} />}
+      </main>
+    </div>
+  );
+}
+
+interface GraphSurfaceProps {
+  payload: GraphPayload;
+  runId: string;
+}
+
+function GraphSurface({ payload, runId }: GraphSurfaceProps) {
+  const [state, adjacency, actions] = useGraphState(payload);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
+  const [cy, setCy] = useState<cytoscape.Core | null>(null);
+  const inspectorHref = (id: string) =>
+    `/inspector/${runId}?${new URLSearchParams({ focused_node: id }).toString()}`;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          ref={searchInputRef}
+          type="search"
+          placeholder="Search nodes (press / to focus)…"
+          value={state.search_query}
+          onChange={(e) => actions.setSearchQuery(e.target.value)}
+          className="max-w-md"
+          aria-label="Search graph nodes"
+        />
+        <span className="text-muted-foreground text-xs">
+          {state.visible_node_ids.size}/{payload.elements.nodes.length} visible
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!state.selected_node_id}
+          onClick={() => {
+            if (state.selected_node_id)
+              router.push(inspectorHref(state.selected_node_id));
+          }}
+        >
+          Open Inspector
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!state.selected_node_id}
+          onClick={() => {
+            if (!state.selected_node_id) return;
+            actions.setSnowballHighlight(
+              snowballNeighbors(payload, state.selected_node_id, 2),
+            );
+          }}
+        >
+          Expand snowball (2 hops)
+        </Button>
+        {state.snowball_highlight_ids && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => actions.setSnowballHighlight(null)}
+          >
+            Clear ({state.snowball_highlight_ids.size} nodes)
+          </Button>
+        )}
+        <GraphExportButtons cy={cy} payload={payload} />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+        <ClaimGraph
+          payload={payload}
+          selectedNodeId={state.selected_node_id}
+          searchQuery={state.search_query}
+          snowballHighlightIds={state.snowball_highlight_ids}
+          setSelectedNodeId={actions.setSelectedNodeId}
+          onCyReady={setCy}
+        />
+        <AccessibleGraphList
+          payload={payload}
+          state={state}
+          adjacency={adjacency}
+          runId={runId}
+          searchInputRef={searchInputRef}
+          setSelectedNodeId={actions.setSelectedNodeId}
+        />
+      </div>
+    </div>
+  );
+}
+```
+
+===== state_kit.tsx ErrorState/LoadingState signatures (for prop-match verification) =====
+```tsx
+// I-p2-011 (#750): empty / loading / error states kit. Consistent + honest
+// states every page adopts (G-CONTENT: no generic "Something went wrong" / bare
+// spinners). Reduced-motion handled locally; a11y role=status/alert.
+"use client";
+
+import { useEffect, type ReactNode } from "react";
+
+import type { LucideIcon } from "lucide-react";
+
+export function EmptyState({
+  title,
+  description,
+  icon: Icon,
+  action,
+}: {
+  title: string;
+  description?: string;
+  icon?: LucideIcon;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="border-border text-muted-foreground flex flex-col items-center gap-2 rounded-md border border-dashed p-8 text-center">
+      {Icon && <Icon aria-hidden className="h-6 w-6" />}
+      <p className="text-foreground text-sm font-medium">{title}</p>
+      {description && <p className="max-w-sm text-xs">{description}</p>}
+      {action && <div className="mt-2">{action}</div>}
+    </div>
+  );
+}
+
+export function LoadingState({
+  label = "Loading…",
+  rows = 3,
+}: {
+  label?: string;
+  rows?: number;
+}) {
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+      className="flex flex-col gap-2"
+    >
+      {Array.from({ length: rows }).map((_, i) => (
+        <div
+          key={i}
+          aria-hidden
+          className="bg-muted h-4 w-full animate-pulse rounded motion-reduce:animate-none"
+        />
+      ))}
+      <span className="sr-only">{label}</span>
+    </div>
+  );
+}
+
+// G-CONTENT guardrail: catch lazy generic error copy in dev (full enforcement
+// is the per-page G-CONTENT design audit).
+const GENERIC_MESSAGE =
+  /something went wrong|unknown error|failed to load|an error occurred/i;
+
+export function ErrorState({
+  title = "Couldn't load this",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  /** REQUIRED — the specific, operational error (never generic). */
+  message: string;
+  onRetry?: () => void;
+}) {
+  useEffect(() => {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      GENERIC_MESSAGE.test(message)
+    ) {
+      console.warn(
+        `[ErrorState] generic message "${message}" — G-CONTENT: use a specific, operational error.`,
+      );
+    }
+```
+
+codex
+I’ll verify the touched files against the local codebase and check whether routing config or existing shell behavior changes the regex/a11y assessment.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/next.config.js' -ErrorAction SilentlyContinue; Get-Content -LiteralPath 'web/next.config.mjs' -ErrorAction SilentlyContinue; Get-Content -LiteralPath 'web/next.config.ts' -ErrorAction SilentlyContinue" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/components/app_shell_gate.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/graph/page.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"function AppShell|<main|aria-label=\\\"Primary\\\"|AppShellGate|trailingSlash|basePath\" web -S" in C:\POLARIS
+ succeeded in 4493ms:
+import type { NextConfig } from "next";
+
+// I-carney-005 P1-004 + P1-005: standalone output for Docker runner +
+// server-side rewrite of /api/v6/* → ${INTERNAL_API_URL}/* so browser
+// fetch only talks to the webui container (Next.js then proxies to the
+// api container by Docker service name, which the browser can't resolve).
+const nextConfig: NextConfig = {
+  output: "standalone",
+  async rewrites() {
+    const internal =
+      process.env.INTERNAL_API_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      "http://localhost:8000";
+    return [
+      {
+        source: "/api/v6/:path*",
+        destination: `${internal}/:path*`,
+      },
+      // I-carney-003 P1-001: expose FastAPI /transparency directly so
+      // reviewers (incl. Carney's office) can audit the deploy without
+      // going through /api/v6 prefix routing.
+      {
+        source: "/transparency",
+        destination: `${internal}/transparency`,
+      },
+      {
+        source: "/transparency/:path*",
+        destination: `${internal}/transparency/:path*`,
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+
+2026-05-23T04:19:42.752256Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 4.6 seconds
+Output:
+rg: regex parse error:
+    (?:function AppShell|<main|aria-label=\)
+    ^
+error: unclosed group
+
+ exited 1 in 4593ms:
+rg: regex parse error:
+    (?:function AppShell|<main|aria-label=\)
+    ^
+error: unclosed group
+
+ succeeded in 4870ms:
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { use, useEffect, useRef, useState } from "react";
+
+import { ErrorState, LoadingState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { getRunGraph, type GraphPayload } from "@/lib/api";
+
+import type cytoscape from "cytoscape";
+
+import { AccessibleGraphList } from "./components/accessible_graph_list";
+import { ClaimGraph } from "./components/claim_graph";
+import { GraphExportButtons } from "./components/graph_export_buttons";
+import { snowballNeighbors } from "./components/snowball";
+import { useGraphState } from "./components/use_graph_state";
+
+interface GraphPageProps {
+  params: Promise<{ runId: string }>;
+}
+
+export default function GraphPage({ params }: GraphPageProps) {
+  const { runId } = use(params);
+  const [payload, setPayload] = useState<GraphPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRunGraph(runId)
+      .then((p) => {
+        if (!cancelled) setPayload(p);
+      })
+      .catch((e: Error) => {
+        // I-p2-019 (#758): map raw API errors to friendly copy (mirrors the
+        // /runs/[runId] G4 fix) — never leak "HTTP 500" / fn names to the user.
+        if (!cancelled) {
+          const raw = e.message.toLowerCase();
+          setError(
+            raw.includes("404")
+              ? "This run was not found. Check the URL or start a new run."
+              : "We couldn't load the knowledge graph right now. Please retry shortly.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
+          <div className="flex flex-col">
+            {/* I-p2-019 (#758): G2 — dropped the "F-snowball" dev-language. */}
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              Knowledge graph
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              How this run&apos;s claims + sources connect
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/inspector/${runId}`} />}
+          >
+            Back to Inspector
+          </Button>
+        </div>
+      </header>
+
+      <main
+        data-testid="graph-page"
+        className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 px-6 py-6"
+      >
+        {/* I-p2-019 (#758): #750 ErrorState/LoadingState (design tokens +
+            role=alert/status + motion-reduce) instead of hand-rolled. */}
+        {error && (
+          <ErrorState title="Couldn't load the graph" message={error} />
+        )}
+
+        {!payload && !error && (
+          <LoadingState label="Loading the knowledge graph…" rows={6} />
+        )}
+
+        {payload && <GraphSurface payload={payload} runId={runId} />}
+      </main>
+    </div>
+  );
+}
+
+interface GraphSurfaceProps {
+  payload: GraphPayload;
+  runId: string;
+}
+
+function GraphSurface({ payload, runId }: GraphSurfaceProps) {
+  const [state, adjacency, actions] = useGraphState(payload);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
+  const [cy, setCy] = useState<cytoscape.Core | null>(null);
+  const inspectorHref = (id: string) =>
+    `/inspector/${runId}?${new URLSearchParams({ focused_node: id }).toString()}`;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          ref={searchInputRef}
+          type="search"
+          placeholder="Search nodes (press / to focus)…"
+          value={state.search_query}
+          onChange={(e) => actions.setSearchQuery(e.target.value)}
+          className="max-w-md"
+          aria-label="Search graph nodes"
+        />
+        <span className="text-muted-foreground text-xs">
+          {state.visible_node_ids.size}/{payload.elements.nodes.length} visible
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!state.selected_node_id}
+          onClick={() => {
+            if (state.selected_node_id)
+              router.push(inspectorHref(state.selected_node_id));
+          }}
+        >
+          Open Inspector
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!state.selected_node_id}
+          onClick={() => {
+            if (!state.selected_node_id) return;
+            actions.setSnowballHighlight(
+              snowballNeighbors(payload, state.selected_node_id, 2),
+            );
+          }}
+        >
+          Expand snowball (2 hops)
+        </Button>
+        {state.snowball_highlight_ids && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => actions.setSnowballHighlight(null)}
+          >
+            Clear ({state.snowball_highlight_ids.size} nodes)
+          </Button>
+        )}
+        <GraphExportButtons cy={cy} payload={payload} />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+        <ClaimGraph
+          payload={payload}
+          selectedNodeId={state.selected_node_id}
+          searchQuery={state.search_query}
+          snowballHighlightIds={state.snowball_highlight_ids}
+          setSelectedNodeId={actions.setSelectedNodeId}
+          onCyReady={setCy}
+        />
+        <AccessibleGraphList
+          payload={payload}
+          state={state}
+          adjacency={adjacency}
+          runId={runId}
+          searchInputRef={searchInputRef}
+          setSelectedNodeId={actions.setSelectedNodeId}
+        />
+      </div>
+    </div>
+  );
+}
+
+ succeeded in 4890ms:
+// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+// the AppShell header AND its <main> wrapper so the home route can
+// provide its own header (with the same primary nav) + its own <main>.
+// This avoids G1 (double header) + G6 (nested main) landmark violations.
+//
+// Tiny "use client" boundary so the otherwise server-rendered AppShell
+// can still wrap every non-home route on the server.
+"use client";
+
+import { usePathname } from "next/navigation";
+
+import { AppShell } from "@/components/app_shell";
+
+interface AppShellGateProps {
+  children: React.ReactNode;
+}
+
+// Chromeless routes own their full viewport (no app header/nav):
+//  - `/`        : home owns its own header + main.
+//  - `/sign-in` : institutional full-screen auth (I-p2-021 #760); the primary
+//                 nav is auth-gated anyway, so it must not show pre-login.
+const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
+
+// I-p2-019 (#762): the claim-graph drill-down (/runs/<id>/graph) is a focused
+// full-screen view that renders its OWN header (with "Back to Inspector") +
+// <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
+// header + G6 nested main).
+const CHROMELESS_PATTERNS = [/^\/runs\/[^/]+\/graph$/];
+
+function isChromeless(pathname: string): boolean {
+  return (
+    CHROMELESS_ROUTES.has(pathname) ||
+    CHROMELESS_PATTERNS.some((re) => re.test(pathname))
+  );
+}
+
+export function AppShellGate({ children }: AppShellGateProps) {
+  const pathname = usePathname();
+  if (isChromeless(pathname)) {
+    return <>{children}</>;
+  }
+  return <AppShell>{children}</AppShell>;
+}
+
+codex
+The local files match the submitted diff. I’m checking the shell wrapper and route config next, mainly for trailing-slash/base-path edge cases and whether the route still owns exactly one main/header landmark.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/components/app_shell.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'function AppShell|<main|aria-label=\"Primary\"|AppShellGate|trailingSlash|basePath' web -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'getRunGraph|function getRunGraph|class .*Error|HTTP 404|404' web/lib web/app/runs -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/components/states/state_kit.tsx'" in C:\POLARIS
+ succeeded in 3863ms:
+import Link from "next/link";
+
+import { PrimaryNav } from "@/components/primary_nav";
+
+/**
+ * I-cd-004: the global app shell. A server component that wraps every prod
+ * route with a single header + primary nav. The 8 primary nav entries are
+ * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+ *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+ *
+ * Out of scope for this issue (each its own later issue per the Seq-N order):
+ *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+ *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+ *    /dashboard rather than top-nav entries.
+ *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+ *    retired at that point (not merely hidden — per Codex P2).
+ *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+ *    I-cd-015.
+ *  - Auth gating of the nav itself is deferred to I-cd-014.
+ *  - Per-page rebuilds happen in the I-cd-013..030 series.
+ */
+// I-p2-029 (#768): PRIMARY_NAV now lives in @/lib/nav (single source of truth,
+// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <header className="border-border bg-background sticky top-0 z-40 border-b">
+        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <PrimaryNav />
+          {/* I-p2-023 (#762): sovereign mark — HONEST. Dropped the false
+              present-tense "no external AI vendor": production LLM inference
+              currently routes via OpenRouter (US, transitional, disclosed in
+              /transparency) until the sovereign Canadian GPU cluster lands. The
+              VM IS hosted in OVH Québec, so "Canadian-hosted" is true today. */}
+          <span
+            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+            title="Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (US, disclosed in /transparency) pending the sovereign Canadian GPU cluster."
+          >
+            ⬡ Canadian-hosted
+          </span>
+        </div>
+      </header>
+      <main className="flex-1">{children}</main>
+    </>
+  );
+}
+
+ succeeded in 4062ms:
+web\components\app_shell_gate.tsx:2:// the AppShell header AND its <main> wrapper so the home route can
+web\components\app_shell_gate.tsx:3:// provide its own header (with the same primary nav) + its own <main>.
+web\components\app_shell_gate.tsx:14:interface AppShellGateProps {
+web\components\app_shell_gate.tsx:26:// <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
+web\components\app_shell_gate.tsx:37:export function AppShellGate({ children }: AppShellGateProps) {
+web\components\app_shell.tsx:25:export function AppShell({ children }: { children: React.ReactNode }) {
+web\components\app_shell.tsx:50:      <main className="flex-1">{children}</main>
+web\app\benchmark\page.tsx:10:// its own <header>, <footer>, or <main>. AppShell (via AppShellGate from
+web\components\primary_nav.tsx:31:      <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
+web\components\primary_nav.tsx:65:              aria-label="Primary"
+web\components\inspector\bundle_pending_cta.tsx:21:    <main
+web\app\upload\page.tsx:10:// own <main>; AppShell (via AppShellGate, I-cd-022) is the single
+web\app\charts_test\timeline\page.tsx:70:    <main className="bg-background text-foreground min-h-screen">
+web\app\charts_test\comparison_table\page.tsx:103:    <main className="bg-background text-foreground min-h-screen">
+web\app\charts_test\page.tsx:28:    <main className="bg-background text-foreground min-h-screen">
+web\app\charts_test\click_through\page.tsx:73:    <main className="bg-background text-foreground min-h-screen">
+web\app\charts_test\forest_plot\page.tsx:37:    <main className="bg-background text-foreground min-h-screen">
+web\app\page.tsx:126:        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-14 px-6 py-14 sm:py-16">
+web\app\generation\page.tsx:52:      <main
+web\app\contracts\page.tsx:10:// AppShell's <main> via the wrapper <section data-testid="contracts-page">.
+web\app\layout.tsx:4:import { AppShellGate } from "@/components/app_shell_gate";
+web\app\layout.tsx:36:        <AppShellGate>{children}</AppShellGate>
+web\app\intake\page.tsx:13:// its own <header> or <main>; AppShell (via AppShellGate, I-cd-022) is
+web\app\memory\page.tsx:51:  // its own <main>; AppShell (via AppShellGate from I-cd-022) is the
+web\app\inspector\offline\page.tsx:62:    <main
+web\app\retrieval\page.tsx:45:      <main
+web\tests\e2e\home_g1_g8.spec.ts:16:test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
+web\app\inspector\[runId]\inspector_view.tsx:26:    <main
+web\app\pin_replay\page.tsx:77:  // <main> dropped (AppShell provides it). G2 fix: removed Issue id
+web\app\pin_replay\page.tsx:120:  // I-cd-029 (#619): /pin_replay populated-state. G1+G6 fix: <main>
+web\app\runs\[runId]\graph\page.tsx:75:      <main
+web\app\sentence_hover_test\memory_cite\page.tsx:54:    <main className="bg-background text-foreground mx-auto max-w-3xl px-6 py-8">
+web\app\sentence_hover_test\split_screen\page.tsx:7:    <main
+web\app\runs\[runId]\page.tsx:107:  // renders its own <header>, <footer>, or <main>. AppShell (via
+web\app\runs\[runId]\page.tsx:108:  // AppShellGate, I-cd-022) is the single landmark provider on this
+web\app\sentence_hover_test\two_run_picker\page.tsx:40:    <main className="bg-background text-foreground mx-auto max-w-2xl px-6 py-8">
+web\app\sentence_hover_test\follow_up_append\page.tsx:52:    <main className="bg-background text-foreground mx-auto max-w-3xl px-6 py-8">
+
+ succeeded in 4069ms:
+web/lib\api.ts:124:export class ConcurrentRunError extends Error {
+web/lib\api.ts:189:// wired (#680): 422 for aborted/release-blocked, 404 for unknown id.
+web/lib\api.ts:223:// run, 422 abort/release-blocked, 404 unknown (real-run wired #680).
+web/lib\api.ts:629:export class IntakeBadRequestError extends Error {
+web/lib\api.ts:727:export class RetrievalBadRequestError extends Error {
+web/lib\api.ts:952:export class GenerationBadRequestError extends Error {
+web/lib\api.ts:1028:export class AuditBundleError extends Error {
+web/lib\api.ts:1265:  if (!r.ok && r.status !== 404)
+web/lib\api.ts:1327:export async function getRunGraph(runId: string): Promise<GraphPayload> {
+web/lib\api.ts:1332:      `getRunGraph(${runId}) HTTP ${res.status}: ${body}`,
+web/lib\api.ts:1570: * ApiError on 404 (unknown run), 409 (not completed), or 422 (abort/error run
+web/lib\api.ts:1605: * `GET /api/inspector/runs/{run_id}/evidence`). Throws an ApiError on 404
+web/lib\inspector_bundle_client_loader.ts:47:export class BundleClientLoaderError extends Error {
+web/lib\inspector_bundle_client_loader.ts:102:class _GzipBombAbort extends Error {
+web/app/runs\[runId]\page.tsx:46:          const friendly = raw.toLowerCase().includes("404")
+web/app/runs\[runId]\components\followup_panel.tsx:25:  if (status === 404) return "This run was not found.";
+web/app/runs\[runId]\graph\page.tsx:10:import { getRunGraph, type GraphPayload } from "@/lib/api";
+web/app/runs\[runId]\graph\page.tsx:31:    getRunGraph(runId)
+web/app/runs\[runId]\graph\page.tsx:41:            raw.includes("404")
+
+ succeeded in 4186ms:
+// I-p2-011 (#750): empty / loading / error states kit. Consistent + honest
+// states every page adopts (G-CONTENT: no generic "Something went wrong" / bare
+// spinners). Reduced-motion handled locally; a11y role=status/alert.
+"use client";
+
+import { useEffect, type ReactNode } from "react";
+
+import type { LucideIcon } from "lucide-react";
+
+export function EmptyState({
+  title,
+  description,
+  icon: Icon,
+  action,
+}: {
+  title: string;
+  description?: string;
+  icon?: LucideIcon;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="border-border text-muted-foreground flex flex-col items-center gap-2 rounded-md border border-dashed p-8 text-center">
+      {Icon && <Icon aria-hidden className="h-6 w-6" />}
+      <p className="text-foreground text-sm font-medium">{title}</p>
+      {description && <p className="max-w-sm text-xs">{description}</p>}
+      {action && <div className="mt-2">{action}</div>}
+    </div>
+  );
+}
+
+export function LoadingState({
+  label = "Loading…",
+  rows = 3,
+}: {
+  label?: string;
+  rows?: number;
+}) {
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+      className="flex flex-col gap-2"
+    >
+      {Array.from({ length: rows }).map((_, i) => (
+        <div
+          key={i}
+          aria-hidden
+          className="bg-muted h-4 w-full animate-pulse rounded motion-reduce:animate-none"
+        />
+      ))}
+      <span className="sr-only">{label}</span>
+    </div>
+  );
+}
+
+// G-CONTENT guardrail: catch lazy generic error copy in dev (full enforcement
+// is the per-page G-CONTENT design audit).
+const GENERIC_MESSAGE =
+  /something went wrong|unknown error|failed to load|an error occurred/i;
+
+export function ErrorState({
+  title = "Couldn't load this",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  /** REQUIRED — the specific, operational error (never generic). */
+  message: string;
+  onRetry?: () => void;
+}) {
+  useEffect(() => {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      GENERIC_MESSAGE.test(message)
+    ) {
+      console.warn(
+        `[ErrorState] generic message "${message}" — G-CONTENT: use a specific, operational error.`,
+      );
+    }
+  }, [message]);
+
+  return (
+    <div
+      role="alert"
+      className="border-destructive/30 bg-destructive/5 flex flex-col gap-2 rounded-md border p-4"
+    >
+      <p className="text-foreground text-sm font-medium">{title}</p>
+      <p className="text-muted-foreground text-xs">{message}</p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="text-primary focus-visible:ring-ring/70 self-start rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+        >
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/page.tsx' | Select-Object -Skip 35 -First 30" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/lib/api.ts' | Select-Object -Skip 1315 -First 35" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'runs/.*/graph|graph-page|Knowledge graph|Back to Inspector|Loading the knowledge graph|Couldn.t load the graph' web/tests web/app web/components -S" in C:\POLARIS
+ succeeded in 3734ms:
+  useEffect(() => {
+    let cancelled = false;
+    getRun(runId)
+      .then((value) => {
+        if (!cancelled) setStatus(value);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          // G4 (Codex iter-1 P0): map raw API errors to friendly copy.
+          const raw = err instanceof Error ? err.message : String(err);
+          const friendly = raw.toLowerCase().includes("404")
+            ? "This run was not found. Check the URL or start a new run."
+            : "We couldn't load this run right now. Please retry shortly.";
+          setError(friendly);
+        }
+      });
+
+    const source = subscribeToRun(
+      runId,
+      (event) => {
+        setEvents((prev) => [...prev, event]);
+        // I-ui-003 (#542) Codex diff P1: getRun() only populates `status`
+        // once on mount; the SSE stream otherwise just appends events. When a
+        // run watched live reaches `run_complete`, re-fetch the lifecycle
+        // status so completed-only UI (the follow-up panel, the status line,
+        // the cancel button) updates without a manual reload.
+        if (event.event === "run_complete") {
+          getRun(runId)
+            .then((value) => {
+              if (!cancelled) setStatus(value);
+
+ succeeded in 3910ms:
+  referenced_unknown_evidence_ids: string[];
+}
+
+export interface GraphPayload {
+  elements: { nodes: GraphNode[]; edges: GraphEdge[] };
+  run_id: string;
+  elements_hash: string;
+  diagnostics: GraphDiagnostics;
+  schema_version: "1.0";
+}
+
+export async function getRunGraph(runId: string): Promise<GraphPayload> {
+  const res = await authFetch(`${BACKEND_URL}/api/runs/${runId}/graph`);
+  if (!res.ok) {
+    const body = await res.text();
+    const err = new Error(
+      `getRunGraph(${runId}) HTTP ${res.status}: ${body}`,
+    ) as ApiError;
+    err.status = res.status;
+    throw err;
+  }
+  return res.json() as Promise<GraphPayload>;
+}
+
+// ---------------------------------------------------------------------------
+// I-rdy-008 (#504) slice 2 — live-run AuditIR client.
+// Mirrors the to_json_dict() projection of the AuditIR dataclass tree in
+// src/polaris_graph/audit_ir/loader.py. The canonical faithful shape for the
+// rich UI surfaces (Option A, Codex arch-decision consult): raw T1-T7 tiers,
+// range-keyed evidence-span tokens, no EvidenceContract coercion. The UI
+// migration off getBundle()/EvidenceContract is slice 3.
+// ---------------------------------------------------------------------------
+
+export interface AuditIrEvidenceSpanToken {
+  evidence_id: string;
+
+ succeeded in 3879ms:
+web/components\app_shell_gate.tsx:24:// I-p2-019 (#762): the claim-graph drill-down (/runs/<id>/graph) is a focused
+web/components\app_shell_gate.tsx:25:// full-screen view that renders its OWN header (with "Back to Inspector") +
+web/app\runs\[runId]\graph\page.tsx:59:              Knowledge graph
+web/app\runs\[runId]\graph\page.tsx:70:            Back to Inspector
+web/app\runs\[runId]\graph\page.tsx:76:        data-testid="graph-page"
+web/app\runs\[runId]\graph\page.tsx:82:          <ErrorState title="Couldn't load the graph" message={error} />
+web/app\runs\[runId]\graph\page.tsx:86:          <LoadingState label="Loading the knowledge graph…" rows={6} />
+web/tests\e2e\graph_page_smoke.spec.ts:2: * I-snowball-006 — Playwright smoke for /runs/[runId]/graph.
+web/tests\e2e\graph_page_smoke.spec.ts:4: * Mocks the backend `/api/runs/<id>/graph` endpoint with a deterministic
+web/tests\e2e\graph_page_smoke.spec.ts:14:    await page.route("**/api/runs/*/graph", (route) => {
+web/tests\e2e\graph_page_smoke.spec.ts:24:    await page.goto("/runs/test_fixture_001/graph");
+web/tests\e2e\graph_page_smoke.spec.ts:25:    await expect(page.getByTestId("graph-page")).toBeVisible();
+web/tests\e2e\graph_page_smoke.spec.ts:30:    await page.goto("/runs/test_fixture_001/graph");
+web/tests\e2e\graph_page_smoke.spec.ts:41:    await page.goto("/runs/test_fixture_001/graph");
+web/tests\e2e\graph_page_smoke.spec.ts:52:    await page.goto("/runs/test_fixture_001/graph");
+web/tests\e2e\graph_page_smoke.spec.ts:60:    await page.route("**/api/runs/no_such_run/graph", (route) =>
+web/tests\e2e\graph_page_smoke.spec.ts:63:    await page.goto("/runs/no_such_run/graph");
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/tests/e2e/graph_page_smoke.spec.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -LiteralPath 'web/app/runs/[runId]/graph' -Force | Format-List Name,Mode,Length" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'nativeButton|render=\\{<Link|asChild|function Button|const Button' web/components web/app -S" in C:\POLARIS
+ succeeded in 3206ms:
+/**
+ * I-snowball-006 — Playwright smoke for /runs/[runId]/graph.
+ *
+ * Mocks the backend `/api/runs/<id>/graph` endpoint with a deterministic
+ * fixture so the test is hermetic and does not depend on a live FastAPI
+ * server.
+ */
+
+import { test, expect } from "@playwright/test";
+import fixture from "../fixtures/graph_payload.json";
+
+test.describe("Claim graph page (I-snowball-006)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route("**/api/runs/*/graph", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(fixture),
+      });
+    });
+  });
+
+  test("loads page and renders graph canvas", async ({ page }) => {
+    await page.goto("/runs/test_fixture_001/graph");
+    await expect(page.getByTestId("graph-page")).toBeVisible();
+    await expect(page.getByTestId("claim-graph")).toBeVisible();
+  });
+
+  test("search filters AccessibleGraphList", async ({ page }) => {
+    await page.goto("/runs/test_fixture_001/graph");
+    await page.getByPlaceholder(/Search nodes/).fill("safety");
+    await expect(
+      page.getByTestId("graph-list-row-section:safety"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("graph-list-row-frame:efficacy_endpoint"),
+    ).toHaveCount(0);
+  });
+
+  test("PNG download triggers", async ({ page }) => {
+    await page.goto("/runs/test_fixture_001/graph");
+    // Wait for cytoscape mount (Download PNG enables once cy is ready).
+    const pngButton = page.getByTestId("graph-export-png");
+    await expect(pngButton).toBeEnabled({ timeout: 10_000 });
+    const downloadPromise = page.waitForEvent("download");
+    await pngButton.click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/\.png$/);
+  });
+
+  test("JSON download triggers", async ({ page }) => {
+    await page.goto("/runs/test_fixture_001/graph");
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByTestId("graph-export-json").click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/\.json$/);
+  });
+
+  test("404 backend → error UI", async ({ page }) => {
+    await page.route("**/api/runs/no_such_run/graph", (route) =>
+      route.fulfill({ status: 404, body: "run not found" }),
+    );
+    await page.goto("/runs/no_such_run/graph");
+    await expect(page.getByRole("alert")).toContainText("Failed to load graph");
+  });
+});
+
+ succeeded in 3426ms:
+web/app\dashboard\page.tsx:108:          nativeButton={false}
+web/app\dashboard\page.tsx:134:              nativeButton={false}
+web/app\dashboard\page.tsx:136:              render={<Link href="/intake">Start your first research</Link>}
+web/app\components\home_keyboard_shell.tsx:66:            nativeButton={false}
+web/components\ui\button.tsx:48:function Button({
+web/app\generation\page.tsx:29:              nativeButton={false}
+web/app\generation\page.tsx:30:              render={<Link href="/intake" />}
+web/app\generation\page.tsx:36:              nativeButton={false}
+web/app\generation\page.tsx:37:              render={<Link href="/retrieval" />}
+web/app\generation\page.tsx:43:              nativeButton={false}
+web/app\generation\page.tsx:44:              render={<Link href="/" />}
+web/app\intake\components\intake_form.tsx:184:                nativeButton={false}
+web/app\retrieval\page.tsx:29:              nativeButton={false}
+web/app\retrieval\page.tsx:30:              render={<Link href="/intake" />}
+web/app\retrieval\page.tsx:36:              nativeButton={false}
+web/app\retrieval\page.tsx:37:              render={<Link href="/" />}
+web/app\plan\page.tsx:166:            nativeButton={false}
+web/app\plan\page.tsx:167:            render={<Link href="/intake">Ask a question</Link>}
+web/app\plan\page.tsx:336:          nativeButton={false}
+web/app\plan\page.tsx:337:          render={<Link href="/intake">Cancel</Link>}
+web/app\sign-in\page.tsx:227:                  nativeButton={false}
+web/app\sign-in\page.tsx:228:                  render={<Link href="/" />}
+web/app\runs\[runId]\page.tsx:137:          nativeButton={false}
+web/app\runs\[runId]\page.tsx:138:          render={<Link href="/intake" />}
+web/app\runs\[runId]\page.tsx:178:            nativeButton={false}
+web/app\runs\[runId]\page.tsx:179:            render={<Link href={`/inspector/${runId}`} />}
+web/app\runs\[runId]\graph\page.tsx:67:            nativeButton={false}
+web/app\runs\[runId]\graph\page.tsx:68:            render={<Link href={`/inspector/${runId}`} />}
+web/app\runs\[runId]\graph\components\accessible_graph_list.tsx:163:                nativeButton={false}
+web/app\runs\[runId]\graph\components\accessible_graph_list.tsx:164:                render={<Link href={inspectorHref(n.data.id)} />}
+
+ succeeded in 3750ms:
+
+[32;1mName : [0mcomponents
+[32;1mMode : [0md----
+
+[32;1mName   : [0mpage.tsx
+[32;1mMode   : [0m-a---
+[32;1mLength : [0m5994
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/package.json'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'graph_page_smoke|playwright|test:e2e|npm run test|pnpm.*test|web.*test' .github web docs -S" in C:\POLARIS
+ succeeded in 744ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "@types/three": "^0.184.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "three": "^0.184.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 749ms:
+docs\carney_delivery_plan_v5_draft.md:102:| 0.4 Scaffold Next.js 15 + React 19 + shadcn/ui + Tailwind v4 frontend in new `web/` directory | `web/` builds, lints, dark/light theme, basic auth shell | session_log, file_directory, frontend-readme | brief: "stack matches latest 2026 best practices? type safety?" |
+docs\carney_delivery_plan_v6_2.md:49:- Exhaustive Playwright e2e + visual testing per feature
+docs\carney_delivery_plan_v6_2.md:78:Each feature below has: substrate status, what to build, best-practice reference, and Playwright+AI test matrix.
+docs\carney_delivery_plan_v6_2.md:85:**Tests** (Playwright + AI agents):
+docs\carney_delivery_plan_v6_2.md:319:| Visual regression | Playwright + percy.io | 4 viewports (1920/1024/768/375), 0 unintended pixel diffs |
+docs\carney_delivery_plan_v6_2.md:320:| E2E happy path | Playwright | Fresh-account walkthrough recorded |
+docs\carney_delivery_plan_v6_2.md:321:| E2E adversarial | Playwright + Test Agent (mandatory supplemental, NOT primary gate) | 22-input + 17-content adversarial corpus |
+docs\carney_delivery_plan_v6_2.md:322:| Cross-browser | Playwright (Chromium, Firefox, WebKit/Safari) | All pass |
+docs\carney_delivery_plan_v6_2.md:324:| Multi-tab safety | Playwright (parallel contexts) | No state pollution; cancel in one cancels for both |
+docs\carney_delivery_plan_v6_2.md:325:| Network resilience | Playwright (offline mode + slow-3G) | Graceful degradation; reconnect; no white screen |
+docs\carney_delivery_plan_v6_2.md:326:| Streaming SSE ordering / backpressure | Playwright EventSource consumer | Events arrive in order; backpressure handled |
+docs\carney_delivery_plan_v6_2.md:327:| Cancellation / resume | Playwright | Cancel in <5s; resume on refresh from checkpoint |
+docs\carney_delivery_plan_v6_2.md:328:| Performance | Playwright + Lighthouse | Core Web Vitals green; LCP <2.5s; INP <200ms; long-report (200+ sentences) hover-latency <100ms |
+docs\carney_delivery_plan_v6_2.md:329:| Security | Playwright Security Agent + standard tools | XSS, CSRF, injection, prompt-injection in user docs |
+docs\carney_delivery_plan_v6_2.md:330:| Tenant isolation + data deletion | pytest + Playwright | Org A cannot see Org B; deletion is real (no log residue) |
+docs\carney_delivery_plan_v6_2.md:349:3. **Self-test**: Claude runs unit + integration + Playwright + accessibility + sovereignty + anti-sycophancy gates from the test matrix
+docs\carney_delivery_plan_v6_2.md:387:| **Visual regression + Playwright cloud (BrowserStack/Percy)** | $1-2k |
+docs\carney_delivery_plan_v6_2.md:412:- **Budget $26-58k → $32-70k** (Playwright infrastructure + walkthrough hours per feature)
+docs\carney_delivery_plan_v6_2.md:416:POLARIS substrate is ~80% of frontier-product capability already. The build is 15 weeks of exposing existing capability + 1 week of buffer + handover. Each feature must match-or-beat ChatGPT 5.5 Pro DR / Gemini 3.1 Pro DR. No half-ass. Each feature has Playwright + Test Agent + accessibility + sovereignty + anti-sycophancy testing, recorded.
+docs\blocked\blocked_on_user_action_tracker.md:250:| I-snowball-006b | #455 | Playwright e2e + axe-core + perf gate | queued |
+.github\workflows\web_ci.yml:53:  e2e_playwright:
+.github\workflows\web_ci.yml:54:    name: e2e + a11y + perf (Playwright on Chromium)
+.github\workflows\web_ci.yml:83:      - name: install_playwright_chromium
+.github\workflows\web_ci.yml:84:        run: npx playwright install --with-deps chromium
+.github\workflows\web_ci.yml:131:        run: npx playwright test --project=chromium tests/e2e/inspector.spec.ts
+.github\workflows\web_ci.yml:137:        run: npx playwright test --project=chromium tests/e2e/accessibility.spec.ts
+.github\workflows\web_ci.yml:143:        run: npx playwright test --project=chromium tests/e2e/performance.spec.ts
+.github\workflows\web_ci.yml:154:        run: npx playwright test --project=chromium tests/e2e/evidence_tooltip_perf.spec.ts
+.github\workflows\web_ci.yml:163:        run: npx playwright test --project=chromium tests/e2e/inspector_offline_fallback.spec.ts
+.github\workflows\web_ci.yml:171:        run: npx playwright test --project=chromium tests/e2e/home_g1_g8.spec.ts
+.github\workflows\web_ci.yml:178:        run: npx playwright test --project=chromium tests/e2e/intake_g1_g8.spec.ts
+.github\workflows\web_ci.yml:185:        run: npx playwright test --project=chromium tests/e2e/dashboard_g1_g8.spec.ts
+.github\workflows\web_ci.yml:192:        run: npx playwright test --project=chromium tests/e2e/runs_runid_g1_g8.spec.ts
+.github\workflows\web_ci.yml:199:        run: npx playwright test --project=chromium tests/e2e/upload_g1_g8.spec.ts
+.github\workflows\web_ci.yml:206:        run: npx playwright test --project=chromium tests/e2e/benchmark_g1_g8.spec.ts
+.github\workflows\web_ci.yml:213:        run: npx playwright test --project=chromium tests/e2e/contracts_g1_g8.spec.ts
+.github\workflows\web_ci.yml:220:        run: npx playwright test --project=chromium tests/e2e/pin_replay_g1_g8.spec.ts
+.github\workflows\web_ci.yml:227:        run: npx playwright test --project=chromium tests/e2e/memory_g1_g8.spec.ts
+.github\workflows\web_ci.yml:236:        run: npx playwright test --project=chromium tests/e2e/demo_journey.spec.ts
+.github\workflows\web_ci.yml:243:      - name: upload_playwright_traces_on_failure
+.github\workflows\web_ci.yml:247:          name: playwright-traces
+.github\workflows\web_ci.yml:248:          path: web/test-results/**/trace.zip
+web\components\ui\tabs.tsx:5:// carries a `data-tab` attribute so Playwright e2e can assert tab
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:10: * `EvidenceTooltipProvider delay={300}` wrapper so the Playwright spec
+docs\handover.md:12:15 user-visible features F1-F15 each with substrate honesty + match-or-beat bar + exhaustive Playwright+AI test matrix.
+docs\live_code_audit.md:74:| `scripts/test_right_panel.py` | 7K | 2026-03-16 | Playwright visual test: right panel in idle, running (simulated), and report states. |
+web\playwright.config.ts:1:import { defineConfig, devices } from "@playwright/test";
+web\playwright.config.ts:4: * Playwright e2e config for POLARIS frontend.
+web\playwright.config.ts:14: *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+web\playwright.config.ts:20:  // to *-chromium-linux.png and is missing → Playwright would auto-write
+web\package.json:14:    "test:e2e": "playwright test",
+web\package.json:15:    "test:e2e:ui": "playwright test --ui"
+web\package.json:42:    "@axe-core/playwright": "^4.11.3",
+web\package.json:43:    "@playwright/test": "^1.59.1",
+web\package-lock.json:35:        "@axe-core/playwright": "^4.11.3",
+web\package-lock.json:36:        "@playwright/test": "^1.59.1",
+web\package-lock.json:69:    "node_modules/@axe-core/playwright": {
+web\package-lock.json:71:      "resolved": "https://registry.npmjs.org/@axe-core/playwright/-/playwright-4.11.3.tgz",
+web\package-lock.json:79:        "playwright-core": ">= 1.0.0"
+web\package-lock.json:1994:    "node_modules/@playwright/test": {
+web\package-lock.json:1996:      "resolved": "https://registry.npmjs.org/@playwright/test/-/test-1.59.1.tgz",
+web\package-lock.json:2001:        "playwright": "1.59.1"
+web\package-lock.json:2004:        "playwright": "cli.js"
+web\package-lock.json:7806:        "@playwright/test": "^1.51.1",
+web\package-lock.json:7816:        "@playwright/test": {
+web\package-lock.json:8373:    "node_modules/playwright": {
+web\package-lock.json:8375:      "resolved": "https://registry.npmjs.org/playwright/-/playwright-1.59.1.tgz",
+web\package-lock.json:8380:        "playwright-core": "1.59.1"
+web\package-lock.json:8383:        "playwright": "cli.js"
+web\package-lock.json:8392:    "node_modules/playwright-core": {
+web\package-lock.json:8394:      "resolved": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.59.1.tgz",
+web\package-lock.json:8399:        "playwright-core": "cli.js"
+docs\carney_handover\test_matrix.md:7:non-harness `web/app/` routes — so I-rdy-020 / GH #516 ("run the test
+docs\carney_handover\test_matrix.md:75:  `web/app/(test_harness)/disambiguation_modal_preview/`; `(test_harness)`
+docs\carney_handover\test_matrix.md:139:**Tool:** Playwright + percy.io. **Pass criteria:** 4 viewports (1920/1024/768/375), 0 unintended pixel diffs.
+docs\carney_handover\test_matrix.md:146:**Tool:** Playwright. **Pass criteria:** fresh-account walkthrough recorded.
+docs\carney_handover\test_matrix.md:154:**Tool:** Playwright + Test Agent (mandatory supplemental, NOT primary gate). **Pass criteria:** 22-input + 17-content adversarial corpus.
+docs\carney_handover\test_matrix.md:166:**Tool:** Playwright (Chromium, Firefox, WebKit/Safari). **Pass criteria:** all pass.
+docs\carney_handover\test_matrix.md:178:**Tool:** Playwright (parallel contexts). **Pass criteria:** no state pollution; cancel in one cancels for both.
+docs\carney_handover\test_matrix.md:191:**Tool:** Playwright (offline mode + slow-3G). **Pass criteria:** graceful degradation; reconnect; no white screen.
+docs\carney_handover\test_matrix.md:200:**Tool:** Playwright EventSource consumer. **Pass criteria:** events arrive in order; backpressure handled.
+docs\carney_handover\test_matrix.md:212:**Tool:** Playwright. **Pass criteria:** cancel in <5s; resume on refresh from checkpoint.
+docs\carney_handover\test_matrix.md:225:**Tool:** Playwright + Lighthouse. **Pass criteria:** Core Web Vitals green; LCP <2.5s; INP <200ms; long-report (200+ sentences) hover-latency <100ms.
+docs\carney_handover\test_matrix.md:233:**Tool:** Playwright Security Agent + standard tools. **Pass criteria:** XSS, CSRF, injection, prompt-injection in user docs.
+docs\carney_handover\test_matrix.md:250:**Tool:** pytest + Playwright. **Pass criteria:** Org A cannot see Org B; deletion is real (no log residue).
+docs\carney_handover\one_pager.md:78:3. `bundle_export_sample.json` — a real EvidenceContract v1.0 audit bundle from the POLARIS golden-fixture suite (`golden_clinical_001`; same fixture used by all 9 Inspector Playwright e2e tests), so your team can inspect the canonical artifact format without standing up the cluster.
+docs\carney_handover\bundle_export_sample_README.md:5:**Source:** `tests/v6/fixtures/evidence_contract_v1/golden_run_clinical.json` (the `golden_clinical_001` fixture, used by all 9 Inspector Playwright e2e tests).
+docs\carney_delivery_plan_v6_draft.md:30:- Exhaustive Playwright e2e + visual testing per feature
+docs\carney_delivery_plan_v6_draft.md:59:Each feature below has: substrate status, what to build, best-practice reference, and Playwright+AI test matrix.
+docs\carney_delivery_plan_v6_draft.md:66:**Tests** (Playwright + AI agents):
+docs\carney_delivery_plan_v6_draft.md:300:| Visual regression | Playwright + percy.io | 4 viewports (1920/1024/768/375), 0 unintended pixel diffs |
+docs\carney_delivery_plan_v6_draft.md:301:| E2E happy path | Playwright | Fresh-account walkthrough recorded |
+docs\carney_delivery_plan_v6_draft.md:302:| E2E adversarial | Playwright + Test Agent (mandatory supplemental, NOT primary gate) | 22-input + 17-content adversarial corpus |
+docs\carney_delivery_plan_v6_draft.md:303:| Cross-browser | Playwright (Chromium, Firefox, WebKit/Safari) | All pass |
+docs\carney_delivery_plan_v6_draft.md:305:| Multi-tab safety | Playwright (parallel contexts) | No state pollution; cancel in one cancels for both |
+docs\carney_delivery_plan_v6_draft.md:306:| Network resilience | Playwright (offline mode + slow-3G) | Graceful degradation; reconnect; no white screen |
+docs\carney_delivery_plan_v6_draft.md:307:| Streaming SSE ordering / backpressure | Playwright EventSource consumer | Events arrive in order; backpressure handled |
+docs\carney_delivery_plan_v6_draft.md:308:| Cancellation / resume | Playwright | Cancel in <5s; resume on refresh from checkpoint |
+docs\carney_delivery_plan_v6_draft.md:309:| Performance | Playwright + Lighthouse | Core Web Vitals green; LCP <2.5s; INP <200ms; long-report (200+ sentences) hover-latency <100ms |
+docs\carney_delivery_plan_v6_draft.md:310:| Security | Playwright Security Agent + standard tools | XSS, CSRF, injection, prompt-injection in user docs |
+docs\carney_delivery_plan_v6_draft.md:311:| Tenant isolation + data deletion | pytest + Playwright | Org A cannot see Org B; deletion is real (no log residue) |
+docs\carney_delivery_plan_v6_draft.md:330:3. **Self-test**: Claude runs unit + integration + Playwright + accessibility + sovereignty + anti-sycophancy gates from the test matrix
+docs\carney_delivery_plan_v6_draft.md:368:| **Visual regression + Playwright cloud (BrowserStack/Percy)** | $1-2k |
+docs\carney_delivery_plan_v6_draft.md:393:- **Budget $26-58k → $32-70k** (Playwright infrastructure + walkthrough hours per feature)
+docs\carney_delivery_plan_v6_draft.md:397:POLARIS substrate is ~80% of frontier-product capability already. The build is 15 weeks of exposing existing capability + 1 week of buffer + handover. Each feature must match-or-beat ChatGPT 5.5 Pro DR / Gemini 3.1 Pro DR. No half-ass. Each feature has Playwright + Test Agent + accessibility + sovereignty + anti-sycophancy testing, recorded.
+docs\task_acceptance_matrix.yaml:675:    title: "Cross-feature integration testing (9/9 Playwright e2e)"
+docs\task_acceptance_matrix.yaml:680:      - "web/tests/e2e/inspector.spec.ts — 9/9 tests passing live"
+docs\task_acceptance_matrix.yaml:683:      - "web/tests/e2e/inspector.spec.ts"
+docs\task_acceptance_matrix.yaml:685:      - "web/tests/e2e/**"
+docs\task_acceptance_matrix.yaml:694:      - "web/tests/e2e/visual.spec.ts (4 baselines)"
+docs\task_acceptance_matrix.yaml:698:      - "web/tests/e2e/visual.spec.ts"
+docs\task_acceptance_matrix.yaml:699:      - "web/tests/e2e/visual.spec.ts-snapshots/**"
+docs\task_acceptance_matrix.yaml:701:      - "web/tests/e2e/visual*"
+docs\task_acceptance_matrix.yaml:713:      - "web/playwright.config.ts (3-engine matrix)"
+docs\task_acceptance_matrix.yaml:715:      - "web/playwright.config.*"
+docs\task_acceptance_matrix.yaml:724:      - "web/tests/e2e/performance.spec.ts — 6 perf gates"
+docs\task_acceptance_matrix.yaml:728:      - "web/tests/e2e/performance.spec.ts"
+docs\task_acceptance_matrix.yaml:730:      - "web/tests/e2e/performance*"
+docs\task_acceptance_matrix.yaml:739:      - "web/tests/e2e/accessibility.spec.ts — 6 axe-core tests"
+docs\task_acceptance_matrix.yaml:743:      - "web/tests/e2e/accessibility.spec.ts"
+docs\task_acceptance_matrix.yaml:745:      - "web/tests/e2e/accessibility*"
+docs\v6_substrate_audit_2026-05-01.md:85:| 2C.1 | Cross-feature integration testing | 🟡 (manual via screenshots; Playwright e2e deferred) |
+web\tests\e2e\audit_live_multitab.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\command_palette_adversarial.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\audit_live_adversarial.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\audit_live_adversarial.spec.ts:4:  page: import("@playwright/test").Page,
+web\tests\e2e\bundle_preview.spec.ts:1:import { expect, test, type Page } from "@playwright/test";
+web\tests\e2e\audit_live.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\command_palette.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\benchmark_g1_g8.spec.ts:3:import { expect, test } from "@playwright/test";
+web\tests\e2e\audit_bundle.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\benchmark.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\cited_recall_badge.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\contract_editor.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\cross_session_surface.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\chart_click_through.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\accessibility.spec.ts:1:import AxeBuilder from "@axe-core/playwright";
+web\tests\e2e\accessibility.spec.ts:2:import { expect, test } from "@playwright/test";
+web\tests\e2e\accessibility.spec.ts:25:async function expectNoA11yViolations(page: import("@playwright/test").Page) {
+web\tests\e2e\contracts_g1_g8.spec.ts:3:import { expect, test } from "@playwright/test";
+web\tests\e2e\cross_browser_smoke.spec.ts:8: * Run: `npx playwright test tests/e2e/cross_browser_smoke.spec.ts`
+web\tests\e2e\cross_browser_smoke.spec.ts:10: * playwright.config.ts:37-49).
+web\tests\e2e\cross_browser_smoke.spec.ts:17:import { expect, test } from "@playwright/test";
+web\tests\e2e\demo_journey.spec.ts:11:import { expect, test } from "@playwright/test";
+web\tests\e2e\comparison_table_chart.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\demo_walkthrough.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\dashboard_g1_g8.spec.ts:3:import { expect, test } from "@playwright/test";
+web\tests\e2e\command_palette_suggest.spec.ts:1:import { expect, test } from "@playwright/test";
+docs\pipeline_audit_context\11_pass_4_fetch_wiring_review.md:28:   creates a `SelectorEventLoop` and Playwright/Crawl4AI requires a
+docs\pipeline_audit_context\11_pass_4_fetch_wiring_review.md:83:  Chromium process? If so, the real bottleneck may now be Playwright's
+docs\pipeline_audit_context\08_env_var_inventory.md:21:| PW_* (Playwright visual tests) | 9 |
+docs\pipeline_audit_context\08_env_var_inventory.md:92:| `ADAPTIVE_AUDIT_PORT` | `scripts/playwright_adaptive_audit.py:55` |
+docs\pipeline_audit_context\08_env_var_inventory.md:93:| `ADAPTIVE_PASS_PCT` | `scripts/playwright_adaptive_audit.py:84` |
+docs\pipeline_audit_context\08_env_var_inventory.md:94:| `ADAPTIVE_WARN_PCT` | `scripts/playwright_adaptive_audit.py:85` |
+docs\pipeline_audit_context\08_env_var_inventory.md:99:| `DESIGN_AUDIT_PORT` | `scripts/playwright_design_audit.py:66` |
+docs\pipeline_audit_context\08_env_var_inventory.md:734:| `PG_VISUAL_AUDIT_PORT` | `scripts/playwright_visual_overhaul.py:36` |
+docs\pipeline_audit_context\08_env_var_inventory.md:735:| `PG_VISUAL_AUDIT_TIMEOUT` | `scripts/playwright_visual_overhaul.py:37` |
+docs\pipeline_audit_context\08_env_var_inventory.md:877:## PW_* (Playwright visual tests)
+docs\pipeline_audit_context\08_env_var_inventory.md:881:| `PW_DOM_SETTLE_MS` | `scripts/playwright_cite_card_audit.py:46` |
+docs\pipeline_audit_context\08_env_var_inventory.md:882:| `PW_HYDRATION_TARGET` | `scripts/playwright_fire_test.py:49` |
+docs\pipeline_audit_context\08_env_var_inventory.md:883:| `PW_HYDRATION_TIMEOUT` | `scripts/playwright_fire_test.py:48` |
+docs\pipeline_audit_context\08_env_var_inventory.md:884:| `PW_INTERACTION_TIMEOUT_MS` | `scripts/playwright_interaction_audit.py:60` |
+docs\pipeline_audit_context\08_env_var_inventory.md:885:| `PW_PAGE_LOAD_TIMEOUT_MS` | `scripts/playwright_cite_card_audit.py:48` |
+docs\pipeline_audit_context\08_env_var_inventory.md:886:| `PW_POPOVER_HOVER_MS` | `scripts/playwright_cite_card_audit.py:47` |
+docs\pipeline_audit_context\08_env_var_inventory.md:887:| `PW_PREVIEW_TIMEOUT_MS` | `scripts/playwright_fire_test.py:1214` |
+docs\pipeline_audit_context\08_env_var_inventory.md:888:| `PW_SERVER_POLL_INTERVAL` | `scripts/playwright_cite_card_audit.py:45` |
+docs\pipeline_audit_context\08_env_var_inventory.md:889:| `PW_SERVER_READY_TIMEOUT` | `scripts/playwright_cite_card_audit.py:44` |
+web\scripts\capture_screenshots.mjs:6:import { chromium } from "playwright";
+docs\walkthroughs\I-f10-008-tirzepatide-vs-semaglutide.md:43:Playwright e2e config uses port 3738 separately for `next start` — see
+docs\walkthroughs\I-f10-008-tirzepatide-vs-semaglutide.md:44:`web/playwright.config.ts`).
+docs\walkthroughs\I-f10-008-tirzepatide-vs-semaglutide.md:69:**Auto-coverage:** `web/tests/e2e/comparison_table_chart.spec.ts` asserts each N
+docs\walkthroughs\I-f10-008-tirzepatide-vs-semaglutide.md:99:**Auto-coverage:** `web/tests/e2e/chart_click_through.spec.ts` clicks the first
+docs\walkthroughs\I-f10-008-tirzepatide-vs-semaglutide.md:103:data in `web/app/charts_test/click_through/page.tsx:36`. In production, the click
+docs\walkthroughs\I-f10-008-tirzepatide-vs-semaglutide.md:202:  `web/app/charts_test/components/chart_source_inspector.tsx`,
+docs\walkthroughs\I-f10-008-tirzepatide-vs-semaglutide.md:203:  `web/tests/e2e/chart_click_through.spec.ts`; PR #296 (commit `54fc31a`);
+web\tests\e2e\disambiguation_modal.spec.ts:1:import { expect, test } from "@playwright/test";
+docs\walkthroughs\2C.6\test_inputs.md:84:- WebKit / Safari (latest stable)
+web\tests\e2e\evidence_tooltip_perf.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\evidence_tooltip_edges.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\evidence_tooltip_mobile.spec.ts:1:import { devices, expect, test } from "@playwright/test";
+web\tests\e2e\f2_walkthrough.spec.ts:3:import { expect, test, type Page } from "@playwright/test";
+web\tests\e2e\follow_up_append.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\forest_plot_chart.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\f1_multi_tab.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\f1_multi_tab.spec.ts:18:async function open_palette(page: import("@playwright/test").Page) {
+web\tests\e2e\evidence_tooltip.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\f1_a11y.spec.ts:1:import AxeBuilder from "@axe-core/playwright";
+web\tests\e2e\f1_a11y.spec.ts:2:import { expect, test } from "@playwright/test";
+web\tests\e2e\frame_coverage_adversarial.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\frame_coverage_panel.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\graph_page_smoke.spec.ts:2: * I-snowball-006 — Playwright smoke for /runs/[runId]/graph.
+web\tests\e2e\graph_page_smoke.spec.ts:9:import { test, expect } from "@playwright/test";
+web\tests\e2e\generation.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\inspector_offline_fallback.spec.ts:11:import { expect, test } from "@playwright/test";
+web\tests\e2e\home_g1_g8.spec.ts:5:import { expect, test } from "@playwright/test";
+web\tests\e2e\intake.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\inspector_route.spec.ts:14:import { expect, test } from "@playwright/test";
+web\tests\e2e\intake_disambiguation.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\intake_disambiguation_negative.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\intake_edge.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\intake_g1_g8.spec.ts:4:import { expect, test } from "@playwright/test";
+web\tests\e2e\memory_g1_g8.spec.ts:3:import { expect, test } from "@playwright/test";
+web\tests\e2e\memory_page_controls.spec.ts:1:import { expect, test, type Page } from "@playwright/test";
+web\tests\e2e\multi_source_panel.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\p2c_001_chain.spec.ts:10:import { expect, test } from "@playwright/test";
+web\tests\e2e\p2c_005_mobile.spec.ts:11:import { devices, expect, test } from "@playwright/test";
+web\tests\e2e\performance.spec.ts:1:import { expect, test, type Page } from "@playwright/test";
+web\tests\e2e\perf_core_web_vitals.spec.ts:10: * separately from this Playwright spec.
+web\tests\e2e\perf_core_web_vitals.spec.ts:13:import { expect, test, type TestInfo } from "@playwright/test";
+web\tests\e2e\pin_regression_alert.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\pin_replay.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\pin_replay_diff.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\pin_replay_g1_g8.spec.ts:3:import { expect, test } from "@playwright/test";
+web\tests\e2e\pin_retraction_handled.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\runs_runid_g1_g8.spec.ts:3:import { expect, test } from "@playwright/test";
+web\tests\e2e\retrieval.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_inspector.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_hover.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_inspector_agreement.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_inspector_evaluator_edge.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_inspector_adversarial.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_inspector_latency.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_inspector_retracted_stale.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_inspector_source.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_inspector_evaluator_flag.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_inspector_multispan.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_inspector_surfaces.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\upload_doc_preview.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sse_client.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\upload_dropzone.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\upload_dropzone.spec.ts:3:async function mockUploadEndpoint(page: import("@playwright/test").Page) {
+web\tests\e2e\upload_dropzone.spec.ts:27:  page: import("@playwright/test").Page,
+web\tests\e2e\upload_parse_status.spec.ts:1:import { expect, test, type Page } from "@playwright/test";
+web\tests\e2e\two_run_picker.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\vega_lite_chart.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\sentence_inspector_synthesis.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\split_screen.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\split_screen.spec.ts:45:  // without depending on Playwright's pointer-event capture/move
+web\tests\e2e\visual_60_baselines.spec.ts:4: * Playwright-native `toHaveScreenshot()` baselines stored as PNGs alongside
+web\tests\e2e\visual_60_baselines.spec.ts:15:import { expect, test } from "@playwright/test";
+web\tests\e2e\upload_g1_g8.spec.ts:3:import { expect, test } from "@playwright/test";
+web\tests\e2e\visual.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\visual.spec.ts:18: *     npx playwright test --project=chromium tests/e2e/visual.spec.ts \
+web\tests\e2e\sign_in.spec.ts:17://     npx playwright test --project=chromium tests/e2e/sign_in.spec.ts
+web\tests\e2e\sign_in.spec.ts:23:import { expect, test } from "@playwright/test";
+web\tests\e2e\timeline_chart.spec.ts:1:import { expect, test } from "@playwright/test";
+web\tests\e2e\upload_evidence_toggle.spec.ts:1:import { expect, test } from "@playwright/test";
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'export async function authFetch|function authFetch|const authFetch' web/lib/api.ts web/lib -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/lib/api.ts' | Select-Object -First 90" in C:\POLARIS
+ succeeded in 605ms:
+web/lib/api.ts:30:async function authFetch(
+web/lib\api.ts:30:async function authFetch(
+
+ succeeded in 595ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ *
+ * I-carney-005 (2026-05-13): all requests are browser-relative paths so the
+ * browser only ever talks to the webui origin. Next.js server-side rewrites
+ * (web/next.config.ts) forward `/api/v6/*` → `${INTERNAL_API_URL}/*`, which
+ * in production compose is `http://api:8000` (a Docker service name the
+ * browser cannot resolve directly). In local dev, INTERNAL_API_URL defaults
+ * to http://localhost:8000 so `npm run dev` against a host-port-mapped
+ * backend works without any client-side configuration.
+ *
+ * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
+ * runtime — baking an absolute http://api:8000 into the client bundle would
+ * make production browsers attempt direct Docker-network reach and fail.
+ */
+
+import { authHeader, redirectToSignIn } from "@/lib/auth";
+
+const BACKEND_URL = "/api/v6";
+
+/**
+ * I-rdy-004 (#500) — fetch wrapper for every v6 API call. Injects the
+ * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
+ * headers, and does NOT force a content-type (so `FormData` uploads keep
+ * their auto-generated multipart boundary). On a 401 it clears the token
+ * and routes to /sign-in.
+ */
+async function authFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers ?? {});
+  for (const [key, value] of Object.entries(authHeader())) {
+    headers.set(key, value);
+  }
+  const response = await globalThis.fetch(url, { ...init, headers });
+  if (response.status === 401) {
+    redirectToSignIn();
+  }
+  return response;
+}
+
+/**
+ * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
+ * set request headers, so the JWT rides as the `access_token` query param;
+ * the backend `require_auth` accepts it for `/stream/*` paths only.
+ */
+export function streamUrl(runId: string): string {
+  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}
+
+export type TemplateId =
+  | "clinical"
+  | "policy"
+  | "tech"
+  | "due_diligence"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce"
+  | "custom";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  // I-ui-bug-001 (#725): the pipeline-A verdict (success / abort_* / partial_*
+  // / error_*), distinct from the lifecycle `status`. mark_aborted() stores
+  // lifecycle_status='completed' for aborts, so lifecycle alone CANNOT tell a
+  // successful run from an aborted one — pipeline_status is required to render
+  // a completed run honestly (an aborted run must NOT show as success).
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/tests/e2e/graph_page_smoke.spec.ts:64 still asserts the removed copy 'Failed to load graph'. With this diff, the 404 path renders ErrorState title/message ('Couldn’t load the graph' + friendly not-found copy), so the existing graph smoke test will fail until updated."
+p2: []
+merge_decision: DO NOT MERGE
+```
+tokens used
+50,137
