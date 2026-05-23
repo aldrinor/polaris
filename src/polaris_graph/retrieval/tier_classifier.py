@@ -550,7 +550,9 @@ _GUIDELINE_DOC_STATEMENT_MARKERS = (
     "position statement",
     "practice bulletin",
 )
-_GUIDELINE_YEAR_DOC_RE = re.compile(r"\b(?:19|20)\d{2}\b.{0,80}\bguidelines?\s+(?:for|on)\b")
+_GUIDELINE_YEAR_DOC_RE = re.compile(
+    r"\b(?:19|20)\d{2}\b.{0,80}\bguidelines?\s+(?:for|on|update|focused update)\b"
+)
 # Primary-study / commentary titles that MENTION guidelines but are NOT
 # guideline documents — never promoted (checked FIRST).
 _GUIDELINE_TITLE_EXCLUSIONS = (

@@ -260,6 +260,18 @@ def test_revascularization_guideline_main_title_only_is_t2() -> None:
     assert r.matched_rules[-1] == "R8c_guideline_authority"
 
 
+def test_guideline_focused_update_is_t2() -> None:
+    """iter-5 (Codex P1): a 'Guideline Focused Update' is an issued guideline
+    document and must reach T2 (the year-anchored pattern accepts focused-update/
+    update forms, not only 'guideline for/on')."""
+    r = _classify(
+        url="https://www.jacc.org/doi/10.1016/j.jacc.2016.03.513",
+        title="2016 ACC/AHA Guideline Focused Update on Duration of Dual Antiplatelet Therapy in Patients With Coronary Artery Disease",
+    )
+    assert r.tier.value == "T2", f"Guideline focused update should be T2, got {r.tier.value}"
+    assert r.matched_rules[-1] == "R8c_guideline_authority"
+
+
 def test_doi_prefix_exact_no_false_positive() -> None:
     """iter-2 (Codex P2): low-quality-OA DOI matching is exact-prefix, so a
     longer prefix beginning with 10.3390 (e.g. 10.33901) is NOT treated as MDPI."""
