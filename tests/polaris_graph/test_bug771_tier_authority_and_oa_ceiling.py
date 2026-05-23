@@ -213,6 +213,29 @@ def test_authority_domain_explainer_title_not_promoted_to_t2() -> None:
     assert r.tier.value != "T2", f"Explainer title should NOT be T2, got {r.tier.value}"
 
 
+def test_gdmt_primary_study_not_promoted_to_t2() -> None:
+    """iter-3 (Codex P1): 'Guideline-Directed Medical Therapy' (GDMT) is a
+    therapy studied in PRIMARY studies, not a guideline document. The bare
+    'guideline' substring must NOT promote it to T2 via Rule 8c. (It resolves to
+    T4 via the pre-existing broad R9_openalex_guideline_explainer demotion — a
+    separate, pre-#812 behavior; the #812 invariant is simply: NOT T2, NOT
+    promoted by R8c.)"""
+    r = _classify(
+        url="https://www.jacc.org/doi/10.1016/j.jacc.2024.03.010",
+        title="Guideline-Directed Medical Therapy in Heart Failure: A Prospective Cohort Study",
+    )
+    assert r.tier.value != "T2", f"GDMT primary should NOT be T2, got {r.tier.value}"
+    assert r.matched_rules[-1] != "R8c_guideline_authority"
+
+
+def test_guideline_adherence_study_not_promoted_to_t2() -> None:
+    r = _classify(
+        url="https://www.ahajournals.org/doi/10.1161/CIRCOUTCOMES.124.099999",
+        title="Guideline Adherence and Outcomes in Atrial Fibrillation: A Registry Analysis",
+    )
+    assert r.tier.value != "T2", f"Guideline-adherence study should not be T2, got {r.tier.value}"
+
+
 def test_doi_prefix_exact_no_false_positive() -> None:
     """iter-2 (Codex P2): low-quality-OA DOI matching is exact-prefix, so a
     longer prefix beginning with 10.3390 (e.g. 10.33901) is NOT treated as MDPI."""
