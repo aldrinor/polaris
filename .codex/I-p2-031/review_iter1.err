@@ -1,0 +1,3575 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e5385-688f-7061-a985-15d25a73994c
+--------
+user
+# Codex DESIGN+DIFF review — I-p2-031 (#770): Source Review / Source-Set Health
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+Canonical-diff-sha256 `f0a48d8c7fe71637a034b083c5ff84dd3d45bc4006956fca2e1795c586211588`. web/ only, 2 files. MERGE AUTHORIZED if mergeable. APPROVE iff zero P0/P1.
+
+## 200-LOC cap exemption (please validate)
+~304 patch lines; ~280 are the single new file `web/app/source_review/page.tsx` (one atomic new page), the rest a small intake-link rewire. Consistent with prior Phase-2 page builds (#759, #761). If you judge the size a real review risk, say so.
+
+## Context
+#770 = "Source Review / Source-Set Health", a NEW flow step BETWEEN intake and plan (intake → source_review → plan → run). Per the UX-standard Codex finding (P1-3): the winning flow is intake → review/approve sources → plan → run; add an explicit source-set-health state "so scope can't be buried." This page surfaces, BEFORE the run, the curated source set POLARIS will search for the chosen template + the per-tier adequacy bar the corpus must clear.
+
+## Data source (LAW II — VERIFIED-live, not assumed)
+`listTemplates()` → `GET /api/v6/templates`, served from the authoritative `config/v6_templates/*.json`. I VERIFIED this is real before building:
+- `curl https://polarisresearch.ca/api/v6/templates` → `401 {"error":"missing_bearer_token"}` (a real auth-gated endpoint — a 404 would mean it doesn't exist). It runs authenticated in-browser (the page is behind auth).
+- Read `config/v6_templates/clinical.json` directly: real `source_tiers` (T1: Health Canada, FDA, EMA, ClinicalTrials.gov, PubMed; T2: Cochrane, BMJ, JAMA, Lancet; T3: Medscape, StatNews) + real `min_sources_per_tier` {T1:3, T2:2, T3:0} + 5 frames. NO fabrication.
+
+**Deliberately NOT used (would risk LAW II):** `runRetrieval` (a real pre-run corpus preview) is used by NO production page — only the dev `/retrieval` harness — and triggers actual retrieval (cost/heavy); `getAuditRun` (post-run gates) is frontend-unused + unverifiable offline (same call I deferred on #759). So the page shows the source-set DEFINITION + the adequacy bar, NOT a retrieved corpus.
+
+## Honesty (LAW II)
+The page does NOT fabricate a retrieved corpus, a "readiness %", or "estimated N sources". It states plainly (the "How sources are gathered" callout): the actual corpus is retrieved + adequacy-checked DURING the run, which aborts at the adequacy gate if any tier falls below its minimum — "scope is enforced, not assumed."
+
+## Diff (2 files)
+1. `web/app/source_review/page.tsx` (NEW): in-shell page (snake_case route folder, matches /pin_replay /audit_live). Suspense + useSearchParams (q + template; template defaults to "clinical" via the same allow-list as plan). On mount: `listTemplates()` → find the chosen template → render. Sections: question display, per-tier cards (T1 = Canada-red `bg-tier-1` dot, T2/T3 neutral; domains + min-required badge), frame-manifest chips, honest "how sources are gathered" callout, "Continue to plan review →" → `/plan?q=&template=`. #750 LoadingState/ErrorState for the fetch (offline harness → ErrorState; verified-content screenshot taken with a page.route intercept serving the REAL config json).
+2. `web/app/intake/components/intake_form.tsx`: the in-scope continue link rewired from `/plan?q=` → `/source_review?q=` ("Review sources →"), inserting the new step. testid `intake-continue-to-plan` kept.
+
+## Files I have ALSO checked and they're clean
+- `grep` for `intake-continue-to-plan` / "Continue to plan" / `/source_review` / `source-review-page` across tests + scripts: NO staled consumer (no test asserts the old link text/href).
+- `listTemplates` + `TemplateContent` (source_tiers, min_sources_per_tier, frame_manifest) field names exact (api.ts:395-411).
+- Tier tokens `bg-tier-1`(#c8102e Canada-red)/`bg-tier-2`/`bg-tier-3` confirmed in globals.css.
+- `/source_review` correctly NOT in PRIMARY_NAV (nav.ts) — it's a flow step like `/plan`, not top-nav. In-shell (not in app_shell_gate CHROMELESS).
+
+## Claude visual audit (standalone @1366, REAL config data via page.route intercept)
+In-shell (POLARIS·Canada nav + Canadian-hosted badge). Renders: "Review the source set" + the question + Template: clinical; three tier cards with the REAL domains (Health Canada/FDA/EMA/ClinicalTrials.gov/PubMed · Cochrane/BMJ/JAMA/Lancet · Medscape/StatNews) + MIN 3/MIN 2/NO MINIMUM badges; frame chips (Efficacy outcomes, Safety/adverse events, Regulatory labelling deltas, Post-market surveillance, Subgroup analyses); honest "how sources are gathered" callout; red "Continue to plan review →" CTA.
+
+## Review focus (16-dim design rubric + diff)
+1. Honesty: does the page avoid implying a corpus has been retrieved? Is the "definition + adequacy bar, retrieved during run" framing unambiguous?
+2. LAW II: is building on `listTemplates` (verified-live endpoint + real config) defensible, given runRetrieval/getAuditRun were correctly deferred?
+3. Flow: intake → source_review → plan wired cleanly (params preserved; no staled test)?
+4. Design dims: hierarchy, the tier-card density, token use (tier-1 = national red OK here as a tier signal?), a11y (tier dots aria-hidden + text labels; in-shell single landmark), responsive (3-col → 1-col).
+5. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+===== FULL NEW FILE: web/app/source_review/page.tsx =====
+```tsx
+// I-p2-031 (#770) — Source Review / Source-Set Health.
+//
+// Sits between Intake and Plan in the flow (intake → source_review → plan →
+// run). Its job: surface, BEFORE the run, the curated source set POLARIS will
+// search for the chosen template + the per-tier adequacy bar the corpus must
+// clear — so scope can't be buried (Codex iter-1 P1-3 on the UX standard).
+//
+// LAW II — data source: `listTemplates()` → GET /api/v6/templates, served from
+// the authoritative config/v6_templates/*.json (real T1/T2/T3 source domains +
+// min_sources_per_tier). The endpoint is live (auth-gated; runs authenticated
+// in-browser). This page does NOT fabricate a retrieved corpus or a "readiness
+// %": the ACTUAL sources are retrieved + adequacy-checked during the run, and
+// the page says so plainly. No pre-run retrieval preview is invoked (runRetrieval
+// is not wired into the user flow).
+"use client";
+
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+
+import { ErrorState, LoadingState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import { listTemplates, type TemplateContent } from "@/lib/api";
+
+const TEMPLATE_IDS = [
+  "clinical",
+  "policy",
+  "tech",
+  "ai_sovereignty",
+  "canada_us",
+  "due_diligence",
+  "custom",
+  "workforce",
+] as const;
+
+function asTemplateId(value: string | null): string {
+  return value && (TEMPLATE_IDS as readonly string[]).includes(value)
+    ? value
+    : "clinical";
+}
+
+const TIERS = ["T1", "T2", "T3"] as const;
+type Tier = (typeof TIERS)[number];
+
+const TIER_DOT: Record<Tier, string> = {
+  T1: "bg-tier-1",
+  T2: "bg-tier-2",
+  T3: "bg-tier-3",
+};
+
+const TIER_LABEL: Record<Tier, string> = {
+  T1: "Tier 1 — primary / regulatory",
+  T2: "Tier 2 — peer-reviewed / guidelines",
+  T3: "Tier 3 — reputable secondary",
+};
+
+function prettyDomain(url: string): string {
+  return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+}
+
+function TierCard({
+  tier,
+  domains,
+  minRequired,
+}: {
+  tier: Tier;
+  domains: string[];
+  minRequired: number;
+}) {
+  return (
+    <div className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden
+            className={`${TIER_DOT[tier]} inline-block h-2.5 w-2.5 rounded-full`}
+          />
+          <span className="text-foreground text-sm font-semibold">
+            {TIER_LABEL[tier]}
+          </span>
+        </div>
+        <span
+          className={
+            minRequired > 0
+              ? "border-border text-muted-foreground rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase"
+              : "text-muted-foreground text-[10px] font-medium tracking-wide uppercase"
+          }
+        >
+          {minRequired > 0 ? `min ${minRequired} required` : "no minimum"}
+        </span>
+      </div>
+      <ul className="flex flex-col gap-1.5">
+        {domains.map((d) => (
+          <li
+            key={d}
+            className="text-muted-foreground font-mono text-xs break-all"
+          >
+            {prettyDomain(d)}
+          </li>
+        ))}
+        {domains.length === 0 && (
+          <li className="text-muted-foreground text-xs">
+            No curated domains for this tier.
+          </li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
+function SourceReviewContent() {
+  const searchParams = useSearchParams();
+  const question = (searchParams.get("q") ?? "").trim();
+  const templateId = asTemplateId(searchParams.get("template"));
+
+  const [template, setTemplate] = useState<TemplateContent | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listTemplates()
+      .then((templates) => {
+        if (cancelled) return;
+        const match = templates.find((t) => t.template_id === templateId);
+        if (match) {
+          setTemplate(match);
+        } else {
+          setError(
+            `No source-set definition found for the "${templateId}" template.`,
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError(
+            "We couldn't load the source set right now. Please retry shortly.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [templateId]);
+
+  const planHref = `/plan?q=${encodeURIComponent(question)}&template=${encodeURIComponent(templateId)}`;
+
+  return (
+    <section
+      data-testid="source-review-page"
+      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+    >
+      <div className="flex flex-col gap-2">
+        <Link
+          href={`/intake?q=${encodeURIComponent(question)}`}
+          className="text-muted-foreground hover:text-foreground text-xs"
+        >
+          ← Edit question
+        </Link>
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          Review the source set
+        </h1>
+        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+          What POLARIS will search for this question — and the per-tier adequacy
+          bar the corpus must clear before a single claim is written.
+        </p>
+      </div>
+
+      {question && (
+        <div className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4">
+          <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+            Your question
+          </span>
+          <p className="text-foreground text-base">{question}</p>
+          <span className="text-muted-foreground text-xs">
+            Template:{" "}
+            <span className="text-foreground font-medium">{templateId}</span>
+          </span>
+        </div>
+      )}
+
+      {error && (
+        <ErrorState title="Couldn't load the source set" message={error} />
+      )}
+
+      {!template && !error && (
+        <LoadingState label="Loading the source set…" rows={5} />
+      )}
+
+      {template && (
+        <>
+          <div className="flex flex-col gap-3">
+            <h2 className="text-foreground text-sm font-semibold">
+              Source tiers POLARIS will search
+            </h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {TIERS.map((tier) => (
+                <TierCard
+                  key={tier}
+                  tier={tier}
+                  domains={template.source_tiers[tier] ?? []}
+                  minRequired={template.min_sources_per_tier[tier] ?? 0}
+                />
+              ))}
+            </div>
+          </div>
+
+          {template.frame_manifest.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <h2 className="text-foreground text-sm font-semibold">
+                What the brief will cover
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {template.frame_manifest.map((frame) => (
+                  <span
+                    key={frame.frame_id}
+                    className="border-border text-muted-foreground rounded-full border px-2.5 py-1 text-xs"
+                  >
+                    {frame.frame_name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* HONEST framing — the page shows the curated source DEFINITION + the
+              adequacy bar, NOT a retrieved corpus. Retrieval happens in the run. */}
+          <div className="border-border bg-muted/40 flex flex-col gap-1 rounded-lg border p-4">
+            <span className="text-foreground text-xs font-semibold">
+              How sources are gathered
+            </span>
+            <p className="text-muted-foreground text-xs">
+              These are the curated source domains and per-tier minimums for the{" "}
+              <span className="text-foreground font-medium">
+                {template.template_name}
+              </span>{" "}
+              template. POLARIS retrieves the actual corpus during the run and{" "}
+              <span className="text-foreground">
+                aborts at the adequacy gate
+              </span>{" "}
+              if any tier falls below its minimum — so scope is enforced, not
+              assumed.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button
+              nativeButton={false}
+              render={<Link href={planHref} />}
+              disabled={!question}
+            >
+              Continue to plan review →
+            </Button>
+            {!question && (
+              <span className="text-muted-foreground text-xs">
+                Start from a question on{" "}
+                <Link className="text-primary underline" href="/intake">
+                  Intake
+                </Link>
+                .
+              </span>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+export default function SourceReviewPage() {
+  return (
+    <Suspense fallback={null}>
+      <SourceReviewContent />
+    </Suspense>
+  );
+}
+```
+
+===== intake_form rewire (diff) =====
+```diff
+diff --git a/web/app/intake/components/intake_form.tsx b/web/app/intake/components/intake_form.tsx
+index 4e7e0c37..d821baea 100644
+--- a/web/app/intake/components/intake_form.tsx
++++ b/web/app/intake/components/intake_form.tsx
+@@ -180,12 +180,16 @@ export function IntakeForm() {
+               page, which is the run-start surface. */}
+           {state.decision.status === "in_scope" ? (
+             <div className="flex justify-end">
++              {/* I-p2-031 (#770): route through source-review (see the source
++                  set + adequacy bar) before the plan/run-start surface. */}
+               <Button
+                 nativeButton={false}
+                 data-testid="intake-continue-to-plan"
+                 render={
+-                  <Link href={`/plan?q=${encodeURIComponent(question.trim())}`}>
+-                    Continue to plan →
++                  <Link
++                    href={`/source_review?q=${encodeURIComponent(question.trim())}`}
++                  >
++                    Review sources →
+                   </Link>
+                 }
+               />
+```
+
+===== REAL config the endpoint serves (clinical.json source_tiers/min) =====
+```json
+{
+ "template_id": "clinical",
+ "template_name": "Clinical drug audit",
+ "source_tiers": {
+  "T1": [
+   "https://www.canada.ca/en/health-canada.html",
+   "https://www.fda.gov/drugs",
+   "https://www.ema.europa.eu",
+   "https://clinicaltrials.gov",
+   "https://pubmed.ncbi.nlm.nih.gov"
+  ],
+  "T2": [
+   "https://www.cochranelibrary.com",
+   "https://www.bmj.com",
+   "https://jamanetwork.com",
+   "https://www.thelancet.com"
+  ],
+  "T3": [
+   "https://www.medscape.com",
+   "https://www.statnews.com"
+  ]
+ },
+ "min_sources_per_tier": {
+  "T1": 3,
+  "T2": 2,
+  "T3": 0
+ }
+}
+```
+
+codex
+I’ll verify the submitted diff against the working tree and check the surrounding API/types/flow assumptions before assigning severity. Since this is a review request, I’ll keep the output focused on concrete blockers and merge risk.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short && git diff --stat && git diff -- web/app/source_review/page.tsx web/app/intake/components/intake_form.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "listTemplates|type TemplateContent|interface TemplateContent|source_tiers|min_sources_per_tier|frame_manifest" web/lib web/app web/components config -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"intake-continue-to-plan|Continue to plan|/source_review|source-review-page|/plan\\?q=\" web tests scripts -S" in C:\POLARIS
+ succeeded in 905ms:
+config\v6_templates\ai_sovereignty.json:6:  "source_tiers": {
+config\v6_templates\ai_sovereignty.json:27:  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+config\v6_templates\ai_sovereignty.json:28:  "frame_manifest": [
+config\v6_templates\canada_us.json:6:  "source_tiers": {
+config\v6_templates\canada_us.json:27:  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+config\v6_templates\canada_us.json:28:  "frame_manifest": [
+config\v6_templates\clinical.json:6:  "source_tiers": {
+config\v6_templates\clinical.json:25:  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+config\v6_templates\clinical.json:26:  "frame_manifest": [
+config\v6_templates\custom.json:6:  "source_tiers": {
+config\v6_templates\custom.json:17:  "min_sources_per_tier": { "T1": 0, "T2": 0, "T3": 0 },
+config\v6_templates\custom.json:18:  "frame_manifest": [
+config\v6_templates\due_diligence.json:6:  "source_tiers": {
+config\v6_templates\due_diligence.json:25:  "min_sources_per_tier": { "T1": 2, "T2": 2, "T3": 0 },
+config\v6_templates\due_diligence.json:26:  "frame_manifest": [
+config\v6_templates\policy.json:6:  "source_tiers": {
+config\v6_templates\policy.json:26:  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+config\v6_templates\policy.json:27:  "frame_manifest": [
+config\v6_templates\tech.json:6:  "source_tiers": {
+config\v6_templates\tech.json:25:  "min_sources_per_tier": { "T1": 3, "T2": 1, "T3": 0 },
+config\v6_templates\tech.json:26:  "frame_manifest": [
+config\v6_templates\workforce.json:6:  "source_tiers": {
+config\v6_templates\workforce.json:27:  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+config\v6_templates\workforce.json:28:  "frame_manifest": [
+web/lib\api.ts:346:  intended_source_tiers: ("T1" | "T2" | "T3")[];
+web/lib\api.ts:395:export interface TemplateContent {
+web/lib\api.ts:400:  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+web/lib\api.ts:401:  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+web/lib\api.ts:402:  frame_manifest: { frame_id: string; frame_name: string }[];
+web/lib\api.ts:408:export async function listTemplates(): Promise<TemplateContent[]> {
+web/app\source_review\page.tsx:8:// LAW II — data source: `listTemplates()` → GET /api/v6/templates, served from
+web/app\source_review\page.tsx:10:// min_sources_per_tier). The endpoint is live (auth-gated; runs authenticated
+web/app\source_review\page.tsx:23:import { listTemplates, type TemplateContent } from "@/lib/api";
+web/app\source_review\page.tsx:121:    listTemplates()
+web/app\source_review\page.tsx:200:                  domains={template.source_tiers[tier] ?? []}
+web/app\source_review\page.tsx:201:                  minRequired={template.min_sources_per_tier[tier] ?? 0}
+web/app\source_review\page.tsx:207:          {template.frame_manifest.length > 0 && (
+web/app\source_review\page.tsx:213:                {template.frame_manifest.map((frame) => (
+
+ succeeded in 1041ms:
+web\tests\e2e\accessibility.spec.ts:61:      "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
+web\scripts\capture_screenshots.mjs:38:    path: "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
+web\scripts\capture_screenshots.mjs:44:    path: "/plan?q=What%20is%20the%20efficacy%20of%20tirzepatide%20for%20type%202%20diabetes",
+web\app\source_review\page.tsx:145:  const planHref = `/plan?q=${encodeURIComponent(question)}&template=${encodeURIComponent(templateId)}`;
+web\app\source_review\page.tsx:149:      data-testid="source-review-page"
+web\app\source_review\page.tsx:251:              Continue to plan review →
+web\app\intake\components\intake_form.tsx:187:                data-testid="intake-continue-to-plan"
+web\app\intake\components\intake_form.tsx:190:                    href={`/source_review?q=${encodeURIComponent(question.trim())}`}
+web\app\plan\page.tsx:6:// direct navigation to /plan?q=… is gated identically. "Start research run" is
+
+ succeeded in 1077ms:
+ M .claude/settings.json
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-p2-031/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+ .claude/settings.json                              |  33 +-
+ logs/session_log.md                                |  51 ++
+ .../clinical_tirzepatide_t2dm/bibliography.json    |  43 +-
+ .../clinical_tirzepatide_t2dm/contradictions.json  | 120 +--
+ .../clinical_tirzepatide_t2dm/corpus_approval.json |  77 +-
+ .../evaluator_rule_checks.json                     |  10 +-
+ .../live_corpus_dump.json                          | 153 ++--
+ .../clinical_tirzepatide_t2dm/manifest.json        | 886 ++++++++++++++++++--
+ .../clinical_tirzepatide_t2dm/protocol.json        |   6 +-
+ .../qwen_judge_output.json                         |  24 +-
+ .../clinical/clinical_tirzepatide_t2dm/report.md   | 106 ++-
+ .../clinical/clinical_tirzepatide_t2dm/run_log.txt |  56 +-
+ outputs/honest_sweep_r3/sweep_summary.json         | 897 +++++++++++++++++++--
+ outputs/honest_sweep_r3/sweep_summary.md           |   8 +-
+ state/restart_instructions.md                      | 147 ++--
+ .../signed_bundle/v1_canonical/evidence_pool.json  |   4 +-
+ .../signed_bundle/v1_canonical/manifest.yaml.asc   |   2 +-
+ 17 files changed, 2056 insertions(+), 567 deletions(-)
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: in the working copy of 'logs/session_log.md', LF will be replaced by CRLF the next time Git touches it
+
+codex
+The working tree has many unrelated dirty files, but the submitted `web/` files are present and searchable. I’m checking whether they are already staged/committed in this checkout or just absent from the tracked diff, then I’ll inspect the route wiring and type behavior directly.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/source_review/page.tsx | Select-Object -First 280' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/intake/components/intake_form.tsx | Select-Object -First 240' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short -- web/app/source_review/page.tsx web/app/intake/components/intake_form.tsx && git ls-files --stage -- web/app/source_review/page.tsx web/app/intake/components/intake_form.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts | Select-Object -Skip 360 -First 70' in C:\POLARIS
+ succeeded in 1053ms:
+100644 d821baea3575104fe8a6fa106002dbcb63fed66b 0	web/app/intake/components/intake_form.tsx
+100644 041f93525ac298977b32c361ee4d49346f61830e 0	web/app/source_review/page.tsx
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1131ms:
+// I-p2-031 (#770) — Source Review / Source-Set Health.
+//
+// Sits between Intake and Plan in the flow (intake → source_review → plan →
+// run). Its job: surface, BEFORE the run, the curated source set POLARIS will
+// search for the chosen template + the per-tier adequacy bar the corpus must
+// clear — so scope can't be buried (Codex iter-1 P1-3 on the UX standard).
+//
+// LAW II — data source: `listTemplates()` → GET /api/v6/templates, served from
+// the authoritative config/v6_templates/*.json (real T1/T2/T3 source domains +
+// min_sources_per_tier). The endpoint is live (auth-gated; runs authenticated
+// in-browser). This page does NOT fabricate a retrieved corpus or a "readiness
+// %": the ACTUAL sources are retrieved + adequacy-checked during the run, and
+// the page says so plainly. No pre-run retrieval preview is invoked (runRetrieval
+// is not wired into the user flow).
+"use client";
+
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+
+import { ErrorState, LoadingState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import { listTemplates, type TemplateContent } from "@/lib/api";
+
+const TEMPLATE_IDS = [
+  "clinical",
+  "policy",
+  "tech",
+  "ai_sovereignty",
+  "canada_us",
+  "due_diligence",
+  "custom",
+  "workforce",
+] as const;
+
+function asTemplateId(value: string | null): string {
+  return value && (TEMPLATE_IDS as readonly string[]).includes(value)
+    ? value
+    : "clinical";
+}
+
+const TIERS = ["T1", "T2", "T3"] as const;
+type Tier = (typeof TIERS)[number];
+
+const TIER_DOT: Record<Tier, string> = {
+  T1: "bg-tier-1",
+  T2: "bg-tier-2",
+  T3: "bg-tier-3",
+};
+
+const TIER_LABEL: Record<Tier, string> = {
+  T1: "Tier 1 — primary / regulatory",
+  T2: "Tier 2 — peer-reviewed / guidelines",
+  T3: "Tier 3 — reputable secondary",
+};
+
+function prettyDomain(url: string): string {
+  return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+}
+
+function TierCard({
+  tier,
+  domains,
+  minRequired,
+}: {
+  tier: Tier;
+  domains: string[];
+  minRequired: number;
+}) {
+  return (
+    <div className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden
+            className={`${TIER_DOT[tier]} inline-block h-2.5 w-2.5 rounded-full`}
+          />
+          <span className="text-foreground text-sm font-semibold">
+            {TIER_LABEL[tier]}
+          </span>
+        </div>
+        <span
+          className={
+            minRequired > 0
+              ? "border-border text-muted-foreground rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase"
+              : "text-muted-foreground text-[10px] font-medium tracking-wide uppercase"
+          }
+        >
+          {minRequired > 0 ? `min ${minRequired} required` : "no minimum"}
+        </span>
+      </div>
+      <ul className="flex flex-col gap-1.5">
+        {domains.map((d) => (
+          <li
+            key={d}
+            className="text-muted-foreground font-mono text-xs break-all"
+          >
+            {prettyDomain(d)}
+          </li>
+        ))}
+        {domains.length === 0 && (
+          <li className="text-muted-foreground text-xs">
+            No curated domains for this tier.
+          </li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
+function SourceReviewContent() {
+  const searchParams = useSearchParams();
+  const question = (searchParams.get("q") ?? "").trim();
+  const templateId = asTemplateId(searchParams.get("template"));
+
+  const [template, setTemplate] = useState<TemplateContent | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listTemplates()
+      .then((templates) => {
+        if (cancelled) return;
+        const match = templates.find((t) => t.template_id === templateId);
+        if (match) {
+          setTemplate(match);
+        } else {
+          setError(
+            `No source-set definition found for the "${templateId}" template.`,
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError(
+            "We couldn't load the source set right now. Please retry shortly.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [templateId]);
+
+  const planHref = `/plan?q=${encodeURIComponent(question)}&template=${encodeURIComponent(templateId)}`;
+
+  return (
+    <section
+      data-testid="source-review-page"
+      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+    >
+      <div className="flex flex-col gap-2">
+        <Link
+          href={`/intake?q=${encodeURIComponent(question)}`}
+          className="text-muted-foreground hover:text-foreground text-xs"
+        >
+          ← Edit question
+        </Link>
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          Review the source set
+        </h1>
+        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+          What POLARIS will search for this question — and the per-tier adequacy
+          bar the corpus must clear before a single claim is written.
+        </p>
+      </div>
+
+      {question && (
+        <div className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4">
+          <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+            Your question
+          </span>
+          <p className="text-foreground text-base">{question}</p>
+          <span className="text-muted-foreground text-xs">
+            Template:{" "}
+            <span className="text-foreground font-medium">{templateId}</span>
+          </span>
+        </div>
+      )}
+
+      {error && (
+        <ErrorState title="Couldn't load the source set" message={error} />
+      )}
+
+      {!template && !error && (
+        <LoadingState label="Loading the source set…" rows={5} />
+      )}
+
+      {template && (
+        <>
+          <div className="flex flex-col gap-3">
+            <h2 className="text-foreground text-sm font-semibold">
+              Source tiers POLARIS will search
+            </h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {TIERS.map((tier) => (
+                <TierCard
+                  key={tier}
+                  tier={tier}
+                  domains={template.source_tiers[tier] ?? []}
+                  minRequired={template.min_sources_per_tier[tier] ?? 0}
+                />
+              ))}
+            </div>
+          </div>
+
+          {template.frame_manifest.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <h2 className="text-foreground text-sm font-semibold">
+                What the brief will cover
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {template.frame_manifest.map((frame) => (
+                  <span
+                    key={frame.frame_id}
+                    className="border-border text-muted-foreground rounded-full border px-2.5 py-1 text-xs"
+                  >
+                    {frame.frame_name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* HONEST framing — the page shows the curated source DEFINITION + the
+              adequacy bar, NOT a retrieved corpus. Retrieval happens in the run. */}
+          <div className="border-border bg-muted/40 flex flex-col gap-1 rounded-lg border p-4">
+            <span className="text-foreground text-xs font-semibold">
+              How sources are gathered
+            </span>
+            <p className="text-muted-foreground text-xs">
+              These are the curated source domains and per-tier minimums for the{" "}
+              <span className="text-foreground font-medium">
+                {template.template_name}
+              </span>{" "}
+              template. POLARIS retrieves the actual corpus during the run and{" "}
+              <span className="text-foreground">
+                aborts at the adequacy gate
+              </span>{" "}
+              if any tier falls below its minimum — so scope is enforced, not
+              assumed.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button
+              nativeButton={false}
+              render={<Link href={planHref} />}
+              disabled={!question}
+            >
+              Continue to plan review →
+            </Button>
+            {!question && (
+              <span className="text-muted-foreground text-xs">
+                Start from a question on{" "}
+                <Link className="text-primary underline" href="/intake">
+                  Intake
+                </Link>
+                .
+              </span>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+export default function SourceReviewPage() {
+  return (
+    <Suspense fallback={null}>
+      <SourceReviewContent />
+    </Suspense>
+  );
+}
+
+ succeeded in 1166ms:
+"use client";
+
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useState } from "react";
+
+import { ErrorState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  IntakeBadRequestError,
+  runDisambiguation,
+  runIntake,
+  type DisambiguationCluster,
+  type IntakeScopeDecision,
+} from "@/lib/api";
+
+import { AmbiguityModal } from "./ambiguity_modal";
+import { DisambiguationModal } from "./disambiguation_modal";
+import { ScopeDecisionView } from "./scope_decision_view";
+
+type IntakeState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ok"; decision: IntakeScopeDecision }
+  | { kind: "error"; message: string };
+
+const SAMPLE_QUESTIONS = [
+  "Does aspirin reduce headaches in adults?",
+  "What are the safety risks of metformin in older adults?",
+  "Is physical therapy effective for chronic back pain in adults?",
+];
+
+const FRENCH_STOPWORD_RE =
+  /\b(le|la|les|de|des|du|que|qui|et|est|un|une|sont|pour|avec|sans|dans)\b/gi;
+const FRENCH_ACCENTED_RE = /[éèêëàâäçîïôöùûüÿñ]/i;
+
+function looksNonEnglish(s: string): boolean {
+  if (FRENCH_ACCENTED_RE.test(s)) return true;
+  const matches = s.match(FRENCH_STOPWORD_RE);
+  return (matches?.length ?? 0) >= 3;
+}
+
+export function IntakeForm() {
+  // I-cd-ui-001 (#704): prefill from the home hero search (/intake?q=...).
+  // useSearchParams requires a Suspense boundary — the intake page wraps
+  // this component in <Suspense> (mirroring web/app/sign-in/page.tsx).
+  const searchParams = useSearchParams();
+  const [question, setQuestion] = useState(searchParams.get("q") ?? "");
+  const [state, setState] = useState<IntakeState>({ kind: "idle" });
+  const [modalOpen, setModalOpen] = useState(false);
+  const [disambigClusters, setDisambigClusters] = useState<
+    DisambiguationCluster[]
+  >([]);
+  const [disambigOpen, setDisambigOpen] = useState(false);
+  const [pickedClusterLabel, setPickedClusterLabel] = useState<string | null>(
+    null,
+  );
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const trimmed = question.trim();
+    if (trimmed.length < 3) {
+      setState({
+        kind: "error",
+        message: "Please enter a question with at least 3 characters.",
+      });
+      return;
+    }
+    if (looksNonEnglish(trimmed)) {
+      setState({
+        kind: "error",
+        message: "POLARIS currently supports English questions only.",
+      });
+      return;
+    }
+
+    setState({ kind: "loading" });
+    try {
+      const result = await runIntake(trimmed);
+      setState({ kind: "ok", decision: result.decision });
+      if (result.decision.status === "ambiguous_needs_clarification") {
+        setModalOpen(true);
+      }
+      if (
+        result.decision.needs_disambiguation &&
+        result.decision.candidate_snippets &&
+        result.decision.candidate_snippets.length > 0
+      ) {
+        const dis = await runDisambiguation(result.decision.candidate_snippets);
+        if (dis.is_ambiguous && dis.clusters.length > 1) {
+          setDisambigClusters(dis.clusters);
+          setDisambigOpen(true);
+        }
+      }
+    } catch (err) {
+      if (err instanceof IntakeBadRequestError) {
+        setState({ kind: "error", message: err.message });
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Unknown error.";
+      setState({ kind: "error", message });
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-xl">
+            Ask POLARIS a clinical research question
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={submit}
+            className="flex flex-col gap-3"
+            data-testid="intake-form"
+          >
+            <label
+              htmlFor="intake-question"
+              className="text-foreground text-sm font-medium"
+            >
+              Your question
+            </label>
+            <Input
+              id="intake-question"
+              data-testid="intake-question-input"
+              placeholder="e.g. Does aspirin reduce headaches in adults?"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              maxLength={2000}
+              disabled={state.kind === "loading"}
+              autoComplete="off"
+            />
+            <p className="text-muted-foreground text-xs">
+              POLARIS only researches clinical evidence questions (efficacy,
+              safety, diagnosis, prognosis). Other domains will be marked out of
+              scope.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="submit"
+                variant="default"
+                disabled={state.kind === "loading"}
+                data-testid="intake-submit"
+              >
+                {state.kind === "loading" ? "Checking…" : "Check scope"}
+              </Button>
+              <span className="text-muted-foreground text-xs">or try:</span>
+              {SAMPLE_QUESTIONS.map((sample) => (
+                <button
+                  key={sample}
+                  type="button"
+                  onClick={() => setQuestion(sample)}
+                  className="text-muted-foreground hover:text-foreground border-border rounded-full border px-2 py-1 text-xs transition-colors"
+                >
+                  {sample}
+                </button>
+              ))}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {state.kind === "error" ? (
+        <div data-testid="intake-error">
+          {/* I-p2-014 (#753): #750 ErrorState (design-system tokens + role=alert)
+              replaces the hardcoded-rose card. */}
+          <ErrorState title="Scope check failed" message={state.message} />
+        </div>
+      ) : null}
+
+      {state.kind === "ok" ? (
+        <>
+          <ScopeDecisionView decision={state.decision} />
+          {/* I-p2-015 (#754): in-scope questions hand off to the plan-review
+              page, which is the run-start surface. */}
+          {state.decision.status === "in_scope" ? (
+            <div className="flex justify-end">
+              {/* I-p2-031 (#770): route through source-review (see the source
+                  set + adequacy bar) before the plan/run-start surface. */}
+              <Button
+                nativeButton={false}
+                data-testid="intake-continue-to-plan"
+                render={
+                  <Link
+                    href={`/source_review?q=${encodeURIComponent(question.trim())}`}
+                  >
+                    Review sources →
+                  </Link>
+                }
+              />
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
+      <AmbiguityModal
+        open={modalOpen}
+        decision={state.kind === "ok" ? state.decision : null}
+        onContinue={() => setModalOpen(false)}
+        onCancel={() => setModalOpen(false)}
+      />
+
+      <DisambiguationModal
+        open={disambigOpen}
+        clusters={disambigClusters}
+        onSelectCluster={(cid) => {
+          const found = disambigClusters.find((c) => c.cluster_id === cid);
+          setPickedClusterLabel(found?.label ?? null);
+          setDisambigOpen(false);
+        }}
+        onCancel={() => setDisambigOpen(false)}
+      />
+
+      <output data-testid="disambig-picked-label" className="sr-only">
+        {pickedClusterLabel ?? ""}
+      </output>
+    </div>
+  );
+}
+
+ succeeded in 1169ms:
+export interface AmbiguityCandidate {
+  source_id: string;
+  text: string;
+}
+
+export async function checkAmbiguity(
+  question: string,
+  candidates: AmbiguityCandidate[],
+): Promise<AmbiguityResult> {
+  const response = await authFetch(`${BACKEND_URL}/ambiguity`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      question,
+      candidates,
+      min_cluster_size: 2,
+      similarity_threshold: 0.5,
+    }),
+  });
+  return asJsonOrThrow<AmbiguityResult>(response);
+}
+
+export async function checkScope(
+  template: TemplateId,
+  question: string,
+): Promise<ScopeDecision> {
+  const response = await authFetch(`${BACKEND_URL}/scope/check`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template, question }),
+  });
+  return asJsonOrThrow<ScopeDecision>(response);
+}
+
+export interface TemplateContent {
+  template_id: string;
+  template_name: string;
+  summary: string;
+  primary_domains: string[];
+  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+  frame_manifest: { frame_id: string; frame_name: string }[];
+  refusal_patterns: string[];
+  sample_questions: string[];
+  out_of_scope_examples: string[];
+}
+
+export async function listTemplates(): Promise<TemplateContent[]> {
+  const response = await authFetch(`${BACKEND_URL}/templates`);
+  return asJsonOrThrow<TemplateContent[]>(response);
+}
+
+export interface SourceSpan {
+  evidence_id: string;
+  source_url: string;
+  source_tier: "T1" | "T2" | "T3";
+  span_start: number;
+  span_end: number;
+  span_text: string;
+}
+
+export interface VerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_local_pass: boolean;
+  verifier_global_pass: boolean;
+  drop_reason: string | null;
+}
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/plan/page.tsx | Select-Object -First 260' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"function Button|const Button|nativeButton|render=<Link|render=\\{<Link|disabled=\\{"'!question'"\\}\" web/components web/app -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "CHROMELESS|PRIMARY_NAV|/plan|pin_replay|audit_live|source_review|AppShell|Shell" web/app web/components web/lib -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/globals.css | Select-String -Pattern "tier-1|tier-2|tier-3|--tier" -Context 2,2' in C:\POLARIS
+ succeeded in 915ms:
+web/app\dashboard\page.tsx:108:          nativeButton={false}
+web/app\dashboard\page.tsx:134:              nativeButton={false}
+web/app\dashboard\page.tsx:136:              render={<Link href="/intake">Start your first research</Link>}
+web/app\components\home_keyboard_shell.tsx:66:            nativeButton={false}
+web/app\generation\page.tsx:29:              nativeButton={false}
+web/app\generation\page.tsx:30:              render={<Link href="/intake" />}
+web/app\generation\page.tsx:36:              nativeButton={false}
+web/app\generation\page.tsx:37:              render={<Link href="/retrieval" />}
+web/app\generation\page.tsx:43:              nativeButton={false}
+web/app\generation\page.tsx:44:              render={<Link href="/" />}
+web/app\plan\page.tsx:168:            nativeButton={false}
+web/app\plan\page.tsx:169:            render={<Link href="/intake">Ask a question</Link>}
+web/app\plan\page.tsx:338:          nativeButton={false}
+web/app\plan\page.tsx:339:          render={<Link href="/intake">Cancel</Link>}
+web/app\sign-in\page.tsx:227:                  nativeButton={false}
+web/app\sign-in\page.tsx:228:                  render={<Link href="/" />}
+web/app\retrieval\page.tsx:29:              nativeButton={false}
+web/app\retrieval\page.tsx:30:              render={<Link href="/intake" />}
+web/app\retrieval\page.tsx:36:              nativeButton={false}
+web/app\retrieval\page.tsx:37:              render={<Link href="/" />}
+web/app\intake\components\intake_form.tsx:186:                nativeButton={false}
+web/app\source_review\page.tsx:247:              nativeButton={false}
+web/app\source_review\page.tsx:248:              render={<Link href={planHref} />}
+web/app\source_review\page.tsx:249:              disabled={!question}
+web/components\ui\button.tsx:48:function Button({
+web/app\runs\[runId]\page.tsx:137:          nativeButton={false}
+web/app\runs\[runId]\page.tsx:138:          render={<Link href="/intake" />}
+web/app\runs\[runId]\page.tsx:178:            nativeButton={false}
+web/app\runs\[runId]\page.tsx:179:            render={<Link href={`/inspector/${runId}`} />}
+web/app\runs\[runId]\page.tsx:187:            nativeButton={false}
+web/app\runs\[runId]\page.tsx:188:            render={<Link href={`/runs/${runId}/audit`} />}
+web/app\runs\[runId]\audit\page.tsx:312:            nativeButton={false}
+web/app\runs\[runId]\audit\page.tsx:324:            nativeButton={false}
+web/app\runs\[runId]\audit\page.tsx:325:            render={<Link href={`/inspector/${runId}`} />}
+web/app\runs\[runId]\audit\page.tsx:354:            nativeButton={false}
+web/app\runs\[runId]\audit\page.tsx:355:            render={<Link href={`/inspector/${runId}`} />}
+web/app\runs\[runId]\graph\page.tsx:67:            nativeButton={false}
+web/app\runs\[runId]\graph\page.tsx:68:            render={<Link href={`/inspector/${runId}`} />}
+web/app\runs\[runId]\graph\components\accessible_graph_list.tsx:163:                nativeButton={false}
+web/app\runs\[runId]\graph\components\accessible_graph_list.tsx:164:                render={<Link href={inspectorHref(n.data.id)} />}
+
+ succeeded in 936ms:
+web/lib\api.ts:261:// I-cd-017 (#627): pin-replay snapshot consumed by /pin_replay timeseries.
+web/lib\pin_regression.ts:8:import type { PinSnapshot } from "@/lib/pin_replay_demo";
+web/lib\pin_replay_demo.ts:4: * `@/lib/pin_replay_client`. This file keeps a back-compat type re-export
+web/lib\pin_replay_demo.ts:6: * full /pin_replay rebuild ships in Seq 29 / I-A-12 / #619.
+web/lib\pin_replay_demo.ts:9:import type { PinSnapshot } from "@/lib/pin_replay_client";
+web/lib\pin_replay_client.ts:5: * `web/app/pin_replay/` import from a stable module name. Backend route
+web/lib\pin_replay_client.ts:7: * pin-write path). Full /pin_replay UX rebuild lands at Seq 29 / #619.
+web/lib\nav.ts:2:// Consumed by BOTH AppShell and HomeKeyboardShell so the nav can never drift
+web/lib\nav.ts:3:// between shells (previously the PRIMARY_NAV const was duplicated in each).
+web/lib\nav.ts:15:export const PRIMARY_NAV: readonly NavItem[] = [
+web/lib\nav.ts:23:  { href: "/pin_replay", label: "Pin Replay" },
+web/components\app_shell.tsx:15: *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+web/components\app_shell.tsx:22:// I-p2-029 (#768): PRIMARY_NAV now lives in @/lib/nav (single source of truth,
+web/components\app_shell.tsx:23:// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
+web/components\app_shell.tsx:25:export function AppShell({ children }: { children: React.ReactNode }) {
+web/components\app_shell_gate.tsx:1:// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+web/components\app_shell_gate.tsx:2:// the AppShell header AND its <main> wrapper so the home route can
+web/components\app_shell_gate.tsx:6:// Tiny "use client" boundary so the otherwise server-rendered AppShell
+web/components\app_shell_gate.tsx:12:import { AppShell } from "@/components/app_shell";
+web/components\app_shell_gate.tsx:14:interface AppShellGateProps {
+web/components\app_shell_gate.tsx:22:const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
+web/components\app_shell_gate.tsx:26:// <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
+web/components\app_shell_gate.tsx:30:const CHROMELESS_PATTERNS = [
+web/components\app_shell_gate.tsx:37:    CHROMELESS_ROUTES.has(pathname) ||
+web/components\app_shell_gate.tsx:38:    CHROMELESS_PATTERNS.some((re) => re.test(pathname))
+web/components\app_shell_gate.tsx:42:export function AppShellGate({ children }: AppShellGateProps) {
+web/components\app_shell_gate.tsx:47:  return <AppShell>{children}</AppShell>;
+web/components\primary_nav.tsx:3:// phone (the prior single-row nav clipped half the links). Shared by AppShell
+web/components\primary_nav.tsx:4:// + HomeKeyboardShell (single nav source @/lib/nav). a11y: aria-expanded +
+web/components\primary_nav.tsx:12:import { PRIMARY_NAV, navForRole } from "@/lib/nav";
+web/components\primary_nav.tsx:17:  const items = navForRole(PRIMARY_NAV, DEFAULT_ROLE);
+web/app\upload\page.tsx:10:// own <main>; AppShell (via AppShellGate, I-cd-022) is the single
+web/app\plan\page.tsx:6:// direct navigation to /plan?q=… is gated identically. "Start research run" is
+web/app\plan\page.tsx:101:  // is the same clinical + PICO classifier intake uses, so /plan is safe even
+web/app\benchmark\page.tsx:10:// its own <header>, <footer>, or <main>. AppShell (via AppShellGate from
+web/app\contracts\page.tsx:10:// AppShell's <main> via the wrapper <section data-testid="contracts-page">.
+web/app\dashboard\page.tsx:2:// lives at /intake → /plan (I-p2-015 #754). This page lists recent verified runs
+web/app\pin_replay\page.tsx:6:import { DEMO_PIN_REGISTRY, type PinSnapshot } from "@/lib/pin_replay_demo";
+web/app\pin_replay\page.tsx:76:  // I-cd-029 (#619): /pin_replay rebuild — empty-state copy. G1+G6 fix:
+web/app\pin_replay\page.tsx:77:  // <main> dropped (AppShell provides it). G2 fix: removed Issue id
+web/app\pin_replay\page.tsx:120:  // I-cd-029 (#619): /pin_replay populated-state. G1+G6 fix: <main>
+web/app\pin_replay\page.tsx:121:  // dropped (AppShell provides it). G2 fix: removed "M-INT-0b
+web/app\page.tsx:3:import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+web/app\page.tsx:125:      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+web/app\page.tsx:196:      </HomeKeyboardShell>
+web/app\components\home_keyboard_shell.tsx:22:// I-cd-022 (#612): the home header carries the same nav as AppShell (G1:
+web/app\components\home_keyboard_shell.tsx:27:export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+web/app\layout.tsx:4:import { AppShellGate } from "@/components/app_shell_gate";
+web/app\layout.tsx:36:        <AppShellGate>{children}</AppShellGate>
+web/app\source_review\page.tsx:3:// Sits between Intake and Plan in the flow (intake → source_review → plan →
+web/app\source_review\page.tsx:145:  const planHref = `/plan?q=${encodeURIComponent(question)}&template=${encodeURIComponent(templateId)}`;
+web/app\intake\page.tsx:13:// its own <header> or <main>; AppShell (via AppShellGate, I-cd-022) is
+web/app\memory\page.tsx:51:  // its own <main>; AppShell (via AppShellGate from I-cd-022) is the
+web/app\pin_replay\components\diff_side_panel.tsx:10:import type { PinSnapshot } from "@/lib/pin_replay_demo";
+web/app\pin_replay\components\pin_timeseries.tsx:6:import type { PinSnapshot } from "@/lib/pin_replay_demo";
+web/app\intake\components\intake_form.tsx:190:                    href={`/source_review?q=${encodeURIComponent(question.trim())}`}
+web/app\runs\[runId]\page.tsx:107:  // renders its own <header>, <footer>, or <main>. AppShell (via
+web/app\runs\[runId]\page.tsx:108:  // AppShellGate, I-cd-022) is the single landmark provider on this
+
+ succeeded in 1038ms:
+// I-p2-015 (#754): Plan review — the run-start surface (relocated off the
+// dashboard so #761 can become monitoring-only). "Confirm + start": the
+// question is DISPLAY-ONLY here (single source of preflight truth = intake);
+// editing routes back to /intake. On mount it re-runs the FULL intake gate
+// (runIntake — the clinical + PICO classifier, NOT the lenient /scope/check) so
+// direct navigation to /plan?q=… is gated identically. "Start research run" is
+// enabled ONLY for an in_scope, disambiguation-resolved question. Question-only
+// run-start (no uploads here — document grounding keeps its /upload home until a
+// follow-up wires it into this flow).
+"use client";
+
+import {
+  ArrowLeft,
+  BadgeCheck,
+  FileSearch,
+  Layers,
+  ShieldCheck,
+} from "lucide-react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+
+import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
+import { ErrorState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import {
+  ConcurrentRunError,
+  createRun,
+  runDisambiguation,
+  runIntake,
+  type DisambiguationCluster,
+  type IntakeScopeDecision,
+  type TemplateId,
+} from "@/lib/api";
+
+const TEMPLATE_IDS: readonly TemplateId[] = [
+  "clinical",
+  "policy",
+  "tech",
+  "ai_sovereignty",
+  "canada_us",
+  "due_diligence",
+  "custom",
+  "workforce",
+];
+
+function asTemplate(value: string | null): TemplateId {
+  return value && (TEMPLATE_IDS as readonly string[]).includes(value)
+    ? (value as TemplateId)
+    : "clinical";
+}
+
+const PLAN_STEPS = [
+  {
+    icon: FileSearch,
+    title: "Retrieve primary sources",
+    body: "POLARIS searches via logged Canadian egress and snapshots each source it draws from.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Corpus-adequacy + approval gate",
+    body: "The source set must meet per-tier adequacy and pass the approval gate before any brief is generated.",
+  },
+  {
+    icon: Layers,
+    title: "Generate, then verify every claim",
+    body: "Each sentence is generated section by section, then span-verified against its primary source by an independent evaluator family.",
+  },
+  {
+    icon: BadgeCheck,
+    title: "Produce an auditable bundle",
+    body: "You get a brief where every claim links to the exact source passage behind it.",
+  },
+] as const;
+
+type State =
+  | { kind: "loading" }
+  | { kind: "ready"; decision: IntakeScopeDecision }
+  | { kind: "error"; message: string };
+
+function PlanContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const question = (searchParams.get("q") ?? "").trim();
+  const template = asTemplate(searchParams.get("template"));
+
+  const [state, setState] = useState<State>({ kind: "loading" });
+  const [disambigClusters, setDisambigClusters] = useState<
+    DisambiguationCluster[]
+  >([]);
+  const [disambigOpen, setDisambigOpen] = useState(false);
+  const [disambigResolved, setDisambigResolved] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [concurrent, setConcurrent] = useState<{
+    runId: string;
+    message: string;
+  } | null>(null);
+
+  // On mount: re-run the FULL intake gate over the (immutable) question. This
+  // is the same clinical + PICO classifier intake uses, so /plan is safe even
+  // when reached by direct URL.
+  //
+  // I-p2-038 (#805): no synchronous setState in the effect body (react-hooks/
+  // set-state-in-effect). The no-question case is a render-time concern, not an
+  // async side effect — the render guard below short-circuits on `!question`,
+  // so the effect just skips the intake fetch when there's nothing to check.
+  useEffect(() => {
+    if (!question) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await runIntake(question);
+        if (cancelled) return;
+        setState({ kind: "ready", decision: result.decision });
+        if (
+          result.decision.needs_disambiguation &&
+          result.decision.candidate_snippets &&
+          result.decision.candidate_snippets.length > 0
+        ) {
+          const dis = await runDisambiguation(
+            result.decision.candidate_snippets,
+          );
+          if (cancelled) return;
+          if (dis.is_ambiguous && dis.clusters.length > 1) {
+            setDisambigClusters(dis.clusters);
+            setDisambigOpen(true);
+          } else {
+            setDisambigResolved(true); // nothing to disambiguate
+          }
+        } else {
+          setDisambigResolved(true);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setState({
+          kind: "error",
+          message:
+            err instanceof Error
+              ? err.message
+              : "Could not check this question.",
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [question]);
+
+  // I-p2-038 (#805): the no-question state is now purely render-derived from
+  // the (immutable) `question` searchParam — no effect sets a "no-question"
+  // error anymore.
+  if (!question) {
+    return (
+      <section
+        data-testid="plan-page"
+        className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-6 py-16 text-center"
+      >
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight">
+          Nothing to plan yet
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Start from a research question and POLARIS will lay out the plan
+          before running it.
+        </p>
+        <div>
+          <Button
+            nativeButton={false}
+            render={<Link href="/intake">Ask a question</Link>}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  const decision = state.kind === "ready" ? state.decision : null;
+  const inScope = decision?.status === "in_scope";
+  const canStart = inScope && disambigResolved && !starting;
+
+  async function onStart() {
+    // Defense-in-depth (Codex diff P2): re-assert the gate at call time, not
+    // only via the disabled button — a run must never start unless the question
+    // is in_scope + disambiguation-resolved.
+    if (!inScope || !disambigResolved || starting) return;
+    setStartError(null);
+    setConcurrent(null);
+    setStarting(true);
+    try {
+      const run = await createRun({ template, question, document_ids: [] });
+      router.push(`/runs/${run.run_id}`);
+    } catch (err) {
+      if (err instanceof ConcurrentRunError) {
+        setConcurrent({ runId: err.activeRunId, message: err.message });
+        setStarting(false);
+        return;
+      }
+      setStartError(
+        err instanceof Error ? err.message : "Could not start the run.",
+      );
+      setStarting(false);
+    }
+  }
+
+  function notInScopeMessage(d: IntakeScopeDecision): string {
+    switch (d.status) {
+      case "out_of_scope":
+        return "This question is outside POLARIS's clinical research scope.";
+      case "refused":
+        return "POLARIS declined this question (refusal-bait or unsafe request).";
+      case "ambiguous_needs_clarification":
+        return "This question needs clarification before it can be researched.";
+      default:
+        return "This question can't be started as written.";
+    }
+  }
+
+  return (
+    <section
+      data-testid="plan-page"
+      className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-10"
+    >
+      <div className="flex flex-col gap-1">
+        <Link
+          href="/intake"
+          className="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1 text-xs"
+        >
+          <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
+          Edit question
+        </Link>
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          Review the plan
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Confirm what POLARIS will research before the run starts.
+        </p>
+      </div>
+
+      {/* The vetted question (display-only) */}
+      <div className="border-border bg-card flex flex-col gap-2 rounded-xl border p-5">
+        <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+          Your question
+        </span>
+        <p className="text-foreground text-lg leading-relaxed font-medium">
+          {question}
+        </p>
+        <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
+          <span className="border-border rounded-full border px-2 py-0.5">
+            Template: <span className="text-foreground">{template}</span>
+          </span>
+          {state.kind === "loading" ? (
+            <span>Checking scope…</span>
+          ) : decision?.scope_class ? (
+            <span className="border-border rounded-full border px-2 py-0.5">
+              Scope:{" "}
+              <span className="text-foreground">{decision.scope_class}</span>
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+
+ succeeded in 1037ms:
+
+    --color-refusal: var(--refusal);
+    --color-refusal-foreground: var(--refusal-foreground);
+>   --color-[7mtier-1[0m: var(--tier-1);[0m
+>   --color-[7mtier-2[0m: var(--tier-2);
+>   --color-[7mtier-3[0m: var(--tier-3);[0m
+[7m[0m    --color-proof-token: var(--proof-token);[0m
+[7m[0m    --color-verified-bundle: var(--verified-bundle);[0m
+    --refusal-foreground: oklch(0.985 0 0);
+    /* Evidence-role tokens */
+>   [7m--tier[0m-1: #c8102e;[0m
+>   [7m--tier[0m-2: oklch(0.556 0 0);
+>   [7m--tier[0m-3: oklch(0.708 0 0);[0m
+[7m[0m    --proof-token: oklch(0.45 0.16 26);[0m
+[7m[0m    --verified-bundle: oklch(0.48 0.14 152);[0m
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/app_shell_gate.tsx | Select-Object -First 90' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/ui/button.tsx | Select-Object -First 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/layout.tsx | Select-Object -First 80' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/nav.ts | Select-Object -First 80' in C:\POLARIS
+ succeeded in 1020ms:
+// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+// the AppShell header AND its <main> wrapper so the home route can
+// provide its own header (with the same primary nav) + its own <main>.
+// This avoids G1 (double header) + G6 (nested main) landmark violations.
+//
+// Tiny "use client" boundary so the otherwise server-rendered AppShell
+// can still wrap every non-home route on the server.
+"use client";
+
+import { usePathname } from "next/navigation";
+
+import { AppShell } from "@/components/app_shell";
+
+interface AppShellGateProps {
+  children: React.ReactNode;
+}
+
+// Chromeless routes own their full viewport (no app header/nav):
+//  - `/`        : home owns its own header + main.
+//  - `/sign-in` : institutional full-screen auth (I-p2-021 #760); the primary
+//                 nav is auth-gated anyway, so it must not show pre-login.
+const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
+
+// I-p2-019 (#762): the claim-graph drill-down (/runs/<id>/graph) is a focused
+// full-screen view that renders its OWN header (with "Back to Inspector") +
+// <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
+// header + G6 nested main).
+// I-p2-020 (#759): the audit/export drill-down (/runs/<id>/audit) follows the
+// same focused full-screen pattern (own header + <main>).
+const CHROMELESS_PATTERNS = [
+  /^\/runs\/[^/]+\/graph$/,
+  /^\/runs\/[^/]+\/audit$/,
+];
+
+function isChromeless(pathname: string): boolean {
+  return (
+    CHROMELESS_ROUTES.has(pathname) ||
+    CHROMELESS_PATTERNS.some((re) => re.test(pathname))
+  );
+}
+
+export function AppShellGate({ children }: AppShellGateProps) {
+  const pathname = usePathname();
+  if (isChromeless(pathname)) {
+    return <>{children}</>;
+  }
+  return <AppShell>{children}</AppShell>;
+}
+
+ succeeded in 1055ms:
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
+import { cva, type VariantProps } from "class-variance-authority";
+
+import { cn } from "@/lib/utils";
+
+const buttonVariants = cva(
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/70 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        outline:
+          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+        ghost:
+          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/80 focus-visible:ring-destructive/30",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        // Cycle-7 P3.2 follow-up: WCAG 2.5.8 target-size requires
+        // touch targets ≥24px. Bumped default from h-8 (32px) to h-9
+        // (36px) — the prior 32px reported as ~21px effective height
+        // by axe due to inner text-bounding-box measurement quirks.
+        // h-9 puts unambiguous clearance.
+        default:
+          "h-9 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        xs: "h-7 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-8 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-10 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        icon: "size-9",
+        "icon-xs":
+          "size-7 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm":
+          "size-8 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+        "icon-lg": "size-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  },
+);
+
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  ...props
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  );
+}
+
+export { Button, buttonVariants };
+
+ succeeded in 1050ms:
+// I-p2-029 (#768): single source of truth for the primary nav.
+// Consumed by BOTH AppShell and HomeKeyboardShell so the nav can never drift
+// between shells (previously the PRIMARY_NAV const was duplicated in each).
+
+import type { RoleId } from "@/lib/roles";
+
+export interface NavItem {
+  href: string;
+  label: string;
+  /** Roles that may SEE this item (presentation-only — not authorization).
+   * Omitted = visible to all roles. */
+  roles?: readonly RoleId[];
+}
+
+export const PRIMARY_NAV: readonly NavItem[] = [
+  { href: "/", label: "Home" },
+  { href: "/intake", label: "Intake" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/upload", label: "Upload" },
+  { href: "/benchmark", label: "Benchmark" },
+  { href: "/compare", label: "Compare" },
+  { href: "/contracts", label: "Contracts" },
+  { href: "/pin_replay", label: "Pin Replay" },
+  { href: "/memory", label: "Memory" },
+];
+
+/** Presentation-only nav filter by role. Pure + isomorphic (safe in server or
+ * client). Items without a `roles` list are visible to every role. */
+export function navForRole(
+  items: readonly NavItem[],
+  role: RoleId,
+): readonly NavItem[] {
+  return items.filter((item) => !item.roles || item.roles.includes(role));
+}
+
+ succeeded in 1120ms:
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+
+import { AppShellGate } from "@/components/app_shell_gate";
+import { Toaster } from "@/components/ui/sonner";
+
+import "./globals.css";
+
+const geist_sans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geist_mono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "POLARIS Canada — Sovereign Deep Research",
+  description:
+    "Two-family verified evidence pipelines for Government of Canada policy work.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+    >
+      <body className="flex min-h-full flex-col">
+        <AppShellGate>{children}</AppShellGate>
+        <Toaster />
+      </body>
+    </html>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/plan/page.tsx | Select-Object -Skip 240 -First 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/page.tsx | Select-Object -First 240' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"template=|TemplateId|template_id|source_review\\?q|/intake\\?q|createRun\\(\" web/app web/components web/lib -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/intake/page.tsx | Select-Object -First 120' in C:\POLARIS
+ succeeded in 947ms:
+import { Suspense } from "react";
+
+import { IntakeForm } from "./components/intake_form";
+import { PdfDropBanner } from "./components/pdf_drop_banner";
+
+export const metadata = {
+  title: "Intake — POLARIS Canada",
+  description:
+    "Submit a clinical research question. POLARIS classifies scope and detects PICO ambiguity before any retrieval is run.",
+};
+
+// I-cd-023 (#613): /intake rebuild — G1/G6 fix. Page no longer renders
+// its own <header> or <main>; AppShell (via AppShellGate, I-cd-022) is
+// the single landmark provider for this route. G2 fix: removed
+// "POLARIS Canada — Slice 001" + "POLARIS v6.2 — Slice 001 (scope + intake)"
+// dev-language strings.
+export default function IntakePage() {
+  return (
+    <section
+      data-testid="intake-page"
+      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+    >
+      <div className="flex flex-col gap-2">
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          Clinical scope discovery
+        </h1>
+        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+          Type a clinical research question and POLARIS will run it through the
+          scope + intake: refusal-bait detection, scope classification (efficacy
+          / safety / diagnosis / prognosis), and PICO axis ambiguity detection.
+          No retrieval is run yet — this is the gate that decides if a question
+          is researchable as written.
+        </p>
+      </div>
+
+      <PdfDropBanner />
+
+      <Suspense fallback={null}>
+        <IntakeForm />
+      </Suspense>
+    </section>
+  );
+}
+
+ succeeded in 1004ms:
+          Your question
+        </span>
+        <p className="text-foreground text-lg leading-relaxed font-medium">
+          {question}
+        </p>
+        <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
+          <span className="border-border rounded-full border px-2 py-0.5">
+            Template: <span className="text-foreground">{template}</span>
+          </span>
+          {state.kind === "loading" ? (
+            <span>Checking scope…</span>
+          ) : decision?.scope_class ? (
+            <span className="border-border rounded-full border px-2 py-0.5">
+              Scope:{" "}
+              <span className="text-foreground">{decision.scope_class}</span>
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {/* What POLARIS will do */}
+      <div className="flex flex-col gap-4">
+        <h2 className="text-foreground text-sm font-semibold">
+          What POLARIS will do
+        </h2>
+        <ol className="grid gap-4 sm:grid-cols-2">
+          {PLAN_STEPS.map((step, i) => (
+            <li
+              key={step.title}
+              className="border-border bg-card flex flex-col gap-1.5 rounded-lg border p-4"
+            >
+              <div className="text-primary flex items-center gap-2">
+                <step.icon aria-hidden className="h-4 w-4 shrink-0" />
+                <span className="text-foreground text-sm font-medium">
+                  {i + 1}. {step.title}
+                </span>
+              </div>
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                {step.body}
+              </p>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      {/* Not-in-scope guard */}
+      {decision && !inScope ? (
+        <div
+          role="alert"
+          data-testid="plan-blocked"
+          className="border-refusal/30 bg-refusal/10 flex flex-col gap-1 rounded-lg border p-4"
+        >
+          <p className="text-foreground text-sm font-medium">
+            Can&apos;t start this run
+          </p>
+          <p className="text-muted-foreground text-xs">
+            {notInScopeMessage(decision)} Edit the question to continue.
+          </p>
+        </div>
+      ) : null}
+
+      {startError ? (
+        <ErrorState title="Couldn't start the run" message={startError} />
+      ) : null}
+
+      {concurrent ? (
+        <div
+          role="alert"
+          data-testid="plan-concurrent"
+          className="border-contradiction/30 bg-contradiction/10 flex flex-col gap-1 rounded-lg border p-4"
+        >
+          <p className="text-foreground text-sm font-medium">
+            A run is already in progress
+          </p>
+          <p className="text-muted-foreground text-xs">{concurrent.message}</p>
+          <Link
+            href={`/runs/${concurrent.runId}`}
+            className="text-primary text-xs underline-offset-2 hover:underline"
+          >
+            View the active run →
+          </Link>
+        </div>
+      ) : null}
+
+      {/* Start */}
+      <div className="flex items-center gap-3">
+        <Button
+          type="button"
+          data-testid="plan-start-run"
+          className="h-11 px-7"
+          disabled={!canStart}
+          onClick={onStart}
+        >
+          {starting ? "Starting…" : "Start research run"}
+        </Button>
+        <Button
+          variant="ghost"
+          nativeButton={false}
+          render={<Link href="/intake">Cancel</Link>}
+        />
+      </div>
+
+      <DisambiguationModal
+        open={disambigOpen}
+        clusters={disambigClusters}
+        onSelectCluster={() => {
+          setDisambigResolved(true);
+          setDisambigOpen(false);
+        }}
+        onCancel={() => setDisambigOpen(false)}
+      />
+    </section>
+  );
+}
+
+export default function PlanPage() {
+  return (
+    <Suspense fallback={null}>
+      <PlanContent />
+    </Suspense>
+  );
+}
+
+ succeeded in 1058ms:
+import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
+
+import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+import { ProofShowcase } from "@/app/components/proof_showcase";
+import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
+import { MapleLeafSignatureLazy } from "@/components/signature/maple_leaf_signature_lazy";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+const templates: Template[] = [
+  {
+    id: "clinical",
+    name: "Clinical drug audit",
+    summary:
+      "Drug safety signals, labelling deltas, and post-market surveillance evidence across Health Canada, FDA, EMA, and clinical trials.",
+    sample_question:
+      "What did the SELECT trial show on cardiovascular outcomes for semaglutide?",
+    out_of_scope: "Should I take ozempic for my diabetes?",
+    active: true,
+  },
+  {
+    id: "policy",
+    name: "Public policy",
+    summary:
+      "Regulatory decisions, reimbursement and health-technology-assessment policy, public-health guidance, and cross-jurisdiction access comparisons.",
+    sample_question:
+      "What did NICE and CADTH conclude on the cost-effectiveness of CAR-T therapies?",
+    out_of_scope: "Which political party has the better health platform?",
+    active: false,
+  },
+  {
+    id: "tech",
+    name: "Technology assessment",
+    summary:
+      "Assessment of a technology, algorithm, or engineering approach — grounded in peer-reviewed conference and journal papers, standards, and attributed preprints.",
+    sample_question:
+      "What does the peer-reviewed evidence show on mixture-of-experts vs dense transformers as of 2025?",
+    out_of_scope: "Which GPU should I buy for my gaming PC?",
+    active: false,
+  },
+  {
+    id: "ai_sovereignty",
+    name: "AI sovereignty",
+    summary:
+      "Canadian AI policy, sovereign compute, talent retention, IP and data residency, alignment posture, Bill C-27 / AIDA, federal AI strategy.",
+    sample_question:
+      "What sovereign compute capacity does Canada have for training frontier models as of 2025?",
+    out_of_scope:
+      "Should I take a job at a Canadian AI startup or move to San Francisco?",
+    active: false,
+  },
+  {
+    id: "canada_us",
+    name: "Canada–US relations",
+    summary:
+      "Bilateral relationship, CUSMA / USMCA renegotiation, IRA spillover, energy + critical minerals integration, defense interoperability.",
+    sample_question:
+      "What are the 2026 CUSMA review triggers and what does Canada's pre-position look like?",
+    out_of_scope: "Should I move to the US for tax reasons?",
+    active: false,
+  },
+  {
+    id: "due_diligence",
+    name: "Due diligence",
+    summary:
+      "Company, product, market, and competitive-landscape research for investment, M&A, or partnership decisions — every claim carries named, dated provenance.",
+    sample_question:
+      "What did the most recent 10-K disclose on customer-concentration risk for this company?",
+    out_of_scope: "Should I buy this stock?",
+    active: false,
+  },
+  {
+    id: "custom",
+    name: "Custom research",
+    summary:
+      "Operator-defined catch-all for research questions that do not match the clinical, policy, tech, or due-diligence templates; accepts any classified source tier.",
+    sample_question:
+      "Summarize the documented positions on this question with provenance for each claim.",
+    out_of_scope:
+      "Requests for individualized legal, medical, or financial advice.",
+    active: false,
+  },
+  {
+    id: "workforce",
+    name: "Workforce & productivity",
+    summary:
+      "Canadian labour productivity, immigration + skills mismatch, regional unemployment, federal-provincial training, demographic shifts.",
+    sample_question:
+      "What does StatCan's 2024 productivity series show for Canada vs US over the last decade?",
+    out_of_scope: "How do I apply for permanent residency?",
+    active: false,
+  },
+];
+
+const PILLARS = [
+  {
+    icon: BadgeCheck,
+    title: "Provable",
+    body: "Click any claim and see the exact source passage it came from. Frontier tools hallucinate 3–13% of their citations — every POLARIS claim is span-anchored to a primary source.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Sovereign",
+    body: "Built for Canadian-hosted, sovereign deployment. Public sources are fetched via logged Canadian egress, and every brief is integrity-hashed and auditable.",
+  },
+  {
+    icon: Network,
+    title: "Snowball",
+    body: "Each run grows a connected knowledge graph of claims and sources you can explore, follow up on, and build the next question from.",
+  },
+] as const;
+
+export default function HomePage() {
+  return (
+    <div className="flex min-h-screen flex-col">
+      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-14 px-6 py-14 sm:py-16">
+          {/* Hero — one primary action */}
+          <section className="flex flex-col items-center gap-5 text-center">
+            {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
+            <MapleLeafSignatureLazy />
+            <span className="text-muted-foreground border-border inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
+              ⬡ Sovereign Canadian deep research
+            </span>
+            <h1 className="text-foreground max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
+              Deep research you can check, line by line.
+            </h1>
+            <p className="text-muted-foreground max-w-2xl text-base text-pretty sm:text-lg">
+              Every sentence is tied to a primary source with a provenance token
+              and checked by an independent two-family evidence pipeline. Ask a
+              question — get a brief where you can click any claim and read the
+              exact passage behind it.
+            </p>
+            <form
+              action="/intake"
+              method="get"
+              data-testid="home-hero-search"
+              className="mt-1 flex w-full max-w-2xl items-center gap-2"
+            >
+              <Input
+                name="q"
+                type="search"
+                aria-label="Research question"
+                placeholder="Ask a research question…"
+                className="h-12 flex-1 text-base"
+              />
+              <Button type="submit" className="h-12 px-7">
+                Verify
+              </Button>
+            </form>
+          </section>
+
+          {/* Proof-as-hero — a REAL verified claim + its real source span */}
+          <ProofShowcase />
+
+          {/* Differentiator pillars */}
+          <section
+            aria-label="Why POLARIS"
+            className="border-border/60 grid gap-8 border-t pt-12 sm:grid-cols-3"
+          >
+            {PILLARS.map((pillar) => (
+              <div key={pillar.title} className="flex flex-col gap-2">
+                <pillar.icon
+                  aria-hidden
+                  className="text-primary h-5 w-5 shrink-0"
+                />
+                <h2 className="text-foreground text-sm font-semibold">
+                  {pillar.title}
+                </h2>
+                <p className="text-muted-foreground text-sm leading-relaxed">
+                  {pillar.body}
+                </p>
+              </div>
+            ))}
+          </section>
+
+          {/* Real recent verified briefs */}
+          <RecentRunsStrip />
+        </main>
+
+        <footer className="border-border bg-background border-t">
+          <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+            <span>POLARIS · Sovereign Canadian deep research</span>
+            <span>Two-family verified evidence</span>
+          </div>
+        </footer>
+      </HomeKeyboardShell>
+    </div>
+  );
+}
+
+ succeeded in 1060ms:
+web/lib\api.ts:56:export type TemplateId =
+web/lib\api.ts:78:  template: TemplateId;
+web/lib\api.ts:135:export async function createRun(
+web/lib\api.ts:384:  template: TemplateId,
+web/lib\api.ts:396:  template_id: string;
+web/app\components\command_palette.tsx:90:        router.push(`/intake?template=${tpl.id}`);
+web/app\plan\page.tsx:33:  type TemplateId,
+web/app\plan\page.tsx:36:const TEMPLATE_IDS: readonly TemplateId[] = [
+web/app\plan\page.tsx:47:function asTemplate(value: string | null): TemplateId {
+web/app\plan\page.tsx:49:    ? (value as TemplateId)
+web/app\plan\page.tsx:189:      const run = await createRun({ template, question, document_ids: [] });
+web/app\source_review\page.tsx:36:function asTemplateId(value: string | null): string {
+web/app\source_review\page.tsx:114:  const templateId = asTemplateId(searchParams.get("template"));
+web/app\source_review\page.tsx:124:        const match = templates.find((t) => t.template_id === templateId);
+web/app\source_review\page.tsx:145:  const planHref = `/plan?q=${encodeURIComponent(question)}&template=${encodeURIComponent(templateId)}`;
+web/app\source_review\page.tsx:154:          href={`/intake?q=${encodeURIComponent(question)}`}
+web/app\intake\components\intake_form.tsx:46:  // I-cd-ui-001 (#704): prefill from the home hero search (/intake?q=...).
+web/app\intake\components\intake_form.tsx:190:                    href={`/source_review?q=${encodeURIComponent(question.trim())}`}
+
+codex
+The route itself is shell-wrapped and uses the same template allow-list as `/plan`. One thing I’m checking closely is parameter preservation, because the new page can display a non-default template only if the upstream entry point actually carries `template` through.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/components/command_palette.tsx | Select-Object -First 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts | Select-Object -First 110' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "template" web/app/intake web/app/components web/tests -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "api/v6/templates|/templates|v6_templates|def .*templates|templates" -S server src app api backend web | Select-Object -First 120' in C:\POLARIS
+ succeeded in 954ms:
+"use client";
+
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type RefObject } from "react";
+
+import { cn } from "@/lib/utils";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+type CommandPaletteProps = {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  templates: Template[];
+  signInLinkRef: RefObject<HTMLAnchorElement | null>;
+};
+
+const SYNONYMS: Record<string, string> = {
+  tirzepatide: "clinical",
+  ozempic: "clinical",
+  semaglutide: "clinical",
+  mounjaro: "clinical",
+};
+
+function score_template(t: Template, q: string): number {
+  if (!q) return 1; // empty search: equal score so all items render in original order
+  const ql = q.toLowerCase();
+  let s = 0;
+  if (t.id.toLowerCase() === ql) s += 100;
+  if (t.name.toLowerCase() === ql) s += 50;
+  if (t.name.toLowerCase().includes(ql)) s += 30;
+  if (t.summary.toLowerCase().includes(ql)) s += 10;
+  if (t.sample_question.toLowerCase().includes(ql)) s += 5;
+  if (t.out_of_scope.toLowerCase().includes(ql)) s += 2;
+  if (SYNONYMS[ql] === t.id) s += 60;
+  return s;
+}
+
+export function CommandPalette({
+  open,
+  onOpenChange,
+  templates,
+  signInLinkRef,
+}: CommandPaletteProps) {
+  const router = useRouter();
+  const [search, set_search] = useState("");
+  const [debounced_search, set_debounced_search] = useState("");
+  const [active_index, set_active_index] = useState(0);
+
+  useEffect(() => {
+    // Both debounced_search and active_index update in the timeout
+    // callback — async, not synchronous setState-in-effect. New query
+    // pre-selects the top-scored result.
+    const t = setTimeout(() => {
+      set_debounced_search(search);
+      set_active_index(0);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const scored = templates
+    .map((t) => ({ t, s: score_template(t, debounced_search) }))
+    .filter(({ s }) => s > 0)
+    .sort((a, b) => b.s - a.s)
+    .map(({ t }) => t);
+
+  const clamped =
+    scored.length === 0
+      ? 0
+      : Math.max(0, Math.min(active_index, scored.length - 1));
+
+  function handle_key(event: React.KeyboardEvent) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      set_active_index((p) => Math.min(p + 1, scored.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      set_active_index((p) => Math.max(p - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const tpl = scored[clamped];
+      if (tpl?.active) {
+        router.push(`/intake?template=${tpl.id}`);
+        onOpenChange(false);
+      }
+    }
+  }
+
+  return (
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next);
+        if (!next) requestAnimationFrame(() => signInLinkRef.current?.focus());
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/20" />
+        <DialogPrimitive.Popup
+          data-testid="command-palette"
+          onKeyDown={handle_key}
+          className="bg-popover text-popover-foreground fixed top-1/4 left-1/2 z-50 flex w-full max-w-xl -translate-x-1/2 flex-col gap-2 rounded-xl border p-4 shadow-lg"
+        >
+          <DialogPrimitive.Title className="sr-only">
+            Search templates
+          </DialogPrimitive.Title>
+          <input
+            data-testid="command-palette-input"
+            autoFocus
+            value={search}
+            onChange={(e) => set_search(e.target.value)}
+            placeholder="Search templates..."
+            className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:ring-2 focus:outline-none"
+          />
+          <ul
+            className="max-h-80 overflow-y-auto"
+            role="listbox"
+            aria-label="Template results"
+          >
+            {scored.map((t, i) => (
+              <li
+                key={t.id}
+                role="option"
+                aria-selected={i === clamped}
+                data-testid={`palette-item-${t.id}`}
+                data-active={i === clamped ? "true" : undefined}
+                aria-disabled={!t.active || undefined}
+                className={cn(
+                  "rounded-md px-3 py-2 text-sm",
+                  i === clamped && "bg-accent",
+                  !t.active && "text-muted-foreground",
+                )}
+              >
+                <span className="font-medium">{t.name}</span>
+                {!t.active ? (
+                  <span className="ml-2 text-xs uppercase">(coming soon)</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
+ succeeded in 957ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ *
+ * I-carney-005 (2026-05-13): all requests are browser-relative paths so the
+ * browser only ever talks to the webui origin. Next.js server-side rewrites
+ * (web/next.config.ts) forward `/api/v6/*` → `${INTERNAL_API_URL}/*`, which
+ * in production compose is `http://api:8000` (a Docker service name the
+ * browser cannot resolve directly). In local dev, INTERNAL_API_URL defaults
+ * to http://localhost:8000 so `npm run dev` against a host-port-mapped
+ * backend works without any client-side configuration.
+ *
+ * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
+ * runtime — baking an absolute http://api:8000 into the client bundle would
+ * make production browsers attempt direct Docker-network reach and fail.
+ */
+
+import { authHeader, redirectToSignIn } from "@/lib/auth";
+
+const BACKEND_URL = "/api/v6";
+
+/**
+ * I-rdy-004 (#500) — fetch wrapper for every v6 API call. Injects the
+ * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
+ * headers, and does NOT force a content-type (so `FormData` uploads keep
+ * their auto-generated multipart boundary). On a 401 it clears the token
+ * and routes to /sign-in.
+ */
+async function authFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers ?? {});
+  for (const [key, value] of Object.entries(authHeader())) {
+    headers.set(key, value);
+  }
+  const response = await globalThis.fetch(url, { ...init, headers });
+  if (response.status === 401) {
+    redirectToSignIn();
+  }
+  return response;
+}
+
+/**
+ * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
+ * set request headers, so the JWT rides as the `access_token` query param;
+ * the backend `require_auth` accepts it for `/stream/*` paths only.
+ */
+export function streamUrl(runId: string): string {
+  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}
+
+export type TemplateId =
+  | "clinical"
+  | "policy"
+  | "tech"
+  | "due_diligence"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce"
+  | "custom";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  // I-ui-bug-001 (#725): the pipeline-A verdict (success / abort_* / partial_*
+  // / error_*), distinct from the lifecycle `status`. mark_aborted() stores
+  // lifecycle_status='completed' for aborts, so lifecycle alone CANNOT tell a
+  // successful run from an aborted one — pipeline_status is required to render
+  // a completed run honestly (an aborted run must NOT show as success).
+  pipeline_status?: string | null;
+  // I-rdy-011 (#507): true once a cancel has been requested; lets the run
+  // page show a cancel as in-flight before an in-progress run transitions.
+  cancel_requested?: boolean;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+
+ succeeded in 1044ms:
+web/app/components\home_keyboard_shell.tsx:11:type Template = {
+web/app/components\home_keyboard_shell.tsx:20:type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+web/app/components\home_keyboard_shell.tsx:27:export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+web/app/components\home_keyboard_shell.tsx:83:        templates={templates}
+web/app/components\command_palette.tsx:9:type Template = {
+web/app/components\command_palette.tsx:21:  templates: Template[];
+web/app/components\command_palette.tsx:32:function score_template(t: Template, q: string): number {
+web/app/components\command_palette.tsx:49:  templates,
+web/app/components\command_palette.tsx:68:  const scored = templates
+web/app/components\command_palette.tsx:69:    .map((t) => ({ t, s: score_template(t, debounced_search) }))
+web/app/components\command_palette.tsx:90:        router.push(`/intake?template=${tpl.id}`);
+web/app/components\command_palette.tsx:112:            Search templates
+web/app/components\command_palette.tsx:119:            placeholder="Search templates..."
+web/app/components\command_palette.tsx:125:            aria-label="Template results"
+web/app/components\recent_runs_strip.tsx:16:  template: string;
+web/app/components\recent_runs_strip.tsx:79:                {run.template}
+web/tests\e2e\accessibility.spec.ts:242:// I-p2-022 (#761): the "Dashboard template radiogroup keyboard-operable" gate
+web/tests\e2e\accessibility.spec.ts:243:// (F-26) was REMOVED here — the template radiogroup lived on the old dashboard
+web/tests\e2e\accessibility.spec.ts:245:// radiogroup picker (template is carried via the intake handoff). No radiogroup
+web/tests\e2e\command_palette_adversarial.spec.ts:8: * false-positive template suggestions and DOES produce the correct
+web/tests\e2e\command_palette_adversarial.spec.ts:14: * input against the current `score_template` function before this test
+web/tests\e2e\command_palette_adversarial.spec.ts:15: * shipped. The "the" stopword (matched 5 templates via sample_question
+web/tests\e2e\command_palette_adversarial.spec.ts:34:  "'); DROP TABLE templates;--",
+web/tests\e2e\command_palette.spec.ts:7: *  - Ctrl+K opens palette; Enter on active template navigates.
+web/tests\e2e\command_palette.spec.ts:8: *  - Enter on to-build template is no-op (URL unchanged, palette stays open).
+web/tests\e2e\command_palette.spec.ts:28:    await page.waitForURL("**/intake?template=clinical");
+web/tests\e2e\command_palette.spec.ts:31:  test("Enter on disabled template is a no-op (URL unchanged)", async ({
+web/tests\e2e\command_palette_suggest.spec.ts:4: * I-f1-003 — Live template suggestion as user types.
+web/tests\e2e\command_palette_suggest.spec.ts:9: *  - "tirzepatide" + Enter → /intake?template=clinical via scoring path.
+web/tests\e2e\command_palette_suggest.spec.ts:27:    // Empty palette opens with all 8 templates visible (initial state).
+web/tests\e2e\command_palette_suggest.spec.ts:34:    // (no template name/summary contains "tirzepatide"), so this
+web/tests\e2e\command_palette_suggest.spec.ts:54:  test("'tirzepatide' + Enter navigates to /intake?template=clinical", async ({
+web/tests\e2e\command_palette_suggest.spec.ts:68:    await page.waitForURL("**/intake?template=clinical");
+web/tests\e2e\demo_journey.spec.ts:1:// I-cd-031 (#621): demo journey end-to-end — home → template → ask
+web/tests\e2e\demo_journey.spec.ts:16:  // Step 1: home renders the one-CTA hero (I-p2-013 replaced the template
+web/tests\e2e\demo_walkthrough.spec.ts:9: * I-p2-013 (#752) replaced the home template grid with a one-CTA hero; the
+web/tests\e2e\demo_walkthrough.spec.ts:20:    // Step 0 — home (one-CTA hero; I-p2-013 replaced the template grid)
+web/tests\e2e\demo_walkthrough.spec.ts:61:    // The three differentiator pillars replace the old template grid.
+web/tests\e2e\demo_walkthrough.spec.ts:65:    // The old templates grid is gone.
+web/tests\e2e\demo_walkthrough.spec.ts:66:    await expect(page.getByTestId("template-grid")).toHaveCount(0);
+web/tests\e2e\home_g1_g8.spec.ts:74:  // I-p2-013 (#752): the one-CTA hero replaced the template grid. The primary
+web/tests\e2e\f1_a11y.spec.ts:9: * template-grid spec was removed when the home became a one-CTA hero.)
+web/tests\e2e\f1_a11y.spec.ts:13: *  - `/intake?template=clinical`.
+web/tests\e2e\f1_a11y.spec.ts:47:  test("/intake?template=clinical initial render is WCAG-AA clean", async ({
+web/tests\e2e\f1_a11y.spec.ts:51:    await page.goto("/intake?template=clinical", {
+
+ succeeded in 1111ms:
+src\config\core.py:222:    stage_templates: Dict[int, str] = Field(default_factory=dict)
+src\config\core.py:223:    templates: Dict[str, ChunkingTemplate] = Field(default_factory=dict)
+src\config\core.py:362:    templates = {}
+src\config\core.py:363:    for name, tpl in chunking_data.get("templates", {}).items():
+src\config\core.py:364:        templates[name] = ChunkingTemplate(**tpl)
+src\config\core.py:373:            stage_templates=chunking_data.get("stage_templates", {}),
+src\config\core.py:374:            templates=templates,
+src\polaris_v6\templates\__init__.py:1:"""v6 template registry — loads JSON template content from config/v6_templates/.
+src\polaris_v6\templates\registry.py:12:TEMPLATES_DIR = REPO_ROOT / "config" / "v6_templates"
+src\polaris_v6\templates\registry.py:36:    path = TEMPLATES_DIR / f"{template_id}.json"
+src\polaris_v6\templates\registry.py:44:    if not TEMPLATES_DIR.exists():
+src\polaris_v6\templates\registry.py:46:    return sorted(p.stem for p in TEMPLATES_DIR.glob("*.json"))
+web\app\page.tsx:19:const templates: Template[] = [
+web\app\page.tsx:85:      "Operator-defined catch-all for research questions that do not match the clinical, policy, tech, or due-diligence templates; accepts any classified source tier.",
+web\app\page.tsx:125:      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+web\app\components\home_keyboard_shell.tsx:20:type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+web\app\components\home_keyboard_shell.tsx:27:export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+web\app\components\home_keyboard_shell.tsx:83:        templates={templates}
+web\app\components\command_palette.tsx:21:  templates: Template[];
+web\app\components\command_palette.tsx:49:  templates,
+web\app\components\command_palette.tsx:68:  const scored = templates
+web\app\components\command_palette.tsx:112:            Search templates
+web\app\components\command_palette.tsx:119:            placeholder="Search templates..."
+web\app\source_review\page.tsx:8:// LAW II — data source: `listTemplates()` → GET /api/v6/templates, served from
+web\app\source_review\page.tsx:9:// the authoritative config/v6_templates/*.json (real T1/T2/T3 source domains +
+web\app\source_review\page.tsx:23:import { listTemplates, type TemplateContent } from "@/lib/api";
+web\app\source_review\page.tsx:121:    listTemplates()
+web\app\source_review\page.tsx:122:      .then((templates) => {
+web\app\source_review\page.tsx:124:        const match = templates.find((t) => t.template_id === templateId);
+web\lib\api.ts:408:export async function listTemplates(): Promise<TemplateContent[]> {
+web\lib\api.ts:409:  const response = await authFetch(`${BACKEND_URL}/templates`);
+src\polaris_v6\compare\__init__.py:5:DIFFERENT runs (possibly different questions, templates, models) and
+src\polaris_v6\schemas\run_request.py:24:        description="One of the 8 locked templates per docs/blockers.md §10.",
+src\polaris_v6\benchmark\__init__.py:3:50 questions × 8 templates × 4 systems × 6 dimensions schema.
+web\tests\e2e\command_palette_adversarial.spec.ts:15: * shipped. The "the" stopword (matched 5 templates via sample_question
+web\tests\e2e\command_palette_adversarial.spec.ts:34:  "'); DROP TABLE templates;--",
+web\tests\e2e\demo_walkthrough.spec.ts:65:    // The old templates grid is gone.
+src\polaris_v6\queue\actors.py:41:# All 8 canonical templates are first-class scope domains: each has its own
+src\polaris_v6\queue\actors.py:42:# config/scope_templates/<id>.yaml and is a member of scope_gate.SUPPORTED_DOMAINS.
+src\polaris_v6\queue\actors.py:114:            f"templates {sorted(TEMPLATE_TO_SCOPE_DOMAIN)}. A retired/stale id "
+src\polaris_v6\queue\actors.py:159:        from polaris_v6.templates.registry import load_template
+web\tests\e2e\command_palette_suggest.spec.ts:27:    // Empty palette opens with all 8 templates visible (initial state).
+src\polaris_graph\v30_contract_synthesizer.py:3:Input: v6 template JSON (config/v6_templates/<template_id>.json), query_slug.
+src\polaris_graph\v30_contract_synthesizer.py:45:# remaining: this is acceptable for v1 (all 8 current templates have T1);
+src\polaris_graph\v30_contract_synthesizer.py:46:# future templates should fail-loud, deferred to follow-up.
+src\polaris_graph\v30_contract_synthesizer.py:86:        v6_template: loaded v6 template JSON (config/v6_templates/<id>.json)
+src\polaris_graph\v30_contract_synthesizer.py:158:        # Policy templates default: split into Background / Findings / Implications.
+src\polaris_graph\agents\planner.py:33:_PERSPECTIVE_QUERY_TEMPLATES = {
+src\polaris_graph\agents\planner.py:55:        template = _PERSPECTIVE_QUERY_TEMPLATES.get(perspective)
+src\polaris_graph\agents\planner.py:514:    templates = {
+src\polaris_graph\agents\planner.py:525:    all_queries = [templates.get(p, query) for p in STORM_PERSPECTIVES]
+src\polaris_graph\auto_induction\precision_metrics.py:220:        / "config" / "scope_templates"
+src\polaris_graph\agents\searcher.py:2038:    # before falling back to templates. BUG-090: LLM sometimes returns prose.
+src\polaris_graph\auto_induction\llm_inductor.py:283:        "report-contract templates (each with a slug + one-line "
+src\polaris_graph\auto_induction\llm_inductor.py:364:            f"Available templates:\n{descriptions}\n\n"
+src\polaris_graph\audit_ir\auth_middleware.py:182:    (e.g. /api/inspector/templates/route).
+src\polaris_graph\pipeline_definition.py:347:TEMPLATES_DIR = Path(os.getenv(
+src\polaris_graph\pipeline_definition.py:348:    "PG_PIPELINE_TEMPLATES_DIR",
+src\polaris_graph\pipeline_definition.py:349:    str(Path(__file__).resolve().parent.parent.parent / "config" / "pipeline_templates"),
+src\polaris_graph\pipeline_definition.py:353:def list_templates() -> list[dict[str, Any]]:
+src\polaris_graph\pipeline_definition.py:354:    """List available pipeline templates (metadata only)."""
+src\polaris_graph\pipeline_definition.py:355:    templates = []
+src\polaris_graph\pipeline_definition.py:356:    if not TEMPLATES_DIR.exists():
+src\polaris_graph\pipeline_definition.py:357:        return templates
+src\polaris_graph\pipeline_definition.py:358:    for f in sorted(TEMPLATES_DIR.glob("*.yaml")):
+src\polaris_graph\pipeline_definition.py:361:            templates.append({
+src\polaris_graph\pipeline_definition.py:373:    return templates
+src\polaris_graph\pipeline_definition.py:378:    path = TEMPLATES_DIR / f"{template_name}.yaml"
+src\polaris_v6\api\templates.py:1:"""GET /templates and /templates/{id} — expose v6 template registry over HTTP.
+src\polaris_v6\api\templates.py:4:authoritative `config/v6_templates/*.json` files instead of hardcoding.
+src\polaris_v6\api\templates.py:11:from polaris_v6.templates.registry import (
+src\polaris_v6\api\templates.py:17:router = APIRouter(prefix="/templates", tags=["templates"])
+src\polaris_graph\clinical_retrieval\corpus_adequacy_gate.py:13:Templates currently shipped:
+src\polaris_graph\clinical_retrieval\corpus_adequacy_gate.py:19:Additional templates can be registered via `register_template()`.
+src\polaris_graph\clinical_retrieval\corpus_adequacy_gate.py:52:# Built-in templates
+src\polaris_graph\nodes\scope_gate.py:24:2. Loads the matching scope template from `config/scope_templates/`
+src\polaris_graph\nodes\scope_gate.py:62:# Repo root for locating config/scope_templates/.
+src\polaris_graph\nodes\scope_gate.py:64:_SCOPE_TEMPLATES_DIR = _REPO_ROOT / "config" / "scope_templates"
+src\polaris_graph\nodes\scope_gate.py:71:    # Carney delivery templates (I-tpl-006/7/8 trio complete).
+src\polaris_graph\nodes\scope_gate.py:193:    """Load `config/scope_templates/{domain}.yaml` as a dict.
+src\polaris_graph\nodes\scope_gate.py:207:    path = _SCOPE_TEMPLATES_DIR / f"{domain}.yaml"
+src\polaris_graph\nodes\scope_gate.py:360:        template_path_rel = f"config/scope_templates/<rejected:{domain}>.yaml"
+src\polaris_graph\nodes\scope_gate.py:363:        template_path_rel = f"config/scope_templates/{domain}.yaml"
+src\polaris_graph\nodes\scope.py:64:# Perspective templates (from STORM, used in fallback)
+src\polaris_graph\nodes\scope.py:102:        Always returns a valid ScopeOutput — falls back to templates on failure.
+src\polaris_v6\api\app.py:33:from polaris_v6.api.templates import router as templates_router
+src\polaris_v6\api\app.py:107:    app.include_router(templates_router)
+src\polaris_graph\generator\fact_dedup.py:24:templates; Efficacy → Safety → Comparative → Mechanism → Regulatory
+src\polaris_graph\nodes\frame_compiler.py:211:    # and emit a warning so future templates are nudged toward
+src\polaris_graph\followup\refusal.py:5:template's `_`-separated keyword list. MVP debt: single-token templates
+src\polaris_graph\generator\multi_section_generator.py:680:12b. **Claim-frame hard constraint (M-38, eliminating under-framed study mentions)**: Rule #12 is asymmetric and STRICT — when you name a specific study, trial, cohort, or experiment by its short name (phase-N trial identifier in clinical; long-run battery cycling test in materials; named longitudinal cohort in epidemiology; named regulatory docket in policy), that sentence — or the IMMEDIATELY PRECEDING sentence in the same paragraph — MUST carry at LEAST THREE frame elements drawn from: sample size / cohort N; baseline value; comparator / control arm; specific dose or intervention level; primary endpoint; timepoint; effect size WITH uncertainty (CI, SD, or p-value). If you cannot produce three of those elements from the cited evidence, DO NOT name the study by its short name — phrase the sentence generically as "one randomized trial showed ... [ev_X]" or "a prospective cohort in the target population reported ... [ev_X]" or "one pooled analysis found ... [ev_X]" or "a long-run cycling test reported ... [ev_X]" instead. This hard floor prevents the failure mode where a sentence names a specific study but gives only a single effect-size number without N, baseline, or comparator — producing a news-style summary mis-labelled with a primary-study name. Concrete templates (use placeholders): GOOD: "In [STUDY NAME] (N=[SAMPLE_SIZE], baseline [PRIMARY_METRIC]=[BASELINE_VALUE]), [INTERVENTION_ARM] reduced [ENDPOINT] by [EFFECT_SIZE] versus [COMPARATOR_ARM] at [TIMEPOINT] [ev_X]." GOOD (generic when frame is unavailable): "A pre-planned pooled analysis of two phase-3 trials reported [ENDPOINT]=[VALUE] at [TIMEPOINT] [ev_X]." — no short-name attribution because pooled data lack per-trial N. BAD (under-framed, must be rewritten): "[STUDY NAME] showed that [INTERVENTION] reduced [ENDPOINT] more than [COMPARATOR] [ev_X]." — names the study with only one frame element (effect direction); rewrite as "A head-to-head trial of [INTERVENTION] versus [COMPARATOR] reported greater [ENDPOINT] reduction with [INTERVENTION] [ev_X]" which drops the study name because the frame is too thin. BAD (under-framed, must be rewritten): "[STUDY NAME] found median time to [THRESHOLD] was [TIMEPOINT] [ev_X]." — names study with only endpoint + effect; rewrite as "One pooled analysis of two phase-3 trials found median time to [THRESHOLD] was [TIMEPOINT] [ev_X]" ONLY if the cited evidence confirms pooled data across two trials. This rule is what converts a LOSE_BOTH on Claim frames into a competitive synthesis.
+src\polaris_graph\generator\regulatory_synthesizer.py:13:templates. Prose SYNTHESIS is the right primitive, not field
+src\polaris_graph\synthesis\smart_art_generator.py:190:# Prompt templates
+src\polaris_graph\synthesis\section_writer.py:119:OUTLINE_SYSTEM_PROMPT = """You are a research report architect. Design report structure FROM evidence, not templates.
+src\polaris_graph\audit_ir\job_runner.py:110:# templates here.
+src\polaris_graph\audit_ir\inspector_router.py:145:TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "scripts" / "templates"
+src\polaris_graph\audit_ir\inspector_router.py:146:INSPECTOR_HTML_PATH = TEMPLATES_DIR / "inspector_shell.html"
+src\polaris_graph\audit_ir\inspector_router.py:154:# scope-gate call site (/api/inspector/templates/route). Every
+src\polaris_graph\audit_ir\inspector_router.py:422:        # Operators see "v30_clinical not in available_templates" and
+src\polaris_graph\audit_ir\inspector_router.py:1495:        "available_templates": list_runners(),
+src\polaris_graph\audit_ir\inspector_router.py:1556:@router.get("/api/inspector/templates/catalog")
+src\polaris_graph\audit_ir\inspector_router.py:1567:        "templates": [
+src\polaris_graph\audit_ir\inspector_router.py:1580:@router.post("/api/inspector/templates/route")
+src\polaris_graph\audit_ir\run_diff.py:35:    raise ValueError. The diff makes no sense across templates.
+src\polaris_graph\audit_ir\domain_router.py:73:    template (e.g. `config/scope_templates/clinical.yaml`).
+src\polaris_graph\audit_ir\domain_router.py:89:    """Workspace-scoped registry of domain templates.
+src\polaris_graph\audit_ir\domain_router.py:92:    a tuple of templates; routing reads from this registry.
+src\polaris_graph\audit_ir\domain_router.py:100:    def __init__(self, templates: tuple[DomainTemplate, ...]) -> None:
+src\polaris_graph\audit_ir\domain_router.py:101:        if not isinstance(templates, tuple):
+src\polaris_graph\audit_ir\domain_router.py:103:                f"templates must be a tuple of DomainTemplate, got "
+src\polaris_graph\audit_ir\domain_router.py:104:                f"{type(templates).__name__}"
+src\polaris_graph\audit_ir\domain_router.py:107:        for i, tpl in enumerate(templates):
+src\polaris_graph\audit_ir\domain_router.py:110:                    f"templates[{i}] must be DomainTemplate, got "
+src\polaris_graph\audit_ir\domain_router.py:120:                    f"templates[{i}].domain_id must be str, got "
+src\polaris_graph\audit_ir\domain_router.py:125:                    f"templates[{i}].domain_id must be non-empty"
+src\polaris_graph\audit_ir\domain_router.py:135:                    f"templates[{i}].expected_adapter_ids must be "
+src\polaris_graph\audit_ir\domain_router.py:142:                        f"templates[{i}].expected_adapter_ids[{j}] "
+src\polaris_graph\audit_ir\domain_router.py:147:                        f"templates[{i}].expected_adapter_ids[{j}] "
+src\polaris_graph\audit_ir\domain_router.py:152:                    f"duplicate domain_id {tpl.domain_id!r} in templates"
+src\polaris_graph\audit_ir\scope_classifier.py:26:  - Domain adapters paired with M-D6 cross-domain templates
+rg: server: The system cannot find the file specified. (os error 2)
+rg: app: The system cannot find the file specified. (os error 2)
+rg: api: The system cannot find the file specified. (os error 2)
+rg: backend: The system cannot find the file specified. (os error 2)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/templates/registry.py | Select-Object -First 140' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/api/templates.py | Select-Object -First 160' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path config/v6_templates/clinical.json | Select-Object -First 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '(Get-Content web/app/source_review/page.tsx).Count; (git show --stat --oneline --name-only HEAD -1 | Select-Object -First 40)' in C:\POLARIS
+ succeeded in 911ms:
+"""Template registry — loads + validates per-template JSON content."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+TEMPLATES_DIR = REPO_ROOT / "config" / "v6_templates"
+
+SourceTier = Literal["T1", "T2", "T3"]
+
+
+class FrameDefinition(BaseModel):
+    frame_id: str
+    frame_name: str
+
+
+class TemplateContent(BaseModel):
+    template_id: str
+    template_name: str
+    summary: str = Field(..., min_length=20)
+    primary_domains: list[str] = Field(..., min_length=1)
+    source_tiers: dict[SourceTier, list[str]]
+    min_sources_per_tier: dict[SourceTier, int]
+    frame_manifest: list[FrameDefinition] = Field(..., min_length=2)
+    refusal_patterns: list[str] = Field(default_factory=list)
+    sample_questions: list[str] = Field(..., min_length=2)
+    out_of_scope_examples: list[str] = Field(default_factory=list)
+
+
+def load_template(template_id: str) -> TemplateContent:
+    path = TEMPLATES_DIR / f"{template_id}.json"
+    if not path.exists():
+        raise FileNotFoundError(f"Template content not found: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return TemplateContent.model_validate(payload)
+
+
+def list_template_ids() -> list[str]:
+    if not TEMPLATES_DIR.exists():
+        return []
+    return sorted(p.stem for p in TEMPLATES_DIR.glob("*.json"))
+
+ succeeded in 929ms:
+{
+  "template_id": "clinical",
+  "template_name": "Clinical drug audit",
+  "summary": "Drug safety signals, labelling deltas, and post-market surveillance evidence across Health Canada, FDA, EMA, and clinical-trial registries.",
+  "primary_domains": ["Health Canada", "FDA", "EMA", "ClinicalTrials.gov", "PubMed"],
+  "source_tiers": {
+    "T1": [
+      "https://www.canada.ca/en/health-canada.html",
+      "https://www.fda.gov/drugs",
+      "https://www.ema.europa.eu",
+      "https://clinicaltrials.gov",
+      "https://pubmed.ncbi.nlm.nih.gov"
+    ],
+    "T2": [
+      "https://www.cochranelibrary.com",
+      "https://www.bmj.com",
+      "https://jamanetwork.com",
+      "https://www.thelancet.com"
+    ],
+    "T3": [
+      "https://www.medscape.com",
+      "https://www.statnews.com"
+    ]
+  },
+  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+  "frame_manifest": [
+    { "frame_id": "efficacy", "frame_name": "Efficacy outcomes (primary endpoints)" },
+    { "frame_id": "safety", "frame_name": "Safety / adverse events" },
+    { "frame_id": "labelling", "frame_name": "Regulatory labelling deltas" },
+    { "frame_id": "post_market", "frame_name": "Post-market surveillance signals" },
+    { "frame_id": "subgroup", "frame_name": "Subgroup analyses + heterogeneity" }
+  ],
+  "refusal_patterns": [
+    "clinical_treatment_recommendation",
+    "individual_drug_dose_advice",
+    "off_label_endorsement"
+  ],
+  "sample_questions": [
+    "What did the SELECT trial show on cardiovascular outcomes for semaglutide?",
+    "How did the FDA labelling for atorvastatin change between 2020 and 2025?",
+    "What are the post-market safety signals for SGLT2 inhibitors in elderly patients?",
+    "What does Cochrane say about HRT and breast cancer risk in postmenopausal women?"
+  ],
+  "out_of_scope_examples": [
+    "Should I take ozempic for my diabetes?",
+    "What dose of atorvastatin should my mother take?"
+  ]
+}
+
+ succeeded in 984ms:
+"""GET /templates and /templates/{id} — expose v6 template registry over HTTP.
+
+Lets the frontend dashboard render the template selector from the
+authoritative `config/v6_templates/*.json` files instead of hardcoding.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException
+
+from polaris_v6.templates.registry import (
+    TemplateContent,
+    list_template_ids,
+    load_template,
+)
+
+router = APIRouter(prefix="/templates", tags=["templates"])
+
+
+@router.get("", response_model=list[TemplateContent])
+def list_all() -> list[TemplateContent]:
+    out: list[TemplateContent] = []
+    for tid in list_template_ids():
+        try:
+            out.append(load_template(tid))
+        except Exception:
+            continue
+    return out
+
+
+@router.get("/{template_id}", response_model=TemplateContent)
+def get_one(template_id: str) -> TemplateContent:
+    try:
+        return load_template(template_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+ succeeded in 1017ms:
+275
+1f6f3f94 I-p2-031 (#770): Source Review / Source-Set Health page (intake → here → plan)
+web/app/intake/components/intake_form.tsx
+web/app/source_review/page.tsx
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/states/state_kit.tsx | Select-Object -First 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/package.json | Select-Object -First 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "noEmit|tsc|typecheck|lint" web/package.json web/tsconfig.json web/eslint.config.* -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web -Name | Sort-Object' in C:\POLARIS
+ succeeded in 1127ms:
+// I-p2-011 (#750): empty / loading / error states kit. Consistent + honest
+// states every page adopts (G-CONTENT: no generic "Something went wrong" / bare
+// spinners). Reduced-motion handled locally; a11y role=status/alert.
+"use client";
+
+import { useEffect, type ReactNode } from "react";
+
+import type { LucideIcon } from "lucide-react";
+
+export function EmptyState({
+  title,
+  description,
+  icon: Icon,
+  action,
+}: {
+  title: string;
+  description?: string;
+  icon?: LucideIcon;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="border-border text-muted-foreground flex flex-col items-center gap-2 rounded-md border border-dashed p-8 text-center">
+      {Icon && <Icon aria-hidden className="h-6 w-6" />}
+      <p className="text-foreground text-sm font-medium">{title}</p>
+      {description && <p className="max-w-sm text-xs">{description}</p>}
+      {action && <div className="mt-2">{action}</div>}
+    </div>
+  );
+}
+
+export function LoadingState({
+  label = "Loading…",
+  rows = 3,
+}: {
+  label?: string;
+  rows?: number;
+}) {
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+      className="flex flex-col gap-2"
+    >
+      {Array.from({ length: rows }).map((_, i) => (
+        <div
+          key={i}
+          aria-hidden
+          className="bg-muted h-4 w-full animate-pulse rounded motion-reduce:animate-none"
+        />
+      ))}
+      <span className="sr-only">{label}</span>
+    </div>
+  );
+}
+
+// G-CONTENT guardrail: catch lazy generic error copy in dev (full enforcement
+// is the per-page G-CONTENT design audit).
+const GENERIC_MESSAGE =
+  /something went wrong|unknown error|failed to load|an error occurred/i;
+
+export function ErrorState({
+  title = "Couldn't load this",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  /** REQUIRED — the specific, operational error (never generic). */
+  message: string;
+  onRetry?: () => void;
+}) {
+  useEffect(() => {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      GENERIC_MESSAGE.test(message)
+    ) {
+      console.warn(
+        `[ErrorState] generic message "${message}" — G-CONTENT: use a specific, operational error.`,
+      );
+    }
+  }, [message]);
+
+  return (
+    <div
+      role="alert"
+      className="border-destructive/30 bg-destructive/5 flex flex-col gap-2 rounded-md border p-4"
+    >
+      <p className="text-foreground text-sm font-medium">{title}</p>
+      <p className="text-muted-foreground text-xs">{message}</p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="text-primary focus-visible:ring-ring/70 self-start rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+        >
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+
+2026-05-23T06:29:59.658331Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+web/package.json:9:    "lint": "eslint",
+web/package.json:10:    "lint:fix": "eslint --fix",
+web/package.json:13:    "typecheck": "tsc --noEmit",
+web/package.json:54:    "eslint": "^9",
+web/package.json:55:    "eslint-config-next": "16.2.4",
+web/package.json:56:    "eslint-config-prettier": "^10.1.8",
+web/tsconfig.json:8:    "noEmit": true,
+rg: web/eslint.config.*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+ exited 1 in 1153ms:
+web/package.json:9:    "lint": "eslint",
+web/package.json:10:    "lint:fix": "eslint --fix",
+web/package.json:13:    "typecheck": "tsc --noEmit",
+web/package.json:54:    "eslint": "^9",
+web/package.json:55:    "eslint-config-next": "16.2.4",
+web/package.json:56:    "eslint-config-prettier": "^10.1.8",
+web/tsconfig.json:8:    "noEmit": true,
+rg: web/eslint.config.*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+ succeeded in 1209ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "@types/three": "^0.184.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "three": "^0.184.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+ succeeded in 1223ms:
+.gitignore
+.next
+.prettierignore
+.prettierrc.json
+AGENTS.md
+app
+CLAUDE.md
+components
+components.json
+Dockerfile
+eslint.config.mjs
+lib
+middleware.ts
+next-env.d.ts
+next.config.ts
+node_modules
+package-lock.json
+package.json
+playwright.config.ts
+postcss.config.mjs
+public
+README.md
+requirements-v6.txt
+requirements.txt
+screenshots
+scripts
+test-results
+tests
+THIRD_PARTY_LICENSES.md
+tsconfig.json
+tsconfig.tsbuildinfo
+web
+
+codex
+The backend template contract matches the frontend fields, and the `/templates` router is backed by `config/v6_templates`. I’m running the lightweight web checks now to catch compile/lint issues that don’t show up from reading the diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck' in C:\POLARIS\web
+ succeeded in 8341ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run lint -- app/source_review/page.tsx app/intake/components/intake_form.tsx' in C:\POLARIS\web
+ succeeded in 3686ms:
+
+> web@0.1.0 lint
+> eslint app/source_review/page.tsx app/intake/components/intake_form.tsx
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --format= --binary HEAD -- web/app/source_review/page.tsx web/app/intake/components/intake_form.tsx | Get-FileHash -Algorithm SHA256' in C:\POLARIS
+2026-05-23T06:30:23.848979Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\diff --git a\web\app\intake\components\intake_form.tsx b\web\app\intake\components\intake_form.tsx' because it does not exist.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\index 4e7e0c37..d821baea 100644' because it does not exist.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\--- a\web\app\intake\components\intake_form.tsx' because it does not exist.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\+++ b\web\app\intake\components\intake_form.tsx' because it does not exist.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\@@ -180,12 +180,16 @@ export function IntakeForm() {' because it does not exist.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\             <div className="flex justify-end">' because it does not exist.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find drive. A drive with the name '+              {/* I-p2-031 (#770)' does not exist.[0m
+
+ exited 1 in 959ms:
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\diff --git a\web\app\intake\components\intake_form.tsx b\web\app\intake\components\intake_form.tsx' because it does not exist.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\index 4e7e0c37..d821baea 100644' because it does not exist.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\--- a\web\app\intake\components\intake_form.tsx' because it does not exist.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\+++ b\web\app\intake\components\intake_form.tsx' because it does not exist.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\@@ -180,12 +180,16 @@ export function IntakeForm() {' because it does not exist.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\             <div className="flex justify-end">' because it does not exist.[0m
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … pp/intake/components/intake_form.tsx | [36;1mGet-FileHash -Algorithm SHA256[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find drive. A drive with the name '+              {/* I-p2-031 (#770)' does not exist.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$patch = git show --format= --binary HEAD -- web/app/source_review/page.tsx web/app/intake/components/intake_form.tsx | Out-String; $bytes = [System.Text.Encoding]::UTF8.GetBytes($patch); $sha = [System.Security.Cryptography.SHA256]::Create(); ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('"'x2') }) -join ''" in C:\POLARIS
+ succeeded in 878ms:
+de6f8ac9db37ccc9fb8d7b9f67541eaf6ef1053093e8f57d2ce0efe8aa75fae6
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'where.exe sha256sum 2>$null; if ($LASTEXITCODE -eq 0) { git diff HEAD~1 HEAD -- web/app/source_review/page.tsx web/app/intake/components/intake_form.tsx | sha256sum }' in C:\POLARIS
+2026-05-23T06:30:36.805508Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+C:\Program Files\Git\usr\bin\sha256sum.exe
+      0 [main] sha256sum (18264) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … DE -eq 0) { [36;1mgit diff HEAD~1 HEAD -- web/app/source_review/page.tsx we[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:57[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ … DE -eq 0) { git diff HEAD~1 HEAD -- web/app/source_review/page.tsx we …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+ exited 1 in 1094ms:
+C:\Program Files\Git\usr\bin\sha256sum.exe
+      0 [main] sha256sum (18264) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … DE -eq 0) { [36;1mgit diff HEAD~1 HEAD -- web/app/source_review/page.tsx we[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:57[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ … DE -eq 0) { git diff HEAD~1 HEAD -- web/app/source_review/page.tsx we …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --check HEAD~1 HEAD -- web/app/source_review/page.tsx web/app/intake/components/intake_form.tsx' in C:\POLARIS
+ succeeded in 650ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/accessibility.spec.ts | Select-Object -Skip 230 -First 30' in C:\POLARIS
+ succeeded in 741ms:
+    if (small.length > 0) {
+      throw new Error(
+        `WCAG 2.5.8 failures (${small.length} target(s) < 24x24):\n` +
+          small
+            .map((s) => `  - ${s.tag} "${s.text}" → ${s.w}x${s.h}px`)
+            .join("\n"),
+      );
+    }
+  });
+});
+
+// I-p2-022 (#761): the "Dashboard template radiogroup keyboard-operable" gate
+// (F-26) was REMOVED here — the template radiogroup lived on the old dashboard
+// run-start workflow, which was relocated to /intake → /plan and is no longer a
+// radiogroup picker (template is carried via the intake handoff). No radiogroup
+// to guard on the monitoring-only dashboard.
+
+// I-cd-013b (GH#669): the legacy /inspector/<bad-runid> destructive-error
+// axe test was MIGRATED into the "WCAG-AA — Inspector (signed-bundle,
+// post-I-cd-013a)" describe above as the bundle-pending CTA axe check.
+// The /runs/<bad-runid> destructive-error test below stays here — it
+// targets the /runs/[runId] route which lands at I-cd-025 and uses a
+// different (legacy) error-banner pattern.
+test.describe("WCAG-AA — Run-detail error states", () => {
+  test("Run-detail destructive error banner (invalid runId) is WCAG-AA clean", async ({
+    page,
+  }) => {
+    // /runs/[runId] page also uses the destructive error pattern; verify it.
+    await page.goto("/runs/does_not_exist_runid_404", {
+      waitUntil: "networkidle",
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/app/intake/components/intake_form.tsx:190 drops an existing /intake?template=... param when routing to /source_review. Current active flow still defaults to clinical, so this is not a merge blocker, but it will matter once non-clinical templates become selectable."
+merge_decision: MERGE AUTHORIZED
+```
+tokens used
+88,856

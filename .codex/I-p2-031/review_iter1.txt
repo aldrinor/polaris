@@ -1,0 +1,9 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/app/intake/components/intake_form.tsx:190 drops an existing /intake?template=... param when routing to /source_review. Current active flow still defaults to clinical, so this is not a merge blocker, but it will matter once non-clinical templates become selectable."
+merge_decision: MERGE AUTHORIZED
+```
