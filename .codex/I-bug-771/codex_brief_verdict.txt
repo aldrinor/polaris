@@ -1,0 +1,9 @@
+# I-bug-771 (#812) brief-level (approach) verdict.
+# For this bug fix, the "brief" gate is Codex's DECISION on the fix approach
+# (Codex = decision-maker per CHARTER §1). Codex decided the approach in two steps:
+#   1. decision_verdict.txt: C+D (authoritative floor + content fix + low-quality
+#      -OA ceiling + no-stub-laundering guardrail).
+#   2. mdpi_reconcile_verdict.txt: B (discriminator — MDPI primary->T4, MDPI
+#      SR/MA->T2 retained), reconciling the cross-decision conflict with pass-12.
+# Both are Codex APPROVALS of the approach the diff implements.
+verdict: APPROVE
