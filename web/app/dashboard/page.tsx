@@ -98,7 +98,7 @@ export default function DashboardPage() {
             Runs
           </h1>
           <p className="text-muted-foreground text-sm">
-            Recent verified research briefs. Open one to replay its proof, claim
+            Recent completed research runs. Open one to replay its proof, claim
             by claim.
           </p>
         </div>

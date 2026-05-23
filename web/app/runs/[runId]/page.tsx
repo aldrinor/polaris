@@ -134,7 +134,7 @@ export default function RunDetailPage({ params }: RunPageProps) {
         <Button
           variant="default"
           nativeButton={false}
-          render={<Link href="/dashboard" />}
+          render={<Link href="/intake" />}
         >
           New run
         </Button>
