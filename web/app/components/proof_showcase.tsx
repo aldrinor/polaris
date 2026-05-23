@@ -7,7 +7,7 @@
 import { ArrowRight, BadgeCheck, Quote } from "lucide-react";
 import Link from "next/link";
 
-import { resolveSpan } from "@/lib/evidence_span";
+import { resolveSpan, spanInContext, type SpanInContext } from "@/lib/evidence_span";
 import { loadBundle } from "@/lib/inspector_bundle_loader";
 
 const DEMO_RUN_ID = "v1-canonical-success";
@@ -27,6 +27,7 @@ export async function ProofShowcase() {
   const sections = bundle.verifiedReport?.sections ?? [];
   let claim: string | null = null;
   let quote: string | null = null;
+  let ctx: SpanInContext | null = null;
   let sourceTitle: string | null = null;
   let sourceUrl: string | null = null;
   let tier: string | null = null;
@@ -48,6 +49,10 @@ export async function ProofShowcase() {
         if (span?.quote && span.quote.trim().length > 40) {
           claim = s.sentence_text;
           quote = span.quote;
+          // I-p2-038 (#821): render the exact span IN its real source context
+          // (so it doesn't read as a mid-word fragment), with the exact cited
+          // passage highlighted. Faithful: span === full_text[start:end].
+          ctx = spanInContext(span.source?.full_text, span.start, span.end);
           sourceTitle = span.source?.title ?? null;
           sourceUrl = span.source?.url ?? null;
           tier = tierLabel(span.source?.tier);
@@ -102,9 +107,24 @@ export async function ProofShowcase() {
             <Quote aria-hidden className="h-4 w-4" />
             The exact passage it came from
           </div>
-          <blockquote className="border-primary/40 text-foreground/90 border-l-2 pl-3 text-sm leading-relaxed">
-            “{quote}”
+          <blockquote className="border-primary/40 text-muted-foreground border-l-2 pl-3 text-sm leading-relaxed">
+            {ctx ? (
+              <span className="font-serif">
+                {ctx.leadingEllipsis ? "… " : "“"}
+                {ctx.before}
+                <mark className="bg-primary/10 text-foreground rounded-[3px] px-0.5 font-medium decoration-clone">
+                  {ctx.span}
+                </mark>
+                {ctx.after}
+                {ctx.trailingEllipsis ? " …" : "”"}
+              </span>
+            ) : (
+              <span className="text-foreground/90">“{quote}”</span>
+            )}
           </blockquote>
+          <p className="text-muted-foreground/80 text-[11px]">
+            Highlighted text is the exact span cited by the claim.
+          </p>
           {sourceTitle ? (
             <p className="text-muted-foreground truncate text-xs">
               {sourceUrl ? (
