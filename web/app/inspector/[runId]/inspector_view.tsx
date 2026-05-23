@@ -7,6 +7,7 @@ import { EvidencePoolTable } from "@/components/inspector/evidence_pool_table";
 import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
 import { HashChainPanel } from "@/components/inspector/hash_chain_panel";
 import { MetadataPanel } from "@/components/inspector/metadata_panel";
+import { ProofReplay } from "@/components/proof_replay/proof_replay";
 import { ReasoningTraceTimeline } from "@/components/inspector/reasoning_trace_timeline";
 import { ScopeDecisionCard } from "@/components/inspector/scope_decision_card";
 import { SourcesPanel } from "@/components/inspector/sources_panel";
@@ -36,8 +37,9 @@ export function InspectorView({
         manifest={bundle.manifest}
         verifiedReport={bundle.verifiedReport}
       />
-      <Tabs defaultValue="report">
+      <Tabs defaultValue="proof">
         <TabsList>
+          <TabsTrigger value="proof">Proof Replay</TabsTrigger>
           <TabsTrigger value="report">Report</TabsTrigger>
           <TabsTrigger value="scope">Scope</TabsTrigger>
           <TabsTrigger value="evidence">Evidence</TabsTrigger>
@@ -46,6 +48,16 @@ export function InspectorView({
           <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
           <TabsTrigger value="metadata">Metadata</TabsTrigger>
         </TabsList>
+        {/* I-p2-017 (#756): the CENTERPIECE — Report = Proof Replay. The #746
+            split-view (click a verified claim → see its exact cited source span)
+            was built but wired into NO route; this surfaces it as the default
+            inspector tab. */}
+        <TabsContent value="proof" tabId="proof">
+          <ProofReplay
+            sections={bundle.verifiedReport.sections}
+            evidencePool={bundle.evidencePool}
+          />
+        </TabsContent>
         <TabsContent value="report" tabId="report">
           <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
         </TabsContent>
