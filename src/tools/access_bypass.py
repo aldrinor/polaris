@@ -97,6 +97,74 @@ _FIRECRAWL_MIN_INTERVAL = float(os.getenv("FIRECRAWL_MIN_INTERVAL_SECONDS", "6.0
 _FIRECRAWL_MONTHLY_QUOTA = int(os.getenv("FIRECRAWL_MONTHLY_QUOTA", "500"))
 _FIRECRAWL_WARN_PCT = float(os.getenv("FIRECRAWL_WARN_THRESHOLD_PCT", "0.80"))
 
+# ---------------------------------------------------------------------------
+# I-bug-775 (#815): NCBI PMC BioC full-text limiter. Conservative per Codex
+# decision — max 1 concurrent + a min-interval (~3 req/s), NOT the API-key 10rps
+# allowance (the BioC endpoint is separate from E-Utilities and we do not assume
+# it honours the key). Lazy-init the semaphore so it binds to the running loop.
+# ---------------------------------------------------------------------------
+_ncbi_semaphore: "asyncio.Semaphore | None" = None
+_ncbi_last_request_time: float = 0.0
+_NCBI_MIN_INTERVAL = float(os.getenv("PG_NCBI_MIN_INTERVAL_SECONDS", "0.34"))  # ~3 req/s
+_PMC_BIOC_MIN_FULLTEXT_CHARS = int(os.getenv("PG_PMC_BIOC_MIN_FULLTEXT_CHARS", "1000"))
+
+# BioC passage section_types that are NOT article body (so a doc with ONLY these
+# is abstract-only / references-only and must be rejected per Codex guardrail).
+_BIOC_NON_BODY_SECTIONS = frozenset({
+    "TITLE", "ABSTRACT", "REF", "COMP_INT", "AUTH_CONT", "ACK_FUND",
+    "SUPPL", "FIG", "TABLE", "KEYWORD", "ABBR",
+})
+
+
+def _get_ncbi_semaphore() -> "asyncio.Semaphore":
+    """Lazy-init the NCBI concurrency gate on the running loop (max 1)."""
+    global _ncbi_semaphore
+    if _ncbi_semaphore is None:
+        _ncbi_semaphore = asyncio.Semaphore(1)
+    return _ncbi_semaphore
+
+
+def _parse_bioc_fulltext(raw: str) -> str:
+    """I-bug-775 (#815): extract body full text from a PMC BioC_json response.
+
+    Returns '' (reject) if the response is an error, abstract-only, or
+    references-only — Codex guardrail: never accept non-full-text. Accepts only
+    when there is an explicit body section (INTRO/METHODS/RESULTS/DISCUSS/CONCL/
+    CASE/...) OR a clearly article-sized passage set (>=5 passages, >=3000 chars)
+    for OA docs whose passages lack section_type infons.
+    """
+    import json
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return ""
+    collections = data if isinstance(data, list) else [data]
+    all_parts: list[str] = []
+    has_body_section = False
+    for coll in collections:
+        if not isinstance(coll, dict):
+            continue
+        for doc in coll.get("documents", []) or []:
+            for psg in doc.get("passages", []) or []:
+                ptext = (psg.get("text") or "").strip()
+                if not ptext:
+                    continue
+                all_parts.append(ptext)
+                infons = psg.get("infons") or {}
+                section = str(
+                    infons.get("section_type") or infons.get("type") or ""
+                ).upper()
+                if section and section not in _BIOC_NON_BODY_SECTIONS:
+                    has_body_section = True
+    if not all_parts:
+        return ""
+    total_len = sum(len(p) for p in all_parts)
+    # Reject abstract/refs/error-only: require a body section OR an article-sized
+    # passage set.
+    if not has_body_section and not (len(all_parts) >= 5 and total_len >= 3000):
+        return ""
+    return "\n\n".join(all_parts).strip()
+
 
 async def _firecrawl_rate_limit() -> None:
     """Enforce minimum interval between Firecrawl requests (free plan: 10 RPM)."""
@@ -644,6 +712,21 @@ class AccessBypass:
             logger.info("[ACCESS] PL: Resolved %s -> %s", url[:50], resolved_url[:50])
             url = resolved_url
 
+        # I-bug-775 (#815): PMC BioC full-text FIRST. PMC HTML/PDF scraping is
+        # flaky (jina 60s timeouts, 111-char crawl4ai stubs); the BioC OA API
+        # gives structured full text reliably for the OA Subset. Try it before
+        # Unpaywall/PDF/scrapers when the URL already carries a PMCID. Falls
+        # through (returns None) on non-OA / error / abstract-only.
+        _pmcid = self._extract_pmcid(url)
+        if _pmcid:
+            _bioc_text = await self._try_pmc_bioc_fulltext(_pmcid)
+            if _bioc_text:
+                return AccessResult(
+                    url=url, content=_bioc_text[:50000], access_method="pmc_bioc",
+                    legal_alternative=None, success=True,
+                    metadata={"pmcid": _pmcid, "source": "pmc_bioc_oa"},
+                )
+
         # M-23a: Unpaywall step 0 — try legal OA before anything else.
         # For DOI-bearing URLs (NEJM, Lancet, JAMA, Elsevier, Springer...)
         # Unpaywall frequently returns a PMC or arXiv OA PDF that is the
@@ -660,6 +743,21 @@ class AccessBypass:
                         url[:60], oa_url[:80],
                     )
                     url = oa_url
+                    # I-bug-775 (#815): Unpaywall frequently resolves to a PMC
+                    # OA copy (e.g. .../PMCxxxxxxx/pdf/main.pdf). Prefer the BioC
+                    # full-text API over scraping that PDF (mode-2: PMC PDF
+                    # fetches sometimes returned 54-char stubs).
+                    _oa_pmcid = self._extract_pmcid(url)
+                    if _oa_pmcid:
+                        _oa_bioc = await self._try_pmc_bioc_fulltext(_oa_pmcid)
+                        if _oa_bioc:
+                            return AccessResult(
+                                url=url, content=_oa_bioc[:50000],
+                                access_method="pmc_bioc",
+                                legal_alternative=None, success=True,
+                                metadata={"pmcid": _oa_pmcid,
+                                          "source": "pmc_bioc_oa_via_unpaywall"},
+                            )
 
         # FIX-CITE-3/GAP4: Detect PDF URLs and extract text directly.
         # Academic open-access PDFs (from S2 openAccessPdf) need PDF parsing,
@@ -1899,28 +1997,40 @@ class AccessBypass:
                             doi, oa_url[:80], host_type,
                         )
                         return oa_url
-                    # No PDF — fall back to best.url, but ONLY if it's not
-                    # a known-403 repository pattern. Repository landing
-                    # pages that aren't PDFs tend to fail; better to let
-                    # the main cascade attempt the original publisher URL.
+                    # No PDF. I-bug-775 (#815, Codex B): do NOT swap to a
+                    # publisher / doi.org / DOI-resolver landing page — those
+                    # fetch as 280-400-char stubs (mode 1) and are no better
+                    # than the paywalled original. The ONLY non-PDF swap we
+                    # allow is a PMC URL (it carries a PMCID, so the caller's
+                    # BioC full-text path will resolve it). Everything else:
+                    # return None and let the main cascade try the original URL.
                     best = data.get("best_oa_location") or {}
                     landing = best.get("url")
                     host_type = best.get("host_type", "unknown")
-                    if landing and host_type != "repository":
-                        # Publisher OA landing is usually fetchable
+                    # Scan all OA locations for a PMC URL (PMCID-bearing).
+                    pmc_landing = next(
+                        (
+                            loc.get("url")
+                            for loc in oa_locations
+                            if loc.get("url")
+                            and re.search(r"/PMC\d+\b", loc.get("url"), re.IGNORECASE)
+                        ),
+                        None,
+                    )
+                    if pmc_landing:
                         logger.info(
-                            "[ACCESS] M-23a: Unpaywall %s OA landing for %s: %s",
-                            host_type, doi, landing[:80],
+                            "[ACCESS] M-23a: Unpaywall PMC OA URL for %s: %s "
+                            "(BioC full-text will resolve)",
+                            doi, pmc_landing[:80],
                         )
-                        return landing
-                    # Repository landing without PDF — don't swap, let the
-                    # cascade try the original URL (which may have Crawl4AI
-                    # render the publisher full-text page).
+                        return pmc_landing
+                    # No PDF, no PMC URL — do not swap to a landing page
+                    # (mode-1 stub). Keep the original URL for the cascade.
                     if landing:
                         logger.info(
-                            "[ACCESS] M-23a: Unpaywall found repo landing "
-                            "without PDF for %s — keeping original URL",
-                            doi,
+                            "[ACCESS] M-23a: Unpaywall %s landing without PDF/PMC "
+                            "for %s — keeping original URL (no landing swap)",
+                            host_type, doi,
                         )
                     return None
         except asyncio.TimeoutError:
@@ -2366,6 +2476,74 @@ class AccessBypass:
                     return True
 
         return False
+
+    def _extract_pmcid(self, url: str) -> Optional[str]:
+        """I-bug-775 (#815): extract a PMCID (e.g. 'PMC6490750') from a PMC URL
+        — pmc.ncbi.nlm.nih.gov/articles/PMC<digits>/ or a PMC PDF URL."""
+        if not url:
+            return None
+        m = re.search(r"/(PMC\d+)\b", url, re.IGNORECASE)
+        return m.group(1).upper() if m else None
+
+    async def _try_pmc_bioc_fulltext(self, pmcid: str) -> Optional[str]:
+        """I-bug-775 (#815): fetch PMC Open-Access full text via the BioC API
+        (Codex decision A). Returns normalized full text (>= the min-fulltext
+        threshold, with body-like sections) or None. Conservative NCBI throttle
+        (max 1 concurrent + ~3 req/s) with 429 exponential backoff. NEVER returns
+        abstract-only / references-only / API-error text (see _parse_bioc_fulltext)."""
+        global _ncbi_last_request_time
+        import aiohttp
+
+        bioc_url = (
+            "https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/pmcoa.cgi/"
+            f"BioC_json/{pmcid}/unicode"
+        )
+        raw: Optional[str] = None
+        try:
+            async with _get_ncbi_semaphore():
+                elapsed = _time_module.monotonic() - _ncbi_last_request_time
+                if _ncbi_last_request_time > 0 and elapsed < _NCBI_MIN_INTERVAL:
+                    await asyncio.sleep(_NCBI_MIN_INTERVAL - elapsed)
+                timeout = aiohttp.ClientTimeout(total=30)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    for attempt in range(3):
+                        async with session.get(
+                            bioc_url, headers=_NO_BROTLI_HEADERS
+                        ) as resp:
+                            _ncbi_last_request_time = _time_module.monotonic()
+                            if resp.status == 429:
+                                await asyncio.sleep(1.0 * (2 ** attempt))
+                                continue
+                            if resp.status != 200:
+                                logger.info(
+                                    "[ACCESS] PMC-BioC HTTP %d for %s",
+                                    resp.status, pmcid,
+                                )
+                                return None
+                            raw = await resp.text()
+                            break
+        except asyncio.TimeoutError:
+            logger.info("[ACCESS] PMC-BioC timeout for %s", pmcid)
+            return None
+        except Exception as e:
+            logger.warning(
+                "[ACCESS] PMC-BioC failed for %s: %s", pmcid, str(e)[:120]
+            )
+            return None
+
+        if not raw:
+            return None
+        text = _parse_bioc_fulltext(raw)
+        if not text or len(text) < _PMC_BIOC_MIN_FULLTEXT_CHARS:
+            logger.info(
+                "[ACCESS] PMC-BioC %s: no body-like full text (len=%d) — falling through",
+                pmcid, len(text or ""),
+            )
+            return None
+        logger.info(
+            "[ACCESS] PMC-BioC full text for %s (%d chars)", pmcid, len(text)
+        )
+        return text
 
     def _extract_doi(self, url: str) -> Optional[str]:
         """Extract DOI from URL."""
