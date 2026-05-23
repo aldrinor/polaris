@@ -180,6 +180,15 @@ export default function RunDetailPage({ params }: RunPageProps) {
           >
             Open Inspector
           </Button>
+          {/* I-p2-020 (#759): audit / export drill-down. */}
+          <Button
+            type="button"
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/runs/${runId}/audit`} />}
+          >
+            Audit &amp; export
+          </Button>
           <Button
             type="button"
             variant="outline"

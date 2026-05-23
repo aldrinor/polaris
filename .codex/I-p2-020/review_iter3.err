@@ -1,0 +1,3708 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e5369-012a-7111-bca9-7583989ac1f9
+--------
+user
+# Codex DESIGN+DIFF review — I-p2-020 (#759): audit / export page
+
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+Canonical-diff-sha256 `2ff6c1969bee6db719a94fcf7f138b3ca4beaa72f2741fda2206d7ffa552eb8d`. web/ only, 3 files. MERGE AUTHORIZED if mergeable. APPROVE iff zero P0/P1.
+
+## iter-1 → iter-2 delta (all 3 findings fixed)
+- **P1 (overclaim — FIXED):** you flagged that the JSON download (`/api/inspector_bundle/<runId>` → `NextResponse.json(bundle)`, parsed objects not byte-preserving files) can't be re-hashed against the manifest SHA-256s, so the copy overclaimed offline verification. Reworded: integrity-manifest copy now says the hashes are the manifest-recorded ones (real) + the GPG signature (pending) seals the manifest; export copy now says the download is a convenience JSON snapshot and that byte-preserving verification (`.tar.gz` + `gpg --verify` + per-file SHA-256 re-hash) comes from the sovereign signer, NOT yet live. No promise the JSON re-hashes.
+- **P2 (≠ hardcode — FIXED):** two-family detail is now conditional — `Distinct lineages — gen ≠ eval` when passed, `Same lineage — gen, eval` when failed.
+- **P2 (gate wording — FIXED):** "Every gate this run cleared" → "Gate outcomes recorded for this run" (the loader serves aborted/failing bundles too).
+
+## iter-2 → iter-3 delta (your iter-2 P1 fixed)
+- **P1 (count — FIXED):** you flagged that `verified_sentences.length` includes BOTH passed AND dropped sentences (audit completeness), overstating coverage. Now I count `verifier_pass === true`: the subtitle reads "{passed} of {attempted} sentences span-verified" and each section row reads "{passed}/{attempted} sentences passed". For the all-pass canonical bundle this renders "8 of 8" / "2/2" — verified in the standalone harness. (`VerifiedSentenceShape.verifier_pass: boolean` confirmed in inspector_bundle_loader.ts.)
+
+## 200-LOC cap exemption (please validate)
+Diff is ~378 patch lines / ~350 net additions — over the 200-LOC cap. **Exemption: one atomic new TIER-3 page.** ~340 lines are the single new file `web/app/runs/[runId]/audit/page.tsx` (a dense compliance surface with two tables + small render helpers); the other two files are a 6-line chromeless-pattern add + an 8-line deep-link button. Splitting the page would fragment a cohesive UI unit with no review benefit. Consistent with prior Phase-2 page builds (#761 dashboard was 668 lines). If you judge the size a real review risk, say so; otherwise the exemption stands.
+
+## Context
+#759 = "Page: Audit / export (signed package + manifest + audit log; dense-table gates)". This is the COMPLIANCE/EXPORT artifact — **distinct from `/inspector/[runId]`** (the evidence EXPLORER: per-claim proof replay, evidence, reasoning, sources). The inspector already has Hash-chain + Metadata + Scope tabs; this page is the focused "take the proof with you" surface: provenance + gate ledger + integrity manifest + download.
+
+## Data source (LAW II — proven-live only)
+Server component on `loadBundle(runId)` → `LoadedBundle` — the SAME proven loader the inspector page AND `/api/inspector_bundle/[runId]/route.ts` use. Every field is fully typed from `signed_bundle.ts` (BundleManifest, BundleMetadata, FileEntry) + `inspector_bundle_loader.ts` (VerifiedReportShape). NO fabricated fields.
+
+**Deliberately NOT used:** `getAuditRun` → `AuditIrRun` (`GET /api/inspector/runs/{id}`) which has the richer per-gate log (adequacy/approval/evaluator rule-checks). That endpoint is referenced by ZERO frontend code today, so I can't prove it's live without running the heavy v6 backend (forbidden in autonomous loops per §8.4). Building the dense gate-table on an unverified endpoint would risk LAW II → captured as a documented follow-up instead. The gate ledger here is composed only from the proven `verified_report`.
+
+## Honesty (LAW II + sovereignty)
+The canonical bundle ships WITHOUT `manifest.yaml.asc` (the GPG seal was deliberately deferred — operator "skip the seal, build the real proof"). So `signaturePresent` is false and the page shows exactly that: **"Integrity manifest present · GPG signature pending"** (muted pill + tooltip explaining the sovereign signer is not yet live). It NEVER claims a signature that isn't on disk. The SHA-256 integrity manifest IS real and shown.
+
+## Diff (3 files)
+1. `web/app/runs/[runId]/audit/page.tsx` (NEW): the page. Chromeless (own header + `<main data-testid="audit-export-page">`). Sections: (a) Integrity & provenance card (bundle_id, schema, version, generator+evaluator models, created-at, honest signature pill); (b) Pipeline gate ledger dense table — pipeline verdict / strict-verify overall (rate vs threshold) / two-family segregation / per-section verify rates, each a Pass/Fail pill from `text-verified`/`text-refusal` tokens; (c) Integrity manifest dense table — every FileEntry (path/content_type/size/SHA-256, full hash on `title`); (d) Export — `<a download>` to `/api/inspector_bundle/<runId>` + "Open in Inspector". `null` bundle → `BundlePendingCta` inside the chromeless header.
+2. `web/components/app_shell_gate.tsx`: added `/^\/runs\/[^/]+\/audit$/` to CHROMELESS_PATTERNS (same focused-drill-down pattern as `/graph`).
+3. `web/app/runs/[runId]/page.tsx`: added an "Audit & export" deep-link button in the affordances row.
+
+## Files I have ALSO checked and they're clean
+- `loadBundle` / `LoadedBundle` / `VerifiedReportShape` / `BundleManifest` / `BundleMetadata` / `FileEntry` — all imported types verified present + field names exact (no fabrication).
+- State tokens `text-verified`/`bg-verified/10`/`border-verified`/`text-refusal` confirmed in `globals.css` + used by dashboard/source_card.
+- `Button` `nativeButton={false}` + `render={<a/Link>}` pattern matches the graph/runs pages.
+- Chromeless regex anchored (`$`) — only `/runs/<id>/audit`, not nested paths.
+
+## Claude visual audit (standalone harness @1366, real bundle v1-canonical-success)
+Chromeless verified (0 global nav, 1 own header). Renders: provenance card (real deepseek generator + google/gemma evaluator, honest "GPG signature pending" pill), gate ledger (verdict success + strict-verify 100% + two-family + 4 section rows all PASS — real data), integrity manifest (scope_decision/evidence_pool/verified_report/metadata/reasoning_trace + source snapshots with real SHA-256), download + inspector buttons. On-brand Frontier-Minimal (white, red accent on the primary download CTA, hairline tables).
+
+## Review focus (8-dim design rubric + diff)
+1. Distinct from inspector (not a duplicate of Hash-chain/Metadata tabs)? Does the "compliance/export" framing hold?
+2. Honesty: signature-pending disclosure correct + never overclaims a seal? Gate ledger only from real verified_report fields?
+3. Design dims: hierarchy, density (two dense tables readable?), token use (state colors ≠ national red), a11y (table semantics, chromeless landmark single header/main), responsive (overflow-x on tables).
+4. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+===== FULL UPDATED FILE: web/app/runs/[runId]/audit/page.tsx =====
+```tsx
+// I-p2-020 (#759) — Audit / export: the "take the proof with you" surface.
+//
+// Distinct from /inspector/[runId] (the evidence EXPLORER: per-claim proof
+// replay, evidence, reasoning). This is the COMPLIANCE/EXPORT artifact: the
+// signed-package integrity manifest (file hashes), the pipeline gate ledger,
+// the two-family provenance, and the download. Server component — every field
+// comes from the proven `loadBundle` path (same loader the inspector + the
+// /api/inspector_bundle/[runId] route use); no client JS needed (download is a
+// plain <a download> to that route).
+//
+// Honesty (LAW II): the canonical bundle ships WITHOUT manifest.yaml.asc (the
+// GPG seal was deliberately deferred — operator "skip the seal, build the real
+// proof"). So `signaturePresent` is false and the page says exactly that:
+// integrity manifest present, GPG signature pending sovereign signing. It never
+// claims a signature that isn't on disk.
+//
+// The richer per-gate audit log (corpus adequacy / approval / evaluator
+// rule-checks from AuditIrRun via GET /api/inspector/runs/{id}) is a documented
+// follow-up — that endpoint is used by no frontend yet, so building on it would
+// violate LAW II until it's verified live against the backend.
+
+import Link from "next/link";
+
+import { BundlePendingCta } from "@/components/inspector/bundle_pending_cta";
+import { Button } from "@/components/ui/button";
+import {
+  loadBundle,
+  type LoadedBundle,
+  type VerifiedReportShape,
+} from "@/lib/inspector_bundle_loader";
+import type { FileEntry } from "@/lib/signed_bundle";
+
+interface AuditPageProps {
+  params: Promise<{ runId: string }>;
+}
+
+const CONTENT_TYPE_LABEL: Record<string, string> = {
+  scope_decision: "Scope decision",
+  evidence_pool: "Evidence pool",
+  verified_report: "Verified report",
+  source_snapshot: "Source snapshot",
+  metadata: "Metadata",
+  reasoning_trace: "Reasoning trace",
+};
+
+function pct(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function shortHash(sha256: string): string {
+  return sha256.length > 16 ? `${sha256.slice(0, 16)}…` : sha256;
+}
+
+// I-p2-020 Codex iter-2 P1: `verified_sentences` carries BOTH passed AND
+// dropped sentences (audit completeness), so `.length` overstates coverage.
+// Count `verifier_pass === true` for the genuinely span-verified total.
+function passedSentences(section: {
+  verified_sentences: { verifier_pass: boolean }[];
+}): number {
+  return section.verified_sentences.filter((s) => s.verifier_pass).length;
+}
+
+function totalPassedSentences(report: VerifiedReportShape): number {
+  return report.sections.reduce(
+    (sum, section) => sum + passedSentences(section),
+    0,
+  );
+}
+
+function totalAttemptedSentences(report: VerifiedReportShape): number {
+  return report.sections.reduce(
+    (sum, section) => sum + section.verified_sentences.length,
+    0,
+  );
+}
+
+interface GateRow {
+  gate: string;
+  pass: boolean;
+  detail: string;
+}
+
+// The pipeline gate ledger, composed ONLY from fields that exist in the proven
+// signed-bundle verified_report. No fabricated gate fields.
+function buildGateLedger(report: VerifiedReportShape): GateRow[] {
+  const rows: GateRow[] = [
+    {
+      gate: "Pipeline verdict",
+      pass: report.pipeline_verdict === "success",
+      detail: report.pipeline_verdict,
+    },
+    {
+      gate: "Strict-verify (overall)",
+      pass: report.overall_verify_pass_rate >= report.verifier_pass_threshold,
+      detail: `${pct(report.overall_verify_pass_rate)} of sentences span-verified · threshold ${pct(report.verifier_pass_threshold)}`,
+    },
+    {
+      gate: "Two-family segregation",
+      pass: report.family_segregation_passed,
+      // I-p2-020 Codex P2: don't hardcode "≠" when the gate failed (a
+      // same-lineage bundle would show a contradictory detail beside Fail).
+      detail: report.family_segregation_passed
+        ? `Distinct lineages — ${report.generator_model} (generator) ≠ ${report.evaluator_model} (evaluator)`
+        : `Same lineage — ${report.generator_model} (generator), ${report.evaluator_model} (evaluator)`,
+    },
+  ];
+  for (const section of report.sections) {
+    rows.push({
+      gate: `Section: ${section.section_id}`,
+      pass: section.section_verify_pass_rate >= report.verifier_pass_threshold,
+      detail: `${pct(section.section_verify_pass_rate)} span-verified · ${passedSentences(section)}/${section.verified_sentences.length} sentences passed`,
+    });
+  }
+  return rows;
+}
+
+function StatusPill({ pass }: { pass: boolean }) {
+  return (
+    <span
+      className={
+        pass
+          ? "border-verified bg-verified/10 text-verified inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+          : "border-refusal bg-refusal/10 text-refusal inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+      }
+    >
+      {pass ? "Pass" : "Fail"}
+    </span>
+  );
+}
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+        {label}
+      </span>
+      <span className="text-foreground text-sm break-words">{value}</span>
+    </div>
+  );
+}
+
+function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
+  const { manifest, metadata, verifiedReport, signaturePresent, runId } =
+    bundle;
+  const gateLedger = buildGateLedger(verifiedReport);
+  const files: FileEntry[] = manifest.files;
+  const totalBytes = files.reduce((sum, f) => sum + f.size_bytes, 0);
+
+  return (
+    <div className="flex flex-col gap-8">
+      {/* Integrity & provenance */}
+      <section className="border-border bg-card flex flex-col gap-4 rounded-lg border p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h2 className="text-foreground text-sm font-semibold">
+            Integrity &amp; provenance
+          </h2>
+          {/* HONEST signature status — never claims a seal that isn't on disk. */}
+          {signaturePresent ? (
+            <span className="border-verified bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold">
+              ⬡ GPG-signed (manifest.yaml.asc present)
+            </span>
+          ) : (
+            <span
+              className="border-border text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
+              title="The bundle ships with a SHA-256 integrity manifest now; the detached GPG signature is added once the sovereign Canadian signer is live."
+            >
+              ◌ Integrity manifest present · GPG signature pending
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+          <MetaRow label="Bundle ID" value={manifest.bundle_id} />
+          <MetaRow label="Schema" value={`v${metadata.schema_version}`} />
+          <MetaRow label="POLARIS version" value={metadata.polaris_version} />
+          <MetaRow label="Generator model" value={metadata.generator_model} />
+          <MetaRow label="Evaluator model" value={metadata.evaluator_model} />
+          <MetaRow
+            label="Created (UTC)"
+            value={metadata.bundle_created_at_utc}
+          />
+        </div>
+      </section>
+
+      {/* Pipeline gate ledger */}
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-foreground text-sm font-semibold">
+            Pipeline gate ledger
+          </h2>
+          <p className="text-muted-foreground text-xs">
+            {/* I-p2-020 Codex P2: neutral wording — the same loader serves
+                aborted/failing bundles, not only cleared ones. */}
+            Gate outcomes recorded for this run, composed from the verified
+            report in the bundle — {totalPassedSentences(verifiedReport)} of{" "}
+            {totalAttemptedSentences(verifiedReport)} sentences span-verified
+            across {verifiedReport.sections.length} sections.
+          </p>
+        </div>
+        <div className="border-border overflow-x-auto rounded-lg border">
+          <table className="w-full text-left text-sm">
+            <thead className="border-border text-muted-foreground border-b text-[10px] tracking-widest uppercase">
+              <tr>
+                <th className="px-4 py-2.5 font-medium">Gate</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium">Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gateLedger.map((row) => (
+                <tr
+                  key={row.gate}
+                  className="border-border/60 border-b last:border-0"
+                >
+                  <td className="text-foreground px-4 py-2.5 font-medium">
+                    {row.gate}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <StatusPill pass={row.pass} />
+                  </td>
+                  <td className="text-muted-foreground px-4 py-2.5">
+                    {row.detail}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Integrity manifest — the file hash chain */}
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-foreground text-sm font-semibold">
+            Integrity manifest
+          </h2>
+          <p className="text-muted-foreground text-xs">
+            {/* I-p2-020 Codex P1: state what the hashes ARE (manifest-recorded,
+                real) without promising the JSON export below re-hashes to them
+                — only the byte-preserving signed package does. */}
+            Every file the signed package contains, with the SHA-256 recorded in
+            its manifest. Each file&apos;s content is fixed by its hash; the
+            detached GPG signature (pending sovereign signing) seals the
+            manifest itself.
+          </p>
+        </div>
+        <div className="border-border overflow-x-auto rounded-lg border">
+          <table className="w-full text-left text-sm">
+            <thead className="border-border text-muted-foreground border-b text-[10px] tracking-widest uppercase">
+              <tr>
+                <th className="px-4 py-2.5 font-medium">File</th>
+                <th className="px-4 py-2.5 font-medium">Type</th>
+                <th className="px-4 py-2.5 text-right font-medium">Bytes</th>
+                <th className="px-4 py-2.5 font-medium">SHA-256</th>
+              </tr>
+            </thead>
+            <tbody>
+              {files.map((f) => (
+                <tr
+                  key={f.path}
+                  className="border-border/60 border-b last:border-0"
+                >
+                  <td className="text-foreground px-4 py-2.5 font-mono text-xs">
+                    {f.path}
+                  </td>
+                  <td className="text-muted-foreground px-4 py-2.5 text-xs">
+                    {CONTENT_TYPE_LABEL[f.content_type] ?? f.content_type}
+                  </td>
+                  <td className="text-muted-foreground px-4 py-2.5 text-right font-mono text-xs">
+                    {f.size_bytes.toLocaleString()}
+                  </td>
+                  <td
+                    className="text-muted-foreground px-4 py-2.5 font-mono text-xs"
+                    title={f.sha256}
+                  >
+                    {shortHash(f.sha256)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-muted-foreground text-[10px]">
+          {files.length} files · {totalBytes.toLocaleString()} bytes total
+        </p>
+      </section>
+
+      {/* Export */}
+      <section className="border-border bg-card flex flex-col gap-3 rounded-lg border p-5">
+        <h2 className="text-foreground text-sm font-semibold">
+          Export the package
+        </h2>
+        <p className="text-muted-foreground text-xs">
+          {/* I-p2-020 Codex P1: honest — this is a convenience JSON snapshot of
+              the parsed bundle, NOT the byte-preserving signed package. Don't
+              promise hash/gpg re-verification of this download. */}
+          Download the bundle contents as a single JSON document — scope
+          decision, evidence pool, verified report, source snapshots and
+          reasoning trace. The byte-preserving signed package (a{" "}
+          <code className="font-mono text-[11px]">.tar.gz</code> for{" "}
+          <code className="font-mono text-[11px]">gpg --verify</code> + per-file
+          SHA-256 re-hashing) is produced by the sovereign Canadian signer,
+          which is not yet live.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            nativeButton={false}
+            render={
+              <a
+                href={`/api/inspector_bundle/${encodeURIComponent(runId)}`}
+                download={`polaris_audit_${runId}.json`}
+              />
+            }
+          >
+            Download audit package (JSON)
+          </Button>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/inspector/${runId}`} />}
+          >
+            Open in Inspector
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export default async function AuditExportPage({ params }: AuditPageProps) {
+  const { runId } = await params;
+  const bundle = await loadBundle(runId);
+
+  // Chromeless route (own header + <main>) — see app_shell_gate.tsx.
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4">
+          <div className="flex flex-col">
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              Audit &amp; export
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              Take the proof with you
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/inspector/${runId}`} />}
+          >
+            Back to Inspector
+          </Button>
+        </div>
+      </header>
+
+      <main
+        data-testid="audit-export-page"
+        className="mx-auto w-full max-w-5xl flex-1 px-6 py-8"
+      >
+        {bundle === null ? (
+          <BundlePendingCta runId={runId} />
+        ) : (
+          <AuditExportBody bundle={bundle} />
+        )}
+      </main>
+    </div>
+  );
+}
+```
+
+codex
+I’ll verify the actual workspace diff against the surrounding components and loader types, then check for execution/design blockers before giving the schema verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "export interface LoadedBundle|type LoadedBundle|interface VerifiedReportShape|type VerifiedReportShape|function loadBundle|export async function loadBundle|interface FileEntry|export interface FileEntry" web/lib web -g "*.ts" -g "*.tsx"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/app/runs/[runId]/audit/page.tsx web/components/app_shell_gate.tsx web/app/runs/[runId]/page.tsx' in C:\POLARIS
+ succeeded in 888ms:
+web/lib\signed_bundle.ts:48:export interface FileEntry {
+web/lib\inspector_bundle_loader.ts:31:export interface LoadedBundle {
+web/lib\inspector_bundle_loader.ts:45:export interface VerifiedReportShape {
+web/lib\inspector_bundle_loader.ts:84:export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+web/lib\inspector_bundle_client_loader.ts:205:export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
+web\lib\inspector_bundle_client_loader.ts:205:export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
+web\lib\inspector_bundle_loader.ts:31:export interface LoadedBundle {
+web\lib\inspector_bundle_loader.ts:45:export interface VerifiedReportShape {
+web\lib\inspector_bundle_loader.ts:84:export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+web\lib\signed_bundle.ts:48:export interface FileEntry {
+web\app\runs\[runId]\audit\page.tsx:28:  type LoadedBundle,
+web\app\runs\[runId]\audit\page.tsx:29:  type VerifiedReportShape,
+
+ succeeded in 931ms:
+ succeeded in 1026ms:
+ M .claude/settings.json
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M state/restart_instructions.md
+ M tests/fixtures/signed_bundle/v1_canonical/evidence_pool.json
+ M tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-p2-020/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+codex
+The repo has a very dirty worktree, but the initial `git diff` pathspec didn’t surface the three web files. I’m going to read the target files directly and compare them with the loader/route behavior so the review is based on the effective code, not just the pasted snippet.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/components/app_shell_gate.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/audit/page.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/lib/inspector_bundle_loader.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/page.tsx'" in C:\POLARIS
+ succeeded in 869ms:
+// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+// the AppShell header AND its <main> wrapper so the home route can
+// provide its own header (with the same primary nav) + its own <main>.
+// This avoids G1 (double header) + G6 (nested main) landmark violations.
+//
+// Tiny "use client" boundary so the otherwise server-rendered AppShell
+// can still wrap every non-home route on the server.
+"use client";
+
+import { usePathname } from "next/navigation";
+
+import { AppShell } from "@/components/app_shell";
+
+interface AppShellGateProps {
+  children: React.ReactNode;
+}
+
+// Chromeless routes own their full viewport (no app header/nav):
+//  - `/`        : home owns its own header + main.
+//  - `/sign-in` : institutional full-screen auth (I-p2-021 #760); the primary
+//                 nav is auth-gated anyway, so it must not show pre-login.
+const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
+
+// I-p2-019 (#762): the claim-graph drill-down (/runs/<id>/graph) is a focused
+// full-screen view that renders its OWN header (with "Back to Inspector") +
+// <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
+// header + G6 nested main).
+// I-p2-020 (#759): the audit/export drill-down (/runs/<id>/audit) follows the
+// same focused full-screen pattern (own header + <main>).
+const CHROMELESS_PATTERNS = [
+  /^\/runs\/[^/]+\/graph$/,
+  /^\/runs\/[^/]+\/audit$/,
+];
+
+function isChromeless(pathname: string): boolean {
+  return (
+    CHROMELESS_ROUTES.has(pathname) ||
+    CHROMELESS_PATTERNS.some((re) => re.test(pathname))
+  );
+}
+
+export function AppShellGate({ children }: AppShellGateProps) {
+  const pathname = usePathname();
+  if (isChromeless(pathname)) {
+    return <>{children}</>;
+  }
+  return <AppShell>{children}</AppShell>;
+}
+
+ succeeded in 927ms:
+// I-p2-020 (#759) — Audit / export: the "take the proof with you" surface.
+//
+// Distinct from /inspector/[runId] (the evidence EXPLORER: per-claim proof
+// replay, evidence, reasoning). This is the COMPLIANCE/EXPORT artifact: the
+// signed-package integrity manifest (file hashes), the pipeline gate ledger,
+// the two-family provenance, and the download. Server component — every field
+// comes from the proven `loadBundle` path (same loader the inspector + the
+// /api/inspector_bundle/[runId] route use); no client JS needed (download is a
+// plain <a download> to that route).
+//
+// Honesty (LAW II): the canonical bundle ships WITHOUT manifest.yaml.asc (the
+// GPG seal was deliberately deferred — operator "skip the seal, build the real
+// proof"). So `signaturePresent` is false and the page says exactly that:
+// integrity manifest present, GPG signature pending sovereign signing. It never
+// claims a signature that isn't on disk.
+//
+// The richer per-gate audit log (corpus adequacy / approval / evaluator
+// rule-checks from AuditIrRun via GET /api/inspector/runs/{id}) is a documented
+// follow-up — that endpoint is used by no frontend yet, so building on it would
+// violate LAW II until it's verified live against the backend.
+
+import Link from "next/link";
+
+import { BundlePendingCta } from "@/components/inspector/bundle_pending_cta";
+import { Button } from "@/components/ui/button";
+import {
+  loadBundle,
+  type LoadedBundle,
+  type VerifiedReportShape,
+} from "@/lib/inspector_bundle_loader";
+import type { FileEntry } from "@/lib/signed_bundle";
+
+interface AuditPageProps {
+  params: Promise<{ runId: string }>;
+}
+
+const CONTENT_TYPE_LABEL: Record<string, string> = {
+  scope_decision: "Scope decision",
+  evidence_pool: "Evidence pool",
+  verified_report: "Verified report",
+  source_snapshot: "Source snapshot",
+  metadata: "Metadata",
+  reasoning_trace: "Reasoning trace",
+};
+
+function pct(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function shortHash(sha256: string): string {
+  return sha256.length > 16 ? `${sha256.slice(0, 16)}…` : sha256;
+}
+
+// I-p2-020 Codex iter-2 P1: `verified_sentences` carries BOTH passed AND
+// dropped sentences (audit completeness), so `.length` overstates coverage.
+// Count `verifier_pass === true` for the genuinely span-verified total.
+function passedSentences(section: {
+  verified_sentences: { verifier_pass: boolean }[];
+}): number {
+  return section.verified_sentences.filter((s) => s.verifier_pass).length;
+}
+
+function totalPassedSentences(report: VerifiedReportShape): number {
+  return report.sections.reduce(
+    (sum, section) => sum + passedSentences(section),
+    0,
+  );
+}
+
+function totalAttemptedSentences(report: VerifiedReportShape): number {
+  return report.sections.reduce(
+    (sum, section) => sum + section.verified_sentences.length,
+    0,
+  );
+}
+
+interface GateRow {
+  gate: string;
+  pass: boolean;
+  detail: string;
+}
+
+// The pipeline gate ledger, composed ONLY from fields that exist in the proven
+// signed-bundle verified_report. No fabricated gate fields.
+function buildGateLedger(report: VerifiedReportShape): GateRow[] {
+  const rows: GateRow[] = [
+    {
+      gate: "Pipeline verdict",
+      pass: report.pipeline_verdict === "success",
+      detail: report.pipeline_verdict,
+    },
+    {
+      gate: "Strict-verify (overall)",
+      pass: report.overall_verify_pass_rate >= report.verifier_pass_threshold,
+      detail: `${pct(report.overall_verify_pass_rate)} of sentences span-verified · threshold ${pct(report.verifier_pass_threshold)}`,
+    },
+    {
+      gate: "Two-family segregation",
+      pass: report.family_segregation_passed,
+      // I-p2-020 Codex P2: don't hardcode "≠" when the gate failed (a
+      // same-lineage bundle would show a contradictory detail beside Fail).
+      detail: report.family_segregation_passed
+        ? `Distinct lineages — ${report.generator_model} (generator) ≠ ${report.evaluator_model} (evaluator)`
+        : `Same lineage — ${report.generator_model} (generator), ${report.evaluator_model} (evaluator)`,
+    },
+  ];
+  for (const section of report.sections) {
+    rows.push({
+      gate: `Section: ${section.section_id}`,
+      pass: section.section_verify_pass_rate >= report.verifier_pass_threshold,
+      detail: `${pct(section.section_verify_pass_rate)} span-verified · ${passedSentences(section)}/${section.verified_sentences.length} sentences passed`,
+    });
+  }
+  return rows;
+}
+
+function StatusPill({ pass }: { pass: boolean }) {
+  return (
+    <span
+      className={
+        pass
+          ? "border-verified bg-verified/10 text-verified inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+          : "border-refusal bg-refusal/10 text-refusal inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+      }
+    >
+      {pass ? "Pass" : "Fail"}
+    </span>
+  );
+}
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+        {label}
+      </span>
+      <span className="text-foreground text-sm break-words">{value}</span>
+    </div>
+  );
+}
+
+function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
+  const { manifest, metadata, verifiedReport, signaturePresent, runId } =
+    bundle;
+  const gateLedger = buildGateLedger(verifiedReport);
+  const files: FileEntry[] = manifest.files;
+  const totalBytes = files.reduce((sum, f) => sum + f.size_bytes, 0);
+
+  return (
+    <div className="flex flex-col gap-8">
+      {/* Integrity & provenance */}
+      <section className="border-border bg-card flex flex-col gap-4 rounded-lg border p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h2 className="text-foreground text-sm font-semibold">
+            Integrity &amp; provenance
+          </h2>
+          {/* HONEST signature status — never claims a seal that isn't on disk. */}
+          {signaturePresent ? (
+            <span className="border-verified bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold">
+              ⬡ GPG-signed (manifest.yaml.asc present)
+            </span>
+          ) : (
+            <span
+              className="border-border text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
+              title="The bundle ships with a SHA-256 integrity manifest now; the detached GPG signature is added once the sovereign Canadian signer is live."
+            >
+              ◌ Integrity manifest present · GPG signature pending
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+          <MetaRow label="Bundle ID" value={manifest.bundle_id} />
+          <MetaRow label="Schema" value={`v${metadata.schema_version}`} />
+          <MetaRow label="POLARIS version" value={metadata.polaris_version} />
+          <MetaRow label="Generator model" value={metadata.generator_model} />
+          <MetaRow label="Evaluator model" value={metadata.evaluator_model} />
+          <MetaRow
+            label="Created (UTC)"
+            value={metadata.bundle_created_at_utc}
+          />
+        </div>
+      </section>
+
+      {/* Pipeline gate ledger */}
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-foreground text-sm font-semibold">
+            Pipeline gate ledger
+          </h2>
+          <p className="text-muted-foreground text-xs">
+            {/* I-p2-020 Codex P2: neutral wording — the same loader serves
+                aborted/failing bundles, not only cleared ones. */}
+            Gate outcomes recorded for this run, composed from the verified
+            report in the bundle — {totalPassedSentences(verifiedReport)} of{" "}
+            {totalAttemptedSentences(verifiedReport)} sentences span-verified
+            across {verifiedReport.sections.length} sections.
+          </p>
+        </div>
+        <div className="border-border overflow-x-auto rounded-lg border">
+          <table className="w-full text-left text-sm">
+            <thead className="border-border text-muted-foreground border-b text-[10px] tracking-widest uppercase">
+              <tr>
+                <th className="px-4 py-2.5 font-medium">Gate</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium">Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gateLedger.map((row) => (
+                <tr
+                  key={row.gate}
+                  className="border-border/60 border-b last:border-0"
+                >
+                  <td className="text-foreground px-4 py-2.5 font-medium">
+                    {row.gate}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <StatusPill pass={row.pass} />
+                  </td>
+                  <td className="text-muted-foreground px-4 py-2.5">
+                    {row.detail}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Integrity manifest — the file hash chain */}
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-foreground text-sm font-semibold">
+            Integrity manifest
+          </h2>
+          <p className="text-muted-foreground text-xs">
+            {/* I-p2-020 Codex P1: state what the hashes ARE (manifest-recorded,
+                real) without promising the JSON export below re-hashes to them
+                — only the byte-preserving signed package does. */}
+            Every file the signed package contains, with the SHA-256 recorded in
+            its manifest. Each file&apos;s content is fixed by its hash; the
+            detached GPG signature (pending sovereign signing) seals the
+            manifest itself.
+          </p>
+        </div>
+        <div className="border-border overflow-x-auto rounded-lg border">
+          <table className="w-full text-left text-sm">
+            <thead className="border-border text-muted-foreground border-b text-[10px] tracking-widest uppercase">
+              <tr>
+                <th className="px-4 py-2.5 font-medium">File</th>
+                <th className="px-4 py-2.5 font-medium">Type</th>
+                <th className="px-4 py-2.5 text-right font-medium">Bytes</th>
+                <th className="px-4 py-2.5 font-medium">SHA-256</th>
+              </tr>
+            </thead>
+            <tbody>
+              {files.map((f) => (
+                <tr
+                  key={f.path}
+                  className="border-border/60 border-b last:border-0"
+                >
+                  <td className="text-foreground px-4 py-2.5 font-mono text-xs">
+                    {f.path}
+                  </td>
+                  <td className="text-muted-foreground px-4 py-2.5 text-xs">
+                    {CONTENT_TYPE_LABEL[f.content_type] ?? f.content_type}
+                  </td>
+                  <td className="text-muted-foreground px-4 py-2.5 text-right font-mono text-xs">
+                    {f.size_bytes.toLocaleString()}
+                  </td>
+                  <td
+                    className="text-muted-foreground px-4 py-2.5 font-mono text-xs"
+                    title={f.sha256}
+                  >
+                    {shortHash(f.sha256)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-muted-foreground text-[10px]">
+          {files.length} files · {totalBytes.toLocaleString()} bytes total
+        </p>
+      </section>
+
+      {/* Export */}
+      <section className="border-border bg-card flex flex-col gap-3 rounded-lg border p-5">
+        <h2 className="text-foreground text-sm font-semibold">
+          Export the package
+        </h2>
+        <p className="text-muted-foreground text-xs">
+          {/* I-p2-020 Codex P1: honest — this is a convenience JSON snapshot of
+              the parsed bundle, NOT the byte-preserving signed package. Don't
+              promise hash/gpg re-verification of this download. */}
+          Download the bundle contents as a single JSON document — scope
+          decision, evidence pool, verified report, source snapshots and
+          reasoning trace. The byte-preserving signed package (a{" "}
+          <code className="font-mono text-[11px]">.tar.gz</code> for{" "}
+          <code className="font-mono text-[11px]">gpg --verify</code> + per-file
+          SHA-256 re-hashing) is produced by the sovereign Canadian signer,
+          which is not yet live.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            nativeButton={false}
+            render={
+              <a
+                href={`/api/inspector_bundle/${encodeURIComponent(runId)}`}
+                download={`polaris_audit_${runId}.json`}
+              />
+            }
+          >
+            Download audit package (JSON)
+          </Button>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/inspector/${runId}`} />}
+          >
+            Open in Inspector
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export default async function AuditExportPage({ params }: AuditPageProps) {
+  const { runId } = await params;
+  const bundle = await loadBundle(runId);
+
+  // Chromeless route (own header + <main>) — see app_shell_gate.tsx.
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4">
+          <div className="flex flex-col">
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              Audit &amp; export
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              Take the proof with you
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/inspector/${runId}`} />}
+          >
+            Back to Inspector
+          </Button>
+        </div>
+      </header>
+
+      <main
+        data-testid="audit-export-page"
+        className="mx-auto w-full max-w-5xl flex-1 px-6 py-8"
+      >
+        {bundle === null ? (
+          <BundlePendingCta runId={runId} />
+        ) : (
+          <AuditExportBody bundle={bundle} />
+        )}
+      </main>
+    </div>
+  );
+}
+
+ succeeded in 873ms:
+// I-cd-013a (GH#609) — server-only bundle loader.
+//
+// Imported by web/app/inspector/[runId]/page.tsx and
+// web/app/api/inspector_bundle/[runId]/route.ts. Returns the parsed
+// canonical fixture data for runId === "v1-canonical" or
+// "v1-canonical-success"; returns null for any other runId (the page
+// renders a BundlePendingCTA in that case).
+//
+// Real-bundle backend wiring lands at I-B-08 (Seq 20); offline
+// fallback (in-browser bundle render) at I-B-09 (Seq 21). This module
+// is the swappable seam — same function signature, different data
+// path in each follow-up issue.
+
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
+import {
+  type BundleManifest,
+  type BundleMetadata,
+  type ReasoningTraceRecord,
+  parseManifest,
+  parseReasoningTraceJsonl,
+} from "@/lib/signed_bundle";
+
+// I-p2-p0 (#789): the canonical fixture ships in web/public/canonical_bundles/
+// (Dockerfile COPYs public → /app/public; cwd=/app at runtime), so it resolves
+// in dev, the standalone harness, AND the prod container — unlike the old
+// process.cwd()/../tests/fixtures path, which only existed in dev → live 500.
+const FIXTURE_ROOT = path.join(process.cwd(), "public", "canonical_bundles");
+
+export interface LoadedBundle {
+  runId: string;
+  manifest: BundleManifest;
+  scopeDecision: unknown;
+  evidencePool: unknown;
+  verifiedReport: VerifiedReportShape;
+  metadata: BundleMetadata;
+  reasoningTrace: ReasoningTraceRecord[];
+  sources: Record<string, string>;
+  /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
+   * Derived during load — NOT a manifest field. Codex diff iter-1 P2. */
+  signaturePresent: boolean;
+}
+
+export interface VerifiedReportShape {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSectionShape[];
+  overall_verify_pass_rate: number;
+  verifier_pass_threshold: number;
+  pipeline_verdict: string;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+  /** The research question this brief answered (real-run bundles). */
+  research_question?: string;
+}
+
+export interface VerifiedReportSectionShape {
+  section_id: string;
+  section_verify_pass_rate: number;
+  verified_sentences: VerifiedSentenceShape[];
+  [extra: string]: unknown;
+}
+
+export interface VerifiedSentenceShape {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  [extra: string]: unknown;
+}
+
+const KNOWN_FIXTURES: Record<string, string> = {
+  "v1-canonical": "v1_canonical",
+  "v1-canonical-success": "v1_canonical_success",
+};
+
+export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+  // typeof guard (not `!relPath`): runId could be an Object.prototype name
+  // (toString / __proto__ / constructor) → KNOWN_FIXTURES[runId] returns a
+  // function/object → path.join would throw before the try → user-triggerable
+  // 500. A non-string lookup → null → BundlePendingCta. (Codex iter-2 P1.)
+  const relPath = KNOWN_FIXTURES[runId];
+  if (typeof relPath !== "string") return null;
+  const dir = path.join(FIXTURE_ROOT, relPath);
+
+  try {
+    const manifestRaw = await fs.readFile(
+      path.join(dir, "manifest.yaml"),
+      "utf-8",
+    );
+    const manifest = parseManifest(manifestRaw);
+
+    const scopeDecision = await readJson(dir, manifest, "scope_decision");
+    const evidencePool = await readJson(dir, manifest, "evidence_pool");
+    const verifiedReport = (await readJson(
+      dir,
+      manifest,
+      "verified_report",
+    )) as VerifiedReportShape;
+
+    // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
+    // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
+    // also flagged metadata in the active producer).
+    const metadataEntry = manifest.files.find(
+      (f) => f.content_type === "metadata" && f.path === "metadata.json",
+    );
+    if (!metadataEntry) {
+      throw new Error(
+        `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
+      );
+    }
+    const metadata = JSON.parse(
+      await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
+    ) as BundleMetadata;
+
+    const reasoningTraceEntry = manifest.files.find(
+      (f) => f.content_type === "reasoning_trace",
+    );
+    const reasoningTrace = reasoningTraceEntry
+      ? parseReasoningTraceJsonl(
+          await fs.readFile(path.join(dir, reasoningTraceEntry.path), "utf-8"),
+        )
+      : [];
+
+    const sources: Record<string, string> = {};
+    for (const entry of manifest.files) {
+      if (entry.content_type !== "source_snapshot") continue;
+      sources[entry.path] = await fs.readFile(
+        path.join(dir, entry.path),
+        "utf-8",
+      );
+    }
+
+    // Signature presence check (Codex diff iter-1 P2): mirror the conformance
+    // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
+    // bundle. The UI surfaces this boolean transparently; cryptographic
+    // verification belongs to operator-side `gpg --verify` tooling.
+    let signaturePresent = false;
+    try {
+      const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
+      signaturePresent = stat.isFile() && stat.size > 0;
+    } catch {
+      signaturePresent = false;
+    }
+
+    return {
+      runId,
+      manifest,
+      scopeDecision,
+      evidencePool,
+      verifiedReport,
+      metadata,
+      reasoningTrace,
+      sources,
+      signaturePresent,
+    };
+  } catch (err) {
+    // Graceful: a missing/unreadable/malformed bundle renders the pending
+    // state (BundlePendingCta), NEVER a 500. (#789 P0 — the centerpiece must
+    // not crash the page.)
+    console.error(`[inspector] bundle load failed for ${runId}:`, err);
+    return null;
+  }
+}
+
+async function readJson(
+  dir: string,
+  manifest: BundleManifest,
+  contentType: "scope_decision" | "evidence_pool" | "verified_report",
+): Promise<unknown> {
+  const entry = manifest.files.find((f) => f.content_type === contentType);
+  if (!entry) {
+    throw new Error(
+      `bundle: manifest has no entry of content_type=${contentType}`,
+    );
+  }
+  const body = await fs.readFile(path.join(dir, entry.path), "utf-8");
+  return JSON.parse(body);
+}
+
+ succeeded in 947ms:
+"use client";
+
+import Link from "next/link";
+import { use, useEffect, useState } from "react";
+
+import { ErrorState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import {
+  cancelRun,
+  downloadBundleAsJson,
+  getBundle,
+  getRun,
+  subscribeToRun,
+  type RunStatusResponse,
+  type StreamEvent,
+} from "@/lib/api";
+
+import { FollowupPanel } from "./components/followup_panel";
+import { RunProgress } from "./components/run_progress";
+
+interface RunPageProps {
+  params: Promise<{ runId: string }>;
+}
+
+// I-rdy-011 (#507): lifecycle states from which a run can no longer be
+// cancelled — the Cancel button is disabled for these.
+const TERMINAL_STATUSES = ["completed", "failed", "cancelled"];
+
+export default function RunDetailPage({ params }: RunPageProps) {
+  const { runId } = use(params);
+  const [status, setStatus] = useState<RunStatusResponse | null>(null);
+  const [events, setEvents] = useState<StreamEvent[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRun(runId)
+      .then((value) => {
+        if (!cancelled) setStatus(value);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          // G4 (Codex iter-1 P0): map raw API errors to friendly copy.
+          const raw = err instanceof Error ? err.message : String(err);
+          const friendly = raw.toLowerCase().includes("404")
+            ? "This run was not found. Check the URL or start a new run."
+            : "We couldn't load this run right now. Please retry shortly.";
+          setError(friendly);
+        }
+      });
+
+    const source = subscribeToRun(
+      runId,
+      (event) => {
+        setEvents((prev) => [...prev, event]);
+        // I-ui-003 (#542) Codex diff P1: getRun() only populates `status`
+        // once on mount; the SSE stream otherwise just appends events. When a
+        // run watched live reaches `run_complete`, re-fetch the lifecycle
+        // status so completed-only UI (the follow-up panel, the status line,
+        // the cancel button) updates without a manual reload.
+        if (event.event === "run_complete") {
+          getRun(runId)
+            .then((value) => {
+              if (!cancelled) setStatus(value);
+            })
+            .catch(() => {});
+        }
+      },
+      () => {
+        // SSE error: backend may have closed the stream after run_complete.
+        source.close();
+      },
+    );
+
+    return () => {
+      cancelled = true;
+      source.close();
+    };
+  }, [runId]);
+
+  // I-rdy-011 (#507): a queued run cancels instantly; an in-progress run
+  // aborts cooperatively at the next pipeline stage boundary. The button is
+  // disabled once the run is terminal (or its status is not yet loaded).
+  const isTerminal =
+    status !== null && TERMINAL_STATUSES.includes(status.status);
+  const cancelRequested = status?.cancel_requested ?? false;
+
+  const onCancel = async () => {
+    setCancelling(true);
+    setError(null);
+    try {
+      const updated = await cancelRun(runId);
+      setStatus(updated);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Cancel failed: ${err.message}`
+          : "Cancel failed",
+      );
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  // I-cd-025 (#615): /runs/[runId] rebuild — G1/G6 fix. Page no longer
+  // renders its own <header>, <footer>, or <main>. AppShell (via
+  // AppShellGate, I-cd-022) is the single landmark provider on this
+  // route. G2 fix: removed "POLARIS v6.2 — Phase 0 scaffold" footer
+  // dev-language. The header's Export-bundle + New-run buttons move
+  // into a page-level action row inside the <section>.
+  return (
+    <section
+      data-testid="runs-runid-page"
+      className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-12"
+    >
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          variant="outline"
+          onClick={async () => {
+            try {
+              const bundle = await getBundle(runId);
+              downloadBundleAsJson(bundle);
+            } catch (err) {
+              setError(
+                err instanceof Error
+                  ? `Bundle export failed: ${err.message}`
+                  : "Bundle export failed",
+              );
+            }
+          }}
+        >
+          Export bundle
+        </Button>
+        <Button
+          variant="default"
+          nativeButton={false}
+          render={<Link href="/intake" />}
+        >
+          New run
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-muted-foreground text-xs tracking-widest uppercase">
+          Run {runId}
+        </span>
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          {/* I-p2-016 (#755): don't show "Loading…" once an error has fired. */}
+          {status?.question ?? (error ? "Couldn't load this run" : "Loading…")}
+        </h1>
+        {status && (
+          <p className="text-muted-foreground text-sm">
+            Template: <span className="text-foreground">{status.template}</span>
+            {" · "}
+            Status:{" "}
+            <span className="text-foreground font-mono">{status.status}</span>
+            {" · "}
+            Queued at <time>{status.queued_at}</time>
+          </p>
+        )}
+        {/* I-p2-016 (#755): #750 ErrorState (design tokens + role=alert) instead
+            of the hand-rolled banner — consistent with every other page. */}
+        {error && <ErrorState title="Couldn't load this run" message={error} />}
+      </div>
+
+      <div className="border-border flex flex-col gap-2 rounded-md border p-4">
+        <h2 className="text-foreground text-sm font-semibold">
+          Affordances during this run
+        </h2>
+        <p className="text-muted-foreground text-xs">
+          Actions you can take while POLARIS works:
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/inspector/${runId}`} />}
+          >
+            Open Inspector
+          </Button>
+          {/* I-p2-020 (#759): audit / export drill-down. */}
+          <Button
+            type="button"
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/runs/${runId}/audit`} />}
+          >
+            Audit &amp; export
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={async () => {
+              try {
+                const bundle = await getBundle(runId);
+                downloadBundleAsJson(bundle);
+              } catch (err) {
+                setError(
+                  err instanceof Error
+                    ? `Bundle export failed: ${err.message}`
+                    : "Bundle export failed",
+                );
+              }
+            }}
+          >
+            Export current bundle
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={status === null || isTerminal || cancelling}
+            title={
+              cancelRequested
+                ? "Cancellation requested — the run is winding down"
+                : "Cancel this queued or in-progress run"
+            }
+            onClick={onCancel}
+          >
+            {cancelRequested
+              ? "Cancelling…"
+              : cancelling
+                ? "Requesting…"
+                : "Cancel run"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled
+            title="Pin this run for later replay (coming soon)"
+          >
+            Pin for replay
+          </Button>
+        </div>
+      </div>
+
+      <RunProgress events={events} status={status} />
+
+      {/* I-ui-003 (#542): follow-up is meaningful only for a completed run
+          (it has an answerable, verified report). Failed/cancelled/in-progress
+          runs don't render it. */}
+      {status?.status === "completed" && <FollowupPanel runId={runId} />}
+    </section>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/api/inspector_bundle/[runId]/route.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/lib/signed_bundle.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "border-verified|bg-verified|text-verified|border-refusal|bg-refusal|text-refusal|--verified|--refusal" web -g "*.css" -g "*.tsx"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/components/ui/button.tsx'" in C:\POLARIS
+ succeeded in 944ms:
+// I-cd-013a (GH#609) — stub bundle API.
+// Same loader the page uses; the no-op-replaceable seam I-B-09 will swap
+// when implementing offline (no-backend) fallback.
+import { NextResponse } from "next/server";
+
+import { loadBundle } from "@/lib/inspector_bundle_loader";
+
+interface RouteContext {
+  params: Promise<{ runId: string }>;
+}
+
+export async function GET(_request: Request, ctx: RouteContext) {
+  const { runId } = await ctx.params;
+  const bundle = await loadBundle(runId);
+  if (bundle === null) {
+    return NextResponse.json(
+      { error: "bundle_not_found", runId },
+      { status: 404 },
+    );
+  }
+  return NextResponse.json(bundle, { status: 200 });
+}
+
+ succeeded in 996ms:
+// I-cd-012 (GH#608) — frontend mirror of
+// src/polaris_graph/audit_bundle/bundle_schema.py:BundleManifest (FROZEN v1.0).
+//
+// FROZEN v1.0: Field additions, removals, type changes, or new ContentType
+// enum members require the full bump cascade documented in the Python module.
+//
+// Active consumers:
+//   - Future Inspector route (I-A-03, #609)
+//   - Offline fallback Inspector that renders a signed bundle in-browser
+//     with no GPU/no backend (I-B-09, #631)
+//
+// Active producers (mirror this contract):
+//   - src/polaris_graph/audit_bundle/manifest_builder.py
+//   - src/polaris_graph/audit_bundle/bundle_builder.py
+//   - src/polaris_graph/api/audit_bundle_route.py
+//   - src/polaris_v6/api/bundle.py
+
+import yaml from "js-yaml";
+
+// ---------------------------------------------------------------------------
+// Type literals — must match
+// src/polaris_graph/audit_bundle/bundle_schema.py:ContentType
+// ---------------------------------------------------------------------------
+
+export type ContentType =
+  | "scope_decision"
+  | "evidence_pool"
+  | "verified_report"
+  | "source_snapshot"
+  | "metadata"
+  | "reasoning_trace";
+
+export const CONTENT_TYPES: ContentType[] = [
+  "scope_decision",
+  "evidence_pool",
+  "verified_report",
+  "source_snapshot",
+  "metadata",
+  "reasoning_trace",
+];
+
+export const BUNDLE_VERSION = "1.0" as const;
+
+// ---------------------------------------------------------------------------
+// FileEntry — mirrors bundle_schema.py:FileEntry
+// ---------------------------------------------------------------------------
+
+export interface FileEntry {
+  path: string; // relative POSIX path inside the extracted bundle
+  sha256: string; // lowercase hex SHA256
+  size_bytes: number;
+  content_type: ContentType;
+}
+
+// ---------------------------------------------------------------------------
+// BundleManifest — mirrors bundle_schema.py:BundleManifest
+// ---------------------------------------------------------------------------
+
+export interface BundleManifest {
+  bundle_id: string;
+  bundle_version: typeof BUNDLE_VERSION;
+  decision_id: string;
+  pool_id: string;
+  report_id: string;
+  generator_model: string;
+  polaris_version: string;
+  files: FileEntry[];
+  bundle_created_at_utc: string; // ISO-8601 UTC
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning trace — JSONL (one record per generator LLM call)
+// ---------------------------------------------------------------------------
+
+// Mirrors src/polaris_graph/generator/reasoning_trace.py:67
+// ReasoningTraceRecord (the active producer dataclass). 15 fields.
+// Codex diff iter-1 P1: previous 5-field shape diverged from real producer.
+export interface ReasoningTraceRecord {
+  call_id: string;
+  section: string;
+  call_type: string;
+  model: string;
+  status: string; // see reasoning_trace.py STATUSES
+  content_source: string; // see reasoning_trace.py CONTENT_SOURCES
+  parent_call_id: string | null;
+  regen_reason: string | null;
+  attempt_n: number;
+  reasoning_text: string;
+  content_text: string;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  timestamp: string; // ISO-8601 UTC
+}
+
+// ---------------------------------------------------------------------------
+// Bundle metadata — content of metadata.json
+// ---------------------------------------------------------------------------
+
+export interface BundleMetadata {
+  polaris_version: string;
+  generator_model: string;
+  evaluator_model: string;
+  bundle_created_at_utc: string;
+  schema_version: typeof BUNDLE_VERSION;
+}
+
+// ---------------------------------------------------------------------------
+// Parsers
+// ---------------------------------------------------------------------------
+
+/** Parse a `manifest.yaml` text into a typed `BundleManifest`.
+ *
+ * Validation is structural (presence of required fields + bundle_version
+ * literal); deeper conformance (path traversal, SHA256 matching, content
+ * schema validity) lives in the Python `check_bundle_conformance`. */
+export function parseManifest(yamlText: string): BundleManifest {
+  const parsed = yaml.load(yamlText);
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("manifest.yaml does not parse to a YAML mapping");
+  }
+  const m = parsed as Partial<BundleManifest>;
+  if (m.bundle_version !== BUNDLE_VERSION) {
+    throw new Error(
+      `bundle_version ${m.bundle_version} != frozen ${BUNDLE_VERSION}`,
+    );
+  }
+  for (const required of [
+    "bundle_id",
+    "decision_id",
+    "pool_id",
+    "report_id",
+    "generator_model",
+    "polaris_version",
+    "files",
+    "bundle_created_at_utc",
+  ] as const) {
+    if (m[required] === undefined || m[required] === null) {
+      throw new Error(`manifest.yaml missing required field: ${required}`);
+    }
+  }
+  if (!Array.isArray(m.files)) {
+    throw new Error("manifest.yaml `files` must be an array");
+  }
+  return m as BundleManifest;
+}
+
+/** Parse a `reasoning_trace.jsonl` text body into a list of records.
+ *
+ * One JSON object per non-empty line; blank lines are skipped. Malformed
+ * lines throw to surface bundle corruption at the source. */
+export function parseReasoningTraceJsonl(text: string): ReasoningTraceRecord[] {
+  const out: ReasoningTraceRecord[] = [];
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.trim() === "") continue;
+    let record: unknown;
+    try {
+      record = JSON.parse(line);
+    } catch (err) {
+      throw new Error(
+        `reasoning_trace.jsonl line ${i + 1} is not valid JSON: ${(err as Error).message}`,
+      );
+    }
+    if (
+      typeof record !== "object" ||
+      record === null ||
+      Array.isArray(record)
+    ) {
+      throw new Error(
+        `reasoning_trace.jsonl line ${i + 1} is not a JSON object`,
+      );
+    }
+    out.push(record as ReasoningTraceRecord);
+  }
+  return out;
+}
+
+/** Helper: filter `BundleManifest.files` by ContentType. */
+export function filesByContentType(
+  manifest: BundleManifest,
+  contentType: ContentType,
+): FileEntry[] {
+  return manifest.files.filter((f) => f.content_type === contentType);
+}
+
+ succeeded in 949ms:
+web\app\dashboard\page.tsx:43:      cls: "text-verified border-verified/30 bg-verified/10",
+web\app\dashboard\page.tsx:49:      // text-refusal (the dark neutral) on the light bg-refusal/10 for AA, not
+web\app\dashboard\page.tsx:51:      cls: "text-refusal border-refusal/30 bg-refusal/10",
+web\components\contradiction\contradiction_panel.tsx:32:      className="bg-refusal/10 border-refusal/30 flex flex-col gap-1 rounded-md border p-4"
+web\app\components\proof_showcase.tsx:84:          <div className="text-verified inline-flex items-center gap-1.5 text-xs font-semibold">
+web\components\verdict\verdict_chip.tsx:36:    className: "bg-verified/10 text-verified border-verified/30",
+web\components\verdict\verdict_chip.tsx:68:    className: "bg-refusal/10 text-refusal border-refusal/30",
+web\components\source\source_card.tsx:37:      <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\proof_replay\proof_replay.tsx:189:                    claim.verified ? "bg-verified" : "bg-muted-foreground"
+web\app\globals.css:31:  --color-verified: var(--verified);
+web\app\globals.css:32:  --color-verified-foreground: var(--verified-foreground);
+web\app\globals.css:35:  --color-refusal: var(--refusal);
+web\app\globals.css:36:  --color-refusal-foreground: var(--refusal-foreground);
+web\app\globals.css:41:  --color-verified-bundle: var(--verified-bundle);
+web\app\globals.css:94:  --verified: oklch(0.48 0.14 152);
+web\app\globals.css:95:  --verified-foreground: oklch(0.985 0 0);
+web\app\globals.css:98:  --refusal: oklch(0.45 0.02 286);
+web\app\globals.css:99:  --refusal-foreground: oklch(0.985 0 0);
+web\app\globals.css:105:  --verified-bundle: oklch(0.48 0.14 152);
+web\components\sovereignty\sovereignty_panel.tsx:75:              <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\sovereignty\sovereignty_panel.tsx:99:            <p className="text-verified mt-1 text-[11px]">
+web\app\plan\page.tsx:291:          className="border-refusal/30 bg-refusal/10 flex flex-col gap-1 rounded-lg border p-4"
+web\app\runs\[runId]\audit\page.tsx:122:          ? "border-verified bg-verified/10 text-verified inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+web\app\runs\[runId]\audit\page.tsx:123:          : "border-refusal bg-refusal/10 text-refusal inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+web\app\runs\[runId]\audit\page.tsx:159:            <span className="border-verified bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold">
+
+ succeeded in 999ms:
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
+import { cva, type VariantProps } from "class-variance-authority";
+
+import { cn } from "@/lib/utils";
+
+const buttonVariants = cva(
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/70 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        outline:
+          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+        ghost:
+          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/80 focus-visible:ring-destructive/30",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        // Cycle-7 P3.2 follow-up: WCAG 2.5.8 target-size requires
+        // touch targets ≥24px. Bumped default from h-8 (32px) to h-9
+        // (36px) — the prior 32px reported as ~21px effective height
+        // by axe due to inner text-bounding-box measurement quirks.
+        // h-9 puts unambiguous clearance.
+        default:
+          "h-9 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        xs: "h-7 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-8 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-10 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        icon: "size-9",
+        "icon-xs":
+          "size-7 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm":
+          "size-8 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+        "icon-lg": "size-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  },
+);
+
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  ...props
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  );
+}
+
+export { Button, buttonVariants };
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git status --short -- ':(literal)web/app/runs/[runId]/audit/page.tsx' ':(literal)web/components/app_shell_gate.tsx' ':(literal)web/app/runs/[runId]/page.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git diff -- ':(literal)web/app/runs/[runId]/audit/page.tsx' ':(literal)web/components/app_shell_gate.tsx' ':(literal)web/app/runs/[runId]/page.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/package.json'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "git ls-files -- ':(literal)web/app/runs/[runId]/audit/page.tsx' ':(literal)web/components/app_shell_gate.tsx' ':(literal)web/app/runs/[runId]/page.tsx'" in C:\POLARIS
+ succeeded in 938ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 931ms:
+ succeeded in 965ms:
+web/app/runs/[runId]/audit/page.tsx
+web/app/runs/[runId]/page.tsx
+web/components/app_shell_gate.tsx
+
+ succeeded in 995ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "@types/three": "^0.184.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "three": "^0.184.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+codex
+The three target files are tracked and currently show no unstaged diff, so I’m treating the pasted content as the current effective revision. Next I’m running the lightweight TypeScript check and checking route/link interactions for regressions.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"href=\\{"'`/runs/'"\\"'$'"\\{runId\\}/graph"'`|/runs/'"\\"'$'"\\{runId\\}/audit|Back to Inspector|BundlePendingCta|data-testid=\\\".*graph|graph-page|nativeButton=\\{false\\}\" web/app web/components -g \"*.tsx\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck -- --pretty false' in C:\POLARIS\web
+2026-05-23T05:58:17.295550Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.8 seconds
+Output:
+[31;1mParserError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m . Id\}/audit|Back to Inspector|BundlePendingCta|data-testid=\".[36;1m*[0mgraph|g .[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                                                ~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mMissing property name after reference operator.[0m
+
+ exited 1 in 789ms:
+[31;1mParserError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m . Id\}/audit|Back to Inspector|BundlePendingCta|data-testid=\".[36;1m*[0mgraph|g .[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                                                ~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mMissing property name after reference operator.[0m
+
+ succeeded in 3552ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit --pretty false
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'runs/.+/graph|/runs/|Back to Inspector|BundlePendingCta|nativeButton=\\{false\\}' web/app web/components -g '*.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/runs/[runId]/graph/page.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/components/inspector/bundle_pending_cta.tsx'" in C:\POLARIS
+ succeeded in 860ms:
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { use, useEffect, useRef, useState } from "react";
+
+import { ErrorState, LoadingState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { getRunGraph, type GraphPayload } from "@/lib/api";
+
+import type cytoscape from "cytoscape";
+
+import { AccessibleGraphList } from "./components/accessible_graph_list";
+import { ClaimGraph } from "./components/claim_graph";
+import { GraphExportButtons } from "./components/graph_export_buttons";
+import { snowballNeighbors } from "./components/snowball";
+import { useGraphState } from "./components/use_graph_state";
+
+interface GraphPageProps {
+  params: Promise<{ runId: string }>;
+}
+
+export default function GraphPage({ params }: GraphPageProps) {
+  const { runId } = use(params);
+  const [payload, setPayload] = useState<GraphPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRunGraph(runId)
+      .then((p) => {
+        if (!cancelled) setPayload(p);
+      })
+      .catch((e: Error) => {
+        // I-p2-019 (#758): map raw API errors to friendly copy (mirrors the
+        // /runs/[runId] G4 fix) — never leak "HTTP 500" / fn names to the user.
+        if (!cancelled) {
+          const raw = e.message.toLowerCase();
+          setError(
+            raw.includes("404")
+              ? "This run was not found. Check the URL or start a new run."
+              : "We couldn't load the knowledge graph right now. Please retry shortly.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
+          <div className="flex flex-col">
+            {/* I-p2-019 (#758): G2 — dropped the "F-snowball" dev-language. */}
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              Knowledge graph
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              How this run&apos;s claims + sources connect
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/inspector/${runId}`} />}
+          >
+            Back to Inspector
+          </Button>
+        </div>
+      </header>
+
+      <main
+        data-testid="graph-page"
+        className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 px-6 py-6"
+      >
+        {/* I-p2-019 (#758): #750 ErrorState/LoadingState (design tokens +
+            role=alert/status + motion-reduce) instead of hand-rolled. */}
+        {error && (
+          <ErrorState title="Couldn't load the graph" message={error} />
+        )}
+
+        {!payload && !error && (
+          <LoadingState label="Loading the knowledge graph…" rows={6} />
+        )}
+
+        {payload && <GraphSurface payload={payload} runId={runId} />}
+      </main>
+    </div>
+  );
+}
+
+interface GraphSurfaceProps {
+  payload: GraphPayload;
+  runId: string;
+}
+
+function GraphSurface({ payload, runId }: GraphSurfaceProps) {
+  const [state, adjacency, actions] = useGraphState(payload);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
+  const [cy, setCy] = useState<cytoscape.Core | null>(null);
+  const inspectorHref = (id: string) =>
+    `/inspector/${runId}?${new URLSearchParams({ focused_node: id }).toString()}`;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          ref={searchInputRef}
+          type="search"
+          placeholder="Search nodes (press / to focus)…"
+          value={state.search_query}
+          onChange={(e) => actions.setSearchQuery(e.target.value)}
+          className="max-w-md"
+          aria-label="Search graph nodes"
+        />
+        <span className="text-muted-foreground text-xs">
+          {state.visible_node_ids.size}/{payload.elements.nodes.length} visible
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!state.selected_node_id}
+          onClick={() => {
+            if (state.selected_node_id)
+              router.push(inspectorHref(state.selected_node_id));
+          }}
+        >
+          Open Inspector
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!state.selected_node_id}
+          onClick={() => {
+            if (!state.selected_node_id) return;
+            actions.setSnowballHighlight(
+              snowballNeighbors(payload, state.selected_node_id, 2),
+            );
+          }}
+        >
+          Expand snowball (2 hops)
+        </Button>
+        {state.snowball_highlight_ids && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => actions.setSnowballHighlight(null)}
+          >
+            Clear ({state.snowball_highlight_ids.size} nodes)
+          </Button>
+        )}
+        <GraphExportButtons cy={cy} payload={payload} />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+        <ClaimGraph
+          payload={payload}
+          selectedNodeId={state.selected_node_id}
+          searchQuery={state.search_query}
+          snowballHighlightIds={state.snowball_highlight_ids}
+          setSelectedNodeId={actions.setSelectedNodeId}
+          onCyReady={setCy}
+        />
+        <AccessibleGraphList
+          payload={payload}
+          state={state}
+          adjacency={adjacency}
+          runId={runId}
+          searchInputRef={searchInputRef}
+          setSelectedNodeId={actions.setSelectedNodeId}
+        />
+      </div>
+    </div>
+  );
+}
+
+ succeeded in 882ms:
+// I-cd-013a (GH#609) — CTA for unknown runIds.
+// User-facing copy is G2-clean (no dev language); issue IDs live in
+// source comments and test-IDs only.
+import Link from "next/link";
+
+import { buttonVariants } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+
+interface BundlePendingCtaProps {
+  runId: string;
+}
+
+export function BundlePendingCta({ runId }: BundlePendingCtaProps) {
+  return (
+    <main
+      className="mx-auto flex min-h-[60vh] max-w-2xl items-center justify-center p-6"
+      data-testid="bundle-pending-cta"
+    >
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle>This run isn&rsquo;t ready for inspection yet</CardTitle>
+          <CardDescription>
+            Signed audit bundles appear here once a run completes. Live runs and
+            in-progress state are on the Runs page.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <div className="border-border bg-muted/40 rounded-md border p-3">
+            <p className="text-muted-foreground text-sm font-medium">
+              Run identifier
+            </p>
+            <p className="font-mono text-sm" data-testid="cta-run-id">
+              {runId}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link href={`/runs/${runId}`} className={buttonVariants()}>
+              Open in Runs
+            </Link>
+            <Link
+              href="/dashboard"
+              className={buttonVariants({ variant: "outline" })}
+            >
+              Back to dashboard
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+
+ succeeded in 922ms:
+web/components\app_shell.tsx:13: *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+web/components\app_shell.tsx:15: *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+web/components\app_shell_gate.tsx:24:// I-p2-019 (#762): the claim-graph drill-down (/runs/<id>/graph) is a focused
+web/components\app_shell_gate.tsx:25:// full-screen view that renders its OWN header (with "Back to Inspector") +
+web/components\app_shell_gate.tsx:28:// I-p2-020 (#759): the audit/export drill-down (/runs/<id>/audit) follows the
+web/components\nav_link.tsx:10: * routes (e.g. `/runs/abc` highlights "Dashboard" only if we want — by default
+web/components\inspector\bundle_pending_cta.tsx:15:interface BundlePendingCtaProps {
+web/components\inspector\bundle_pending_cta.tsx:19:export function BundlePendingCta({ runId }: BundlePendingCtaProps) {
+web/components\inspector\bundle_pending_cta.tsx:43:            <Link href={`/runs/${runId}`} className={buttonVariants()}>
+web/components\ui\vega-chart.tsx:18: * backend `/runs/{run_id}/charts/{chart_type}` endpoint with the
+web/app\generation\page.tsx:29:              nativeButton={false}
+web/app\generation\page.tsx:36:              nativeButton={false}
+web/app\generation\page.tsx:43:              nativeButton={false}
+web/app\compare\page.tsx:15:// /runs/{l}/compare/{r}. Distinct from /benchmark (POLARIS-vs-external).
+web/app\components\recent_runs_strip.tsx:74:              href={`/runs/${run.run_id}`}
+web/app\inspector\[runId]\page.tsx:12:import { BundlePendingCta } from "@/components/inspector/bundle_pending_cta";
+web/app\inspector\[runId]\page.tsx:27:    return <BundlePendingCta runId={runId} />;
+web/app\intake\components\intake_form.tsx:184:                nativeButton={false}
+web/app\charts_test\click_through\page.tsx:83:            /runs/{"{run_id}"}/sources/{"{evidence_id}"}
+web/app\runs\[runId]\page.tsx:106:  // I-cd-025 (#615): /runs/[runId] rebuild — G1/G6 fix. Page no longer
+web/app\runs\[runId]\page.tsx:137:          nativeButton={false}
+web/app\runs\[runId]\page.tsx:178:            nativeButton={false}
+web/app\runs\[runId]\page.tsx:187:            nativeButton={false}
+web/app\runs\[runId]\page.tsx:188:            render={<Link href={`/runs/${runId}/audit`} />}
+web/app\components\home_keyboard_shell.tsx:66:            nativeButton={false}
+web/app\sign-in\page.tsx:227:                  nativeButton={false}
+web/app\dashboard\page.tsx:108:          nativeButton={false}
+web/app\dashboard\page.tsx:134:              nativeButton={false}
+web/app\dashboard\page.tsx:153:                  href={`/runs/${run.run_id}`}
+web/app\runs\[runId]\graph\page.tsx:37:        // /runs/[runId] G4 fix) — never leak "HTTP 500" / fn names to the user.
+web/app\runs\[runId]\graph\page.tsx:67:            nativeButton={false}
+web/app\runs\[runId]\graph\page.tsx:70:            Back to Inspector
+web/app\runs\[runId]\audit\page.tsx:18:// rule-checks from AuditIrRun via GET /api/inspector/runs/{id}) is a documented
+web/app\runs\[runId]\audit\page.tsx:24:import { BundlePendingCta } from "@/components/inspector/bundle_pending_cta";
+web/app\runs\[runId]\audit\page.tsx:306:            nativeButton={false}
+web/app\runs\[runId]\audit\page.tsx:318:            nativeButton={false}
+web/app\runs\[runId]\audit\page.tsx:348:            nativeButton={false}
+web/app\runs\[runId]\audit\page.tsx:351:            Back to Inspector
+web/app\runs\[runId]\audit\page.tsx:361:          <BundlePendingCta runId={runId} />
+web/app\plan\page.tsx:168:            nativeButton={false}
+web/app\plan\page.tsx:190:      router.push(`/runs/${run.run_id}`);
+web/app\plan\page.tsx:317:            href={`/runs/${concurrent.runId}`}
+web/app\plan\page.tsx:338:          nativeButton={false}
+web/app\runs\[runId]\components\followup_panel.tsx:10:// the parent page. Submits POST /runs/{id}/followup and renders the
+web/app\runs\[runId]\graph\components\accessible_graph_list.tsx:163:                nativeButton={false}
+web/app\retrieval\page.tsx:29:              nativeButton={false}
+web/app\retrieval\page.tsx:36:              nativeButton={false}
+
+codex
+TypeScript passes. One real issue is emerging around the pending/null-bundle path: `BundlePendingCta` is not just a card, it renders its own `<main>`, so putting it inside the audit page’s `<main>` creates nested landmarks. I’m checking whether this is isolated to the new route and how severe it is.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/inspector/[runId]/page.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"<BundlePendingCta|function BundlePendingCta|data-testid=\\\"bundle-pending-cta\\\"|<main\" web/app web/components -g \"*.tsx\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "axe|landmark|nested main|main landmark|G6|BundlePendingCta" web tests -g "*.ts" -g "*.tsx" -g "*.spec.*" -g "*.test.*"' in C:\POLARIS
+ succeeded in 854ms:
+// I-cd-013a (GH#609) — gold route: /inspector/[runId].
+//
+// Server component that loads a signed audit bundle (v1.0 schema per
+// src/polaris_graph/audit_bundle/bundle_schema.py) and renders it via
+// `InspectorView`. Unknown runIds get the bundle-pending CTA (the page
+// does NOT attempt to render an unrelated fixture — see iter-1 P1).
+//
+// Real-bundle backend wiring lands at I-B-08 (Seq 20); offline fallback
+// at I-B-09 (Seq 21). For now `loadBundle` returns the canonical fixtures
+// for runId "v1-canonical" and "v1-canonical-success".
+
+import { BundlePendingCta } from "@/components/inspector/bundle_pending_cta";
+import { loadBundle } from "@/lib/inspector_bundle_loader";
+import { filesByContentType } from "@/lib/signed_bundle";
+
+import { InspectorView } from "./inspector_view";
+
+interface InspectorPageProps {
+  params: Promise<{ runId: string }>;
+}
+
+export default async function InspectorPage({ params }: InspectorPageProps) {
+  const { runId } = await params;
+  const bundle = await loadBundle(runId);
+
+  if (bundle === null) {
+    return <BundlePendingCta runId={runId} />;
+  }
+
+  // Signature presence is derived from disk in the loader (Codex diff
+  // iter-1 P2 — the page no longer hardcodes true). Cryptographic
+  // verification belongs to operator-side `gpg --verify` tooling.
+  void filesByContentType; // re-exported helper available to consumers
+  return (
+    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
+  );
+}
+
+ succeeded in 821ms:
+web\tests\e2e\accessibility.spec.ts:1:import AxeBuilder from "@axe-core/playwright";
+web\tests\e2e\accessibility.spec.ts:7: * For each user-facing route we run axe-core with the WCAG 2A + 2AA + 2.1AA
+web\tests\e2e\accessibility.spec.ts:11: * Failure mode is intentionally LOUD — if axe surfaces a violation we
+web\tests\e2e\accessibility.spec.ts:44:      `axe-core found ${results.violations.length} WCAG-AA violation(s):${summary}`,
+web\tests\e2e\accessibility.spec.ts:65:    // to render, so axe actually covers the scope-rejection surface (Codex P2).
+web\tests\e2e\accessibility.spec.ts:74:// describes with axe assertions against the new signed-bundle Inspector.
+web\tests\e2e\accessibility.spec.ts:78:// migration target. The CTA surface for unknown runIds (axe-clean check)
+web\tests\e2e\accessibility.spec.ts:121:    // a11y test intent; the new route renders BundlePendingCta instead.
+web\tests\e2e\accessibility.spec.ts:137:// intent (axe on dropped-sentence-annotation surface) is preserved as
+web\tests\e2e\accessibility.spec.ts:140:test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => {
+web\tests\e2e\accessibility.spec.ts:141:  // axe's target-size rule has loose overlap-detection; cycle-8 P1.1 and
+web\tests\e2e\accessibility.spec.ts:143:  // that pass axe but fail strict WCAG 2.2 SC 2.5.8 AA (24x24 minimum).
+web\tests\e2e\accessibility.spec.ts:249:// axe test was MIGRATED into the "WCAG-AA — Inspector (signed-bundle,
+web\tests\e2e\accessibility.spec.ts:250:// post-I-cd-013a)" describe above as the bundle-pending CTA axe check.
+web\tests\e2e\benchmark_g1_g8.spec.ts:17:test("G1 + G6: /benchmark has exactly one header + one main", async ({
+web\tests\e2e\bundle_preview.spec.ts:7:  ambiguity_axes: [],
+web\components\app_shell_gate.tsx:4:// This avoids G1 (double header) + G6 (nested main) landmark violations.
+web\components\app_shell_gate.tsx:27:// header + G6 nested main).
+web\app\benchmark\page.tsx:9:// I-cd-027 (#617): /benchmark rebuild — G1/G6 fix. Page no longer renders
+web\app\benchmark\page.tsx:11:// I-cd-022) is the single landmark provider. G2 fix: removed
+web\app\components\proof_showcase.tsx:88:          <p className="text-foreground text-lg leading-relaxed font-medium text-pretty">
+web\app\components\proof_showcase.tsx:105:          <blockquote className="border-primary/40 text-foreground/90 border-l-2 pl-3 text-sm leading-relaxed">
+web\app\page.tsx:179:                <p className="text-muted-foreground text-sm leading-relaxed">
+web\components\inspector\scope_decision_card.tsx:13:  ambiguity_axes: ScopeDecisionAxis[];
+web\components\inspector\scope_decision_card.tsx:39:        {d.ambiguity_axes.length > 0 && (
+web\components\inspector\scope_decision_card.tsx:42:              Ambiguity axes
+web\components\inspector\scope_decision_card.tsx:45:              {d.ambiguity_axes.map((a) => (
+web\app\upload\page.tsx:9:// I-cd-026 (#616): /upload rebuild — G6 fix. Page no longer renders its
+web\app\upload\page.tsx:11:// landmark provider. testid preserved on the <section> wrapper.
+web\app\memory\page.tsx:50:  // I-cd-030 (#620): /memory rebuild — G1+G6 fix. Page no longer renders
+web\app\memory\page.tsx:52:  // single landmark provider. G2 fix: remove Issue-id breadcrumb
+web\app\plan\page.tsx:243:        <p className="text-foreground text-lg leading-relaxed font-medium">
+web\app\plan\page.tsx:278:              <p className="text-muted-foreground text-xs leading-relaxed">
+web\app\sign-in\page.tsx:133:                <span className="text-muted-foreground text-sm leading-relaxed">
+web\lib\inspector_bundle_loader.ts:88:  // 500. A non-string lookup → null → BundlePendingCta. (Codex iter-2 P1.)
+web\lib\inspector_bundle_loader.ts:166:    // state (BundlePendingCta), NEVER a 500. (#789 P0 — the centerpiece must
+web\app\pin_replay\page.tsx:76:  // I-cd-029 (#619): /pin_replay rebuild — empty-state copy. G1+G6 fix:
+web\app\pin_replay\page.tsx:120:  // I-cd-029 (#619): /pin_replay populated-state. G1+G6 fix: <main>
+web\components\inspector\bundle_pending_cta.tsx:15:interface BundlePendingCtaProps {
+web\components\inspector\bundle_pending_cta.tsx:19:export function BundlePendingCta({ runId }: BundlePendingCtaProps) {
+web\tests\e2e\f1_a11y.spec.ts:1:import AxeBuilder from "@axe-core/playwright";
+web\tests\e2e\f1_a11y.spec.ts:5: * I-f1-005 — F1 axe-core WCAG-AA compliance.
+web\tests\e2e\f1_a11y.spec.ts:8: * (I-p2-013 #752 folded the closed-home axe check here after the
+web\tests\e2e\f1_a11y.spec.ts:22:test.describe("F1 axe-core WCAG-AA — I-f1-005", () => {
+web\tests\e2e\dashboard_g1_g8.spec.ts:14:test("G1 + G6: /dashboard has exactly one header + one main", async ({
+web\app\intake\page.tsx:12:// I-cd-023 (#613): /intake rebuild — G1/G6 fix. Page no longer renders
+web\app\intake\page.tsx:14:// the single landmark provider for this route. G2 fix: removed
+web\app\runs\[runId]\page.tsx:106:  // I-cd-025 (#615): /runs/[runId] rebuild — G1/G6 fix. Page no longer
+web\app\runs\[runId]\page.tsx:108:  // AppShellGate, I-cd-022) is the single landmark provider on this
+web\components\ui\button.tsx:26:        // by axe due to inner text-bounding-box measurement quirks.
+web\tests\e2e\contracts_g1_g8.spec.ts:19:test("G1 + G6: /contracts has exactly one header + one main", async ({
+web\lib\api.ts:582:  ambiguity_axes: IntakeAmbiguityAxis[];
+web\lib\api.ts:1466:  judge_critical_axes: string[];
+web\tests\e2e\intake_disambiguation.spec.ts:15:          ambiguity_axes: [],
+web\tests\e2e\inspector_route.spec.ts:10:// G5 responsive (3 viewports) · G6 a11y (axe @ chromium only, future
+web\app\intake\components\scope_decision_view.tsx:119:        {decision.ambiguity_axes.length ? (
+web\app\intake\components\scope_decision_view.tsx:121:            <h3 className="text-foreground text-sm font-medium">PICO axes</h3>
+web\app\intake\components\scope_decision_view.tsx:123:              {decision.ambiguity_axes.map((axis) => (
+web\tests\e2e\home_g1_g8.spec.ts:16:test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
+web\tests\e2e\home_g1_g8.spec.ts:42:  // G6 (single main landmark — Codex iter-2 P1 fix).
+web\tests\e2e\home_g1_g8.spec.ts:84:test("G6: tab key reaches the hero search input", async ({ page }) => {
+web\tests\e2e\forest_plot_chart.spec.ts:17:  // avoids matching axes/gridlines/background.
+web\tests\e2e\forest_plot_chart.spec.ts:37:    // SVG (axes/gridlines/background) by role.
+web\tests\e2e\f2_walkthrough.spec.ts:15:  ambiguity_axes: [],
+web\app\intake\components\ambiguity_modal.tsx:22:  const ambiguous_axes =
+web\app\intake\components\ambiguity_modal.tsx:23:    decision?.ambiguity_axes.filter((axis) => axis.needs_clarification) ?? [];
+web\app\intake\components\ambiguity_modal.tsx:56:              POLARIS detected ambiguity along the PICO axes below. Pick a
+web\app\intake\components\ambiguity_modal.tsx:63:            {ambiguous_axes.map((axis) => (
+web\tests\e2e\memory_g1_g8.spec.ts:18:test("G1 + G6: /memory has exactly one header + one main", async ({ page }) => {
+web\tests\e2e\intake_g1_g8.spec.ts:15:test("G1 + G6: /intake has exactly one header + one main (AppShell-provided)", async ({
+web\tests\e2e\intake_disambiguation_negative.spec.ts:9:  ambiguity_axes: [],
+web\tests\e2e\pin_replay_g1_g8.spec.ts:19:test("G1 + G6: /pin_replay has exactly one header + one main", async ({
+web\tests\e2e\runs_runid_g1_g8.spec.ts:19:// landmarks/nav, not data).
+web\tests\e2e\runs_runid_g1_g8.spec.ts:22:test("G1 + G6: /runs/[runId] has exactly one header + one main", async ({
+web\app\inspector\[runId]\page.tsx:12:import { BundlePendingCta } from "@/components/inspector/bundle_pending_cta";
+web\app\inspector\[runId]\page.tsx:27:    return <BundlePendingCta runId={runId} />;
+web\app\runs\[runId]\audit\page.tsx:24:import { BundlePendingCta } from "@/components/inspector/bundle_pending_cta";
+web\app\runs\[runId]\audit\page.tsx:361:          <BundlePendingCta runId={runId} />
+web\app\contracts\page.tsx:9:// I-cd-028 (#618): /contracts rebuild — G1+G6 fix. Page uses
+web\tests\e2e\upload_g1_g8.spec.ts:17:test("G1 + G6: /upload has exactly one header + one main", async ({ page }) => {
+
+2026-05-23T05:58:36.463706Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.8 seconds
+Output:
+rg: regex parse error:
+    (?:<BundlePendingCta|function BundlePendingCta|data-testid=\)
+    ^
+error: unclosed group
+
+ exited 1 in 838ms:
+rg: regex parse error:
+    (?:<BundlePendingCta|function BundlePendingCta|data-testid=\)
+    ^
+error: unclosed group
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/tests/e2e/inspector_route.spec.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/components/app_shell.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/tests/e2e/accessibility.spec.ts'" in C:\POLARIS
+ succeeded in 814ms:
+import Link from "next/link";
+
+import { PrimaryNav } from "@/components/primary_nav";
+
+/**
+ * I-cd-004: the global app shell. A server component that wraps every prod
+ * route with a single header + primary nav. The 8 primary nav entries are
+ * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+ *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+ *
+ * Out of scope for this issue (each its own later issue per the Seq-N order):
+ *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+ *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+ *    /dashboard rather than top-nav entries.
+ *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+ *    retired at that point (not merely hidden — per Codex P2).
+ *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+ *    I-cd-015.
+ *  - Auth gating of the nav itself is deferred to I-cd-014.
+ *  - Per-page rebuilds happen in the I-cd-013..030 series.
+ */
+// I-p2-029 (#768): PRIMARY_NAV now lives in @/lib/nav (single source of truth,
+// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <header className="border-border bg-background sticky top-0 z-40 border-b">
+        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <PrimaryNav />
+          {/* I-p2-023 (#762): sovereign mark — HONEST. Dropped the false
+              present-tense "no external AI vendor": production LLM inference
+              currently routes via OpenRouter (US, transitional, disclosed in
+              /transparency) until the sovereign Canadian GPU cluster lands. The
+              VM IS hosted in OVH Québec, so "Canadian-hosted" is true today. */}
+          <span
+            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+            title="Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (US, disclosed in /transparency) pending the sovereign Canadian GPU cluster."
+          >
+            ⬡ Canadian-hosted
+          </span>
+        </div>
+      </header>
+      <main className="flex-1">{children}</main>
+    </>
+  );
+}
+
+ succeeded in 850ms:
+// I-cd-013a (GH#609) — Inspector route e2e.
+//
+// Covers G1-G8 + per-tab assertion structure per the Codex iter-2 P2 #3
+// directive. Visual screenshot cases are restricted to chromium via
+// `test.skip(testInfo.project.name !== "chromium", "...")` per the
+// Codex iter-3 P1 multi-project resolution.
+//
+// G1 app shell · G2 no dev-language (rendered text only) · G3 interactive
+// states · G4 async states (covered by server-side bundle load) ·
+// G5 responsive (3 viewports) · G6 a11y (axe @ chromium only, future
+// I-cd-013b will fold this into accessibility.spec.ts) · G7 design tokens
+// (covered by visual snapshot) · G8 no console errors.
+
+import { expect, test } from "@playwright/test";
+
+const VIEWPORTS: Array<{ name: string; width: number; height: number }> = [
+  { name: "desktop", width: 1280, height: 800 },
+  { name: "tablet", width: 768, height: 1024 },
+  { name: "mobile", width: 375, height: 667 },
+];
+
+const TAB_IDS = [
+  "report",
+  "scope",
+  "evidence",
+  "reasoning",
+  "sources",
+  "hashchain",
+] as const;
+
+// G2: prohibited rendered-text patterns. Comments + data-testids may
+// contain these strings; only user-visible text in the rendered DOM is
+// checked here per Codex iter-3 P2 #3.
+const DEV_LANGUAGE_PATTERNS: RegExp[] = [
+  /\bTODO\b/,
+  /\bFIXME\b/,
+  /\bXXX\b/,
+  /\bplaceholder\b/i,
+  /lorem ipsum/i,
+];
+
+test.describe("Inspector route — canonical-success fixture", () => {
+  test("app shell + bundle header render (G1)", async ({ page }) => {
+    await page.goto("/inspector/v1-canonical-success", { waitUntil: "load" });
+    await expect(page.getByTestId("inspector-view")).toBeVisible();
+    await expect(page.getByTestId("bundle-header")).toBeVisible();
+    await expect(page.getByTestId("family-segregation-badge")).toBeVisible();
+  });
+
+  test("family segregation badge shows pass (verified_report SoT)", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success");
+    const badge = page.getByTestId("family-segregation-badge");
+    await expect(badge).toHaveAttribute("data-state", "pass");
+  });
+
+  test("per-tab visibility — all 6 tabs activate explicitly", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success");
+    // Map data-tab id -> rendered tab label (the latter contains spaces
+    // and may not literal-match the kebab-cased id; see inspector_view.tsx).
+    const tabLabels: Record<(typeof TAB_IDS)[number], RegExp> = {
+      report: /^report$/i,
+      scope: /^scope$/i,
+      evidence: /^evidence$/i,
+      reasoning: /^reasoning$/i,
+      sources: /^sources$/i,
+      hashchain: /^hash chain$/i,
+    };
+    for (const tabId of TAB_IDS) {
+      await page.getByRole("tab", { name: tabLabels[tabId] }).click();
+      const panel = page.locator(`[data-tab="${tabId}"]`);
+      await expect(panel).toBeVisible();
+      // The other tabs' panels must be hidden when this tab is active.
+      for (const otherId of TAB_IDS) {
+        if (otherId === tabId) continue;
+        await expect(page.locator(`[data-tab="${otherId}"]`)).toBeHidden();
+      }
+    }
+  });
+
+  test("provenance-token toggle is interactive (G3)", async ({ page }) => {
+    await page.goto("/inspector/v1-canonical-success");
+    await page.getByRole("tab", { name: /report/i }).click();
+    const firstToggle = page.getByTestId("toggle-provenance-tokens").first();
+    await expect(firstToggle).toBeVisible();
+    await firstToggle.click();
+  });
+
+  test("no console errors during render (G8)", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    expect(errors).toEqual([]);
+  });
+
+  test("no dev language in rendered text (G2 — rendered-text scope)", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success");
+    const bodyText = await page.locator("body").innerText();
+    for (const pattern of DEV_LANGUAGE_PATTERNS) {
+      expect(bodyText).not.toMatch(pattern);
+    }
+  });
+
+  for (const vp of VIEWPORTS) {
+    test(`responsive — ${vp.name} viewport renders (G5)`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+      await page.goto("/inspector/v1-canonical-success");
+      await expect(page.getByTestId("inspector-view")).toBeVisible();
+    });
+  }
+});
+
+test.describe("Inspector route — canonical (abort) fixture", () => {
+  test("renders abort-shape report with no sections (async + verdict)", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical");
+    await expect(page.getByTestId("inspector-view")).toBeVisible();
+    await page.getByRole("tab", { name: /report/i }).click();
+    const verdict = page.getByTestId("pipeline-verdict-badge");
+    await expect(verdict).toBeVisible();
+    await expect(verdict).toHaveAttribute("data-state", "abort");
+  });
+});
+
+test.describe("Inspector route — unknown runId pending CTA", () => {
+  test("unknown runId shows bundle-pending CTA, not a fixture", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/does-not-exist");
+    await expect(page.getByTestId("bundle-pending-cta")).toBeVisible();
+    await expect(page.getByTestId("cta-run-id")).toHaveText("does-not-exist");
+    // CTA must NOT render a bundle inspector for unknown runIds.
+    await expect(page.getByTestId("inspector-view")).toHaveCount(0);
+  });
+});
+
+// I-cd-013b (GH#669): visual regression baselines for the new Inspector.
+// These are `test.fixme()` because the chromium-win32 baselines have not
+// been captured yet — running with `--update-snapshots` after the dev
+// server is up will write them; a follow-up PR commits them and flips
+// the .fixme() markers off. The legacy chromium-win32 baselines (for
+// the old AuditIR Inspector) were deleted at this PR; the new ones
+// need an operator-manual capture or CI --update-snapshots run.
+const SCREENSHOT_OPTIONS = {
+  fullPage: true,
+  animations: "disabled" as const,
+  maxDiffPixelRatio: 0.02,
+};
+
+test.describe("Inspector route — visual baselines (chromium-win32; deferred)", () => {
+  test.fixme("v1-canonical-success Report tab visual baseline", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    await expect(page).toHaveScreenshot(
+      "inspector-v1-canonical-success-report.png",
+      {
+        ...SCREENSHOT_OPTIONS,
+        mask: [page.locator('[data-testid="bundle-header"]')],
+      },
+    );
+  });
+
+  test.fixme("v1-canonical abort-shape visual baseline", async ({ page }) => {
+    await page.goto("/inspector/v1-canonical", { waitUntil: "networkidle" });
+    await expect(page).toHaveScreenshot("inspector-v1-canonical-abort.png", {
+      ...SCREENSHOT_OPTIONS,
+      mask: [page.locator('[data-testid="bundle-header"]')],
+    });
+  });
+
+  test.fixme("bundle-pending CTA visual baseline", async ({ page }) => {
+    await page.goto("/inspector/does-not-exist", { waitUntil: "networkidle" });
+    await expect(page).toHaveScreenshot("inspector-bundle-pending-cta.png", {
+      ...SCREENSHOT_OPTIONS,
+      mask: [page.locator('[data-testid="cta-run-id"]')],
+    });
+  });
+});
+
+ succeeded in 866ms:
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test } from "@playwright/test";
+
+/**
+ * Phase 2C.5 — WCAG 2.2-AA accessibility audit.
+ *
+ * For each user-facing route we run axe-core with the WCAG 2A + 2AA + 2.1AA
+ * + 2.2AA + best-practice rule sets and assert zero violations. Any new
+ * violation should fail CI rather than silently regress accessibility.
+ *
+ * Failure mode is intentionally LOUD — if axe surfaces a violation we
+ * print the rule id, impact, and the affected node selectors so the fix
+ * is one click away.
+ */
+
+const WCAG_TAGS = [
+  "wcag2a",
+  "wcag2aa",
+  "wcag21a",
+  "wcag21aa",
+  "wcag22aa",
+  "best-practice",
+];
+
+async function expectNoA11yViolations(page: import("@playwright/test").Page) {
+  const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+
+  if (results.violations.length > 0) {
+    const summary = results.violations
+      .map(
+        (v) =>
+          `\n  - [${v.impact}] ${v.id}: ${v.description}\n    nodes: ${v.nodes
+            .map(
+              (n) =>
+                n.target.join(" ") +
+                (n.failureSummary
+                  ? ` — ${n.failureSummary.replace(/\n/g, " ")}`
+                  : ""),
+            )
+            .join("\n           ")}`,
+      )
+      .join("");
+    throw new Error(
+      `axe-core found ${results.violations.length} WCAG-AA violation(s):${summary}`,
+    );
+  }
+}
+
+test.describe("WCAG-AA — research dashboard", () => {
+  test("/dashboard initial render is WCAG-AA clean", async ({ page }) => {
+    await page.goto("/dashboard", { waitUntil: "networkidle" });
+    await expectNoA11yViolations(page);
+  });
+
+  // I-p2-022 (#761): run-start + scope-check moved off the dashboard (now
+  // monitoring-only) to /plan (I-p2-015 #754). The plan page re-runs the full
+  // intake gate on mount; an out-of-scope question renders the "Can't start
+  // this run" blocked alert. a11y-check that surface.
+  test("/plan scope-rejection surface is WCAG-AA clean", async ({ page }) => {
+    await page.goto(
+      "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
+      { waitUntil: "networkidle" },
+    );
+    // Wait for the gate to resolve + the "Can't start this run" blocked alert
+    // to render, so axe actually covers the scope-rejection surface (Codex P2).
+    await expect(page.getByTestId("plan-blocked")).toBeVisible({
+      timeout: 10_000,
+    });
+    await expectNoA11yViolations(page);
+  });
+});
+
+// I-cd-013b (GH#669): replaces 3 legacy /inspector/golden_* AuditIR a11y
+// describes with axe assertions against the new signed-bundle Inspector.
+// New route consumes v1.0 BundleManifest fixtures; the 3 tabs we now cover
+// (Report, Reasoning, Hash chain) are the SHAPE-RELEVANT ones — the legacy
+// "Charts" + "Contradictions" tabs don't exist in the rebuild and have no
+// migration target. The CTA surface for unknown runIds (axe-clean check)
+// preserves the legacy "destructive error banner" test intent.
+test.describe("WCAG-AA — Inspector (signed-bundle, post-I-cd-013a)", () => {
+  test("v1-canonical-success Report tab (default) is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    await expectNoA11yViolations(page);
+  });
+
+  test("v1-canonical-success Reasoning tab is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    await page.getByRole("tab", { name: /^reasoning$/i }).click();
+    await expectNoA11yViolations(page);
+  });
+
+  test("v1-canonical-success Hash chain tab is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    await page.getByRole("tab", { name: /^hash chain$/i }).click();
+    await expectNoA11yViolations(page);
+  });
+
+  test("v1-canonical (abort verdict) Report tab is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical", { waitUntil: "networkidle" });
+    await expectNoA11yViolations(page);
+  });
+
+  test("bundle-pending CTA (unknown runId) is WCAG-AA clean", async ({
+    page,
+  }) => {
+    // Preserves the legacy "/inspector/<bad-runid> destructive error banner"
+    // a11y test intent; the new route renders BundlePendingCta instead.
+    await page.goto("/inspector/does-not-exist", { waitUntil: "networkidle" });
+    await expectNoA11yViolations(page);
+  });
+});
+
+// I-p2-022 (#761): the "dashboard upload list" a11y test was REMOVED — the
+// document-upload form lived on the old dashboard run-start workflow, which was
+// relocated off the (now monitoring-only) dashboard. Upload a11y belongs to the
+// /upload route's own suite when uploads are wired into the new intake→plan flow.
+
+// I-cd-013b (GH#669): the legacy `/inspector/golden_with_drop_reason`
+// a11y test exercised a "Dropped: <reason>" annotation that doesn't
+// exist in the new Inspector — verified_sentences with drop_reason will
+// render via verified_report_sections.tsx in a future PR that extends
+// the rendering (currently the toggle hides them by default). Test
+// intent (axe on dropped-sentence-annotation surface) is preserved as
+// a follow-up when that rendering lands.
+
+test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => {
+  // axe's target-size rule has loose overlap-detection; cycle-8 P1.1 and
+  // P1.4 surfaced multiple <button>/<label>/<a role="button"> surfaces
+  // that pass axe but fail strict WCAG 2.2 SC 2.5.8 AA (24x24 minimum).
+  // This sweep walks every clickable element + asserts ≥24x24 directly.
+
+  test("Dashboard — all clickable targets ≥24x24", async ({ page }) => {
+    await page.goto("/dashboard", { waitUntil: "networkidle" });
+    const small = await page.evaluate(() => {
+      const results: Array<{
+        tag: string;
+        text: string;
+        w: number;
+        h: number;
+      }> = [];
+      // Exclude <label htmlFor=...> — labels paired with a form control
+      // delegate the hit target to the control itself (WCAG 2.5.8 "inline"
+      // exemption). The "browse files" label has no htmlFor (it wraps the
+      // hidden file input directly) so it remains in scope.
+      const sel =
+        'button, label:not([for]), [role="button"], [role="radio"], a[href]';
+      document.querySelectorAll(sel).forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return; // hidden / pre-render
+        if (r.width < 24 || r.height < 24) {
+          results.push({
+            tag: el.tagName,
+            text: (el.textContent || "").trim().slice(0, 60),
+            w: Math.round(r.width),
+            h: Math.round(r.height),
+          });
+        }
+      });
+      return results;
+    });
+    if (small.length > 0) {
+      throw new Error(
+        `WCAG 2.5.8 failures (${small.length} target(s) < 24x24):\n` +
+          small
+            .map((s) => `  - ${s.tag} "${s.text}" → ${s.w}x${s.h}px`)
+            .join("\n"),
+      );
+    }
+  });
+
+  // I-cd-013b (GH#669): replaces legacy /inspector/golden_clinical_001
+  // target-size sweep with one against the signed-bundle Inspector
+  // (success fixture). Cycles through ALL 6 tabs (Codex diff iter-1 P2 #2)
+  // so Report + Scope + Evidence + Reasoning + Sources + Hash chain
+  // tab-specific controls are exercised before the sweep measures.
+  test("Inspector v1-canonical-success — all clickable targets ≥24x24 across all tabs", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    const tabLabels = [
+      /^report$/i,
+      /^scope$/i,
+      /^evidence$/i,
+      /^reasoning$/i,
+      /^sources$/i,
+      /^hash chain$/i,
+    ];
+    for (const label of tabLabels) {
+      await page.getByRole("tab", { name: label }).click();
+    }
+    const small = await page.evaluate(() => {
+      const results: Array<{
+        tag: string;
+        text: string;
+        w: number;
+        h: number;
+      }> = [];
+      const sel = 'button, label, [role="button"], [role="tab"], a[href]';
+      document.querySelectorAll(sel).forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return;
+        if (r.width < 24 || r.height < 24) {
+          results.push({
+            tag: el.tagName,
+            text: (el.textContent || "").trim().slice(0, 60),
+            w: Math.round(r.width),
+            h: Math.round(r.height),
+          });
+        }
+      });
+      return results;
+    });
+    if (small.length > 0) {
+      throw new Error(
+        `WCAG 2.5.8 failures (${small.length} target(s) < 24x24):\n` +
+          small
+            .map((s) => `  - ${s.tag} "${s.text}" → ${s.w}x${s.h}px`)
+            .join("\n"),
+      );
+    }
+  });
+});
+
+// I-p2-022 (#761): the "Dashboard template radiogroup keyboard-operable" gate
+// (F-26) was REMOVED here — the template radiogroup lived on the old dashboard
+// run-start workflow, which was relocated to /intake → /plan and is no longer a
+// radiogroup picker (template is carried via the intake handoff). No radiogroup
+// to guard on the monitoring-only dashboard.
+
+// I-cd-013b (GH#669): the legacy /inspector/<bad-runid> destructive-error
+// axe test was MIGRATED into the "WCAG-AA — Inspector (signed-bundle,
+// post-I-cd-013a)" describe above as the bundle-pending CTA axe check.
+// The /runs/<bad-runid> destructive-error test below stays here — it
+// targets the /runs/[runId] route which lands at I-cd-025 and uses a
+// different (legacy) error-banner pattern.
+test.describe("WCAG-AA — Run-detail error states", () => {
+  test("Run-detail destructive error banner (invalid runId) is WCAG-AA clean", async ({
+    page,
+  }) => {
+    // /runs/[runId] page also uses the destructive error pattern; verify it.
+    await page.goto("/runs/does_not_exist_runid_404", {
+      waitUntil: "networkidle",
+    });
+    // I-cd-025 (#615) G4 fix: error is now mapped to friendly copy
+    // instead of raw "POLARIS backend returned 404".
+    await expect(page.getByText(/This run was not found/i)).toBeVisible({
+      timeout: 8_000,
+    });
+    await expectNoA11yViolations(page);
+  });
+});
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -LiteralPath 'web/public/canonical_bundles' -Recurse -Filter 'manifest.yaml.asc' | Select-Object FullName,Length" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -LiteralPath 'web/public/canonical_bundles' -Recurse -Filter 'manifest.yaml' | Select-Object FullName,Length" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "manifest.yaml.asc|signaturePresent|GPG signature pending|GPG-signed" web tests -g "*.ts" -g "*.tsx" -g "*.md"' in C:\POLARIS
+ succeeded in 836ms:
+
+[32;1mFullName                                                              [0m[32;1m Length[0m
+[32;1m--------                                                              [0m [32;1m------[0m
+C:\POLARIS\web\public\canonical_bundles\v1_canonical\manifest.yaml.asc    295
+
+
+ succeeded in 817ms:
+tests\fixtures\signed_bundle\README.md:15:| `manifest.yaml.asc` | (the signature) | GPG armored signature **placeholder** — presence-only test fixture, not a real key signature. See note below. |
+tests\fixtures\signed_bundle\README.md:39:The placeholder `manifest.yaml.asc` is a fixed GPG-armored stub authored
+web\lib\inspector_bundle_loader.ts:40:  /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
+web\lib\inspector_bundle_loader.ts:42:  signaturePresent: boolean;
+web\lib\inspector_bundle_loader.ts:142:    // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
+web\lib\inspector_bundle_loader.ts:145:    let signaturePresent = false;
+web\lib\inspector_bundle_loader.ts:147:      const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
+web\lib\inspector_bundle_loader.ts:148:      signaturePresent = stat.isFile() && stat.size > 0;
+web\lib\inspector_bundle_loader.ts:150:      signaturePresent = false;
+web\lib\inspector_bundle_loader.ts:162:      signaturePresent,
+web\lib\inspector_bundle_client_loader.ts:19: *   - signaturePresent: derived from manifest.yaml.asc existence + non-empty
+web\lib\inspector_bundle_client_loader.ts:319:  const signatureFile = _findFile(files, "manifest.yaml.asc");
+web\lib\inspector_bundle_client_loader.ts:320:  const signaturePresent = !!signatureFile && signatureFile.bytes.length > 0;
+web\lib\inspector_bundle_client_loader.ts:337:    signaturePresent,
+web\app\generation\page.tsx:81:            Slice 004 (audit bundle export, GPG-signed) packages this verified
+web\app\inspector\[runId]\page.tsx:35:    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
+web\lib\api.ts:1011:// Slice 004 — Audit bundle (GPG-signed .tar.gz export)
+web\lib\api.ts:1040: * Build + download a GPG-signed audit bundle for the given research chain.
+web\app\inspector\[runId]\inspector_view.tsx:18:  signaturePresent: boolean;
+web\app\inspector\[runId]\inspector_view.tsx:23:  signaturePresent,
+web\app\inspector\[runId]\inspector_view.tsx:33:        signaturePresent={signaturePresent}
+web\app\inspector\offline\page.tsx:56:        signaturePresent={bundle.signaturePresent}
+web\components\inspector\bundle_header.tsx:7:  signaturePresent: boolean;
+web\components\inspector\bundle_header.tsx:12:  signaturePresent,
+web\components\inspector\bundle_header.tsx:37:          <SignatureBadge present={signaturePresent} />
+web\app\runs\[runId]\audit\page.tsx:11:// Honesty (LAW II): the canonical bundle ships WITHOUT manifest.yaml.asc (the
+web\app\runs\[runId]\audit\page.tsx:13:// proof"). So `signaturePresent` is false and the page says exactly that:
+web\app\runs\[runId]\audit\page.tsx:14:// integrity manifest present, GPG signature pending sovereign signing. It never
+web\app\runs\[runId]\audit\page.tsx:143:  const { manifest, metadata, verifiedReport, signaturePresent, runId } =
+web\app\runs\[runId]\audit\page.tsx:158:          {signaturePresent ? (
+web\app\runs\[runId]\audit\page.tsx:160:              ⬡ GPG-signed (manifest.yaml.asc present)
+web\app\runs\[runId]\audit\page.tsx:167:              ◌ Integrity manifest present · GPG signature pending
+
+ succeeded in 857ms:
+
+[32;1mFullName                                                                  [0m[32;1m Length[0m
+[32;1m--------                                                                  [0m [32;1m------[0m
+C:\POLARIS\web\public\canonical_bundles\v1_canonical\manifest.yaml           1236
+C:\POLARIS\web\public\canonical_bundles\v1_canonical_success\manifest.yaml   1714
+
+
+codex
+There is a second honesty point to verify: one public canonical fixture does contain a non-empty `manifest.yaml.asc`, while the README describes fixture signatures as placeholders. I’m checking whether the new page turns that presence-only signal into a stronger “GPG-signed” claim.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/components/inspector/bundle_header.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -LiteralPath 'web/public/canonical_bundles/v1_canonical' | Select-Object Name,Length; Get-ChildItem -LiteralPath 'web/public/canonical_bundles/v1_canonical_success' | Select-Object Name,Length" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/public/canonical_bundles/v1_canonical/manifest.yaml.asc' -TotalCount 20" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'tests/fixtures/signed_bundle/README.md'" in C:\POLARIS
+ succeeded in 816ms:
+// I-cd-013a (GH#609) — Bundle header (top-level manifest summary).
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { BundleManifest } from "@/lib/signed_bundle";
+
+interface BundleHeaderProps {
+  manifest: BundleManifest;
+  signaturePresent: boolean;
+}
+
+export function BundleHeader({
+  manifest,
+  signaturePresent,
+}: BundleHeaderProps) {
+  const created = new Date(manifest.bundle_created_at_utc).toUTCString();
+  return (
+    <Card data-testid="bundle-header">
+      <CardHeader>
+        <CardTitle>Signed audit bundle</CardTitle>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+        <KeyValue label="Bundle ID" value={manifest.bundle_id} mono />
+        <KeyValue
+          label="Schema version"
+          value={`v${manifest.bundle_version}`}
+        />
+        <KeyValue label="POLARIS version" value={manifest.polaris_version} />
+        <KeyValue
+          label="Generator model"
+          value={manifest.generator_model}
+          mono
+        />
+        <KeyValue label="Decision ID" value={manifest.decision_id} mono />
+        <KeyValue label="Pool ID" value={manifest.pool_id} mono />
+        <KeyValue label="Report ID" value={manifest.report_id} mono />
+        <KeyValue label="Created (UTC)" value={created} />
+        <div className="md:col-span-2">
+          <SignatureBadge present={signaturePresent} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function KeyValue({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <p className="text-muted-foreground text-xs tracking-wide uppercase">
+        {label}
+      </p>
+      <p className={mono ? "font-mono text-sm" : "text-sm"}>{value}</p>
+    </div>
+  );
+}
+
+function SignatureBadge({ present }: { present: boolean }) {
+  if (present) {
+    return (
+      <p
+        className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200"
+        data-testid="signature-badge"
+        data-state="present"
+      >
+        Signature present
+      </p>
+    );
+  }
+  return (
+    <p
+      className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+      data-testid="signature-badge"
+      data-state="missing"
+    >
+      Signature missing
+    </p>
+  );
+}
+
+ succeeded in 889ms:
+# `tests/fixtures/signed_bundle/` — canonical signed-bundle fixtures
+
+Fixtures used by:
+- `tests/polaris_graph/audit_bundle/test_conformance.py` (I-cd-012 conformance check)
+- I-B-08 (#630) real-run bundle emitter conformance tests
+- Future Inspector route (I-A-03, #609) offline-fallback rendering tests
+
+## `v1_canonical/`
+
+Schema version **v1.0** per `src/polaris_graph/audit_bundle/bundle_schema.py:BUNDLE_VERSION`.
+
+| File | Content type | Purpose |
+|---|---|---|
+| `manifest.yaml` | (the manifest itself) | Top-level `BundleManifest` referencing every other file with SHA256 anchors |
+| `manifest.yaml.asc` | (the signature) | GPG armored signature **placeholder** — presence-only test fixture, not a real key signature. See note below. |
+| `scope_decision.json` | `scope_decision` | One `ScopeDecision` (slice 001 output) |
+| `evidence_pool.json` | `evidence_pool` | One `EvidencePool` (slice 002 output) with one Source |
+| `verified_report.json` | `verified_report` | One `VerifiedReport` (slice 003 output) — minimal sections |
+| `metadata.json` | `metadata` | Bundle-level metadata (polaris_version, generator_model, evaluator_model, timestamps) |
+| `reasoning_trace.jsonl` | `reasoning_trace` | I-gen-004 raw model reasoning channel; JSONL, one record per generator LLM call |
+| `sources/<sha-id>.txt` | `source_snapshot` | One source full-text snapshot |
+
+## How to regenerate (deterministic)
+
+The fixture content + SHA256s are produced by:
+
+```
+python scripts/regen_signed_bundle_canonical_fixture.py
+```
+
+The script:
+1. Constructs `ScopeDecision`, `EvidencePool`, `VerifiedReport` Pydantic objects with deterministic seed values (no clocks, no uuid4 — the IDs are hard-coded).
+2. Serializes each to JSON using `model_dump(mode="json")` + `json.dumps(..., sort_keys=True, indent=2)`.
+3. Writes each content file.
+4. Computes SHA256 + size of each file.
+5. Constructs `BundleManifest` referencing the files.
+6. Writes `manifest.yaml` using `yaml.safe_dump(..., sort_keys=True)`.
+
+The placeholder `manifest.yaml.asc` is a fixed GPG-armored stub authored
+once and reused. Real signatures require an operator key; conformance
+checks presence + non-empty only (cryptographic verification belongs to
+operator/reviewer-side tooling, NOT the I-B-08 emitter's pre-sign
+conformance check).
+
+## When to bump
+
+When `bundle_schema.BUNDLE_VERSION` changes from `"1.0"`, author a fresh
+`v{N}_canonical/` directory; preserve `v1_canonical/` verbatim as the
+historical anchor. Every bump triggers the full cascade documented in
+`src/polaris_graph/audit_bundle/bundle_schema.py` module docstring.
+
+ succeeded in 904ms:
+-----BEGIN PGP SIGNATURE-----
+# I-cd-012 canonical fixture fixture content.
+# Conformance check enforces presence + non-empty ONLY; cryptographic
+# verification belongs to operator-side tooling (gpg --verify).
+# Real bundles ship a real armored signature here.
+-----END PGP SIGNATURE-----
+
+ succeeded in 994ms:
+
+[32;1mName                 [0m[32;1m Length[0m
+[32;1m----                 [0m [32;1m------[0m
+sources               
+evidence_pool.json    1179
+manifest.yaml         1236
+manifest.yaml.asc     295
+metadata.json         218
+reasoning_trace.jsonl 963
+scope_decision.json   345
+verified_report.json  559
+sources               
+evidence_pool.json    41640
+manifest.yaml         1714
+metadata.json         436
+reasoning_trace.jsonl 307
+scope_decision.json   485
+verified_report.json  6795
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"signaturePresent|manifest.yaml.asc|Signature present|GPG-signed|signature-badge\" web/tests web/app web/components web/lib -g '*.ts' -g '*.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "npx eslint 'app/runs/[runId]/audit/page.tsx' 'components/app_shell_gate.tsx' 'app/runs/[runId]/page.tsx'" in C:\POLARIS\web
+ succeeded in 778ms:
+web/lib\api.ts:1011:// Slice 004 — Audit bundle (GPG-signed .tar.gz export)
+web/lib\api.ts:1040: * Build + download a GPG-signed audit bundle for the given research chain.
+web/lib\inspector_bundle_loader.ts:40:  /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
+web/lib\inspector_bundle_loader.ts:42:  signaturePresent: boolean;
+web/lib\inspector_bundle_loader.ts:142:    // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
+web/lib\inspector_bundle_loader.ts:145:    let signaturePresent = false;
+web/lib\inspector_bundle_loader.ts:147:      const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
+web/lib\inspector_bundle_loader.ts:148:      signaturePresent = stat.isFile() && stat.size > 0;
+web/lib\inspector_bundle_loader.ts:150:      signaturePresent = false;
+web/lib\inspector_bundle_loader.ts:162:      signaturePresent,
+web/lib\inspector_bundle_client_loader.ts:19: *   - signaturePresent: derived from manifest.yaml.asc existence + non-empty
+web/lib\inspector_bundle_client_loader.ts:319:  const signatureFile = _findFile(files, "manifest.yaml.asc");
+web/lib\inspector_bundle_client_loader.ts:320:  const signaturePresent = !!signatureFile && signatureFile.bytes.length > 0;
+web/lib\inspector_bundle_client_loader.ts:337:    signaturePresent,
+web/app\inspector\[runId]\page.tsx:35:    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
+web/app\inspector\[runId]\inspector_view.tsx:18:  signaturePresent: boolean;
+web/app\inspector\[runId]\inspector_view.tsx:23:  signaturePresent,
+web/app\inspector\[runId]\inspector_view.tsx:33:        signaturePresent={signaturePresent}
+web/components\inspector\bundle_header.tsx:7:  signaturePresent: boolean;
+web/components\inspector\bundle_header.tsx:12:  signaturePresent,
+web/components\inspector\bundle_header.tsx:37:          <SignatureBadge present={signaturePresent} />
+web/components\inspector\bundle_header.tsx:68:        data-testid="signature-badge"
+web/components\inspector\bundle_header.tsx:71:        Signature present
+web/components\inspector\bundle_header.tsx:78:      data-testid="signature-badge"
+web/app\inspector\offline\page.tsx:56:        signaturePresent={bundle.signaturePresent}
+web/app\generation\page.tsx:81:            Slice 004 (audit bundle export, GPG-signed) packages this verified
+web/app\runs\[runId]\audit\page.tsx:11:// Honesty (LAW II): the canonical bundle ships WITHOUT manifest.yaml.asc (the
+web/app\runs\[runId]\audit\page.tsx:13:// proof"). So `signaturePresent` is false and the page says exactly that:
+web/app\runs\[runId]\audit\page.tsx:143:  const { manifest, metadata, verifiedReport, signaturePresent, runId } =
+web/app\runs\[runId]\audit\page.tsx:158:          {signaturePresent ? (
+web/app\runs\[runId]\audit\page.tsx:160:              ⬡ GPG-signed (manifest.yaml.asc present)
+
+ succeeded in 3937ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath '"'web/app/runs/[runId]/audit/page.tsx' | ForEach-Object { "'$i++; if ($i -ge 340 -and $i -le 365) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath '"'web/app/runs/[runId]/audit/page.tsx' | ForEach-Object { "'$i++; if ($i -ge 150 -and $i -le 175) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath '"'web/components/inspector/bundle_pending_cta.tsx' | ForEach-Object { "'$i++; if ($i -ge 15 -and $i -le 27) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath '"'web/lib/inspector_bundle_loader.ts' | ForEach-Object { "'$i++; if ($i -ge 136 -and $i -le 150) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 910ms:
+ 340:               Audit &amp; export
+ 341:             </span>
+ 342:             <span className="text-foreground text-base font-semibold">
+ 343:               Take the proof with you
+ 344:             </span>
+ 345:           </div>
+ 346:           <Button
+ 347:             variant="outline"
+ 348:             nativeButton={false}
+ 349:             render={<Link href={`/inspector/${runId}`} />}
+ 350:           >
+ 351:             Back to Inspector
+ 352:           </Button>
+ 353:         </div>
+ 354:       </header>
+ 355: 
+ 356:       <main
+ 357:         data-testid="audit-export-page"
+ 358:         className="mx-auto w-full max-w-5xl flex-1 px-6 py-8"
+ 359:       >
+ 360:         {bundle === null ? (
+ 361:           <BundlePendingCta runId={runId} />
+ 362:         ) : (
+ 363:           <AuditExportBody bundle={bundle} />
+ 364:         )}
+ 365:       </main>
+
+ succeeded in 947ms:
+ 150:     <div className="flex flex-col gap-8">
+ 151:       {/* Integrity & provenance */}
+ 152:       <section className="border-border bg-card flex flex-col gap-4 rounded-lg border p-5">
+ 153:         <div className="flex flex-wrap items-start justify-between gap-3">
+ 154:           <h2 className="text-foreground text-sm font-semibold">
+ 155:             Integrity &amp; provenance
+ 156:           </h2>
+ 157:           {/* HONEST signature status — never claims a seal that isn't on disk. */}
+ 158:           {signaturePresent ? (
+ 159:             <span className="border-verified bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold">
+ 160:               ⬡ GPG-signed (manifest.yaml.asc present)
+ 161:             </span>
+ 162:           ) : (
+ 163:             <span
+ 164:               className="border-border text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
+ 165:               title="The bundle ships with a SHA-256 integrity manifest now; the detached GPG signature is added once the sovereign Canadian signer is live."
+ 166:             >
+ 167:               ◌ Integrity manifest present · GPG signature pending
+ 168:             </span>
+ 169:           )}
+ 170:         </div>
+ 171:         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+ 172:           <MetaRow label="Bundle ID" value={manifest.bundle_id} />
+ 173:           <MetaRow label="Schema" value={`v${metadata.schema_version}`} />
+ 174:           <MetaRow label="POLARIS version" value={metadata.polaris_version} />
+ 175:           <MetaRow label="Generator model" value={metadata.generator_model} />
+
+ succeeded in 907ms:
+  15: interface BundlePendingCtaProps {
+  16:   runId: string;
+  17: }
+  18: 
+  19: export function BundlePendingCta({ runId }: BundlePendingCtaProps) {
+  20:   return (
+  21:     <main
+  22:       className="mx-auto flex min-h-[60vh] max-w-2xl items-center justify-center p-6"
+  23:       data-testid="bundle-pending-cta"
+  24:     >
+  25:       <Card className="w-full">
+  26:         <CardHeader>
+  27:           <CardTitle>This run isn&rsquo;t ready for inspection yet</CardTitle>
+
+ succeeded in 940ms:
+ 136:         path.join(dir, entry.path),
+ 137:         "utf-8",
+ 138:       );
+ 139:     }
+ 140: 
+ 141:     // Signature presence check (Codex diff iter-1 P2): mirror the conformance
+ 142:     // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
+ 143:     // bundle. The UI surfaces this boolean transparently; cryptographic
+ 144:     // verification belongs to operator-side `gpg --verify` tooling.
+ 145:     let signaturePresent = false;
+ 146:     try {
+ 147:       const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
+ 148:       signaturePresent = stat.isFile() && stat.size > 0;
+ 149:     } catch {
+ 150:       signaturePresent = false;
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath '"'web/public/canonical_bundles/v1_canonical/manifest.yaml.asc' | ForEach-Object { "'$i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath '"'tests/fixtures/signed_bundle/README.md' | ForEach-Object { "'$i++; if ($i -ge 12 -and $i -le 43) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 727ms:
+  12: | File | Content type | Purpose |
+  13: |---|---|---|
+  14: | `manifest.yaml` | (the manifest itself) | Top-level `BundleManifest` referencing every other file with SHA256 anchors |
+  15: | `manifest.yaml.asc` | (the signature) | GPG armored signature **placeholder** — presence-only test fixture, not a real key signature. See note below. |
+  16: | `scope_decision.json` | `scope_decision` | One `ScopeDecision` (slice 001 output) |
+  17: | `evidence_pool.json` | `evidence_pool` | One `EvidencePool` (slice 002 output) with one Source |
+  18: | `verified_report.json` | `verified_report` | One `VerifiedReport` (slice 003 output) — minimal sections |
+  19: | `metadata.json` | `metadata` | Bundle-level metadata (polaris_version, generator_model, evaluator_model, timestamps) |
+  20: | `reasoning_trace.jsonl` | `reasoning_trace` | I-gen-004 raw model reasoning channel; JSONL, one record per generator LLM call |
+  21: | `sources/<sha-id>.txt` | `source_snapshot` | One source full-text snapshot |
+  22: 
+  23: ## How to regenerate (deterministic)
+  24: 
+  25: The fixture content + SHA256s are produced by:
+  26: 
+  27: ```
+  28: python scripts/regen_signed_bundle_canonical_fixture.py
+  29: ```
+  30: 
+  31: The script:
+  32: 1. Constructs `ScopeDecision`, `EvidencePool`, `VerifiedReport` Pydantic objects with deterministic seed values (no clocks, no uuid4 — the IDs are hard-coded).
+  33: 2. Serializes each to JSON using `model_dump(mode="json")` + `json.dumps(..., sort_keys=True, indent=2)`.
+  34: 3. Writes each content file.
+  35: 4. Computes SHA256 + size of each file.
+  36: 5. Constructs `BundleManifest` referencing the files.
+  37: 6. Writes `manifest.yaml` using `yaml.safe_dump(..., sort_keys=True)`.
+  38: 
+  39: The placeholder `manifest.yaml.asc` is a fixed GPG-armored stub authored
+  40: once and reused. Real signatures require an operator key; conformance
+  41: checks presence + non-empty only (cryptographic verification belongs to
+  42: operator/reviewer-side tooling, NOT the I-B-08 emitter's pre-sign
+  43: conformance check).
+
+ succeeded in 752ms:
+   1: -----BEGIN PGP SIGNATURE-----
+   2: # I-cd-012 canonical fixture fixture content.
+   3: # Conformance check enforces presence + non-empty ONLY; cryptographic
+   4: # verification belongs to operator-side tooling (gpg --verify).
+   5: # Real bundles ship a real armored signature here.
+   6: -----END PGP SIGNATURE-----
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web/app/layout.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"AppShellGate|<AppShell\" web/app web/components -g '*.tsx'" in C:\POLARIS
+ succeeded in 704ms:
+web/components\app_shell_gate.tsx:14:interface AppShellGateProps {
+web/components\app_shell_gate.tsx:42:export function AppShellGate({ children }: AppShellGateProps) {
+web/components\app_shell_gate.tsx:47:  return <AppShell>{children}</AppShell>;
+web/app\benchmark\page.tsx:10:// its own <header>, <footer>, or <main>. AppShell (via AppShellGate from
+web/app\upload\page.tsx:10:// own <main>; AppShell (via AppShellGate, I-cd-022) is the single
+web/app\memory\page.tsx:51:  // its own <main>; AppShell (via AppShellGate from I-cd-022) is the
+web/app\layout.tsx:4:import { AppShellGate } from "@/components/app_shell_gate";
+web/app\layout.tsx:36:        <AppShellGate>{children}</AppShellGate>
+web/app\intake\page.tsx:13:// its own <header> or <main>; AppShell (via AppShellGate, I-cd-022) is
+web/app\runs\[runId]\page.tsx:108:  // AppShellGate, I-cd-022) is the single landmark provider on this
+
+ succeeded in 762ms:
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+
+import { AppShellGate } from "@/components/app_shell_gate";
+import { Toaster } from "@/components/ui/sonner";
+
+import "./globals.css";
+
+const geist_sans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geist_mono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "POLARIS Canada — Sovereign Deep Research",
+  description:
+    "Two-family verified evidence pipelines for Government of Canada policy work.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+    >
+      <body className="flex min-h-full flex-col">
+        <AppShellGate>{children}</AppShellGate>
+        <Toaster />
+      </body>
+    </html>
+  );
+}
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/app/runs/[runId]/audit/page.tsx:158-160: The present-signature branch renders 'GPG-signed', but signaturePresent is only a non-empty manifest.yaml.asc presence check in web/lib/inspector_bundle_loader.ts:141-148. The v1_canonical public fixture contains a placeholder asc stub, so this page can overclaim cryptographic signing. Use presence-only wording or verify the signature before saying GPG-signed."
+p2:
+  - "web/app/runs/[runId]/audit/page.tsx:356-361 nests BundlePendingCta inside the audit page <main>, but web/components/inspector/bundle_pending_cta.tsx:19-24 renders its own <main>. The null-bundle path violates the chromeless single-main landmark contract."
+merge_decision: DO NOT MERGE
+```
+tokens used
+62,472
