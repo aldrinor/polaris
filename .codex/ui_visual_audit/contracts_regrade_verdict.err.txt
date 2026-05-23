@@ -1,0 +1,47 @@
+Reading prompt from stdin...
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e5714-94d7-7991-a687-abd82bced067
+--------
+user
+You earlier graded the POLARIS "Evidence Contract editor" (/contracts) **D+** — "reads as a raw internal form: native checkboxes, cramped fieldsets, plain inputs, weak spacing rhythm, black default button; least PM-demo-ready."
+
+Attached is the REBUILT page. Same logic/fields, rebuilt visual layer: Card sections, labelled fields with plain-language hints (tiers now say "RCTs / systematic reviews" etc.), jurisdiction + claim-jurisdiction toggles as pill chips, a 3-column coverage grid, claims in a bordered sub-card, brand-red primary button.
+
+Bar = top-tier / Perplexity / ChatGPT-Deep-Research, institutional, PM-demo-ready. Be blunt — no cheerleading.
+
+Answer:
+1. New letter grade (A/B/C/D) and the delta from D+.
+2. Any REMAINING issue that still keeps it below the bar (be specific: spacing, hierarchy, the native select, chip styling, button, density, anything).
+3. Is it now demo-ready? yes / no.
+Output short readable markdown.
+
+codex
+## 1. Grade
+
+**B-**  
+Delta from **D+**: substantial jump. It no longer reads like a raw internal form; it reads like a usable institutional admin surface.
+
+## 2. Remaining Issues
+
+- **Still too form-native:** the select dropdown is the weakest element. It breaks the custom visual language immediately.
+- **Hierarchy is polite but flat:** section cards are clean, but everything has similar weight. Nothing guides the eye strongly through “question → scope → evidence requirements → claims.”
+- **Chips feel under-designed:** the red selected state works, but the chips are small and slightly default-looking.
+- **Density is uneven:** top sections feel breathable; the claims sub-card feels cramped and boxed-in by comparison.
+- **CTA is improved but basic:** red button is correct brand-wise, but it still feels like a standard form submit, not a confident product action.
+- **Copy still has internal-platform language:** “Evidence Contract Gate refuses generation” is accurate but not PM-demo polished.
+
+## 3. Demo-Ready?
+
+**Yes**, for a PM demo.
+
+Not yet top-tier Perplexity / ChatGPT-Deep-Research polish, but it has crossed from **internal prototype** to **credible product surface**.
+tokens used
+9,820
