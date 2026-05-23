@@ -1,0 +1,10 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/app/runs/[runId]/audit/page.tsx:158-160: The present-signature branch renders 'GPG-signed', but signaturePresent is only a non-empty manifest.yaml.asc presence check in web/lib/inspector_bundle_loader.ts:141-148. The v1_canonical public fixture contains a placeholder asc stub, so this page can overclaim cryptographic signing. Use presence-only wording or verify the signature before saying GPG-signed."
+p2:
+  - "web/app/runs/[runId]/audit/page.tsx:356-361 nests BundlePendingCta inside the audit page <main>, but web/components/inspector/bundle_pending_cta.tsx:19-24 renders its own <main>. The null-bundle path violates the chromeless single-main landmark contract."
+merge_decision: DO NOT MERGE
+```

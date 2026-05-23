@@ -1,0 +1,423 @@
+diff --git a/web/app/runs/[runId]/audit/page.tsx b/web/app/runs/[runId]/audit/page.tsx
+new file mode 100644
+index 00000000..4bb0dcde
+--- /dev/null
++++ b/web/app/runs/[runId]/audit/page.tsx
+@@ -0,0 +1,377 @@
++// I-p2-020 (#759) — Audit / export: the "take the proof with you" surface.
++//
++// Distinct from /inspector/[runId] (the evidence EXPLORER: per-claim proof
++// replay, evidence, reasoning). This is the COMPLIANCE/EXPORT artifact: the
++// signed-package integrity manifest (file hashes), the pipeline gate ledger,
++// the two-family provenance, and the download. Server component — every field
++// comes from the proven `loadBundle` path (same loader the inspector + the
++// /api/inspector_bundle/[runId] route use); no client JS needed (download is a
++// plain <a download> to that route).
++//
++// Honesty (LAW II): the canonical bundle ships WITHOUT manifest.yaml.asc (the
++// GPG seal was deliberately deferred — operator "skip the seal, build the real
++// proof"). So `signaturePresent` is false and the page says exactly that:
++// integrity manifest present, GPG signature pending sovereign signing. It never
++// claims a signature that isn't on disk.
++//
++// The richer per-gate audit log (corpus adequacy / approval / evaluator
++// rule-checks from AuditIrRun via GET /api/inspector/runs/{id}) is a documented
++// follow-up — that endpoint is used by no frontend yet, so building on it would
++// violate LAW II until it's verified live against the backend.
++
++import Link from "next/link";
++
++import { BundlePendingCta } from "@/components/inspector/bundle_pending_cta";
++import { Button } from "@/components/ui/button";
++import {
++  loadBundle,
++  type LoadedBundle,
++  type VerifiedReportShape,
++} from "@/lib/inspector_bundle_loader";
++import type { FileEntry } from "@/lib/signed_bundle";
++
++interface AuditPageProps {
++  params: Promise<{ runId: string }>;
++}
++
++const CONTENT_TYPE_LABEL: Record<string, string> = {
++  scope_decision: "Scope decision",
++  evidence_pool: "Evidence pool",
++  verified_report: "Verified report",
++  source_snapshot: "Source snapshot",
++  metadata: "Metadata",
++  reasoning_trace: "Reasoning trace",
++};
++
++function pct(value: number): string {
++  return `${Math.round(value * 100)}%`;
++}
++
++function shortHash(sha256: string): string {
++  return sha256.length > 16 ? `${sha256.slice(0, 16)}…` : sha256;
++}
++
++// I-p2-020 Codex iter-2 P1: `verified_sentences` carries BOTH passed AND
++// dropped sentences (audit completeness), so `.length` overstates coverage.
++// Count `verifier_pass === true` for the genuinely span-verified total.
++function passedSentences(section: {
++  verified_sentences: { verifier_pass: boolean }[];
++}): number {
++  return section.verified_sentences.filter((s) => s.verifier_pass).length;
++}
++
++function totalPassedSentences(report: VerifiedReportShape): number {
++  return report.sections.reduce(
++    (sum, section) => sum + passedSentences(section),
++    0,
++  );
++}
++
++function totalAttemptedSentences(report: VerifiedReportShape): number {
++  return report.sections.reduce(
++    (sum, section) => sum + section.verified_sentences.length,
++    0,
++  );
++}
++
++interface GateRow {
++  gate: string;
++  pass: boolean;
++  detail: string;
++}
++
++// The pipeline gate ledger, composed ONLY from fields that exist in the proven
++// signed-bundle verified_report. No fabricated gate fields.
++function buildGateLedger(report: VerifiedReportShape): GateRow[] {
++  const rows: GateRow[] = [
++    {
++      gate: "Pipeline verdict",
++      pass: report.pipeline_verdict === "success",
++      detail: report.pipeline_verdict,
++    },
++    {
++      gate: "Strict-verify (overall)",
++      pass: report.overall_verify_pass_rate >= report.verifier_pass_threshold,
++      detail: `${pct(report.overall_verify_pass_rate)} of sentences span-verified · threshold ${pct(report.verifier_pass_threshold)}`,
++    },
++    {
++      gate: "Two-family segregation",
++      pass: report.family_segregation_passed,
++      // I-p2-020 Codex P2: don't hardcode "≠" when the gate failed (a
++      // same-lineage bundle would show a contradictory detail beside Fail).
++      detail: report.family_segregation_passed
++        ? `Distinct lineages — ${report.generator_model} (generator) ≠ ${report.evaluator_model} (evaluator)`
++        : `Same lineage — ${report.generator_model} (generator), ${report.evaluator_model} (evaluator)`,
++    },
++  ];
++  for (const section of report.sections) {
++    rows.push({
++      gate: `Section: ${section.section_id}`,
++      pass: section.section_verify_pass_rate >= report.verifier_pass_threshold,
++      detail: `${pct(section.section_verify_pass_rate)} span-verified · ${passedSentences(section)}/${section.verified_sentences.length} sentences passed`,
++    });
++  }
++  return rows;
++}
++
++function StatusPill({ pass }: { pass: boolean }) {
++  return (
++    <span
++      className={
++        pass
++          ? "border-verified bg-verified/10 text-verified inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
++          : "border-refusal bg-refusal/10 text-refusal inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
++      }
++    >
++      {pass ? "Pass" : "Fail"}
++    </span>
++  );
++}
++
++function MetaRow({ label, value }: { label: string; value: string }) {
++  return (
++    <div className="flex flex-col gap-0.5">
++      <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
++        {label}
++      </span>
++      <span className="text-foreground text-sm break-words">{value}</span>
++    </div>
++  );
++}
++
++function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
++  const { manifest, metadata, verifiedReport, signaturePresent, runId } =
++    bundle;
++  const gateLedger = buildGateLedger(verifiedReport);
++  const files: FileEntry[] = manifest.files;
++  const totalBytes = files.reduce((sum, f) => sum + f.size_bytes, 0);
++
++  return (
++    <div className="flex flex-col gap-8">
++      {/* Integrity & provenance */}
++      <section className="border-border bg-card flex flex-col gap-4 rounded-lg border p-5">
++        <div className="flex flex-wrap items-start justify-between gap-3">
++          <h2 className="text-foreground text-sm font-semibold">
++            Integrity &amp; provenance
++          </h2>
++          {/* HONEST signature status — never claims a seal that isn't on disk.
++              I-p2-020 Codex iter-3 P1: `signaturePresent` is only an .asc
++              PRESENCE check (loader), not a cryptographic verify — say
++              "present" + point to operator-side gpg --verify, never "signed". */}
++          {signaturePresent ? (
++            <span
++              className="border-verified bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
++              title="A detached signature file (manifest.yaml.asc) is present. Confirm validity offline with `gpg --verify manifest.yaml.asc` against the published signing key — presence here is not a cryptographic verification."
++            >
++              ⬡ Detached signature present · verify with gpg
++            </span>
++          ) : (
++            <span
++              className="border-border text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
++              title="The bundle ships with a SHA-256 integrity manifest now; the detached GPG signature is added once the sovereign Canadian signer is live."
++            >
++              ◌ Integrity manifest present · GPG signature pending
++            </span>
++          )}
++        </div>
++        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
++          <MetaRow label="Bundle ID" value={manifest.bundle_id} />
++          <MetaRow label="Schema" value={`v${metadata.schema_version}`} />
++          <MetaRow label="POLARIS version" value={metadata.polaris_version} />
++          <MetaRow label="Generator model" value={metadata.generator_model} />
++          <MetaRow label="Evaluator model" value={metadata.evaluator_model} />
++          <MetaRow
++            label="Created (UTC)"
++            value={metadata.bundle_created_at_utc}
++          />
++        </div>
++      </section>
++
++      {/* Pipeline gate ledger */}
++      <section className="flex flex-col gap-3">
++        <div className="flex flex-col gap-1">
++          <h2 className="text-foreground text-sm font-semibold">
++            Pipeline gate ledger
++          </h2>
++          <p className="text-muted-foreground text-xs">
++            {/* I-p2-020 Codex P2: neutral wording — the same loader serves
++                aborted/failing bundles, not only cleared ones. */}
++            Gate outcomes recorded for this run, composed from the verified
++            report in the bundle — {totalPassedSentences(verifiedReport)} of{" "}
++            {totalAttemptedSentences(verifiedReport)} sentences span-verified
++            across {verifiedReport.sections.length} sections.
++          </p>
++        </div>
++        <div className="border-border overflow-x-auto rounded-lg border">
++          <table className="w-full text-left text-sm">
++            <thead className="border-border text-muted-foreground border-b text-[10px] tracking-widest uppercase">
++              <tr>
++                <th className="px-4 py-2.5 font-medium">Gate</th>
++                <th className="px-4 py-2.5 font-medium">Status</th>
++                <th className="px-4 py-2.5 font-medium">Detail</th>
++              </tr>
++            </thead>
++            <tbody>
++              {gateLedger.map((row) => (
++                <tr
++                  key={row.gate}
++                  className="border-border/60 border-b last:border-0"
++                >
++                  <td className="text-foreground px-4 py-2.5 font-medium">
++                    {row.gate}
++                  </td>
++                  <td className="px-4 py-2.5">
++                    <StatusPill pass={row.pass} />
++                  </td>
++                  <td className="text-muted-foreground px-4 py-2.5">
++                    {row.detail}
++                  </td>
++                </tr>
++              ))}
++            </tbody>
++          </table>
++        </div>
++      </section>
++
++      {/* Integrity manifest — the file hash chain */}
++      <section className="flex flex-col gap-3">
++        <div className="flex flex-col gap-1">
++          <h2 className="text-foreground text-sm font-semibold">
++            Integrity manifest
++          </h2>
++          <p className="text-muted-foreground text-xs">
++            {/* I-p2-020 Codex P1: state what the hashes ARE (manifest-recorded,
++                real) without promising the JSON export below re-hashes to them
++                — only the byte-preserving signed package does. */}
++            Every file the signed package contains, with the SHA-256 recorded in
++            its manifest. Each file&apos;s content is fixed by its hash; the
++            detached GPG signature (pending sovereign signing) seals the
++            manifest itself.
++          </p>
++        </div>
++        <div className="border-border overflow-x-auto rounded-lg border">
++          <table className="w-full text-left text-sm">
++            <thead className="border-border text-muted-foreground border-b text-[10px] tracking-widest uppercase">
++              <tr>
++                <th className="px-4 py-2.5 font-medium">File</th>
++                <th className="px-4 py-2.5 font-medium">Type</th>
++                <th className="px-4 py-2.5 text-right font-medium">Bytes</th>
++                <th className="px-4 py-2.5 font-medium">SHA-256</th>
++              </tr>
++            </thead>
++            <tbody>
++              {files.map((f) => (
++                <tr
++                  key={f.path}
++                  className="border-border/60 border-b last:border-0"
++                >
++                  <td className="text-foreground px-4 py-2.5 font-mono text-xs">
++                    {f.path}
++                  </td>
++                  <td className="text-muted-foreground px-4 py-2.5 text-xs">
++                    {CONTENT_TYPE_LABEL[f.content_type] ?? f.content_type}
++                  </td>
++                  <td className="text-muted-foreground px-4 py-2.5 text-right font-mono text-xs">
++                    {f.size_bytes.toLocaleString()}
++                  </td>
++                  <td
++                    className="text-muted-foreground px-4 py-2.5 font-mono text-xs"
++                    title={f.sha256}
++                  >
++                    {shortHash(f.sha256)}
++                  </td>
++                </tr>
++              ))}
++            </tbody>
++          </table>
++        </div>
++        <p className="text-muted-foreground text-[10px]">
++          {files.length} files · {totalBytes.toLocaleString()} bytes total
++        </p>
++      </section>
++
++      {/* Export */}
++      <section className="border-border bg-card flex flex-col gap-3 rounded-lg border p-5">
++        <h2 className="text-foreground text-sm font-semibold">
++          Export the package
++        </h2>
++        <p className="text-muted-foreground text-xs">
++          {/* I-p2-020 Codex P1: honest — this is a convenience JSON snapshot of
++              the parsed bundle, NOT the byte-preserving signed package. Don't
++              promise hash/gpg re-verification of this download. */}
++          Download the bundle contents as a single JSON document — scope
++          decision, evidence pool, verified report, source snapshots and
++          reasoning trace. The byte-preserving signed package (a{" "}
++          <code className="font-mono text-[11px]">.tar.gz</code> for{" "}
++          <code className="font-mono text-[11px]">gpg --verify</code> + per-file
++          SHA-256 re-hashing) is produced by the sovereign Canadian signer,
++          which is not yet live.
++        </p>
++        <div className="flex flex-wrap gap-2">
++          <Button
++            nativeButton={false}
++            render={
++              <a
++                href={`/api/inspector_bundle/${encodeURIComponent(runId)}`}
++                download={`polaris_audit_${runId}.json`}
++              />
++            }
++          >
++            Download audit package (JSON)
++          </Button>
++          <Button
++            variant="outline"
++            nativeButton={false}
++            render={<Link href={`/inspector/${runId}`} />}
++          >
++            Open in Inspector
++          </Button>
++        </div>
++      </section>
++    </div>
++  );
++}
++
++export default async function AuditExportPage({ params }: AuditPageProps) {
++  const { runId } = await params;
++  const bundle = await loadBundle(runId);
++
++  // Chromeless route (own header + <main>) — see app_shell_gate.tsx.
++  return (
++    <div className="flex min-h-screen flex-col">
++      <header className="border-border bg-background border-b">
++        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4">
++          <div className="flex flex-col">
++            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
++              Audit &amp; export
++            </span>
++            <span className="text-foreground text-base font-semibold">
++              Take the proof with you
++            </span>
++          </div>
++          <Button
++            variant="outline"
++            nativeButton={false}
++            render={<Link href={`/inspector/${runId}`} />}
++          >
++            Back to Inspector
++          </Button>
++        </div>
++      </header>
++
++      {/* I-p2-020 Codex iter-3 P2: BundlePendingCta renders its OWN <main>, so
++          the null path must NOT be wrapped in this page's <main> (single-main
++          landmark contract). Only the loaded path provides the <main>. */}
++      {bundle === null ? (
++        <BundlePendingCta runId={runId} />
++      ) : (
++        <main
++          data-testid="audit-export-page"
++          className="mx-auto w-full max-w-5xl flex-1 px-6 py-8"
++        >
++          <AuditExportBody bundle={bundle} />
++        </main>
++      )}
++    </div>
++  );
++}
+diff --git a/web/app/runs/[runId]/page.tsx b/web/app/runs/[runId]/page.tsx
+index 62be5b11..2d78ec1b 100644
+--- a/web/app/runs/[runId]/page.tsx
++++ b/web/app/runs/[runId]/page.tsx
+@@ -180,6 +180,15 @@ export default function RunDetailPage({ params }: RunPageProps) {
+           >
+             Open Inspector
+           </Button>
++          {/* I-p2-020 (#759): audit / export drill-down. */}
++          <Button
++            type="button"
++            variant="outline"
++            nativeButton={false}
++            render={<Link href={`/runs/${runId}/audit`} />}
++          >
++            Audit &amp; export
++          </Button>
+           <Button
+             type="button"
+             variant="outline"
+diff --git a/web/components/app_shell_gate.tsx b/web/components/app_shell_gate.tsx
+index 28bf9e95..f4c19a00 100644
+--- a/web/components/app_shell_gate.tsx
++++ b/web/components/app_shell_gate.tsx
+@@ -25,7 +25,12 @@ const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
+ // full-screen view that renders its OWN header (with "Back to Inspector") +
+ // <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
+ // header + G6 nested main).
+-const CHROMELESS_PATTERNS = [/^\/runs\/[^/]+\/graph$/];
++// I-p2-020 (#759): the audit/export drill-down (/runs/<id>/audit) follows the
++// same focused full-screen pattern (own header + <main>).
++const CHROMELESS_PATTERNS = [
++  /^\/runs\/[^/]+\/graph$/,
++  /^\/runs\/[^/]+\/audit$/,
++];
+ 
+ function isChromeless(pathname: string): boolean {
+   return (
+
+# canonical-diff-sha256: 8d40465ef3b0dc8c26a6513574bd83cff11f197de8a573b5ab5510f0f1762dbe

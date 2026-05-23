@@ -1,0 +1,9 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/app/runs/[runId]/audit/page.tsx:54,95,178: The ledger counts `section.verified_sentences.length` as span-verified/verified sentences, but the producer schema says `verified_sentences` includes both passed and dropped sentences for audit completeness. Mixed-pass success bundles will overstate verified coverage. Count `verifier_pass === true` separately, or label the total as attempted."
+p2: []
+merge_decision: DO NOT MERGE
+```

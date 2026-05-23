@@ -1,0 +1,11 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "web/app/runs/[runId]/audit/page.tsx:215 and :266-268 overclaim offline integrity verification for the exported artifact. The download points to /api/inspector_bundle/<runId>, whose route returns NextResponse.json(bundle): parsed JSON objects/arrays, not the original manifest-listed file bytes or a tar.gz package. A reviewer cannot re-hash that JSON export against the displayed SHA-256 manifest, especially for parsed JSON/JSONL files. For this compliance/export surface, either export a byte-preserving bundle/package or change the export/integrity copy so it does not promise offline hash verification of the downloaded artifact."
+p2:
+  - "web/app/runs/[runId]/audit/page.tsx:84 hardcodes the ≠ symbol in the two-family detail even when family_segregation_passed is false. A failing same-family/same-model bundle would show a contradictory detail beside a Fail pill."
+  - "web/app/runs/[runId]/audit/page.tsx:170-172 says 'Every gate this run cleared' even though the same loader supports aborted/failing bundles such as v1-canonical. Prefer neutral wording like 'Gate outcomes recorded for this run.'"
+merge_decision: DO NOT MERGE
+```
