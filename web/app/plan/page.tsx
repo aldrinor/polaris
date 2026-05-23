@@ -176,6 +176,10 @@ function PlanContent() {
   const canStart = inScope && disambigResolved && !starting;
 
   async function onStart() {
+    // Defense-in-depth (Codex diff P2): re-assert the gate at call time, not
+    // only via the disabled button — a run must never start unless the question
+    // is in_scope + disambiguation-resolved.
+    if (!inScope || !disambigResolved || starting) return;
     setStartError(null);
     setConcurrent(null);
     setStarting(true);
