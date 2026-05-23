@@ -1,0 +1,12 @@
+Decision: **B. Discriminator.**
+
+Corrected policy: **MDPI/`10.3390` must not earn T1 primary credit**, but a genuine full-title **systematic review/meta-analysis remains T2**. So keep `test_m12::test_full_mdpi_title_with_sr_ma_suffix_is_t2`; add the MDPI primary-only demotion instead.
+
+Rationale: the demonstrated afib failure was **primary-path over-credit**, not SR/MA over-credit. A hard T4 ceiling would overcorrect and erase the earlier deliberate pass-12 distinction. AMSTAR/method-quality concerns are real, but they should not make the classifier pretend a clearly titled peer-reviewed SR/MA is not secondary evidence; they do justify blocking MDPI from satisfying the stronger T1 primary evidence bucket.
+
+Non-conflicting parts stand:
+
+- `jacc.org` -> `PEER_REVIEWED_JOURNAL_DOMAINS`.
+- `escardio.org/guidelines`, NICE, and ACC/AHA `/guidelines/` paths -> T2 guideline-authority.
+- Society `/tools/`, `/dosing/`, practice-support tool paths stay T3.
+- `ahajournals` 297-char stub stays T7; do not launder it upward.

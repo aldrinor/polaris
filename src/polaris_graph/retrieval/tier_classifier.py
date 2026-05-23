@@ -477,6 +477,11 @@ PEER_REVIEWED_JOURNAL_DOMAINS = frozenset({
     "frontiersin.org", "mdpi.com", "plos.org", "plosone.org",
     "ahajournals.org", "diabetesjournals.org", "endocrine.org",
     "acc.org", "acpjournals.org",
+    # I-bug-771 (#812): jacc.org (J. Am. Coll. Cardiology) is a flagship
+    # cardiology journal (Elsevier 10.1016) but was absent — its articles
+    # demoted to T4 via the R9 unverified-host guard. acc.org alone did not
+    # cover the jacc.org host.
+    "jacc.org", "onlinejacc.org",
     "acs.org", "pubs.acs.org", "rsc.org", "pubs.rsc.org",
     "ieee.org", "acm.org",
     "academic.oup.com",  # OUP journals
@@ -484,6 +489,126 @@ PEER_REVIEWED_JOURNAL_DOMAINS = frozenset({
     "bmcmedicine.com", "biomedcentral.com",
     "jme.bmj.com",  # Journal of Medical Ethics
 })
+
+# I-bug-771 (#812): low-quality / high-volume open-access publishers whose
+# PRIMARY articles must NOT earn T1 (variable methodological quality), but
+# whose genuine full-title systematic reviews / meta-analyses remain T2 (Codex
+# #812 reconcile B — discriminator, not a hard ceiling). The primary-path
+# demotion is applied in R9/R10; the SR/MA branches (which fire first) are
+# untouched, preserving the deliberate pass-12 MDPI-SR/MA->T2 distinction.
+LOW_QUALITY_OA_DOMAINS = frozenset({
+    "mdpi.com",
+})
+# DOI prefixes for the same publishers (URL-embedded).
+LOW_QUALITY_OA_DOI_PREFIXES = frozenset({
+    "10.3390",  # MDPI
+})
+
+# I-bug-771 (#812): recognized guideline-issuing bodies. A document on one of
+# these hosts whose path signals a clinical practice guideline is high-authority
+# SECONDARY evidence (T2 — counts toward the clinical T2 minimum), reasoned as
+# "guideline authority", explicitly NOT a primary study. Society tool / dosing /
+# practice-support paths are EXCLUDED here and stay T3 (Codex #812: "acc.org
+# tools/dosing PDFs do not get T1/T2"). Content stubs are unaffected — Rule 1
+# returns T7 before this rule, so a 297-char fetch can never be laundered up.
+GUIDELINE_AUTHORITY_DOMAINS = frozenset({
+    "escardio.org",      # European Society of Cardiology
+    "nice.org.uk",       # NICE (UK)
+    "ahajournals.org",   # AHA/ACC guidelines published in Circulation
+    "jacc.org", "onlinejacc.org",
+    "acc.org",           # ACC guideline pages (NOT /tools/ — excluded below)
+})
+_GUIDELINE_PATH_MARKERS = (
+    "/guidelines/", "/guideline/", "/guidance/", "/recommendations/",
+    "/scientific-documents/recom",  # ESC scientific-documents recommendations
+)
+# I-bug-771 (#812) iter-2 (Codex P1): canonical ACC/AHA guidelines are published
+# as DOI ARTICLES (e.g. ahajournals.org/doi/10.1161/CIR..., jacc.org/doi/...),
+# NOT on a /guidelines/ path — so a path-only check misses them. On a recognized
+# guideline-authority domain, these NARROW clinical-guideline title markers also
+# promote to T2. Deliberately EXCLUDES the broad explainer/whitepaper/industry
+# markers in _GUIDELINE_EXPLAINER_TITLE_MARKERS (those stay T4): a guideline is a
+# practice/consensus/scientific statement, not a fact sheet or market insight.
+# iter-4 (Codex P1+P2): distinguish an ISSUED guideline DOCUMENT from primary
+# studies and from commentary ABOUT guidelines. Two robust signals:
+#  (a) a year-anchored "<YYYY> ... guideline(s) for|on ..." pattern — issued
+#      clinical guidelines are year-dated society documents whose title reads
+#      "2021 ACC/AHA/SCAI Guideline for Coronary Artery Revascularization" /
+#      "2024 ESC Guidelines for the management of AF". The phrase "guideline(s)
+#      FOR/ON" (not "guideline recommendations for") + a year is the document
+#      signal. This catches main-title-only forms (Codex P2: no "for the"
+#      required) AND rejects undated guideline-comparison commentary like
+#      "International Clinical Practice Guideline Recommendations for Acute PE:
+#      Harmony, Dissonance, and Silence" (no year + "guideline recommendations
+#      for", not "guideline for") (Codex P1).
+#  (b) explicit document-TYPE statements that are themselves the artifact.
+# Bare "guideline" / "clinical practice guideline" substrings are DELIBERATELY
+# NOT markers (they appear in GDMT primaries + guideline-comparison commentary).
+_GUIDELINE_DOC_STATEMENT_MARKERS = (
+    "consensus statement", "expert consensus",
+    "scientific statement",            # AHA scientific statements
+    "position statement",
+    "practice bulletin",
+)
+_GUIDELINE_YEAR_DOC_RE = re.compile(
+    r"\b(?:19|20)\d{2}\b.{0,80}\bguidelines?\s+(?:for|on|update|focused update)\b"
+)
+# Primary-study / commentary titles that MENTION guidelines but are NOT
+# guideline documents — never promoted (checked FIRST).
+_GUIDELINE_TITLE_EXCLUSIONS = (
+    "guideline-directed", "guideline directed",      # GDMT — a therapy, studied in primaries
+    "guideline adherence", "guideline-adherent", "guideline adherent",
+    "adherence to guideline", "adherence to the guideline",
+    "guideline-concordant", "guideline concordant",
+    "guideline implementation", "guideline-based", "guideline based",
+    "guideline-recommended", "guideline recommended",
+    "non-guideline", "off-guideline",
+)
+# iter-5 (Codex P1): study-ABOUT-a-document framings, anchored to the TITLE
+# START. A primary study that validates / uses / evaluates a consensus statement,
+# decision pathway, or guideline is NOT itself the issued document — e.g.
+# "Validation of the 2019 Expert Consensus Algorithm ..." / "Validation of the
+# ACC Expert Consensus Decision Pathway ...". Issued guideline/consensus
+# documents START with a year or a society name (or "Clinical Practice
+# Guideline" / "Expert Consensus ..."), NEVER with a study verb. Anchoring to
+# the start (not substring-anywhere) avoids over-excluding real guidelines whose
+# scope phrase contains a verb mid-title (e.g. "Guideline for the Evaluation of
+# Chest Pain").
+_STUDY_FRAMING_TITLE_PREFIXES = (
+    "validation of", "validating", "a validation",
+    "use of", "using", "utilization of", "utility of",
+    "impact of", "implementation of", "application of",
+    "evaluation of", "comparison of", "comparing",
+    "association of", "association between", "predictors of",
+    "outcomes of", "outcomes after", "effect of", "effects of",
+    "efficacy and safety of", "efficacy of", "safety of",
+    "adherence to", "real-world",
+)
+
+
+def _title_signals_clinical_guideline(title: str) -> bool:
+    """I-bug-771 (#812): detect an ISSUED clinical-practice-guideline DOCUMENT
+    title for the guideline-authority promotion in Rule 8c. Exclusions checked
+    FIRST (GDMT / adherence / implementation primaries). Then a year-anchored
+    "guideline(s) for|on" document pattern OR an explicit document-type statement
+    (consensus / scientific / position statement / practice bulletin). Rejects
+    undated guideline-comparison commentary. Narrower than
+    _detect_guideline_or_explainer_title (which fires on explainer/policy titles
+    that must stay T4)."""
+    if not title:
+        return False
+    t = title.lower()
+    if any(x in t for x in _GUIDELINE_TITLE_EXCLUSIONS):
+        return False
+    # iter-5: a study ABOUT a document (validation/use/impact/...) starts with a
+    # study verb; issued documents do not. Reject these before the document
+    # markers so "Validation of the ... Expert Consensus ..." is not promoted.
+    t_start = t.lstrip("\"'([ ")
+    if any(t_start.startswith(p) for p in _STUDY_FRAMING_TITLE_PREFIXES):
+        return False
+    if any(m in t for m in _GUIDELINE_DOC_STATEMENT_MARKERS):
+        return True
+    return bool(_GUIDELINE_YEAR_DOC_RE.search(t))
 
 # M-18a (DR audit pass 1): when the fetcher records the URL as
 # doi.org/<prefix>/<suffix>, the classifier cannot know from the
@@ -534,6 +659,29 @@ def _has_peer_reviewed_doi_prefix(url: str) -> bool:
         return prefix in PEER_REVIEWED_DOI_PREFIXES
     except (IndexError, ValueError):
         return False
+
+
+def _is_low_quality_oa(domain: str, url: str) -> bool:
+    """I-bug-771 (#812): True if the source is a low-quality / high-volume OA
+    publisher (MDPI) by domain OR by URL-embedded DOI prefix. Used to deny T1
+    primary credit in R9/R10 (SR/MA still routes to T2 in the earlier branch)."""
+    if _domain_matches(domain, LOW_QUALITY_OA_DOMAINS):
+        return True
+    u = (url or "").lower()
+    # Exact DOI-prefix match (iter-2 Codex P2: avoid substring false-positives
+    # such as 10.33901 matching 10.3390). Extract the registrant prefix after
+    # doi.org/ exactly, mirroring _has_peer_reviewed_doi_prefix.
+    if "doi.org/" in u:
+        try:
+            prefix = u.split("doi.org/", 1)[1].split("/", 1)[0]
+            if prefix in LOW_QUALITY_OA_DOI_PREFIXES:
+                return True
+        except (IndexError, ValueError):
+            pass
+    # DOI embedded in a publisher path (e.g. /10.3390/...): require both
+    # boundary slashes so 10.33901 cannot match 10.3390.
+    return any(f"/{p}/" in u for p in LOW_QUALITY_OA_DOI_PREFIXES)
+
 
 # Preprint servers (T4/T5 candidates — not peer-reviewed; caller may
 # tier-down further based on funding disclosure).
@@ -1279,6 +1427,59 @@ def classify_source_tier(
         )
         return result
 
+    # ── Rule 8c (I-bug-771 #812): recognized guideline-issuing bodies. Fires
+    # AFTER Rule 1 stub (so 297-char fetches stay T7, never laundered) and
+    # BEFORE R8b/R9/R10 (so it pre-empts both the body-signal demotion AND the
+    # R9 OpenAlex-article path that was granting society tool PDFs T1). Two
+    # outcomes on these domains:
+    #   * society tool / dosing / practice-support path  -> T3 (clinical
+    #     decision-support reference; Codex #812: never T1/T2)
+    #   * clinical-practice-guideline / recommendation path -> T2 (high-
+    #     authority secondary evidence; "guideline authority" NOT primary)
+    # A plain research article on these hosts (no tool/guideline path marker)
+    # falls through to the normal journal path (R9/R10) and tiers as usual.
+    # (NICE is matched here for documentation, but nice.org.uk is in
+    # REGULATORY_DOMAINS and R2d already returned T3 above — a defensible
+    # government/HTA classification; flagged for Codex in the diff review.)
+    _gl_url = (signals.url or "").lower()
+    _society_tool_path_markers = (
+        "/tools/", "/tool/", "/practice-support/", "/practice-resources/",
+        "/information-graphics/", "/infographic", "/dosing/", "-dosing-",
+        "/clinical-tools/", "tools-and-practice-support",
+    )
+    if _domain_matches(domain, GUIDELINE_AUTHORITY_DOMAINS):
+        if any(m in _gl_url for m in _society_tool_path_markers):
+            result.tier = TierLevel.T3
+            result.confidence = 0.85
+            result.matched_rules.append("R8c_society_tool_demoted")
+            result.reasons.append(
+                f"Domain {domain!r} is a professional-society host and the URL "
+                f"path matches a tool / dosing / practice-support pattern. "
+                f"Clinical decision-support reference, not primary research or "
+                f"a guideline document. T3 (never T1/T2 per #812)."
+            )
+            return result
+        if (
+            (
+                any(m in _gl_url for m in _GUIDELINE_PATH_MARKERS)
+                or _title_signals_clinical_guideline(signals.title)
+            )
+            and not _detect_conference_abstract(signals.title, signals.url)
+        ):
+            result.tier = TierLevel.T2
+            result.confidence = 0.85
+            result.matched_rules.append("R8c_guideline_authority")
+            result.reasons.append(
+                f"Domain {domain!r} is a recognized guideline-issuing body and "
+                f"the URL path OR title signals a clinical practice guideline / "
+                f"consensus / scientific statement. High-authority secondary "
+                f"evidence (T2 — guideline authority, NOT a primary study). "
+                f"Canonical ACC/AHA guidelines are DOI articles with guideline "
+                f"titles (no /guidelines/ path), so the title check is required. "
+                f"Content stubs already returned T7 at Rule 1."
+            )
+            return result
+
     # ── Rule 8b (BUG-M-17, Codex pass 2): body-inspection override.
     # When live_retriever._detect_article_type_from_body found explicit
     # article-type metadata (meta tag / JSON-LD / Frontiers section
@@ -1476,6 +1677,24 @@ def classify_source_tier(
             # live_retriever (so SR/MA suffixes aren't truncated) and
             # (ii) expanded narrative markers ("perspective for",
             # "for clinicians") to catch guidance articles.
+            # I-bug-771 (#812, Codex reconcile B): low-quality OA (MDPI)
+            # primary articles do NOT earn T1. The SR/MA branch above
+            # already routed genuine MDPI systematic reviews to T2, so this
+            # only catches the primary path (the demonstrated afib over-credit
+            # was MDPI-primary -> T1). Demote to T4.
+            if _is_low_quality_oa(domain, signals.url):
+                result.tier = TierLevel.T4
+                result.confidence = 0.7
+                result.matched_rules.append("R9_low_quality_oa_primary_demoted")
+                result.reasons.append(
+                    f"OpenAlex: peer-reviewed {pub_type!r} in journal, but "
+                    f"domain {domain!r} (or DOI prefix) is a low-quality / "
+                    f"high-volume OA publisher. Primary articles do not earn "
+                    f"T1 (variable methodological quality); T4 ceiling. A "
+                    f"genuine full-title systematic review / meta-analysis "
+                    f"would have routed to T2 in the earlier branch."
+                )
+                return result
             result.tier = TierLevel.T1
             result.confidence = 0.8
             result.matched_rules.append("R9_openalex_primary_study")
@@ -1580,6 +1799,20 @@ def classify_source_tier(
             )
             return result
 
+        # I-bug-771 (#812, Codex reconcile B): low-quality OA (MDPI) primary
+        # articles do NOT earn presumed-T1 here either (the SR/MA-title branch
+        # above already routed genuine reviews to T2). Demote to T4.
+        if _is_low_quality_oa(domain, signals.url):
+            result.tier = TierLevel.T4
+            result.confidence = 0.6
+            result.matched_rules.append("R10_low_quality_oa_primary_demoted")
+            result.reasons.append(
+                f"Domain {domain!r} (or DOI prefix) is a low-quality / "
+                f"high-volume OA publisher; presumed-primary articles do not "
+                f"earn T1. T4 ceiling. A genuine SR/MA title would have routed "
+                f"to T2 above."
+            )
+            return result
         # Journal domain without OpenAlex, not NIH aggregator, not
         # society-tool URL pattern, title not truncated, and no
         # SR/MA/narrative/guideline signals fired in earlier branches:

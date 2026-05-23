@@ -766,3 +766,12 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
 - verdict: APPROVE
 - iter trajectory: 1 RC (2 P1 template_id + degraded SSE) -> 2 RC (1 P1 cancel-on-error + 3 P2) -> 3 RC (1 P1 diff_brief scope + 1 P2 exit-code count) -> 4 APPROVE clean
 - scope: 3-file canonical (smoke + runbook + trajectory) + audit substrate
+
+## I-bug-771 (#812) — tier_classifier fix — Codex diff review (2026-05-23)
+- iter-1: REQUEST_CHANGES — P1 guideline-DOI-articles-miss-R8c, P2 DOI-substring. Both fixed.
+- iter-2: REQUEST_CHANGES — NOVEL P1 GDMT 'guideline-directed' false-promote. Fixed (exclusions-first).
+- iter-3: REQUEST_CHANGES — NOVEL P1 guideline-comparison commentary false-promote + P2 'Guideline for Revascularization' miss. Fixed (year-anchor; dropped bare substrings).
+- iter-4: REQUEST_CHANGES — NOVEL P1 'Guideline Focused Update' false-demote. Fixed (added update|focused update).
+- iter-5 (CAP): REQUEST_CHANGES — NOVEL P1 consensus-validation false-promote. RESOLVED (START-anchored study-framing exclusions, §-1.2 step-6). Force-APPROVE per §8.3.1.
+- Trajectory: 5 real guideline-TITLE-form edges (toothpaste-squeeze), each a genuine false-promote/demote, all resolved with fixes + tests. 255 classifier tests green. Dangerous (false-promote) direction comprehensively guarded; residual = safe false-demote tail -> follow-up #813 (P3).
+- Brief+verdict+diff: .codex/I-bug-771/. End-to-end re-run verification pending (post-#763-sweep).

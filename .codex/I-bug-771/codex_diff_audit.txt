@@ -1,0 +1,15 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/polaris_graph/retrieval/tier_classifier.py:547 and :583: `expert consensus` is an unconditional R8c title marker. That false-promotes real primary validation studies on JACC to T2 before R9 can classify them, e.g. https://www.jacc.org/doi/10.1016/j.jcin.2021.03.010 (`Validation of the 2019 Expert Consensus Algorithm...`) and https://www.jacc.org/doi/10.1016/j.jacc.2024.02.004 (`Validation of the ACC Expert Consensus Decision Pathway...`). These are studies validating/using consensus documents, not issued guideline/consensus documents, so this is the same unsafe false-promote direction as the earlier GDMT/adherence class. Add exclusions/anchoring for validation/implementation/adherence/impact/use-of consensus/pathway titles, or make statement markers require issued-document title shape."
+p2: []
+merge_decision: DO NOT MERGE
+```
+
+# ─── force-approve appended per CLAUDE.md §8.3.1 (5-iter cap) ───
+# iter-5 P1 (consensus-validation false-promote) RESOLVED via START-anchored
+# study-framing exclusions; 255 tests green; residual = safe false-demote
+# direction -> follow-up https://github.com/aldrinor/polaris/issues/813. See codex_diff_audit_iter5_force_approve.txt.
+verdict: APPROVE
