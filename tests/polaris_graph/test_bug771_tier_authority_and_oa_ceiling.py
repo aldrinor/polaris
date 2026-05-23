@@ -236,6 +236,30 @@ def test_guideline_adherence_study_not_promoted_to_t2() -> None:
     assert r.tier.value != "T2", f"Guideline-adherence study should not be T2, got {r.tier.value}"
 
 
+def test_guideline_comparison_commentary_not_promoted() -> None:
+    """iter-4 (Codex P1): a guideline-COMPARISON/analysis article is commentary
+    ABOUT guidelines, not an issued guideline document. Undated + 'guideline
+    recommendations for' (not 'guideline for') -> must NOT be T2."""
+    r = _classify(
+        url="https://www.jacc.org/doi/abs/10.1016/j.jacc.2024.07.044",
+        title="International Clinical Practice Guideline Recommendations for Acute Pulmonary Embolism: Harmony, Dissonance, and Silence",
+    )
+    assert r.tier.value != "T2", f"Guideline-comparison commentary should NOT be T2, got {r.tier.value}"
+    assert r.matched_rules[-1] != "R8c_guideline_authority"
+
+
+def test_revascularization_guideline_main_title_only_is_t2() -> None:
+    """iter-4 (Codex P2): a real issued guideline whose title lacks 'for the'
+    ('2021 ACC/AHA/SCAI Guideline for Coronary Artery Revascularization') must
+    still reach T2 via the year-anchored 'guideline for' pattern."""
+    r = _classify(
+        url="https://www.jacc.org/doi/10.1016/j.jacc.2021.09.006",
+        title="2021 ACC/AHA/SCAI Guideline for Coronary Artery Revascularization",
+    )
+    assert r.tier.value == "T2", f"Revascularization guideline should be T2, got {r.tier.value}"
+    assert r.matched_rules[-1] == "R8c_guideline_authority"
+
+
 def test_doi_prefix_exact_no_false_positive() -> None:
     """iter-2 (Codex P2): low-quality-OA DOI matching is exact-prefix, so a
     longer prefix beginning with 10.3390 (e.g. 10.33901) is NOT treated as MDPI."""

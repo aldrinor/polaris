@@ -529,28 +529,30 @@ _GUIDELINE_PATH_MARKERS = (
 # promote to T2. Deliberately EXCLUDES the broad explainer/whitepaper/industry
 # markers in _GUIDELINE_EXPLAINER_TITLE_MARKERS (those stay T4): a guideline is a
 # practice/consensus/scientific statement, not a fact sheet or market insight.
-# iter-3 (Codex P1): a guideline DOCUMENT title carries one of these phrases.
-# Bare "guideline"/"guidelines" is DELIBERATELY NOT here — it appears in primary
-# studies ("Guideline-Directed Medical Therapy ...: A Cohort Study") that must
-# stay T1. A guideline document is "... Guideline FOR/ON the ...", a consensus /
-# scientific / position statement, a practice guideline/bulletin, or a focused
-# update of a guideline.
-_GUIDELINE_DOC_TITLE_MARKERS = (
-    "clinical practice guideline",
-    "practice guideline", "practice bulletin",
+# iter-4 (Codex P1+P2): distinguish an ISSUED guideline DOCUMENT from primary
+# studies and from commentary ABOUT guidelines. Two robust signals:
+#  (a) a year-anchored "<YYYY> ... guideline(s) for|on ..." pattern — issued
+#      clinical guidelines are year-dated society documents whose title reads
+#      "2021 ACC/AHA/SCAI Guideline for Coronary Artery Revascularization" /
+#      "2024 ESC Guidelines for the management of AF". The phrase "guideline(s)
+#      FOR/ON" (not "guideline recommendations for") + a year is the document
+#      signal. This catches main-title-only forms (Codex P2: no "for the"
+#      required) AND rejects undated guideline-comparison commentary like
+#      "International Clinical Practice Guideline Recommendations for Acute PE:
+#      Harmony, Dissonance, and Silence" (no year + "guideline recommendations
+#      for", not "guideline for") (Codex P1).
+#  (b) explicit document-TYPE statements that are themselves the artifact.
+# Bare "guideline" / "clinical practice guideline" substrings are DELIBERATELY
+# NOT markers (they appear in GDMT primaries + guideline-comparison commentary).
+_GUIDELINE_DOC_STATEMENT_MARKERS = (
     "consensus statement", "expert consensus",
     "scientific statement",            # AHA scientific statements
     "position statement",
-    "guideline for the", "guidelines for the",
-    "guideline for management", "guidelines for management",
-    "guideline for the management", "guidelines for the management",
-    "guideline for diagnosis", "guidelines for diagnosis",
-    "guideline on the", "guidelines on the",
-    "guideline update", "guidelines update",
-    "focused update",                  # ACC/AHA "... Focused Update of the Guideline"
+    "practice bulletin",
 )
-# iter-3 (Codex P1): primary-study / non-document titles that MENTION guidelines
-# but are NOT guideline documents — these must NOT be promoted to T2.
+_GUIDELINE_YEAR_DOC_RE = re.compile(r"\b(?:19|20)\d{2}\b.{0,80}\bguidelines?\s+(?:for|on)\b")
+# Primary-study / commentary titles that MENTION guidelines but are NOT
+# guideline documents — never promoted (checked FIRST).
 _GUIDELINE_TITLE_EXCLUSIONS = (
     "guideline-directed", "guideline directed",      # GDMT — a therapy, studied in primaries
     "guideline adherence", "guideline-adherent", "guideline adherent",
@@ -563,18 +565,22 @@ _GUIDELINE_TITLE_EXCLUSIONS = (
 
 
 def _title_signals_clinical_guideline(title: str) -> bool:
-    """I-bug-771 (#812): narrow clinical-practice-guideline DOCUMENT title
-    detector for the guideline-authority promotion in Rule 8c. Exclusions are
-    checked FIRST so primary studies that merely mention guidelines (GDMT,
-    adherence, implementation studies) are never promoted. Narrower than
-    _detect_guideline_or_explainer_title (which also fires on explainer / policy
-    / industry titles that must stay T4)."""
+    """I-bug-771 (#812): detect an ISSUED clinical-practice-guideline DOCUMENT
+    title for the guideline-authority promotion in Rule 8c. Exclusions checked
+    FIRST (GDMT / adherence / implementation primaries). Then a year-anchored
+    "guideline(s) for|on" document pattern OR an explicit document-type statement
+    (consensus / scientific / position statement / practice bulletin). Rejects
+    undated guideline-comparison commentary. Narrower than
+    _detect_guideline_or_explainer_title (which fires on explainer/policy titles
+    that must stay T4)."""
     if not title:
         return False
     t = title.lower()
     if any(x in t for x in _GUIDELINE_TITLE_EXCLUSIONS):
         return False
-    return any(m in t for m in _GUIDELINE_DOC_TITLE_MARKERS)
+    if any(m in t for m in _GUIDELINE_DOC_STATEMENT_MARKERS):
+        return True
+    return bool(_GUIDELINE_YEAR_DOC_RE.search(t))
 
 # M-18a (DR audit pass 1): when the fetcher records the URL as
 # doi.org/<prefix>/<suffix>, the classifier cannot know from the
