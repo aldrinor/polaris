@@ -1,0 +1,43 @@
+**Decision: C + D.**
+
+Implement both: a curated authoritative-source floor overlay plus content-signal fixes, and add an explicit MDPI/low-quality-OA ceiling. Do not relax adequacy thresholds.
+
+A-only is too blunt for clinical safety. B-only will keep missing guideline bodies and society venues. D is mandatory because the current failure is bidirectional: it under-credits AHA/JACC/ESC/PMC while over-crediting MDPI.
+
+**Guardrails**
+Hard negative rules win before any floor: retracted papers, social/news/blog/vendor pages, industry marketing, low-provenance hosts, clinical reference products, student/predatory/low-quality venues.
+
+Authoritative floors must be narrow and auditable:
+
+- AHA/JAHA/Circulation, JACC, NEJM, Lancet, JAMA, BMJ, Cochrane, PubMed/PMC peer-reviewed content: floor to T1/T2 based on article type.
+- ESC/ACC/AHA/NICE guideline paths: high-authority guideline floor, with reason text saying guideline authority, not “primary study.”
+- ACC tools/dosing PDFs/practice-support assets do not get T1/T2 just because `acc.org`.
+- MDPI and `10.3390` must not classify as T1/T2. Treat as T4 ceiling unless another explicit safety-reviewed exception exists.
+- Unknown OpenAlex `article+journal` hosts remain T4, not T1.
+
+One important correction: AHA rows currently hitting T7 are partly a content-length/stub issue. Do not let an authority floor silently launder unusable 297-character fetches into claim-supporting evidence. If the implementation keeps one `tier` field, tests must ensure content-starved authoritative sources are flagged and not used for sentence-level support unless full text/usable abstract exists.
+
+**Test Invariants**
+Assert:
+
+- `ahajournals.org` primary article -> T1/T2, not T7 when usable content/metadata exists.
+- `jacc.org` / JACC DOI -> T1/T2 by article type.
+- `escardio.org/guidelines/...` -> authoritative guideline high tier, not T4.
+- PMC/PubMed primary and SR/MA examples -> T1/T2 by content.
+- `mdpi.com` and `doi.org/10.3390/...` -> not T1/T2.
+- `acc.org/...Tools-and-Practice-Support/...DOAC-Dosing...pdf` -> not T1/T2.
+- social/vendor/news/predatory/unknown OpenAlex hosts stay low.
+
+**Verification**
+Re-run the three blocked vectors first:
+
+- `clinical_afib_anticoagulation`
+- `tech_long_context_transformer`
+- `tech_rag_architectures_2024`
+
+Pass bar: no `abort_corpus_inadequate`; clinical reaches `T1 >= 3` and `T1+T2 >= 5` with at least 2 real T2-equivalent review/guideline/secondary sources if the template requires it; low-quality and T7 fractions remain within caps; MDPI is never contributing to T1/T2.
+
+Then run controls: `clinical_tirzepatide_t2dm` plus one policy/due-diligence vector to ensure the precision guards did not regress.
+
+**Mis-Diagnosis**
+Partially. The MDPI over-credit is real. ESC/JACC/PMC under-tiering is real. But AHA→T7 is not purely “missing authoritative allow-list”; it is the hard stub/content-length rule firing before authority. Fix that without letting content-starved sources become unsupported evidence.
