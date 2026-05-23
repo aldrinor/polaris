@@ -1,0 +1,9 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/tests/e2e/inspector_route.spec.ts was not extended to include the new proof tab, so CI does not directly assert the new default Proof Replay panel. Non-blocking for this diff."
+merge_decision: MERGE AUTHORIZED
+```
