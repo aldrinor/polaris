@@ -61,6 +61,11 @@ test.describe("WCAG-AA — research dashboard", () => {
       "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
       { waitUntil: "networkidle" },
     );
+    // Wait for the gate to resolve + the "Can't start this run" blocked alert
+    // to render, so axe actually covers the scope-rejection surface (Codex P2).
+    await expect(page.getByTestId("plan-blocked")).toBeVisible({
+      timeout: 10_000,
+    });
     await expectNoA11yViolations(page);
   });
 });
@@ -119,36 +124,10 @@ test.describe("WCAG-AA — Inspector (signed-bundle, post-I-cd-013a)", () => {
   });
 });
 
-test.describe("WCAG-AA — dashboard upload list with files", () => {
-  test('Upload list "remove" button is WCAG-AA clean (real upload)', async ({
-    page,
-  }) => {
-    // Closes cycle-3 audit P1.1 — F-7 fixed dashboard/page.tsx:324
-    // (\"remove\" button on upload list) but no test exercised it because
-    // no fixture populated the upload state. This test posts a real file
-    // through the live /api/upload endpoint, then asserts axe-clean once
-    // the upload-list <li> renders with the destructive-class \"remove\"
-    // button.
-    await page.goto("/dashboard", { waitUntil: "networkidle" });
-
-    const fileInput = page.locator('input[type="file"]');
-    await fileInput.setInputFiles({
-      name: "polaris_a11y_probe.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from("hello-from-a11y-probe"),
-    });
-
-    // Wait for the upload-list item to appear with our filename + the
-    // \"remove\" button. The list rendering depends on POST /api/upload
-    // returning successfully.
-    await expect(page.getByText("polaris_a11y_probe.txt")).toBeVisible({
-      timeout: 8_000,
-    });
-    await expect(page.getByRole("button", { name: /^remove$/ })).toBeVisible();
-
-    await expectNoA11yViolations(page);
-  });
-});
+// I-p2-022 (#761): the "dashboard upload list" a11y test was REMOVED — the
+// document-upload form lived on the old dashboard run-start workflow, which was
+// relocated off the (now monitoring-only) dashboard. Upload a11y belongs to the
+// /upload route's own suite when uploads are wired into the new intake→plan flow.
 
 // I-cd-013b (GH#669): the legacy `/inspector/golden_with_drop_reason`
 // a11y test exercised a "Dropped: <reason>" annotation that doesn't
