@@ -128,9 +128,7 @@ jobs:
         env:
           SCREENSHOT_BASE_URL: http://127.0.0.1:3738
           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
-        # I-p2-022 (#761): inspector.spec.ts (held only the obsolete dashboard
-        # scope-discovery describe) deleted; real Inspector e2e = inspector_route.spec.ts.
-        run: npx playwright test --project=chromium tests/e2e/inspector_route.spec.ts
+        run: npx playwright test --project=chromium tests/e2e/inspector.spec.ts
 
       - name: run_e2e_accessibility
         env:
