@@ -81,7 +81,11 @@ function buildGateLedger(report: VerifiedReportShape): GateRow[] {
     {
       gate: "Two-family segregation",
       pass: report.family_segregation_passed,
-      detail: `${report.generator_model} (generator) ≠ ${report.evaluator_model} (evaluator)`,
+      // I-p2-020 Codex P2: don't hardcode "≠" when the gate failed (a
+      // same-lineage bundle would show a contradictory detail beside Fail).
+      detail: report.family_segregation_passed
+        ? `Distinct lineages — ${report.generator_model} (generator) ≠ ${report.evaluator_model} (evaluator)`
+        : `Same lineage — ${report.generator_model} (generator), ${report.evaluator_model} (evaluator)`,
     },
   ];
   for (const section of report.sections) {
@@ -168,10 +172,12 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
             Pipeline gate ledger
           </h2>
           <p className="text-muted-foreground text-xs">
-            Every gate this run cleared before any claim shipped. Composed from
-            the verified report in the bundle —{" "}
-            {totalVerifiedSentences(verifiedReport)} sentences span-verified
-            across {verifiedReport.sections.length} sections.
+            {/* I-p2-020 Codex P2: neutral wording — the same loader serves
+                aborted/failing bundles, not only cleared ones. */}
+            Gate outcomes recorded for this run, composed from the verified
+            report in the bundle — {totalVerifiedSentences(verifiedReport)}{" "}
+            sentences span-verified across {verifiedReport.sections.length}{" "}
+            sections.
           </p>
         </div>
         <div className="border-border overflow-x-auto rounded-lg border">
@@ -212,8 +218,13 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
             Integrity manifest
           </h2>
           <p className="text-muted-foreground text-xs">
-            Every file in the package with its SHA-256. Re-hash the extracted
-            bundle and compare — any tampering breaks the hash.
+            {/* I-p2-020 Codex P1: state what the hashes ARE (manifest-recorded,
+                real) without promising the JSON export below re-hashes to them
+                — only the byte-preserving signed package does. */}
+            Every file the signed package contains, with the SHA-256 recorded in
+            its manifest. Each file&apos;s content is fixed by its hash; the
+            detached GPG signature (pending sovereign signing) seals the
+            manifest itself.
           </p>
         </div>
         <div className="border-border overflow-x-auto rounded-lg border">
@@ -263,9 +274,16 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
           Export the package
         </h2>
         <p className="text-muted-foreground text-xs">
-          Download the full audit package as JSON — scope decision, evidence
-          pool, verified report, source snapshots, reasoning trace and this
-          manifest. Hand it to a reviewer for offline verification.
+          {/* I-p2-020 Codex P1: honest — this is a convenience JSON snapshot of
+              the parsed bundle, NOT the byte-preserving signed package. Don't
+              promise hash/gpg re-verification of this download. */}
+          Download the bundle contents as a single JSON document — scope
+          decision, evidence pool, verified report, source snapshots and
+          reasoning trace. The byte-preserving signed package (a{" "}
+          <code className="font-mono text-[11px]">.tar.gz</code> for{" "}
+          <code className="font-mono text-[11px]">gpg --verify</code> + per-file
+          SHA-256 re-hashing) is produced by the sovereign Canadian signer,
+          which is not yet live.
         </p>
         <div className="flex flex-wrap gap-2">
           <Button
