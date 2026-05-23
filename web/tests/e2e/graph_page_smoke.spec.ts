@@ -61,6 +61,10 @@ test.describe("Claim graph page (I-snowball-006)", () => {
       route.fulfill({ status: 404, body: "run not found" }),
     );
     await page.goto("/runs/no_such_run/graph");
-    await expect(page.getByRole("alert")).toContainText("Failed to load graph");
+    // I-p2-019 (#758): error UI is now the #750 ErrorState (role=alert, title
+    // + friendly message). 404 → not-found copy; raw "HTTP 404" is not leaked.
+    const alert = page.getByRole("alert");
+    await expect(alert).toContainText("Couldn't load the graph");
+    await expect(alert).toContainText("This run was not found");
   });
 });
