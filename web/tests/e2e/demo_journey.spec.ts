@@ -10,6 +10,8 @@
 
 import { expect, test } from "@playwright/test";
 
+import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+
 test("demo journey: home → intake → dashboard → inspector (canonical fixture)", async ({
   page,
 }) => {
@@ -60,16 +62,9 @@ test("demo journey: home → intake → dashboard → inspector (canonical fixtu
 test("demo journey nav-parity: header + primary nav identical across journey routes", async ({
   page,
 }) => {
-  const PRIMARY_NAV_LABELS = [
-    "Home",
-    "Intake",
-    "Dashboard",
-    "Upload",
-    "Benchmark",
-    "Contracts",
-    "Pin Replay",
-    "Memory",
-  ];
+  // I-p2-039 (#825): the demo journey is the AUTHENTICATED reviewer flow, so seed
+  // a session and assert the full authed nav (incl. Compare) on each route.
+  await setupAuthedNav(page);
   for (const path of [
     "/",
     "/intake",
@@ -78,10 +73,6 @@ test("demo journey nav-parity: header + primary nav identical across journey rou
   ]) {
     await page.goto(path);
     await expect(page.locator("header")).toHaveCount(1);
-    const nav = page.locator("nav[aria-label='Primary']");
-    await expect(nav).toBeVisible();
-    for (const label of PRIMARY_NAV_LABELS) {
-      await expect(nav.getByRole("link", { name: label })).toBeVisible();
-    }
+    await expectAuthedNav(page);
   }
 });

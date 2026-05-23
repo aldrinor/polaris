@@ -1,0 +1,3164 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e56e9-0340-7e32-82ab-54a30da3616e
+--------
+user
+# Codex DIFF review — I-p2-039 (#825): auth-aware public/app nav. Iter 1 of 5.
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the doc is force-APPROVE'd on remaining non-P0/P1 findings.
+- If you're holding back a P1 for the next round — DON'T. Surface it now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## You APPROVE'd the brief (iter 2): Option B specs, public/app split, xl breakpoint, full authed contract incl Compare. This is the diff.
+
+## Changes (web/ only)
+- `lib/nav.ts`: `NavItem.visibility: "public" | "app"`. Public = Home + **Ask** (renamed
+  from "Intake", href stays `/intake`). App = Dashboard/Upload/Benchmark/Compare/Contracts/
+  Pin Replay/Memory. New pure `navForAuth(items, authed)` (public always; app iff authed).
+  `navForRole` retained (orthogonal, unused-by-default).
+- `components/primary_nav.tsx`: auth via `useSyncExternalStore(subscribe, isAuthenticated,
+  () => false)` (SSR-safe, same pattern as AuthButton); `navForAuth` filter; inline nav
+  breakpoint `md:`→`xl:` (hamburger below xl) so the authed set + brand + Canadian-hosted
+  mark + AuthButton don't overflow (your iter-1 P1: lg/1024 overflows).
+- `tests/e2e/_nav_auth.ts` (new): Option B helper — `setupAuthedNav` (seed dummy
+  `polaris_jwt` + `polaris_jwt_expiry_ms` via addInitScript + 1440 viewport),
+  `setupPublicNav`, `expectAuthedNav` (full 9-label contract incl Compare),
+  `expectPublicNav` (Home+Ask visible; 7 app labels toHaveCount 0). All assertions
+  `exact: true`, scoped to `nav[aria-label='Primary']`.
+- 9 `*_g1_g8.spec.ts`: nav-parity tests now `setupAuthedNav → goto → expectAuthedNav`.
+  `home_g1_g8` asserts the PUBLIC nav (canonical unauth assertion, P2-3 from your brief).
+  `demo_journey`: seeds auth once, asserts authed nav across journey routes.
+
+## Verification (LOCAL prod build — live-authed needs the P1 demo cred)
+- `next build` compiled successfully; eslint clean on touched files; prettier `--check` clean.
+- Playwright link assertions against `next start`:
+  - UNAUTH @1440: `nav[aria-label='Primary']` links = `["Home","Ask"]` (tools hidden ✓, no "Intake").
+  - AUTHED @1024: inline nav links = `[]` (hamburger below xl → no overflow ✓).
+  - AUTHED @1280 and @1440: links = `["Home","Ask","Dashboard","Upload","Benchmark","Compare","Contracts","Pin Replay","Memory"]` (full set fits, no overflow — screenshot confirms brand+nav+mark+Sign-out fit at 1280 with room).
+
+## HARD CONSTRAINTS preserved
+- Honest sovereignty wording untouched (Canadian-hosted + OpenRouter/`/transparency`).
+- No nav-item ROUTE removed (only visibility-gated pre-login); no auth/RBAC enforcement
+  change (presentation only). Home's own static Sign in left as-is (your P2-3, follow-up).
+
+## Files I have ALSO checked and they're clean
+- `app_shell.tsx` / `home_keyboard_shell.tsx` (consume PrimaryNav only — unchanged),
+  `auth_button.tsx` (same useSyncExternalStore pattern), `lib/auth.ts` (token keys match the
+  helper), `nav_link.tsx` (pure styling). No remaining `"Intake"` label assertion in any spec.
+
+## Review focus
+1. Hydration safety of the useSyncExternalStore auth read in PrimaryNav (boolean snapshot stable; getServerSnapshot=false matches first paint).
+2. The xl breakpoint genuinely prevents overflow (you flagged lg insufficient) — confirm 1280 is the right threshold given the verified 1280 fit.
+3. Option B spec correctness: dummy-token seeding via addInitScript BEFORE goto; unauth public assertion NOT contaminated by an authed token (home has no seed); authed contract includes Compare.
+4. Any NEW issue.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## The diff
+```diff
+diff --git a/web/components/primary_nav.tsx b/web/components/primary_nav.tsx
+index 63924d41..42c65de7 100644
+--- a/web/components/primary_nav.tsx
++++ b/web/components/primary_nav.tsx
+@@ -1,20 +1,38 @@
+-// I-p2-034 (#790): responsive primary nav. Inline links on desktop (md+);
+-// a hamburger menu below md so the 9 routes never overflow off-screen on a
+-// phone (the prior single-row nav clipped half the links). Shared by AppShell
+-// + HomeKeyboardShell (single nav source @/lib/nav). a11y: aria-expanded +
+-// aria-controls + Escape-to-close + focus-visible; closes on navigation.
++// I-p2-034 (#790): responsive primary nav. Inline links on desktop; a hamburger
++// below the inline breakpoint so the nav never overflows off-screen.
++// I-p2-039 (#825): the nav is AUTH-AWARE — unauthenticated visitors see only the
++// lean public set (Home + Ask); the reviewer tools appear once signed in. Auth is
++// read via useSyncExternalStore (SSR-safe, same pattern as AuthButton): server +
++// first client paint render the public-only nav, then the authed set fills in
++// after mount. The inline breakpoint is `xl` (1280px) — at `lg` (1024) the full
++// authed set + brand + Canadian-hosted mark + AuthButton overflows (Codex P1).
++// a11y: aria-expanded + aria-controls + Escape-to-close + focus-visible; closes
++// on navigation.
+ "use client";
+ 
+ import { Menu, X } from "lucide-react";
+-import { useEffect, useState } from "react";
++import { useEffect, useState, useSyncExternalStore } from "react";
+ 
+ import { NavLink } from "@/components/nav_link";
+-import { PRIMARY_NAV, navForRole } from "@/lib/nav";
+-import { DEFAULT_ROLE } from "@/lib/roles";
++import { isAuthenticated } from "@/lib/auth";
++import { PRIMARY_NAV, navForAuth } from "@/lib/nav";
++
++// Cross-tab auth changes fire a `storage` event; same-tab sign-in/out re-mounts
++// the shell on navigation, so the snapshot is re-read either way.
++function subscribe(onChange: () => void): () => void {
++  if (typeof window === "undefined") return () => {};
++  window.addEventListener("storage", onChange);
++  return () => window.removeEventListener("storage", onChange);
++}
+ 
+ export function PrimaryNav() {
+   const [open, setOpen] = useState(false);
+-  const items = navForRole(PRIMARY_NAV, DEFAULT_ROLE);
++  const authed = useSyncExternalStore(
++    subscribe,
++    () => isAuthenticated(), // client: real auth state
++    () => false, // server / first hydration paint: public-only nav
++  );
++  const items = navForAuth(PRIMARY_NAV, authed);
+ 
+   useEffect(() => {
+     if (!open) return;
+@@ -27,8 +45,8 @@ export function PrimaryNav() {
+ 
+   return (
+     <>
+-      {/* Desktop: inline links */}
+-      <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
++      {/* Desktop: inline links (xl+ so the full authed header fits) */}
++      <nav className="hidden items-center gap-1 xl:flex" aria-label="Primary">
+         {items.map((item) => (
+           <NavLink key={item.href} href={item.href}>
+             {item.label}
+@@ -36,8 +54,8 @@ export function PrimaryNav() {
+         ))}
+       </nav>
+ 
+-      {/* Mobile: hamburger + dropdown */}
+-      <div className="md:hidden">
++      {/* Below xl: hamburger + dropdown */}
++      <div className="xl:hidden">
+         <button
+           type="button"
+           aria-label={open ? "Close menu" : "Open menu"}
+diff --git a/web/lib/nav.ts b/web/lib/nav.ts
+index e7aee128..98454d4e 100644
+--- a/web/lib/nav.ts
++++ b/web/lib/nav.ts
+@@ -1,31 +1,51 @@
+ // I-p2-029 (#768): single source of truth for the primary nav.
+ // Consumed by BOTH AppShell and HomeKeyboardShell so the nav can never drift
+ // between shells (previously the PRIMARY_NAV const was duplicated in each).
++//
++// I-p2-039 (#825): the nav is now AUTH-AWARE (public/app split). An
++// unauthenticated visitor sees only the lean public set (Home + Ask); the
++// reviewer tools (Dashboard + the rest) appear only once signed in — so the
++// pre-login product no longer reads like an internal tool suite, and gated
++// links no longer dead-end at /sign-in. This is PRESENTATION only, never an
++// authorization gate (per-route RBAC is the security control).
+ 
+ import type { RoleId } from "@/lib/roles";
+ 
+ export interface NavItem {
+   href: string;
+   label: string;
+-  /** Roles that may SEE this item (presentation-only — not authorization).
+-   * Omitted = visible to all roles. */
++  /** I-p2-039: who SEES this item. "public" = always (signed in or not);
++   * "app" = only when authenticated. Presentation-only, not authorization. */
++  visibility: "public" | "app";
++  /** Roles that may SEE this item (presentation-only). Omitted = all roles. */
+   roles?: readonly RoleId[];
+ }
+ 
+ export const PRIMARY_NAV: readonly NavItem[] = [
+-  { href: "/", label: "Home" },
+-  { href: "/intake", label: "Intake" },
+-  { href: "/dashboard", label: "Dashboard" },
+-  { href: "/upload", label: "Upload" },
+-  { href: "/benchmark", label: "Benchmark" },
+-  { href: "/compare", label: "Compare" },
+-  { href: "/contracts", label: "Contracts" },
+-  { href: "/pin_replay", label: "Pin Replay" },
+-  { href: "/memory", label: "Memory" },
++  { href: "/", label: "Home", visibility: "public" },
++  // "Intake" was internal jargon (I-p2-039) — the public action is "Ask".
++  { href: "/intake", label: "Ask", visibility: "public" },
++  { href: "/dashboard", label: "Dashboard", visibility: "app" },
++  { href: "/upload", label: "Upload", visibility: "app" },
++  { href: "/benchmark", label: "Benchmark", visibility: "app" },
++  { href: "/compare", label: "Compare", visibility: "app" },
++  { href: "/contracts", label: "Contracts", visibility: "app" },
++  { href: "/pin_replay", label: "Pin Replay", visibility: "app" },
++  { href: "/memory", label: "Memory", visibility: "app" },
+ ];
+ 
++/** I-p2-039: presentation-only auth filter. Public items always show; app items
++ * only when authenticated. Pure + isomorphic (safe in server or client). */
++export function navForAuth(
++  items: readonly NavItem[],
++  authed: boolean,
++): readonly NavItem[] {
++  return items.filter((item) => item.visibility === "public" || authed);
++}
++
+ /** Presentation-only nav filter by role. Pure + isomorphic (safe in server or
+- * client). Items without a `roles` list are visible to every role. */
++ * client). Items without a `roles` list are visible to every role. Orthogonal
++ * to navForAuth; retained for future per-persona nav. */
+ export function navForRole(
+   items: readonly NavItem[],
+   role: RoleId,
+diff --git a/web/tests/e2e/_nav_auth.ts b/web/tests/e2e/_nav_auth.ts
+new file mode 100644
+index 00000000..3c1bc3fc
+--- /dev/null
++++ b/web/tests/e2e/_nav_auth.ts
+@@ -0,0 +1,72 @@
++// I-p2-039 (#825): shared helpers for the AUTH-AWARE primary-nav contract.
++//
++// The nav is now public/app split: unauthenticated visitors see Home + Ask only;
++// the reviewer tools appear once signed in. lib/auth.isAuthenticated() is a
++// presence/expiry check on a sessionStorage token (NOT a signature check), so a
++// test can seed a dummy non-expired token to exercise the authed nav without real
++// signing. The inline nav is xl-only (≥1280px), so we assert on a desktop viewport.
++
++import { expect, type Page } from "@playwright/test";
++
++export const PUBLIC_NAV_LABELS = ["Home", "Ask"] as const;
++export const APP_ONLY_NAV_LABELS = [
++  "Dashboard",
++  "Upload",
++  "Benchmark",
++  "Compare",
++  "Contracts",
++  "Pin Replay",
++  "Memory",
++] as const;
++export const APP_NAV_LABELS = [
++  ...PUBLIC_NAV_LABELS,
++  ...APP_ONLY_NAV_LABELS,
++] as const;
++
++const DESKTOP = { width: 1440, height: 900 };
++
++/** Seed an authenticated session (matches lib/auth's sessionStorage keys) + a
++ * desktop viewport so the inline (xl) primary nav renders. Call BEFORE page.goto. */
++export async function setupAuthedNav(page: Page): Promise<void> {
++  await page.setViewportSize(DESKTOP);
++  await page.addInitScript(() => {
++    sessionStorage.setItem("polaris_jwt", "e2e-dummy-token");
++    sessionStorage.setItem(
++      "polaris_jwt_expiry_ms",
++      String(Date.now() + 12 * 60 * 60 * 1000),
++    );
++  });
++}
++
++/** Desktop viewport only (no token) for the unauthenticated public-nav test.
++ * Call BEFORE page.goto. */
++export async function setupPublicNav(page: Page): Promise<void> {
++  await page.setViewportSize(DESKTOP);
++}
++
++/** Assert the authed app nav: nav present + every app label visible. */
++export async function expectAuthedNav(page: Page): Promise<void> {
++  const nav = page.locator("nav[aria-label='Primary']");
++  await expect(nav).toBeVisible();
++  for (const label of APP_NAV_LABELS) {
++    await expect(
++      nav.getByRole("link", { name: label, exact: true }),
++    ).toBeVisible();
++  }
++}
++
++/** Assert the unauthenticated public nav: Home + Ask only; app tools absent. */
++export async function expectPublicNav(page: Page): Promise<void> {
++  const nav = page.locator("nav[aria-label='Primary']");
++  await expect(nav).toBeVisible();
++  for (const label of PUBLIC_NAV_LABELS) {
++    await expect(
++      nav.getByRole("link", { name: label, exact: true }),
++    ).toBeVisible();
++  }
++  for (const label of APP_ONLY_NAV_LABELS) {
++    await expect(
++      nav.getByRole("link", { name: label, exact: true }),
++    ).toHaveCount(0);
++  }
++}
+diff --git a/web/tests/e2e/benchmark_g1_g8.spec.ts b/web/tests/e2e/benchmark_g1_g8.spec.ts
+index 6c4537e6..5fc32d7d 100644
+--- a/web/tests/e2e/benchmark_g1_g8.spec.ts
++++ b/web/tests/e2e/benchmark_g1_g8.spec.ts
+@@ -1,6 +1,7 @@
+ // I-cd-027 (#617): /benchmark route G1-G8 acceptance gates.
+ 
+ import { expect, test } from "@playwright/test";
++import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+ 
+ const BANNED_DEV_LANGUAGE = [
+   /\bslice\b/i,
+@@ -46,21 +47,9 @@ test("G2: /benchmark contains no banned dev-language strings (body + titles + ar
+ });
+ 
+ test("G1 nav parity: primary nav visible on /benchmark", async ({ page }) => {
++  await setupAuthedNav(page);
+   await page.goto("/benchmark");
+-  const nav = page.locator("nav[aria-label='Primary']");
+-  await expect(nav).toBeVisible();
+-  for (const label of [
+-    "Home",
+-    "Intake",
+-    "Dashboard",
+-    "Upload",
+-    "Benchmark",
+-    "Contracts",
+-    "Pin Replay",
+-    "Memory",
+-  ]) {
+-    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+-  }
++  await expectAuthedNav(page);
+ });
+ 
+ test("G8: /benchmark renders with zero console errors", async ({ page }) => {
+diff --git a/web/tests/e2e/contracts_g1_g8.spec.ts b/web/tests/e2e/contracts_g1_g8.spec.ts
+index 2a699543..186dd4c9 100644
+--- a/web/tests/e2e/contracts_g1_g8.spec.ts
++++ b/web/tests/e2e/contracts_g1_g8.spec.ts
+@@ -1,6 +1,7 @@
+ // I-cd-028 (#618): /contracts route G1-G8 acceptance gates.
+ 
+ import { expect, test } from "@playwright/test";
++import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+ 
+ const BANNED_DEV_LANGUAGE = [
+   /\bslice\b/i,
+@@ -48,21 +49,9 @@ test("G2: /contracts contains no banned dev-language strings (body + titles + ar
+ });
+ 
+ test("G1 nav parity: primary nav visible on /contracts", async ({ page }) => {
++  await setupAuthedNav(page);
+   await page.goto("/contracts");
+-  const nav = page.locator("nav[aria-label='Primary']");
+-  await expect(nav).toBeVisible();
+-  for (const label of [
+-    "Home",
+-    "Intake",
+-    "Dashboard",
+-    "Upload",
+-    "Benchmark",
+-    "Contracts",
+-    "Pin Replay",
+-    "Memory",
+-  ]) {
+-    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+-  }
++  await expectAuthedNav(page);
+ });
+ 
+ test("G8: /contracts renders with zero console errors", async ({ page }) => {
+diff --git a/web/tests/e2e/dashboard_g1_g8.spec.ts b/web/tests/e2e/dashboard_g1_g8.spec.ts
+index cc606183..dea5b4dc 100644
+--- a/web/tests/e2e/dashboard_g1_g8.spec.ts
++++ b/web/tests/e2e/dashboard_g1_g8.spec.ts
+@@ -1,6 +1,7 @@
+ // I-cd-024 (#614): /dashboard route G1-G8 acceptance gates.
+ 
+ import { expect, test } from "@playwright/test";
++import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+ 
+ const BANNED_DEV_LANGUAGE = [
+   /\bslice\b/i,
+@@ -30,21 +31,9 @@ test("G2: /dashboard contains no banned dev-language strings", async ({
+ });
+ 
+ test("G1 nav parity: primary nav visible on /dashboard", async ({ page }) => {
++  await setupAuthedNav(page);
+   await page.goto("/dashboard");
+-  const nav = page.locator("nav[aria-label='Primary']");
+-  await expect(nav).toBeVisible();
+-  for (const label of [
+-    "Home",
+-    "Intake",
+-    "Dashboard",
+-    "Upload",
+-    "Benchmark",
+-    "Contracts",
+-    "Pin Replay",
+-    "Memory",
+-  ]) {
+-    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+-  }
++  await expectAuthedNav(page);
+ });
+ 
+ test("G8: /dashboard renders with zero console errors", async ({ page }) => {
+diff --git a/web/tests/e2e/demo_journey.spec.ts b/web/tests/e2e/demo_journey.spec.ts
+index dc460bee..bfcb1157 100644
+--- a/web/tests/e2e/demo_journey.spec.ts
++++ b/web/tests/e2e/demo_journey.spec.ts
+@@ -10,6 +10,8 @@
+ 
+ import { expect, test } from "@playwright/test";
+ 
++import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
++
+ test("demo journey: home → intake → dashboard → inspector (canonical fixture)", async ({
+   page,
+ }) => {
+@@ -60,16 +62,9 @@ test("demo journey: home → intake → dashboard → inspector (canonical fixtu
+ test("demo journey nav-parity: header + primary nav identical across journey routes", async ({
+   page,
+ }) => {
+-  const PRIMARY_NAV_LABELS = [
+-    "Home",
+-    "Intake",
+-    "Dashboard",
+-    "Upload",
+-    "Benchmark",
+-    "Contracts",
+-    "Pin Replay",
+-    "Memory",
+-  ];
++  // I-p2-039 (#825): the demo journey is the AUTHENTICATED reviewer flow, so seed
++  // a session and assert the full authed nav (incl. Compare) on each route.
++  await setupAuthedNav(page);
+   for (const path of [
+     "/",
+     "/intake",
+@@ -78,10 +73,6 @@ test("demo journey nav-parity: header + primary nav identical across journey rou
+   ]) {
+     await page.goto(path);
+     await expect(page.locator("header")).toHaveCount(1);
+-    const nav = page.locator("nav[aria-label='Primary']");
+-    await expect(nav).toBeVisible();
+-    for (const label of PRIMARY_NAV_LABELS) {
+-      await expect(nav.getByRole("link", { name: label })).toBeVisible();
+-    }
++    await expectAuthedNav(page);
+   }
+ });
+diff --git a/web/tests/e2e/home_g1_g8.spec.ts b/web/tests/e2e/home_g1_g8.spec.ts
+index f698bee1..80c7cae5 100644
+--- a/web/tests/e2e/home_g1_g8.spec.ts
++++ b/web/tests/e2e/home_g1_g8.spec.ts
+@@ -4,6 +4,8 @@
+ 
+ import { expect, test } from "@playwright/test";
+ 
++import { expectPublicNav } from "./_nav_auth";
++
+ const BANNED_DEV_LANGUAGE = [
+   /\bslice\b/i,
+   /\bscaffold\b/i,
+@@ -22,22 +24,12 @@ test("G1 + G6: home has exactly one header outside <main>, primary nav visible",
+   const headers = page.locator("header");
+   await expect(headers).toHaveCount(1);
+ 
+-  // Primary nav present + identical to other routes (Home/Intake/Dashboard/
+-  // Upload/Benchmark/Contracts/Pin Replay/Memory).
+-  const nav = page.locator("nav[aria-label='Primary']");
+-  await expect(nav).toBeVisible();
+-  for (const label of [
+-    "Home",
+-    "Intake",
+-    "Dashboard",
+-    "Upload",
+-    "Benchmark",
+-    "Contracts",
+-    "Pin Replay",
+-    "Memory",
+-  ]) {
+-    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+-  }
++  // I-p2-039 (#825): home is the UNAUTHENTICATED landing page, so the primary
++  // nav must show only the lean public set (Home + Ask); the reviewer tools
++  // (Dashboard/Upload/Benchmark/Compare/Contracts/Pin Replay/Memory) must NOT
++  // appear pre-login. (This is also the canonical unauth public-nav assertion.)
++  await page.setViewportSize({ width: 1440, height: 900 });
++  await expectPublicNav(page);
+ 
+   // G6 (single main landmark — Codex iter-2 P1 fix).
+   const mains = page.locator("main");
+diff --git a/web/tests/e2e/intake_g1_g8.spec.ts b/web/tests/e2e/intake_g1_g8.spec.ts
+index 069512f8..60fe8db9 100644
+--- a/web/tests/e2e/intake_g1_g8.spec.ts
++++ b/web/tests/e2e/intake_g1_g8.spec.ts
+@@ -2,6 +2,7 @@
+ // state/polaris_ui_rebuild_matrix.md §2. Pattern mirrors home_g1_g8.spec.ts.
+ 
+ import { expect, test } from "@playwright/test";
++import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+ 
+ const BANNED_DEV_LANGUAGE = [
+   /\bslice\b/i,
+@@ -43,17 +44,7 @@ test("G8: /intake renders with zero console errors", async ({ page }) => {
+ });
+ 
+ test("G1 nav parity: primary nav is visible on /intake", async ({ page }) => {
++  await setupAuthedNav(page);
+   await page.goto("/intake");
+-  const nav = page.locator("nav[aria-label='Primary']");
+-  await expect(nav).toBeVisible();
+-  for (const label of [
+-    "Home",
+-    "Intake",
+-    "Dashboard",
+-    "Upload",
+-    "Benchmark",
+-    "Contracts",
+-  ]) {
+-    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+-  }
++  await expectAuthedNav(page);
+ });
+diff --git a/web/tests/e2e/memory_g1_g8.spec.ts b/web/tests/e2e/memory_g1_g8.spec.ts
+index 6dfdb8bc..d7c0983c 100644
+--- a/web/tests/e2e/memory_g1_g8.spec.ts
++++ b/web/tests/e2e/memory_g1_g8.spec.ts
+@@ -1,6 +1,7 @@
+ // I-cd-030 (#620): /memory route G1-G8 acceptance gates.
+ 
+ import { expect, test } from "@playwright/test";
++import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+ 
+ const BANNED_DEV_LANGUAGE = [
+   /\bslice\b/i,
+@@ -45,21 +46,9 @@ test("G2: /memory contains no banned dev-language strings (body + titles + aria-
+ });
+ 
+ test("G1 nav parity: primary nav visible on /memory", async ({ page }) => {
++  await setupAuthedNav(page);
+   await page.goto("/memory");
+-  const nav = page.locator("nav[aria-label='Primary']");
+-  await expect(nav).toBeVisible();
+-  for (const label of [
+-    "Home",
+-    "Intake",
+-    "Dashboard",
+-    "Upload",
+-    "Benchmark",
+-    "Contracts",
+-    "Pin Replay",
+-    "Memory",
+-  ]) {
+-    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+-  }
++  await expectAuthedNav(page);
+ });
+ 
+ test("G8: /memory renders with zero console errors", async ({ page }) => {
+diff --git a/web/tests/e2e/pin_replay_g1_g8.spec.ts b/web/tests/e2e/pin_replay_g1_g8.spec.ts
+index 4da70001..5d002c86 100644
+--- a/web/tests/e2e/pin_replay_g1_g8.spec.ts
++++ b/web/tests/e2e/pin_replay_g1_g8.spec.ts
+@@ -1,6 +1,7 @@
+ // I-cd-029 (#619): /pin_replay route G1-G8 acceptance gates.
+ 
+ import { expect, test } from "@playwright/test";
++import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+ 
+ const BANNED_DEV_LANGUAGE = [
+   /\bslice\b/i,
+@@ -48,21 +49,9 @@ test("G2: /pin_replay contains no banned dev-language strings (body + titles + a
+ });
+ 
+ test("G1 nav parity: primary nav visible on /pin_replay", async ({ page }) => {
++  await setupAuthedNav(page);
+   await page.goto("/pin_replay");
+-  const nav = page.locator("nav[aria-label='Primary']");
+-  await expect(nav).toBeVisible();
+-  for (const label of [
+-    "Home",
+-    "Intake",
+-    "Dashboard",
+-    "Upload",
+-    "Benchmark",
+-    "Contracts",
+-    "Pin Replay",
+-    "Memory",
+-  ]) {
+-    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+-  }
++  await expectAuthedNav(page);
+ });
+ 
+ test("G8: /pin_replay renders with zero console errors", async ({ page }) => {
+diff --git a/web/tests/e2e/runs_runid_g1_g8.spec.ts b/web/tests/e2e/runs_runid_g1_g8.spec.ts
+index bdbfb4f3..7c4624c7 100644
+--- a/web/tests/e2e/runs_runid_g1_g8.spec.ts
++++ b/web/tests/e2e/runs_runid_g1_g8.spec.ts
+@@ -1,6 +1,7 @@
+ // I-cd-025 (#615): /runs/[runId] route G1-G8 acceptance gates.
+ 
+ import { expect, test } from "@playwright/test";
++import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+ 
+ const BANNED_DEV_LANGUAGE = [
+   /\bslice\b/i,
+@@ -67,19 +68,7 @@ test("G8: /runs/[runId] renders with zero console errors", async ({ page }) => {
+ test("G1 nav parity: primary nav visible on /runs/[runId]", async ({
+   page,
+ }) => {
++  await setupAuthedNav(page);
+   await page.goto(`/runs/${TEST_RUN_ID}`);
+-  const nav = page.locator("nav[aria-label='Primary']");
+-  await expect(nav).toBeVisible();
+-  for (const label of [
+-    "Home",
+-    "Intake",
+-    "Dashboard",
+-    "Upload",
+-    "Benchmark",
+-    "Contracts",
+-    "Pin Replay",
+-    "Memory",
+-  ]) {
+-    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+-  }
++  await expectAuthedNav(page);
+ });
+diff --git a/web/tests/e2e/upload_g1_g8.spec.ts b/web/tests/e2e/upload_g1_g8.spec.ts
+index 756ba0b3..66f8a4c1 100644
+--- a/web/tests/e2e/upload_g1_g8.spec.ts
++++ b/web/tests/e2e/upload_g1_g8.spec.ts
+@@ -1,6 +1,7 @@
+ // I-cd-026 (#616): /upload route G1-G8 acceptance gates.
+ 
+ import { expect, test } from "@playwright/test";
++import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+ 
+ const BANNED_DEV_LANGUAGE = [
+   /\bslice\b/i,
+@@ -44,21 +45,9 @@ test("G2: /upload contains no banned dev-language strings (body + titles + aria-
+ });
+ 
+ test("G1 nav parity: primary nav visible on /upload", async ({ page }) => {
++  await setupAuthedNav(page);
+   await page.goto("/upload");
+-  const nav = page.locator("nav[aria-label='Primary']");
+-  await expect(nav).toBeVisible();
+-  for (const label of [
+-    "Home",
+-    "Intake",
+-    "Dashboard",
+-    "Upload",
+-    "Benchmark",
+-    "Contracts",
+-    "Pin Replay",
+-    "Memory",
+-  ]) {
+-    await expect(nav.getByRole("link", { name: label })).toBeVisible();
+-  }
++  await expectAuthedNav(page);
+ });
+ 
+ test("G8: /upload renders with zero console errors", async ({ page }) => {
+
+```
+
+codex
+I’ll review this against the actual `web` code paths, focusing on auth state propagation, responsive visibility, and whether the e2e helpers can create false positives or cross-test contamination.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/tests/e2e/_nav_auth.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/lib/nav.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/components/primary_nav.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/lib/auth.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/components/auth_button.tsx' in C:\POLARIS
+ succeeded in 1121ms:
+/**
+ * I-rdy-004 (#500) — client-side auth: JWT store + login + header injection.
+ *
+ * Carney demo scope. The JWT is held in sessionStorage: survives a page
+ * refresh, cleared when the tab closes, not shared with a fresh tab —
+ * the safer browser-storage choice per the Codex I-rdy-004 brief review.
+ * 12h JWT expiry (matches the backend); cleared on any 401.
+ */
+
+const TOKEN_KEY = "polaris_jwt";
+const EXPIRY_KEY = "polaris_jwt_expiry_ms";
+const DEFAULT_EXPIRY_SECONDS = 12 * 60 * 60;
+
+export interface LoginResult {
+  ok: boolean;
+  status: number;
+  error?: string;
+}
+
+function store(): Storage | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage;
+}
+
+/** Current JWT, or null if absent or past its 12h expiry. */
+export function getToken(): string | null {
+  const s = store();
+  if (!s) return null;
+  const token = s.getItem(TOKEN_KEY);
+  const expiry = s.getItem(EXPIRY_KEY);
+  if (!token || !expiry) return null;
+  if (Date.now() >= Number(expiry)) {
+    clearToken();
+    return null;
+  }
+  return token;
+}
+
+export function setToken(token: string, expiresInSeconds: number): void {
+  const s = store();
+  if (!s) return;
+  const ttl = expiresInSeconds > 0 ? expiresInSeconds : DEFAULT_EXPIRY_SECONDS;
+  s.setItem(TOKEN_KEY, token);
+  s.setItem(EXPIRY_KEY, String(Date.now() + ttl * 1000));
+}
+
+export function clearToken(): void {
+  const s = store();
+  if (!s) return;
+  s.removeItem(TOKEN_KEY);
+  s.removeItem(EXPIRY_KEY);
+}
+
+export function isAuthenticated(): boolean {
+  return getToken() !== null;
+}
+
+/**
+ * POST credentials to the backend. On 200, store the JWT and report ok.
+ * A 401 here is invalid-credentials feedback for the sign-in form — it is
+ * NOT routed through the generic 401-redirect (that would loop the page).
+ */
+export async function login(
+  username: string,
+  password: string,
+): Promise<LoginResult> {
+  let response: Response;
+  try {
+    response = await fetch("/api/v6/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      error: "Could not reach POLARIS. Check the connection.",
+    };
+  }
+  if (response.status === 200) {
+    const body = (await response.json()) as {
+      access_token: string;
+      expires_in?: number;
+    };
+    setToken(body.access_token, body.expires_in ?? DEFAULT_EXPIRY_SECONDS);
+    return { ok: true, status: 200 };
+  }
+  if (response.status === 401) {
+    return { ok: false, status: 401, error: "Invalid username or password." };
+  }
+  return {
+    ok: false,
+    status: response.status,
+    error: `Sign-in failed (HTTP ${response.status}).`,
+  };
+}
+
+/** Authorization header for the current token, or {} if unauthenticated. */
+export function authHeader(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** Clear the token and route to /sign-in. Called on a generic 401. */
+export function redirectToSignIn(): void {
+  if (typeof window === "undefined") return;
+  clearToken();
+  if (window.location.pathname !== "/sign-in") {
+    window.location.href = "/sign-in";
+  }
+}
+
+
+ succeeded in 1203ms:
+// I-p2-029 (#768): single source of truth for the primary nav.
+// Consumed by BOTH AppShell and HomeKeyboardShell so the nav can never drift
+// between shells (previously the PRIMARY_NAV const was duplicated in each).
+//
+// I-p2-039 (#825): the nav is now AUTH-AWARE (public/app split). An
+// unauthenticated visitor sees only the lean public set (Home + Ask); the
+// reviewer tools (Dashboard + the rest) appear only once signed in — so the
+// pre-login product no longer reads like an internal tool suite, and gated
+// links no longer dead-end at /sign-in. This is PRESENTATION only, never an
+// authorization gate (per-route RBAC is the security control).
+
+import type { RoleId } from "@/lib/roles";
+
+export interface NavItem {
+  href: string;
+  label: string;
+  /** I-p2-039: who SEES this item. "public" = always (signed in or not);
+   * "app" = only when authenticated. Presentation-only, not authorization. */
+  visibility: "public" | "app";
+  /** Roles that may SEE this item (presentation-only). Omitted = all roles. */
+  roles?: readonly RoleId[];
+}
+
+export const PRIMARY_NAV: readonly NavItem[] = [
+  { href: "/", label: "Home", visibility: "public" },
+  // "Intake" was internal jargon (I-p2-039) — the public action is "Ask".
+  { href: "/intake", label: "Ask", visibility: "public" },
+  { href: "/dashboard", label: "Dashboard", visibility: "app" },
+  { href: "/upload", label: "Upload", visibility: "app" },
+  { href: "/benchmark", label: "Benchmark", visibility: "app" },
+  { href: "/compare", label: "Compare", visibility: "app" },
+  { href: "/contracts", label: "Contracts", visibility: "app" },
+  { href: "/pin_replay", label: "Pin Replay", visibility: "app" },
+  { href: "/memory", label: "Memory", visibility: "app" },
+];
+
+/** I-p2-039: presentation-only auth filter. Public items always show; app items
+ * only when authenticated. Pure + isomorphic (safe in server or client). */
+export function navForAuth(
+  items: readonly NavItem[],
+  authed: boolean,
+): readonly NavItem[] {
+  return items.filter((item) => item.visibility === "public" || authed);
+}
+
+/** Presentation-only nav filter by role. Pure + isomorphic (safe in server or
+ * client). Items without a `roles` list are visible to every role. Orthogonal
+ * to navForAuth; retained for future per-persona nav. */
+export function navForRole(
+  items: readonly NavItem[],
+  role: RoleId,
+): readonly NavItem[] {
+  return items.filter((item) => !item.roles || item.roles.includes(role));
+}
+
+
+ succeeded in 1336ms:
+// I-p2-038 (#821): auth-aware Sign in / Sign out for the AppShell header.
+// Before this, AppShell (every non-home route) had NO auth affordance at all —
+// an unauthenticated reviewer who navigated off the home page had no way to
+// sign in, and a signed-in reviewer had no way to sign out anywhere.
+//
+// Auth state lives in sessionStorage (not React state), so we read it via
+// useSyncExternalStore: SSR-safe (getServerSnapshot returns the unauthenticated
+// "Sign in" view, matching the first client paint → no hydration mismatch) and
+// without a setState-in-effect (which the react-hooks/set-state-in-effect lint
+// rule forbids — see #805).
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useSyncExternalStore } from "react";
+
+import { Button } from "@/components/ui/button";
+import { clearToken, isAuthenticated } from "@/lib/auth";
+
+// Cross-tab auth changes fire a `storage` event; same-tab sign-in/out re-mounts
+// the shell on navigation, so the snapshot is re-read either way.
+function subscribe(onChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
+
+export function AuthButton() {
+  const router = useRouter();
+  const authed = useSyncExternalStore(
+    subscribe,
+    () => isAuthenticated(), // client: real auth state (boolean — stable by value)
+    () => false, // server / first hydration paint: always "Sign in"
+  );
+
+  if (authed) {
+    return (
+      <Button
+        variant="ghost"
+        data-testid="appshell-sign-out"
+        onClick={() => {
+          clearToken();
+          router.push("/");
+        }}
+      >
+        Sign out
+      </Button>
+    );
+  }
+
+  return (
+    <Button
+      variant="outline"
+      nativeButton={false}
+      render={
+        <Link href="/sign-in" data-testid="appshell-sign-in-link">
+          Sign in
+        </Link>
+      }
+    />
+  );
+}
+
+
+ succeeded in 1411ms:
+// I-p2-039 (#825): shared helpers for the AUTH-AWARE primary-nav contract.
+//
+// The nav is now public/app split: unauthenticated visitors see Home + Ask only;
+// the reviewer tools appear once signed in. lib/auth.isAuthenticated() is a
+// presence/expiry check on a sessionStorage token (NOT a signature check), so a
+// test can seed a dummy non-expired token to exercise the authed nav without real
+// signing. The inline nav is xl-only (≥1280px), so we assert on a desktop viewport.
+
+import { expect, type Page } from "@playwright/test";
+
+export const PUBLIC_NAV_LABELS = ["Home", "Ask"] as const;
+export const APP_ONLY_NAV_LABELS = [
+  "Dashboard",
+  "Upload",
+  "Benchmark",
+  "Compare",
+  "Contracts",
+  "Pin Replay",
+  "Memory",
+] as const;
+export const APP_NAV_LABELS = [
+  ...PUBLIC_NAV_LABELS,
+  ...APP_ONLY_NAV_LABELS,
+] as const;
+
+const DESKTOP = { width: 1440, height: 900 };
+
+/** Seed an authenticated session (matches lib/auth's sessionStorage keys) + a
+ * desktop viewport so the inline (xl) primary nav renders. Call BEFORE page.goto. */
+export async function setupAuthedNav(page: Page): Promise<void> {
+  await page.setViewportSize(DESKTOP);
+  await page.addInitScript(() => {
+    sessionStorage.setItem("polaris_jwt", "e2e-dummy-token");
+    sessionStorage.setItem(
+      "polaris_jwt_expiry_ms",
+      String(Date.now() + 12 * 60 * 60 * 1000),
+    );
+  });
+}
+
+/** Desktop viewport only (no token) for the unauthenticated public-nav test.
+ * Call BEFORE page.goto. */
+export async function setupPublicNav(page: Page): Promise<void> {
+  await page.setViewportSize(DESKTOP);
+}
+
+/** Assert the authed app nav: nav present + every app label visible. */
+export async function expectAuthedNav(page: Page): Promise<void> {
+  const nav = page.locator("nav[aria-label='Primary']");
+  await expect(nav).toBeVisible();
+  for (const label of APP_NAV_LABELS) {
+    await expect(
+      nav.getByRole("link", { name: label, exact: true }),
+    ).toBeVisible();
+  }
+}
+
+/** Assert the unauthenticated public nav: Home + Ask only; app tools absent. */
+export async function expectPublicNav(page: Page): Promise<void> {
+  const nav = page.locator("nav[aria-label='Primary']");
+  await expect(nav).toBeVisible();
+  for (const label of PUBLIC_NAV_LABELS) {
+    await expect(
+      nav.getByRole("link", { name: label, exact: true }),
+    ).toBeVisible();
+  }
+  for (const label of APP_ONLY_NAV_LABELS) {
+    await expect(
+      nav.getByRole("link", { name: label, exact: true }),
+    ).toHaveCount(0);
+  }
+}
+
+
+ succeeded in 1474ms:
+// I-p2-034 (#790): responsive primary nav. Inline links on desktop; a hamburger
+// below the inline breakpoint so the nav never overflows off-screen.
+// I-p2-039 (#825): the nav is AUTH-AWARE — unauthenticated visitors see only the
+// lean public set (Home + Ask); the reviewer tools appear once signed in. Auth is
+// read via useSyncExternalStore (SSR-safe, same pattern as AuthButton): server +
+// first client paint render the public-only nav, then the authed set fills in
+// after mount. The inline breakpoint is `xl` (1280px) — at `lg` (1024) the full
+// authed set + brand + Canadian-hosted mark + AuthButton overflows (Codex P1).
+// a11y: aria-expanded + aria-controls + Escape-to-close + focus-visible; closes
+// on navigation.
+"use client";
+
+import { Menu, X } from "lucide-react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+
+import { NavLink } from "@/components/nav_link";
+import { isAuthenticated } from "@/lib/auth";
+import { PRIMARY_NAV, navForAuth } from "@/lib/nav";
+
+// Cross-tab auth changes fire a `storage` event; same-tab sign-in/out re-mounts
+// the shell on navigation, so the snapshot is re-read either way.
+function subscribe(onChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
+
+export function PrimaryNav() {
+  const [open, setOpen] = useState(false);
+  const authed = useSyncExternalStore(
+    subscribe,
+    () => isAuthenticated(), // client: real auth state
+    () => false, // server / first hydration paint: public-only nav
+  );
+  const items = navForAuth(PRIMARY_NAV, authed);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  return (
+    <>
+      {/* Desktop: inline links (xl+ so the full authed header fits) */}
+      <nav className="hidden items-center gap-1 xl:flex" aria-label="Primary">
+        {items.map((item) => (
+          <NavLink key={item.href} href={item.href}>
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
+
+      {/* Below xl: hamburger + dropdown */}
+      <div className="xl:hidden">
+        <button
+          type="button"
+          aria-label={open ? "Close menu" : "Open menu"}
+          aria-expanded={open}
+          aria-controls="primary-nav-mobile"
+          onClick={() => setOpen((o) => !o)}
+          className="text-foreground hover:bg-muted focus-visible:ring-ring/70 inline-flex h-9 w-9 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:outline-none"
+        >
+          {open ? (
+            <X aria-hidden className="h-5 w-5" />
+          ) : (
+            <Menu aria-hidden className="h-5 w-5" />
+          )}
+        </button>
+        {open && (
+          <>
+            {/* click-away backdrop */}
+            <div
+              className="fixed inset-0 z-40"
+              aria-hidden
+              onClick={() => setOpen(false)}
+            />
+            <nav
+              id="primary-nav-mobile"
+              aria-label="Primary"
+              className="border-border bg-background absolute inset-x-0 top-full z-50 flex flex-col gap-1 border-b p-3 shadow-md"
+            >
+              {items.map((item) => (
+                <NavLink
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setOpen(false)}
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </nav>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+
+codex
+The core implementation matches the intended public/app split at first pass. I’m checking the surrounding tests and shells now because the main risk is usually hidden state between Playwright pages or a header layout assumption, not the filter itself.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/components/app_shell.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/tests/e2e/home_g1_g8.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "Intake|PRIMARY_NAV_LABELS|navForRole|navForAuth|setupPublicNav|expectPublicNav|expectAuthedNav|polaris_jwt" web' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/components/nav_link.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/components/home_keyboard_shell.tsx' in C:\POLARIS
+ succeeded in 943ms:
+import Link from "next/link";
+
+import { AuthButton } from "@/components/auth_button";
+import { PrimaryNav } from "@/components/primary_nav";
+import { SiteFooter } from "@/components/site_footer";
+
+/**
+ * I-cd-004: the global app shell. A server component that wraps every prod
+ * route with a single header + primary nav. The 8 primary nav entries are
+ * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+ *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+ *
+ * Out of scope for this issue (each its own later issue per the Seq-N order):
+ *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+ *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+ *    /dashboard rather than top-nav entries.
+ *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+ *    retired at that point (not merely hidden — per Codex P2).
+ *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+ *    I-cd-015.
+ *  - Auth gating of the nav itself is deferred to I-cd-014.
+ *  - Per-page rebuilds happen in the I-cd-013..030 series.
+ */
+// I-p2-029 (#768): PRIMARY_NAV now lives in @/lib/nav (single source of truth,
+// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <header className="border-border bg-background sticky top-0 z-40 border-b">
+        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <PrimaryNav />
+          {/* I-p2-023 (#762): sovereign mark — HONEST. Dropped the false
+              present-tense "no external AI vendor": production LLM inference
+              currently routes via OpenRouter (US, transitional, disclosed in
+              /transparency) until the sovereign Canadian GPU cluster lands. The
+              VM IS hosted in OVH Québec, so "Canadian-hosted" is true today. */}
+          <span
+            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+            title="Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (US, disclosed in /transparency) pending the sovereign Canadian GPU cluster."
+          >
+            ⬡ Canadian-hosted
+          </span>
+          {/* I-p2-038 (#821): auth affordance was MISSING on every non-home
+              route. ml-auto on the sovereign mark above is dropped to sm: only,
+              so on mobile (mark hidden) this button still right-aligns. */}
+          <div className="ml-auto sm:ml-0">
+            <AuthButton />
+          </div>
+        </div>
+      </header>
+      <main className="flex-1">{children}</main>
+      <SiteFooter />
+    </>
+  );
+}
+
+
+ succeeded in 1060ms:
+// I-cd-022 (#612): home route G1-G8 acceptance gates per
+// state/polaris_ui_rebuild_matrix.md §2. Mechanical assertions only —
+// no subjective polish judgments.
+
+import { expect, test } from "@playwright/test";
+
+import { expectPublicNav } from "./_nav_auth";
+
+const BANNED_DEV_LANGUAGE = [
+  /\bslice\b/i,
+  /\bscaffold\b/i,
+  /\bplaceholder\b/i,
+  /\bphase 0\b/i,
+  /\bpost[- ]carney\b/i,
+  /\bi-cd-/i,
+];
+
+test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  // G1: exactly one <header> element (no duplicate from a forgotten AppShell).
+  const headers = page.locator("header");
+  await expect(headers).toHaveCount(1);
+
+  // I-p2-039 (#825): home is the UNAUTHENTICATED landing page, so the primary
+  // nav must show only the lean public set (Home + Ask); the reviewer tools
+  // (Dashboard/Upload/Benchmark/Compare/Contracts/Pin Replay/Memory) must NOT
+  // appear pre-login. (This is also the canonical unauth public-nav assertion.)
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expectPublicNav(page);
+
+  // G6 (single main landmark — Codex iter-2 P1 fix).
+  const mains = page.locator("main");
+  await expect(mains).toHaveCount(1);
+});
+
+test("I-cd-ui-001: home hero search submits to /intake?q=", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const form = page.getByTestId("home-hero-search");
+  await expect(form).toBeVisible();
+  // The hero is a progressive GET form (works without JS): action=/intake,
+  // input name=q. Submitting routes to /intake?q=<question>.
+  await expect(form).toHaveAttribute("action", "/intake");
+  const input = form.locator("input[name='q']");
+  await expect(input).toBeVisible();
+  await input.fill("does aspirin reduce headaches");
+  await form.locator("button[type='submit']").click();
+  await page.waitForURL(/\/intake\?q=/);
+  expect(page.url()).toContain("q=does");
+});
+
+test("G2: home contains no banned dev-language strings", async ({ page }) => {
+  await page.goto("/");
+  const body_text = (await page.locator("body").textContent()) || "";
+  for (const banned of BANNED_DEV_LANGUAGE) {
+    expect(body_text).not.toMatch(banned);
+  }
+});
+
+test("G3: hero primary CTA has focus-visible styling", async ({ page }) => {
+  await page.goto("/");
+  // I-p2-013 (#752): the one-CTA hero replaced the template grid. The primary
+  // interactive affordance is the hero "Verify" submit button.
+  const verify = page
+    .getByTestId("home-hero-search")
+    .locator("button[type='submit']");
+  await expect(verify).toBeVisible();
+  const className = (await verify.getAttribute("class")) || "";
+  expect(className).toMatch(/focus-visible/);
+});
+
+test("G6: tab key reaches the hero search input", async ({ page }) => {
+  await page.goto("/");
+  // I-p2-013 (#752): Tab until the hero search input (name=q) receives focus.
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press("Tab");
+    const focusedName = await page.evaluate(
+      () => document.activeElement?.getAttribute("name") ?? null,
+    );
+    if (focusedName === "q") return;
+  }
+  throw new Error("hero search input never received focus via Tab");
+});
+
+test("G8: home renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto("/");
+  // Idle long enough for hydration + any async errors to surface.
+  await page.waitForLoadState("networkidle");
+  expect(errors).toEqual([]);
+});
+
+
+ succeeded in 1139ms:
+web\lib\api.ts:558:export type IntakeStatus =
+web\lib\api.ts:564:export type IntakeScopeClass =
+web\lib\api.ts:573:export interface IntakeAmbiguityAxis {
+web\lib\api.ts:579:export interface IntakeScopeDecision {
+web\lib\api.ts:580:  status: IntakeStatus;
+web\lib\api.ts:581:  scope_class: IntakeScopeClass | null;
+web\lib\api.ts:582:  ambiguity_axes: IntakeAmbiguityAxis[];
+web\lib\api.ts:616:export interface IntakeSuccessResponse {
+web\lib\api.ts:618:  decision: IntakeScopeDecision;
+web\lib\api.ts:622:export interface IntakeErrorBody {
+web\lib\api.ts:629:export class IntakeBadRequestError extends Error {
+web\lib\api.ts:630:  code: IntakeErrorBody["code"];
+web\lib\api.ts:632:  constructor(body: IntakeErrorBody) {
+web\lib\api.ts:634:    this.name = "IntakeBadRequestError";
+web\lib\api.ts:640:export async function runIntake(
+web\lib\api.ts:642:): Promise<IntakeSuccessResponse> {
+web\lib\api.ts:651:    const body = (detail?.detail ?? detail) as IntakeErrorBody | null;
+web\lib\api.ts:653:      throw new IntakeBadRequestError(body);
+web\lib\api.ts:657:  return asJsonOrThrow<IntakeSuccessResponse>(response);
+web\lib\api.ts:660:export interface IntakeHealthResponse {
+web\lib\api.ts:666:export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
+web\lib\api.ts:668:  return asJsonOrThrow<IntakeHealthResponse>(response);
+web\lib\api.ts:739:  decision: IntakeScopeDecision,
+web\lib\api.ts:1048:  decision: IntakeScopeDecision,
+web\lib\api.ts:1083:  decision: IntakeScopeDecision,
+web\lib\auth.ts:10:const TOKEN_KEY = "polaris_jwt";
+web\lib\auth.ts:11:const EXPIRY_KEY = "polaris_jwt_expiry_ms";
+web\lib\nav.ts:26:  // "Intake" was internal jargon (I-p2-039) — the public action is "Ask".
+web\lib\nav.ts:39:export function navForAuth(
+web\lib\nav.ts:48: * to navForAuth; retained for future per-persona nav. */
+web\lib\nav.ts:49:export function navForRole(
+web\components\app_shell.tsx:11: *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+web\components\app_shell.tsx:25:// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
+web\app\generation\page.tsx:32:              Intake
+web\app\generation\components\BundlePreview.tsx:9:  type IntakeScopeDecision,
+web\app\generation\components\BundlePreview.tsx:39:  decision: IntakeScopeDecision;
+web\tests\e2e\benchmark_g1_g8.spec.ts:4:import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+web\tests\e2e\benchmark_g1_g8.spec.ts:52:  await expectAuthedNav(page);
+web\app\generation\components\generation_runner.tsx:11:  IntakeBadRequestError,
+web\app\generation\components\generation_runner.tsx:14:  runIntake,
+web\app\generation\components\generation_runner.tsx:17:  type IntakeScopeDecision,
+web\app\generation\components\generation_runner.tsx:29:  | { kind: "scope_unsuitable"; decision: IntakeScopeDecision; reason: string }
+web\app\generation\components\generation_runner.tsx:38:      decision: IntakeScopeDecision;
+web\app\generation\components\generation_runner.tsx:62:    let decision: IntakeScopeDecision;
+web\app\generation\components\generation_runner.tsx:64:      const intake = await runIntake(trimmed);
+web\app\generation\components\generation_runner.tsx:67:      const code = err instanceof IntakeBadRequestError ? err.code : "unknown";
+web\app\generation\components\generation_runner.tsx:68:      const msg = err instanceof Error ? err.message : "Intake failed.";
+web\app\generation\components\generation_runner.tsx:238:  decision: IntakeScopeDecision;
+web\app\generation\components\generation_runner.tsx:307:function scope_reason_for(decision: IntakeScopeDecision): string {
+web\app\components\home_keyboard_shell.tsx:25:// navForRole (presentation-only).
+web\tests\e2e\demo_journey.spec.ts:13:import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+web\tests\e2e\demo_journey.spec.ts:59:// `if (label === "Upload")` guard that silently skipped Home/Intake/
+web\tests\e2e\demo_journey.spec.ts:76:    await expectAuthedNav(page);
+web\tests\e2e\dashboard_g1_g8.spec.ts:4:import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+web\tests\e2e\dashboard_g1_g8.spec.ts:36:  await expectAuthedNav(page);
+web\tests\e2e\contracts_g1_g8.spec.ts:4:import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+web\tests\e2e\contracts_g1_g8.spec.ts:54:  await expectAuthedNav(page);
+web\app\intake\page.tsx:3:import { IntakeForm } from "./components/intake_form";
+web\app\intake\page.tsx:17:export default function IntakePage() {
+web\app\intake\page.tsx:39:        <IntakeForm />
+web\app\source_review\page.tsx:3:// Sits between Intake and Plan in the flow (intake → source_review → plan →
+web\app\source_review\page.tsx:259:                  Intake
+web\app\intake\components\scope_decision_view.tsx:6:  IntakeAmbiguityAxis,
+web\app\intake\components\scope_decision_view.tsx:7:  IntakeScopeDecision,
+web\app\intake\components\scope_decision_view.tsx:8:  IntakeStatus,
+web\app\intake\components\scope_decision_view.tsx:11:const STATUS_LABEL: Record<IntakeStatus, string> = {
+web\app\intake\components\scope_decision_view.tsx:18:const STATUS_TONE: Record<IntakeStatus, string> = {
+web\app\intake\components\scope_decision_view.tsx:28:function StatusBadge({ status }: { status: IntakeStatus }) {
+web\app\intake\components\scope_decision_view.tsx:44:function AxisRow({ axis }: { axis: IntakeAmbiguityAxis }) {
+web\app\intake\components\scope_decision_view.tsx:82:  decision: IntakeScopeDecision;
+web\components\primary_nav.tsx:18:import { PRIMARY_NAV, navForAuth } from "@/lib/nav";
+web\components\primary_nav.tsx:35:  const items = navForAuth(PRIMARY_NAV, authed);
+web\app\intake\components\intake_form.tsx:12:  IntakeBadRequestError,
+web\app\intake\components\intake_form.tsx:14:  runIntake,
+web\app\intake\components\intake_form.tsx:16:  type IntakeScopeDecision,
+web\app\intake\components\intake_form.tsx:23:type IntakeState =
+web\app\intake\components\intake_form.tsx:26:  | { kind: "ok"; decision: IntakeScopeDecision }
+web\app\intake\components\intake_form.tsx:45:export function IntakeForm() {
+web\app\intake\components\intake_form.tsx:51:  const [state, setState] = useState<IntakeState>({ kind: "idle" });
+web\app\intake\components\intake_form.tsx:81:      const result = await runIntake(trimmed);
+web\app\intake\components\intake_form.tsx:98:      if (err instanceof IntakeBadRequestError) {
+web\tests\e2e\home_g1_g8.spec.ts:7:import { expectPublicNav } from "./_nav_auth";
+web\tests\e2e\home_g1_g8.spec.ts:32:  await expectPublicNav(page);
+web\app\intake\components\ambiguity_modal.tsx:7:import type { IntakeScopeDecision } from "@/lib/api";
+web\app\intake\components\ambiguity_modal.tsx:11:  decision: IntakeScopeDecision | null;
+web\tests\e2e\intake_g1_g8.spec.ts:5:import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+web\tests\e2e\intake_g1_g8.spec.ts:49:  await expectAuthedNav(page);
+web\tests\e2e\memory_g1_g8.spec.ts:4:import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+web\tests\e2e\memory_g1_g8.spec.ts:51:  await expectAuthedNav(page);
+web\app\plan\page.tsx:5:// (runIntake — the clinical + PICO classifier, NOT the lenient /scope/check) so
+web\app\plan\page.tsx:30:  runIntake,
+web\app\plan\page.tsx:32:  type IntakeScopeDecision,
+web\app\plan\page.tsx:78:  | { kind: "ready"; decision: IntakeScopeDecision }
+web\app\plan\page.tsx:113:        const result = await runIntake(question);
+web\app\plan\page.tsx:204:  function notInScopeMessage(d: IntakeScopeDecision): string {
+web\app\retrieval\page.tsx:32:              Intake
+web\app\retrieval\components\retrieval_runner.tsx:8:  IntakeBadRequestError,
+web\app\retrieval\components\retrieval_runner.tsx:10:  runIntake,
+web\app\retrieval\components\retrieval_runner.tsx:13:  type IntakeScopeDecision,
+web\app\retrieval\components\retrieval_runner.tsx:24:      decision: IntakeScopeDecision;
+web\app\retrieval\components\retrieval_runner.tsx:29:      decision: IntakeScopeDecision;
+web\app\retrieval\components\retrieval_runner.tsx:33:      decision: IntakeScopeDecision;
+web\app\retrieval\components\retrieval_runner.tsx:39:      decision: IntakeScopeDecision;
+web\app\retrieval\components\retrieval_runner.tsx:56:    let decision: IntakeScopeDecision;
+web\app\retrieval\components\retrieval_runner.tsx:58:      const intake = await runIntake(trimmed);
+web\app\retrieval\components\retrieval_runner.tsx:62:        err instanceof IntakeBadRequestError
+web\app\retrieval\components\retrieval_runner.tsx:66:            : "Intake failed.";
+web\app\retrieval\components\retrieval_runner.tsx:167:            Intake failed: {state.message}
+web\app\retrieval\components\retrieval_runner.tsx:200:function scope_reason_for(decision: IntakeScopeDecision): string {
+web\tests\e2e\pin_replay_g1_g8.spec.ts:4:import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+web\tests\e2e\pin_replay_g1_g8.spec.ts:54:  await expectAuthedNav(page);
+web\app\runs\[runId]\components\followup_panel.tsx:130:            Intake
+web\tests\e2e\runs_runid_g1_g8.spec.ts:4:import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+web\tests\e2e\runs_runid_g1_g8.spec.ts:73:  await expectAuthedNav(page);
+web\tests\e2e\sign_in.spec.ts:82:      window.sessionStorage.getItem("polaris_jwt"),
+web\tests\e2e\upload_g1_g8.spec.ts:4:import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+web\tests\e2e\upload_g1_g8.spec.ts:50:  await expectAuthedNav(page);
+web\tests\e2e\_nav_auth.ts:33:    sessionStorage.setItem("polaris_jwt", "e2e-dummy-token");
+web\tests\e2e\_nav_auth.ts:35:      "polaris_jwt_expiry_ms",
+web\tests\e2e\_nav_auth.ts:43:export async function setupPublicNav(page: Page): Promise<void> {
+web\tests\e2e\_nav_auth.ts:48:export async function expectAuthedNav(page: Page): Promise<void> {
+web\tests\e2e\_nav_auth.ts:59:export async function expectPublicNav(page: Page): Promise<void> {
+
+2026-05-23T22:16:32.049902Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Raw web/components/home_keyboard_shell.tsx[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\web\components\home_keyboard_shell.tsx' because it does not exist.[0m
+
+ exited 1 in 1295ms:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Raw web/components/home_keyboard_shell.tsx[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\web\components\home_keyboard_shell.tsx' because it does not exist.[0m
+
+ succeeded in 1324ms:
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+/**
+ * I-cd-004: client component for top-nav active-route highlight. Pure styling
+ * via the locked shadcn token set (accent / muted-foreground / foreground).
+ * Active when the pathname equals href, or starts with `${href}/` for nested
+ * routes (e.g. `/runs/abc` highlights "Dashboard" only if we want — by default
+ * an item is active for its own subtree).
+ */
+export function NavLink({
+  href,
+  children,
+  onClick,
+}: {
+  href: string;
+  children: React.ReactNode;
+  /** I-p2-034 (#790): lets the mobile menu close itself on navigation. */
+  onClick?: () => void;
+}) {
+  const pathname = usePathname();
+  const is_active =
+    pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
+  return (
+    <Link
+      href={href}
+      onClick={onClick}
+      aria-current={is_active ? "page" : undefined}
+      className={
+        "rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
+        (is_active
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground")
+      }
+    >
+      {children}
+    </Link>
+  );
+}
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"<AppShell|AppShell\\(|HomeKeyboardShell|AuthButton|PrimaryNav\" web/app web/components" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/app/components/home_keyboard_shell.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/app/layout.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/app/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"login\\(|setToken\\(|clearToken\\(|redirectToSignIn\\(|router\\.push\\(\\\"/\\\"|location\\.href|sessionStorage\" web/app web/components web/lib web/tests/e2e" in C:\POLARIS
+ succeeded in 937ms:
+web/components\app_shell_gate.tsx:47:  return <AppShell>{children}</AppShell>;
+web/components\auth_button.tsx:28:export function AuthButton() {
+web/components\app_shell.tsx:3:import { AuthButton } from "@/components/auth_button";
+web/components\app_shell.tsx:4:import { PrimaryNav } from "@/components/primary_nav";
+web/components\app_shell.tsx:25:// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
+web/components\app_shell.tsx:27:export function AppShell({ children }: { children: React.ReactNode }) {
+web/components\app_shell.tsx:38:          <PrimaryNav />
+web/components\app_shell.tsx:54:            <AuthButton />
+web/components\primary_nav.tsx:5:// read via useSyncExternalStore (SSR-safe, same pattern as AuthButton): server +
+web/components\primary_nav.tsx:8:// authed set + brand + Canadian-hosted mark + AuthButton overflows (Codex P1).
+web/components\primary_nav.tsx:28:export function PrimaryNav() {
+web/app\layout.tsx:36:        <AppShellGate>{children}</AppShellGate>
+web/app\components\home_keyboard_shell.tsx:7:import { PrimaryNav } from "@/components/primary_nav";
+web/app\components\home_keyboard_shell.tsx:27:export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+web/app\components\home_keyboard_shell.tsx:53:          <PrimaryNav />
+web/app\page.tsx:3:import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+web/app\page.tsx:126:      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+web/app\page.tsx:194:      </HomeKeyboardShell>
+
+ succeeded in 1060ms:
+"use client";
+
+import Link from "next/link";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
+import { Button } from "@/components/ui/button";
+import { PrimaryNav } from "@/components/primary_nav";
+
+import { CommandPalette } from "./command_palette";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+
+// I-cd-022 (#612): the home header carries the same nav as AppShell (G1:
+// "global header nav present and identical"). I-p2-029 (#768): that nav is now
+// the single shared source @/lib/nav (no more duplicated const), role-aware via
+// navForRole (presentation-only).
+
+export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+  const [palette_open, set_palette_open] = useState(false);
+  const sign_in_link_ref = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    function on_keydown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+        event.preventDefault();
+        event.stopPropagation();
+        set_palette_open((p) => !p);
+      }
+    }
+    window.addEventListener("keydown", on_keydown);
+    return () => window.removeEventListener("keydown", on_keydown);
+  }, []);
+
+  return (
+    <>
+      <header className="border-border bg-background relative border-b">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <PrimaryNav />
+          {/* I-p2-023 (#762): honest sovereign mark — dropped the false
+              present-tense "no external AI vendor" (prod LLM is OpenRouter US,
+              transitional, disclosed in /transparency). The VM is hosted in OVH
+              Québec → "Canadian-hosted" is true today. */}
+          <span
+            className="text-muted-foreground border-border mr-2 ml-auto hidden rounded-full border px-2.5 py-1 text-xs lg:inline-flex"
+            title="Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (US, disclosed in /transparency) pending the sovereign Canadian GPU cluster."
+          >
+            ⬡ Canadian-hosted
+          </span>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={
+              <Link
+                ref={sign_in_link_ref}
+                data-testid="header-sign-in-link"
+                href={signInHref}
+              />
+            }
+          >
+            Sign in
+          </Button>
+        </div>
+      </header>
+      {children}
+      <CommandPalette
+        open={palette_open}
+        onOpenChange={set_palette_open}
+        templates={templates}
+        signInLinkRef={sign_in_link_ref}
+      />
+    </>
+  );
+}
+
+
+2026-05-23T22:16:41.534737Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+rg: regex parse error:
+    (?:login\(|setToken\(|clearToken\(|redirectToSignIn\(|router\.push\(\)
+    ^
+error: unclosed group
+
+ exited 1 in 1079ms:
+rg: regex parse error:
+    (?:login\(|setToken\(|clearToken\(|redirectToSignIn\(|router\.push\(\)
+    ^
+error: unclosed group
+
+ succeeded in 1173ms:
+import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
+
+import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+import { ProofShowcase } from "@/app/components/proof_showcase";
+import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
+import { MapleLeafSignatureLazy } from "@/components/signature/maple_leaf_signature_lazy";
+import { SiteFooter } from "@/components/site_footer";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+const templates: Template[] = [
+  {
+    id: "clinical",
+    name: "Clinical drug audit",
+    summary:
+      "Drug safety signals, labelling deltas, and post-market surveillance evidence across Health Canada, FDA, EMA, and clinical trials.",
+    sample_question:
+      "What did the SELECT trial show on cardiovascular outcomes for semaglutide?",
+    out_of_scope: "Should I take ozempic for my diabetes?",
+    active: true,
+  },
+  {
+    id: "policy",
+    name: "Public policy",
+    summary:
+      "Regulatory decisions, reimbursement and health-technology-assessment policy, public-health guidance, and cross-jurisdiction access comparisons.",
+    sample_question:
+      "What did NICE and CADTH conclude on the cost-effectiveness of CAR-T therapies?",
+    out_of_scope: "Which political party has the better health platform?",
+    active: false,
+  },
+  {
+    id: "tech",
+    name: "Technology assessment",
+    summary:
+      "Assessment of a technology, algorithm, or engineering approach — grounded in peer-reviewed conference and journal papers, standards, and attributed preprints.",
+    sample_question:
+      "What does the peer-reviewed evidence show on mixture-of-experts vs dense transformers as of 2025?",
+    out_of_scope: "Which GPU should I buy for my gaming PC?",
+    active: false,
+  },
+  {
+    id: "ai_sovereignty",
+    name: "AI sovereignty",
+    summary:
+      "Canadian AI policy, sovereign compute, talent retention, IP and data residency, alignment posture, Bill C-27 / AIDA, federal AI strategy.",
+    sample_question:
+      "What sovereign compute capacity does Canada have for training frontier models as of 2025?",
+    out_of_scope:
+      "Should I take a job at a Canadian AI startup or move to San Francisco?",
+    active: false,
+  },
+  {
+    id: "canada_us",
+    name: "Canada–US relations",
+    summary:
+      "Bilateral relationship, CUSMA / USMCA renegotiation, IRA spillover, energy + critical minerals integration, defense interoperability.",
+    sample_question:
+      "What are the 2026 CUSMA review triggers and what does Canada's pre-position look like?",
+    out_of_scope: "Should I move to the US for tax reasons?",
+    active: false,
+  },
+  {
+    id: "due_diligence",
+    name: "Due diligence",
+    summary:
+      "Company, product, market, and competitive-landscape research for investment, M&A, or partnership decisions — every claim carries named, dated provenance.",
+    sample_question:
+      "What did the most recent 10-K disclose on customer-concentration risk for this company?",
+    out_of_scope: "Should I buy this stock?",
+    active: false,
+  },
+  {
+    id: "custom",
+    name: "Custom research",
+    summary:
+      "Operator-defined catch-all for research questions that do not match the clinical, policy, tech, or due-diligence templates; accepts any classified source tier.",
+    sample_question:
+      "Summarize the documented positions on this question with provenance for each claim.",
+    out_of_scope:
+      "Requests for individualized legal, medical, or financial advice.",
+    active: false,
+  },
+  {
+    id: "workforce",
+    name: "Workforce & productivity",
+    summary:
+      "Canadian labour productivity, immigration + skills mismatch, regional unemployment, federal-provincial training, demographic shifts.",
+    sample_question:
+      "What does StatCan's 2024 productivity series show for Canada vs US over the last decade?",
+    out_of_scope: "How do I apply for permanent residency?",
+    active: false,
+  },
+];
+
+const PILLARS = [
+  {
+    icon: BadgeCheck,
+    title: "Provable",
+    body: "Click any claim and see the exact source passage it came from. Frontier tools hallucinate 3–13% of their citations — every POLARIS claim is span-anchored to a primary source.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Sovereign",
+    body: "Built for Canadian-hosted, sovereign deployment. Public sources are fetched via logged Canadian egress, and every brief is integrity-hashed and auditable.",
+  },
+  {
+    icon: Network,
+    title: "Snowball",
+    body: "Each run grows a connected knowledge graph of claims and sources you can explore, follow up on, and build the next question from.",
+  },
+] as const;
+
+export default function HomePage() {
+  return (
+    <div className="flex min-h-screen flex-col">
+      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-14 px-6 py-14 sm:py-16">
+          {/* Hero — one primary action */}
+          <section className="flex flex-col items-center gap-5 text-center">
+            {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
+            <MapleLeafSignatureLazy />
+            <span className="text-muted-foreground border-border inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
+              ⬡ Sovereign Canadian deep research
+            </span>
+            <h1 className="text-foreground max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
+              Deep research you can check, line by line.
+            </h1>
+            <p className="text-muted-foreground max-w-2xl text-base text-pretty sm:text-lg">
+              Every sentence is tied to a primary source with a provenance token
+              and checked by an independent two-family evidence pipeline. Ask a
+              question — get a brief where you can click any claim and read the
+              exact passage behind it.
+            </p>
+            <form
+              action="/intake"
+              method="get"
+              data-testid="home-hero-search"
+              className="mt-1 flex w-full max-w-2xl items-center gap-2"
+            >
+              <Input
+                name="q"
+                type="search"
+                aria-label="Research question"
+                placeholder="Ask a research question…"
+                className="h-12 flex-1 text-base"
+              />
+              <Button type="submit" className="h-12 px-7">
+                Verify
+              </Button>
+            </form>
+          </section>
+
+          {/* Proof-as-hero — a REAL verified claim + its real source span */}
+          <ProofShowcase />
+
+          {/* Differentiator pillars */}
+          <section
+            aria-label="Why POLARIS"
+            className="border-border/60 grid gap-8 border-t pt-12 sm:grid-cols-3"
+          >
+            {PILLARS.map((pillar) => (
+              <div key={pillar.title} className="flex flex-col gap-2">
+                <pillar.icon
+                  aria-hidden
+                  className="text-primary h-5 w-5 shrink-0"
+                />
+                <h2 className="text-foreground text-sm font-semibold">
+                  {pillar.title}
+                </h2>
+                <p className="text-muted-foreground text-sm leading-relaxed">
+                  {pillar.body}
+                </p>
+              </div>
+            ))}
+          </section>
+
+          {/* Real recent verified briefs */}
+          <RecentRunsStrip />
+        </main>
+
+        {/* I-p2-038 (#821): shared SiteFooter — replaces the thin inline home
+            footer so home + every AppShell route render one identical footer. */}
+        <SiteFooter />
+      </HomeKeyboardShell>
+    </div>
+  );
+}
+
+
+ succeeded in 1252ms:
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+
+import { AppShellGate } from "@/components/app_shell_gate";
+import { Toaster } from "@/components/ui/sonner";
+
+import "./globals.css";
+
+const geist_sans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geist_mono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "POLARIS Canada — Sovereign Deep Research",
+  description:
+    "Two-family verified evidence pipelines for Government of Canada policy work.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+    >
+      <body className="flex min-h-full flex-col">
+        <AppShellGate>{children}</AppShellGate>
+        <Toaster />
+      </body>
+    </html>
+  );
+}
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"login\\(|setToken\\(|clearToken\\(|redirectToSignIn\\(\" web/app web/components web/lib web/tests/e2e" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/components/app_shell_gate.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/app/sign-in/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"test\\.use|storageState|reuse|context|sessionStorage|localStorage|fullyParallel|workers\" web/tests web/playwright* web" in C:\POLARIS
+ succeeded in 979ms:
+web/components\auth_button.tsx:42:          clearToken();
+web/app\sign-in\page.tsx:99:    const result = await login(username.trim(), password);
+web/lib\auth.ts:33:    clearToken();
+web/lib\auth.ts:39:export function setToken(token: string, expiresInSeconds: number): void {
+web/lib\auth.ts:47:export function clearToken(): void {
+web/lib\auth.ts:63:export async function login(
+web/lib\auth.ts:86:    setToken(body.access_token, body.expires_in ?? DEFAULT_EXPIRY_SECONDS);
+web/lib\auth.ts:106:export function redirectToSignIn(): void {
+web/lib\auth.ts:108:  clearToken();
+web/lib\api.ts:40:    redirectToSignIn();
+
+ succeeded in 1022ms:
+// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+// the AppShell header AND its <main> wrapper so the home route can
+// provide its own header (with the same primary nav) + its own <main>.
+// This avoids G1 (double header) + G6 (nested main) landmark violations.
+//
+// Tiny "use client" boundary so the otherwise server-rendered AppShell
+// can still wrap every non-home route on the server.
+"use client";
+
+import { usePathname } from "next/navigation";
+
+import { AppShell } from "@/components/app_shell";
+
+interface AppShellGateProps {
+  children: React.ReactNode;
+}
+
+// Chromeless routes own their full viewport (no app header/nav):
+//  - `/`        : home owns its own header + main.
+//  - `/sign-in` : institutional full-screen auth (I-p2-021 #760); the primary
+//                 nav is auth-gated anyway, so it must not show pre-login.
+const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
+
+// I-p2-019 (#762): the claim-graph drill-down (/runs/<id>/graph) is a focused
+// full-screen view that renders its OWN header (with "Back to Inspector") +
+// <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
+// header + G6 nested main).
+// I-p2-020 (#759): the audit/export drill-down (/runs/<id>/audit) follows the
+// same focused full-screen pattern (own header + <main>).
+const CHROMELESS_PATTERNS = [
+  /^\/runs\/[^/]+\/graph$/,
+  /^\/runs\/[^/]+\/audit$/,
+];
+
+function isChromeless(pathname: string): boolean {
+  return (
+    CHROMELESS_ROUTES.has(pathname) ||
+    CHROMELESS_PATTERNS.some((re) => re.test(pathname))
+  );
+}
+
+export function AppShellGate({ children }: AppShellGateProps) {
+  const pathname = usePathname();
+  if (isChromeless(pathname)) {
+    return <>{children}</>;
+  }
+  return <AppShell>{children}</AppShell>;
+}
+
+
+ succeeded in 1027ms:
+"use client";
+
+import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+
+import { login } from "@/lib/auth";
+import { MapleLeafSignatureLazy } from "@/components/signature/maple_leaf_signature_lazy";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+
+const TRUST_POINTS = [
+  { icon: BadgeCheck, text: "Every claim span-anchored to a primary source." },
+  {
+    icon: ShieldCheck,
+    text: "Sovereign Canadian processing, integrity-hashed.",
+  },
+  { icon: Network, text: "A connected, auditable evidence graph per run." },
+] as const;
+
+/**
+ * I-cd-014 (GH#610): same-origin validation for `?next=` redirect.
+ *
+ * Rejects:
+ *   - non-string / empty values
+ *   - URL parse failures
+ *   - URLs that, when parsed against `window.location.origin`, resolve to
+ *     a different origin (protocol-relative `//evil.com`, absolute
+ *     `http://...`, backslash-as-separator `/\evil.com` — all caught by
+ *     the URL parser).
+ *   - fragment-only / hash-only navigation (e.g. `#frag`) — these are
+ *     same-origin but offer no real navigation, so we fall back to `/`.
+ *
+ * Returns the validated `pathname + search + hash` or `"/"`.
+ */
+function safeNextPath(next: string | null): string {
+  if (!next) return "/";
+  if (typeof window === "undefined") return "/";
+  try {
+    const parsed = new URL(next, window.location.origin);
+    if (parsed.origin !== window.location.origin) return "/";
+    // Reject fragment-only / hash-only / empty pathname — they leave the
+    // user on the sign-in route with just a fragment appended.
+    if (!parsed.pathname || parsed.pathname === "/sign-in") return "/";
+    return parsed.pathname + parsed.search + parsed.hash;
+  } catch {
+    return "/";
+  }
+}
+
+/**
+ * I-cd-014 (GH#610): Next.js App Router requires `useSearchParams()` users
+ * to be wrapped in a Suspense boundary (or the route opts into dynamic
+ * rendering). Wrapping the form here is the lighter-weight choice and
+ * matches the existing repo convention.
+ */
+export default function SignInPage() {
+  return (
+    <Suspense fallback={<SignInPageFallback />}>
+      <SignInPageContent />
+    </Suspense>
+  );
+}
+
+function SignInPageFallback() {
+  return (
+    <div className="bg-muted/40 flex min-h-screen flex-col items-center justify-center px-6 py-12">
+      <div
+        className="text-muted-foreground text-sm"
+        data-testid="sign-in-loading"
+      >
+        Loading sign-in…
+      </div>
+    </div>
+  );
+}
+
+function SignInPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setPending(true);
+    const result = await login(username.trim(), password);
+    setPending(false);
+    if (result.ok) {
+      const next = safeNextPath(searchParams.get("next"));
+      router.push(next);
+      router.refresh();
+    } else {
+      setError(result.error ?? "Sign-in failed.");
+    }
+  }
+
+  return (
+    <div className="grid min-h-screen lg:grid-cols-2">
+      {/* Left: institutional brand + trust panel (lg+ only) */}
+      <aside className="bg-muted/30 border-border relative hidden flex-col justify-between border-r p-12 lg:flex">
+        <div className="flex items-center gap-2">
+          <span className="text-foreground font-mono text-sm font-semibold tracking-tight">
+            POLARIS · Canada
+          </span>
+        </div>
+        <div className="flex flex-col gap-8">
+          <div className="flex flex-col gap-3">
+            <MapleLeafSignatureLazy />
+            <h1 className="text-foreground max-w-md text-3xl font-semibold tracking-tight text-balance">
+              Deep research you can check, line by line.
+            </h1>
+          </div>
+          <ul className="flex flex-col gap-4">
+            {TRUST_POINTS.map((point) => (
+              <li key={point.text} className="flex items-start gap-3">
+                <point.icon
+                  aria-hidden
+                  className="text-primary mt-0.5 h-5 w-5 shrink-0"
+                />
+                <span className="text-muted-foreground text-sm leading-relaxed">
+                  {point.text}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="text-muted-foreground text-xs">
+          Sovereign Canadian deep research · auditable evidence
+        </p>
+      </aside>
+
+      {/* Right: the sign-in form */}
+      <div className="flex flex-col items-center justify-center px-6 py-12">
+        <div className="flex w-full max-w-sm flex-col gap-6">
+          {/* Brand lockup — shown on small screens where the panel is hidden */}
+          <div className="flex flex-col items-center gap-1 text-center lg:hidden">
+            <MapleLeafSignatureLazy />
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              POLARIS Canada
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              Sovereign Deep Research
+            </span>
+          </div>
+
+          <Card>
+            <form onSubmit={handleSubmit} data-testid="sign-in-form">
+              <CardHeader>
+                <CardTitle>Sign in</CardTitle>
+                <CardDescription>
+                  Enter your POLARIS reviewer credentials.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
+                  <label
+                    htmlFor="username"
+                    className="text-foreground text-sm font-medium"
+                  >
+                    Username
+                  </label>
+                  <Input
+                    id="username"
+                    name="username"
+                    type="text"
+                    placeholder="reviewer"
+                    autoComplete="username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label
+                    htmlFor="password"
+                    className="text-foreground text-sm font-medium"
+                  >
+                    Password
+                  </label>
+                  <Input
+                    id="password"
+                    name="password"
+                    type="password"
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                {error ? (
+                  <p
+                    role="alert"
+                    data-testid="sign-in-error"
+                    className="text-destructive text-sm font-medium"
+                  >
+                    {error}
+                  </p>
+                ) : null}
+              </CardContent>
+              <CardFooter className="flex flex-col gap-3">
+                <Button
+                  type="submit"
+                  data-testid="sign-in-submit"
+                  className="w-full"
+                  disabled={pending || !username || !password}
+                >
+                  {pending ? "Signing in…" : "Continue"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full"
+                  nativeButton={false}
+                  render={<Link href="/" />}
+                >
+                  Back to home
+                </Button>
+              </CardFooter>
+            </form>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+2026-05-23T22:16:52.477034Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+web\AGENTS.md:25:**Why:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. Length is liability, not advantage.
+web\lib\evidence_span.ts:36:/** A cited span rendered WITH its real surrounding source context so it reads
+web\lib\evidence_span.ts:40: * the context is a window, not the whole body. No synthetic text is introduced. */
+web\lib\evidence_span.ts:49:/** I-p2-038 (#821): build a word-boundary-snapped context window around an exact
+web\lib\pin_regression.ts:5: * I-f13-004: source-retraction context attribution for sentence-count drops.
+web\lib\auth.ts:4: * Carney demo scope. The JWT is held in sessionStorage: survives a page
+web\lib\auth.ts:22:  return window.sessionStorage;
+web\lib\api.ts:1398:  context_snippet: string;
+web\components\auth_redirect.tsx:6:// boundary. The JWT lives in client-side sessionStorage which is fully
+web\components\auth_redirect.tsx:33:  // sessionStorage immediately — no flash of protected content
+web\components\auth_button.tsx:6:// Auth state lives in sessionStorage (not React state), so we read it via
+web\playwright.config.ts:29:  fullyParallel: false, // single browser instance to keep memory bounded on dev
+web\playwright.config.ts:31:  workers: 1,
+web\package-lock.json:1646:    "node_modules/@modelcontextprotocol/sdk": {
+web\package-lock.json:1648:      "resolved": "https://registry.npmjs.org/@modelcontextprotocol/sdk/-/sdk-1.29.0.tgz",
+web\package-lock.json:1686:    "node_modules/@modelcontextprotocol/sdk/node_modules/ajv": {
+web\package-lock.json:1702:    "node_modules/@modelcontextprotocol/sdk/node_modules/json-schema-traverse": {
+web\package-lock.json:9180:        "@modelcontextprotocol/sdk": "^1.26.0",
+web\scripts\capture_screenshots.mjs:99:  const context = await browser.newContext({
+web\scripts\capture_screenshots.mjs:104:  const page = await context.newPage();
+web\components\proof_replay\proof_replay.tsx:124:                    // its real source context (the raw span often starts
+web\components\proof_replay\proof_replay.tsx:126:                    // exact full_text[start:end]; context is real adjacent text.
+web\tests\e2e\audit_live_multitab.spec.ts:8:  const context = await browser.newContext();
+web\tests\e2e\audit_live_multitab.spec.ts:12:  for (const route_setup of [context]) {
+web\tests\e2e\audit_live_multitab.spec.ts:23:  const pageA = await context.newPage();
+web\tests\e2e\audit_live_multitab.spec.ts:24:  const pageB = await context.newPage();
+web\tests\e2e\audit_live_multitab.spec.ts:45:  await context.close();
+web\app\globals.css:131:     surface; white fg. NOTE: light mode is the demo target; dark mode reuses
+web\tests\e2e\evidence_tooltip_mobile.spec.ts:3:test.use({ ...devices["iPhone 12"] });
+web\app\generation\components\verified_report_view.tsx:114:  // I-f6-004: parse provenance tokens once; reused for both T1-conflict
+web/tests\e2e\audit_live_multitab.spec.ts:8:  const context = await browser.newContext();
+web/tests\e2e\audit_live_multitab.spec.ts:12:  for (const route_setup of [context]) {
+web/tests\e2e\audit_live_multitab.spec.ts:23:  const pageA = await context.newPage();
+web/tests\e2e\audit_live_multitab.spec.ts:24:  const pageB = await context.newPage();
+web/tests\e2e\audit_live_multitab.spec.ts:45:  await context.close();
+web\tests\e2e\f1_multi_tab.spec.ts:4: * I-f1-006 — F1 multi-tab safety: 3 same-context tabs, no state pollution.
+web\tests\e2e\f1_multi_tab.spec.ts:6: * Same-context tabs share storage (cookies/localStorage) but each
+web\tests\e2e\f1_multi_tab.spec.ts:8: *  - Opens 3 sibling tabs in ONE context (real "Ctrl+T new tab" model).
+web\tests\e2e\f1_multi_tab.spec.ts:25:test("3 same-context tabs do not leak palette state", async ({ browser }) => {
+web\tests\e2e\f1_multi_tab.spec.ts:26:  const context = await browser.newContext();
+web\tests\e2e\f1_multi_tab.spec.ts:28:    context.newPage(),
+web\tests\e2e\f1_multi_tab.spec.ts:29:    context.newPage(),
+web\tests\e2e\f1_multi_tab.spec.ts:30:    context.newPage(),
+web\tests\e2e\f1_multi_tab.spec.ts:104:  await context.close();
+web\tests\e2e\frame_coverage_panel.spec.ts:64:  // the browser context; do the check inside page.evaluate.
+web/tests\e2e\f1_multi_tab.spec.ts:4: * I-f1-006 — F1 multi-tab safety: 3 same-context tabs, no state pollution.
+web/tests\e2e\f1_multi_tab.spec.ts:6: * Same-context tabs share storage (cookies/localStorage) but each
+web/tests\e2e\f1_multi_tab.spec.ts:8: *  - Opens 3 sibling tabs in ONE context (real "Ctrl+T new tab" model).
+web/tests\e2e\f1_multi_tab.spec.ts:25:test("3 same-context tabs do not leak palette state", async ({ browser }) => {
+web/tests\e2e\f1_multi_tab.spec.ts:26:  const context = await browser.newContext();
+web/tests\e2e\f1_multi_tab.spec.ts:28:    context.newPage(),
+web/tests\e2e\f1_multi_tab.spec.ts:29:    context.newPage(),
+web/tests\e2e\f1_multi_tab.spec.ts:30:    context.newPage(),
+web/tests\e2e\f1_multi_tab.spec.ts:104:  await context.close();
+web/tests\e2e\evidence_tooltip_mobile.spec.ts:3:test.use({ ...devices["iPhone 12"] });
+web\tests\e2e\p2c_005_mobile.spec.ts:13:test.use({
+web/tests\e2e\frame_coverage_panel.spec.ts:64:  // the browser context; do the check inside page.evaluate.
+web\app\components\proof_showcase.tsx:56:          // I-p2-038 (#821): render the exact span IN its real source context
+web/tests\e2e\p2c_005_mobile.spec.ts:13:test.use({
+web/tests\e2e\sign_in.spec.ts:80:    // JWT in sessionStorage (per web/lib/auth.ts).
+web/tests\e2e\sign_in.spec.ts:82:      window.sessionStorage.getItem("polaris_jwt"),
+web/tests\e2e\sign_in.spec.ts:102:    await page.evaluate(() => window.sessionStorage.clear());
+web/tests\e2e\sign_in.spec.ts:112:    await page.evaluate(() => window.sessionStorage.clear());
+web\tests\e2e\sign_in.spec.ts:80:    // JWT in sessionStorage (per web/lib/auth.ts).
+web\tests\e2e\sign_in.spec.ts:82:      window.sessionStorage.getItem("polaris_jwt"),
+web\tests\e2e\sign_in.spec.ts:102:    await page.evaluate(() => window.sessionStorage.clear());
+web\tests\e2e\sign_in.spec.ts:112:    await page.evaluate(() => window.sessionStorage.clear());
+web/tests\e2e\_nav_auth.ts:5:// presence/expiry check on a sessionStorage token (NOT a signature check), so a
+web/tests\e2e\_nav_auth.ts:28:/** Seed an authenticated session (matches lib/auth's sessionStorage keys) + a
+web/tests\e2e\_nav_auth.ts:33:    sessionStorage.setItem("polaris_jwt", "e2e-dummy-token");
+web/tests\e2e\_nav_auth.ts:34:    sessionStorage.setItem(
+web\tests\e2e\_nav_auth.ts:5:// presence/expiry check on a sessionStorage token (NOT a signature check), so a
+web\tests\e2e\_nav_auth.ts:28:/** Seed an authenticated session (matches lib/auth's sessionStorage keys) + a
+web\tests\e2e\_nav_auth.ts:33:    sessionStorage.setItem("polaris_jwt", "e2e-dummy-token");
+web\tests\e2e\_nav_auth.ts:34:    sessionStorage.setItem(
+rg: web/playwright*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+ exited 1 in 1150ms:
+web\AGENTS.md:25:**Why:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. Length is liability, not advantage.
+web\lib\evidence_span.ts:36:/** A cited span rendered WITH its real surrounding source context so it reads
+web\lib\evidence_span.ts:40: * the context is a window, not the whole body. No synthetic text is introduced. */
+web\lib\evidence_span.ts:49:/** I-p2-038 (#821): build a word-boundary-snapped context window around an exact
+web\lib\pin_regression.ts:5: * I-f13-004: source-retraction context attribution for sentence-count drops.
+web\lib\auth.ts:4: * Carney demo scope. The JWT is held in sessionStorage: survives a page
+web\lib\auth.ts:22:  return window.sessionStorage;
+web\lib\api.ts:1398:  context_snippet: string;
+web\components\auth_redirect.tsx:6:// boundary. The JWT lives in client-side sessionStorage which is fully
+web\components\auth_redirect.tsx:33:  // sessionStorage immediately — no flash of protected content
+web\components\auth_button.tsx:6:// Auth state lives in sessionStorage (not React state), so we read it via
+web\playwright.config.ts:29:  fullyParallel: false, // single browser instance to keep memory bounded on dev
+web\playwright.config.ts:31:  workers: 1,
+web\package-lock.json:1646:    "node_modules/@modelcontextprotocol/sdk": {
+web\package-lock.json:1648:      "resolved": "https://registry.npmjs.org/@modelcontextprotocol/sdk/-/sdk-1.29.0.tgz",
+web\package-lock.json:1686:    "node_modules/@modelcontextprotocol/sdk/node_modules/ajv": {
+web\package-lock.json:1702:    "node_modules/@modelcontextprotocol/sdk/node_modules/json-schema-traverse": {
+web\package-lock.json:9180:        "@modelcontextprotocol/sdk": "^1.26.0",
+web\scripts\capture_screenshots.mjs:99:  const context = await browser.newContext({
+web\scripts\capture_screenshots.mjs:104:  const page = await context.newPage();
+web\components\proof_replay\proof_replay.tsx:124:                    // its real source context (the raw span often starts
+web\components\proof_replay\proof_replay.tsx:126:                    // exact full_text[start:end]; context is real adjacent text.
+web\tests\e2e\audit_live_multitab.spec.ts:8:  const context = await browser.newContext();
+web\tests\e2e\audit_live_multitab.spec.ts:12:  for (const route_setup of [context]) {
+web\tests\e2e\audit_live_multitab.spec.ts:23:  const pageA = await context.newPage();
+web\tests\e2e\audit_live_multitab.spec.ts:24:  const pageB = await context.newPage();
+web\tests\e2e\audit_live_multitab.spec.ts:45:  await context.close();
+web\app\globals.css:131:     surface; white fg. NOTE: light mode is the demo target; dark mode reuses
+web\tests\e2e\evidence_tooltip_mobile.spec.ts:3:test.use({ ...devices["iPhone 12"] });
+web\app\generation\components\verified_report_view.tsx:114:  // I-f6-004: parse provenance tokens once; reused for both T1-conflict
+web/tests\e2e\audit_live_multitab.spec.ts:8:  const context = await browser.newContext();
+web/tests\e2e\audit_live_multitab.spec.ts:12:  for (const route_setup of [context]) {
+web/tests\e2e\audit_live_multitab.spec.ts:23:  const pageA = await context.newPage();
+web/tests\e2e\audit_live_multitab.spec.ts:24:  const pageB = await context.newPage();
+web/tests\e2e\audit_live_multitab.spec.ts:45:  await context.close();
+web\tests\e2e\f1_multi_tab.spec.ts:4: * I-f1-006 — F1 multi-tab safety: 3 same-context tabs, no state pollution.
+web\tests\e2e\f1_multi_tab.spec.ts:6: * Same-context tabs share storage (cookies/localStorage) but each
+web\tests\e2e\f1_multi_tab.spec.ts:8: *  - Opens 3 sibling tabs in ONE context (real "Ctrl+T new tab" model).
+web\tests\e2e\f1_multi_tab.spec.ts:25:test("3 same-context tabs do not leak palette state", async ({ browser }) => {
+web\tests\e2e\f1_multi_tab.spec.ts:26:  const context = await browser.newContext();
+web\tests\e2e\f1_multi_tab.spec.ts:28:    context.newPage(),
+web\tests\e2e\f1_multi_tab.spec.ts:29:    context.newPage(),
+web\tests\e2e\f1_multi_tab.spec.ts:30:    context.newPage(),
+web\tests\e2e\f1_multi_tab.spec.ts:104:  await context.close();
+web\tests\e2e\frame_coverage_panel.spec.ts:64:  // the browser context; do the check inside page.evaluate.
+web/tests\e2e\f1_multi_tab.spec.ts:4: * I-f1-006 — F1 multi-tab safety: 3 same-context tabs, no state pollution.
+web/tests\e2e\f1_multi_tab.spec.ts:6: * Same-context tabs share storage (cookies/localStorage) but each
+web/tests\e2e\f1_multi_tab.spec.ts:8: *  - Opens 3 sibling tabs in ONE context (real "Ctrl+T new tab" model).
+web/tests\e2e\f1_multi_tab.spec.ts:25:test("3 same-context tabs do not leak palette state", async ({ browser }) => {
+web/tests\e2e\f1_multi_tab.spec.ts:26:  const context = await browser.newContext();
+web/tests\e2e\f1_multi_tab.spec.ts:28:    context.newPage(),
+web/tests\e2e\f1_multi_tab.spec.ts:29:    context.newPage(),
+web/tests\e2e\f1_multi_tab.spec.ts:30:    context.newPage(),
+web/tests\e2e\f1_multi_tab.spec.ts:104:  await context.close();
+web/tests\e2e\evidence_tooltip_mobile.spec.ts:3:test.use({ ...devices["iPhone 12"] });
+web\tests\e2e\p2c_005_mobile.spec.ts:13:test.use({
+web/tests\e2e\frame_coverage_panel.spec.ts:64:  // the browser context; do the check inside page.evaluate.
+web\app\components\proof_showcase.tsx:56:          // I-p2-038 (#821): render the exact span IN its real source context
+web/tests\e2e\p2c_005_mobile.spec.ts:13:test.use({
+web/tests\e2e\sign_in.spec.ts:80:    // JWT in sessionStorage (per web/lib/auth.ts).
+web/tests\e2e\sign_in.spec.ts:82:      window.sessionStorage.getItem("polaris_jwt"),
+web/tests\e2e\sign_in.spec.ts:102:    await page.evaluate(() => window.sessionStorage.clear());
+web/tests\e2e\sign_in.spec.ts:112:    await page.evaluate(() => window.sessionStorage.clear());
+web\tests\e2e\sign_in.spec.ts:80:    // JWT in sessionStorage (per web/lib/auth.ts).
+web\tests\e2e\sign_in.spec.ts:82:      window.sessionStorage.getItem("polaris_jwt"),
+web\tests\e2e\sign_in.spec.ts:102:    await page.evaluate(() => window.sessionStorage.clear());
+web\tests\e2e\sign_in.spec.ts:112:    await page.evaluate(() => window.sessionStorage.clear());
+web/tests\e2e\_nav_auth.ts:5:// presence/expiry check on a sessionStorage token (NOT a signature check), so a
+web/tests\e2e\_nav_auth.ts:28:/** Seed an authenticated session (matches lib/auth's sessionStorage keys) + a
+web/tests\e2e\_nav_auth.ts:33:    sessionStorage.setItem("polaris_jwt", "e2e-dummy-token");
+web/tests\e2e\_nav_auth.ts:34:    sessionStorage.setItem(
+web\tests\e2e\_nav_auth.ts:5:// presence/expiry check on a sessionStorage token (NOT a signature check), so a
+web\tests\e2e\_nav_auth.ts:28:/** Seed an authenticated session (matches lib/auth's sessionStorage keys) + a
+web\tests\e2e\_nav_auth.ts:33:    sessionStorage.setItem("polaris_jwt", "e2e-dummy-token");
+web\tests\e2e\_nav_auth.ts:34:    sessionStorage.setItem(
+rg: web/playwright*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/tests/e2e/sign_in.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/components/auth_redirect.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/playwright.config.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"AuthRedirect|RequireAuth|redirectToSignIn|isAuthenticated\\(\\)\" web/app web/components web/lib" in C:\POLARIS
+ succeeded in 914ms:
+// I-cd-014 (GH#610) — `<AuthRedirect>` UX-only client component.
+//
+// SECURITY FRAMING (binding):
+// This component is a UX convenience that redirects unauthenticated
+// browsers to /sign-in?next=<current-path>. It is **NOT** an authorization
+// boundary. The JWT lives in client-side sessionStorage which is fully
+// controllable by the browser; any user can spoof a value.
+//
+// Real authorization lives at the API layer via FastAPI's `require_auth`
+// dependency (`src/polaris_v6/api/auth.py`). Server components MUST NOT
+// load protected data from local fs/db on the page render path; they MUST
+// fetch from the FastAPI backend with `Authorization: Bearer <jwt>`
+// headers (real-data wiring at I-B-08).
+//
+// Used by route pages to redirect to /sign-in when a JWT is missing. Do
+// not rely on this for security-sensitive data exposure.
+"use client";
+
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
+
+import { isAuthenticated } from "@/lib/auth";
+
+interface AuthRedirectProps {
+  children: ReactNode;
+}
+
+export function AuthRedirect({ children }: AuthRedirectProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  // Synchronous initial check via lazy `useState` initializer. On the
+  // very first render in the browser this resolves true|false from
+  // sessionStorage immediately — no flash of protected content
+  // (Codex diff iter-1 P2 #1). SSR returns `null` (window undefined)
+  // so the first SSR pass renders no children; the client takes over.
+  const [authState] = useState<"authed" | "redirect" | "ssr">(() => {
+    if (typeof window === "undefined") return "ssr";
+    return isAuthenticated() ? "authed" : "redirect";
+  });
+
+  useEffect(() => {
+    if (authState !== "redirect") return;
+    const next = encodeURIComponent(pathname ?? "/");
+    router.replace(`/sign-in?next=${next}`);
+  }, [authState, pathname, router]);
+
+  // SSR / not-yet-checked / about-to-redirect: render nothing rather
+  // than flash protected UI.
+  if (authState !== "authed") return null;
+  return <>{children}</>;
+}
+
+
+ succeeded in 1004ms:
+// I-cd-014 (GH#610) — /sign-in route e2e.
+//
+// REQUIRED ENV ORCHESTRATION (Codex iter-2 P2 #3):
+//
+//   # Terminal A — FastAPI backend with test-fixture static_accounts:
+//   POLARIS_JWT_SECRET="local-dev-32char-secret-for-tests-only" \
+//   POLARIS_STATIC_ACCOUNTS_PATH="$PWD/tests/fixtures/auth/test_static_accounts.yaml" \
+//     PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+//
+//   # Terminal B — Next.js (use `next dev` for local iteration OR
+//   # `npm run build && next start -p 3738` for production-build coverage):
+//   cd web && npx next dev -p 3738
+//   # OR: cd web && npm run build && npx next start -p 3738
+//
+//   # Terminal C — run the spec:
+//   cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 \
+//     npx playwright test --project=chromium tests/e2e/sign_in.spec.ts
+//
+// Visual baseline ships as `test.fixme()` — chromium-win32 baselines
+// captured by operator via `--update-snapshots` after first dev-server
+// run; a follow-up PR commits the PNGs.
+
+import { expect, test } from "@playwright/test";
+
+const CARNEY_USERNAME = "carney_office";
+const CARNEY_PASSWORD = "carney-test-password";
+
+test.describe("Sign-in route — render + accessibility (G1-G8)", () => {
+  test("renders sign-in form with username + password fields (G1 app shell)", async ({
+    page,
+  }) => {
+    await page.goto("/sign-in");
+    await expect(page.getByTestId("sign-in-form")).toBeVisible();
+    await expect(page.getByLabel("Username")).toBeVisible();
+    await expect(page.getByLabel("Password")).toBeVisible();
+    await expect(page.getByTestId("sign-in-submit")).toBeVisible();
+  });
+
+  test("no console errors on render (G8)", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    await page.goto("/sign-in", { waitUntil: "networkidle" });
+    expect(errors).toEqual([]);
+  });
+
+  test("responsive at 1280/768/375 viewports (G5)", async ({ page }) => {
+    for (const vp of [
+      { w: 1280, h: 800 },
+      { w: 768, h: 1024 },
+      { w: 375, h: 667 },
+    ]) {
+      await page.setViewportSize({ width: vp.w, height: vp.h });
+      await page.goto("/sign-in");
+      await expect(page.getByTestId("sign-in-form")).toBeVisible();
+      await expect(page.getByTestId("sign-in-submit")).toBeVisible();
+    }
+  });
+});
+
+test.describe("Sign-in route — credential validation", () => {
+  test("invalid creds → error banner visible", async ({ page }) => {
+    await page.goto("/sign-in");
+    await page.getByLabel("Username").fill("does-not-exist");
+    await page.getByLabel("Password").fill("wrong-password");
+    await page.getByTestId("sign-in-submit").click();
+    const errorBanner = page.getByTestId("sign-in-error");
+    await expect(errorBanner).toBeVisible({ timeout: 8_000 });
+    await expect(errorBanner).toHaveAttribute("role", "alert");
+  });
+
+  test("valid creds → JWT stored + redirect to /", async ({ page }) => {
+    await page.goto("/sign-in");
+    await page.getByLabel("Username").fill(CARNEY_USERNAME);
+    await page.getByLabel("Password").fill(CARNEY_PASSWORD);
+    await page.getByTestId("sign-in-submit").click();
+    await expect(page).toHaveURL(/\/$/, { timeout: 8_000 });
+    // JWT in sessionStorage (per web/lib/auth.ts).
+    const token = await page.evaluate(() =>
+      window.sessionStorage.getItem("polaris_jwt"),
+    );
+    expect(token).toBeTruthy();
+  });
+});
+
+test.describe("Sign-in route — ?next= same-origin validation", () => {
+  test("valid same-origin `?next=` honored after login", async ({ page }) => {
+    await page.goto("/sign-in?next=%2Fdashboard");
+    await page.getByLabel("Username").fill(CARNEY_USERNAME);
+    await page.getByLabel("Password").fill(CARNEY_PASSWORD);
+    await page.getByTestId("sign-in-submit").click();
+    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 8_000 });
+  });
+
+  test("absolute-URL `?next=` falls back to / (cross-origin reject)", async ({
+    page,
+  }) => {
+    // Sign out any leftover session from prior test.
+    await page.goto("/sign-in");
+    await page.evaluate(() => window.sessionStorage.clear());
+    await page.goto("/sign-in?next=https%3A%2F%2Fevil.com%2Fphish");
+    await page.getByLabel("Username").fill(CARNEY_USERNAME);
+    await page.getByLabel("Password").fill(CARNEY_PASSWORD);
+    await page.getByTestId("sign-in-submit").click();
+    await expect(page).toHaveURL(/\/$/, { timeout: 8_000 });
+  });
+
+  test("protocol-relative `?next=` falls back to /", async ({ page }) => {
+    await page.goto("/sign-in");
+    await page.evaluate(() => window.sessionStorage.clear());
+    await page.goto("/sign-in?next=%2F%2Fevil.com%2Fphish");
+    await page.getByLabel("Username").fill(CARNEY_USERNAME);
+    await page.getByLabel("Password").fill(CARNEY_PASSWORD);
+    await page.getByTestId("sign-in-submit").click();
+    await expect(page).toHaveURL(/\/$/, { timeout: 8_000 });
+  });
+});
+
+// I-cd-014 (GH#610): visual baseline for the sign-in route. test.fixme()
+// because chromium-win32 baseline not captured yet; operator runs
+// `--update-snapshots` to write the PNG; follow-up PR commits it.
+test.describe("Sign-in route — visual baseline (chromium-win32; deferred)", () => {
+  test.fixme("sign-in default render visual baseline", async ({ page }) => {
+    await page.goto("/sign-in", { waitUntil: "networkidle" });
+    await expect(page).toHaveScreenshot("sign-in-default.png", {
+      fullPage: true,
+      animations: "disabled",
+      maxDiffPixelRatio: 0.02,
+    });
+  });
+});
+
+
+ succeeded in 1040ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  // I-cd-013b (GH#669): inspector_route.spec.ts visual baselines are
+  // `test.fixme()` (deferred until baselines captured by --update-snapshots
+  // run); non-visual cases run on all platforms. Linux ignore only
+  // applies to visual.spec.ts.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+
+ succeeded in 1172ms:
+web/lib\auth.ts:54:export function isAuthenticated(): boolean {
+web/lib\auth.ts:106:export function redirectToSignIn(): void {
+web/lib\api.ts:19:import { authHeader, redirectToSignIn } from "@/lib/auth";
+web/lib\api.ts:40:    redirectToSignIn();
+web/components\primary_nav.tsx:32:    () => isAuthenticated(), // client: real auth state
+web/components\auth_button.tsx:32:    () => isAuthenticated(), // client: real auth state (boolean — stable by value)
+web/components\auth_redirect.tsx:1:// I-cd-014 (GH#610) — `<AuthRedirect>` UX-only client component.
+web/components\auth_redirect.tsx:24:interface AuthRedirectProps {
+web/components\auth_redirect.tsx:28:export function AuthRedirect({ children }: AuthRedirectProps) {
+web/components\auth_redirect.tsx:38:    return isAuthenticated() ? "authed" : "redirect";
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "<AuthRedirect|AuthRedirect" web/app' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/app/dashboard/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/app/compare/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/app/intake/page.tsx' in C:\POLARIS
+ succeeded in 897ms:
+// I-p2-022 (#761): Dashboard — MONITORING ONLY (not a run-start). Run-start now
+// lives at /intake → /plan (I-p2-015 #754). This page lists recent verified runs
+// (real GET /api/v6/runs data) with their pipeline verdict + a link to each run's
+// report, plus a clear "Start new research" CTA to intake. Replaces the prior
+// 668-line run-start workflow (relocated, not lost).
+"use client";
+
+import { ArrowRight, FileSearch, Plus } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import { listCompletedRuns, type RunStatusResponse } from "@/lib/api";
+
+type LoadState =
+  | { kind: "loading" }
+  | { kind: "ok"; runs: RunStatusResponse[] }
+  | { kind: "error"; message: string };
+
+function formatWhen(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+// Honest verdict label: lifecycle `status` cannot distinguish a success from an
+// abort (mark_aborted stores status=completed) — pipeline_status is the truth.
+function verdictOf(run: RunStatusResponse): { label: string; cls: string } {
+  const v = run.pipeline_status ?? run.status;
+  if (v === "success") {
+    return {
+      label: "Verified",
+      cls: "text-verified border-verified/30 bg-verified/10",
+    };
+  }
+  if (typeof v === "string" && v.startsWith("abort_")) {
+    return {
+      label: "Declined",
+      // text-refusal (the dark neutral) on the light bg-refusal/10 for AA, not
+      // the -foreground (on-refusal) token (Codex iter-4 P2).
+      cls: "text-refusal border-refusal/30 bg-refusal/10",
+    };
+  }
+  if (typeof v === "string" && v.startsWith("error_")) {
+    return {
+      label: "Error",
+      cls: "text-destructive border-destructive/30 bg-destructive/10",
+    };
+  }
+  return {
+    label: v ?? "Unknown",
+    cls: "text-muted-foreground border-border bg-muted/30",
+  };
+}
+
+export default function DashboardPage() {
+  const [state, setState] = useState<LoadState>({ kind: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const runs = await listCompletedRuns(50);
+        if (!cancelled) setState({ kind: "ok", runs });
+      } catch (err) {
+        if (!cancelled) {
+          setState({
+            kind: "error",
+            message:
+              err instanceof Error
+                ? err.message
+                : "Could not load runs from the backend.",
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <section
+      data-testid="dashboard-page"
+      className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-10"
+    >
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+            Runs
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            Recent completed research runs. Open one to replay its proof, claim
+            by claim.
+          </p>
+        </div>
+        <Button
+          nativeButton={false}
+          className="h-10"
+          render={
+            <Link href="/intake" data-testid="dashboard-start-run">
+              <Plus aria-hidden className="mr-1.5 h-4 w-4" />
+              Start new research
+            </Link>
+          }
+        />
+      </div>
+
+      {state.kind === "loading" ? (
+        <LoadingState label="Loading runs…" rows={5} />
+      ) : null}
+
+      {state.kind === "error" ? (
+        <ErrorState title="Couldn't load runs" message={state.message} />
+      ) : null}
+
+      {state.kind === "ok" && state.runs.length === 0 ? (
+        <EmptyState
+          icon={FileSearch}
+          title="No runs yet"
+          description="Once you run a research question, every verified brief shows up here for monitoring and replay."
+          action={
+            <Button
+              nativeButton={false}
+              variant="outline"
+              render={<Link href="/intake">Start your first research</Link>}
+            />
+          }
+        />
+      ) : null}
+
+      {state.kind === "ok" && state.runs.length > 0 ? (
+        <ul
+          className="border-border divide-border divide-y rounded-xl border"
+          data-testid="runs-list"
+        >
+          {state.runs.map((run) => {
+            const verdict = verdictOf(run);
+            const when = formatWhen(run.finished_at ?? run.queued_at);
+            return (
+              <li key={run.run_id}>
+                <Link
+                  href={`/runs/${run.run_id}`}
+                  data-testid={`run-row-${run.run_id}`}
+                  className="hover:bg-muted/40 focus-visible:ring-ring/70 flex items-center justify-between gap-4 px-4 py-3 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                >
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <span className="text-foreground line-clamp-1 text-sm font-medium">
+                      {run.question || run.run_id}
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      <span className="text-primary font-medium tracking-wide uppercase">
+                        {run.template}
+                      </span>
+                      {when ? <span> · {when}</span> : null}
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${verdict.cls}`}
+                    >
+                      {verdict.label}
+                    </span>
+                    <ArrowRight
+                      aria-hidden
+                      className="text-muted-foreground h-4 w-4"
+                    />
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+
+2026-05-23T22:17:04.432131Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+
+ exited 1 in 997ms:
+ succeeded in 1025ms:
+"use client";
+
+import { useEffect, useState } from "react";
+
+import { ErrorState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import {
+  compareRuns,
+  listCompletedRuns,
+  type ReportComparison,
+  type RunStatusResponse,
+} from "@/lib/api";
+
+// I-ui-004 (#543): two-run compare. Pick two completed runs → GET
+// /runs/{l}/compare/{r}. Distinct from /benchmark (POLARIS-vs-external).
+
+function optionLabel(run: RunStatusResponse): string {
+  const q =
+    run.question.length > 60 ? `${run.question.slice(0, 60)}…` : run.question;
+  return `${run.template} · ${q} · ${run.run_id.slice(0, 8)}`;
+}
+
+function compareErrorMessage(err: unknown): string {
+  const status = (err as { status?: number })?.status;
+  if (status === 400) return "Pick two distinct runs.";
+  if (status === 404) return "One of the runs was not found.";
+  if (status === 422)
+    return "One of the runs has no shippable evidence (aborted or release-blocked).";
+  return "Couldn't compare those runs right now. Please retry shortly.";
+}
+
+export default function ComparePage() {
+  const [runs, setRuns] = useState<RunStatusResponse[] | null>(null);
+  const [left, setLeft] = useState("");
+  const [right, setRight] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<ReportComparison | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listCompletedRuns(50)
+      .then((value) => {
+        if (!cancelled) setRuns(value);
+      })
+      .catch(() => {
+        if (!cancelled) setRuns([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const distinct = left !== "" && right !== "" && left !== right;
+
+  async function onCompare() {
+    if (!distinct) return;
+    setSubmitting(true);
+    setError(null);
+    setResult(null);
+    try {
+      setResult(await compareRuns(left, right));
+    } catch (err) {
+      setError(compareErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section
+      data-testid="compare-page"
+      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+    >
+      <div className="flex flex-col gap-2">
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          Compare two runs
+        </h1>
+        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+          Pick two completed runs to see shared vs unique evidence, frame
+          coverage overlap, and contradiction counts. This is run-vs-run — for
+          POLARIS-vs-external, use Benchmark.
+        </p>
+      </div>
+
+      {runs !== null && runs.length === 0 && (
+        <p className="text-muted-foreground text-sm">
+          No completed runs to compare yet.{" "}
+          <a className="text-primary underline" href="/intake">
+            Start a run
+          </a>
+          .
+        </p>
+      )}
+
+      {runs !== null && runs.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <RunPicker
+              label="Left run"
+              testid="compare-left"
+              runs={runs}
+              value={left}
+              onChange={setLeft}
+            />
+            <RunPicker
+              label="Right run"
+              testid="compare-right"
+              runs={runs}
+              value={right}
+              onChange={setRight}
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              onClick={onCompare}
+              disabled={!distinct || submitting}
+            >
+              {submitting ? "Comparing…" : "Compare"}
+            </Button>
+            {left !== "" && right !== "" && left === right && (
+              <span className="text-muted-foreground text-xs">
+                Pick two distinct runs.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* I-p2-018 (#757): #750 ErrorState for design-system consistency. */}
+      {error && (
+        <ErrorState title="Couldn't compare those runs" message={error} />
+      )}
+
+      {result && <ComparisonView result={result} />}
+    </section>
+  );
+}
+
+function RunPicker({
+  label,
+  testid,
+  runs,
+  value,
+  onChange,
+}: {
+  label: string;
+  testid: string;
+  runs: RunStatusResponse[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+        {label}
+      </span>
+      <select
+        data-testid={testid}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="border-input focus-visible:border-ring focus-visible:ring-ring rounded-lg border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2"
+      >
+        <option value="">Select a run…</option>
+        {runs.map((run) => (
+          <option key={run.run_id} value={run.run_id}>
+            {optionLabel(run)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function Flag({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <span className="text-muted-foreground flex items-center gap-1 text-xs">
+      <span className={ok ? "text-primary" : "text-muted-foreground"}>
+        {ok ? "✓" : "✗"}
+      </span>
+      {label}
+    </span>
+  );
+}
+
+function EvidenceColumn({ title, ids }: { title: string; ids: string[] }) {
+  return (
+    <div className="border-border bg-card flex flex-col gap-1 rounded-lg border p-3">
+      <span className="text-foreground text-xs font-semibold">
+        {title} ({ids.length})
+      </span>
+      <div className="flex flex-wrap gap-1">
+        {ids.slice(0, 20).map((id) => (
+          <span
+            key={id}
+            className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px]"
+          >
+            {id}
+          </span>
+        ))}
+        {ids.length > 20 && (
+          <span className="text-muted-foreground text-[10px]">
+            + {ids.length - 20} more
+          </span>
+        )}
+        {ids.length === 0 && (
+          <span className="text-muted-foreground text-[10px]">—</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ComparisonView({ result }: { result: ReportComparison }) {
+  const pct = Math.round((result.shared_evidence_pct ?? 0) * 100);
+  return (
+    <div data-testid="comparison-result" className="flex flex-col gap-5">
+      <div className="border-border bg-card flex flex-wrap items-center gap-4 rounded-lg border p-4">
+        <span className="text-foreground text-sm font-semibold">
+          {pct}% shared evidence
+        </span>
+        <Flag label="Same template" ok={result.same_template} />
+        <Flag label="Same question" ok={result.same_question} />
+        <Flag label="Pipeline status match" ok={result.pipeline_status_match} />
+        <Flag
+          label="Two-family segregation (both)"
+          ok={result.family_segregation_both_pass}
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <h2 className="text-foreground text-sm font-semibold">Evidence</h2>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <EvidenceColumn title="Shared" ids={result.shared_evidence_ids} />
+          <EvidenceColumn
+            title="Only left"
+            ids={result.only_left_evidence_ids}
+          />
+          <EvidenceColumn
+            title="Only right"
+            ids={result.only_right_evidence_ids}
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <h2 className="text-foreground text-sm font-semibold">
+          Frame coverage
+        </h2>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <EvidenceColumn title="Overlap" ids={result.frame_coverage_overlap} />
+          <EvidenceColumn title="Only left" ids={result.only_left_frames} />
+          <EvidenceColumn title="Only right" ids={result.only_right_frames} />
+        </div>
+      </div>
+
+      <div className="border-border flex gap-6 rounded-lg border p-4 text-sm">
+        <span className="text-muted-foreground">
+          Left contradictions:{" "}
+          <span className="text-foreground font-mono">
+            {result.left_contradictions}
+          </span>
+        </span>
+        <span className="text-muted-foreground">
+          Right contradictions:{" "}
+          <span className="text-foreground font-mono">
+            {result.right_contradictions}
+          </span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+
+ succeeded in 1089ms:
+import { Suspense } from "react";
+
+import { IntakeForm } from "./components/intake_form";
+import { PdfDropBanner } from "./components/pdf_drop_banner";
+
+export const metadata = {
+  title: "Ask a research question — POLARIS Canada",
+  description:
+    "Ask a clinical research question. POLARIS confirms it's answerable from clinical evidence and flags anything ambiguous or out of scope before running any search.",
+};
+
+// I-cd-023 (#613): /intake rebuild — G1/G6 fix. Page no longer renders
+// its own <header> or <main>; AppShell (via AppShellGate, I-cd-022) is
+// the single landmark provider for this route. G2 fix: removed
+// "POLARIS Canada — Slice 001" + "POLARIS v6.2 — Slice 001 (scope + intake)"
+// dev-language strings.
+export default function IntakePage() {
+  return (
+    <section
+      data-testid="intake-page"
+      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+    >
+      <div className="flex flex-col gap-2">
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          Ask a clinical research question
+        </h1>
+        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+          POLARIS first confirms your question can be answered from clinical
+          evidence — and flags anything ambiguous or out of scope — before it
+          runs a single search. You&apos;ll see exactly how it&apos;s
+          interpreted, so no run is wasted on a question that can&apos;t be
+          answered as written.
+        </p>
+      </div>
+
+      <PdfDropBanner />
+
+      <Suspense fallback={null}>
+        <IntakeForm />
+      </Suspense>
+    </section>
+  );
+}
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"NavItem|PRIMARY_NAV|navForRole\\(|navForAuth\\(\" web --glob '"'!node_modules'"'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"Compare\" web/tests/e2e web/app web/components web/lib --glob '"'!node_modules'"'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"getByRole\\(\\\"link\\\", \\{ name: \\\"(Intake|Dashboard|Upload|Benchmark|Compare|Contracts|Pin Replay|Memory)|\\\"Intake\\\"|PRIMARY_NAV_LABELS\" web/tests/e2e --glob '"'!node_modules'"'" in C:\POLARIS
+ succeeded in 1018ms:
+web\lib\nav.ts:3:// between shells (previously the PRIMARY_NAV const was duplicated in each).
+web\lib\nav.ts:14:export interface NavItem {
+web\lib\nav.ts:24:export const PRIMARY_NAV: readonly NavItem[] = [
+web\lib\nav.ts:39:export function navForAuth(
+web\lib\nav.ts:40:  items: readonly NavItem[],
+web\lib\nav.ts:42:): readonly NavItem[] {
+web\lib\nav.ts:49:export function navForRole(
+web\lib\nav.ts:50:  items: readonly NavItem[],
+web\lib\nav.ts:52:): readonly NavItem[] {
+web\components\app_shell.tsx:24:// I-p2-029 (#768): PRIMARY_NAV now lives in @/lib/nav (single source of truth,
+web\components\primary_nav.tsx:18:import { PRIMARY_NAV, navForAuth } from "@/lib/nav";
+web\components\primary_nav.tsx:35:  const items = navForAuth(PRIMARY_NAV, authed);
+
+ succeeded in 1077ms:
+web/lib\api.ts:790:    return a.domain.localeCompare(b.domain);
+web/lib\nav.ts:31:  { href: "/compare", label: "Compare", visibility: "app" },
+web/app\generation\components\evaluator_pane.tsx:34:            Two-family evaluator disagrees with generator&rsquo;s claim. Compare
+web/app\compare\page.tsx:32:export default function ComparePage() {
+web/app\compare\page.tsx:56:  async function onCompare() {
+web/app\compare\page.tsx:77:          Compare two runs
+web/app\compare\page.tsx:117:              onClick={onCompare}
+web/app\compare\page.tsx:120:              {submitting ? "Comparing…" : "Compare"}
+web/app\generation\components\two_run_picker.tsx:14:  onCompare,
+web/app\generation\components\two_run_picker.tsx:17:  onCompare: (ids: [string, string]) => void;
+web/app\generation\components\two_run_picker.tsx:74:            onCompare([selected[0], selected[1]]);
+web/app\generation\components\two_run_picker.tsx:79:        Compare
+web/tests/e2e\demo_journey.spec.ts:66:  // a session and assert the full authed nav (incl. Compare) on each route.
+web/app\memory\page.tsx:46:    b.created_at.localeCompare(a.created_at),
+web/tests/e2e\home_g1_g8.spec.ts:29:  // (Dashboard/Upload/Benchmark/Compare/Contracts/Pin Replay/Memory) must NOT
+web/app\pin_replay\page.tsx:133:          Compare two completed run snapshots side-by-side; regressions in
+web/app\runs\[runId]\graph\components\accessible_graph_list.tsx:61:    return a.data.id.localeCompare(b.data.id);
+web/app\sentence_hover_test\two_run_picker\page.tsx:47:          onCompare={([a, b]) => setLast(`${a},${b}`)}
+web/app\pin_replay\components\pin_timeseries.tsx:10:    a.pin_date.localeCompare(b.pin_date),
+web/tests/e2e\_nav_auth.ts:16:  "Compare",
+
+2026-05-23T22:17:25.823370Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+
+ exited 1 in 1104ms:
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Non-blocking test-tightening only: the nav helpers assert required labels and known app-label absence, but do not assert the exact total link set. Current diff is correct; this just leaves room for a future stray nav link to pass."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+57,727

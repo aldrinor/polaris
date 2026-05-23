@@ -4,6 +4,8 @@
 
 import { expect, test } from "@playwright/test";
 
+import { expectPublicNav } from "./_nav_auth";
+
 const BANNED_DEV_LANGUAGE = [
   /\bslice\b/i,
   /\bscaffold\b/i,
@@ -22,22 +24,12 @@ test("G1 + G6: home has exactly one header outside <main>, primary nav visible",
   const headers = page.locator("header");
   await expect(headers).toHaveCount(1);
 
-  // Primary nav present + identical to other routes (Home/Intake/Dashboard/
-  // Upload/Benchmark/Contracts/Pin Replay/Memory).
-  const nav = page.locator("nav[aria-label='Primary']");
-  await expect(nav).toBeVisible();
-  for (const label of [
-    "Home",
-    "Intake",
-    "Dashboard",
-    "Upload",
-    "Benchmark",
-    "Contracts",
-    "Pin Replay",
-    "Memory",
-  ]) {
-    await expect(nav.getByRole("link", { name: label })).toBeVisible();
-  }
+  // I-p2-039 (#825): home is the UNAUTHENTICATED landing page, so the primary
+  // nav must show only the lean public set (Home + Ask); the reviewer tools
+  // (Dashboard/Upload/Benchmark/Compare/Contracts/Pin Replay/Memory) must NOT
+  // appear pre-login. (This is also the canonical unauth public-nav assertion.)
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expectPublicNav(page);
 
   // G6 (single main landmark — Codex iter-2 P1 fix).
   const mains = page.locator("main");

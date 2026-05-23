@@ -2,6 +2,7 @@
 // state/polaris_ui_rebuild_matrix.md §2. Pattern mirrors home_g1_g8.spec.ts.
 
 import { expect, test } from "@playwright/test";
+import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
 
 const BANNED_DEV_LANGUAGE = [
   /\bslice\b/i,
@@ -43,17 +44,7 @@ test("G8: /intake renders with zero console errors", async ({ page }) => {
 });
 
 test("G1 nav parity: primary nav is visible on /intake", async ({ page }) => {
+  await setupAuthedNav(page);
   await page.goto("/intake");
-  const nav = page.locator("nav[aria-label='Primary']");
-  await expect(nav).toBeVisible();
-  for (const label of [
-    "Home",
-    "Intake",
-    "Dashboard",
-    "Upload",
-    "Benchmark",
-    "Contracts",
-  ]) {
-    await expect(nav.getByRole("link", { name: label })).toBeVisible();
-  }
+  await expectAuthedNav(page);
 });
