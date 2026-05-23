@@ -51,7 +51,23 @@ function shortHash(sha256: string): string {
   return sha256.length > 16 ? `${sha256.slice(0, 16)}…` : sha256;
 }
 
-function totalVerifiedSentences(report: VerifiedReportShape): number {
+// I-p2-020 Codex iter-2 P1: `verified_sentences` carries BOTH passed AND
+// dropped sentences (audit completeness), so `.length` overstates coverage.
+// Count `verifier_pass === true` for the genuinely span-verified total.
+function passedSentences(section: {
+  verified_sentences: { verifier_pass: boolean }[];
+}): number {
+  return section.verified_sentences.filter((s) => s.verifier_pass).length;
+}
+
+function totalPassedSentences(report: VerifiedReportShape): number {
+  return report.sections.reduce(
+    (sum, section) => sum + passedSentences(section),
+    0,
+  );
+}
+
+function totalAttemptedSentences(report: VerifiedReportShape): number {
   return report.sections.reduce(
     (sum, section) => sum + section.verified_sentences.length,
     0,
@@ -92,7 +108,7 @@ function buildGateLedger(report: VerifiedReportShape): GateRow[] {
     rows.push({
       gate: `Section: ${section.section_id}`,
       pass: section.section_verify_pass_rate >= report.verifier_pass_threshold,
-      detail: `${pct(section.section_verify_pass_rate)} span-verified · ${section.verified_sentences.length} verified sentences`,
+      detail: `${pct(section.section_verify_pass_rate)} span-verified · ${passedSentences(section)}/${section.verified_sentences.length} sentences passed`,
     });
   }
   return rows;
@@ -175,9 +191,9 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
             {/* I-p2-020 Codex P2: neutral wording — the same loader serves
                 aborted/failing bundles, not only cleared ones. */}
             Gate outcomes recorded for this run, composed from the verified
-            report in the bundle — {totalVerifiedSentences(verifiedReport)}{" "}
-            sentences span-verified across {verifiedReport.sections.length}{" "}
-            sections.
+            report in the bundle — {totalPassedSentences(verifiedReport)} of{" "}
+            {totalAttemptedSentences(verifiedReport)} sentences span-verified
+            across {verifiedReport.sections.length} sections.
           </p>
         </div>
         <div className="border-border overflow-x-auto rounded-lg border">
