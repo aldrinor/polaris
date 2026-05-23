@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useRef, useState } from "react";
 
+import { ErrorState, LoadingState } from "@/components/states/state_kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getRunGraph, type GraphPayload } from "@/lib/api";
@@ -32,7 +33,16 @@ export default function GraphPage({ params }: GraphPageProps) {
         if (!cancelled) setPayload(p);
       })
       .catch((e: Error) => {
-        if (!cancelled) setError(e.message);
+        // I-p2-019 (#758): map raw API errors to friendly copy (mirrors the
+        // /runs/[runId] G4 fix) — never leak "HTTP 500" / fn names to the user.
+        if (!cancelled) {
+          const raw = e.message.toLowerCase();
+          setError(
+            raw.includes("404")
+              ? "This run was not found. Check the URL or start a new run."
+              : "We couldn't load the knowledge graph right now. Please retry shortly.",
+          );
+        }
       });
     return () => {
       cancelled = true;
@@ -44,11 +54,12 @@ export default function GraphPage({ params }: GraphPageProps) {
       <header className="border-border bg-background border-b">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
           <div className="flex flex-col">
+            {/* I-p2-019 (#758): G2 — dropped the "F-snowball" dev-language. */}
             <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
-              POLARIS — F-snowball
+              Knowledge graph
             </span>
             <span className="text-foreground text-base font-semibold">
-              Claim graph: {runId}
+              How this run&apos;s claims + sources connect
             </span>
           </div>
           <Button
@@ -65,26 +76,14 @@ export default function GraphPage({ params }: GraphPageProps) {
         data-testid="graph-page"
         className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 px-6 py-6"
       >
+        {/* I-p2-019 (#758): #750 ErrorState/LoadingState (design tokens +
+            role=alert/status + motion-reduce) instead of hand-rolled. */}
         {error && (
-          <div
-            role="alert"
-            className="border-destructive text-destructive rounded-md border p-4"
-          >
-            Failed to load graph: {error}
-          </div>
+          <ErrorState title="Couldn't load the graph" message={error} />
         )}
 
         {!payload && !error && (
-          <div
-            role="status"
-            className="text-muted-foreground flex items-center gap-2"
-          >
-            <span
-              aria-hidden
-              className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
-            />
-            Loading graph for run {runId}…
-          </div>
+          <LoadingState label="Loading the knowledge graph…" rows={6} />
         )}
 
         {payload && <GraphSurface payload={payload} runId={runId} />}

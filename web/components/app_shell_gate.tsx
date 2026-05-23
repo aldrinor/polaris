@@ -21,9 +21,22 @@ interface AppShellGateProps {
 //                 nav is auth-gated anyway, so it must not show pre-login.
 const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
 
+// I-p2-019 (#762): the claim-graph drill-down (/runs/<id>/graph) is a focused
+// full-screen view that renders its OWN header (with "Back to Inspector") +
+// <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
+// header + G6 nested main).
+const CHROMELESS_PATTERNS = [/^\/runs\/[^/]+\/graph$/];
+
+function isChromeless(pathname: string): boolean {
+  return (
+    CHROMELESS_ROUTES.has(pathname) ||
+    CHROMELESS_PATTERNS.some((re) => re.test(pathname))
+  );
+}
+
 export function AppShellGate({ children }: AppShellGateProps) {
   const pathname = usePathname();
-  if (CHROMELESS_ROUTES.has(pathname)) {
+  if (isChromeless(pathname)) {
     return <>{children}</>;
   }
   return <AppShell>{children}</AppShell>;
