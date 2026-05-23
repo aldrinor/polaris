@@ -1,6 +1,7 @@
 // I-cd-025 (#615): /runs/[runId] route G1-G8 acceptance gates.
 
 import { expect, test } from "@playwright/test";
+import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
 
 const BANNED_DEV_LANGUAGE = [
   /\bslice\b/i,
@@ -67,19 +68,7 @@ test("G8: /runs/[runId] renders with zero console errors", async ({ page }) => {
 test("G1 nav parity: primary nav visible on /runs/[runId]", async ({
   page,
 }) => {
+  await setupAuthedNav(page);
   await page.goto(`/runs/${TEST_RUN_ID}`);
-  const nav = page.locator("nav[aria-label='Primary']");
-  await expect(nav).toBeVisible();
-  for (const label of [
-    "Home",
-    "Intake",
-    "Dashboard",
-    "Upload",
-    "Benchmark",
-    "Contracts",
-    "Pin Replay",
-    "Memory",
-  ]) {
-    await expect(nav.getByRole("link", { name: label })).toBeVisible();
-  }
+  await expectAuthedNav(page);
 });
