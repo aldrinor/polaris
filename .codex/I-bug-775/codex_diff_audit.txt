@@ -1,0 +1,9 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Non-blocking coverage gap: the modified _try_unpaywall branch lacks a direct mocked regression for publisher-landing rejection and PMCID-bearing non-PDF OA URL return."
+merge_decision: MERGE AUTHORIZED
+```
