@@ -1,0 +1,14 @@
+```yaml
+verdict: APPROVE
+spec_approach: B
+public_app_split_ok: true
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "For Option B, assert the full authed contract: Home, Ask, Dashboard, Upload, Benchmark, Compare, Contracts, Pin Replay, Memory. Do not preserve the current specs' accidental omission of Compare."
+  - "Seed auth with page.addInitScript before page.goto, setting both polaris_jwt and polaris_jwt_expiry_ms. Scope it to nav-parity tests/helpers, not unrelated G1/G2/G8 tests."
+  - "Add one unauth public-nav assertion: Home and Ask visible; Dashboard, Upload, Benchmark, Compare, Contracts, Pin Replay, and Memory absent."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
