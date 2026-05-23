@@ -1,0 +1,19 @@
+## 1. Grade
+
+**B-**  
+Delta from **D+**: substantial jump. It no longer reads like a raw internal form; it reads like a usable institutional admin surface.
+
+## 2. Remaining Issues
+
+- **Still too form-native:** the select dropdown is the weakest element. It breaks the custom visual language immediately.
+- **Hierarchy is polite but flat:** section cards are clean, but everything has similar weight. Nothing guides the eye strongly through “question → scope → evidence requirements → claims.”
+- **Chips feel under-designed:** the red selected state works, but the chips are small and slightly default-looking.
+- **Density is uneven:** top sections feel breathable; the claims sub-card feels cramped and boxed-in by comparison.
+- **CTA is improved but basic:** red button is correct brand-wise, but it still feels like a standard form submit, not a confident product action.
+- **Copy still has internal-platform language:** “Evidence Contract Gate refuses generation” is accurate but not PM-demo polished.
+
+## 3. Demo-Ready?
+
+**Yes**, for a PM demo.
+
+Not yet top-tier Perplexity / ChatGPT-Deep-Research polish, but it has crossed from **internal prototype** to **credible product surface**.

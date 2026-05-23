@@ -1,7 +1,11 @@
 "use client";
 
+import { Plus, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   buildContract,
   ENTITY_TYPES,
@@ -13,6 +17,39 @@ import {
   type Jurisdiction,
   validateContract,
 } from "@/lib/contracts";
+
+// I-p2-041 (#829) P2 visual redo: Contracts was Codex-graded D+ ("raw internal
+// form" — native checkboxes/inputs, cramped fieldsets, black default button).
+// This rebuilds the VISUAL layer on the design system (Card sections, labelled
+// fields, accessible chip-toggles, button hierarchy, tier helper copy) while
+// preserving ALL state/logic and every data-testid the e2e suite relies on.
+
+// Kill the bare "T1/T2/T3" jargon: each tier gets a plain-language hint.
+const TIER_META = [
+  { label: "Tier 1", hint: "RCTs / systematic reviews", testid: "ce-t1" },
+  { label: "Tier 2", hint: "guidelines / cohort studies", testid: "ce-t2" },
+  { label: "Tier 3", hint: "narrative reviews / context", testid: "ce-t3" },
+] as const;
+
+const SELECT_CLASS =
+  "border-input focus-visible:border-ring focus-visible:ring-ring/70 h-8 rounded-lg border bg-transparent px-2.5 text-sm transition-colors outline-none focus-visible:ring-3";
+
+function FieldLabel({
+  children,
+  hint,
+}: {
+  children: React.ReactNode;
+  hint?: string;
+}) {
+  return (
+    <span className="flex flex-col gap-0.5">
+      <span className="text-foreground text-sm font-medium">{children}</span>
+      {hint ? (
+        <span className="text-muted-foreground text-xs">{hint}</span>
+      ) : null}
+    </span>
+  );
+}
 
 export function ContractEditor() {
   const [research_question, set_q] = useState("");
@@ -34,6 +71,8 @@ export function ContractEditor() {
   ]);
   const [errs, set_errs] = useState<string[]>([]);
   const [saved, set_saved] = useState<EvidenceContract | null>(null);
+  const tier_setters = [set_t1, set_t2, set_t3] as const;
+  const tier_values = [t1, t2, t3] as const;
   const pruned_claims = useMemo(
     () =>
       claims.map((cl) => ({
@@ -74,6 +113,10 @@ export function ContractEditor() {
     }
   }
 
+  function toggle_jur(j: Jurisdiction, on: boolean) {
+    set_jurs(on ? [...jurisdictions, j] : jurisdictions.filter((x) => x !== j));
+  }
+
   return (
     <form
       onSubmit={(e) => {
@@ -81,263 +124,331 @@ export function ContractEditor() {
         on_submit();
       }}
       data-testid="contract-form"
-      className="space-y-4 text-sm"
+      className="flex flex-col gap-5"
     >
-      <label className="block">
-        <span>Research question</span>
-        <input
-          data-testid="ce-question"
-          value={research_question}
-          onChange={(e) => set_q(e.target.value)}
-          className="border-input mt-1 w-full rounded border p-2"
-        />
-      </label>
-      <label className="block">
-        <span>Created by</span>
-        <input
-          data-testid="ce-by"
-          value={created_by}
-          onChange={(e) => set_by(e.target.value)}
-          className="border-input mt-1 w-full rounded border p-2"
-        />
-      </label>
-      <fieldset className="border-border rounded border p-3">
-        <legend>Jurisdictions</legend>
-        {JURISDICTIONS.map((j) => (
-          <label key={j} className="mr-3 inline-flex items-center gap-1">
-            <input
-              type="checkbox"
-              data-testid={`ce-jur-${j}`}
-              checked={jurisdictions.includes(j)}
-              onChange={(e) =>
-                set_jurs(
-                  e.target.checked
-                    ? [...jurisdictions, j]
-                    : jurisdictions.filter((x) => x !== j),
-                )
-              }
+      {/* The question */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">The question</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <label className="flex flex-col gap-1.5">
+            <FieldLabel>Research question</FieldLabel>
+            <Input
+              data-testid="ce-question"
+              value={research_question}
+              onChange={(e) => set_q(e.target.value)}
+              placeholder="e.g. What is the efficacy and safety of tirzepatide in type 2 diabetes?"
             />
-            {j}
           </label>
-        ))}
-      </fieldset>
-      <fieldset className="border-border rounded border p-3">
-        <legend>Source coverage (min)</legend>
-        <label className="mr-3">
-          T1{" "}
-          <input
-            data-testid="ce-t1"
-            type="number"
-            min={0}
-            value={t1}
-            onChange={(e) => set_t1(parseInt(e.target.value) || 0)}
-            className="border-input w-16 rounded border p-1"
-          />
-        </label>
-        <label className="mr-3">
-          T2{" "}
-          <input
-            data-testid="ce-t2"
-            type="number"
-            min={0}
-            value={t2}
-            onChange={(e) => set_t2(parseInt(e.target.value) || 0)}
-            className="border-input w-16 rounded border p-1"
-          />
-        </label>
-        <label className="mr-3">
-          T3{" "}
-          <input
-            data-testid="ce-t3"
-            type="number"
-            min={0}
-            value={t3}
-            onChange={(e) => set_t3(parseInt(e.target.value) || 0)}
-            className="border-input w-16 rounded border p-1"
-          />
-        </label>
-      </fieldset>
-      <fieldset className="border-border rounded border p-3">
-        <legend>Entities</legend>
-        {entities.map((ent, i) => (
-          <div key={i} className="mb-2 flex gap-2">
-            <input
-              data-testid={`ce-ent-name-${i}`}
-              placeholder="name"
-              value={ent.name}
-              onChange={(e) => {
-                const n = [...entities];
-                n[i] = { ...ent, name: e.target.value };
-                set_entities(n);
-              }}
-              className="border-input flex-1 rounded border p-1"
+          <label className="flex flex-col gap-1.5">
+            <FieldLabel hint="Recorded on the contract for the audit trail.">
+              Created by
+            </FieldLabel>
+            <Input
+              data-testid="ce-by"
+              value={created_by}
+              onChange={(e) => set_by(e.target.value)}
+              placeholder="Your name or team"
+              className="max-w-xs"
             />
-            <select
-              data-testid={`ce-ent-type-${i}`}
-              value={ent.entity_type}
-              onChange={(e) => {
-                const n = [...entities];
-                n[i] = { ...ent, entity_type: e.target.value as EntityType };
-                set_entities(n);
-              }}
-              className="border-input rounded border p-1"
-            >
-              {ENTITY_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-            {entities.length > 1 && (
-              <button
-                type="button"
-                data-testid={`ce-rm-ent-${i}`}
-                onClick={() => set_entities(entities.filter((_, j) => j !== i))}
-                className="text-xs underline"
-              >
-                ×
-              </button>
-            )}
+          </label>
+        </CardContent>
+      </Card>
+
+      {/* Scope: jurisdictions + coverage */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Scope &amp; coverage</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-5">
+          <div className="flex flex-col gap-2">
+            <FieldLabel hint="Which regulatory jurisdictions the brief must address.">
+              Jurisdictions
+            </FieldLabel>
+            <div className="flex flex-wrap gap-2">
+              {JURISDICTIONS.map((j) => {
+                const active = jurisdictions.includes(j);
+                return (
+                  <label
+                    key={j}
+                    className={`focus-within:ring-ring/70 cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-within:ring-2 ${
+                      active
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      data-testid={`ce-jur-${j}`}
+                      checked={active}
+                      onChange={(e) => toggle_jur(j, e.target.checked)}
+                    />
+                    {j}
+                  </label>
+                );
+              })}
+            </div>
           </div>
-        ))}
-        <button
-          type="button"
-          data-testid="ce-add-entity"
-          onClick={() =>
-            set_entities([
-              ...entities,
-              { name: "", aliases: [], entity_type: "drug" },
-            ])
-          }
-          className="text-xs underline"
-        >
-          + entity
-        </button>
-      </fieldset>
-      <fieldset className="border-border rounded border p-3">
-        <legend>Claims</legend>
-        {pruned_claims.map((cl, i) => (
-          <div key={i} className="mb-2 flex flex-col gap-1">
-            <input
-              data-testid={`ce-claim-id-${i}`}
-              placeholder="claim_id"
-              value={cl.claim_id}
-              onChange={(e) => {
-                const n = [...claims];
-                n[i] = { ...cl, claim_id: e.target.value };
-                set_claims(n);
-              }}
-              className="border-input rounded border p-1"
-            />
-            <input
-              data-testid={`ce-claim-stmt-${i}`}
-              placeholder="statement"
-              value={cl.statement}
-              onChange={(e) => {
-                const n = [...claims];
-                n[i] = { ...cl, statement: e.target.value };
-                set_claims(n);
-              }}
-              className="border-input rounded border p-1"
-            />
-            <input
-              data-testid={`ce-claim-ents-${i}`}
-              placeholder="entities (comma-sep)"
-              value={cl.expected_entities.join(",")}
-              onChange={(e) => {
-                const n = [...claims];
-                n[i] = {
-                  ...cl,
-                  expected_entities: e.target.value
-                    .split(",")
-                    .map((x) => x.trim())
-                    .filter(Boolean),
-                };
-                set_claims(n);
-              }}
-              className="border-input rounded border p-1"
-            />
-            <div
-              data-testid={`ce-claim-jurs-${i}`}
-              className="flex flex-wrap gap-2 text-xs"
-            >
-              {jurisdictions.map((j) => (
-                <label key={j} className="inline-flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    data-testid={`ce-claim-${i}-jur-${j}`}
-                    checked={cl.required_jurisdictions.includes(j)}
-                    onChange={(e) => {
-                      const n = [...claims];
-                      n[i] = {
-                        ...cl,
-                        required_jurisdictions: e.target.checked
-                          ? [...cl.required_jurisdictions, j]
-                          : cl.required_jurisdictions.filter((x) => x !== j),
-                      };
-                      set_claims(n);
-                    }}
+
+          <div className="flex flex-col gap-2">
+            <FieldLabel hint="Minimum sources of each evidence tier the report must cite before generation is allowed.">
+              Minimum source coverage
+            </FieldLabel>
+            <div className="grid max-w-md grid-cols-3 gap-3">
+              {TIER_META.map((tier, i) => (
+                <label key={tier.testid} className="flex flex-col gap-1">
+                  <span className="text-foreground text-sm font-medium">
+                    {tier.label}
+                  </span>
+                  <Input
+                    data-testid={tier.testid}
+                    type="number"
+                    min={0}
+                    value={tier_values[i]}
+                    onChange={(e) =>
+                      tier_setters[i](parseInt(e.target.value) || 0)
+                    }
                   />
-                  {j}
+                  <span className="text-muted-foreground text-[11px] leading-tight">
+                    {tier.hint}
+                  </span>
                 </label>
               ))}
             </div>
-            {claims.length > 1 && (
-              <button
-                type="button"
-                data-testid={`ce-rm-claim-${i}`}
-                onClick={() => set_claims(claims.filter((_, j) => j !== i))}
-                className="self-start text-xs underline"
-              >
-                × remove
-              </button>
-            )}
           </div>
-        ))}
-        <button
-          type="button"
-          data-testid="ce-add-claim"
-          onClick={() =>
-            set_claims([
-              ...claims,
-              {
-                claim_id: `c${claims.length + 1}`,
-                statement: "",
-                expected_entities: [],
-                required_jurisdictions: [...jurisdictions],
-              },
-            ])
-          }
-          className="text-xs underline"
-        >
-          + claim
-        </button>
-      </fieldset>
-      {errs.length > 0 && (
-        <ul
-          data-testid="contract-errors"
-          className="text-rose-700 dark:text-rose-300"
-        >
-          {errs.map((e, i) => (
-            <li key={i}>{e}</li>
+        </CardContent>
+      </Card>
+
+      {/* Entities */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Expected entities</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {entities.map((ent, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                data-testid={`ce-ent-name-${i}`}
+                placeholder="Entity name (e.g. tirzepatide)"
+                value={ent.name}
+                onChange={(e) => {
+                  const n = [...entities];
+                  n[i] = { ...ent, name: e.target.value };
+                  set_entities(n);
+                }}
+                className="flex-1"
+              />
+              <select
+                data-testid={`ce-ent-type-${i}`}
+                value={ent.entity_type}
+                onChange={(e) => {
+                  const n = [...entities];
+                  n[i] = { ...ent, entity_type: e.target.value as EntityType };
+                  set_entities(n);
+                }}
+                className={SELECT_CLASS}
+              >
+                {ENTITY_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+              {entities.length > 1 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  data-testid={`ce-rm-ent-${i}`}
+                  aria-label="Remove entity"
+                  onClick={() =>
+                    set_entities(entities.filter((_, j) => j !== i))
+                  }
+                >
+                  <X aria-hidden className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           ))}
-        </ul>
-      )}
-      <button
-        type="submit"
-        data-testid="contract-submit"
-        className="bg-foreground text-background rounded px-4 py-2"
-      >
-        Save + download
-      </button>
-      {saved && (
-        <p
-          data-testid="contract-saved"
-          className="text-green-700 dark:text-green-300"
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="ce-add-entity"
+            className="w-fit"
+            onClick={() =>
+              set_entities([
+                ...entities,
+                { name: "", aliases: [], entity_type: "drug" },
+              ])
+            }
+          >
+            <Plus aria-hidden className="h-4 w-4" /> Add entity
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Claims */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Expected claims</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {pruned_claims.map((cl, i) => (
+            <div
+              key={i}
+              className="border-border flex flex-col gap-2 rounded-lg border p-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <Input
+                  data-testid={`ce-claim-id-${i}`}
+                  placeholder="claim id"
+                  value={cl.claim_id}
+                  onChange={(e) => {
+                    const n = [...claims];
+                    n[i] = { ...cl, claim_id: e.target.value };
+                    set_claims(n);
+                  }}
+                  className="w-24 font-mono"
+                />
+                {claims.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    data-testid={`ce-rm-claim-${i}`}
+                    onClick={() => set_claims(claims.filter((_, j) => j !== i))}
+                  >
+                    <X aria-hidden className="h-4 w-4" /> Remove
+                  </Button>
+                )}
+              </div>
+              <Input
+                data-testid={`ce-claim-stmt-${i}`}
+                placeholder="Claim the brief must support"
+                value={cl.statement}
+                onChange={(e) => {
+                  const n = [...claims];
+                  n[i] = { ...cl, statement: e.target.value };
+                  set_claims(n);
+                }}
+              />
+              <Input
+                data-testid={`ce-claim-ents-${i}`}
+                placeholder="Related entities (comma-separated)"
+                value={cl.expected_entities.join(",")}
+                onChange={(e) => {
+                  const n = [...claims];
+                  n[i] = {
+                    ...cl,
+                    expected_entities: e.target.value
+                      .split(",")
+                      .map((x) => x.trim())
+                      .filter(Boolean),
+                  };
+                  set_claims(n);
+                }}
+              />
+              <div
+                data-testid={`ce-claim-jurs-${i}`}
+                className="flex flex-wrap items-center gap-2"
+              >
+                <span className="text-muted-foreground text-xs">
+                  Required in:
+                </span>
+                {jurisdictions.map((j) => {
+                  const on = cl.required_jurisdictions.includes(j);
+                  return (
+                    <label
+                      key={j}
+                      className={`focus-within:ring-ring/70 cursor-pointer rounded-full border px-2.5 py-0.5 text-xs transition-colors focus-within:ring-2 ${
+                        on
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        data-testid={`ce-claim-${i}-jur-${j}`}
+                        checked={on}
+                        onChange={(e) => {
+                          const n = [...claims];
+                          n[i] = {
+                            ...cl,
+                            required_jurisdictions: e.target.checked
+                              ? [...cl.required_jurisdictions, j]
+                              : cl.required_jurisdictions.filter(
+                                  (x) => x !== j,
+                                ),
+                          };
+                          set_claims(n);
+                        }}
+                      />
+                      {j}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="ce-add-claim"
+            className="w-fit"
+            onClick={() =>
+              set_claims([
+                ...claims,
+                {
+                  claim_id: `c${claims.length + 1}`,
+                  statement: "",
+                  expected_entities: [],
+                  required_jurisdictions: [...jurisdictions],
+                },
+              ])
+            }
+          >
+            <Plus aria-hidden className="h-4 w-4" /> Add claim
+          </Button>
+        </CardContent>
+      </Card>
+
+      {errs.length > 0 && (
+        <div
+          role="alert"
+          data-testid="contract-errors"
+          className="border-destructive/30 bg-destructive/10 text-foreground flex flex-col gap-1 rounded-lg border p-3 text-sm"
         >
-          Contract {saved.contract_id.slice(0, 8)} saved.
-        </p>
+          <span className="font-medium">Fix before saving:</span>
+          <ul className="text-muted-foreground list-disc pl-5">
+            {errs.map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
+          </ul>
+        </div>
       )}
+
+      <div className="flex items-center gap-3">
+        <Button
+          type="submit"
+          data-testid="contract-submit"
+          className="h-10 px-6"
+        >
+          Save + download
+        </Button>
+        {saved && (
+          <p
+            data-testid="contract-saved"
+            className="text-verified text-sm font-medium"
+          >
+            Contract {saved.contract_id.slice(0, 8)} saved.
+          </p>
+        )}
+      </div>
     </form>
   );
 }
