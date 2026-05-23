@@ -60,9 +60,13 @@ def test_is_valid_doi() -> None:
     assert not _is_valid_doi("10.1056")             # no slash
     assert not _is_valid_doi("10.1056/a b")         # whitespace
     assert not _is_valid_doi('10.1056/a"b')         # quote
+    # iter-1 P2 (Codex): empty-component / non-digit-registrant forms rejected
+    assert not _is_valid_doi("10./x")               # empty registrant
+    assert not _is_valid_doi("10.1056/")            # empty suffix
+    assert not _is_valid_doi("10.abc/x")            # non-digit registrant
 
 
 def test_dedupe_preserves_order() -> None:
-    t = _tmpl({"A": "10.1/x", "B": "10.1/x", "C": "10.2/y"})  # A,B same DOI
+    t = _tmpl({"A": "10.1000/x", "B": "10.1000/x", "C": "10.2000/y"})  # A,B same DOI
     out = expand_primary_trial_dois(t, _AFIB)
-    assert out == ["https://doi.org/10.1/x", "https://doi.org/10.2/y"]
+    assert out == ["https://doi.org/10.1000/x", "https://doi.org/10.2000/y"]

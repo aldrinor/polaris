@@ -132,11 +132,18 @@ def _extract_anchors(
 
 
 def _is_valid_doi(d: str) -> bool:
-    """A DOI looks like 10.<registrant>/<suffix> with no whitespace/quote/
-    backslash (which would break the doi.org URL or downstream quoting)."""
+    """A DOI is 10.<registrant>/<suffix>: registrant is 4-9 digits, suffix is
+    non-empty, and the whole string has no whitespace/quote/backslash (which
+    would break the doi.org URL or downstream quoting). iter-1 P2 (Codex):
+    reject empty-component forms like '10./x' or '10.1056/'."""
+    if not d.startswith("10.") or "/" not in d:
+        return False
+    prefix, _, suffix = d.partition("/")
+    registrant = prefix[len("10."):]
     return (
-        d.startswith("10.")
-        and "/" in d
+        registrant.isdigit()
+        and 4 <= len(registrant) <= 9
+        and bool(suffix)
         and not any(ch.isspace() for ch in d)
         and '"' not in d
         and "\\" not in d
