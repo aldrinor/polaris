@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from src.polaris_graph.retrieval.tier_classifier import (
     ClassificationSignals,
+    _is_low_quality_oa,
     classify_source_tier,
 )
 
@@ -169,3 +170,54 @@ def test_mdpi_news_style_not_laundered() -> None:
         content_length=300,
     )
     assert r.tier.value == "T7", f"MDPI stub should be T7, got {r.tier.value}"
+
+
+# ── iter-2 (Codex P1): canonical ACC/AHA guidelines are DOI ARTICLES, no path ──
+
+def test_aha_guideline_doi_article_is_t2() -> None:
+    """Real ACC/AHA guideline: a DOI article (no /guidelines/ path) with a
+    guideline title must reach T2, not fall to T4/T1."""
+    r = _classify(
+        url="https://www.ahajournals.org/doi/10.1161/CIR.0000000000001193",
+        title="2023 ACC/AHA/ACCP/HRS Guideline for the Diagnosis and Management of Atrial Fibrillation",
+    )
+    assert r.tier.value == "T2", f"AHA guideline DOI article should be T2, got {r.tier.value}"
+    assert r.matched_rules[-1] == "R8c_guideline_authority"
+
+
+def test_jacc_consensus_statement_is_t2() -> None:
+    r = _classify(
+        url="https://www.jacc.org/doi/10.1016/j.jacc.2024.02.001",
+        title="2024 Expert Consensus Statement on anticoagulation in AF",
+    )
+    assert r.tier.value == "T2", f"JACC consensus statement should be T2, got {r.tier.value}"
+
+
+def test_aha_primary_rct_not_promoted_by_guideline_check() -> None:
+    """A primary RCT on an authority domain (no guideline title) stays T1 — the
+    narrow guideline-title detector must not catch primary studies."""
+    r = _classify(
+        url="https://www.ahajournals.org/doi/10.1161/CIRCULATIONAHA.124.012345",
+        title="Apixaban versus warfarin in atrial fibrillation: a randomized controlled trial",
+    )
+    assert r.tier.value == "T1", f"AHA primary RCT should stay T1, got {r.tier.value}"
+
+
+def test_authority_domain_explainer_title_not_promoted_to_t2() -> None:
+    """An explainer/whitepaper title on an authority domain must NOT be promoted
+    to T2 (the narrow guideline set deliberately excludes explainer markers)."""
+    r = _classify(
+        url="https://www.ahajournals.org/doi/10.1161/whitepaper.2024",
+        title="An explainer on anticoagulation pricing trends",
+    )
+    assert r.tier.value != "T2", f"Explainer title should NOT be T2, got {r.tier.value}"
+
+
+def test_doi_prefix_exact_no_false_positive() -> None:
+    """iter-2 (Codex P2): low-quality-OA DOI matching is exact-prefix, so a
+    longer prefix beginning with 10.3390 (e.g. 10.33901) is NOT treated as MDPI."""
+    assert _is_low_quality_oa("", "https://doi.org/10.3390/jcm14228079") is True
+    assert _is_low_quality_oa("", "https://example.org/10.3390/abc") is True
+    assert _is_low_quality_oa("", "https://doi.org/10.33901/xyz") is False
+    assert _is_low_quality_oa("", "https://example.org/10.33901/abc") is False
+    assert _is_low_quality_oa("", "https://doi.org/10.1056/NEJMoa2107519") is False

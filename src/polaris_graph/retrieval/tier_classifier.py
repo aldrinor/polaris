@@ -522,6 +522,33 @@ _GUIDELINE_PATH_MARKERS = (
     "/guidelines/", "/guideline/", "/guidance/", "/recommendations/",
     "/scientific-documents/recom",  # ESC scientific-documents recommendations
 )
+# I-bug-771 (#812) iter-2 (Codex P1): canonical ACC/AHA guidelines are published
+# as DOI ARTICLES (e.g. ahajournals.org/doi/10.1161/CIR..., jacc.org/doi/...),
+# NOT on a /guidelines/ path — so a path-only check misses them. On a recognized
+# guideline-authority domain, these NARROW clinical-guideline title markers also
+# promote to T2. Deliberately EXCLUDES the broad explainer/whitepaper/industry
+# markers in _GUIDELINE_EXPLAINER_TITLE_MARKERS (those stay T4): a guideline is a
+# practice/consensus/scientific statement, not a fact sheet or market insight.
+_CLINICAL_GUIDELINE_TITLE_MARKERS = (
+    "guideline", "guidelines",
+    "clinical practice guideline",
+    "practice guideline", "practice bulletin",
+    "consensus statement", "expert consensus", "consensus recommendation",
+    "scientific statement",       # AHA scientific statements
+    "position statement",
+    "society recommendation", "recommendations for",
+)
+
+
+def _title_signals_clinical_guideline(title: str) -> bool:
+    """I-bug-771 (#812): narrow clinical-practice-guideline title detector for
+    the guideline-authority promotion in Rule 8c. Narrower than
+    _detect_guideline_or_explainer_title (which also fires on explainer / policy
+    / industry titles that must stay T4)."""
+    if not title:
+        return False
+    t = title.lower()
+    return any(m in t for m in _CLINICAL_GUIDELINE_TITLE_MARKERS)
 
 # M-18a (DR audit pass 1): when the fetcher records the URL as
 # doi.org/<prefix>/<suffix>, the classifier cannot know from the
@@ -581,7 +608,19 @@ def _is_low_quality_oa(domain: str, url: str) -> bool:
     if _domain_matches(domain, LOW_QUALITY_OA_DOMAINS):
         return True
     u = (url or "").lower()
-    return any(f"/{p}/" in u or f"doi.org/{p}" in u for p in LOW_QUALITY_OA_DOI_PREFIXES)
+    # Exact DOI-prefix match (iter-2 Codex P2: avoid substring false-positives
+    # such as 10.33901 matching 10.3390). Extract the registrant prefix after
+    # doi.org/ exactly, mirroring _has_peer_reviewed_doi_prefix.
+    if "doi.org/" in u:
+        try:
+            prefix = u.split("doi.org/", 1)[1].split("/", 1)[0]
+            if prefix in LOW_QUALITY_OA_DOI_PREFIXES:
+                return True
+        except (IndexError, ValueError):
+            pass
+    # DOI embedded in a publisher path (e.g. /10.3390/...): require both
+    # boundary slashes so 10.33901 cannot match 10.3390.
+    return any(f"/{p}/" in u for p in LOW_QUALITY_OA_DOI_PREFIXES)
 
 
 # Preprint servers (T4/T5 candidates — not peer-reviewed; caller may
@@ -1361,7 +1400,10 @@ def classify_source_tier(
             )
             return result
         if (
-            any(m in _gl_url for m in _GUIDELINE_PATH_MARKERS)
+            (
+                any(m in _gl_url for m in _GUIDELINE_PATH_MARKERS)
+                or _title_signals_clinical_guideline(signals.title)
+            )
             and not _detect_conference_abstract(signals.title, signals.url)
         ):
             result.tier = TierLevel.T2
@@ -1369,10 +1411,12 @@ def classify_source_tier(
             result.matched_rules.append("R8c_guideline_authority")
             result.reasons.append(
                 f"Domain {domain!r} is a recognized guideline-issuing body and "
-                f"the URL path signals a clinical practice guideline / "
-                f"recommendation. High-authority secondary evidence (T2 — "
-                f"guideline authority, NOT a primary study). Content stubs "
-                f"already returned T7 at Rule 1."
+                f"the URL path OR title signals a clinical practice guideline / "
+                f"consensus / scientific statement. High-authority secondary "
+                f"evidence (T2 — guideline authority, NOT a primary study). "
+                f"Canonical ACC/AHA guidelines are DOI articles with guideline "
+                f"titles (no /guidelines/ path), so the title check is required. "
+                f"Content stubs already returned T7 at Rule 1."
             )
             return result
 
