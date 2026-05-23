@@ -1,0 +1,89 @@
+Reading prompt from stdin...
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e5709-e5f4-70e0-aeed-92f4cc1660ec
+--------
+user
+You are a senior product designer running a BLUNT visual design audit. Attached are 7 screenshots of POLARIS — a sovereign Canadian clinical deep-research product being prepared as a one-shot gift/demo to the Prime Minister of Canada (Mark Carney). They are, in order:
+
+1. Home (/)
+2. Intake / "Ask a clinical research question" (/intake)
+3. Inspector — the "Proof Replay" CENTERPIECE: verified claim → exact cited source span (/inspector/v1-canonical-success)
+4. Upload documents (/upload)
+5. Contracts / Evidence Contract editor (/contracts)
+6. Pin Replay (/pin_replay) — NOTE: a kit-based empty-state fix is merged but NOT yet deployed, so this still shows the OLD bare empty state; judge it but know it's about to change.
+7. Sign in (/sign-in)
+
+THE BAR: genuinely top-tier, institutional, visually competitive with Perplexity and ChatGPT Deep Research. Be brutally honest — NO cheerleading. The operator has been burned by false "it's done / it's top-tier" claims, so over-praising is worse than useless.
+
+For EACH screenshot, give:
+- the page name + a letter grade: A = frontier-competitive; B = solid/professional; C = functional but plain; D = weak/broken/"internal tool".
+- the 1–3 most important SPECIFIC visual issues (typographic scale & rhythm, spacing/whitespace balance, visual hierarchy, brand/color use, dead empty space, alignment, component polish, anything that reads "dev tool" vs "institutional product").
+
+Then OVERALL:
+- Is this honestly top-tier / Perplexity-or-ChatGPT-Deep-Research competitive RIGHT NOW? Answer: yes / partially / no — and defend it.
+- The single biggest gap to top-tier.
+- A ranked list (highest impact first) of the concrete visual fixes that would move it to the bar.
+
+Honesty constraint: sovereignty wording is deliberately "Canadian-hosted" + an OpenRouter-US disclosure (NOT a "fully sovereign" claim) — do not flag that as a copy error; it's intentional honesty. Judge everything else hard. Output readable markdown.
+
+codex
+## Screenshot Grades
+
+| # | Page | Grade | Key Visual Issues |
+|---|---|---:|---|
+| 1 | Home | **B** | Strongest public page, but still not frontier. The red Canada dotmark feels small/prototype-like rather than premium. The hero is clean but visually thin: too much white space without a memorable institutional product moment. The proof card is good, but the typography inside it is dense and slightly “demo mockup” rather than polished product evidence UI. |
+| 2 | Intake | **C+** | Functional, but plain. The page has huge dead space and reads like a form page, not a flagship research intake. The card uses basic input/chip styling and weak hierarchy. The footer visually competes with the sparse content because the main page is underbuilt. |
+| 3 | Inspector / Proof Replay | **B+** | Best screen and closest to the bar. The verified claim → source span interaction is clear and credible. Main issue: the top audit metadata dominates before the centerpiece, making it feel like compliance tooling rather than premium research software. Tabs, IDs, and dense text still read a bit internal/admin. |
+| 4 | Upload Documents | **C** | Very bare. The dropzone is serviceable but not premium. Too much empty space, weak hierarchy, and no sense of what happens after upload. The selected-docs panel feels like an unstyled debug container. |
+| 5 | Evidence Contract Editor | **D+** | This reads as a raw internal form. Native-looking checkboxes, cramped fieldsets, plain inputs, weak spacing rhythm, and black default button styling all break the institutional feel. This is the least PM-demo-ready screen. |
+| 6 | Pin Replay | **D** | As shown, this is an unfinished empty state. Massive dead area, one line of text, no visual system, no preview of value. You noted a fix is merged but not deployed; judging the screenshot only, this should not be shown. |
+| 7 | Sign In | **B-** | Better than the raw utility pages. Split layout gives it presence, but the left side is underdesigned and sparse. The form card is clean but generic. Disabled/pale CTA color looks accidental or inactive. The overall screen feels like a startup login, not yet a high-stakes institutional product. |
+
+## Overall Verdict
+
+**Partially. Not top-tier right now.**
+
+The product has a credible visual foundation: restrained palette, clean typography, consistent header/footer, and the inspector proof interaction is genuinely strong. But it is not yet Perplexity / ChatGPT Deep Research competitive as a whole. The public home and inspector are in the professional range; the upload, contracts, pin replay, and intake screens pull the product back toward “competent internal tool.”
+
+The biggest issue is not copy or sovereignty framing. The biggest issue is **uneven product polish across the workflow**. Some screens look like a designed institutional product; others look like default forms placed on a nice shell.
+
+## Single Biggest Gap
+
+**The app lacks a consistently premium research-workbench interface language.**
+
+Right now, POLARIS has a good brand shell and one strong centerpiece, but the secondary screens do not feel designed to the same standard. Top-tier research products make every state feel intentional: intake, upload, empty states, auth, metadata, audit trails, and proof inspection all look like parts of the same serious system.
+
+## Ranked Fixes
+
+1. **Promote the Proof Replay centerpiece visually**
+   Reduce the dominance of the audit metadata on the inspector page. Let the verified claim/source span UI become the hero of the screen. Metadata can be collapsed, summarized, or moved into a secondary panel.
+
+2. **Replace raw forms with designed form systems**
+   Contracts and intake need proper field grouping, better labels, denser but cleaner spacing, button hierarchy, validation states, and more polished controls. Native checkbox/input styling is dragging the product down.
+
+3. **Fix empty states aggressively**
+   Pin Replay and Upload need designed empty states with structure: title, short value cue, next action, example/preview, and restrained visual treatment. Blank whitespace currently reads unfinished.
+
+4. **Give secondary pages a stronger page architecture**
+   Intake, Upload, Contracts, and Pin Replay need more than “heading + card.” Add purposeful panels, status strips, example artifacts, workflow steps, or preview surfaces.
+
+5. **Refine brand visual assets**
+   The red dot Canada mark is distinctive but currently feels too small and slightly brittle. It needs either more confidence, better placement, or a more premium rendering system.
+
+6. **Tighten typography and rhythm**
+   Some screens have excellent restraint, but others have awkward vertical gaps, dense paragraphs, and uneven component spacing. Build a stricter type/spacing scale and apply it everywhere.
+
+7. **Make CTAs feel intentional**
+   The red primary buttons work on Home/Intake. The black contract button and pale sign-in CTA feel inconsistent. Define primary, secondary, disabled, and destructive states across the product.
+
+Bottom line: **the inspector proves the concept can look serious. The whole product is not yet at that level.**
+tokens used
+24,909
