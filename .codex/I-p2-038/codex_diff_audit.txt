@@ -1,0 +1,8 @@
+# I-p2-038 (#805) — Codex DIFF audit (Red-Team checklist), iter 1 → APPROVE
+# canonical-diff-sha256 d0dce4e2cd8a59e17fc4c484851ae32b191334fdcca89bb8374a80cf7e070490
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+merge_decision: MERGE AUTHORIZED

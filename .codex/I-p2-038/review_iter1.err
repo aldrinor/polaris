@@ -1,0 +1,731 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e533f-9c48-71a0-9086-7c6ff72de0ee
+--------
+user
+# Codex DIFF review — I-p2-038 (#805): fix lint lane RED on polaris base
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+Canonical-diff-sha256 `d0dce4e2cd8a59e17fc4c484851ae32b191334fdcca89bb8374a80cf7e070490`. web/ only, 46-line diff (1 file, under 200-LOC cap). MERGE AUTHORIZED if mergeable. APPROVE iff zero P0/P1.
+
+(Issue-id note: GitHub #805. The internal issue_id is **I-p2-038** — I-p2-029 was already taken by the merged #768 (global app shell). Branch `bot/I-p2-038-lint-lane-fix`.)
+
+## Context
+URGENT issue: the `lint + format + typecheck + build` GitHub Actions lane was RED
+on the `polaris` base branch (merging red since #754), so every Phase-2 PR shows
+a red lane. `npm run lint` reported **2 errors + 3 warnings**; only errors fail
+the lane (the script is bare `eslint`, no `--max-warnings`). Both errors are in
+`web/app/plan/page.tsx` (the #754 plan run-start page). Operator (2026-05-22)
+directed: file URGENT issue + fix the errors next, before #759.
+
+## Diff (1 file: web/app/plan/page.tsx)
+1. **react-hooks/set-state-in-effect (:105)** — the on-mount `useEffect` called
+   `setState({ kind: "error", message: "no-question" })` **synchronously** in the
+   no-question guard branch. Fix: the no-question case is render-derived, not an
+   async side effect. The render guard already short-circuits on `!question`, so
+   the effect now just `if (!question) return;` (skips the intake fetch). Dropped
+   the now-dead render clause `state.kind === "error" && state.message ===
+   "no-question"` → simplified to `if (!question)`. **Behavior identical**:
+   no-question still renders the "Nothing to plan yet" section.
+2. **react/no-unescaped-entities (:292)** — `Can't` → `Can&apos;t` in the
+   not-in-scope ("Can't start this run") alert.
+
+## Files I have ALSO checked and they're clean
+- `grep "no-question"` across web/: ONLY lines 105 (removed) + 150 (the dead
+  clause, removed). No other consumer; no test asserts the no-question error
+  state.
+- `web/tests/e2e/accessibility.spec.ts:61` hits `/plan?q=Should I take ozempic…`
+  (WITH a question) and waits for `plan-blocked` — never exercises the
+  no-question path, so unaffected.
+- `setState` is still used by the async success (`kind:"ready"`) + catch
+  (`kind:"error"`) branches; the `State` error variant is still produced. No
+  unused type/var introduced.
+- The 3 remaining lint WARNINGS are out of scope (do not fail the lane):
+  `benchmark_board.tsx:12` unused `BenchmarkDimension`,
+  `inspector_bundle_client_loader.ts:130` unused `_status`,
+  `frame_coverage_panel.spec.ts:44` unused `_text`. The `_`-prefixed two would
+  ideally be silenced via an eslint `varsIgnorePattern` config change — a
+  separate concern, not folded here (no scope creep).
+
+## Verification
+- `cd web && npm run lint` → exit 0, "3 problems (0 errors, 3 warnings)".
+- `npm run typecheck` clean; `npm run build` Compiled successfully.
+- Standalone harness @1366: `/plan` (no q) → "Nothing to plan yet" + "Ask a
+  question" CTA; `/plan?q=…&template=clinical` → "Review the plan" + question +
+  4-step plan (Start disabled offline — correct, gate can't resolve w/o backend).
+
+## Review focus
+1. Is the set-state-in-effect fix correct + behavior-preserving (no-question
+   still renders, no regression to the async intake gate / disambiguation)?
+2. Is dropping the dead `state.message === "no-question"` clause safe (nothing
+   sets it post-fix)?
+3. Any P0/P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+merge_decision: MERGE AUTHORIZED | DO NOT MERGE
+```
+
+===== ACTUAL DIFF (codex_diff.patch) =====
+```diff
+diff --git a/web/app/plan/page.tsx b/web/app/plan/page.tsx
+index f29ba6eb..5df298a7 100644
+--- a/web/app/plan/page.tsx
++++ b/web/app/plan/page.tsx
+@@ -100,11 +100,13 @@ function PlanContent() {
+   // On mount: re-run the FULL intake gate over the (immutable) question. This
+   // is the same clinical + PICO classifier intake uses, so /plan is safe even
+   // when reached by direct URL.
++  //
++  // I-p2-038 (#805): no synchronous setState in the effect body (react-hooks/
++  // set-state-in-effect). The no-question case is a render-time concern, not an
++  // async side effect — the render guard below short-circuits on `!question`,
++  // so the effect just skips the intake fetch when there's nothing to check.
+   useEffect(() => {
+-    if (!question) {
+-      setState({ kind: "error", message: "no-question" });
+-      return;
+-    }
++    if (!question) return;
+     let cancelled = false;
+     (async () => {
+       try {
+@@ -145,10 +147,10 @@ function PlanContent() {
+     };
+   }, [question]);
+ 
+-  if (
+-    !question ||
+-    (state.kind === "error" && state.message === "no-question")
+-  ) {
++  // I-p2-038 (#805): the no-question state is now purely render-derived from
++  // the (immutable) `question` searchParam — no effect sets a "no-question"
++  // error anymore.
++  if (!question) {
+     return (
+       <section
+         data-testid="plan-page"
+@@ -289,7 +291,7 @@ function PlanContent() {
+           className="border-refusal/30 bg-refusal/10 flex flex-col gap-1 rounded-lg border p-4"
+         >
+           <p className="text-foreground text-sm font-medium">
+-            Can't start this run
++            Can&apos;t start this run
+           </p>
+           <p className="text-muted-foreground text-xs">
+             {notInScopeMessage(decision)} Edit the question to continue.
+
+# canonical-diff-sha256: d0dce4e2cd8a59e17fc4c484851ae32b191334fdcca89bb8374a80cf7e070490
+```
+
+===== plan/page.tsx — effect + render guard region (lines 95-170) =====
+```tsx
+  const [concurrent, setConcurrent] = useState<{
+    runId: string;
+    message: string;
+  } | null>(null);
+
+  // On mount: re-run the FULL intake gate over the (immutable) question. This
+  // is the same clinical + PICO classifier intake uses, so /plan is safe even
+  // when reached by direct URL.
+  //
+  // I-p2-038 (#805): no synchronous setState in the effect body (react-hooks/
+  // set-state-in-effect). The no-question case is a render-time concern, not an
+  // async side effect — the render guard below short-circuits on `!question`,
+  // so the effect just skips the intake fetch when there's nothing to check.
+  useEffect(() => {
+    if (!question) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await runIntake(question);
+        if (cancelled) return;
+        setState({ kind: "ready", decision: result.decision });
+        if (
+          result.decision.needs_disambiguation &&
+          result.decision.candidate_snippets &&
+          result.decision.candidate_snippets.length > 0
+        ) {
+          const dis = await runDisambiguation(
+            result.decision.candidate_snippets,
+          );
+          if (cancelled) return;
+          if (dis.is_ambiguous && dis.clusters.length > 1) {
+            setDisambigClusters(dis.clusters);
+            setDisambigOpen(true);
+          } else {
+            setDisambigResolved(true); // nothing to disambiguate
+          }
+        } else {
+          setDisambigResolved(true);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setState({
+          kind: "error",
+          message:
+            err instanceof Error
+              ? err.message
+              : "Could not check this question.",
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [question]);
+
+  // I-p2-038 (#805): the no-question state is now purely render-derived from
+  // the (immutable) `question` searchParam — no effect sets a "no-question"
+  // error anymore.
+  if (!question) {
+    return (
+      <section
+        data-testid="plan-page"
+        className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-6 py-16 text-center"
+      >
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight">
+          Nothing to plan yet
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Start from a research question and POLARIS will lay out the plan
+          before running it.
+        </p>
+        <div>
+          <Button
+            nativeButton={false}
+            render={<Link href="/intake">Ask a question</Link>}
+          />
+```
+
+===== plan/page.tsx — not-in-scope alert region (lines 283-300) =====
+```tsx
+        </ol>
+      </div>
+
+      {/* Not-in-scope guard */}
+      {decision && !inScope ? (
+        <div
+          role="alert"
+          data-testid="plan-blocked"
+          className="border-refusal/30 bg-refusal/10 flex flex-col gap-1 rounded-lg border p-4"
+        >
+          <p className="text-foreground text-sm font-medium">
+            Can&apos;t start this run
+          </p>
+          <p className="text-muted-foreground text-xs">
+            {notInScopeMessage(decision)} Edit the question to continue.
+          </p>
+        </div>
+      ) : null}
+```
+
+codex
+I’ll verify the surrounding `plan/page.tsx` state flow and search for any remaining `no-question` references so the review is grounded in the actual workspace, not just the pasted diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/plan/page.tsx | Select-Object -First 360' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "no-question|type State|setState|useSearchParams|const question|function runIntake|runDisambiguation|disambig" web/app/plan/page.tsx web/tests -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/app/plan/page.tsx' in C:\POLARIS
+ succeeded in 1120ms:
+web/app/plan/page.tsx:7:// enabled ONLY for an in_scope, disambiguation-resolved question. Question-only
+web/app/plan/page.tsx:20:import { useRouter, useSearchParams } from "next/navigation";
+web/app/plan/page.tsx:23:import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
+web/app/plan/page.tsx:29:  runDisambiguation,
+web/app/plan/page.tsx:76:type State =
+web/app/plan/page.tsx:83:  const searchParams = useSearchParams();
+web/app/plan/page.tsx:84:  const question = (searchParams.get("q") ?? "").trim();
+web/app/plan/page.tsx:87:  const [state, setState] = useState<State>({ kind: "loading" });
+web/app/plan/page.tsx:88:  const [disambigClusters, setDisambigClusters] = useState<
+web/app/plan/page.tsx:91:  const [disambigOpen, setDisambigOpen] = useState(false);
+web/app/plan/page.tsx:92:  const [disambigResolved, setDisambigResolved] = useState(false);
+web/app/plan/page.tsx:104:  // I-p2-038 (#805): no synchronous setState in the effect body (react-hooks/
+web/app/plan/page.tsx:105:  // set-state-in-effect). The no-question case is a render-time concern, not an
+web/app/plan/page.tsx:115:        setState({ kind: "ready", decision: result.decision });
+web/app/plan/page.tsx:117:          result.decision.needs_disambiguation &&
+web/app/plan/page.tsx:121:          const dis = await runDisambiguation(
+web/app/plan/page.tsx:129:            setDisambigResolved(true); // nothing to disambiguate
+web/app/plan/page.tsx:136:        setState({
+web/app/plan/page.tsx:150:  // I-p2-038 (#805): the no-question state is now purely render-derived from
+web/app/plan/page.tsx:151:  // the (immutable) `question` searchParam — no effect sets a "no-question"
+web/app/plan/page.tsx:178:  const canStart = inScope && disambigResolved && !starting;
+web/app/plan/page.tsx:183:    // is in_scope + disambiguation-resolved.
+web/app/plan/page.tsx:184:    if (!inScope || !disambigResolved || starting) return;
+web/app/plan/page.tsx:344:        open={disambigOpen}
+web/app/plan/page.tsx:345:        clusters={disambigClusters}
+web/tests\e2e\bundle_preview.spec.ts:9:  needs_disambiguation: false,
+web/tests\e2e\disambiguation_modal.spec.ts:6:  test(`disambiguation modal renders ${n} cluster cards and handles selection + cancel`, async ({
+web/tests\e2e\disambiguation_modal.spec.ts:9:    await page.goto(`/disambiguation_modal_preview?n=${n}`);
+web/tests\e2e\disambiguation_modal.spec.ts:11:    await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+web/tests\e2e\disambiguation_modal.spec.ts:12:    const cards = page.locator('[data-testid^="disambiguation-cluster-"]');
+web/tests\e2e\disambiguation_modal.spec.ts:17:        page.getByTestId(`disambiguation-cluster-${i}`),
+web/tests\e2e\disambiguation_modal.spec.ts:21:    await page.getByTestId("disambiguation-cluster-1").click();
+web/tests\e2e\disambiguation_modal.spec.ts:25:    await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+web/tests\e2e\f2_walkthrough.spec.ts:37:async function disambigMock(page: Page, n: number, isAmb = true) {
+web/tests\e2e\f2_walkthrough.spec.ts:38:  await page.route("**/api/disambiguation", async (r) =>
+web/tests\e2e\f2_walkthrough.spec.ts:91:      needs_disambiguation: true,
+web/tests\e2e\f2_walkthrough.spec.ts:94:    await disambigMock(page, n);
+web/tests\e2e\f2_walkthrough.spec.ts:98:        page.locator('[data-testid^="disambiguation-cluster-"]'),
+web/tests\e2e\f2_walkthrough.spec.ts:109:    await intakeMock(page, { needs_disambiguation: false });
+web/tests\e2e\f2_walkthrough.spec.ts:111:    await page.route("**/api/disambiguation", (r) => {
+web/tests\e2e\f2_walkthrough.spec.ts:120:        page.locator('[data-slot="disambiguation-modal"]'),
+web/tests\e2e\f2_walkthrough.spec.ts:129:      needs_disambiguation: true,
+web/tests\e2e\f2_walkthrough.spec.ts:132:    await disambigMock(page, 2, false);
+web/tests\e2e\f2_walkthrough.spec.ts:138:        page.locator('[data-slot="disambiguation-modal"]'),
+web/tests\e2e\f2_walkthrough.spec.ts:228:      needs_disambiguation: true,
+web/tests\e2e\f2_walkthrough.spec.ts:231:    await disambigMock(page, 3);
+web/tests\e2e\f2_walkthrough.spec.ts:235:        page.getByTestId(`disambiguation-cluster-${cid}`),
+web/tests\e2e\f2_walkthrough.spec.ts:237:      await page.getByTestId(`disambiguation-cluster-${cid}`).click();
+web/tests\e2e\f2_walkthrough.spec.ts:238:      await expect(page.getByTestId("disambig-picked-label")).toHaveText(
+web/tests\e2e\f2_walkthrough.spec.ts:246:    needs_disambiguation: true,
+web/tests\e2e\f2_walkthrough.spec.ts:249:  await disambigMock(page, 3);
+web/tests\e2e\f2_walkthrough.spec.ts:252:    await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+web/tests\e2e\f2_walkthrough.spec.ts:254:    await expect(page.getByTestId("disambig-picked-label")).toHaveText("");
+web/tests\e2e\intake_disambiguation.spec.ts:21:          needs_disambiguation: true,
+web/tests\e2e\intake_disambiguation.spec.ts:33:  await page.route("**/api/disambiguation", async (route) => {
+web/tests\e2e\intake_disambiguation.spec.ts:71:  await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+web/tests\e2e\intake_disambiguation.spec.ts:76:  const cards = page.locator('[data-testid^="disambiguation-cluster-"]');
+web/tests\e2e\intake_disambiguation.spec.ts:79:  await page.getByTestId("disambiguation-cluster-1").click();
+web/tests\e2e\intake_disambiguation.spec.ts:80:  await expect(page.getByTestId("disambig-picked-label")).toHaveText(
+web/tests\e2e\intake_disambiguation.spec.ts:83:  await expect(page.getByTestId("disambiguation-cluster-0")).toBeHidden();
+web/tests\e2e\intake_disambiguation_negative.spec.ts:17:test("tirzepatide single entity → no disambiguation modal (path #1: backend says no)", async ({
+web/tests\e2e\intake_disambiguation_negative.spec.ts:21:  let disambigCalls = 0;
+web/tests\e2e\intake_disambiguation_negative.spec.ts:30:        decision: { ...baseDecision, needs_disambiguation: false },
+web/tests\e2e\intake_disambiguation_negative.spec.ts:36:  await page.route("**/api/disambiguation", async (route) => {
+web/tests\e2e\intake_disambiguation_negative.spec.ts:37:    disambigCalls++;
+web/tests\e2e\intake_disambiguation_negative.spec.ts:47:  await expect(page.locator('[data-slot="disambiguation-modal"]')).toBeHidden();
+web/tests\e2e\intake_disambiguation_negative.spec.ts:49:  expect(disambigCalls).toBe(0);
+web/tests\e2e\intake_disambiguation_negative.spec.ts:52:test("needs_disambiguation=true but is_ambiguous=false → no modal (path #2: is_ambiguous guard)", async ({
+web/tests\e2e\intake_disambiguation_negative.spec.ts:56:  let disambigCalls = 0;
+web/tests\e2e\intake_disambiguation_negative.spec.ts:67:          needs_disambiguation: true,
+web/tests\e2e\intake_disambiguation_negative.spec.ts:78:  await page.route("**/api/disambiguation", async (route) => {
+web/tests\e2e\intake_disambiguation_negative.spec.ts:79:    disambigCalls++;
+web/tests\e2e\intake_disambiguation_negative.spec.ts:101:  await expect(page.locator('[data-slot="disambiguation-modal"]')).toBeHidden();
+web/tests\e2e\intake_disambiguation_negative.spec.ts:103:  expect(disambigCalls).toBe(1);
+web/tests\e2e\p2c_001_chain.spec.ts:15:  // F1 — intake page (scope discovery / disambiguation entry).
+web/tests\e2e\p2c_001_chain.spec.ts:21:  // F2 — disambiguation modal preview (cluster card harness).
+web/tests\e2e\p2c_001_chain.spec.ts:22:  await page.goto("/disambiguation_modal_preview");
+web/tests\e2e\p2c_001_chain.spec.ts:23:  await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+web/tests\e2e\p2c_005_mobile.spec.ts:28:  await page.goto("/disambiguation_modal_preview");
+web/tests\e2e\p2c_005_mobile.spec.ts:29:  await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+web/tests\e2e\visual_60_baselines.spec.ts:37:    path: "/disambiguation_modal_preview",
+web/tests\e2e\visual_60_baselines.spec.ts:38:    testid: "disambiguation-cluster-0",
+
+ succeeded in 1137ms:
+// I-p2-015 (#754): Plan review — the run-start surface (relocated off the
+// dashboard so #761 can become monitoring-only). "Confirm + start": the
+// question is DISPLAY-ONLY here (single source of preflight truth = intake);
+// editing routes back to /intake. On mount it re-runs the FULL intake gate
+// (runIntake — the clinical + PICO classifier, NOT the lenient /scope/check) so
+// direct navigation to /plan?q=… is gated identically. "Start research run" is
+// enabled ONLY for an in_scope, disambiguation-resolved question. Question-only
+// run-start (no uploads here — document grounding keeps its /upload home until a
+// follow-up wires it into this flow).
+"use client";
+
+import {
+  ArrowLeft,
+  BadgeCheck,
+  FileSearch,
+  Layers,
+  ShieldCheck,
+} from "lucide-react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+
+import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
+import { ErrorState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import {
+  ConcurrentRunError,
+  createRun,
+  runDisambiguation,
+  runIntake,
+  type DisambiguationCluster,
+  type IntakeScopeDecision,
+  type TemplateId,
+} from "@/lib/api";
+
+const TEMPLATE_IDS: readonly TemplateId[] = [
+  "clinical",
+  "policy",
+  "tech",
+  "ai_sovereignty",
+  "canada_us",
+  "due_diligence",
+  "custom",
+  "workforce",
+];
+
+function asTemplate(value: string | null): TemplateId {
+  return value && (TEMPLATE_IDS as readonly string[]).includes(value)
+    ? (value as TemplateId)
+    : "clinical";
+}
+
+const PLAN_STEPS = [
+  {
+    icon: FileSearch,
+    title: "Retrieve primary sources",
+    body: "POLARIS searches via logged Canadian egress and snapshots each source it draws from.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Corpus-adequacy + approval gate",
+    body: "The source set must meet per-tier adequacy and pass the approval gate before any brief is generated.",
+  },
+  {
+    icon: Layers,
+    title: "Generate, then verify every claim",
+    body: "Each sentence is generated section by section, then span-verified against its primary source by an independent evaluator family.",
+  },
+  {
+    icon: BadgeCheck,
+    title: "Produce an auditable bundle",
+    body: "You get a brief where every claim links to the exact source passage behind it.",
+  },
+] as const;
+
+type State =
+  | { kind: "loading" }
+  | { kind: "ready"; decision: IntakeScopeDecision }
+  | { kind: "error"; message: string };
+
+function PlanContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const question = (searchParams.get("q") ?? "").trim();
+  const template = asTemplate(searchParams.get("template"));
+
+  const [state, setState] = useState<State>({ kind: "loading" });
+  const [disambigClusters, setDisambigClusters] = useState<
+    DisambiguationCluster[]
+  >([]);
+  const [disambigOpen, setDisambigOpen] = useState(false);
+  const [disambigResolved, setDisambigResolved] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [concurrent, setConcurrent] = useState<{
+    runId: string;
+    message: string;
+  } | null>(null);
+
+  // On mount: re-run the FULL intake gate over the (immutable) question. This
+  // is the same clinical + PICO classifier intake uses, so /plan is safe even
+  // when reached by direct URL.
+  //
+  // I-p2-038 (#805): no synchronous setState in the effect body (react-hooks/
+  // set-state-in-effect). The no-question case is a render-time concern, not an
+  // async side effect — the render guard below short-circuits on `!question`,
+  // so the effect just skips the intake fetch when there's nothing to check.
+  useEffect(() => {
+    if (!question) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await runIntake(question);
+        if (cancelled) return;
+        setState({ kind: "ready", decision: result.decision });
+        if (
+          result.decision.needs_disambiguation &&
+          result.decision.candidate_snippets &&
+          result.decision.candidate_snippets.length > 0
+        ) {
+          const dis = await runDisambiguation(
+            result.decision.candidate_snippets,
+          );
+          if (cancelled) return;
+          if (dis.is_ambiguous && dis.clusters.length > 1) {
+            setDisambigClusters(dis.clusters);
+            setDisambigOpen(true);
+          } else {
+            setDisambigResolved(true); // nothing to disambiguate
+          }
+        } else {
+          setDisambigResolved(true);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setState({
+          kind: "error",
+          message:
+            err instanceof Error
+              ? err.message
+              : "Could not check this question.",
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [question]);
+
+  // I-p2-038 (#805): the no-question state is now purely render-derived from
+  // the (immutable) `question` searchParam — no effect sets a "no-question"
+  // error anymore.
+  if (!question) {
+    return (
+      <section
+        data-testid="plan-page"
+        className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-6 py-16 text-center"
+      >
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight">
+          Nothing to plan yet
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Start from a research question and POLARIS will lay out the plan
+          before running it.
+        </p>
+        <div>
+          <Button
+            nativeButton={false}
+            render={<Link href="/intake">Ask a question</Link>}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  const decision = state.kind === "ready" ? state.decision : null;
+  const inScope = decision?.status === "in_scope";
+  const canStart = inScope && disambigResolved && !starting;
+
+  async function onStart() {
+    // Defense-in-depth (Codex diff P2): re-assert the gate at call time, not
+    // only via the disabled button — a run must never start unless the question
+    // is in_scope + disambiguation-resolved.
+    if (!inScope || !disambigResolved || starting) return;
+    setStartError(null);
+    setConcurrent(null);
+    setStarting(true);
+    try {
+      const run = await createRun({ template, question, document_ids: [] });
+      router.push(`/runs/${run.run_id}`);
+    } catch (err) {
+      if (err instanceof ConcurrentRunError) {
+        setConcurrent({ runId: err.activeRunId, message: err.message });
+        setStarting(false);
+        return;
+      }
+      setStartError(
+        err instanceof Error ? err.message : "Could not start the run.",
+      );
+      setStarting(false);
+    }
+  }
+
+  function notInScopeMessage(d: IntakeScopeDecision): string {
+    switch (d.status) {
+      case "out_of_scope":
+        return "This question is outside POLARIS's clinical research scope.";
+      case "refused":
+        return "POLARIS declined this question (refusal-bait or unsafe request).";
+      case "ambiguous_needs_clarification":
+        return "This question needs clarification before it can be researched.";
+      default:
+        return "This question can't be started as written.";
+    }
+  }
+
+  return (
+    <section
+      data-testid="plan-page"
+      className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-10"
+    >
+      <div className="flex flex-col gap-1">
+        <Link
+          href="/intake"
+          className="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1 text-xs"
+        >
+          <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
+          Edit question
+        </Link>
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          Review the plan
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Confirm what POLARIS will research before the run starts.
+        </p>
+      </div>
+
+      {/* The vetted question (display-only) */}
+      <div className="border-border bg-card flex flex-col gap-2 rounded-xl border p-5">
+        <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+          Your question
+        </span>
+        <p className="text-foreground text-lg leading-relaxed font-medium">
+          {question}
+        </p>
+        <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
+          <span className="border-border rounded-full border px-2 py-0.5">
+            Template: <span className="text-foreground">{template}</span>
+          </span>
+          {state.kind === "loading" ? (
+            <span>Checking scope…</span>
+          ) : decision?.scope_class ? (
+            <span className="border-border rounded-full border px-2 py-0.5">
+              Scope:{" "}
+              <span className="text-foreground">{decision.scope_class}</span>
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {/* What POLARIS will do */}
+      <div className="flex flex-col gap-4">
+        <h2 className="text-foreground text-sm font-semibold">
+          What POLARIS will do
+        </h2>
+        <ol className="grid gap-4 sm:grid-cols-2">
+          {PLAN_STEPS.map((step, i) => (
+            <li
+              key={step.title}
+              className="border-border bg-card flex flex-col gap-1.5 rounded-lg border p-4"
+            >
+              <div className="text-primary flex items-center gap-2">
+                <step.icon aria-hidden className="h-4 w-4 shrink-0" />
+                <span className="text-foreground text-sm font-medium">
+                  {i + 1}. {step.title}
+                </span>
+              </div>
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                {step.body}
+              </p>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      {/* Not-in-scope guard */}
+      {decision && !inScope ? (
+        <div
+          role="alert"
+          data-testid="plan-blocked"
+          className="border-refusal/30 bg-refusal/10 flex flex-col gap-1 rounded-lg border p-4"
+        >
+          <p className="text-foreground text-sm font-medium">
+            Can&apos;t start this run
+          </p>
+          <p className="text-muted-foreground text-xs">
+            {notInScopeMessage(decision)} Edit the question to continue.
+          </p>
+        </div>
+      ) : null}
+
+      {startError ? (
+        <ErrorState title="Couldn't start the run" message={startError} />
+      ) : null}
+
+      {concurrent ? (
+        <div
+          role="alert"
+          data-testid="plan-concurrent"
+          className="border-contradiction/30 bg-contradiction/10 flex flex-col gap-1 rounded-lg border p-4"
+        >
+          <p className="text-foreground text-sm font-medium">
+            A run is already in progress
+          </p>
+          <p className="text-muted-foreground text-xs">{concurrent.message}</p>
+          <Link
+            href={`/runs/${concurrent.runId}`}
+            className="text-primary text-xs underline-offset-2 hover:underline"
+          >
+            View the active run →
+          </Link>
+        </div>
+      ) : null}
+
+      {/* Start */}
+      <div className="flex items-center gap-3">
+        <Button
+          type="button"
+          data-testid="plan-start-run"
+          className="h-11 px-7"
+          disabled={!canStart}
+          onClick={onStart}
+        >
+          {starting ? "Starting…" : "Start research run"}
+        </Button>
+        <Button
+          variant="ghost"
+          nativeButton={false}
+          render={<Link href="/intake">Cancel</Link>}
+        />
+      </div>
+
+      <DisambiguationModal
+        open={disambigOpen}
+        clusters={disambigClusters}
+        onSelectCluster={() => {
+          setDisambigResolved(true);
+          setDisambigOpen(false);
+        }}
+        onCancel={() => setDisambigOpen(false)}
+      />
+    </section>
+  );
+}
+
+export default function PlanPage() {
+  return (
+    <Suspense fallback={null}>
+      <PlanContent />
+    </Suspense>
+
+ succeeded in 1136ms:
+codex
+The actual file matches the supplied diff, and `no-question` now only appears in comments. I’m checking whether the remaining state machine can expose stale or unreachable behavior from this specific change.
+codex
+I don’t see a blocker in the changed control flow: the no-query UI is now controlled directly by the trimmed search param, and the async gate path for real questions is unchanged. I’ll run the relevant lint command once to confirm the lane outcome in this workspace.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run lint' in C:\POLARIS\web
+ succeeded in 10350ms:
+
+> web@0.1.0 lint
+> eslint
+
+
+C:\POLARIS\web\app\benchmark\components\benchmark_board.tsx
+  12:8  warning  'BenchmarkDimension' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\lib\inspector_bundle_client_loader.ts
+  130:21  warning  '_status' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\tests\e2e\frame_coverage_panel.spec.ts
+  44:27  warning  '_text' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 3 problems (0 errors, 3 warnings)
+
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+merge_decision: MERGE AUTHORIZED
+```
+tokens used
+13,677
