@@ -272,6 +272,28 @@ def test_guideline_focused_update_is_t2() -> None:
     assert r.matched_rules[-1] == "R8c_guideline_authority"
 
 
+def test_consensus_validation_study_not_promoted() -> None:
+    """iter-5 (Codex P1): a primary study VALIDATING a consensus document is not
+    the issued document — 'expert consensus' marker must not promote it to T2."""
+    for title in (
+        "Validation of the 2019 Expert Consensus Algorithm for anticoagulation",
+        "Validation of the ACC Expert Consensus Decision Pathway in real-world practice",
+    ):
+        r = _classify(url="https://www.jacc.org/doi/10.1016/j.jcin.2021.03.010", title=title)
+        assert r.tier.value != "T2", f"Consensus-validation study should NOT be T2 ({title!r}), got {r.tier.value}"
+        assert r.matched_rules[-1] != "R8c_guideline_authority"
+
+
+def test_real_consensus_statement_still_t2_after_exclusions() -> None:
+    """Guard: a genuine consensus statement (no study-framing prefix) is still
+    promoted to T2 (the iter-5 exclusions did not over-restrict)."""
+    r = _classify(
+        url="https://www.jacc.org/doi/10.1016/j.jacc.2024.02.004",
+        title="2024 ACC Expert Consensus Decision Pathway on anticoagulation in atrial fibrillation",
+    )
+    assert r.tier.value == "T2", f"Genuine consensus document should be T2, got {r.tier.value}"
+
+
 def test_doi_prefix_exact_no_false_positive() -> None:
     """iter-2 (Codex P2): low-quality-OA DOI matching is exact-prefix, so a
     longer prefix beginning with 10.3390 (e.g. 10.33901) is NOT treated as MDPI."""

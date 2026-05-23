@@ -564,6 +564,26 @@ _GUIDELINE_TITLE_EXCLUSIONS = (
     "guideline-recommended", "guideline recommended",
     "non-guideline", "off-guideline",
 )
+# iter-5 (Codex P1): study-ABOUT-a-document framings, anchored to the TITLE
+# START. A primary study that validates / uses / evaluates a consensus statement,
+# decision pathway, or guideline is NOT itself the issued document — e.g.
+# "Validation of the 2019 Expert Consensus Algorithm ..." / "Validation of the
+# ACC Expert Consensus Decision Pathway ...". Issued guideline/consensus
+# documents START with a year or a society name (or "Clinical Practice
+# Guideline" / "Expert Consensus ..."), NEVER with a study verb. Anchoring to
+# the start (not substring-anywhere) avoids over-excluding real guidelines whose
+# scope phrase contains a verb mid-title (e.g. "Guideline for the Evaluation of
+# Chest Pain").
+_STUDY_FRAMING_TITLE_PREFIXES = (
+    "validation of", "validating", "a validation",
+    "use of", "using", "utilization of", "utility of",
+    "impact of", "implementation of", "application of",
+    "evaluation of", "comparison of", "comparing",
+    "association of", "association between", "predictors of",
+    "outcomes of", "outcomes after", "effect of", "effects of",
+    "efficacy and safety of", "efficacy of", "safety of",
+    "adherence to", "real-world",
+)
 
 
 def _title_signals_clinical_guideline(title: str) -> bool:
@@ -579,6 +599,12 @@ def _title_signals_clinical_guideline(title: str) -> bool:
         return False
     t = title.lower()
     if any(x in t for x in _GUIDELINE_TITLE_EXCLUSIONS):
+        return False
+    # iter-5: a study ABOUT a document (validation/use/impact/...) starts with a
+    # study verb; issued documents do not. Reject these before the document
+    # markers so "Validation of the ... Expert Consensus ..." is not promoted.
+    t_start = t.lstrip("\"'([ ")
+    if any(t_start.startswith(p) for p in _STUDY_FRAMING_TITLE_PREFIXES):
         return False
     if any(m in t for m in _GUIDELINE_DOC_STATEMENT_MARKERS):
         return True
