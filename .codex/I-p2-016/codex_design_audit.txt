@@ -1,0 +1,3 @@
+verdict: APPROVE
+merge_decision: MERGE AUTHORIZED
+# Codex design+diff APPROVE iter1 + MERGE AUTHORIZED, 0 P0/P1. Run-progress page depth-visible (RunProgress #747 staged checklist + metrics + thinking-toggle); ErrorState + title polish. 1 non-blocking P2 (shared error title; status-loaded in practice).
