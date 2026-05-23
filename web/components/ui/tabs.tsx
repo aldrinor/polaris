@@ -36,6 +36,11 @@ export const TabsTrigger = forwardRef<
     ref={ref}
     className={cn(
       "ring-offset-background inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-all",
+      // I-p2-026 (#765): explicit inactive text color. The inherited
+      // text-muted-foreground on the bg-muted strip fails WCAG 2.2 AA
+      // contrast (axe serious); text-foreground/70 clears 4.5:1 while still
+      // reading lighter than the selected tab.
+      "text-foreground/70",
       "focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
       "data-[selected]:bg-background data-[selected]:text-foreground data-[selected]:shadow-sm",
       "hover:bg-background/60",

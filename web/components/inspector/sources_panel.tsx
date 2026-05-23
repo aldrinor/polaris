@@ -45,10 +45,15 @@ export function SourcesPanel({ sources }: SourcesPanelProps) {
                 </li>
               ))}
             </ul>
+            {/* I-p2-026 (#765): the scrollable snapshot region needs keyboard
+                access (axe scrollable-region-focusable / WCAG 2.1.1). */}
             <pre
-              className="bg-muted max-h-[400px] overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap"
+              className="bg-muted focus-visible:ring-ring max-h-[400px] overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap focus-visible:ring-2 focus-visible:outline-none"
               data-testid="source-content"
               data-source-path={active}
+              tabIndex={0}
+              role="region"
+              aria-label="Source snapshot content"
             >
               {active ? sources[active] : ""}
             </pre>

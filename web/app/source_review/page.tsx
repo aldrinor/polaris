@@ -223,8 +223,10 @@ function SourceReviewContent() {
           )}
 
           {/* HONEST framing — the page shows the curated source DEFINITION + the
-              adequacy bar, NOT a retrieved corpus. Retrieval happens in the run. */}
-          <div className="border-border bg-muted/40 flex flex-col gap-1 rounded-lg border p-4">
+              adequacy bar, NOT a retrieved corpus. Retrieval happens in the run.
+              I-p2-026 (#765): bg-card (white), not bg-muted/40 — muted-foreground
+              text on the muted tint failed WCAG 2.2 AA contrast (axe serious). */}
+          <div className="border-border bg-card flex flex-col gap-1 rounded-lg border p-4">
             <span className="text-foreground text-xs font-semibold">
               How sources are gathered
             </span>
