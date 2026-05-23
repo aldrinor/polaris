@@ -1,18 +1,3 @@
-diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
-index ff448c24..fc2dd3fe 100644
---- a/.github/workflows/web_ci.yml
-+++ b/.github/workflows/web_ci.yml
-@@ -128,7 +128,9 @@ jobs:
-         env:
-           SCREENSHOT_BASE_URL: http://127.0.0.1:3738
-           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
--        run: npx playwright test --project=chromium tests/e2e/inspector.spec.ts
-+        # I-p2-022 (#761): inspector.spec.ts (held only the obsolete dashboard
-+        # scope-discovery describe) deleted; real Inspector e2e = inspector_route.spec.ts.
-+        run: npx playwright test --project=chromium tests/e2e/inspector_route.spec.ts
- 
-       - name: run_e2e_accessibility
-         env:
 diff --git a/web/app/dashboard/page.tsx b/web/app/dashboard/page.tsx
 index fb3fa453..0393370c 100644
 --- a/web/app/dashboard/page.tsx
@@ -1070,4 +1055,4 @@ deleted file mode 100644
 index b6f0b526..00000000
 Binary files a/web/tests/e2e/visual.spec.ts-snapshots/dashboard-initial-chromium-win32.png and /dev/null differ
 
-# canonical-diff-sha256: 685fb769f45a5945cf85840608200e70b86f4d69cc5f06a84a461776de8abc75
+# canonical-diff-sha256: 159198b1a9daad194b2b55b6dfd5b6666afb86dd1970a9896fec49264933d6eb
