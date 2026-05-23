@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Codex APPROVE iter1 — depth visible (staged checklist + metrics + thinking), ErrorState polish.
