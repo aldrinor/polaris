@@ -3,26 +3,35 @@
 // an unauthenticated reviewer who navigated off the home page had no way to
 // sign in, and a signed-in reviewer had no way to sign out anywhere.
 //
-// Hydration-safe: the server render and the FIRST client render both show the
-// unauthenticated "Sign in" link (the token lives in sessionStorage, which the
-// server can't see). Only AFTER mount do we read the real auth state and, if
-// signed in, swap to "Sign out". This avoids a server/client markup mismatch.
+// Auth state lives in sessionStorage (not React state), so we read it via
+// useSyncExternalStore: SSR-safe (getServerSnapshot returns the unauthenticated
+// "Sign in" view, matching the first client paint → no hydration mismatch) and
+// without a setState-in-effect (which the react-hooks/set-state-in-effect lint
+// rule forbids — see #805).
 "use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 import { Button } from "@/components/ui/button";
 import { clearToken, isAuthenticated } from "@/lib/auth";
 
+// Cross-tab auth changes fire a `storage` event; same-tab sign-in/out re-mounts
+// the shell on navigation, so the snapshot is re-read either way.
+function subscribe(onChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
+
 export function AuthButton() {
   const router = useRouter();
-  const [authed, setAuthed] = useState(false);
-
-  useEffect(() => {
-    setAuthed(isAuthenticated());
-  }, []);
+  const authed = useSyncExternalStore(
+    subscribe,
+    () => isAuthenticated(), // client: real auth state (boolean — stable by value)
+    () => false, // server / first hydration paint: always "Sign in"
+  );
 
   if (authed) {
     return (
@@ -31,7 +40,6 @@ export function AuthButton() {
         data-testid="appshell-sign-out"
         onClick={() => {
           clearToken();
-          setAuthed(false);
           router.push("/");
         }}
       >
