@@ -131,6 +131,66 @@ def _extract_anchors(
     return unique
 
 
+def _is_valid_doi(d: str) -> bool:
+    """A DOI is 10.<registrant>/<suffix>: registrant is 4-9 digits, suffix is
+    non-empty, and the whole string has no whitespace/quote/backslash (which
+    would break the doi.org URL or downstream quoting). iter-1 P2 (Codex):
+    reject empty-component forms like '10./x' or '10.1056/'."""
+    if not d.startswith("10.") or "/" not in d:
+        return False
+    prefix, _, suffix = d.partition("/")
+    registrant = prefix[len("10."):]
+    return (
+        registrant.isdigit()
+        and 4 <= len(registrant) <= 9
+        and bool(suffix)
+        and not any(ch.isspace() for ch in d)
+        and '"' not in d
+        and "\\" not in d
+    )
+
+
+def expand_primary_trial_dois(
+    template: dict[str, Any] | None,
+    slug: str,
+) -> list[str]:
+    """I-bug-776 (#817) layer-4 (Codex decision b): return direct doi.org
+    candidate URLs for the anchored primary trials of `slug`, read from
+    `per_query_primary_trial_dois` (a {ANCHOR: DOI} dict) in the scope template.
+
+    These are injected as DIRECT retrieval candidates so the pivotal OA primaries
+    reliably enter the corpus even when guideline-dominated search ranking buries
+    them. They pass the SAME fetch / OA / extraction / tier / adequacy gates as
+    every other source (no laundering).
+
+    Backwards-compatible: missing template / key / slug / malformed -> []. Only
+    well-formed DOIs are accepted; slug-scoped (no global fallback).
+    """
+    if not isinstance(template, dict):
+        return []
+    if not isinstance(slug, str) or not slug.strip():
+        return []
+    by_slug = template.get("per_query_primary_trial_dois")
+    if not isinstance(by_slug, dict):
+        return []
+    raw = by_slug.get(slug)
+    if not isinstance(raw, dict):
+        return []
+    urls: list[str] = []
+    seen: set[str] = set()
+    for _anchor, doi in raw.items():
+        if not isinstance(doi, str):
+            continue
+        d = doi.strip()
+        if not _is_valid_doi(d):
+            continue
+        url = f"https://doi.org/{d}"
+        if url not in seen:
+            seen.add(url)
+            urls.append(url)
+    return urls
+
+
 def get_primary_trial_anchors_for_slug(
     template: dict[str, Any] | None,
     slug: str,

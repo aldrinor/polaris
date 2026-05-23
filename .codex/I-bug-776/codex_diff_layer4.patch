@@ -1,0 +1,271 @@
+diff --git a/config/scope_templates/clinical.yaml b/config/scope_templates/clinical.yaml
+index 9815b482..56702ffb 100644
+--- a/config/scope_templates/clinical.yaml
++++ b/config/scope_templates/clinical.yaml
+@@ -154,6 +154,16 @@ per_query_primary_trial_anchors:
+     - SURMOUNT-2      # Garvey et al., Lancet 2023 — obesity + T2D
+     - SURMOUNT-3      # Wadden et al., Nat Med 2023 — after ILI
+     - SURMOUNT-4      # Aronne et al., JAMA 2023 — weight maintenance
++  # I-bug-776 (#817, Codex b1): the four landmark NOAC-vs-warfarin pivotal RCTs
++  # that every NVAF anticoagulation guideline (ESC / ACC-AHA) is built on.
++  # Without these anchors a "current guidelines" question surfaces only the
++  # guidelines/reviews (T2) and never the underlying primaries (T1) -> T1<3 ->
++  # corpus_inadequate. Slug-scoped (no global fallback per Codex guardrail).
++  clinical_afib_anticoagulation:
++    - ARISTOTLE            # Granger et al., NEJM 2011 — apixaban vs warfarin
++    - ROCKET-AF            # Patel et al., NEJM 2011 — rivaroxaban vs warfarin
++    - RE-LY                # Connolly et al., NEJM 2009 — dabigatran vs warfarin
++    - ENGAGE-AF-TIMI-48    # Giugliano et al., NEJM 2013 — edoxaban vs warfarin
+ 
+ # M-48 (2026-04-22): per-anchor first-author + journal query variants.
+ # Codex V28 plan pass-1 approved; Codex V28 plan pass-2 APPROVED.
+@@ -178,6 +188,27 @@ per_query_primary_trial_variants:
+     SURMOUNT-2: Garvey Lancet tirzepatide obesity type 2 diabetes
+     SURMOUNT-3: Wadden Nature Medicine tirzepatide intensive lifestyle
+     SURMOUNT-4: Aronne JAMA tirzepatide weight maintenance
++  # I-bug-776 (#817): first-author + journal + drug variants raise the
++  # primary-publication landing probability for the afib anchors.
++  clinical_afib_anticoagulation:
++    ARISTOTLE: Granger NEJM apixaban warfarin atrial fibrillation
++    ROCKET-AF: Patel NEJM rivaroxaban warfarin atrial fibrillation
++    RE-LY: Connolly NEJM dabigatran warfarin atrial fibrillation
++    ENGAGE-AF-TIMI-48: Giugliano NEJM edoxaban warfarin atrial fibrillation
++
++# I-bug-776 (#817) LAYER 4 (Codex decision b): per-anchor primary-trial DOIs,
++# injected as DIRECT doi.org candidate URLs (not search queries). For a
++# guideline-synthesis question, search ranking buries the pivotal primaries, so
++# the layer-3 anchor SEARCH queries don't surface them. These DOIs are OA-verified
++# (Unpaywall returns NEJM PDFs) and were fact-checked by Codex against the NEJM
++# article DOIs. They pass the same fetch/OA/extraction/tier/adequacy gates — a
++# seed counts as T1 only if the classifier identifies the fetched primary trial.
++per_query_primary_trial_dois:
++  clinical_afib_anticoagulation:
++    ARISTOTLE: 10.1056/NEJMoa1107039          # Granger, NEJM 2011 — apixaban
++    ROCKET-AF: 10.1056/NEJMoa1009638          # Patel, NEJM 2011 — rivaroxaban
++    RE-LY: 10.1056/NEJMoa0905561              # Connolly, NEJM 2009 — dabigatran
++    ENGAGE-AF-TIMI-48: 10.1056/NEJMoa1310907  # Giugliano, NEJM 2013 — edoxaban
+ 
+ # M-48 (2026-04-22): per-anchor population-scope labels.
+ # Codex V28 plan pass-2 verbatim requirement: SURMOUNT-2 is direct T2D
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index b9ee5e90..2f0d491d 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1499,6 +1499,19 @@ async def run_one_query(
+             list(q.get("amplified", [])) + _reg_queries + _trial_queries
+         )
+ 
++        # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI
++        # seed candidates. Search-expansion (M-35 above) does not surface the
++        # pivotal OA primaries for guideline-dominated questions, so inject the
++        # anchored trials' known DOIs as DIRECT candidates. Slug-scoped no-op
++        # when `per_query_primary_trial_dois` is absent for the slug.
++        from src.polaris_graph.retrieval.primary_trial_expander import (
++            expand_primary_trial_dois,
++        )
++        _trial_doi_seeds = expand_primary_trial_dois(_template, q["slug"])
++        if _trial_doi_seeds:
++            _log(f"[#817-L4]     primary_trial_doi_seeds: +{len(_trial_doi_seeds)} "
++                 f"direct candidates (slug={q['slug']})")
++
+         t0 = time.time()
+         retrieval = run_live_retrieval(
+             research_question=q["question"],
+@@ -1510,6 +1523,7 @@ async def run_one_query(
+             enable_openalex_enrich=True,
+             enable_prefetch_filter=False,
+             domain=q["domain"],   # R-6 Gap-2 domain backends
++            seed_urls=_trial_doi_seeds,   # #817 layer-4 direct DOI candidates
+         )
+         dt = time.time() - t0
+         _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index c6a1f27f..a18c7ef9 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -1158,6 +1158,7 @@ def run_live_retrieval(
+     enable_openalex_enrich: bool = True,
+     enable_prefetch_filter: bool = False,
+     domain: Optional[str] = None,
++    seed_urls: Optional[list[str]] = None,
+ ) -> LiveRetrievalResult:
+     """Execute live retrieval and classify the corpus.
+ 
+@@ -1202,6 +1203,27 @@ def run_live_retrieval(
+     seen_urls: set[str] = set()
+     candidates: list[SearchCandidate] = []
+ 
++    # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI seed
++    # candidates. Injected at the FRONT so the fetch_cap slice always includes
++    # them (a reserved anchored-primary lane), and fetch_cap is bumped by the
++    # seed count below so they are ADDITIVE — they do not evict search/guideline
++    # candidates. They pass the SAME fetch / Unpaywall-OA / extraction / tier /
++    # adequacy gates as every other source: a seed counts as T1 ONLY if the tier
++    # classifier identifies the fetched content as a primary trial (no laundering).
++    _n_seed_injected = 0
++    for _surl in seed_urls or []:
++        if _surl and _surl not in seen_urls:
++            seen_urls.add(_surl)
++            candidates.append(SearchCandidate(
++                url=_surl, title="", snippet="", source="primary_trial_doi",
++            ))
++            _n_seed_injected += 1
++    if _n_seed_injected:
++        logger.info(
++            "[live_retriever] injected %d direct primary-trial DOI seed candidates",
++            _n_seed_injected,
++        )
++
+     for q in effective_queries:
+         logger.info("[live_retriever] SERPER q=%r", q[:80])
+         serper_hits = _serper_search(q, num=max_serper)
+@@ -1282,7 +1304,10 @@ def run_live_retrieval(
+     kept_by_offtopic = len(candidates)
+ 
+     # ── Step 4: cap, fetch, enrich, classify ────────────────────────
+-    candidates = candidates[:fetch_cap]
++    # I-bug-776 (#817) layer-4: bump the cap by the seed count so the injected
++    # primary-trial DOIs are additive (they occupy a reserved lane at the front
++    # and do not displace search/guideline candidates).
++    candidates = candidates[:fetch_cap + _n_seed_injected]
+ 
+     classified_sources: list[CorpusSource] = []
+     evidence_rows: list[dict[str, Any]] = []
+diff --git a/src/polaris_graph/retrieval/primary_trial_expander.py b/src/polaris_graph/retrieval/primary_trial_expander.py
+index 9835bb4e..1497f738 100644
+--- a/src/polaris_graph/retrieval/primary_trial_expander.py
++++ b/src/polaris_graph/retrieval/primary_trial_expander.py
+@@ -131,6 +131,59 @@ def _extract_anchors(
+     return unique
+ 
+ 
++def _is_valid_doi(d: str) -> bool:
++    """A DOI looks like 10.<registrant>/<suffix> with no whitespace/quote/
++    backslash (which would break the doi.org URL or downstream quoting)."""
++    return (
++        d.startswith("10.")
++        and "/" in d
++        and not any(ch.isspace() for ch in d)
++        and '"' not in d
++        and "\\" not in d
++    )
++
++
++def expand_primary_trial_dois(
++    template: dict[str, Any] | None,
++    slug: str,
++) -> list[str]:
++    """I-bug-776 (#817) layer-4 (Codex decision b): return direct doi.org
++    candidate URLs for the anchored primary trials of `slug`, read from
++    `per_query_primary_trial_dois` (a {ANCHOR: DOI} dict) in the scope template.
++
++    These are injected as DIRECT retrieval candidates so the pivotal OA primaries
++    reliably enter the corpus even when guideline-dominated search ranking buries
++    them. They pass the SAME fetch / OA / extraction / tier / adequacy gates as
++    every other source (no laundering).
++
++    Backwards-compatible: missing template / key / slug / malformed -> []. Only
++    well-formed DOIs are accepted; slug-scoped (no global fallback).
++    """
++    if not isinstance(template, dict):
++        return []
++    if not isinstance(slug, str) or not slug.strip():
++        return []
++    by_slug = template.get("per_query_primary_trial_dois")
++    if not isinstance(by_slug, dict):
++        return []
++    raw = by_slug.get(slug)
++    if not isinstance(raw, dict):
++        return []
++    urls: list[str] = []
++    seen: set[str] = set()
++    for _anchor, doi in raw.items():
++        if not isinstance(doi, str):
++            continue
++        d = doi.strip()
++        if not _is_valid_doi(d):
++            continue
++        url = f"https://doi.org/{d}"
++        if url not in seen:
++            seen.add(url)
++            urls.append(url)
++    return urls
++
++
+ def get_primary_trial_anchors_for_slug(
+     template: dict[str, Any] | None,
+     slug: str,
+diff --git a/tests/polaris_graph/test_bug776_layer4_doi_seeds.py b/tests/polaris_graph/test_bug776_layer4_doi_seeds.py
+new file mode 100644
+index 00000000..b0679db0
+--- /dev/null
++++ b/tests/polaris_graph/test_bug776_layer4_doi_seeds.py
+@@ -0,0 +1,68 @@
++"""I-bug-776 (#817) layer-4 — direct primary-trial DOI seed-candidate injection.
++
++Codex decision (b): inject the anchored trials' known DOIs as DIRECT doi.org
++candidate URLs (not search queries), because guideline-dominated search ranking
++buries the pivotal OA primaries. They pass the same fetch/tier/adequacy gates
++(no laundering). These assert the deterministic config-parsing core.
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.retrieval.primary_trial_expander import (
++    _is_valid_doi,
++    expand_primary_trial_dois,
++)
++
++_AFIB = "clinical_afib_anticoagulation"
++
++
++def _tmpl(dois: dict) -> dict:
++    return {"per_query_primary_trial_dois": {_AFIB: dois}}
++
++
++def test_afib_dois_become_doiorg_candidates() -> None:
++    t = _tmpl({
++        "ARISTOTLE": "10.1056/NEJMoa1107039",
++        "ROCKET-AF": "10.1056/NEJMoa1009638",
++    })
++    out = expand_primary_trial_dois(t, _AFIB)
++    assert out == [
++        "https://doi.org/10.1056/NEJMoa1107039",
++        "https://doi.org/10.1056/NEJMoa1009638",
++    ]
++
++
++def test_negative_cases_return_empty() -> None:
++    t = _tmpl({"ARISTOTLE": "10.1056/NEJMoa1107039"})
++    assert expand_primary_trial_dois(t, "tech_rag_architectures_2024") == []  # unconfigured slug
++    assert expand_primary_trial_dois(None, _AFIB) == []                        # no template
++    assert expand_primary_trial_dois({}, _AFIB) == []                          # no key
++    assert expand_primary_trial_dois({"per_query_primary_trial_dois": []}, _AFIB) == []  # malformed
++    assert expand_primary_trial_dois(t, "") == []                              # empty slug
++
++
++def test_malformed_dois_rejected() -> None:
++    t = _tmpl({
++        "GOOD": "10.1056/NEJMoa1107039",
++        "NO_PREFIX": "NEJMoa1107039",         # missing 10.
++        "WHITESPACE": "10.1056/ NEJMoa1",     # interior space
++        "QUOTE": '10.1056/NEJM"a',            # quote
++        "NOT_STR": 12345,                     # non-string
++    })
++    out = expand_primary_trial_dois(t, _AFIB)
++    assert out == ["https://doi.org/10.1056/NEJMoa1107039"]
++
++
++def test_is_valid_doi() -> None:
++    assert _is_valid_doi("10.1056/NEJMoa1107039")
++    assert _is_valid_doi("10.3390/jcm14228079")
++    assert not _is_valid_doi("NEJMoa1107039")       # no 10.
++    assert not _is_valid_doi("10.1056")             # no slash
++    assert not _is_valid_doi("10.1056/a b")         # whitespace
++    assert not _is_valid_doi('10.1056/a"b')         # quote
++
++
++def test_dedupe_preserves_order() -> None:
++    t = _tmpl({"A": "10.1/x", "B": "10.1/x", "C": "10.2/y"})  # A,B same DOI
++    out = expand_primary_trial_dois(t, _AFIB)
++    assert out == ["https://doi.org/10.1/x", "https://doi.org/10.2/y"]

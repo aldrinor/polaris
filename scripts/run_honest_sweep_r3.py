@@ -1499,6 +1499,19 @@ async def run_one_query(
             list(q.get("amplified", [])) + _reg_queries + _trial_queries
         )
 
+        # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI
+        # seed candidates. Search-expansion (M-35 above) does not surface the
+        # pivotal OA primaries for guideline-dominated questions, so inject the
+        # anchored trials' known DOIs as DIRECT candidates. Slug-scoped no-op
+        # when `per_query_primary_trial_dois` is absent for the slug.
+        from src.polaris_graph.retrieval.primary_trial_expander import (
+            expand_primary_trial_dois,
+        )
+        _trial_doi_seeds = expand_primary_trial_dois(_template, q["slug"])
+        if _trial_doi_seeds:
+            _log(f"[#817-L4]     primary_trial_doi_seeds: +{len(_trial_doi_seeds)} "
+                 f"direct candidates (slug={q['slug']})")
+
         t0 = time.time()
         retrieval = run_live_retrieval(
             research_question=q["question"],
@@ -1510,6 +1523,7 @@ async def run_one_query(
             enable_openalex_enrich=True,
             enable_prefetch_filter=False,
             domain=q["domain"],   # R-6 Gap-2 domain backends
+            seed_urls=_trial_doi_seeds,   # #817 layer-4 direct DOI candidates
         )
         dt = time.time() - t0
         _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "

@@ -1158,6 +1158,7 @@ def run_live_retrieval(
     enable_openalex_enrich: bool = True,
     enable_prefetch_filter: bool = False,
     domain: Optional[str] = None,
+    seed_urls: Optional[list[str]] = None,
 ) -> LiveRetrievalResult:
     """Execute live retrieval and classify the corpus.
 
@@ -1201,6 +1202,27 @@ def run_live_retrieval(
     # ── Step 2: run Serper + S2 across queries ──────────────────────
     seen_urls: set[str] = set()
     candidates: list[SearchCandidate] = []
+
+    # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI seed
+    # candidates. Injected at the FRONT so the fetch_cap slice always includes
+    # them (a reserved anchored-primary lane), and fetch_cap is bumped by the
+    # seed count below so they are ADDITIVE — they do not evict search/guideline
+    # candidates. They pass the SAME fetch / Unpaywall-OA / extraction / tier /
+    # adequacy gates as every other source: a seed counts as T1 ONLY if the tier
+    # classifier identifies the fetched content as a primary trial (no laundering).
+    _n_seed_injected = 0
+    for _surl in seed_urls or []:
+        if _surl and _surl not in seen_urls:
+            seen_urls.add(_surl)
+            candidates.append(SearchCandidate(
+                url=_surl, title="", snippet="", source="primary_trial_doi",
+            ))
+            _n_seed_injected += 1
+    if _n_seed_injected:
+        logger.info(
+            "[live_retriever] injected %d direct primary-trial DOI seed candidates",
+            _n_seed_injected,
+        )
 
     for q in effective_queries:
         logger.info("[live_retriever] SERPER q=%r", q[:80])
@@ -1282,7 +1304,10 @@ def run_live_retrieval(
     kept_by_offtopic = len(candidates)
 
     # ── Step 4: cap, fetch, enrich, classify ────────────────────────
-    candidates = candidates[:fetch_cap]
+    # I-bug-776 (#817) layer-4: bump the cap by the seed count so the injected
+    # primary-trial DOIs are additive (they occupy a reserved lane at the front
+    # and do not displace search/guideline candidates).
+    candidates = candidates[:fetch_cap + _n_seed_injected]
 
     classified_sources: list[CorpusSource] = []
     evidence_rows: list[dict[str, Any]] = []

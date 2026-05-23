@@ -1,0 +1,49 @@
+**Decision: choose (b), direct-seed-URL injection.**
+
+Use configured anchored-trial DOIs to add direct DOI candidates, e.g. `https://doi.org/10.1056/NEJMoa1107039`, at the candidate-build seam. Do **not** rely on DOI-as-query as the fix. The failure mode is already candidate-ranking/cap loss after queries fired, so another query is still probabilistic. Direct DOI seeding is the smallest reliable change that targets the actual failure.
+
+**Config schema**
+
+Use slug-scoped config:
+
+```yaml
+per_query_primary_trial_dois:
+  afib_anticoagulation_guidelines:
+    ARISTOTLE: 10.1056/NEJMoa1107039
+    ROCKET-AF: 10.1056/NEJMoa1009638
+    RE-LY: 10.1056/NEJMoa0905561
+    ENGAGE-AF-TIMI-48: 10.1056/NEJMoa1310907
+```
+
+Only inject when both slug and anchor match configured entries. No global DOI injection.
+
+**Guardrails**
+
+- Inject DOI candidates as direct URL candidates, not as tier labels.
+- They must pass the same fetch, Unpaywall/OA, extraction, tier-classifier, and adequacy gates as every other source.
+- Deduplicate by normalized DOI and resolved URL.
+- Cap slug-scoped injections to configured anchors only, likely max 4 for this slug.
+- Preserve the normal search/S2 corpus budget; DOI seeds should be additive sidecar candidates or have a tiny reserved anchored-primary lane so they do not evict guideline sources.
+- Log every injected DOI with `{slug, anchor, doi, candidate_url, resolved_url, tier_result}`.
+
+**Invariant to test**
+
+For a configured slug-anchor DOI:
+
+> If `per_query_primary_trial_dois[slug][anchor] = doi`, the candidate builder emits exactly one direct DOI candidate for `https://doi.org/{doi}`, and that candidate can only count as T1 after normal fetch/extraction/tier/adequacy validation identifies it as the primary trial.
+
+Also test the negative case: an unconfigured slug or anchor injects nothing.
+
+**Verification**
+
+Re-run the combined `#812 + #815 + #817` afib sweep. Expected result:
+
+- The four configured trial DOIs appear in candidate logs.
+- They resolve through Unpaywall/NEJM OA PDFs.
+- Extractors process them successfully.
+- At least 3 of the 4 surface as T1.
+- The run no longer aborts with `T1=0`.
+
+**Misdiagnosis check**
+
+The diagnosis looks right: the expander fired, but rank/cap pressure removed the primary trials before fetch. This is not an OA or extractor problem if direct Unpaywall returns NEJM PDFs. The remaining risk is resolver/fetch brittleness, so the implementation should log DOI resolution failures distinctly from tier-classification failures.

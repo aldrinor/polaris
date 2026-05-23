@@ -1,0 +1,37 @@
+diff --git a/config/scope_templates/clinical.yaml b/config/scope_templates/clinical.yaml
+index 9815b482..ab87d22c 100644
+--- a/config/scope_templates/clinical.yaml
++++ b/config/scope_templates/clinical.yaml
+@@ -154,6 +154,16 @@ per_query_primary_trial_anchors:
+     - SURMOUNT-2      # Garvey et al., Lancet 2023 — obesity + T2D
+     - SURMOUNT-3      # Wadden et al., Nat Med 2023 — after ILI
+     - SURMOUNT-4      # Aronne et al., JAMA 2023 — weight maintenance
++  # I-bug-776 (#817, Codex b1): the four landmark NOAC-vs-warfarin pivotal RCTs
++  # that every NVAF anticoagulation guideline (ESC / ACC-AHA) is built on.
++  # Without these anchors a "current guidelines" question surfaces only the
++  # guidelines/reviews (T2) and never the underlying primaries (T1) -> T1<3 ->
++  # corpus_inadequate. Slug-scoped (no global fallback per Codex guardrail).
++  clinical_afib_anticoagulation:
++    - ARISTOTLE            # Granger et al., NEJM 2011 — apixaban vs warfarin
++    - ROCKET-AF            # Patel et al., NEJM 2011 — rivaroxaban vs warfarin
++    - RE-LY                # Connolly et al., NEJM 2009 — dabigatran vs warfarin
++    - ENGAGE-AF-TIMI-48    # Giugliano et al., NEJM 2013 — edoxaban vs warfarin
+ 
+ # M-48 (2026-04-22): per-anchor first-author + journal query variants.
+ # Codex V28 plan pass-1 approved; Codex V28 plan pass-2 APPROVED.
+@@ -178,6 +188,13 @@ per_query_primary_trial_variants:
+     SURMOUNT-2: Garvey Lancet tirzepatide obesity type 2 diabetes
+     SURMOUNT-3: Wadden Nature Medicine tirzepatide intensive lifestyle
+     SURMOUNT-4: Aronne JAMA tirzepatide weight maintenance
++  # I-bug-776 (#817): first-author + journal + drug variants raise the
++  # primary-publication landing probability for the afib anchors.
++  clinical_afib_anticoagulation:
++    ARISTOTLE: Granger NEJM apixaban warfarin atrial fibrillation
++    ROCKET-AF: Patel NEJM rivaroxaban warfarin atrial fibrillation
++    RE-LY: Connolly NEJM dabigatran warfarin atrial fibrillation
++    ENGAGE-AF-TIMI-48: Giugliano NEJM edoxaban warfarin atrial fibrillation
+ 
+ # M-48 (2026-04-22): per-anchor population-scope labels.
+ # Codex V28 plan pass-2 verbatim requirement: SURMOUNT-2 is direct T2D
+
+# canonical-diff-sha256: 0c6d36240c3dae199680981a942e707e9190d9e594d1ce2bb02bf95d821dfa45
