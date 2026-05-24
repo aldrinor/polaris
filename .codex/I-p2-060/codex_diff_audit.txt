@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/app/inspector/offline/page.tsx:91: The new icon/span children can make `onDragLeave={() => setDragOver(false)}` briefly clear drag-active styling when the dragged item crosses descendants, causing visual flicker. Drop behavior still works, so this is polish only."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

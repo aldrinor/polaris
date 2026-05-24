@@ -1,0 +1,9 @@
+```yaml
+verdict: APPROVE
+per_screen_grades: { default_desktop: "A", mobile: "A-" }
+novel_p0: []
+p1: []
+p2:
+  - "Mobile copy is a little dense before the dropzone, but it remains readable and does not break layout."
+convergence_call: accept_remaining
+```
