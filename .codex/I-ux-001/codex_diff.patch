@@ -1,0 +1,598 @@
+From cfadf0688305561c1bb57ae1c99ce3cc52a6aa94 Mon Sep 17 00:00:00 2001
+From: msn <msn@polaris.dev>
+Date: Sun, 24 May 2026 01:25:47 -0700
+Subject: [PATCH 1/2] =?UTF-8?q?I-ux-001=20(#872):=20experience=20plan=20v4?=
+ =?UTF-8?q?=20=E2=80=94=20honesty=20+=20execution=20gates=20(per=20Codex?=
+ =?UTF-8?q?=20iter-3)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+iter-3 resolved clinical method/regulatory/two-judgment/verifier-honesty/anti-cherry-pick.
+v4 closes the last 3:
+- NEW Prerequisite 0 (§13.5): a REAL signed demo bundle. Current bundle has no real
+  manifest.yaml.asc (loader shows "Signature missing"; fixture .asc is a placeholder) ->
+  "signed/offline-verifiable" claims gated on GPG verify passing, else honest "not signed"
+  state. LAW-II no-fake-working gate + CI guard.
+- operationalized abstention/SoF launch gate (required outcomes, min adequacy,
+  multi-outcome=lowest-certainty mapping, refuse-vs-badge).
+- verifier release gate (held-out gold-set threshold + calibration + disagreement escalation).
+- §6 adds "not for individual-patient recommendations / not for urgent decisions".
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+---
+ docs/stier_experience_plan.md | 32 ++++++++++++++++++++++++--------
+ 1 file changed, 24 insertions(+), 8 deletions(-)
+
+diff --git a/docs/stier_experience_plan.md b/docs/stier_experience_plan.md
+index d703b87b..23a8ce14 100644
+--- a/docs/stier_experience_plan.md
++++ b/docs/stier_experience_plan.md
+@@ -1,9 +1,10 @@
+-# POLARIS — S-Tier Experience Plan v3 (I-ux-001 / #872)
++# POLARIS — S-Tier Experience Plan v4 (I-ux-001 / #872)
+ 
+-**For:** Codex UNCAPPED review (iter 3). Rebuilt to address iter-2 (`codex_plan_verdict_iter2.txt`): iter-2 said direction is right; blockers were the clinical-safety method, regulatory/intended-use posture, and verifier-trust honesty.
++**For:** Codex UNCAPPED review (iter 4). iter-3 RESOLVED clinical-safety method, regulatory posture, two-judgment separation, verifier honesty, anti-cherry-pick, Canadian policy, assistive-tech WCAG. Remaining: one honesty P0 (the demo bundle is not actually signed) + two execution-gate P1s.
+ **Decision authority:** Codex. Operator not consulted (full authorization 2026-05-24).
+ 
+-**v2→v3 changes (per iter-2):** (a) **two judgments separated everywhere** — *textual faithfulness* (sentence↔span, two-family-checked) vs *evidence strength / decision-safety* (outcome-level); (b) clinical layer rebuilt as a **real outcome-level Summary-of-Findings** (GRADE done correctly, not per-sentence) with abstention thresholds; (c) NEW **intended-use / regulatory posture + honest-limits** section (Health Canada/FDA/MHRA transparency principles; explicitly NON-device decision-support); (d) **verifier-trust honesty** — two-family stated with measured reliability + a "what this cannot prove" panel; (e) **anti-cherry-picking** source controls (locked defaults, receipt-logged deviations, sensitivity runs); (f) **execution-safe** offline verify (key identity/authority/rotation/revocation/pass-fail); (g) concrete **90-second PM demo script**; (h) Canadian source policy + assistive-tech accessibility testing.
++**v3→v4 changes (per iter-3):** (a) NEW **Prerequisite 0 — a REAL signed demo bundle** (the current bundle has no real `manifest.yaml.asc`; "signed/offline-verifiable" claims are gated on GPG verification passing, else the honest "not signed" state shows); (b) **operationalized abstention/SoF launch gate** (required demo outcomes, min adequacy, multi-outcome→certainty mapping, refuse-vs-badge rule); (c) **verifier release gate** (gold-set threshold + calibration + disagreement escalation before the independent-family check may be called trustworthy in the PM build); (d) §6 adds explicit "not for individual-patient recommendations / not for urgent/time-sensitive decisions."
++*(v2→v3 had: two-judgment separation, outcome-level GRADE SoF, intended-use posture, verifier honesty, anti-cherry-pick controls, execution-safe verify, 90s demo script, Canadian source policy + assistive-tech testing.)*
+ 
+ ---
+ 
+@@ -53,7 +54,7 @@ The make-or-break interaction. Keyboard-first, mobile-real, instant. Crucially i
+ 
+ **Perf budget:** time-to-first-proof <400ms; span highlight <150ms; claim switch <120ms. `prefers-reduced-motion`: instant swaps.
+ 
+-**Home teaser:** a real verified claim from the existing real signed bundle; one "Challenge this sentence" runs beats 1→6 inline — the 8-second "I've never seen research I could check *and* gauge like this" moment.
++**Home teaser:** a real verified claim from the demo bundle (which must be *really* signed per Prerequisite 0, §13.5 — the beat-5 "signed/offline-verifiable" claim renders only when GPG verification passes, else the honest "not signed" state shows); one "Challenge this sentence" runs beats 1→6 inline — the 8-second "I've never seen research I could check *and* gauge like this" moment.
+ 
+ ## 5. Clinical evidence-strength layer — done correctly (iter-2 P0)
+ 
+@@ -62,6 +63,7 @@ GRADE certainty is **outcome-level across a body of evidence**, NOT per-sentence
+ - **Harms surfaced alongside efficacy**, never buried; **applicability/population fit** (incl. Canadian relevance) flagged on mismatch; **evidence hierarchy** (RCT vs guideline vs observational) visibly distinguished (this is what #817 addressed in retrieval).
+ - **Honest scope of automation:** POLARIS *surfaces the inputs* to a GRADE assessment and presents a structured SoF view + a per-claim certainty read **when supportable**; it does NOT claim to replace a formal GRADE appraisal by the reviewer. Labeled as decision-support input.
+ - **Abstention thresholds:** below a defined adequacy/certainty floor, POLARIS abstains ("the evidence base cannot support a safe answer") — a dignified first-class outcome, not an error (the #871 class).
++- **Operational launch gate (iter-3 P1 — must be specified, not just named):** the clinical demo ships only when: (i) the demo question has ≥1 critical efficacy outcome AND its harms/safety outcome covered by a Summary of Findings; (ii) minimum body-of-evidence adequacy met (≥ the §9 tier thresholds AND ≥2 independent sources per graded outcome); (iii) **multi-outcome→brief-certainty mapping** is defined (a brief's headline certainty = the *lowest* certainty among its critical outcomes, never the highest — no averaging away a weak harm signal); (iv) **refuse-vs-badge rule:** if any critical outcome falls below the floor, the UI must REFUSE/abstain for that claim (not show a low-certainty badge as if answered). These thresholds live in config (LAW VI), not hard-coded.
+ - **Decision context (EtD-aware, lightweight):** where relevant, note benefits/harms balance and values/applicability caveats so a sentence that is *faithful* is never mistaken for *sufficient to act on*.
+ 
+ ## 6. Intended-use, regulatory posture & honest limits (NEW — iter-2 P0)
+@@ -69,7 +71,7 @@ GRADE certainty is **outcome-level across a body of evidence**, NOT per-sentence
+ A standing, visible **intended-use statement** (on the brief, the receipt, and /transparency):
+ - **Intended user:** senior policy/clinical reviewers in an institutional setting (e.g. a PM's office) for *research decision-support*.
+ - **Intended use:** produce auditable, source-bound evidence briefs to *inform* expert review.
+-- **NOT intended:** point-of-care diagnosis/treatment, a medical device / regulated clinical decision support, or a substitute for clinician/expert judgment. **Non-reliance language** explicit.
++- **NOT intended:** point-of-care diagnosis/treatment, a medical device / regulated clinical decision support, a substitute for clinician/expert judgment, **individual-patient recommendations**, or **urgent / time-sensitive clinical decisions**. **Non-reliance language** explicit (aligns with Health Canada/FDA non-device CDS framing).
+ - **Knowns/unknowns + data quality:** what sources were and were not searched, recency, and the limits of automated retrieval/extraction.
+ - **Evaluator validation posture:** the two-family check is an *independence/consistency* mechanism with measured reliability and stated limits (§7) — not regulatory validation.
+ - **Canadian-population applicability** explicitly addressed.
+@@ -81,6 +83,7 @@ Present the verification truthfully so "two-family" never becomes a new overclai
+ - **Deterministic checks** (numeric match, span bounds, content-word overlap) shown as *mechanical* facts.
+ - **Two-family independent check** shown as an *independence/consistency* signal with **measured reliability** (evaluator accuracy/agreement metrics, calibration examples) and **disagreement handling** (what happens when families disagree).
+ - **A persistent "what this verifier cannot prove" panel:** faithfulness ≠ source correctness; independence ≠ clinical validation; absence of contradiction ≠ completeness.
++- **Release gate (iter-3 P1 — not just a display promise):** before the PM build may call the independent-family check "trustworthy", it must clear a gate on a held-out gold set — a documented accuracy/agreement threshold vs human adjudication, published calibration examples (where the check is right/wrong), and a defined **disagreement-escalation** path (family-disagreement downgrades the claim to PARTIAL and surfaces both reads, never silently picks one). Threshold + gold-set live in config; the gate is a build artifact, not a slogan.
+ 
+ ## 8. Intake → Plan: source strategy with anti-cherry-picking guardrails (iter-2 P1)
+ 
+@@ -131,11 +134,24 @@ Warm-editorial base + brand red `#c8102e` (LOCKED) → Linear/Stripe/Vercel craf
+ | Export/Receipt | B | **structural rebuild** (§11) | execution-safe offline-verify |
+ | Source-review, dashboard, memory, benchmark, upload, contracts, pin-replay, sign-in | C–B | polish to system | subordinate; consistent components + motion + de-jargon |
+ 
+-## 14. Execution sequence + the actual PM demo script (iter-1/2)
++## 13.5 Prerequisite 0 — a REAL signed demo bundle (BLOCKING for any "signed" claim) (iter-3 P0)
+ 
++**Honest state today:** the demo/canonical bundle is NOT actually signed. `web/public/canonical_bundles/v1_canonical_success` has no `manifest.yaml.asc`; the loader (`web/lib/inspector_bundle_loader.ts`) only sets `signaturePresent` when that file exists and is non-empty; the live inspector shows "Signature missing"; the test-fixture `.asc` is a documented placeholder, not a real key signature. So any "signed / offline-verifiable" claim in the hero or demo is currently FALSE.
++
++**Therefore, BEFORE the hero/demo may use the word "signed" or promise offline verification:**
++1. Obtain real signing-key material (the project's deploy key if one exists; if none is available in the environment, that is a genuine blocker → write `state/stier_halt_signing_key.md` and surface it — do not fake it).
++2. Sign the demo bundle's `manifest.yaml` → a real `manifest.yaml.asc`.
++3. **Dry-run `gpg --verify`** it; capture the pass output as a build artifact.
++4. A **build/CI guard** that FAILS if any bundle the UI labels "signed" lacks a non-placeholder `.asc` that GPG-verifies. Until it passes, the UI must show the honest **"not signed — trust not established"** state (§12 copy), never a green "signed" badge.
++
++The hero is BUILT against the demo bundle in parallel; its beat-5 "signed/offline-verifiable" affordance and the §14 offline-receipt-handoff only light up once Prereq 0 passes. This is a LAW-II "no fake working" gate.
++
++## 14. Execution sequence + the actual PM demo script (iter-1/2/3)
++
++0. **Prerequisite 0 (§13.5): a REAL signed demo bundle + the signed-language guard.** Blocks all "signed/offline-verifiable" claims until GPG verification passes.
+ 1. Design + motion foundation + **Figma/motion prototype of the hero** (6-beat) BEFORE code; Codex reviews the prototype (`-i`).
+ 2. Component system to spec (incl. SoF row, certainty badge, what-can't-prove panel, intended-use banner).
+-3. **Hero** (Report/Inspector + Home teaser) against the **existing real signed bundle** (do NOT wait on #871).
++3. **Hero** (Report/Inspector + Home teaser) — built in parallel; "signed" affordances gated on Prereq 0; do NOT wait on #871.
+ 4. **Clinical evidence-strength layer + intended-use posture + verifier-honesty** woven in.
+ 5. **Journey views** in flow order, each with failure states (inadequate/partial/contradictory/unsigned).
+ 6. Supporting surfaces to the system.
+@@ -156,4 +172,4 @@ S-tier per surface: (a) Codex 16-dim visual audit PASS via `codex exec -i` (desk
+ Initiative done when: every surface clears the bar; the workspace reads as one artifact; faithfulness and evidence-strength are cleanly separated and honest; intended-use + verifier limits are explicit; offline-verify works execution-safe; and a real end-to-end run produces a real verified brief through the hero (#871 fixed for the live demo).
+ 
+ ---
+-*Codex iter 3: verify v3 against iter-2 P0/P1 (don't trust change-claims — read the plan). Re-cross-check online (esp. GRADE/SoF method + Health Canada/FDA transparency). APPROVE only if frontier-beating, unforgettable, clinical-SAFE, honest, and one coherent artifact. Uncapped.*
++*Codex iter 4: verify v4 against iter-3 P0/P1 (don't trust change-claims — read the plan). The iter-3 P0 was the unsigned-bundle honesty gap → §13.5 Prereq 0. APPROVE only if frontier-beating, unforgettable, clinical-SAFE, honest, and one coherent artifact, with no fake-working premises. Uncapped.*
+-- 
+2.49.0.windows.1
+
+
+From 38ae0ebcc335819a6b4b900023d21e918c2ab9b8 Mon Sep 17 00:00:00 2001
+From: msn <msn@polaris.dev>
+Date: Sun, 24 May 2026 01:31:55 -0700
+Subject: [PATCH 2/2] I-ux-001 (#872): plan APPROVED by Codex iter 4 (uncapped,
+ 4-round convergence)
+
+Verdict iter 4: APPROVE, convergence_call=accept_remaining, zero P0/P1.
+Trajectory: REQ-CHG (overclaim/route-centric/hero-weak) -> REQ-CHG (clinical-safety
+method/regulatory/verifier over-trust) -> REQ-CHG (unsigned-bundle honesty P0) ->
+APPROVE. Residuals: P2 tri-valued signature state, P3 name config paths -
+carried into execution tickets per PLAN_APPROVED.md.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+---
+ .codex/I-ux-001/PLAN_APPROVED.md             | 31 +++++++++
+ .codex/I-ux-001/brief_plan.md                | 72 ++++++++++++++++++++
+ .codex/I-ux-001/brief_plan_iter2.md          | 40 +++++++++++
+ .codex/I-ux-001/brief_plan_iter3.md          | 41 +++++++++++
+ .codex/I-ux-001/brief_plan_iter4.md          | 37 ++++++++++
+ .codex/I-ux-001/codex_plan_verdict_iter1.txt | 61 +++++++++++++++++
+ .codex/I-ux-001/codex_plan_verdict_iter2.txt | 51 ++++++++++++++
+ .codex/I-ux-001/codex_plan_verdict_iter3.txt | 33 +++++++++
+ .codex/I-ux-001/codex_plan_verdict_iter4.txt | 25 +++++++
+ 9 files changed, 391 insertions(+)
+ create mode 100644 .codex/I-ux-001/PLAN_APPROVED.md
+ create mode 100644 .codex/I-ux-001/brief_plan.md
+ create mode 100644 .codex/I-ux-001/brief_plan_iter2.md
+ create mode 100644 .codex/I-ux-001/brief_plan_iter3.md
+ create mode 100644 .codex/I-ux-001/brief_plan_iter4.md
+ create mode 100644 .codex/I-ux-001/codex_plan_verdict_iter1.txt
+ create mode 100644 .codex/I-ux-001/codex_plan_verdict_iter2.txt
+ create mode 100644 .codex/I-ux-001/codex_plan_verdict_iter3.txt
+ create mode 100644 .codex/I-ux-001/codex_plan_verdict_iter4.txt
+
+diff --git a/.codex/I-ux-001/PLAN_APPROVED.md b/.codex/I-ux-001/PLAN_APPROVED.md
+new file mode 100644
+index 00000000..2fcba688
+--- /dev/null
++++ b/.codex/I-ux-001/PLAN_APPROVED.md
+@@ -0,0 +1,31 @@
++# I-ux-001 S-tier experience plan — CODEX APPROVED (iter 4)
++
++**Status:** `docs/stier_experience_plan.md` v4 — **verdict: APPROVE**, `convergence_call: accept_remaining` (Codex iter 4, 2026-05-24). Zero P0, zero P1.
++
++**Iteration trajectory (uncapped per operator 2026-05-24):**
++| iter | verdict | what moved |
++|---|---|---|
++| 1 | REQUEST_CHANGES | overclaimed uniqueness (competitors do exact-quote citation); route-centric not artifact-centric; hero = "nice citation UI"; missing clinical-quality layer |
++| 2 | REQUEST_CHANGES | clinical-safety method (GRADE per-sentence was wrong); regulatory/intended-use posture; verifier over-trust |
++| 3 | REQUEST_CHANGES | one honest P0 — the "signed bundle" is not actually signed (no real `manifest.yaml.asc`; fixture `.asc` is placeholder) |
++| 4 | **APPROVE** | Prereq-0 signed-bundle honesty gate; operational abstention/SoF launch gate; verifier release gate; non-use exclusions |
++
++**Locking note:** `.codex/REVIEW_BRIEF_FORMAT.md` suggests two consecutive independent APPROVEs; Codex's explicit `accept_remaining` convergence call + zero P0/P1 at iter 4, under the operator's uncapped "iterate until Codex approves" directive, is the lock. Per §8.3.6 (respect Codex's convergence call) we do NOT iterate past a converged APPROVE.
++
++## Non-blocking residuals → carry into EXECUTION tickets (Codex iter-4)
++
++- **P2 — tri-valued signature state.** Model signature as `missing | present_unverified | gpg_verified`, NOT boolean `signaturePresent`. Today `web/components/inspector/bundle_header.tsx:76` can show "Signed bundle" from mere `.asc` presence, while `web/lib/inspector_bundle_client_loader.ts:19` says GPG verify is out of scope. This is the exact spot the Prereq-0 honesty gate could regress in implementation → fix when building the Receipt/Inspector (§11/§13.5).
++- **P3 — name the config paths.** Verifier gold-set threshold + SoF threshold config file paths must be named in their implementation tickets (config-backed per LAW VI), to reduce drift.
++
++## Next: EXECUTION per approved §14
++0. **Prerequisite 0 (§13.5):** a REAL signed demo bundle + signed-language guard (investigate signing-key material; if none, `state/stier_halt_signing_key.md`). Gates all "signed" UI claims.
++1. **Design + motion foundation + Figma/motion prototype of the hero** (6-beat) — Codex reviews prototype via `-i` BEFORE code.
++2. Component system to spec.
++3. Hero (Report/Inspector + Home teaser), "signed" affordances gated on Prereq 0.
++4. Clinical evidence-strength layer + intended-use + verifier-honesty.
++5. Journey views (failure states designed).
++6. Supporting surfaces.
++7. #871 in PARALLEL (live-demo reliability blocker).
++8. PM 90-second demo script.
++
++Per page: issue → brief → Codex brief review → build → Codex 16-dim visual audit (`codex exec -i`) → Codex diff review → merge → redeploy → screenshot-verify LIVE → close.
+diff --git a/.codex/I-ux-001/brief_plan.md b/.codex/I-ux-001/brief_plan.md
+new file mode 100644
+index 00000000..84b77219
+--- /dev/null
++++ b/.codex/I-ux-001/brief_plan.md
+@@ -0,0 +1,72 @@
++# Codex review brief — I-ux-001 S-tier experience PLAN (UNCAPPED)
++
++## 0. ITERATION DIRECTIVE — NO CAP (operator override 2026-05-24)
++
++The operator has explicitly REMOVED the standard §8.3.1 5-iteration cap for THIS plan review:
++> "I won't set an iteration cap here — if Codex needs 30 rounds iteration to confirm, just be it. I want top-tier S-level UI experience, not half-ass. Keep iterating until even Codex at its highest requirements would approve."
++
++So:
++- Apply your HIGHEST bar. Do not approve a plan that would produce a merely "clean/functional" or B-tier result. Approve only a plan that, executed faithfully, yields a genuinely **frontier-BEATING, S-tier, differentiated** experience.
++- Still **front-load all findings** each round (no drip-feed) — there's no penalty for more rounds, but a good review is exhaustive every round.
++- "Don't pick bone from egg": classify findings P0/P1/P2/P3 honestly; reserve P0/P1 for real execution risks to the *experience*.
++- Cross-check current best practice ONLINE (you have web access): Perplexity (Spaces/Comet), ChatGPT/Gemini Deep Research, OpenEvidence, Elicit, Consensus, Scite, FutureHouse, Genspark/Manus + craft refs (Linear, Stripe, Vercel, Raycast). Decisions must be evidence-based, not from memory.
++- Be a PICKY REAL USER (a senior clinical/policy reviewer in a Prime Minister's office). Ask the hard question: *clicking in, what would actually make me go "I've never seen research like this" and come back?* If something is weak or pretend-play, say so. If something needs a complete rebuild, say so.
++
++## 1. What to review
++
++Read these files in the repo:
++- **`docs/stier_experience_plan.md`** — THE plan under review.
++- `docs/stier_experience_directive_2026_05_24.md` — operator directive + research synthesis (context).
++
++**Attached images (current LIVE state — ground your critique in this reality):**
++- `01_home.png` — the home / first impression (note the proof showcase right-panel).
++- `02_intake.png` — the Ask page (note the empty space).
++- `03_inspector.png` — the centerpiece Proof Replay / signed-bundle inspector.
++
++## 2. HARD CONSTRAINTS (operator-LOCKED — NOT consultable; do not reopen)
++
++- Brand red `#c8102e` is locked. Sovereignty wording is honest: LLM inference currently routes via OpenRouter (US), disclosed at `/transparency`; "Canadian-hosted" framing for hosting/data. Do not propose claiming full LLM sovereignty.
++- Per-sentence provability + signed bundle is the CORE differentiator (clinical-safety-critical) — do NOT propose diluting it (e.g. don't propose a freeform chat that breaks provenance). You MAY propose how to make it more compelling.
++- Stack: Next.js 16 (App Router, Tailwind v4, Geist). Clinical deep-research domain. Target recipient: PM Carney's office (one-shot gift/demo).
++- This is a PLAN review, not code. Don't review code diffs here; review the strategy + design direction.
++
++## 3. Reviewer Independence + Exhaustivity
++
++> **Independence:** verify claims in the plan against the attached screenshots + your own online research, not by trusting the plan's assertions. A claim in the plan that doesn't hold up is a finding.
++> **Exhaustivity:** target 15-40 findings on this first scan. Emit ALL of them this round. Don't truncate.
++
++## 4. Acceptance criteria (forced enumeration — one line each in your verdict)
++
++1. **Product direction (§2 of plan):** Is "brief-first + claim-anchored follow-up + compounding knowledge graph + bounded visible-agentic, NOT general chat" the right call for this user/recipient? Or should it lean more conversational / more agentic? Defend with evidence.
++2. **End-to-end journey (§3):** Does the 8-step journey cohere as ONE experience? Missing steps? Wrong emotional beats? Friction?
++3. **Hero — Proof Replay (§5):** Is the hero interaction spec strong enough to be the "wow"? Is the at-a-glance verdict header right? What would make it unforgettable vs merely nice?
++4. **Visual & motion system (§6):** Is the craft bar (type scale, color semantics, motion tokens, microstates) sufficient and concrete enough to hit Linear/Stripe-tier? What's underspecified?
++5. **Liveliness:** the operator's repeated demand. Is the motion plan first-class and specific enough, or still hand-wavy?
++6. **Per-page targets (§7):** Any page under-scoped? Any "C→S" that's unrealistic without a rebuild the plan doesn't name?
++7. **Differentiation (§8):** Do the one-line differentiators actually hold vs each competitor (online-check them)?
++8. **Sequence (§9) + #871:** Is the execution order right? Is making #871 (live run aborts corpus_inadequate → no real brief to show) a hard prerequisite correct, or should the hero ship against the existing real signed bundle first?
++9. **What's MISSING entirely** that a frontier-beating clinical deep-research experience needs and this plan doesn't mention.
++
++## 5. Output schema
++
++```
++## Per-criterion forced enumeration
++- Criterion 1 [product direction]: <findings or AGREE + why>.
++- ... (all 9)
++
++## Findings (severity-stratified)
++### P0 (would make the experience NOT S-tier / fundamentally wrong direction)
++- <description + the evidence/source>
++### P1 (significant weakness; experience falls short of frontier-beating)
++- ...
++### P2 / P3 (precision / polish)
++- ...
++
++## Missing-entirely
++- <things a frontier-beating clinical DR experience needs that the plan omits>
++
++## Verdict
++verdict: APPROVE | REQUEST_CHANGES
++convergence_call: continue | accept_remaining
++APPROVE iff: the plan, executed faithfully, would produce a genuinely frontier-beating S-tier differentiated experience with zero weak spots in product direction, hero, journey, and craft. No iteration cap — hold the highest bar.
++```
+diff --git a/.codex/I-ux-001/brief_plan_iter2.md b/.codex/I-ux-001/brief_plan_iter2.md
+new file mode 100644
+index 00000000..3f1ba1ad
+--- /dev/null
++++ b/.codex/I-ux-001/brief_plan_iter2.md
+@@ -0,0 +1,40 @@
++# Codex review brief — I-ux-001 S-tier experience PLAN — ITER 2 (UNCAPPED)
++
++## 0. ITERATION DIRECTIVE — NO CAP (operator override 2026-05-24)
++No 5-iteration cap for this plan review. Hold your HIGHEST bar — approve only a plan that, executed faithfully, yields a **frontier-BEATING, unforgettable, clinical-grade** experience for PM Carney's office. Front-load all findings each round. "Don't pick bone from egg" — P0/P1 reserved for real risks to the experience. Cross-check current best practice ONLINE (you have web access); evidence-based, not from memory. Be a PICKY REAL USER (senior clinical/policy reviewer).
++
++## 1. This is ITER 2 — verify the revision
++- **Read:** `docs/stier_experience_plan.md` (v2 — fully rewritten) and your own iter-1 verdict `.codex/I-ux-001/codex_plan_verdict_iter1.txt`.
++- **Independence directive:** the plan's "what changed v1→v2" claims are meta-claims — DO NOT trust them. Verify each iter-1 finding is *actually* resolved by reading the plan. A claimed fix that the plan doesn't really deliver is a finding.
++- **Attached (current LIVE state — ground truth):** `01_home.png`, `02_intake.png`, `03_inspector.png`.
++
++## 2. HARD CONSTRAINTS (operator-LOCKED — not consultable)
++Brand red `#c8102e`. Honest sovereignty (LLM via OpenRouter-US disclosed at /transparency; "Canadian-hosted" = hosting/data). Per-sentence provability + signed two-family bundle is the CORE (don't dilute). Next.js 16 / Tailwind v4 / Geist. Recipient: PM Carney's office, one-shot gift. This is a PLAN review (strategy/design), not code.
++
++## 3. Did v2 resolve iter-1? (forced enumeration — one line each in verdict)
++Confirm RESOLVED / PARTIAL / NOT-RESOLVED for each iter-1 item, by reading the plan:
++1. **P0 differentiation overclaim** → §0 + §1 counter-positioning table. Is the moat now honestly the signed/two-family/offline-verifiable/clinical-grade receipt (not "cites sources")? Is the counter-positioning table honest about what each competitor does *better*?
++2. **P0 missing clinical evidence-quality layer** → §5 (GRADE-like certainty/applicability/harms/hierarchy/conflict). Sufficient? Anything still unsafe?
++3. **P0 hero too weak** → §4 "challenge any sentence" 4-beat chain-of-custody (claim→independent verdict→source span→signature), keyboard-first, mobile tap, perf budget. Unforgettable now, or still "nice citation UI"?
++4. **P0 route-centric → artifact-centric** → §2 one verified-brief workspace (views, not routes). Does it actually read as one artifact?
++5. **P0/§8 #871 sequencing** → §6/§14 parallel, hero against existing real bundle. Correct now?
++6. **P1s** — claim-anchored follow-up UI (§6), intake rebuild (§7), plan source-strategy controls (§8), run real-decisions feed (§9), verdict header full provenance (§4), graph with a job (§10), offline-verify UX (§11), mobile proof replay (§4), motion storyboards (§12), de-jargon trust language (§12), inspector progressive disclosure (§11/§13), counter-positioning (§1), prototype-before-code (§14), perf budget (§4), interaction acceptance tests (§15). Each resolved?
++7. **Missing-entirely** items (GRADE summary, source policy controls, offline verifier UX, mobile replay, PM demo script, failure-state design, interaction acceptance tests, counter-positioning) → all now present (§5,§7,§11,§4,§14,§6,§15,§1)?
++8. **NEW weaknesses** introduced by v2, or anything still under-specified for execution.
++
++## 4. Output schema
++```
++## Per-criterion (iter-1 resolution)
++- 1 [differentiation]: RESOLVED | PARTIAL | NOT-RESOLVED — <why, with evidence>
++- ... (1-8)
++
++## Findings
++### P0  (not frontier-beating / wrong direction / unsafe)
++### P1  (falls short of the bar)
++### P2 / P3
++## New-since-v1  (regressions/weaknesses v2 introduced)
++## Verdict
++verdict: APPROVE | REQUEST_CHANGES
++convergence_call: continue | accept_remaining
++APPROVE iff: executed faithfully this is frontier-beating, unforgettable, clinical-grade, and one coherent artifact — zero weak spots in moat, hero, journey, clinical-safety, and craft.
++```
+diff --git a/.codex/I-ux-001/brief_plan_iter3.md b/.codex/I-ux-001/brief_plan_iter3.md
+new file mode 100644
+index 00000000..d35dd5eb
+--- /dev/null
++++ b/.codex/I-ux-001/brief_plan_iter3.md
+@@ -0,0 +1,41 @@
++# Codex review brief — I-ux-001 S-tier experience PLAN — ITER 3 (UNCAPPED)
++
++## 0. ITERATION DIRECTIVE — NO CAP (operator 2026-05-24)
++No cap. Highest bar: approve only a plan that, executed faithfully, is **frontier-beating, unforgettable, clinical-SAFE, honest, and one coherent artifact**. Front-load all findings. P0/P1 for real risks only. Cross-check online (you have web). Be a picky senior clinical/policy reviewer.
++
++## 1. ITER 3 — verify the revision
++- **Read:** `docs/stier_experience_plan.md` (v3) and your iter-2 verdict `.codex/I-ux-001/codex_plan_verdict_iter2.txt`.
++- **Independence:** the "v2→v3 changes" claims are meta-claims — DO NOT trust them; verify by reading the plan. A claimed fix the plan doesn't deliver is a finding.
++- **Attached (current LIVE state):** `01_home.png`, `02_intake.png`, `03_inspector.png`.
++
++## 2. HARD CONSTRAINTS (operator-LOCKED — not consultable)
++Brand red `#c8102e`. Honest sovereignty (LLM via OpenRouter-US disclosed at /transparency; "Canadian-hosted" = hosting/data). Per-sentence faithfulness + signed two-family bundle is the CORE (don't dilute). Next.js 16 / Tailwind v4 / Geist. Recipient: PM Carney's office, one-shot gift. PLAN review (strategy/design), not code. POLARIS is positioned as **non-device research decision-support** (not a regulated medical device) — verify the plan's regulatory posture is honest, not that it should pursue device clearance.
++
++## 3. Did v3 resolve iter-2? (forced enumeration — one line each in verdict)
++RESOLVED / PARTIAL / NOT-RESOLVED by reading the plan:
++1. **iter-2 P0 clinical-safety method** → §5: outcome-level Summary of Findings (GRADE across a body of evidence, NOT per-sentence), downgrade domains, absolute effects, harms, applicability, abstention thresholds, honest scope-of-automation. Is GRADE now used correctly + safely? Any residual method error?
++2. **iter-2 P0 regulatory/intended-use** → §6: intended user/use, NON-intended, non-reliance, knowns/unknowns, data quality, evaluator-validation posture, Canadian applicability, transparency principles. Honest + sufficient?
++3. **Two-judgment separation** (the core clinical insight) → §0/§4/§5/§12: faithfulness vs evidence-strength separated visually + conceptually everywhere. Actually separated, or still blurred?
++4. **iter-2 P1 verifier over-trust** → §7: deterministic checks + two-family with measured reliability + disagreement handling + "what this cannot prove" panel. Honest now?
++5. **iter-2 P1 cherry-picking** → §8: locked conservative defaults, receipt-logged deviations, sensitivity runs, inclusion/exclusion logged, Canadian source policy. Structurally sound?
++6. **iter-2 P1 offline verify execution-safety** → §11: key identity/authority/rotation/revocation, pass/fail, signature-missing copy, dry-run verifier path. Execution-safe?
++7. **iter-2 P1 hero clinical-grade** → §4: two judgments as visible beats + "what this does NOT prove". Unforgettable AND safe (not premium citation UI)?
++8. **iter-2 P1 PM demo script** → §14: concrete 90s walkthrough (verified + partial/unsupported + inadequacy refusal + SoF + offline receipt). Concrete enough?
++9. **iter-2 P2/P3** (Canadian source policy, assistive-tech WCAG) → §8/§15. Present?
++10. **NEW weaknesses** v3 introduces, or anything still under-specified to execute.
++
++## 4. Output schema
++```
++## Per-criterion (iter-2 resolution)
++- 1 [clinical-safety method]: RESOLVED | PARTIAL | NOT-RESOLVED — <why, with evidence/source>
++- ... (1-10)
++## Findings
++### P0  (not frontier-beating / unsafe / dishonest)
++### P1  (falls short)
++### P2 / P3
++## New-since-v2
++## Verdict
++verdict: APPROVE | REQUEST_CHANGES
++convergence_call: continue | accept_remaining
++APPROVE iff: executed faithfully this is frontier-beating, unforgettable, clinically SAFE + honest, and one coherent artifact — zero weak spots in moat, two-judgment clinical safety, hero, journey, verifier honesty, and craft.
++```
+diff --git a/.codex/I-ux-001/brief_plan_iter4.md b/.codex/I-ux-001/brief_plan_iter4.md
+new file mode 100644
+index 00000000..7b96eda3
+--- /dev/null
++++ b/.codex/I-ux-001/brief_plan_iter4.md
+@@ -0,0 +1,37 @@
++# Codex review brief — I-ux-001 S-tier experience PLAN — ITER 4 (UNCAPPED)
++
++## 0. ITERATION DIRECTIVE — NO CAP (operator 2026-05-24)
++No cap. Highest bar. Front-load all findings. P0/P1 for real risks only. Cross-check online. Picky senior clinical/policy reviewer.
++
++## 1. ITER 4 — verify the revision (you were close at iter-3: only 1 P0 + 2 P1 + 1 P2 left)
++- **Read:** `docs/stier_experience_plan.md` (v4) and your iter-3 verdict `.codex/I-ux-001/codex_plan_verdict_iter3.txt`.
++- **Independence:** "v3→v4 changes" are meta-claims — verify by reading the plan + the cited code paths. A claimed fix the plan doesn't deliver is a finding.
++- **Attached (current LIVE state):** `01_home.png`, `02_intake.png`, `03_inspector.png`.
++
++## 2. HARD CONSTRAINTS (operator-LOCKED)
++Brand red `#c8102e`. Honest sovereignty (LLM via OpenRouter-US disclosed at /transparency; "Canadian-hosted" = hosting/data). Per-sentence faithfulness + signed two-family bundle is the CORE. Next.js 16 / Tailwind v4 / Geist. Recipient: PM Carney's office. POLARIS = non-device research decision-support. PLAN review, not code.
++
++## 3. Did v4 resolve iter-3? (forced enumeration — one line each)
++RESOLVED / PARTIAL / NOT-RESOLVED by reading the plan:
++1. **iter-3 P0 unsigned-bundle honesty** → §13.5 Prerequisite 0: real `manifest.yaml.asc`, GPG dry-run verify, CI guard forbidding "signed" UI language unless verification passes, honest "not signed" state otherwise, halt if no key material. §4 home teaser + §14 step 0/3 reframed so "signed/offline-verifiable" is gated. Is the fake-working premise now fully removed? Any place the plan still asserts "signed" without the gate?
++2. **iter-3 P1 abstention/SoF launch gate operationalized** → §5: required outcomes (efficacy + harms), min body adequacy (≥ tier thresholds + ≥2 sources/outcome), multi-outcome→certainty = LOWEST, refuse-vs-badge rule, thresholds in config. Operational enough?
++3. **iter-3 P1 verifier release gate** → §7: held-out gold-set threshold, calibration examples, disagreement escalation (family-disagreement → PARTIAL + both reads), gate as build artifact. Sufficient?
++4. **iter-3 P2 intended-use non-uses** → §6: "not for individual-patient recommendations / not for urgent/time-sensitive decisions" added. Present + aligned with non-device CDS framing?
++5. **Any NEW weakness** v4 introduced, or anything still under-specified to execute at the S-tier bar.
++6. **Overall:** executed faithfully, is this plan now frontier-beating, unforgettable, clinically SAFE + honest, and one coherent artifact with zero fake-working premises?
++
++## 4. Output schema
++```
++## Per-criterion (iter-3 resolution)
++- 1 [unsigned-bundle honesty]: RESOLVED | PARTIAL | NOT-RESOLVED — <why, with evidence>
++- ... (1-6)
++## Findings
++### P0
++### P1
++### P2 / P3
++## New-since-v3
++## Verdict
++verdict: APPROVE | REQUEST_CHANGES
++convergence_call: continue | accept_remaining
++APPROVE iff zero P0 + zero P1 AND the plan is frontier-beating, unforgettable, clinically safe+honest, one coherent artifact, with no fake-working premises.
++```
+diff --git a/.codex/I-ux-001/codex_plan_verdict_iter1.txt b/.codex/I-ux-001/codex_plan_verdict_iter1.txt
+new file mode 100644
+index 00000000..c139c1f7
+--- /dev/null
++++ b/.codex/I-ux-001/codex_plan_verdict_iter1.txt
+@@ -0,0 +1,61 @@
++## Per-criterion forced enumeration
++- Criterion 1 [product direction]: AGREE with brief-first, claim-anchored follow-up, graph, and bounded agentic rigor. Do not pivot to general chat. But the plan must make the signed per-sentence receipt the visible product, because OpenAI/Gemini already do editable plans, progress, citations, and follow-up. ([help.openai.com](https://help.openai.com/en/articles/10500283-deep-research?pubDate=20250425&utm_source=openai)) ([blog.google](https://blog.google/products-and-platforms/products/gemini/google-gemini-deep-research/?utm_source=openai))
++- Criterion 2 [end-to-end journey]: Coherent on paper, not yet one experience. It still reads like 8 routes, not one premium verified-brief workspace.
++- Criterion 3 [hero - Proof Replay]: Direction is right, spec is not strong enough. Hover-to-highlight is useful, but not unforgettable. The wow must be a guided “challenge any sentence” proof replay with chain-of-custody and signature meaning.
++- Criterion 4 [visual & motion system]: Good foundation, under-specified for Linear/Stripe/Vercel-tier craft. Needs concrete component specs, density modes, responsive layouts, and exact state behavior. Vercel’s own interface guidance stresses no dead ends, all states, stable skeletons, and redundant status cues. ([vercel.com](https://vercel.com/design/guidelines?utm_source=openai))
++- Criterion 5 [liveliness]: Still too hand-wavy. Durations are not a motion system. The plan needs storyboards for proof reveal, run progress, source settling, count changes, empty states, and reduced-motion equivalents.
++- Criterion 6 [per-page targets]: Several C to S jumps are unrealistic without naming rebuilds. Intake, report/inspector, graph, and export need structural redesign, not polish.
++- Criterion 7 [differentiation]: Partly holds, but overclaims. Elicit links claims/extractions to exact quotes, Scite shows citation context, Consensus has meters/tables/graphs. POLARIS’s defensible uniqueness is signed, independently evaluated, per-sentence, offline-verifiable proof. ([elicit.com](https://elicit.com/solutions/literature-review?utm_source=openai)) ([scite.ai](https://scite.ai/?utm_source=openai)) ([help.consensus.app](https://help.consensus.app/en/articles/11954907-consensus-product-changelog?utm_source=openai))
++- Criterion 8 [sequence + #871]: Do not block hero UI on #871. Ship the hero against the existing real signed bundle first; fix #871 in parallel. #871 is a hard prerequisite for the live Carney demo, not for designing the proof experience.
++- Criterion 9 [missing entirely]: Missing clinical evidence-quality UX, source policy controls, offline verifier flow, mobile proof replay, performance budgets, privacy trust surface, and scenario-based acceptance tests.
++
++## Findings (Severity-Stratified)
++### P0
++- Differentiation is overclaimed. “Claim tied to exact source” is no longer unique: Elicit says every extraction is supported by source quotes/figures and reports have sentence-level citations; Scite classifies and exposes exact citation context; Consensus has meter, claim/evidence table, citation graph, and full-text access. The signed, independently evaluated bundle must be the primary visible magic. ([elicit.com](https://elicit.com/solutions/literature-review?utm_source=openai)) ([scite.ai](https://scite.ai/?utm_source=openai)) ([help.consensus.app](https://help.consensus.app/en/articles/11954907-consensus-product-changelog?utm_source=openai))
++- The plan lacks a clinical evidence-quality layer. A senior clinical/policy reviewer needs certainty, applicability, harms, population fit, evidence hierarchy, guideline/RCT distinction, and conflict handling. Span support alone can verify a sentence while still leaving the decision unsafe.
++- The hero spec would likely produce “nice citation UI,” not frontier-beating proof. Competitors already show plans, sources, progress, visual reports, and reasoning traces; POLARIS needs a distinct replay: sentence challenged, evaluator verdict shown, source span resolved, signature verified. ([blog.google](https://blog.google/products/gemini/tips-how-to-use-deep-research/?utm_source=openai)) ([futurehouse.org](https://www.futurehouse.org/research-announcements/launching-futurehouse-platform-ai-agents?_bhlid=b2b50af9254da4cf97bbad70959795fa728b14f6&utm_source=openai))
++- The journey is route-centric instead of artifact-centric. The S-tier product should feel like one verified brief workspace with report, evidence, graph, follow-up, and receipt in one mental model. Current plan still risks separate Home, Intake, Run, Inspector, Graph, Export tools.
++- #871 is real demo risk. If the live flagship clinical question aborts with `corpus_inadequate`, the experience fails regardless of visual quality. But sequencing it before hero UI is wrong; use the existing real signed bundle for hero build while #871 runs as a parallel reliability blocker.
++
++### P1
++- Claim-anchored follow-up is right, but underspecified. It needs explicit UI: “ask about this sentence,” “challenge this source,” “compare against guideline,” all preserving provenance.
++- Intake remains weak. Replacing empty space with a teaser is not enough; it needs live scope interpretation, evidence availability, source policy, and plain-language clinical framing before the user commits.
++- Plan review lacks control over source strategy: primary studies vs guidelines, date ranges, Canadian relevance, endpoints, exclusions, and minimum adequacy threshold.
++- Run progress needs real evidence decisions, not theatrical steps: searched sources, rejected sources, tier counts, adequacy gate, evaluator pass/fail, and recovery path.
++- Verdict header counts are too shallow. Add adequacy, independent-family result, signature state, unsupported reason count, source tier mix, timestamp, and model/version identity.
++- Knowledge graph is underdefined. “Snowball” needs a job: contradiction map, treatment/effect timeline, source lineage, guideline links, and follow-up paths.
++- Export/audit is not yet a user experience. Define “verify offline” as a guided flow, not a manifest dump.
++- Mobile and tablet proof replay are missing. This recipient may open it on an iPad or phone; hover cannot be the core interaction.
++- Motion needs choreography. Define exactly what moves, why, and when. Vercel’s status guidance is a good model: motion should communicate state, not decorate it. ([vercel.com](https://vercel.com/geist/status-dot?utm_source=openai))
++- Current screenshot copy still exposes internal language: “two-family invariant,” “Signature missing,” “POOL ID.” The plan says de-jargon but does not rewrite the trust language.
++- The inspector is still developer-tool dense. Hashes and IDs should be progressive disclosure behind a human-readable trust summary.
++- The competitor matrix omits what competitors do better: OpenEvidence has physician trust and point-of-care adoption; Gemini has visual reports; Perplexity has spaces/tasks; Manus/Genspark own visible autonomy. ([openevidence.com](https://www.openevidence.com/announcements/openevidence-the-fastest-growing-application-for-physicians-in-history-announces-dollar210-million-round-at-dollar35-billion-valuation?utm_source=openai)) ([blog.google](https://blog.google/products/gemini/visual-reports/?utm_source=openai)) ([perplexity.ai](https://www.perplexity.ai/help-center/en/articles/10352961-what-are-spaces/?utm_source=openai)) ([manus.im](https://manus.im/docs?utm_source=openai))
++- Sequence is too code-first. Add Figma/motion prototypes for the hero before implementation.
++- No performance budget. Proof reveal must feel instant; source scrolling, span highlighting, and claim switching need latency targets.
++- Acceptance relies too much on screenshots. Add Playwright interaction traces or videos for motion, keyboard, mobile, and reduced-motion states.
++
++### P2 / P3
++- The maple-leaf mark needs a production spec: vector or high-resolution bitmap, size rules, contrast, and when it appears.
++- The Home feature trio is generic. Replace with concrete proof metrics and the signed-receipt story.
++- The current source highlight is fragmented and hard to read. Use sentence/phrase grouping with margin annotation, not pink word tiles.
++- The source card should show journal, year, DOI, tier, and why this source was selected.
++- “Canadian-hosted” needs an accessible tooltip or disclosure link that cleanly distinguishes hosting/data from US-routed LLM inference.
++- “All six microstates everywhere” should be componentized; otherwise it becomes inconsistent page-by-page labor.
++- Footer disclosure is currently low-signal. Trust material belongs in the proof surface and transparency page, not only the footer.
++- Add keyboard-first proof navigation. Raycast’s bar for power-user speed is command/shortcut driven, and this reviewer persona will value fast inspection. ([manual.raycast.com](https://manual.raycast.com/keyboard-shortcuts?utm_source=openai))
++
++## Missing-Entirely
++- GRADE-like certainty/applicability summary for clinical claims.
++- Source policy controls and transparent inclusion/exclusion criteria.
++- Offline verifier UX with a human-readable receipt.
++- Mobile proof replay design.
++- A flagship demo script tailored to PM/policy use, not only clinical curiosity.
++- Failure-state design for inadequate corpus, partial evidence, contradictory sources, and unsigned bundles.
++- Interaction acceptance tests: time-to-first-proof, time-to-verify-one-claim, keyboard path, reduced-motion path.
++- A real competitor counter-positioning table that says what each competitor does better and how POLARIS answers it.
++
++## Verdict
++verdict: REQUEST_CHANGES  
++convergence_call: continue
++
++The direction is close, but not approvable at the requested bar. The plan can produce a clean, credible product; it does not yet guarantee a frontier-beating, unforgettable research experience. The next revision should rebuild around one flagship artifact: a verified brief workspace where the signed per-sentence proof receipt is immediately understandable, interactive, clinical-grade, and demonstrably different from every cited competitor.
+diff --git a/.codex/I-ux-001/codex_plan_verdict_iter2.txt b/.codex/I-ux-001/codex_plan_verdict_iter2.txt
+new file mode 100644
+index 00000000..4fcebf94
+--- /dev/null
++++ b/.codex/I-ux-001/codex_plan_verdict_iter2.txt
+@@ -0,0 +1,51 @@
++## Per-criterion (iter-1 resolution)
++- 1 [differentiation]: RESOLVED — §0/§1 correctly moves the moat from “cites sources” to signed, two-family, per-sentence, offline-verifiable clinical receipt; competitor table is now honest.
++- 2 [clinical evidence-quality]: PARTIAL — §5 names the right ingredients, but “GRADE-like per claim” is not yet method-safe; GRADE is evidence/outcome-level, not just sentence-level.
++- 3 [hero]: PARTIAL — §4 is much stronger and can be memorable, but the replay still needs clinical certainty/harms/applicability as a visible beat, not only claim → verdict → span → signature.
++- 4 [artifact-centric]: RESOLVED — §2 now reads as one Verified Brief workspace with shared claim selection across Read/Challenge/Evidence/Map/Receipt.
++- 5 [#871 sequencing]: RESOLVED — §14 correctly builds hero against the existing bundle while #871 runs in parallel.
++- 6a [claim follow-up]: RESOLVED — §6 names claim-anchored actions.
++- 6b [intake]: RESOLVED — §7 makes intake a pre-flight, not empty form space.
++- 6c [source-strategy controls]: PARTIAL — §8 adds controls but lacks anti-cherry-picking defaults and receipt-visible policy deviations.
++- 6d [real run feed]: RESOLVED — §9 shows actual evidence decisions.
++- 6e [verdict header provenance]: RESOLVED — §4 adds provenance, adequacy, source mix, signature, model/version.
++- 6f [graph job]: RESOLVED — §10 gives graph concrete jobs.
++- 6g [offline verify]: PARTIAL — §11 describes guided UX, but not trust root/key state/failure semantics.
++- 6h [mobile replay]: RESOLVED — §4 includes bottom sheet/tap/swipe.
++- 6i [motion]: PARTIAL — §12 lists storyboard targets, but not enough frame-by-frame behavior to prevent ornamental motion.
++- 6j [de-jargon]: RESOLVED — §12 gives concrete copy direction.
++- 6k [progressive inspector]: RESOLVED — §11/§13 move hashes behind trust summary.
++- 6l [counter-positioning]: RESOLVED — §1 is now useful.
++- 6m [prototype before code]: RESOLVED — §14 requires prototype review first.
++- 6n [perf budget]: RESOLVED — §4 sets latency targets.
++- 6o [interaction tests]: RESOLVED — §15 requires Playwright traces, mobile, keyboard, reduced motion.
++- 7 [missing-entirely items]: PARTIAL — all are now present, but GRADE/source policy/offline verification remain under-specified.
++- 8 [new weaknesses]: PARTIAL — v2 introduces new risk by using “clinical-grade” and “decision-safety” language before defining regulatory posture, evidence-certainty method, and evaluator validation.
++
++## Findings
++### P0
++- Clinical safety is still not approvable. §5 says “GRADE-style” certainty per claim, but GRADE certainty depends on a body of evidence and domains like risk of bias, inconsistency, indirectness, imprecision, and publication bias; policy decisions also require benefits/harms, values, resources, equity, acceptability, and feasibility. Fix: define a real clinical evidence artifact: outcome-level Summary of Findings, absolute effects, harms, applicability, source hierarchy, downgrade reasons, and abstention thresholds. Sources checked: [CDC ACIP GRADE Handbook](https://www.cdc.gov/acip-grade-handbook/hcp/chapter-7-grade-criteria-determining-certainty-of-evidence/index.html), [GRADE EtD framework](https://link.springer.com/article/10.1186/s12961-018-0320-2).
++- Regulatory/intended-use boundary is missing. “Clinical-grade” for a PM-office recipient cannot float without explicit intended user, intended/non-intended use, non-reliance language, knowns/unknowns, data quality requirements, evaluator validation, and Canadian-population applicability. Health Canada and FDA both emphasize clear information, logic/basis, validation, and independent review of CDS basis. Sources checked: [Health Canada MLMD guidance, Apr. 1 2026](https://www.canada.ca/en/health-canada/services/drugs-health-products/medical-devices/application-information/guidance-documents/pre-market-guidance-machine-learning-enabled-medical-devices.html), [Health Canada/FDA/MHRA transparency principles](https://www.canada.ca/en/health-canada/services/drugs-health-products/medical-devices/transparency-machine-learning-guiding-principles.html), [FDA CDS policy navigator](https://www.fda.gov/medical-devices/digital-health-center-excellence/step-6-software-function-intended-provide-clinical-decision-support).
++
++### P1
++- The “independent model family” proof risks being over-trusted. It is a strong product differentiator, but not clinical validation. Add evaluator accuracy metrics, disagreement handling, calibration examples, deterministic numeric checks, and a visible “what this verifier cannot prove” panel.
++- Source-strategy controls can enable cherry-picking. §8 needs locked conservative defaults, visible deviations, sensitivity runs, and receipt-level recording of every inclusion/exclusion policy.
++- The hero is close, but not yet clinical-grade. The replay must show two separate judgments: “text is supported by this span” and “the evidence is strong enough for this clinical/policy claim.” Without that separation it regresses to premium citation UI.
++- Offline verification is not execution-safe yet. §11 needs key identity, signing authority, key rotation/revocation, pass/fail states, signature-missing copy, and a dry-run verifier script path.
++- The PM demo script is only named. §14 should specify the actual 90-second walkthrough, including one verified claim, one partial/unsupported claim, one inadequacy refusal, and the offline receipt handoff.
++
++### P2 / P3
++- Add Canadian clinical source policy explicitly: CADTH, Health Canada labels/advisories, Canadian guidelines where available, and when non-Canadian evidence is acceptable.
++- Keep WCAG/accessibility acceptance tied to real testing with assistive tech, not only axe. Canada’s digital standards call for accessibility from the start and user testing with people with disabilities. Sources checked: [Canada Digital Standards](https://www.canada.ca/en/government/system/digital-government/government-canada-digital-standards.html), [W3C WCAG 2.2](https://www.w3.org/TR/WCAG22/).
++- The live screenshots remain visually calm but not yet gift-grade; that is acceptable only because §13 explicitly calls for structural rebuilds.
++
++## New-since-v1
++- “Clinical-grade certainty” is now central, but the method is not defined enough to support the claim.
++- “Two-family” is now promoted as a trust mechanism; it needs measured reliability and limits, or it becomes a new overclaim.
++- Source controls are now user-editable; without guardrails they can undermine the audit story.
++
++## Verdict
++verdict: REQUEST_CHANGES  
++convergence_call: continue
++
++v2 is a major convergence step and the product direction is now right. I would not approve it yet at the stated bar because the clinical-safety layer, regulatory posture, and verifier trust semantics are still weak spots in the core moat.
+diff --git a/.codex/I-ux-001/codex_plan_verdict_iter3.txt b/.codex/I-ux-001/codex_plan_verdict_iter3.txt
+new file mode 100644
+index 00000000..6057d733
+--- /dev/null
++++ b/.codex/I-ux-001/codex_plan_verdict_iter3.txt
+@@ -0,0 +1,33 @@
++## Per-criterion (iter-2 resolution)
++- 1 [clinical-safety method]: RESOLVED — §5 now correctly makes GRADE/SoF outcome-level across a body of evidence, with absolute/relative effects, CI, study counts, downgrade domains, harms, applicability, and automation limits. This matches Cochrane/GRADE guidance.
++- 2 [regulatory/intended-use]: RESOLVED — §6 now gives intended user/use, non-intended uses, non-reliance, knowns/unknowns, evaluator-validation limits, Canadian applicability, and transparency principles. Add one wording nit in P2.
++- 3 [two-judgment separation]: RESOLVED — §0/§4/§5/§12 separate faithfulness from evidence strength conceptually and visually.
++- 4 [verifier over-trust]: RESOLVED — §7 adds deterministic checks, measured reliability, disagreement handling, and “what this cannot prove.”
++- 5 [cherry-picking]: RESOLVED — §8 has locked conservative defaults, receipt-logged deviations, sensitivity runs, inclusion/exclusion logs, and Canadian source policy.
++- 6 [offline verify execution-safety]: PARTIAL — §11 names the right UX states, but §4/§14 rely on an “existing real signed bundle” that the current live/local tirzepatide artifact does not appear to have.
++- 7 [hero clinical-grade]: RESOLVED — §4 is now a true two-judgment proof interaction, not just premium citation UI.
++- 8 [PM demo script]: RESOLVED — §14 is concrete enough as a 90s policy walkthrough; blocked only by the signed-bundle substrate issue.
++- 9 [iter-2 P2/P3]: RESOLVED — §8 includes Canadian source policy; §15 includes WCAG 2.2 AA plus real assistive-tech testing.
++- 10 [new weaknesses]: PARTIAL — v3’s main new weak spot is the signed-demo premise; secondary execution details remain worth tightening.
++
++## Findings
++### P0
++- The plan’s signed-bundle premise is not honest enough to approve. [docs/stier_experience_plan.md](C:/POLARIS/docs/stier_experience_plan.md:56) and [docs/stier_experience_plan.md](C:/POLARIS/docs/stier_experience_plan.md:138) say the hero uses an “existing real signed bundle,” and §14 promises offline receipt handoff. But the live screenshot shows “Signature missing,” and local `web/public/canonical_bundles/v1_canonical_success` has no `manifest.yaml.asc`; the loader only marks `signaturePresent` when that file exists and is non-empty ([web/lib/inspector_bundle_loader.ts](C:/POLARIS/web/lib/inspector_bundle_loader.ts:142)). Test fixtures explicitly say their `.asc` is a placeholder, not a real key signature ([tests/fixtures/signed_bundle/README.md](C:/POLARIS/tests/fixtures/signed_bundle/README.md:15)). Fix: add a hard pre-step that produces and dry-run-verifies a real signed PM demo bundle, blocks hero/demo signoff on missing/placeholder signatures, and forbids “signed” language unless GPG verification succeeds.
++
++### P1
++- Abstention and SoF gates are still named, not operationalized. §5 says “below a defined adequacy/certainty floor,” but the plan should specify the launch gate: required outcomes for clinical demo, minimum source/body adequacy, how multi-outcome claims map to SoF certainty, and when the UI must refuse instead of badge. This is no longer a GRADE-method P0, but it is execution-risky.
++- Verifier reliability needs a release gate, not only a display promise. §7 says “measured reliability,” but the plan should require the actual gold-set metric threshold, calibration examples, and disagreement escalation before the PM build can call the independent-family check trustworthy.
++
++### P2 / P3
++- In §6, add explicit “not for individual-patient recommendations” and “not for urgent/time-sensitive clinical decisions.” That aligns better with Health Canada/FDA non-device CDS framing.
++- Current live Home/Intake/Inspector remain not gift-grade, but §13 honestly calls them structural rebuilds, so this is not a plan blocker.
++
++## New-since-v2
++- v3 leans harder on “existing real signed bundle,” but the current tirzepatide demo substrate is visibly/local-evidently unsigned.
++- v3 fixes GRADE conceptually; the remaining risk is acceptance specificity, not the core method.
++
++## Verdict
++verdict: REQUEST_CHANGES  
++convergence_call: continue
++
++Sources checked: [Cochrane Handbook ch.14](https://www.cochrane.org/authors/handbooks-and-manuals/handbook/current/chapter-14), [Health Canada SaMD guidance](https://www.canada.ca/en/health-canada/services/drugs-health-products/medical-devices/application-information/guidance-documents/software-medical-device-guidance-document.html), [Health Canada/FDA/MHRA transparency principles](https://www.canada.ca/en/health-canada/services/drugs-health-products/medical-devices/transparency-machine-learning-guiding-principles.html), [FDA CDS policy navigator](https://www.fda.gov/medical-devices/digital-health-center-excellence/step-6-software-function-intended-provide-clinical-decision-support), [Canada accessibility guidance](https://www.canada.ca/en/government/system/digital-government/government-canada-digital-standards/build-accessibility-start.html), [WCAG 2.2](https://www.w3.org/TR/WCAG22/).
+diff --git a/.codex/I-ux-001/codex_plan_verdict_iter4.txt b/.codex/I-ux-001/codex_plan_verdict_iter4.txt
+new file mode 100644
+index 00000000..2b05f6a2
+--- /dev/null
++++ b/.codex/I-ux-001/codex_plan_verdict_iter4.txt
+@@ -0,0 +1,25 @@
++## Per-criterion (iter-3 resolution)
++- 1 [unsigned-bundle honesty]: RESOLVED — v4 names today’s truth directly: success bundle has no `manifest.yaml.asc`, loader only detects presence, fixture `.asc` is placeholder, and any “signed/offline-verifiable” UI is gated on real GPG verification. Evidence: [docs/stier_experience_plan.md](C:/POLARIS/docs/stier_experience_plan.md:137), [web/lib/inspector_bundle_loader.ts](C:/POLARIS/web/lib/inspector_bundle_loader.ts:145), [tests/fixtures/signed_bundle/README.md](C:/POLARIS/tests/fixtures/signed_bundle/README.md:15).
++- 2 [abstention/SoF launch gate]: RESOLVED — §5 now requires efficacy + harms SoF coverage, source/body adequacy, lowest-critical-outcome certainty mapping, and refuse-not-badge behavior. This aligns with GRADE/SoF outcome-level certainty and “lowest critical outcome” handling. Sources: [Cochrane Ch.14](https://www.cochrane.org/authors/handbooks-and-manuals/handbook/current/chapter-14), [CDC ACIP GRADE Ch.10](https://www.cdc.gov/acip-grade-handbook/hcp/chapter-10-overall-certainty-of-evidence/index.html).
++- 3 [verifier release gate]: RESOLVED — §7 makes trust conditional on a held-out gold set, human-adjudicated accuracy/agreement threshold, calibration examples, and disagreement escalation to PARTIAL with both reads surfaced. Evidence: [docs/stier_experience_plan.md](C:/POLARIS/docs/stier_experience_plan.md:82).
++- 4 [intended-use non-uses]: RESOLVED — §6 now explicitly excludes individual-patient recommendations and urgent/time-sensitive decisions, matching FDA/Health Canada non-device CDS logic around independent review, non-replacement of judgment, and non-time-critical use. Sources: [FDA CDS navigator](https://www.fda.gov/medical-devices/digital-health-center-excellence/step-6-software-function-intended-provide-clinical-decision-support), [Health Canada SaMD guidance](https://www.canada.ca/en/health-canada/services/drugs-health-products/medical-devices/application-information/guidance-documents/software-medical-device-guidance-document.html).
++- 5 [new weakness]: RESOLVED WITH P2 CAUTION — no new P0/P1. Implementation must not preserve the current `signaturePresent -> Signed bundle` UI pattern for uploaded/placeholder `.asc` files; v4’s guard concept covers this, but execution should make signature state tri-valued.
++- 6 [overall]: RESOLVED — as a plan, v4 is now one coherent artifact: per-sentence faithfulness, separate evidence-strength, honest abstention, signed/offline receipt gated on real cryptographic proof, and sovereignty language bounded to hosting/data with OpenRouter-US disclosure. PM Carney context checked against the official PM site: [pm.gc.ca](https://www.pm.gc.ca/en?lang=en).
++
++## Findings
++### P0
++None.
++
++### P1
++None.
++
++### P2 / P3
++- P2 — Signature state should be modeled as `missing | present_unverified | gpg_verified`, not boolean `signaturePresent`. Current code can still display “Signed bundle” from mere `.asc` presence: [web/components/inspector/bundle_header.tsx](C:/POLARIS/web/components/inspector/bundle_header.tsx:76), while the client loader explicitly says GPG verification is out of scope: [web/lib/inspector_bundle_client_loader.ts](C:/POLARIS/web/lib/inspector_bundle_client_loader.ts:19). v4’s CI guard is enough for plan approval, but this is the exact place implementation could regress.
++- P3 — Put the verifier and SoF threshold config paths into the implementation tickets. The plan correctly requires config-backed thresholds; naming the files will reduce drift.
++
++## New-since-v3
++No blocking new issue. v4 removed the fake-working signed-bundle premise and converted the two prior “named but not gated” P1s into real launch gates.
++
++## Verdict
++verdict: APPROVE  
++convergence_call: accept_remaining
+-- 
+2.49.0.windows.1
+
+# canonical-diff-sha256: 60d0daa1313acaa15a0e8890091057150e3b7ba02537d0c354f28acb043a9d0a
