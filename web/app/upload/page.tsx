@@ -20,13 +20,13 @@ const STEPS = [
   },
   {
     icon: Layers,
-    title: "Parsed + chunked",
-    body: "POLARIS extracts the text and splits each document into retrievable chunks.",
+    title: "Parsed into chunks",
+    body: "Supported documents are split into retrievable chunks.",
   },
   {
     icon: Sparkles,
-    title: "Grounds your questions",
-    body: "Include uploads as evidence when you ask a question on the intake page.",
+    title: "Preview the result",
+    body: "Open any uploaded document to see exactly how POLARIS chunked it.",
   },
 ] as const;
 
@@ -44,9 +44,9 @@ export default function UploadPage() {
           Upload documents
         </h1>
         <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
-          Drop PDFs, MD, TXT, or DOCX files. POLARIS will parse and chunk each
-          document so you can ground intake queries against your uploads (50MB
-          per file max).
+          Drop PDFs, MD, TXT, or DOCX files. POLARIS parses and chunks supported
+          documents so you can preview exactly how each one is split (50MB per
+          file max).
         </p>
       </div>
 
@@ -76,7 +76,7 @@ export default function UploadPage() {
           href="/intake"
           className="text-primary focus-visible:ring-ring/70 inline-flex w-fit items-center gap-1 rounded text-sm font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
         >
-          Ask a question with your uploads
+          Ask a research question
           <ArrowRight aria-hidden className="h-4 w-4" />
         </Link>
       </div>
