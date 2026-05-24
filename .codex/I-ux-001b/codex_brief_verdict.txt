@@ -1,0 +1,12 @@
+## Per-criterion (iter-3 resolution)
+- 1 [loading]: RESOLVED — all baseline loading selectors now get position/pointer, child-hide, spinner, and reduced-motion spinner handling.
+- 2 [CertaintyBadge]: RESOLVED — stale `--certainty-fg` use is gone; `--certainty-moderate` vs near-white computes to ~5.78:1, so AA passes.
+- 3 [SourceSpanPreview unsupported]: RESOLVED — prop union and visual behavior now include `unsupported` with the leading `XCircle` outside the mark.
+- 4 [--ring-offset]: PARTIAL — new note is correct, but one binding table row still references undefined `--ring-offset`.
+- 5 [new regressions]: NONE at P0/P1.
+
+## Findings { P0 / P1 / P2 / P3 }
+P3 — [docs/web/design_tokens_v2.md](C:/POLARIS/docs/web/design_tokens_v2.md:212) still says focus uses ``--ring-offset`` even though the token is intentionally undefined and the new note says the offset is encoded in the box-shadow stack. This is the continuing iter-3 P3 doc inconsistency, not a blocker under the iter-4 directive.
+
+## Verdict
+verdict: APPROVE
