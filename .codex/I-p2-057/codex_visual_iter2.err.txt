@@ -1,0 +1,54 @@
+Reading prompt from stdin...
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e5882-dd0f-77e2-b949-863d9da8c714
+--------
+user
+# Codex VISUAL audit — I-p2-057 (#861) Run progress, A++/S — iter 2 of 5
+
+You have VISION. iter-1 was APPROVE (live_desktop A / live_mobile A / done_desktop A-) with one P2:
+the action card said "While this run works" even after Status: completed.
+
+## Fix applied (this iter, addressing the iter-1 P2)
+- The action-card heading + sub-copy now branch on terminal state: live → "While this run works" /
+  "Actions you can take while POLARIS works:"; terminal → "This run" / "Open, export, or follow up
+  on the verified result:". Nothing else changed since iter-1.
+
+## Attached
+1. run_live_desktop  2. run_live_mobile  3. run_done_desktop
+
+## Locked / do NOT flag
+- Brand #c8102e (New-run + Ask + active spinner + nav active). Mocked fixture visual-audit-only.
+  "—" elapsed on done is HONEST. LIVE end-to-end run verification DEFERRED.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+per_screen_grades: { live_desktop: "", live_mobile: "", done_desktop: "" }
+novel_p0: [...]
+continuing_p0: []
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+```
+APPROVE iff zero P0/P1.
+
+codex
+```yaml
+verdict: APPROVE
+per_screen_grades: { live_desktop: "A", live_mobile: "A", done_desktop: "A" }
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+```
+tokens used
+18,218
