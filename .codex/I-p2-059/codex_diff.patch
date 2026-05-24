@@ -1,0 +1,122 @@
+diff --git a/docs/web/s_tier_design_system.md b/docs/web/s_tier_design_system.md
+index 15975229..87906443 100644
+--- a/docs/web/s_tier_design_system.md
++++ b/docs/web/s_tier_design_system.md
+@@ -192,6 +192,15 @@ Contracts A/A- · Upload A/A+/A · Pin Replay A/A- · Sign-in A/A), each dual-Co
+   links, not a column of "Inspect"). Fixed a raw `bg-green-100` tier badge → token. Shorter mobile
+   graph viewport so the accessible list (mobile-primary navigator) arrives sooner.
+ 
++- **Audit & export** (#865, I-p2-059): **desktop A / mobile A-** (Codex visual iter-2 APPROVE).
++  The compliance/export surface (integrity manifest + pipeline gate ledger + two-family provenance
++  + download), a server component rendering the REAL canonical bundle from disk — so its populated
++  state is genuinely live-verifiable (`/runs/v1-canonical/audit`), not fixture-only. Already
++  exemplary on honesty (never claims a seal not on disk; gate ledger from real bundle fields only).
++  Assess-first: brand-tinted `shadow-card` + `rounded-xl` on the section cards + tables; the gate
++  ledger + integrity manifest tables made RESPONSIVE — dense table on sm+, stacked cards on mobile
++  so the abort reason / threshold / full SHA-256 are fully readable, not clipped (Codex iter-1 P1).
++
+ **The full cred-gated journey is now at the A bar** (Dashboard A/A-/A · Benchmark A/A-/A-/A-/A ·
+ Memory A/A-/A · Compare A/A/A/A · Source Review S-/A++/A+ · Plan A/A/A/A- · Run progress A/A/A),
+ each rendered locally (seeded session + route-mocked fixture, visual-audit-only) under the dual
+diff --git a/web/app/runs/[runId]/audit/page.tsx b/web/app/runs/[runId]/audit/page.tsx
+index 4bb0dcde..ccfd648b 100644
+--- a/web/app/runs/[runId]/audit/page.tsx
++++ b/web/app/runs/[runId]/audit/page.tsx
+@@ -149,7 +149,7 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
+   return (
+     <div className="flex flex-col gap-8">
+       {/* Integrity & provenance */}
+-      <section className="border-border bg-card flex flex-col gap-4 rounded-lg border p-5">
++      <section className="border-border bg-card shadow-card flex flex-col gap-4 rounded-xl border p-5">
+         <div className="flex flex-wrap items-start justify-between gap-3">
+           <h2 className="text-foreground text-sm font-semibold">
+             Integrity &amp; provenance
+@@ -202,7 +202,7 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
+             across {verifiedReport.sections.length} sections.
+           </p>
+         </div>
+-        <div className="border-border overflow-x-auto rounded-lg border">
++        <div className="border-border shadow-card hidden overflow-x-auto rounded-xl border sm:block">
+           <table className="w-full text-left text-sm">
+             <thead className="border-border text-muted-foreground border-b text-[10px] tracking-widest uppercase">
+               <tr>
+@@ -231,6 +231,27 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
+             </tbody>
+           </table>
+         </div>
++        {/* Mobile: stacked gate cards — the detail (abort reason, threshold)
++            must be fully readable on a compliance surface, not clipped by a
++            horizontal-scroll table (Codex visual iter-1 P1). */}
++        <div className="flex flex-col gap-2 sm:hidden">
++          {gateLedger.map((row) => (
++            <div
++              key={row.gate}
++              className="border-border bg-card shadow-card flex flex-col gap-1.5 rounded-xl border p-3"
++            >
++              <div className="flex items-start justify-between gap-2">
++                <span className="text-foreground text-xs font-medium">
++                  {row.gate}
++                </span>
++                <StatusPill pass={row.pass} />
++              </div>
++              <p className="text-muted-foreground text-xs break-words">
++                {row.detail}
++              </p>
++            </div>
++          ))}
++        </div>
+       </section>
+ 
+       {/* Integrity manifest — the file hash chain */}
+@@ -249,7 +270,7 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
+             manifest itself.
+           </p>
+         </div>
+-        <div className="border-border overflow-x-auto rounded-lg border">
++        <div className="border-border shadow-card hidden overflow-x-auto rounded-xl border sm:block">
+           <table className="w-full text-left text-sm">
+             <thead className="border-border text-muted-foreground border-b text-[10px] tracking-widest uppercase">
+               <tr>
+@@ -285,13 +306,39 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
+             </tbody>
+           </table>
+         </div>
++        {/* Mobile: stacked file cards — the full SHA-256 is the integrity proof,
++            so it wraps in full here rather than scrolling off a table (Codex P2). */}
++        <div className="flex flex-col gap-2 sm:hidden">
++          {files.map((f) => (
++            <div
++              key={f.path}
++              className="border-border bg-card shadow-card flex flex-col gap-1 rounded-xl border p-3"
++            >
++              <span className="text-foreground font-mono text-xs break-all">
++                {f.path}
++              </span>
++              <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-[10px]">
++                <span>
++                  {CONTENT_TYPE_LABEL[f.content_type] ?? f.content_type}
++                </span>
++                <span>· {f.size_bytes.toLocaleString()} bytes</span>
++              </div>
++              <span
++                className="text-muted-foreground font-mono text-[10px] break-all"
++                title={f.sha256}
++              >
++                {f.sha256}
++              </span>
++            </div>
++          ))}
++        </div>
+         <p className="text-muted-foreground text-[10px]">
+           {files.length} files · {totalBytes.toLocaleString()} bytes total
+         </p>
+       </section>
+ 
+       {/* Export */}
+-      <section className="border-border bg-card flex flex-col gap-3 rounded-lg border p-5">
++      <section className="border-border bg-card shadow-card flex flex-col gap-3 rounded-xl border p-5">
+         <h2 className="text-foreground text-sm font-semibold">
+           Export the package
+         </h2>
+
+# canonical-diff-sha256: e908040528abbb64a345d305dabf2ffb540f3f5a149c776751e9557aa378838a

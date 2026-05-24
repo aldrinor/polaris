@@ -1,0 +1,9 @@
+```yaml
+verdict: APPROVE
+per_screen_grades: { desktop: "A", mobile: "A-" }
+novel_p0: []
+p1: []
+p2:
+  - "Desktop manifest still abbreviates SHA-256 values with ellipses, while mobile now shows full hashes. Acceptable for this iteration since the prior blocking mobile compliance readability issue is fixed."
+convergence_call: accept_remaining
+```
