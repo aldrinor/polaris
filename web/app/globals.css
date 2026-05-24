@@ -65,9 +65,9 @@
      hairline lift + a faint Canada-red wash. Uses the operator-locked brand
      #c8102e = rgb(200 16 46), NOT a palette change. */
   --shadow-card:
-    0 1px 2px rgba(9, 9, 11, 0.04), 0 10px 30px rgba(200, 16, 46, 0.05);
+    0 1px 2px rgba(9, 9, 11, 0.04), 0 14px 40px rgba(200, 16, 46, 0.035);
   --shadow-card-hover:
-    0 1px 2px rgba(9, 9, 11, 0.05), 0 16px 40px rgba(200, 16, 46, 0.08);
+    0 1px 2px rgba(9, 9, 11, 0.05), 0 20px 52px rgba(200, 16, 46, 0.055);
 }
 
 :root {
