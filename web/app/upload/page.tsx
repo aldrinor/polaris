@@ -6,7 +6,7 @@ import { UploadWorkspace } from "./components/upload_workspace";
 export const metadata = {
   title: "Upload — POLARIS Canada",
   description:
-    "Upload documents — POLARIS parses and chunks supported files so you can preview exactly how each is split (PDF, MD, TXT, DOCX; 50MB max).",
+    "Upload documents to POLARIS. Markdown and text files are split into chunks you can preview; PDF and DOCX are accepted too (50MB max).",
 };
 
 // I-p2-047 (#841): factual post-upload flow — describes the real
@@ -21,12 +21,12 @@ const STEPS = [
   {
     icon: Layers,
     title: "Parsed into chunks",
-    body: "Supported documents are split into retrievable chunks.",
+    body: "Markdown and text files are split into chunks today.",
   },
   {
     icon: Sparkles,
     title: "Preview the result",
-    body: "Open any uploaded document to see exactly how POLARIS chunked it.",
+    body: "Open a parsed document to inspect a preview of its chunks.",
   },
 ] as const;
 
@@ -44,9 +44,8 @@ export default function UploadPage() {
           Upload documents
         </h1>
         <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
-          Drop PDFs, MD, TXT, or DOCX files. POLARIS parses and chunks supported
-          documents so you can preview exactly how each one is split (50MB per
-          file max).
+          Drop PDFs, MD, TXT, or DOCX files (50MB per file max). POLARIS splits
+          Markdown and text into chunks you can preview right here.
         </p>
       </div>
 
