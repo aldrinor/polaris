@@ -110,8 +110,8 @@ const PILLARS = [
   },
   {
     icon: ShieldCheck,
-    title: "Sovereign",
-    body: "Built for Canadian-hosted, sovereign deployment. Public sources are fetched via logged Canadian egress, and every brief is integrity-hashed and auditable.",
+    title: "Canadian-hosted",
+    body: "Built for Canadian-hosted deployment. Public sources are fetched via logged Canadian egress, and every brief is integrity-hashed and auditable.",
   },
   {
     icon: Network,
@@ -124,13 +124,17 @@ export default function HomePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <HomeKeyboardShell templates={templates} signInHref="/sign-in">
-        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-14 px-6 py-14 sm:py-16">
-          {/* Hero — one primary action */}
-          <section className="flex flex-col items-center gap-5 text-center">
+        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-12 px-6 py-10 sm:py-12">
+          {/* Hero — one primary action, compact so the proof artifact enters the
+              first viewport (I-p2-044 #835, Codex visual direction: proof leads). */}
+          <section className="flex flex-col items-center gap-4 text-center">
             {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
             <MapleLeafSignatureLazy />
-            <span className="text-muted-foreground border-border inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
-              ⬡ Sovereign Canadian deep research
+            {/* I-p2-044 (#835): honest wording — "Canadian-hosted", not the
+                present-tense "Sovereign" overclaim (LLM inference is routed via
+                OpenRouter-US, disclosed at /transparency). */}
+            <span className="text-muted-foreground border-border bg-card inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
+              ⬡ Canadian-hosted deep research
             </span>
             <h1 className="text-foreground max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
               Deep research you can check, line by line.
@@ -160,16 +164,20 @@ export default function HomePage() {
             </form>
           </section>
 
-          {/* Proof-as-hero — a REAL verified claim + its real source span */}
+          {/* Proof IS the hero — a REAL verified claim + its real source span, the
+              central front-door artifact (not a card below the fold). */}
           <ProofShowcase />
 
-          {/* Differentiator pillars */}
+          {/* Differentiator pillars — crafted cards (was plain text columns) */}
           <section
             aria-label="Why POLARIS"
-            className="border-border/60 grid gap-8 border-t pt-12 sm:grid-cols-3"
+            className="grid gap-4 sm:grid-cols-3"
           >
             {PILLARS.map((pillar) => (
-              <div key={pillar.title} className="flex flex-col gap-2">
+              <div
+                key={pillar.title}
+                className="group/pillar bg-card ring-foreground/10 shadow-card ease-standard hover:shadow-card-hover flex flex-col gap-2 rounded-xl p-5 ring-1 transition-shadow duration-150"
+              >
                 <pillar.icon
                   aria-hidden
                   className="text-primary h-5 w-5 shrink-0"

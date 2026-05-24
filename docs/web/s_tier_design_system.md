@@ -79,6 +79,14 @@ span highlights, and verdict badges appear consistently across the product.
   mobile evidence-card density lives in the Proof Replay split-view internals (separate
   component issue); the lower-left "N" badge in dev captures is the Next.js dev indicator
   (absent in production builds).
-- Pre-redo baseline (Codex, 2026-05-23): Home B, Intake B−, Contracts B− (post first
-  rebuild), Sign-in B−, Upload C+, Pin Replay C. Target every screen at A++/S with the
-  signature move systematized.
+- **Home** (#835, I-p2-044): **desktop A / fold A− / mobile A−** (Codex visual iter-2
+  APPROVE). Fixed the "Sovereign Canadian deep research" present-tense overclaim → honest
+  "Canadian-hosted deep research"; compacted the hero so the real ProofShowcase enters the
+  first viewport as the front-door artifact (brand-tinted elevation); pillars are crafted
+  cards; mobile proof overflow fixed (min-w-0 + break-words). Known pre-existing (not this
+  PR): `home_g1_g8` G2/G8 use `body.textContent()` (catches the Input's `placeholder:` class
+  in the RSC payload) — proven to fail on the baseline too; fix = switch to `innerText` like
+  the inspector spec (follow-up).
+- Pre-redo baseline (Codex, 2026-05-23): Intake B−, Contracts B− (post first rebuild),
+  Sign-in B−, Upload C+, Pin Replay C. Target every screen at A++/S with the signature move
+  systematized.
