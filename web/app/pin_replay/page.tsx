@@ -115,7 +115,7 @@ function EmptyPinReplay() {
                 className="flex min-w-0 flex-1 flex-col items-center gap-2"
               >
                 <span
-                  className={`bg-muted w-full rounded-md ${h} ${i % 2 ? "" : "animate-pulse"}`}
+                  className={`bg-muted w-full rounded-md ${h} ${i % 2 ? "" : "animate-pulse motion-reduce:animate-none"}`}
                 />
                 <span className="bg-primary/15 h-2.5 w-2.5 rounded-full" />
                 <span className="bg-muted/70 h-1.5 w-8 max-w-full rounded-full" />
