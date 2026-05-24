@@ -1,0 +1,38 @@
+# Codex VISUAL audit — I-p2-055 (#857) Source Review (source-set health), A++/S — iter 1 of 5
+
+You have VISION. Audit /source_review (cred-gated; sits between Intake and Plan). It fetches GET
+/api/v6/templates; rendered LOCALLY with a seeded session + Playwright route-mocked FIXTURE
+(visual-audit only — never shipped; page keeps fetching real data). Front-load all; don't pick bone
+from egg; APPROVE iff zero P0/P1.
+
+## Context + what changed
+This page was already the strongest cred-gated page (state-kit states, tier-token dots, and
+EXEMPLARY honest framing — it explicitly does NOT fabricate a retrieved corpus or a "readiness %";
+it shows the curated source-set DEFINITION + the per-tier adequacy bar, and says retrieval +
+adequacy-gating happen during the run). Assess-first change this iter: the hand-rolled cards
+(question card, the three tier cards, the "how sources are gathered" explainer) were flat
+`rounded-lg border` with no elevation — out of step with the rest of the cred-gated set. Added
+brand-tinted `shadow-card` + `rounded-xl` so they match. Nothing else changed.
+
+## Attached
+1. src_populated_desktop  2. src_populated_mobile  3. src_error_desktop
+
+## Locked / do NOT flag
+- Brand #c8102e (Continue button + nav active only). Tier dots use the defined tier-1/2/3 token
+  family (semantic, not the brand accent). Fixture visual-audit-only. LIVE-populated verification
+  DEFERRED (real JWT). The honest "shows the definition, not a retrieved corpus" framing is
+  deliberate (LAW II) — do NOT ask for a fabricated readiness score or retrieved-corpus preview.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+per_screen_grades: { populated_desktop: "", populated_mobile: "", error: "" }
+novel_p0: [...]
+continuing_p0: []
+p1: [...]
+p2: [...]
+highest_leverage_change_to_S: "..."
+convergence_call: continue | accept_remaining
+```
+APPROVE iff a confident A-tier pre-run source-set surface (clear tiers + adequacy bar + honest
+framing), zero P0/P1.
