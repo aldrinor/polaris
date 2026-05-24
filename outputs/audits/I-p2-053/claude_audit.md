@@ -51,4 +51,4 @@ natural empty state.
 Brand `#c8102e` (Remember only); tokens only; logic/testids/save-gate/option-values preserved; no
 fabricated SHIPPED data; no test relaxation.
 
-canonical-diff-sha256: ece8d947f17c9b443783bb0da5b697310d338cc67089c404442b614da80be980
+canonical-diff-sha256: 8844a3f68e2f7f50da36a90fe634694815f1bc3457fac1a11be84616cb3978cd

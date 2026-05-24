@@ -1,3 +1,39 @@
+# Codex DIFF review — I-p2-053 (#853): Memory rebuild + S-tier tracker — iter 3 of 5
+
+HARD ITERATION CAP: 5. iter 3. iter-2 APPROVE'd the memory page. This iter the canonical diff is
+re-cut to ALSO include the docs change the PR carries (the codex-required CI gate's canonical sha
+covers everything except .codex/<id>/ + outputs/audits/<id>/, so docs/web/s_tier_design_system.md
+must be reviewed too — it was committed alongside but not in the iter-2 reviewed diff).
+
+## What's in this canonical diff (2 files)
+1. web/app/memory/page.tsx — unchanged since the iter-2 APPROVE (design-system rebuild + state-kit
+   + IIFE-in-effect lint fix). Re-review for completeness.
+2. docs/web/s_tier_design_system.md — appends a "Cred-gated pages" subsection to the per-screen
+   tracker recording Dashboard (#849, A/A-/A), Benchmark (#851, A/A-/A-/A-/A) and Memory (#853,
+   A/A-/A) grades + a note that source-review + Plan→Run→Compare remain. Documentation only.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Already gated
+- Visual `-i` APPROVE iter-2 (desktop A / mobile A- / empty A). Code diff APPROVE iter-2 (page).
+- canonical-diff-sha256: 8844a3f68e2f7f50da36a90fe634694815f1bc3457fac1a11be84616cb3978cd
+- VERIFIED LOCALLY: eslint app/memory/page.tsx clean; tsc clean; prettier clean.
+
+## Review focus
+- The docs claims match what shipped (the recorded grades + the honest "LIVE-populated verify
+  deferred" framing). No overclaim. No code risk in the docs change.
+
+## The full canonical diff (memory page + docs)
+```diff
 diff --git a/docs/web/s_tier_design_system.md b/docs/web/s_tier_design_system.md
 index ed30c1e0..a13da376 100644
 --- a/docs/web/s_tier_design_system.md
@@ -431,3 +467,5 @@ index 57f4f024..cbc96d27 100644
  }
 
 # canonical-diff-sha256: 8844a3f68e2f7f50da36a90fe634694815f1bc3457fac1a11be84616cb3978cd
+
+```
