@@ -1,0 +1,31 @@
+# Codex brief — I-p2-054 (#855): Compare page S-audit
+
+HARD ITERATION CAP: 5. iter 1. Front-load findings; reserve P0/P1 for real risks. APPROVE iff the
+plan is sound + doesn't break the contract.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Context
+/compare (cred-gated) is the run-vs-run diff. Live it 401-redirects without a real reviewer JWT.
+Audited by rendering locally (seeded session + route-mocked runs-list + compare fixture —
+visual-audit-only, never shipped).
+
+## Plan (assess-first — page was decent)
+1. Add LoadingState + EmptyState (none existed).
+2. Fix the flag colour (brand-red ✓ → --verified Check / muted X; a mismatch is informational).
+3. Tokenize the picker selects; Card-elevate the sections.
+4. Make run identity unambiguous: option labels lead with run id + date; result shows the pair.
+Preserve testids + the real listCompletedRuns/compareRuns fetches.
+
+## Note
+Already gated downstream: visual `-i` APPROVE iter-2 (all states A); code diff under review in
+parallel. This brief records acceptance for the artifact set.

@@ -1,0 +1,13 @@
+```yaml
+verdict: REQUEST_CHANGES
+per_screen_grades: { result_desktop: "A-", result_mobile: "A-", picker: "A-", empty: "A" }
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Result state: left and right run pickers render visually indistinguishable labels. Both appear as the same truncated run title, so a user cannot confidently tell which two completed runs are being compared or reselect the intended pair. Add a stable differentiator such as run id, completion time, evaluator/family, or short suffix in the select labels/result context."
+p2:
+  - "Mobile result stat wraps awkwardly: `62%` plus the caption reads slightly cramped. Consider stacking the percent and caption more deliberately on narrow widths."
+  - "Evidence and frame cards are readable, but dense chip groups would benefit from slightly more vertical rhythm on mobile."
+highest_leverage_change_to_S: "Make every run identity unambiguous in the picker and compared result state, especially when two runs share the same template/question."
+convergence_call: continue
+```
