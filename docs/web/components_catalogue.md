@@ -8,49 +8,97 @@ Scope (Codex iter-1 §13): the minimum components subsequent implementation Issu
 
 ## 0. Shared interactive contract (every clickable/focusable element)
 
-Six microstates × the CSS contract that satisfies them. Components below inherit this baseline unless they explicitly override.
+Six microstates × the CSS contract that satisfies them. Selector group `.interactive` is applied as a Tailwind v4 layer; every component-level class composes from it (Codex iter-2 P1: not just `.btn` — links, `[role="button"]`, sentence affordances all consume the contract).
 
 ```css
-/* default */
-.btn, [role="button"], a {
-  transition: background-color var(--motion-fast) var(--ease-standard),
-              border-color var(--motion-fast) var(--ease-standard),
-              transform var(--motion-fast) var(--ease-standard),
-              color var(--motion-fast) var(--ease-standard);
-}
+@layer components {
+  /* Selector group: every clickable/focusable element opts in via `.interactive`
+     or via the role/tag selectors below — implementations may rely on either. */
+  .interactive,
+  button, [role="button"], a[href], summary,
+  .btn, .link, .chip[role="button"], [tabindex="0"][data-claim] {
+    transition:
+      background-color var(--motion-fast) var(--ease-standard),
+      border-color var(--motion-fast) var(--ease-standard),
+      transform var(--motion-fast) var(--ease-standard),
+      color var(--motion-fast) var(--ease-standard),
+      box-shadow var(--motion-fast) var(--ease-standard);
+  }
 
-/* hover: tint shift ≤8% saturation, no layout shift */
-.btn:hover { background: color-mix(in oklch, var(--btn-bg) 92%, var(--foreground) 8%); }
+  /* hover: tint shift ≤8%, no layout shift */
+  .interactive:hover,
+  button:not(:disabled):hover, [role="button"]:not([aria-disabled="true"]):hover,
+  a[href]:hover, .btn:hover, .link:hover {
+    background-color: color-mix(in oklch, currentColor 6%, transparent);
+  }
 
-/* focus-visible: always-visible 2px ring + 2px offset against background */
-.btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
-}
+  /* focus-visible: always-visible 2px ring + 2px offset against background.
+     Codex iter-2 P3: avoids any reference to a non-existent --ring-offset
+     token by encoding the offset directly in the box-shadow stack. */
+  .interactive:focus-visible,
+  button:focus-visible, [role="button"]:focus-visible,
+  a[href]:focus-visible, summary:focus-visible, .btn:focus-visible, .link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
+  }
 
-/* active: tint +12%, micro-scale 0.97 */
-.btn:active { transform: scale(0.97); background: color-mix(in oklch, var(--btn-bg) 88%, var(--foreground) 12%); }
+  /* active: tint +12%, micro-scale 0.97 */
+  .interactive:active,
+  button:not(:disabled):active, [role="button"]:not([aria-disabled="true"]):active,
+  a[href]:active, .btn:active, .link:active {
+    transform: scale(0.97);
+    background-color: color-mix(in oklch, currentColor 10%, transparent);
+  }
 
-/* disabled: opacity 0.55, cursor not-allowed, no hover/active */
-.btn[aria-disabled="true"], .btn:disabled {
-  opacity: 0.55; cursor: not-allowed; pointer-events: none;
-}
+  /* disabled: opacity 0.55, cursor not-allowed, no hover/active reaction */
+  .interactive[aria-disabled="true"],
+  button:disabled, [role="button"][aria-disabled="true"],
+  a[aria-disabled="true"], .btn[aria-disabled="true"], .btn:disabled, .link[aria-disabled="true"] {
+    opacity: 0.55;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
 
-/* loading: stable skeleton + aria-busy */
-.btn[aria-busy="true"] {
-  position: relative;
-  color: transparent !important;
-  pointer-events: none;
-}
-.btn[aria-busy="true"]::after {
-  content: ""; position: absolute; inset: 0; margin: auto;
-  width: 1em; height: 1em; border-radius: 50%;
-  border: 2px solid currentColor; border-right-color: transparent;
-  animation: spin 0.8s linear infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .btn { transition: none; }
-  .btn[aria-busy="true"]::after { animation: none; }
+  /* loading: stable skeleton + aria-busy + VISIBLE spinner.
+     Codex iter-2 P1: the prior contract set `color: transparent` while the
+     spinner used `currentColor`, making the spinner invisible. Fix: hide the
+     text via a span wrapper, NOT color, and color the spinner from an
+     explicit token (--foreground or its on-surface inverse). */
+  .interactive[aria-busy="true"],
+  button[aria-busy="true"], [role="button"][aria-busy="true"],
+  .btn[aria-busy="true"], .link[aria-busy="true"] {
+    position: relative;
+    pointer-events: none;
+  }
+  .interactive[aria-busy="true"] > *,
+  .btn[aria-busy="true"] > *, .link[aria-busy="true"] > * {
+    visibility: hidden; /* hide label without losing layout/width */
+  }
+  .interactive[aria-busy="true"]::after,
+  .btn[aria-busy="true"]::after, .link[aria-busy="true"]::after {
+    content: "";
+    position: absolute; inset: 0; margin: auto;
+    width: 1em; height: 1em; border-radius: 50%;
+    /* explicit, NOT currentColor — currentColor was inheriting the
+       text color which we previously zeroed. */
+    border: 2px solid var(--foreground);
+    border-right-color: transparent;
+    animation: polaris-spin 0.8s linear infinite;
+  }
+  @keyframes polaris-spin { to { transform: rotate(360deg); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .interactive, button, [role="button"], a[href], summary, .btn, .link {
+      transition: none;
+    }
+    .interactive:active, button:active, .btn:active, .link:active { transform: none; }
+    .interactive[aria-busy="true"]::after,
+    .btn[aria-busy="true"]::after, .link[aria-busy="true"]::after {
+      animation: none;
+      /* still show a non-spinning indicator so loading remains visible */
+      border-right-color: var(--foreground);
+    }
+  }
 }
 ```
 
@@ -207,6 +255,46 @@ interface SourceCardProps {
 
 ---
 
+## 5a. `<SourceSpanPreview>` — the in-context source-text window (Beat 4 sibling)
+
+Purpose: render the source text with the matched span(s) highlighted continuously (phrase-grouped, NOT pink word tiles). Companion to `<SourceCard>`.
+
+```ts
+interface SourceSpanPreviewProps {
+  /** The full source text (already fetched by the loader). */
+  text: string;
+  /** Span ranges to highlight, half-open intervals in chars (start inclusive, end exclusive). */
+  spans: { start: number; end: number; faithfulness: "verified" | "partial" }[];
+  /** Tint family: takes its color from the FaithfulnessChip's state. */
+  tint: "verified" | "partial";
+  /** Scroll the first span into view on mount/update. Default true. */
+  autoScroll?: boolean;
+}
+```
+
+**Visual:**
+- `<pre>` wrapper with `white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--text-mono);` — fixed-width so highlights align cleanly with the source text.
+- Each contiguous range from `spans` is rendered as a single `<mark>` with `background: var(--<tint>-bg); color: var(--foreground); border-radius: 2px; padding: 0 2px;` — phrase-grouped (one rect per range; non-matched text has NO background).
+- A leading `<MapleLeaf>` mark NOT shown here (that's for the SignaturePill); the source preview is calm and editorial.
+- Container has `max-height: 60vh; overflow: auto;` on desktop, `40vh` on the mobile bottom-sheet variant.
+
+**Reveal animation (Beat 4 within the proof panel):**
+- Highlight in: `mask-image: linear-gradient(90deg, black 0%, black 0%, transparent 0%) → linear-gradient(90deg, black 0%, black 100%, transparent 100%)` over `--motion-fast` (120ms — Codex iter-2 P2 fix), `ease-standard`. Reads as left-to-right reveal.
+- Auto-scroll: smooth scroll to bring the first highlight to ~30% of the visible area, over `--motion-base` (200ms).
+- Reduced-motion: instant, no scroll-animation (`scrollTo({ behavior: "instant" })`).
+
+**Microstates** (baseline §0 applies only to the optional "Open full source" link rendered above the preview).
+- The `<mark>` highlights are NOT interactive themselves.
+
+**Responsive:** mobile bottom-sheet caps height per above; pinch-to-zoom is honored (no `touch-action: none`).
+
+**A11y:**
+- `<pre>` has `role="region"` + `aria-label="Source span containing the cited evidence"`.
+- Each `<mark>` is announced by AT as "marked text" natively; supplement with `aria-label="Matched evidence span"` on the first mark in the range.
+- Source text size respects browser font-size + supports up to 400% zoom without horizontal scroll on desktop.
+
+---
+
 ## 6. `<SignaturePill>` — Beat-5 receipt
 
 ```ts
@@ -278,7 +366,7 @@ For implementation Issues to consume:
 | Storyboard surface | Components used |
 |---|---|
 | Stage 0 brief reading | `<ClaimSentence>` (n×, one per sentence) |
-| Stage 2 the 6 beats | `<ProofPanel>` containing `<FaithfulnessChip>`, `<CertaintyBadge>`, `<SourceCard>` + `<SourceSpanPreview>` (existing), `<SignaturePill>`, `<WhatThisDoesNotProve>` |
+| Stage 2 the 6 beats | `<ProofPanel>` containing `<FaithfulnessChip>`, `<CertaintyBadge>`, `<SourceCard>` + `<SourceSpanPreview>` (§5a), `<SignaturePill>`, `<WhatThisDoesNotProve>` |
 | Stage 4 mobile bottom-sheet | same as Stage 2 with the panel in bottom-sheet variant |
 | Home teaser (Stage 7) | inline `<ProofPanel>` variant + `<ClaimSentence>` |
 | Brief level | `<IntendedUseBanner>` |

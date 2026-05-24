@@ -96,12 +96,19 @@ Used by: verdict chips, sentence-level tints in the brief, proof-panel beat-2.
 ### 2.4 Evidence-strength palette (judgment #2: "is the evidence strong enough to act on?")
 Used by: certainty badges, SoF certainty column, proof-panel beat-3, dual-provenance strip "evidence-strength mix" pills. **Deliberately ordinal (saturation-step), not a hue chosen to match faithfulness** — so the user never visually conflates "supported" with "strong."
 ```
---certainty-high       oklch(0.42 0.10 245)  deep slate-blue (calm authority)
---certainty-moderate   oklch(0.56 0.09 245)  mid slate-blue
---certainty-low        oklch(0.70 0.06 245)  light slate-blue
---certainty-very-low   oklch(0.85 0.03 245)  pale slate-blue
---certainty-fg         oklch(0.99 0.005 95)  white text on certainty-high/moderate; foreground on the lighter two
+--certainty-high          oklch(0.42 0.10 245)   deep slate-blue (calm authority)
+--certainty-high-fg       oklch(0.99 0.005 95)   near-white on the dark levels (≥7:1 AAA)
+--certainty-moderate      oklch(0.56 0.09 245)
+--certainty-moderate-fg   oklch(0.99 0.005 95)   still near-white at this level (≥4.7:1 AA)
+--certainty-low           oklch(0.70 0.06 245)   light slate-blue
+--certainty-low-fg        oklch(0.21 0.01 95)    near-black foreground (≥6.3:1 AAA)
+                                                 — Codex iter-2 P1: near-white on --certainty-low is only ~2.6:1,
+                                                 fails AA. Per-level foreground tokens fix this rather than
+                                                 leaving the implementation to guess.
+--certainty-very-low      oklch(0.85 0.03 245)   pale slate-blue
+--certainty-very-low-fg   oklch(0.21 0.01 95)    near-black foreground (≥10:1 AAA)
 ```
+**Foreground-by-level rule (binding):** dark backgrounds (`-high`, `-moderate`) use the near-white `*-fg`; light backgrounds (`-low`, `-very-low`) use the near-black `*-fg`. The component (§4 CertaintyBadge in `components_catalogue.md`) reads `var(--certainty-<level>-fg)` directly — never `var(--certainty-fg)` (which is intentionally NOT defined).
 
 > **Why slate-blue, not green/amber/red:** evidence strength is independent of faithfulness. If both used the same family, a "VERIFIED + low" claim and a "PARTIAL + high" claim would visually blur. The contrast across families makes the two reads orthogonal at a glance.
 

@@ -111,7 +111,7 @@ A `<CertaintyBadge>` (token §2.4 slate-blue palette) appears below the verdict 
 This is the moment the proof becomes tangible.
 - Below the certainty section, a `<SourceCard>` slides up showing the source's header: journal · year · DOI · tier · *why this source was selected*.
 - Simultaneously (this is the only acceptable simultaneity in the sequence), the **inline source preview** below the card scrolls to the cited span and the phrase-grouped highlight animates in:
-  - Highlight progresses left-to-right via a CSS gradient mask (`mask-image: linear-gradient(90deg, black 0% → 100%)`) over `--motion-base` — reads as "this is the exact span."
+  - Highlight progresses left-to-right via a CSS gradient mask (`mask-image: linear-gradient(90deg, black 0% → 100%)`) over `--motion-fast` (120ms — meets the ≤150ms target stated in the hard rules; Codex iter-2 P2 fix — the prior `--motion-base` (200ms) violated the spec). Reads as "this is the exact span."
   - Phrase-grouped: contiguous matched words share one highlight rectangle (`background: var(--verified-bg)` for verified claims; `var(--partial-bg)` for partial); non-matched separators have NO background.
   - NO "pink word tiles" — the iter-1 plan finding. Continuous reading bands only.
 
