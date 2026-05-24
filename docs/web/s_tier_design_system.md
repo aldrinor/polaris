@@ -105,5 +105,11 @@ span highlights, and verdict badges appear consistently across the product.
   focus + motion; drag-depth counter to avoid child-flicker), tokenized error, and a factual
   3-step "what happens after upload" band + /intake link filling the empty surface. Logic +
   testids preserved.
-- Pre-redo baseline (Codex, 2026-05-23): Sign-in B−, Pin Replay C. Target every screen at
-  A++/S with the signature move systematized.
+- **Pin Replay** (#843, I-p2-048): **empty state desktop A / mobile A−** (Codex visual iter-1
+  APPROVE). In the demo the registry is empty (since #627) so the empty state is the only
+  visible state; added a ghost-timeline skeleton (data-free) + concept caption so the page
+  makes the temporal-drift differentiator tangible. Known pre-existing (NOT this PR, proven on
+  baseline): `pin_replay_g1_g8` G8 fails on a Next-16 RSC `Set`-serialization warning ("Set
+  objects are not supported" server→client) — follow-up.
+- Pre-redo baseline (Codex, 2026-05-23): Sign-in B−. Target every screen at A++/S with the
+  signature move systematized.

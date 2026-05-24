@@ -95,6 +95,40 @@ function EmptyPinReplay() {
         up the snapshots so you can see how the evidence and the verified answer
         shift over time.
       </p>
+
+      {/* I-p2-048 (#843): a ghost-timeline preview — skeleton shapes only, NO
+          data (no dates/counts/verdicts) — makes the temporal-drift concept
+          tangible while there are no pins yet. Decorative: aria-hidden + one
+          caption. */}
+      <div className="border-border bg-card shadow-card mb-6 flex flex-col gap-5 rounded-xl border p-6">
+        <p className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+          Your pinned runs line up here as a timeline
+        </p>
+        <div
+          aria-hidden
+          className="flex items-end justify-between gap-2 sm:gap-4"
+        >
+          {["h-10", "h-16", "h-12", "h-20", "h-14", "h-24", "h-16"].map(
+            (h, i) => (
+              <div
+                key={i}
+                className="flex min-w-0 flex-1 flex-col items-center gap-2"
+              >
+                <span
+                  className={`bg-muted w-full rounded-md ${h} ${i % 2 ? "" : "animate-pulse"}`}
+                />
+                <span className="bg-primary/15 h-2.5 w-2.5 rounded-full" />
+                <span className="bg-muted/70 h-1.5 w-8 max-w-full rounded-full" />
+              </div>
+            ),
+          )}
+        </div>
+        <p className="text-muted-foreground/70 text-xs">
+          Each pin becomes a point on this timeline — verified-claim rate and
+          evidence shifts, side by side.
+        </p>
+      </div>
+
       <EmptyState
         icon={History}
         title="No pinned runs yet"
