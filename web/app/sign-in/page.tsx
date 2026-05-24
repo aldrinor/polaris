@@ -22,7 +22,7 @@ const TRUST_POINTS = [
   { icon: BadgeCheck, text: "Every claim span-anchored to a primary source." },
   {
     icon: ShieldCheck,
-    text: "Sovereign Canadian processing, integrity-hashed.",
+    text: "Canadian-hosted evidence records, integrity-hashed.",
   },
   { icon: Network, text: "A connected, auditable evidence graph per run." },
 ] as const;
@@ -138,7 +138,7 @@ function SignInPageContent() {
           </ul>
         </div>
         <p className="text-muted-foreground text-xs">
-          Sovereign Canadian deep research · auditable evidence
+          Canadian-hosted research workspace · auditable evidence
         </p>
       </aside>
 
@@ -152,7 +152,7 @@ function SignInPageContent() {
               POLARIS Canada
             </span>
             <span className="text-foreground text-base font-semibold">
-              Sovereign Deep Research
+              Canadian-hosted Workspace
             </span>
           </div>
 
