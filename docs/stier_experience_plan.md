@@ -1,9 +1,10 @@
-# POLARIS — S-Tier Experience Plan v3 (I-ux-001 / #872)
+# POLARIS — S-Tier Experience Plan v4 (I-ux-001 / #872)
 
-**For:** Codex UNCAPPED review (iter 3). Rebuilt to address iter-2 (`codex_plan_verdict_iter2.txt`): iter-2 said direction is right; blockers were the clinical-safety method, regulatory/intended-use posture, and verifier-trust honesty.
+**For:** Codex UNCAPPED review (iter 4). iter-3 RESOLVED clinical-safety method, regulatory posture, two-judgment separation, verifier honesty, anti-cherry-pick, Canadian policy, assistive-tech WCAG. Remaining: one honesty P0 (the demo bundle is not actually signed) + two execution-gate P1s.
 **Decision authority:** Codex. Operator not consulted (full authorization 2026-05-24).
 
-**v2→v3 changes (per iter-2):** (a) **two judgments separated everywhere** — *textual faithfulness* (sentence↔span, two-family-checked) vs *evidence strength / decision-safety* (outcome-level); (b) clinical layer rebuilt as a **real outcome-level Summary-of-Findings** (GRADE done correctly, not per-sentence) with abstention thresholds; (c) NEW **intended-use / regulatory posture + honest-limits** section (Health Canada/FDA/MHRA transparency principles; explicitly NON-device decision-support); (d) **verifier-trust honesty** — two-family stated with measured reliability + a "what this cannot prove" panel; (e) **anti-cherry-picking** source controls (locked defaults, receipt-logged deviations, sensitivity runs); (f) **execution-safe** offline verify (key identity/authority/rotation/revocation/pass-fail); (g) concrete **90-second PM demo script**; (h) Canadian source policy + assistive-tech accessibility testing.
+**v3→v4 changes (per iter-3):** (a) NEW **Prerequisite 0 — a REAL signed demo bundle** (the current bundle has no real `manifest.yaml.asc`; "signed/offline-verifiable" claims are gated on GPG verification passing, else the honest "not signed" state shows); (b) **operationalized abstention/SoF launch gate** (required demo outcomes, min adequacy, multi-outcome→certainty mapping, refuse-vs-badge rule); (c) **verifier release gate** (gold-set threshold + calibration + disagreement escalation before the independent-family check may be called trustworthy in the PM build); (d) §6 adds explicit "not for individual-patient recommendations / not for urgent/time-sensitive decisions."
+*(v2→v3 had: two-judgment separation, outcome-level GRADE SoF, intended-use posture, verifier honesty, anti-cherry-pick controls, execution-safe verify, 90s demo script, Canadian source policy + assistive-tech testing.)*
 
 ---
 
@@ -53,7 +54,7 @@ The make-or-break interaction. Keyboard-first, mobile-real, instant. Crucially i
 
 **Perf budget:** time-to-first-proof <400ms; span highlight <150ms; claim switch <120ms. `prefers-reduced-motion`: instant swaps.
 
-**Home teaser:** a real verified claim from the existing real signed bundle; one "Challenge this sentence" runs beats 1→6 inline — the 8-second "I've never seen research I could check *and* gauge like this" moment.
+**Home teaser:** a real verified claim from the demo bundle (which must be *really* signed per Prerequisite 0, §13.5 — the beat-5 "signed/offline-verifiable" claim renders only when GPG verification passes, else the honest "not signed" state shows); one "Challenge this sentence" runs beats 1→6 inline — the 8-second "I've never seen research I could check *and* gauge like this" moment.
 
 ## 5. Clinical evidence-strength layer — done correctly (iter-2 P0)
 
@@ -62,6 +63,7 @@ GRADE certainty is **outcome-level across a body of evidence**, NOT per-sentence
 - **Harms surfaced alongside efficacy**, never buried; **applicability/population fit** (incl. Canadian relevance) flagged on mismatch; **evidence hierarchy** (RCT vs guideline vs observational) visibly distinguished (this is what #817 addressed in retrieval).
 - **Honest scope of automation:** POLARIS *surfaces the inputs* to a GRADE assessment and presents a structured SoF view + a per-claim certainty read **when supportable**; it does NOT claim to replace a formal GRADE appraisal by the reviewer. Labeled as decision-support input.
 - **Abstention thresholds:** below a defined adequacy/certainty floor, POLARIS abstains ("the evidence base cannot support a safe answer") — a dignified first-class outcome, not an error (the #871 class).
+- **Operational launch gate (iter-3 P1 — must be specified, not just named):** the clinical demo ships only when: (i) the demo question has ≥1 critical efficacy outcome AND its harms/safety outcome covered by a Summary of Findings; (ii) minimum body-of-evidence adequacy met (≥ the §9 tier thresholds AND ≥2 independent sources per graded outcome); (iii) **multi-outcome→brief-certainty mapping** is defined (a brief's headline certainty = the *lowest* certainty among its critical outcomes, never the highest — no averaging away a weak harm signal); (iv) **refuse-vs-badge rule:** if any critical outcome falls below the floor, the UI must REFUSE/abstain for that claim (not show a low-certainty badge as if answered). These thresholds live in config (LAW VI), not hard-coded.
 - **Decision context (EtD-aware, lightweight):** where relevant, note benefits/harms balance and values/applicability caveats so a sentence that is *faithful* is never mistaken for *sufficient to act on*.
 
 ## 6. Intended-use, regulatory posture & honest limits (NEW — iter-2 P0)
@@ -69,7 +71,7 @@ GRADE certainty is **outcome-level across a body of evidence**, NOT per-sentence
 A standing, visible **intended-use statement** (on the brief, the receipt, and /transparency):
 - **Intended user:** senior policy/clinical reviewers in an institutional setting (e.g. a PM's office) for *research decision-support*.
 - **Intended use:** produce auditable, source-bound evidence briefs to *inform* expert review.
-- **NOT intended:** point-of-care diagnosis/treatment, a medical device / regulated clinical decision support, or a substitute for clinician/expert judgment. **Non-reliance language** explicit.
+- **NOT intended:** point-of-care diagnosis/treatment, a medical device / regulated clinical decision support, a substitute for clinician/expert judgment, **individual-patient recommendations**, or **urgent / time-sensitive clinical decisions**. **Non-reliance language** explicit (aligns with Health Canada/FDA non-device CDS framing).
 - **Knowns/unknowns + data quality:** what sources were and were not searched, recency, and the limits of automated retrieval/extraction.
 - **Evaluator validation posture:** the two-family check is an *independence/consistency* mechanism with measured reliability and stated limits (§7) — not regulatory validation.
 - **Canadian-population applicability** explicitly addressed.
@@ -81,6 +83,7 @@ Present the verification truthfully so "two-family" never becomes a new overclai
 - **Deterministic checks** (numeric match, span bounds, content-word overlap) shown as *mechanical* facts.
 - **Two-family independent check** shown as an *independence/consistency* signal with **measured reliability** (evaluator accuracy/agreement metrics, calibration examples) and **disagreement handling** (what happens when families disagree).
 - **A persistent "what this verifier cannot prove" panel:** faithfulness ≠ source correctness; independence ≠ clinical validation; absence of contradiction ≠ completeness.
+- **Release gate (iter-3 P1 — not just a display promise):** before the PM build may call the independent-family check "trustworthy", it must clear a gate on a held-out gold set — a documented accuracy/agreement threshold vs human adjudication, published calibration examples (where the check is right/wrong), and a defined **disagreement-escalation** path (family-disagreement downgrades the claim to PARTIAL and surfaces both reads, never silently picks one). Threshold + gold-set live in config; the gate is a build artifact, not a slogan.
 
 ## 8. Intake → Plan: source strategy with anti-cherry-picking guardrails (iter-2 P1)
 
@@ -131,11 +134,24 @@ Warm-editorial base + brand red `#c8102e` (LOCKED) → Linear/Stripe/Vercel craf
 | Export/Receipt | B | **structural rebuild** (§11) | execution-safe offline-verify |
 | Source-review, dashboard, memory, benchmark, upload, contracts, pin-replay, sign-in | C–B | polish to system | subordinate; consistent components + motion + de-jargon |
 
-## 14. Execution sequence + the actual PM demo script (iter-1/2)
+## 13.5 Prerequisite 0 — a REAL signed demo bundle (BLOCKING for any "signed" claim) (iter-3 P0)
 
+**Honest state today:** the demo/canonical bundle is NOT actually signed. `web/public/canonical_bundles/v1_canonical_success` has no `manifest.yaml.asc`; the loader (`web/lib/inspector_bundle_loader.ts`) only sets `signaturePresent` when that file exists and is non-empty; the live inspector shows "Signature missing"; the test-fixture `.asc` is a documented placeholder, not a real key signature. So any "signed / offline-verifiable" claim in the hero or demo is currently FALSE.
+
+**Therefore, BEFORE the hero/demo may use the word "signed" or promise offline verification:**
+1. Obtain real signing-key material (the project's deploy key if one exists; if none is available in the environment, that is a genuine blocker → write `state/stier_halt_signing_key.md` and surface it — do not fake it).
+2. Sign the demo bundle's `manifest.yaml` → a real `manifest.yaml.asc`.
+3. **Dry-run `gpg --verify`** it; capture the pass output as a build artifact.
+4. A **build/CI guard** that FAILS if any bundle the UI labels "signed" lacks a non-placeholder `.asc` that GPG-verifies. Until it passes, the UI must show the honest **"not signed — trust not established"** state (§12 copy), never a green "signed" badge.
+
+The hero is BUILT against the demo bundle in parallel; its beat-5 "signed/offline-verifiable" affordance and the §14 offline-receipt-handoff only light up once Prereq 0 passes. This is a LAW-II "no fake working" gate.
+
+## 14. Execution sequence + the actual PM demo script (iter-1/2/3)
+
+0. **Prerequisite 0 (§13.5): a REAL signed demo bundle + the signed-language guard.** Blocks all "signed/offline-verifiable" claims until GPG verification passes.
 1. Design + motion foundation + **Figma/motion prototype of the hero** (6-beat) BEFORE code; Codex reviews the prototype (`-i`).
 2. Component system to spec (incl. SoF row, certainty badge, what-can't-prove panel, intended-use banner).
-3. **Hero** (Report/Inspector + Home teaser) against the **existing real signed bundle** (do NOT wait on #871).
+3. **Hero** (Report/Inspector + Home teaser) — built in parallel; "signed" affordances gated on Prereq 0; do NOT wait on #871.
 4. **Clinical evidence-strength layer + intended-use posture + verifier-honesty** woven in.
 5. **Journey views** in flow order, each with failure states (inadequate/partial/contradictory/unsigned).
 6. Supporting surfaces to the system.
@@ -156,4 +172,4 @@ S-tier per surface: (a) Codex 16-dim visual audit PASS via `codex exec -i` (desk
 Initiative done when: every surface clears the bar; the workspace reads as one artifact; faithfulness and evidence-strength are cleanly separated and honest; intended-use + verifier limits are explicit; offline-verify works execution-safe; and a real end-to-end run produces a real verified brief through the hero (#871 fixed for the live demo).
 
 ---
-*Codex iter 3: verify v3 against iter-2 P0/P1 (don't trust change-claims — read the plan). Re-cross-check online (esp. GRADE/SoF method + Health Canada/FDA transparency). APPROVE only if frontier-beating, unforgettable, clinical-SAFE, honest, and one coherent artifact. Uncapped.*
+*Codex iter 4: verify v4 against iter-3 P0/P1 (don't trust change-claims — read the plan). The iter-3 P0 was the unsigned-bundle honesty gap → §13.5 Prereq 0. APPROVE only if frontier-beating, unforgettable, clinical-SAFE, honest, and one coherent artifact, with no fake-working premises. Uncapped.*
