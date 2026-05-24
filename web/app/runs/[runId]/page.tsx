@@ -86,6 +86,22 @@ export default function RunDetailPage({ params }: RunPageProps) {
     status !== null && TERMINAL_STATUSES.includes(status.status);
   const cancelRequested = status?.cancel_requested ?? false;
 
+  // A genuinely verified, followable result. Per §9.1, the lifecycle `status`
+  // is NOT authoritative — mark_aborted() persists lifecycle 'completed' for
+  // abort_* runs too, so an abort_no_verified_sections run is lifecycle
+  // 'completed' but has NO verified result. The run-store PIPELINE status is
+  // the verdict: treat 'completed' as verified UNLESS pipeline_status is an
+  // abort_*/error_* (a completed run with null pipeline_status predates the
+  // field → trusted as success, matching RunProgress's own fallback). This
+  // gates both the "verified result" copy and the follow-up panel so neither
+  // overclaims on an aborted run.
+  const pipelineStatus = status?.pipeline_status ?? null;
+  const isAbortedOrError =
+    pipelineStatus !== null &&
+    (pipelineStatus.startsWith("abort_") ||
+      pipelineStatus.startsWith("error_"));
+  const hasVerifiedResult = status?.status === "completed" && !isAbortedOrError;
+
   const onCancel = async () => {
     setCancelling(true);
     setError(null);
@@ -164,12 +180,18 @@ export default function RunDetailPage({ params }: RunPageProps) {
         {error && <ErrorState title="Couldn't load this run" message={error} />}
       </div>
 
-      <div className="border-border flex flex-col gap-2 rounded-md border p-4">
+      <div className="border-border bg-card shadow-card flex flex-col gap-2 rounded-xl border p-4">
         <h2 className="text-foreground text-sm font-semibold">
-          Affordances during this run
+          {isTerminal ? "This run" : "While this run works"}
         </h2>
         <p className="text-muted-foreground text-xs">
-          Actions you can take while POLARIS works:
+          {/* hasVerifiedResult is pipeline-verdict-based (see above): an
+              aborted/failed/cancelled run must not claim a "verified result". */}
+          {!isTerminal
+            ? "Actions you can take while POLARIS works:"
+            : hasVerifiedResult
+              ? "Open, export, or follow up on the verified result:"
+              : "Open or export what this run produced:"}
         </p>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -237,10 +259,12 @@ export default function RunDetailPage({ params }: RunPageProps) {
 
       <RunProgress events={events} status={status} />
 
-      {/* I-ui-003 (#542): follow-up is meaningful only for a completed run
-          (it has an answerable, verified report). Failed/cancelled/in-progress
-          runs don't render it. */}
-      {status?.status === "completed" && <FollowupPanel runId={runId} />}
+      {/* I-ui-003 (#542): follow-up is meaningful only for a run with a
+          verified report. Per §9.1, gate on the PIPELINE verdict, not lifecycle
+          'completed' — an abort_* run is lifecycle 'completed' but has no
+          verified result to follow up on (I-p2-057 Codex diff iter-3 P2).
+          Failed/cancelled/in-progress runs don't render it either. */}
+      {hasVerifiedResult && <FollowupPanel runId={runId} />}
     </section>
   );
 }

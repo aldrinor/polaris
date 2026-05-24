@@ -165,5 +165,25 @@ Contracts A/A- · Upload A/A+/A · Pin Replay A/A- · Sign-in A/A), each dual-Co
   reserved for the single Start-run action). The scope/concurrent guards + honest framing
   preserved. Residual P2 (accept_remaining): no-question empty state vertical rhythm.
 
-Remaining cred-gated UI: the Run-progress page (the last journey leg). LIVE-populated verification
-of all cred-gated pages awaits the demo reviewer credential.
+- **Run progress** (#861, I-p2-057): **live desktop A / live mobile A / done desktop A** (Codex
+  visual iter-2 APPROVE). The live-run surface (depth-visible 4-stage progress consuming SSE
+  events) — already exemplary (honest stream-loss handling, the "never green-check an unobserved
+  stage" rule, the Thinking-Toggle, honest "—" elapsed when not watched live). Assess-first: moved
+  the "done" stage chip + retrieval ✓ from brand-red to `--verified` green (a red done-checkmark
+  reads as an alarm); gave the stage cards + counters + the page actions card `shadow-card` +
+  `rounded-xl`; reworded the actions card heading off UX jargon ("Affordances during this run" →
+  "While this run works") and branched it by verdict — live → "While this run works"; terminal with
+  a verified PIPELINE result (success / partial_*) → "This run" / "Open, export, or follow up on the
+  verified result:"; terminal aborted / failed / cancelled → "Open or export what this run
+  produced:" (no "verified result" claim, and no follow-up panel, for a run that produced none).
+  The verified-result copy + the follow-up panel are gated on `pipeline_status`, NOT lifecycle
+  `status === "completed"` — per §9.1 `mark_aborted()` persists lifecycle 'completed' for abort_*
+  runs (Codex visual iter-1 P2 + diff iter-1/2/3 P2).
+
+**The full cred-gated journey is now at the A bar** (Dashboard A/A-/A · Benchmark A/A-/A-/A-/A ·
+Memory A/A-/A · Compare A/A/A/A · Source Review S-/A++/A+ · Plan A/A/A/A- · Run progress A/A/A),
+each rendered locally (seeded session + route-mocked fixture, visual-audit-only) under the dual
+Codex gate (visual `-i` + code) → merged → deployed. LIVE-populated verification of every
+cred-gated page awaits the demo reviewer credential — the pages 401-redirect on
+polarisresearch.ca without it; layout/states are verified against route-mocked fixtures + the
+natural empty/error states (which ARE what render live).

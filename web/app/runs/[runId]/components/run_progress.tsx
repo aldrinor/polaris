@@ -250,7 +250,7 @@ export function RunProgress({ events, status }: RunProgressProps) {
               key={stage.key}
               data-testid={`stage-${stage.key}`}
               data-state={state}
-              className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4"
+              className="border-border bg-card shadow-card flex flex-col gap-2 rounded-xl border p-4"
             >
               <div className="flex items-center gap-2">
                 <StageChip state={state} />
@@ -282,7 +282,7 @@ export function RunProgress({ events, status }: RunProgressProps) {
 
 function Counter({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-border bg-card flex flex-col gap-1 rounded-lg border px-3 py-2">
+    <div className="border-border bg-card shadow-card flex flex-col gap-1 rounded-xl border px-3 py-2">
       <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
         {label}
       </span>
@@ -301,10 +301,12 @@ function StageChip({ state }: { state: StageState }) {
     );
   }
   if (state === "done") {
+    // A done/verified stage reads in the product's verdict language: green
+    // (--verified), not the brand-red accent (a red ✓ reads as an alarm).
     return (
       <span
         aria-label="done"
-        className="bg-primary text-primary-foreground flex size-4 items-center justify-center rounded-full text-[10px]"
+        className="bg-verified text-verified-foreground flex size-4 items-center justify-center rounded-full text-[10px]"
       >
         ✓
       </span>
@@ -397,7 +399,7 @@ function StageBody({
             className="text-muted-foreground truncate text-xs"
             title={s.url || s.id}
           >
-            <span className="text-primary">✓</span> {s.url || s.id}
+            <span className="text-verified">✓</span> {s.url || s.id}
           </li>
         ))}
         {sources.length > 12 && (
