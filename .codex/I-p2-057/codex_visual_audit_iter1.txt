@@ -1,0 +1,14 @@
+```yaml
+verdict: APPROVE
+per_screen_grades:
+  live_desktop: "A"
+  live_mobile: "A"
+  done_desktop: "A-"
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "done_desktop: the action card still says 'While this run works' / 'while POLARIS works' after Status is completed. The rest of the page is honest, so this is copy polish, not a blocker."
+highest_leverage_change_to_S: "Swap the action-card heading/body by status: live can keep 'While this run works'; completed should become something like 'Run complete' with export/follow-up oriented actions."
+convergence_call: accept_remaining
+```
