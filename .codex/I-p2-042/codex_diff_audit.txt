@@ -1,0 +1,10 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/components/ui/card.tsx:17: non-blocking nuance: tailwind-merge does not collapse custom `shadow-card` against built-in `shadow-*` overrides, so a future `className='shadow-none'` escape hatch would leave both classes present. No current Card caller appears to pass a shadow override, so this is not an execution blocker."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
