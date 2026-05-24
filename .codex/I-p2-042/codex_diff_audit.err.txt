@@ -1,0 +1,853 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e5749-e90e-71e0-90ec-8d32d7d9ee7b
+--------
+user
+# Codex DIFF review — I-p2-042 (#831): S-tier foundation tokens + design-system doc. Iter 1 of 5.
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL findings. Same bar each iter. Reserve P0/P1 for real execution risks.
+- If iter 5 REQUEST_CHANGES, force-APPROVE on remaining non-P0/P1.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+You APPROVE'd the brief (iter 2). Diff (4 files):
+- `app/globals.css` @theme: +`--ease-standard` (motion primitive) + `--shadow-card`/`--shadow-card-hover` (brand-temperature elevation, locked #c8102e=rgb(200,16,46) — additive, no existing token changed).
+- `components/ui/card.tsx`: Card gains `shadow-card` + `transition-shadow duration-150 ease-standard`.
+- `docs/web/s_tier_design_system.md` (new canonical reference) + `docs/file_directory.md` (index ref).
+
+Verified: build compiled; prettier clean (incl. the doc); brand red untouched; tokens additive (Tailwind v4 `--shadow-*`→`shadow-*`, `--ease-*`→`ease-*`). Visual `-i` gate runs next (every-page card elevation lift).
+
+Review focus: (1) tokens truly additive/no regression; (2) Card change is presentation-only (no layout shift, ring kept); (3) any NEW issue. Note: visual_60 baselines need refresh (intentional global shadow) — non-required lane.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## The diff
+```diff
+diff --git a/docs/file_directory.md b/docs/file_directory.md
+index e646cc13..f281aaa5 100644
+--- a/docs/file_directory.md
++++ b/docs/file_directory.md
+@@ -174,6 +174,7 @@ Selected files:
+ | `file_directory.md` | THIS file — inventory of active code |
+ | `todo_list.md` | Prioritized backlog |
+ | `runbook.md` | How to run each pipeline end-to-end |
++| `web/s_tier_design_system.md` | Canonical S-tier UI design system (tokens, signature move, per-PR dual-visual+e2e protocol, build order) — #829 |
+ | `live_code_audit.md` | Static import-closure analysis (human-readable) |
+ | `live_code_audit.json` | Same, machine-readable |
+ | `compliance/` | Compliance reference materials |
+diff --git a/docs/web/s_tier_design_system.md b/docs/web/s_tier_design_system.md
+new file mode 100644
+index 00000000..234a3989
+--- /dev/null
++++ b/docs/web/s_tier_design_system.md
+@@ -0,0 +1,77 @@
++# POLARIS S-tier design system (canonical)
++
++**Status:** authoritative. Source: Codex vision-authored direction
++(`.codex/ui_visual_audit/s_tier_direction_verdict.txt`, 2026-05-23), grounded in
++2026 best practice + Stripe/Linear/Vercel premium-UI invariants. Bar = **A++/S**,
++visually competitive with AND differentiated from Perplexity / ChatGPT Deep
++Research / Gemini. Tracking issue: #829 (umbrella), foundation #831 (I-p2-042).
++
++## The signature move (the differentiator)
++
++**Proof Replay is the product's visual operating system, not a component.**
++Every screen reuses the same grammar: `claim sentence → provenance token → cited
++source span → evaluator verdict → audit hash`. "Perplexity owns sources-near-answers;
++POLARIS owns _every sentence is cross-examinable_." Proof tokens, the proof rail,
++span highlights, and verdict badges appear consistently across the product.
++
++## Tokens
++
++- **Type:** Geist only. Scale: display 40/44·700, h1 32/38·700, h2 24/30·700,
++  h3 18/26·600, body 16/24·400, body-sm 14/21·400, caption 12/16·500 (uppercase
++  labels +0.08em), mono 13/18·500. Tabular nums for clinical values; mono for
++  IDs/hashes/dates/model names.
++- **Spacing grid:** 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64 / 96. Page top pad 64
++  (desktop) / 32 (mobile); section gap 48; card pad 24; inspector pad 16; form
++  field gap 16. Max content 1120px / workbench 1200px. Spacing must be _invisible
++  because systematic_ — never mix 16 and 24 arbitrarily.
++- **Color (restraint):** near-neutral + ONE accent — **Canada red `#c8102e`
++  (operator-locked 2026-05-21; do NOT change)** used once/screen, meaning-only
++  (primary action or active proof mark, never decoration). Verified = green
++  (`--verified`), warning = amber (`--contradiction`), danger = `--destructive`,
++  refusal = neutral-strong. Evidence-role tokens: tier-1/2/3, proof-token,
++  verified-bundle.
++- **Radius:** cards `rounded-xl` (~12px), controls ~8px, pills full.
++- **Border / shadow:** hairline `ring-foreground/10` (1px low-alpha) plus
++  brand-tinted elevation `--shadow-card` / `--shadow-card-hover` (a neutral
++  hairline lift and a faint Canada-red wash — never pure gray).
++- **Motion:** ONE primitive — `--ease-standard: cubic-bezier(0.2,0.8,0.2,1)`,
++  ~150–160ms. Reuse on hover/focus/tab/inspector-selection/span-reveal/skeleton.
++  No ornamental animation.
++- **Microstates (non-negotiable, every interactive element):** default / hover
++  (brand-soft or neutral tint) / focus (custom 2px ring `ring-ring/…` + 2px
++  offset, visible) / active (slight inset, buttons translateY(1px)) / disabled
++  (opacity ~.45, no pointer) / loading (skeleton matching layout, never a bare
++  spinner).
++- **Empty/loading/error:** evidence-native + designed (ghost timeseries, claim-row
++  skeletons, contract preview shell). Errors explain _which_ gate failed
++  (scope / coverage / evaluator disagreement / infrastructure).
++
++## Verification protocol (every UI PR)
++
++1. GitHub issue first; close on merge.
++2. Build the page/primitive to the spec; preserve logic + `data-testid`s.
++3. **Dual visual gate:** Claude views the screenshots AND Codex audits them via
++   `codex exec -i` at the A++/S bar — every state (empty/loading/error/populated)
++   × desktop/tablet/mobile. Plus Codex CODE review (brief + diff).
++4. e2e (Playwright) green; visual-regression baselines refreshed on intentional
++   pixel changes.
++5. Update this doc + `docs/file_directory.md`; deploy + live-verify.
++
++## Build order
++
++1. **Foundation tokens** (#831 / I-p2-042) — motion + brand-tinted shadow applied
++   to Card; type/spacing/color already tokenized. ← _in progress_
++2. **Primitives** — Button/Input/Select/Chip/Tab/Card/Badge/Skeleton/EmptyState,
++   plus the proof primitives (ProofToken/ProofRail/SourceSpan/VerdictBadge).
++3. **Proof system** — ClaimStack / ProofReplayPanel / EvaluatorVerdict /
++   AuditHashChain.
++4. **Pages** (S-bar, worst-gap weighted): Inspector → Home → Intake → Contracts →
++   Upload → Pin Replay → Sign-in.
++5. **Cred-gated** (need `POLARIS_DEMO_USER`/`POLARIS_DEMO_PASS`): dashboard,
++   benchmark, memory, source-review, and the Plan → Run → Compare journey.
++
++## Per-screen S-bar baseline (Codex, 2026-05-23 — pre-redo)
++
++Inspector B+, Home B, Intake B−, Contracts B− (post first rebuild), Sign-in B−,
++Upload C+, Pin Replay C. Target every screen at A++/S with the signature move
++systematized.
+diff --git a/web/app/globals.css b/web/app/globals.css
+index 19b7f23f..bd297343 100644
+--- a/web/app/globals.css
++++ b/web/app/globals.css
+@@ -58,6 +58,16 @@
+   --radius-2xl: calc(var(--radius) * 1.8);
+   --radius-3xl: calc(var(--radius) * 2.2);
+   --radius-4xl: calc(var(--radius) * 2.6);
++  /* I-p2-042 (#831) S-tier foundation: ONE motion primitive (Codex direction)
++     — consistent inspection/selection feel; reuse on hover/focus/tab/span. */
++  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
++  /* Brand-temperature card elevation (not pure gray) — restrained: a neutral
++     hairline lift + a faint Canada-red wash. Uses the operator-locked brand
++     #c8102e = rgb(200 16 46), NOT a palette change. */
++  --shadow-card:
++    0 1px 2px rgba(9, 9, 11, 0.04), 0 10px 30px rgba(200, 16, 46, 0.05);
++  --shadow-card-hover:
++    0 1px 2px rgba(9, 9, 11, 0.05), 0 16px 40px rgba(200, 16, 46, 0.08);
+ }
+ 
+ :root {
+diff --git a/web/components/ui/card.tsx b/web/components/ui/card.tsx
+index 46e50933..b768a284 100644
+--- a/web/components/ui/card.tsx
++++ b/web/components/ui/card.tsx
+@@ -12,7 +12,9 @@ function Card({
+       data-slot="card"
+       data-size={size}
+       className={cn(
+-        "group/card bg-card text-card-foreground ring-foreground/10 flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
++        // I-p2-042 (#831) S-tier foundation: brand-tinted card elevation
++        // (shadow-card) + the shared motion primitive on shadow transitions.
++        "group/card bg-card text-card-foreground ring-foreground/10 shadow-card ease-standard flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 transition-shadow duration-150 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+         className,
+       )}
+       {...props}
+
+```
+
+codex
+I’ll review this as a diff-only code review against the execution risks you called out: additive token behavior, Tailwind utility generation, and whether the Card class change can affect layout or existing ring styling.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path web -Force | Select-Object Name,Mode,Length' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "@theme|--shadow-card|--ease-standard|function Card|shadow-card|ease-standard|ring-foreground" web/app/globals.css web/components/ui/card.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "shadow-card|ease-standard|--shadow-|--ease-" web docs -g "*.css" -g "*.tsx" -g "*.md"' in C:\POLARIS
+ succeeded in 965ms:
+
+[32;1mName                   [0m[32;1m Mode [0m[32;1m Length[0m
+[32;1m----                   [0m [32;1m---- [0m [32;1m------[0m
+.next                   d---- 
+app                     d---- 
+components              d---- 
+lib                     d---- 
+node_modules            d---- 
+p2shots                 d---- 
+public                  d---- 
+screenshots             d---- 
+scripts                 d---- 
+tests                   d---- 
+.gitignore              -a--- 521
+.prettierignore         -a--- 98
+.prettierrc.json        -a--- 231
+AGENTS.md               -a--- 4705
+CLAUDE.md               -a--- 12
+components.json         -a--- 541
+Dockerfile              -a--- 2605
+eslint.config.mjs       -a--- 490
+middleware.ts           -a--- 1451
+next-env.d.ts           -a--- 247
+next.config.ts          -a--- 1131
+package-lock.json       -a--- 415553
+package.json            -a--- 1772
+playwright.config.ts    -a--- 2061
+postcss.config.mjs      -a--- 101
+README.md               -a--- 1486
+requirements-v6.txt     -a--- 155
+requirements.txt        -a--- 480
+THIRD_PARTY_LICENSES.md -a--- 2045
+tsconfig.json           -a--- 700
+tsconfig.tsbuildinfo    -a--- 370031
+
+
+ succeeded in 993ms:
+web\app\globals.css:63:  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+web\app\globals.css:67:  --shadow-card:
+web\app\globals.css:69:  --shadow-card-hover:
+web\components\ui\card.tsx:16:        // (shadow-card) + the shared motion primitive on shadow transitions.
+web\components\ui\card.tsx:17:        "group/card bg-card text-card-foreground ring-foreground/10 shadow-card ease-standard flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 transition-shadow duration-150 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+docs\web\s_tier_design_system.md:35:  brand-tinted elevation `--shadow-card` / `--shadow-card-hover` (a neutral
+docs\web\s_tier_design_system.md:37:- **Motion:** ONE primitive — `--ease-standard: cubic-bezier(0.2,0.8,0.2,1)`,
+
+ succeeded in 1103ms:
+web/components/ui/card.tsx:5:function Card({
+web/components/ui/card.tsx:16:        // (shadow-card) + the shared motion primitive on shadow transitions.
+web/components/ui/card.tsx:17:        "group/card bg-card text-card-foreground ring-foreground/10 shadow-card ease-standard flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 transition-shadow duration-150 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+web/components/ui/card.tsx:25:function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+web/components/ui/card.tsx:38:function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+web/components/ui/card.tsx:51:function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
+web/components/ui/card.tsx:61:function CardAction({ className, ...props }: React.ComponentProps<"div">) {
+web/components/ui/card.tsx:74:function CardContent({ className, ...props }: React.ComponentProps<"div">) {
+web/components/ui/card.tsx:84:function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
+web/app/globals.css:7:@theme inline {
+web/app/globals.css:63:  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+web/app/globals.css:67:  --shadow-card:
+web/app/globals.css:69:  --shadow-card-hover:
+
+codex
+The local files match the submitted diff: the new theme variables are only referenced by the Card class and the design-system doc. I’m checking the surrounding CSS/theme setup next, because the main review question is whether these names compile into the intended Tailwind utilities without replacing existing token meanings.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/globals.css -TotalCount 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/ui/card.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/package.json' in C:\POLARIS
+ succeeded in 813ms:
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-verified: var(--verified);
+  --color-verified-foreground: var(--verified-foreground);
+  --color-contradiction: var(--contradiction);
+  --color-contradiction-foreground: var(--contradiction-foreground);
+  --color-refusal: var(--refusal);
+  --color-refusal-foreground: var(--refusal-foreground);
+  --color-tier-1: var(--tier-1);
+  --color-tier-2: var(--tier-2);
+  --color-tier-3: var(--tier-3);
+  --color-proof-token: var(--proof-token);
+  --color-verified-bundle: var(--verified-bundle);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  /* I-p2-042 (#831) S-tier foundation: ONE motion primitive (Codex direction)
+     — consistent inspection/selection feel; reuse on hover/focus/tab/span. */
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Brand-temperature card elevation (not pure gray) — restrained: a neutral
+     hairline lift + a faint Canada-red wash. Uses the operator-locked brand
+     #c8102e = rgb(200 16 46), NOT a palette change. */
+  --shadow-card:
+    0 1px 2px rgba(9, 9, 11, 0.04), 0 10px 30px rgba(200, 16, 46, 0.05);
+  --shadow-card-hover:
+    0 1px 2px rgba(9, 9, 11, 0.05), 0 16px 40px rgba(200, 16, 46, 0.08);
+}
+
+:root {
+  /* I-ui-010 (#730): Frontier Minimal — near-monochrome zinc + ONE confident
+     accent (default = blue oklch(0.50 0.18 255); the prior cyan read grey).
+     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
+     border. Accent hue is operator-confirmable (one-token swap; alt indigo
+     oklch(0.50 0.16 270) / teal oklch(0.52 0.12 215)). chart-* left mono. */
+  --background: oklch(0.985 0.001 286.375);
+  --foreground: oklch(0.21 0.006 285.9);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  /* I-p2-003 (#742): white surface + ONE national accent = dark Canada-flag
+     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
+     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+     destructive=deep maroon distinct from the national red. + evidence-role
+     tokens (tiers + proof). Operator design lock 2026-05-21. */
+  --primary: #c8102e;
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.21 0.006 285.9);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.96 0.03 25);
+  --accent-foreground: oklch(0.45 0.16 26);
+  --destructive: oklch(0.42 0.13 18);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: #c8102e;
+  /* State colors — distinct from the national red (rubric: never red-only) */
+  --verified: oklch(0.48 0.14 152);
+  --verified-foreground: oklch(0.985 0 0);
+  --contradiction: oklch(0.72 0.15 75);
+  --contradiction-foreground: oklch(0.27 0.04 75);
+  --refusal: oklch(0.45 0.02 286);
+  --refusal-foreground: oklch(0.985 0 0);
+  /* Evidence-role tokens */
+  --tier-1: #c8102e;
+  --tier-2: oklch(0.556 0 0);
+  --tier-3: oklch(0.708 0 0);
+  --proof-token: oklch(0.45 0.16 26);
+  --verified-bundle: oklch(0.48 0.14 152);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+
+ succeeded in 869ms:
+import * as React from "react";
+
+import { cn } from "@/lib/utils";
+
+function Card({
+  className,
+  size = "default",
+  ...props
+}: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
+  return (
+    <div
+      data-slot="card"
+      data-size={size}
+      className={cn(
+        // I-p2-042 (#831) S-tier foundation: brand-tinted card elevation
+        // (shadow-card) + the shared motion primitive on shadow transitions.
+        "group/card bg-card text-card-foreground ring-foreground/10 shadow-card ease-standard flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 transition-shadow duration-150 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-header"
+      className={cn(
+        "group/card-header @container/card-header grid auto-rows-min items-start gap-1 rounded-t-xl px-4 group-data-[size=sm]/card:px-3 has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-4 group-data-[size=sm]/card:[.border-b]:pb-3",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-title"
+      className={cn(
+        "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-description"
+      className={cn("text-muted-foreground text-sm", className)}
+      {...props}
+    />
+  );
+}
+
+function CardAction({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-action"
+      className={cn(
+        "col-start-2 row-span-2 row-start-1 self-start justify-self-end",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function CardContent({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-content"
+      className={cn("px-4 group-data-[size=sm]/card:px-3", className)}
+      {...props}
+    />
+  );
+}
+
+function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-footer"
+      className={cn(
+        "bg-muted/50 flex items-center rounded-b-xl border-t p-4 group-data-[size=sm]/card:p-3",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export {
+  Card,
+  CardHeader,
+  CardFooter,
+  CardTitle,
+  CardAction,
+  CardDescription,
+  CardContent,
+};
+
+ succeeded in 928ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "@types/three": "^0.184.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "three": "^0.184.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/utils.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"<Card|Card\\(\" web/app web/components -g \"*.tsx\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"className=\\{?\\\"["'^"]*shadow|shadow-none|shadow-lg|shadow-sm|shadow-md|shadow-xl|hover:shadow" web/app web/components -g "*.tsx"' in C:\POLARIS
+ succeeded in 800ms:
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+ succeeded in 954ms:
+web/components\contradiction\contradiction_panel.tsx:25:function RefusalCard({ status }: { status: string }) {
+web/components\contradiction\contradiction_panel.tsx:46:function ContradictionCard({ signal }: { signal: ContradictionSignal }) {
+web/components\source\source_card.tsx:51:export function SourceCard({ source, stance, contentHash }: SourceCardProps) {
+web/components\inspector\bundle_pending_cta.tsx:25:      <Card className="w-full">
+web/components\inspector\bundle_pending_cta.tsx:26:        <CardHeader>
+web/components\inspector\bundle_pending_cta.tsx:27:          <CardTitle>This run isn&rsquo;t ready for inspection yet</CardTitle>
+web/components\inspector\bundle_pending_cta.tsx:28:          <CardDescription>
+web/components\inspector\bundle_pending_cta.tsx:33:        <CardContent className="flex flex-col gap-3">
+web/components\inspector\evidence_pool_table.tsx:38:    <Card data-testid="evidence-pool-table">
+web/components\inspector\evidence_pool_table.tsx:39:      <CardHeader>
+web/components\inspector\evidence_pool_table.tsx:40:        <CardTitle>Evidence pool ({p.sources.length} sources)</CardTitle>
+web/components\inspector\evidence_pool_table.tsx:42:      <CardContent className="space-y-4 text-sm">
+web/components\inspector\bundle_header.tsx:16:    <Card data-testid="bundle-header">
+web/components\inspector\bundle_header.tsx:17:      <CardHeader>
+web/components\inspector\bundle_header.tsx:18:        <CardTitle>Signed audit bundle</CardTitle>
+web/components\inspector\bundle_header.tsx:20:      <CardContent className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+web/components\inspector\hash_chain_panel.tsx:11:    <Card data-testid="hash-chain-panel">
+web/components\inspector\hash_chain_panel.tsx:12:      <CardHeader>
+web/components\inspector\hash_chain_panel.tsx:13:        <CardTitle>Hash chain ({manifest.files.length} files)</CardTitle>
+web/components\inspector\hash_chain_panel.tsx:15:      <CardContent>
+web/components\inspector\metadata_panel.tsx:14:    <Card data-testid="metadata-panel">
+web/components\inspector\metadata_panel.tsx:15:      <CardHeader>
+web/components\inspector\metadata_panel.tsx:16:        <CardTitle className="text-base">Bundle metadata</CardTitle>
+web/components\inspector\metadata_panel.tsx:18:      <CardContent className="text-sm">
+web/components\inspector\reasoning_trace_timeline.tsx:17:    <Card data-testid="reasoning-trace-timeline">
+web/components\inspector\reasoning_trace_timeline.tsx:18:      <CardHeader>
+web/components\inspector\reasoning_trace_timeline.tsx:19:        <CardTitle>Reasoning trace ({records.length} calls)</CardTitle>
+web/components\inspector\reasoning_trace_timeline.tsx:21:      <CardContent className="space-y-3">
+web/components\inspector\reasoning_trace_timeline.tsx:34:function TraceRecordCard({ record }: { record: ReasoningTraceRecord }) {
+web/components\inspector\scope_decision_card.tsx:25:export function ScopeDecisionCard({ value }: { value: unknown }) {
+web/components\inspector\scope_decision_card.tsx:28:    <Card data-testid="scope-decision-card">
+web/components\inspector\scope_decision_card.tsx:29:      <CardHeader>
+web/components\inspector\scope_decision_card.tsx:30:        <CardTitle>Scope decision</CardTitle>
+web/components\inspector\scope_decision_card.tsx:32:      <CardContent className="space-y-4 text-sm">
+web/components\inspector\sources_panel.tsx:17:    <Card data-testid="sources-panel">
+web/components\inspector\sources_panel.tsx:18:      <CardHeader>
+web/components\inspector\sources_panel.tsx:19:        <CardTitle>Source snapshots ({paths.length})</CardTitle>
+web/components\inspector\sources_panel.tsx:21:      <CardContent>
+web/components\inspector\verified_report_sections.tsx:25:    <Card data-testid="verified-report-sections">
+web/components\inspector\verified_report_sections.tsx:26:      <CardHeader>
+web/components\inspector\verified_report_sections.tsx:27:        <CardTitle>
+web/components\inspector\verified_report_sections.tsx:33:      <CardContent className="space-y-4">
+web/components\ui\card.tsx:5:function Card({
+web/app\sign-in\page.tsx:159:          <Card>
+web/app\sign-in\page.tsx:161:              <CardHeader>
+web/app\sign-in\page.tsx:162:                <CardTitle>Sign in</CardTitle>
+web/app\sign-in\page.tsx:163:                <CardDescription>
+web/app\sign-in\page.tsx:167:              <CardContent className="flex flex-col gap-4">
+web/app\sign-in\page.tsx:214:              <CardFooter className="flex flex-col gap-3">
+web/app\source_review\page.tsx:61:function TierCard({
+web/app\intake\components\scope_decision_view.tsx:85:    <Card data-testid="scope-decision-view" className="flex flex-col gap-3">
+web/app\intake\components\scope_decision_view.tsx:86:      <CardHeader className="flex flex-row items-center justify-between gap-3">
+web/app\intake\components\scope_decision_view.tsx:87:        <CardTitle className="text-lg">Scope decision</CardTitle>
+web/app\intake\components\scope_decision_view.tsx:90:      <CardContent className="flex flex-col gap-4">
+web/app\intake\components\intake_form.tsx:109:      <Card>
+web/app\intake\components\intake_form.tsx:110:        <CardHeader>
+web/app\intake\components\intake_form.tsx:111:          <CardTitle className="text-xl">
+web/app\intake\components\intake_form.tsx:115:        <CardContent>
+web/app\benchmark\components\benchmark_board.tsx:90:      <Card data-testid="benchmark-loading">
+web/app\benchmark\components\benchmark_board.tsx:91:        <CardContent>Loading benchmark catalog…</CardContent>
+web/app\benchmark\components\benchmark_board.tsx:98:      <Card
+web/app\benchmark\components\benchmark_board.tsx:102:        <CardContent className="text-amber-700 dark:text-amber-300">
+web/app\benchmark\components\benchmark_board.tsx:117:      <Card
+web/app\benchmark\components\benchmark_board.tsx:121:        <CardContent className="text-amber-700 dark:text-amber-300">
+web/app\benchmark\components\benchmark_board.tsx:136:      <Card
+web/app\benchmark\components\benchmark_board.tsx:140:        <CardContent className="text-rose-700 dark:text-rose-300">
+web/app\benchmark\components\benchmark_board.tsx:149:      <Card data-testid="benchmark-list">
+web/app\benchmark\components\benchmark_board.tsx:150:        <CardHeader>
+web/app\benchmark\components\benchmark_board.tsx:151:          <CardTitle className="text-lg">Available benchmarks</CardTitle>
+web/app\benchmark\components\benchmark_board.tsx:153:        <CardContent className="flex flex-col gap-2">
+web/app\benchmark\components\benchmark_board.tsx:172:      <Card data-testid="benchmark-loading-scoreboard">
+web/app\benchmark\components\benchmark_board.tsx:173:        <CardContent>
+web/app\benchmark\components\benchmark_board.tsx:184:      <Card>
+web/app\benchmark\components\benchmark_board.tsx:185:        <CardHeader className="flex flex-row items-center justify-between gap-3">
+web/app\benchmark\components\benchmark_board.tsx:186:          <CardTitle className="text-lg">{sb.benchmark_id}</CardTitle>
+web/app\benchmark\components\benchmark_board.tsx:192:        <CardContent>
+web/app\benchmark\components\benchmark_board.tsx:204:      <Card>
+web/app\benchmark\components\benchmark_board.tsx:205:        <CardHeader>
+web/app\benchmark\components\benchmark_board.tsx:206:          <CardTitle className="text-base">Aggregate means</CardTitle>
+web/app\benchmark\components\benchmark_board.tsx:208:        <CardContent>
+web/app\contracts\_editor.tsx:130:      <Card>
+web/app\contracts\_editor.tsx:131:        <CardHeader>
+web/app\contracts\_editor.tsx:132:          <CardTitle className="text-base">The question</CardTitle>
+web/app\contracts\_editor.tsx:134:        <CardContent className="flex flex-col gap-4">
+web/app\contracts\_editor.tsx:160:      <Card>
+web/app\contracts\_editor.tsx:161:        <CardHeader>
+web/app\contracts\_editor.tsx:162:          <CardTitle className="text-base">Scope &amp; coverage</CardTitle>
+web/app\contracts\_editor.tsx:164:        <CardContent className="flex flex-col gap-5">
+web/app\contracts\_editor.tsx:225:      <Card>
+web/app\contracts\_editor.tsx:226:        <CardHeader>
+web/app\contracts\_editor.tsx:227:          <CardTitle className="text-base">Expected entities</CardTitle>
+web/app\contracts\_editor.tsx:229:        <CardContent className="flex flex-col gap-3">
+web/app\contracts\_editor.tsx:294:      <Card>
+web/app\contracts\_editor.tsx:295:        <CardHeader>
+web/app\contracts\_editor.tsx:296:          <CardTitle className="text-base">Expected claims</CardTitle>
+web/app\contracts\_editor.tsx:298:        <CardContent className="flex flex-col gap-3">
+web/app\inspector\offline\page.tsx:66:      <Card>
+web/app\inspector\offline\page.tsx:67:        <CardHeader>
+web/app\inspector\offline\page.tsx:68:          <CardTitle className="text-lg">Offline Inspector</CardTitle>
+web/app\inspector\offline\page.tsx:70:        <CardContent className="space-y-4 text-sm">
+web/app\pin_replay\page.tsx:18:function SnapshotCard({
+web/app\pin_replay\page.tsx:32:    <Card data-testid={testid}>
+web/app\pin_replay\page.tsx:33:      <CardHeader className="flex flex-row items-center justify-between gap-3">
+web/app\pin_replay\page.tsx:34:        <CardTitle className="text-base">{label}</CardTitle>
+web/app\pin_replay\page.tsx:48:      <CardContent className="text-sm">
+web/app\pin_replay\page.tsx:223:        <Card data-testid="pin-replay-delta" className="mt-4">
+web/app\pin_replay\page.tsx:224:          <CardHeader>
+web/app\pin_replay\page.tsx:225:            <CardTitle className="text-base">Delta (B − A)</CardTitle>
+web/app\pin_replay\page.tsx:227:          <CardContent className="text-sm">
+web/app\generation\components\frame_coverage_panel.tsx:70:    <Card
+web/app\generation\components\frame_coverage_panel.tsx:81:      <CardContent className="flex flex-col gap-2 py-3">
+web/app\generation\components\generation_runner.tsx:120:      <Card>
+web/app\generation\components\generation_runner.tsx:121:        <CardHeader>
+web/app\generation\components\generation_runner.tsx:122:          <CardTitle className="text-xl">One-click clinical research</CardTitle>
+web/app\generation\components\generation_runner.tsx:124:        <CardContent>
+web/app\generation\components\generation_runner.tsx:168:        <Card
+web/app\generation\components\generation_runner.tsx:172:          <CardContent className="text-amber-700 dark:text-amber-300">
+web/app\generation\components\generation_runner.tsx:179:        <Card
+web/app\generation\components\generation_runner.tsx:183:          <CardContent className="text-rose-700 dark:text-rose-300">
+web/app\generation\components\sentence_inspector.tsx:132:function SourceCard({
+web/app\retrieval\components\retrieval_runner.tsx:106:      <Card>
+web/app\retrieval\components\retrieval_runner.tsx:107:        <CardHeader>
+web/app\retrieval\components\retrieval_runner.tsx:108:          <CardTitle className="text-xl">Retrieve clinical evidence</CardTitle>
+web/app\retrieval\components\retrieval_runner.tsx:110:        <CardContent>
+web/app\retrieval\components\retrieval_runner.tsx:162:        <Card
+web/app\retrieval\components\retrieval_runner.tsx:166:          <CardContent className="text-rose-700 dark:text-rose-300">
+web/app\retrieval\components\retrieval_runner.tsx:173:        <Card
+web/app\retrieval\components\retrieval_runner.tsx:177:          <CardContent className="text-amber-700 dark:text-amber-300">
+web/app\retrieval\components\retrieval_runner.tsx:184:        <Card
+web/app\retrieval\components\retrieval_runner.tsx:188:          <CardContent className="text-rose-700 dark:text-rose-300">
+web/app\retrieval\components\corpus_brief.tsx:56:    <Card data-testid="corpus-brief" className="flex flex-col gap-3">
+web/app\retrieval\components\corpus_brief.tsx:57:      <CardHeader className="flex flex-row items-center justify-between gap-3">
+web/app\retrieval\components\corpus_brief.tsx:58:        <CardTitle className="text-lg">Corpus brief</CardTitle>
+web/app\retrieval\components\corpus_brief.tsx:72:      <CardContent className="flex flex-col gap-4">
+web/app\generation\components\verified_report_view.tsx:297:function SectionCard({
+web/app\generation\components\verified_report_view.tsx:322:    <Card
+web/app\generation\components\verified_report_view.tsx:329:      <CardHeader className="flex flex-row items-center justify-between gap-3">
+web/app\generation\components\verified_report_view.tsx:330:        <CardTitle className="text-base">{section.section_title}</CardTitle>
+web/app\generation\components\verified_report_view.tsx:341:      <CardContent className="flex flex-col gap-2">
+web/app\generation\components\verified_report_view.tsx:404:      <Card>
+web/app\generation\components\verified_report_view.tsx:405:        <CardHeader className="flex flex-row items-center justify-between gap-3">
+web/app\generation\components\verified_report_view.tsx:406:          <CardTitle className="text-lg">Verified report</CardTitle>
+web/app\generation\components\verified_report_view.tsx:409:        <CardContent>
+
+2026-05-24T00:02:41.201866Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+[31;1mParserError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m rg -n "className=\{?\"[[36;1m^[0m"]*shadow|shadow-none|shadow-lg|shadow-sm|sha .[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                        ~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mArray index expression is missing or not valid.[0m
+
+ exited 1 in 981ms:
+[31;1mParserError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m rg -n "className=\{?\"[[36;1m^[0m"]*shadow|shadow-none|shadow-lg|shadow-sm|sha .[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                        ~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mArray index expression is missing or not valid.[0m
+
+codex
+The Card helper uses `twMerge(clsx(...))`, so downstream callers that already pass another `shadow-*` class should still be able to override the new default via `className`. The base Card structure, spacing, ring, overflow, and data attributes are otherwise unchanged.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'shadow-|shadow-none|shadow-lg|shadow-sm|shadow-md|hover:shadow' web/app web/components -g '*.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'shadow-card|ease-standard|--shadow-card|--ease-standard|#c8102e|--primary:' web/app/globals.css web/components/ui/card.tsx docs/file_directory.md docs/web/s_tier_design_system.md" in C:\POLARIS
+ succeeded in 683ms:
+web/components\primary_nav.tsx:84:              className="border-border bg-background absolute inset-x-0 top-full z-50 flex flex-col gap-1 border-b p-3 shadow-md"
+web/components\citation\citation_chip.tsx:73:            className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
+web/app\components\command_palette.tsx:109:          className="bg-popover text-popover-foreground fixed top-1/4 left-1/2 z-50 flex w-full max-w-xl -translate-x-1/2 flex-col gap-2 rounded-xl border p-4 shadow-lg"
+web/components\ui\tabs.tsx:45:      "data-[selected]:bg-background data-[selected]:text-foreground data-[selected]:shadow-sm",
+web/app\components\proof_showcase.tsx:77:      className="border-border bg-card relative overflow-hidden rounded-2xl border shadow-sm"
+web/components\ui\sheet.tsx:56:          "bg-popover text-popover-foreground fixed z-50 flex flex-col gap-4 bg-clip-padding text-sm shadow-lg transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=bottom]:data-ending-style:translate-y-[2.5rem] data-[side=bottom]:data-starting-style:translate-y-[2.5rem] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:data-ending-style:translate-x-[-2.5rem] data-[side=left]:data-starting-style:translate-x-[-2.5rem] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:data-ending-style:translate-x-[2.5rem] data-[side=right]:data-starting-style:translate-x-[2.5rem] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=top]:data-ending-style:translate-y-[-2.5rem] data-[side=top]:data-starting-style:translate-y-[-2.5rem] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm",
+web/components\ui\evidence-tooltip.tsx:160:            className="border-border bg-background text-foreground z-50 max-w-md rounded-md border p-3 shadow-md"
+web/components\ui\card.tsx:16:        // (shadow-card) + the shared motion primitive on shadow transitions.
+web/components\ui\card.tsx:17:        "group/card bg-card text-card-foreground ring-foreground/10 shadow-card ease-standard flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 transition-shadow duration-150 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+web/app\intake\components\disambiguation_modal.tsx:51:          className="bg-popover text-popover-foreground fixed top-1/2 left-1/2 z-50 flex w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl border p-6 shadow-lg transition duration-200 ease-in-out data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
+web/app\intake\components\ambiguity_modal.tsx:45:            "flex flex-col gap-4 rounded-xl border p-6 shadow-lg",
+web/app\runs\[runId]\graph\components\claim_graph.tsx:182:            className="bg-popover text-popover-foreground border-border pointer-events-none absolute z-50 max-w-xs rounded-md border px-3 py-2 text-xs shadow-md"
+
+ succeeded in 686ms:
+web/app/globals.css:63:  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+web/app/globals.css:66:     #c8102e = rgb(200 16 46), NOT a palette change. */
+web/app/globals.css:67:  --shadow-card:
+web/app/globals.css:69:  --shadow-card-hover:
+web/app/globals.css:90:  --primary: #c8102e;
+web/app/globals.css:102:  --ring: #c8102e;
+web/app/globals.css:111:  --tier-1: #c8102e;
+web/app/globals.css:144:  --primary: oklch(0.62 0.2 26);
+web/components/ui/card.tsx:16:        // (shadow-card) + the shared motion primitive on shadow transitions.
+web/components/ui/card.tsx:17:        "group/card bg-card text-card-foreground ring-foreground/10 shadow-card ease-standard flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 transition-shadow duration-150 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+docs/web/s_tier_design_system.md:27:- **Color (restraint):** near-neutral + ONE accent — **Canada red `#c8102e`
+docs/web/s_tier_design_system.md:35:  brand-tinted elevation `--shadow-card` / `--shadow-card-hover` (a neutral
+docs/web/s_tier_design_system.md:37:- **Motion:** ONE primitive — `--ease-standard: cubic-bezier(0.2,0.8,0.2,1)`,
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Test-Path .codex/ui_visual_audit/s_tier_direction_verdict.txt' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/globals.css | Select-Object -Index 130..160' in C:\POLARIS
+ succeeded in 717ms:
+True
+
+2026-05-24T00:02:59.304786Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.9 seconds
+Output:
+[31;1mSelect-Object: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m Get-Content -Path web/app/globals.css | Select-Object -Index [36;1m130..160[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                                              ~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot bind parameter 'Index'. Cannot convert value "130..160" to type "System.Int32". Error: "The input string '130..160' was not in a correct format."[0m
+
+ exited 1 in 897ms:
+[31;1mSelect-Object: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m Get-Content -Path web/app/globals.css | Select-Object -Index [36;1m130..160[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                                              ~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot bind parameter 'Index'. Cannot convert value "130..160" to type "System.Int32". Error: "The input string '130..160' was not in a correct format."[0m
+
+codex
+I also checked whether the canonical source file named by the doc exists locally; it does. The only broader color oddity I noticed is an existing dark-theme `--primary` override, but this diff does not alter it, so I’m not treating that as a novel issue.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/globals.css | Select-Object -Skip 130 -First 40' in C:\POLARIS
+ succeeded in 637ms:
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  /* I-p2-003 (#742): dark-mode accent = Canada-red (NOT the old cyan, which
+     violated the operator lock). Lighter L0.62 for contrast on the dark
+     surface; white fg. NOTE: light mode is the demo target; dark mode reuses
+     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+     proof) — dark-specific tuning is a post-demo follow-up. */
+  --primary: oklch(0.62 0.2 26);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.32 0.06 26);
+  --accent-foreground: oklch(0.92 0.04 26);
+  --destructive: oklch(0.704 0.191 22.216);
+  /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+     White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+     fails WCAG-AA 4.5:1). Use near-black text instead — dark-on-light-warning is
+     the conventional inverse pattern. */
+  --destructive-foreground: oklch(0.145 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.62 0.2 26);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "node -e \"const {twMerge}=require('tailwind-merge'); console.log(twMerge('shadow-card shadow-none')); console.log(twMerge('shadow-card shadow-lg')); console.log(twMerge('shadow-none shadow-card'));\"" in C:\POLARIS\web
+ succeeded in 688ms:
+shadow-card shadow-none
+shadow-card shadow-lg
+shadow-none shadow-card
+
+codex
+One nuance: `tailwind-merge` does not collapse `shadow-card` against built-in `shadow-*` utilities, so if a caller later passes `shadow-none`, both classes remain and Tailwind stylesheet order decides the winner. I don’t see existing Card callers passing shadow overrides, so this is not an execution blocker for this diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n '<Card["'^>]*(shadow-|shadow-none|shadow-lg|shadow-sm|shadow-md|hover:shadow)'"' web/app web/components -g '*.tsx'" in C:\POLARIS
+2026-05-24T00:03:28.461262Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.8 seconds
+Output:
+
+ exited 1 in 798ms:
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/components/ui/card.tsx:17: non-blocking nuance: tailwind-merge does not collapse custom `shadow-card` against built-in `shadow-*` overrides, so a future `className='shadow-none'` escape hatch would leave both classes present. No current Card caller appears to pass a shadow override, so this is not an execution blocker."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+42,736
