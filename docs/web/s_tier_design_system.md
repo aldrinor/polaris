@@ -180,6 +180,18 @@ Contracts A/A- · Upload A/A+/A · Pin Replay A/A- · Sign-in A/A), each dual-Co
   `status === "completed"` — per §9.1 `mark_aborted()` persists lifecycle 'completed' for abort_*
   runs (Codex visual iter-1 P2 + diff iter-1/2/3 P2).
 
+### Secondary cred-gated pages (post-journey frontier/lively pass)
+
+- **Knowledge graph** (#863, I-p2-058): **desktop A- / selected A- / mobile B→B+** (Codex visual
+  iter-3 APPROVE, frontier/lively bar). Was "raw Cytoscape in a clean admin page" (Codex). Rebuilt
+  to a SEMANTIC GRAPH GRAMMAR (no rainbow — design stays near-neutral + scarce-red selection):
+  distinct node SHAPES (hexagon section / dot claim / pill source / status-coloured diamond frame),
+  label halos, directional layered edges (amber contradiction arrow), animated fcose settle,
+  dot-grid canvas depth, a DEFAULT FOCAL spotlight on load (section selected, non-neighbours dimmed
+  to 0.22 as context), and a rail turned into a navigator (canvas-matching type glyphs + arrow
+  links, not a column of "Inspect"). Fixed a raw `bg-green-100` tier badge → token. Shorter mobile
+  graph viewport so the accessible list (mobile-primary navigator) arrives sooner.
+
 **The full cred-gated journey is now at the A bar** (Dashboard A/A-/A · Benchmark A/A-/A-/A-/A ·
 Memory A/A-/A · Compare A/A/A/A · Source Review S-/A++/A+ · Plan A/A/A/A- · Run progress A/A/A),
 each rendered locally (seeded session + route-mocked fixture, visual-audit-only) under the dual
