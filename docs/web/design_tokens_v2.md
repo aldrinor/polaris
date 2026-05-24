@@ -70,18 +70,28 @@ Near-monochrome ground; ONE brand accent (red, OPERATOR-LOCKED `#c8102e`); two i
 ### 2.3 Faithfulness palette (judgment #1: "is the sentence faithful to its source?")
 Used by: verdict chips, sentence-level tints in the brief, proof-panel beat-2.
 ```
---verified            oklch(0.62 0.16 145)   green — claim ↔ span verified
---verified-bg         color-mix(in oklch, var(--verified) 10%, transparent)
---verified-border     color-mix(in oklch, var(--verified) 30%, transparent)
+--verified            oklch(0.55 0.16 145)   green — claim ↔ span verified
+--verified-bg         color-mix(in oklch, var(--verified) 12%, transparent)
+--verified-border     color-mix(in oklch, var(--verified) 35%, transparent)
+--verified-fg         oklch(0.32 0.12 145)   readable chip foreground on --verified-bg (≥4.5:1 AA)
 
---partial             oklch(0.74 0.16 60)    amber — partial support
---partial-bg          color-mix(in oklch, var(--partial) 10%, transparent)
---partial-border      color-mix(in oklch, var(--partial) 40%, transparent)
+--partial             oklch(0.70 0.16 75)    deep amber — partial support
+--partial-bg          color-mix(in oklch, var(--partial) 14%, transparent)
+--partial-border      color-mix(in oklch, var(--partial) 45%, transparent)
+--partial-fg          oklch(0.36 0.14 65)    readable chip foreground on --partial-bg (≥4.5:1 AA)
 
---unsupported         oklch(0.58 0.22 25)    desaturated red (DISTINCT from brand red) — span doesn't support
---unsupported-bg      color-mix(in oklch, var(--unsupported) 10%, transparent)
---unsupported-border  color-mix(in oklch, var(--unsupported) 40%, transparent)
+--unsupported         oklch(0.52 0.20 320)   magenta-red — span does NOT support claim.
+                                              DELIBERATELY chosen for chromatic distance from brand
+                                              red (#c8102e ≈ oklch(0.53 0.21 22)). At hue 320° vs
+                                              brand hue 22°, the eye cannot confuse "unsupported"
+                                              with the primary CTA — clinical-safety-critical
+                                              (Codex iter-1 P1 on this doc).
+--unsupported-bg      color-mix(in oklch, var(--unsupported) 14%, transparent)
+--unsupported-border  color-mix(in oklch, var(--unsupported) 45%, transparent)
+--unsupported-fg      oklch(0.32 0.14 320)   readable chip foreground on --unsupported-bg (≥4.5:1 AA)
 ```
+
+**Hue separation rule (binding):** the brand red occupies hue band 0°–40° (action+identity); the unsupported alarm occupies hue band 300°–340° (magenta-red). No other token may sit in either band. A perceptual color-distance test (deltaE-OKLCH) MUST be in CI before any new red/pink/magenta token lands.
 
 ### 2.4 Evidence-strength palette (judgment #2: "is the evidence strong enough to act on?")
 Used by: certainty badges, SoF certainty column, proof-panel beat-3, dual-provenance strip "evidence-strength mix" pills. **Deliberately ordinal (saturation-step), not a hue chosen to match faithfulness** — so the user never visually conflates "supported" with "strong."
@@ -182,7 +192,7 @@ Three durations, one easing. Every animation declares **why** it moves (state co
 
 ## 6. The Six Microstates (every interactive element)
 
-Declared per component in §components_catalogue.md. The states + when each is the only acceptable visual:
+Each component declares its concrete CSS contract per-state in `components_catalogue.md`. The states + when each is the only acceptable visual:
 
 | State | Trigger | Visual contract |
 |---|---|---|
@@ -193,7 +203,7 @@ Declared per component in §components_catalogue.md. The states + when each is t
 | **disabled** | `aria-disabled` / `disabled` | opacity 0.55, cursor not-allowed, no hover/active reaction |
 | **loading** | in-flight | stable skeleton (no layout shift), `aria-busy="true"`, accessible "loading <thing>" label |
 
-All six are mandatory and tested via Playwright traces (per the I-ux-001 plan §15 acceptance "interaction acceptance tests").
+All six are mandatory and tested via Playwright traces (per the I-ux-001 plan §15 acceptance "interaction acceptance tests"). The catalogue (`components_catalogue.md`) gives concrete CSS for each component × state.
 
 ---
 

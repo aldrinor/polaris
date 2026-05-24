@@ -4,7 +4,11 @@
 
 **Hard rules (plan §4 + §12 + Vercel motion guidance):**
 - Motion **communicates state**, never decorates. Every frame answers: *what changed, why does this animation make that clearer?*
-- **Time-to-first-proof < 400ms** from challenge → beat-1 visible. Span highlight < 150ms. Claim-to-claim switch < 120ms.
+- **Timing targets (Codex iter-1 P1 clarification — the < 400ms is "time-to-first-proof", NOT the total reveal):**
+  - **time-to-first-proof < 400ms**: from challenge click → **Beat 2 verdict visible** (the user has the answer in <400ms; remaining beats are progressive disclosure the user can read as they paint).
+  - **span highlight in Beat 4 ≤ 150ms** once that beat is reached.
+  - **claim-to-claim switch < 120ms** perceived (Stage 3).
+  - The full 6-beat cumulative paint completes by ~700ms — but the user has already seen the verdict at 250ms; beats 3-6 enrich without blocking comprehension.
 - `prefers-reduced-motion: reduce` → instant state swap, no animation, no scroll-jump (controlled re-render only).
 - Keyboard-first: `J`/`K` navigate sentences, `Enter` challenges, `Esc` closes the panel, `Tab` walks the beats inside it.
 - Mobile-real: hover-to-reveal does NOT exist. Tap to challenge → bottom-sheet at 75vh.
@@ -19,12 +23,15 @@ Calm clinical document. No animation. Each sentence carries TWO subtle, separate
 - A **certainty dot** (4px circle) in the leading margin, color from the certainty scale (`--certainty-{high|moderate|low|very-low}`). Margin position not inline; never adjacent to the underline.
 
 ```
-default
-┌──────────────────────────────────────────────────────────────────┐
-│ ● Tirzepatide 15 mg once weekly reduced HbA1c by 2.4% vs baseline │  ←  ● = high certainty (slate-blue)
-│ ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾   │  ←  underline = verified (green tint)
-│   at 40 weeks in the SURPASS-2 trial.                              │
-└──────────────────────────────────────────────────────────────────┘
+default (illustrated with a REAL verified sentence from the shipped bundle:
+        web/public/canonical_bundles/v1_canonical_success/verified_report.json
+        section "Efficacy", first verified sentence)
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ● The estimated treatment differences were −0.15 percentage points (95% CI   │  ←  ● = high certainty (slate-blue)
+│ ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾  │  ←  underline = verified (green tint)
+│   −0.28 to −0.03), −0.39 percentage points (95% CI −0.51 to −0.26), and      │
+│   −0.45 percentage points (95% CI −0.57 to −0.32), all favoring tirzepatide. │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 No chips inline; no hover until the user moves focus to a sentence. The brief reads as prose first.
@@ -182,14 +189,14 @@ Performance target: claim-to-claim < 120ms perceived.
 
 ## Stage 6 — Failure-state choreography
 
-Cases the storyboard handles HONESTLY (plan §6 + §11):
+Cases the storyboard handles HONESTLY (plan §6 + §11). Column headings name the beat each row's content describes (Codex iter-1 P3 fix — the prior header was mislabeled):
 
-| State | Beat 2 reads | Beat 4 reads |
+| State | Affected beat | Reads as |
 |---|---|---|
-| `signatureState=missing` on the bundle | (unchanged) faithfulness verdict | beat 5 → **"Not signed — trust not established."** in grey; no green pill |
-| `signatureState=present_unverified` | (unchanged) | beat 5 → **"Signature attached — verify offline."** in amber + the `gpg --verify` command in mono |
-| `verdict=UNSUPPORTED` | red chip + reason ("numeric token 2.4% not in span") | beat 3 not shown (no evidence strength when the claim is unsupported by source); beat 4 still shows the source span so the reviewer sees the gap |
-| `inadequacy refusal` (bundle-level, plan §5) | the whole brief renders the *refusal screen* (plan §6 failure-state design), not individual sentence chips — Proof Replay is not the surface for "we won't answer." |
+| `signatureState=missing` on the bundle | Beat 5 (Signature) | **"Not signed — trust not established."** in grey; no green pill |
+| `signatureState=present_unverified` | Beat 5 (Signature) | **"Signature attached — verify offline."** in amber + the `gpg --verify` command in mono |
+| `verdict=UNSUPPORTED` | Beat 2 (Faithfulness) | red chip + the failing-check reason (e.g. "numeric token 2.4% not in span"). Beat 3 is omitted (no evidence-strength read when the claim isn't supported by its source); Beat 4 still shows the source span so the reviewer can see the gap. |
+| `inadequacy refusal` (bundle-level, plan §5) | whole brief | renders the *refusal screen* (plan §6 failure-state design), not individual sentence chips — Proof Replay is not the surface for "we won't answer." |
 
 ---
 
@@ -198,21 +205,26 @@ Cases the storyboard handles HONESTLY (plan §6 + §11):
 Per plan §4 Home teaser: the same 6-beat reveal runs **inline on the home page** for a single real claim from the existing real signed bundle. Compressed timing (total 500ms) + a more emphatic visual signature so it reads as a 30-second product demo.
 
 ```
-HOME — proof-as-hero
-┌──────────────────────────────────────────────────────────────┐
-│                                                                │
-│  Deep research you can check, line by line.                   │
-│                                                                │
-│  ┌──────────────────────────────────────────────────────────┐ │
-│  │ ● "Tirzepatide 15 mg once weekly reduced HbA1c by 2.4%   │ │
-│  │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾  │ │
-│  │   vs baseline at 40 weeks in the SURPASS-2 trial."        │ │
-│  │                                                            │ │
-│  │       [→ Challenge this sentence]                          │ │
-│  └──────────────────────────────────────────────────────────┘ │
-│                                                                │
-│           [ → Ask a question of your own ]                     │
-└──────────────────────────────────────────────────────────────┘
+HOME — proof-as-hero (illustrated with the REAL first verified sentence from
+the shipped bundle web/public/canonical_bundles/v1_canonical_success — Codex
+iter-1 P1 fix: the prior mock used fabricated text, the spec now uses the
+actual claim the home page will render):
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                                                                │
+│  Deep research you can check, line by line.                                   │
+│                                                                                │
+│  ┌──────────────────────────────────────────────────────────────────────────┐ │
+│  │ ● "The estimated treatment differences were −0.15 percentage points (95% │ │
+│  │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ │ │
+│  │   CI −0.28 to −0.03), −0.39 percentage points (95% CI −0.51 to −0.26),   │ │
+│  │   and −0.45 percentage points (95% CI −0.57 to −0.32), all favoring      │ │
+│  │   tirzepatide."                                                            │ │
+│  │                                                                            │ │
+│  │       [→ Challenge this sentence]                                          │ │
+│  └──────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                │
+│           [ → Ask a question of your own ]                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 On click, the same 6-beat reveal plays — the user sees the differentiator before they sign in.
