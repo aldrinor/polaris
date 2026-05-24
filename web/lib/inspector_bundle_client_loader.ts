@@ -16,7 +16,9 @@
  *   - each declared file is present in the tar
  *   - SHA-256 of each file matches manifest hash (browser crypto.subtle)
  *   - byte size matches manifest size
- *   - signaturePresent: derived from manifest.yaml.asc existence + non-empty
+ *   - signatureState: tri-valued (I-ux-001a) — "missing" if no .asc, else
+ *     "present_unverified" (the client/browser never returns "gpg_verified";
+ *     full crypto verify is the offline CLI path)
  *
  * GPG cryptographic verify is out of scope (requires CLI / pgp.js + key
  * trust UX, both browser-impractical for Carney handover).

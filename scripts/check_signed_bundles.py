@@ -20,6 +20,7 @@ Exit codes:
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -46,8 +47,19 @@ def _read_pinned_fp() -> str | None:
 
 
 def _verify_one(bundle_dir: Path, pinned_fp: str) -> tuple[bool, str]:
-    """Return (ok, message). Verifies against the trust root in an ISOLATED
-    keyring (the host's default keyring cannot satisfy this check)."""
+    """Return (ok, message). Verifies with `gpgv` against a freshly-dearmored
+    binary keyring built ONLY from the shipped trust root.
+
+    Why gpgv (Codex iter-1 P1 on the diff + cross-platform):
+    - gpgv is the dedicated verify-only tool: it does NOT spawn gpg-agent
+      (so it works in restricted/CI environments AND Windows MSYS where a
+      fresh GNUPGHOME can't start an agent).
+    - It takes an explicit --keyring file; it never reads ~/.gnupg or any
+      host config (no keyboxd, no gpg.conf), so the prior `use-keyboxd`
+      leak Codex flagged cannot happen.
+    - The keyring is built fresh from the shipped trust-root pubkey each
+      run, so the only key gpgv can trust is the one we pinned.
+    """
     manifest = bundle_dir / "manifest.yaml"
     asc = bundle_dir / "manifest.yaml.asc"
     if not manifest.is_file():
@@ -55,31 +67,32 @@ def _verify_one(bundle_dir: Path, pinned_fp: str) -> tuple[bool, str]:
     if not asc.is_file() or asc.stat().st_size == 0:
         return False, f"manifest.yaml.asc missing or empty"
 
-    # Build an isolated keybox from the trust root, then verify against it
-    # with --no-default-keyring. We do NOT use --homedir: a fresh GNUPGHOME
-    # tries to spawn gpg-agent, which fails on some platforms (Windows MSYS)
-    # even for verify-only paths. --keyring sidesteps the agent entirely.
-    tmpdir = Path(tempfile.mkdtemp(prefix="polaris-ci-gpg-"))
-    keyring = tmpdir / "trust.kbx"
+    tmpdir = Path(tempfile.mkdtemp(prefix="polaris-ci-gpgv-"))
+    keyring = tmpdir / "trust.gpg"
     try:
-        imp = subprocess.run(
-            ["gpg", "--no-default-keyring", "--keyring", str(keyring),
-             "--batch", "--quiet", "--import", str(TRUST_ROOT_PUBKEY)],
-            capture_output=True, text=True,
-        )
-        if imp.returncode != 0:
-            return False, f"gpg --import trust root failed: {imp.stderr.strip().splitlines()[-1] if imp.stderr.strip() else 'no detail'}"
+        # Dearmor the shipped pubkey into a binary keyring gpgv can read.
+        with open(TRUST_ROOT_PUBKEY, "rb") as src, open(keyring, "wb") as dst:
+            de = subprocess.run(
+                ["gpg", "--no-options", "--batch", "--dearmor"],
+                stdin=src, stdout=dst, stderr=subprocess.PIPE, text=False,
+            )
+            if de.returncode != 0:
+                return False, f"gpg --dearmor trust root failed: {de.stderr.decode('utf-8','replace').strip()}"
+
+        # MSYS gpgv mangles absolute Windows paths in --keyring (it prepends
+        # ~/.gnupg/ to anything containing a colon). Workaround: run from the
+        # tmpdir and pass a relative keyring filename. Absolute paths for the
+        # signature + manifest go through fine (different code path).
         v = subprocess.run(
-            ["gpg", "--no-default-keyring", "--keyring", str(keyring),
-             "--batch", "--status-fd", "1",
-             "--verify", str(asc), str(manifest)],
-            capture_output=True, text=True,
+            ["gpgv", "--keyring", "./trust.gpg", "--status-fd", "1",
+             str(asc.resolve()), str(manifest.resolve())],
+            cwd=str(tmpdir), capture_output=True, text=True,
         )
         if v.returncode != 0:
-            return False, f"gpg --verify FAILED: {v.stderr.strip().splitlines()[-1] if v.stderr.strip() else 'no detail'}"
+            return False, f"gpgv --verify FAILED: {v.stderr.strip().splitlines()[-1] if v.stderr.strip() else 'no detail'}"
         m = re.search(r"VALIDSIG\s+([0-9A-F]{40})\b", v.stdout + v.stderr, re.I)
         if not m:
-            return False, "could not parse signing-key fingerprint from gpg status"
+            return False, "could not parse signing-key fingerprint from gpgv status"
         actual_fp = m.group(1).upper()
         if actual_fp != pinned_fp:
             return False, f"fingerprint mismatch: signed by {actual_fp[:16]}..., expected pinned {pinned_fp[:16]}..."
@@ -91,6 +104,9 @@ def _verify_one(bundle_dir: Path, pinned_fp: str) -> tuple[bool, str]:
 def main() -> int:
     if not shutil.which("gpg"):
         print("FAIL: gpg binary not on PATH", file=sys.stderr)
+        return 2
+    if not shutil.which("gpgv"):
+        print("FAIL: gpgv binary not on PATH", file=sys.stderr)
         return 2
     if not TRUST_ROOT_PUBKEY.is_file():
         print(f"FAIL: trust root pubkey missing at {TRUST_ROOT_PUBKEY}", file=sys.stderr)

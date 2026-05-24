@@ -276,8 +276,12 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
                 — only the byte-preserving signed package does. */}
             Every file the signed package contains, with the SHA-256 recorded in
             its manifest. Each file&apos;s content is fixed by its hash; the
-            detached GPG signature (pending sovereign signing) seals the
-            manifest itself.
+            detached GPG signature seals the manifest itself — verify offline
+            with{" "}
+            <code className="font-mono text-[11px]">
+              gpg --verify manifest.yaml.asc manifest.yaml
+            </code>
+            {" "}after importing the published trust-root pubkey.
           </p>
         </div>
         <div className="border-border shadow-card hidden overflow-x-auto rounded-xl border sm:block">
@@ -361,8 +365,10 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
           reasoning trace. The byte-preserving signed package (a{" "}
           <code className="font-mono text-[11px]">.tar.gz</code> for{" "}
           <code className="font-mono text-[11px]">gpg --verify</code> + per-file
-          SHA-256 re-hashing) is produced by the sovereign Canadian signer,
-          which is not yet live.
+          SHA-256 re-hashing) is produced by the demo signing key (Ed25519,
+          fingerprint pinned in{" "}
+          <code className="font-mono text-[11px]">state/polaris_gpg_keyid.txt</code>
+          ); see the Receipt view for the offline-verify flow.
         </p>
         <div className="flex flex-wrap gap-2">
           <Button
