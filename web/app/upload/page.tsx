@@ -10,8 +10,8 @@ export const metadata = {
 };
 
 // I-p2-047 (#841): factual post-upload flow — describes the real
-// parse → chunk → ground-intake path (no fabricated claims) — so the page
-// reads intentional instead of a drop zone above empty space.
+// drop → parse → preview path (Markdown/text chunk today; no fabricated
+// claims) — so the page reads intentional instead of a drop zone above space.
 const STEPS = [
   {
     icon: FileText,
