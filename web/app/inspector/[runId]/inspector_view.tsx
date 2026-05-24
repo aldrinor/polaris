@@ -1,11 +1,15 @@
 // I-cd-013a (GH#609) — Inspector view (client component, Tabs structure).
+// I-p2-043 (#833) S-tier: the page led with two stacked audit-metadata cards
+// (BundleHeader + FamilySegregationBadge) ABOVE the Proof Replay centerpiece —
+// "compliance tooling before the product" (Codex). Restructured so a bespoke
+// proof-header band (question + verify-rate proof artifact + trust line) leads and
+// Proof Replay is the default tab. See InspectorProofHeader.
 "use client";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BundleHeader } from "@/components/inspector/bundle_header";
 import { EvidencePoolTable } from "@/components/inspector/evidence_pool_table";
-import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
 import { HashChainPanel } from "@/components/inspector/hash_chain_panel";
+import { InspectorProofHeader } from "@/components/inspector/inspector_proof_header";
 import { MetadataPanel } from "@/components/inspector/metadata_panel";
 import { ProofReplay } from "@/components/proof_replay/proof_replay";
 import { ReasoningTraceTimeline } from "@/components/inspector/reasoning_trace_timeline";
@@ -29,25 +33,26 @@ export function InspectorView({
       data-testid="inspector-view"
       data-run-id={bundle.runId}
     >
-      <BundleHeader
-        manifest={bundle.manifest}
+      <InspectorProofHeader
+        bundle={bundle}
         signaturePresent={signaturePresent}
       />
-      <FamilySegregationBadge
-        manifest={bundle.manifest}
-        verifiedReport={bundle.verifiedReport}
-      />
       <Tabs defaultValue="proof">
-        <TabsList>
-          <TabsTrigger value="proof">Proof Replay</TabsTrigger>
-          <TabsTrigger value="report">Report</TabsTrigger>
-          <TabsTrigger value="scope">Scope</TabsTrigger>
-          <TabsTrigger value="evidence">Evidence</TabsTrigger>
-          <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
-          <TabsTrigger value="sources">Sources</TabsTrigger>
-          <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
-          <TabsTrigger value="metadata">Metadata</TabsTrigger>
-        </TabsList>
+        {/* I-p2-043 (#833): the 8-tab rail overflowed the 375w viewport (Codex visual
+            iter-2 P1). Contain it in a horizontal-scroll lane — desktop hugs content,
+            mobile scrolls instead of bleeding off-screen. */}
+        <div className="-mx-1 overflow-x-auto px-1 pb-1">
+          <TabsList>
+            <TabsTrigger value="proof">Proof Replay</TabsTrigger>
+            <TabsTrigger value="report">Report</TabsTrigger>
+            <TabsTrigger value="scope">Scope</TabsTrigger>
+            <TabsTrigger value="evidence">Evidence</TabsTrigger>
+            <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
+            <TabsTrigger value="sources">Sources</TabsTrigger>
+            <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
+            <TabsTrigger value="metadata">Metadata</TabsTrigger>
+          </TabsList>
+        </div>
         {/* I-p2-017 (#756): the CENTERPIECE — Report = Proof Replay. The #746
             split-view (click a verified claim → see its exact cited source span)
             was built but wired into NO route; this surfaces it as the default

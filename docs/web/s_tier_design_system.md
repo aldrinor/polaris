@@ -65,13 +65,20 @@ span highlights, and verdict badges appear consistently across the product.
    plus the proof primitives (ProofToken/ProofRail/SourceSpan/VerdictBadge).
 3. **Proof system** — ClaimStack / ProofReplayPanel / EvaluatorVerdict /
    AuditHashChain.
-4. **Pages** (S-bar, worst-gap weighted): Inspector → Home → Intake → Contracts →
-   Upload → Pin Replay → Sign-in.
+4. **Pages** (S-bar, worst-gap weighted): Inspector ✓ (#833, dual visual gate iter-3
+   APPROVE) → Home → Intake → Contracts → Upload → Pin Replay → Sign-in.
 5. **Cred-gated** (need `POLARIS_DEMO_USER`/`POLARIS_DEMO_PASS`): dashboard,
    benchmark, memory, source-review, and the Plan → Run → Compare journey.
 
-## Per-screen S-bar baseline (Codex, 2026-05-23 — pre-redo)
+## Per-screen S-bar baseline (Codex visual gate, `-i`)
 
-Inspector B+, Home B, Intake B−, Contracts B− (post first rebuild), Sign-in B−,
-Upload C+, Pin Replay C. Target every screen at A++/S with the signature move
-systematized.
+- **Inspector** (#833, I-p2-043): **desktop A / mobile A− / manifest A / abort A−**
+  (Codex visual iter-3 APPROVE). The audit metadata no longer leads — a bespoke
+  proof-header band (research question → verify-rate headline → grouped trust chips →
+  zero-loss manifest disclosure) makes Proof Replay the centerpiece. Residual P2 (deferred):
+  mobile evidence-card density lives in the Proof Replay split-view internals (separate
+  component issue); the lower-left "N" badge in dev captures is the Next.js dev indicator
+  (absent in production builds).
+- Pre-redo baseline (Codex, 2026-05-23): Home B, Intake B−, Contracts B− (post first
+  rebuild), Sign-in B−, Upload C+, Pin Replay C. Target every screen at A++/S with the
+  signature move systematized.
