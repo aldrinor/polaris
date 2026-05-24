@@ -6,7 +6,7 @@ import { UploadWorkspace } from "./components/upload_workspace";
 export const metadata = {
   title: "Upload — POLARIS Canada",
   description:
-    "Upload documents for grounding. Drag PDFs, MD, TXT, or DOCX (50MB max).",
+    "Upload documents — POLARIS parses and chunks supported files so you can preview exactly how each is split (PDF, MD, TXT, DOCX; 50MB max).",
 };
 
 // I-p2-047 (#841): factual post-upload flow — describes the real
