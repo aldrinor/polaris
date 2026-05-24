@@ -1,0 +1,444 @@
+diff --git a/docs/web/s_tier_design_system.md b/docs/web/s_tier_design_system.md
+index 234a3989..a608c8bf 100644
+--- a/docs/web/s_tier_design_system.md
++++ b/docs/web/s_tier_design_system.md
+@@ -65,13 +65,20 @@ span highlights, and verdict badges appear consistently across the product.
+    plus the proof primitives (ProofToken/ProofRail/SourceSpan/VerdictBadge).
+ 3. **Proof system** — ClaimStack / ProofReplayPanel / EvaluatorVerdict /
+    AuditHashChain.
+-4. **Pages** (S-bar, worst-gap weighted): Inspector → Home → Intake → Contracts →
+-   Upload → Pin Replay → Sign-in.
++4. **Pages** (S-bar, worst-gap weighted): Inspector ✓ (#833, dual visual gate iter-3
++   APPROVE) → Home → Intake → Contracts → Upload → Pin Replay → Sign-in.
+ 5. **Cred-gated** (need `POLARIS_DEMO_USER`/`POLARIS_DEMO_PASS`): dashboard,
+    benchmark, memory, source-review, and the Plan → Run → Compare journey.
+ 
+-## Per-screen S-bar baseline (Codex, 2026-05-23 — pre-redo)
++## Per-screen S-bar baseline (Codex visual gate, `-i`)
+ 
+-Inspector B+, Home B, Intake B−, Contracts B− (post first rebuild), Sign-in B−,
+-Upload C+, Pin Replay C. Target every screen at A++/S with the signature move
+-systematized.
++- **Inspector** (#833, I-p2-043): **desktop A / mobile A− / manifest A / abort A−**
++  (Codex visual iter-3 APPROVE). The audit metadata no longer leads — a bespoke
++  proof-header band (research question → verify-rate headline → grouped trust chips →
++  zero-loss manifest disclosure) makes Proof Replay the centerpiece. Residual P2 (deferred):
++  mobile evidence-card density lives in the Proof Replay split-view internals (separate
++  component issue); the lower-left "N" badge in dev captures is the Next.js dev indicator
++  (absent in production builds).
++- Pre-redo baseline (Codex, 2026-05-23): Home B, Intake B−, Contracts B− (post first
++  rebuild), Sign-in B−, Upload C+, Pin Replay C. Target every screen at A++/S with the
++  signature move systematized.
+diff --git a/web/app/inspector/[runId]/inspector_view.tsx b/web/app/inspector/[runId]/inspector_view.tsx
+index d5459872..a6bc4dc5 100644
+--- a/web/app/inspector/[runId]/inspector_view.tsx
++++ b/web/app/inspector/[runId]/inspector_view.tsx
+@@ -1,11 +1,15 @@
+ // I-cd-013a (GH#609) — Inspector view (client component, Tabs structure).
++// I-p2-043 (#833) S-tier: the page led with two stacked audit-metadata cards
++// (BundleHeader + FamilySegregationBadge) ABOVE the Proof Replay centerpiece —
++// "compliance tooling before the product" (Codex). Restructured so a bespoke
++// proof-header band (question + verify-rate proof artifact + trust line) leads and
++// Proof Replay is the default tab. See InspectorProofHeader.
+ "use client";
+ 
+ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+-import { BundleHeader } from "@/components/inspector/bundle_header";
+ import { EvidencePoolTable } from "@/components/inspector/evidence_pool_table";
+-import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
+ import { HashChainPanel } from "@/components/inspector/hash_chain_panel";
++import { InspectorProofHeader } from "@/components/inspector/inspector_proof_header";
+ import { MetadataPanel } from "@/components/inspector/metadata_panel";
+ import { ProofReplay } from "@/components/proof_replay/proof_replay";
+ import { ReasoningTraceTimeline } from "@/components/inspector/reasoning_trace_timeline";
+@@ -29,25 +33,26 @@ export function InspectorView({
+       data-testid="inspector-view"
+       data-run-id={bundle.runId}
+     >
+-      <BundleHeader
+-        manifest={bundle.manifest}
++      <InspectorProofHeader
++        bundle={bundle}
+         signaturePresent={signaturePresent}
+       />
+-      <FamilySegregationBadge
+-        manifest={bundle.manifest}
+-        verifiedReport={bundle.verifiedReport}
+-      />
+       <Tabs defaultValue="proof">
+-        <TabsList>
+-          <TabsTrigger value="proof">Proof Replay</TabsTrigger>
+-          <TabsTrigger value="report">Report</TabsTrigger>
+-          <TabsTrigger value="scope">Scope</TabsTrigger>
+-          <TabsTrigger value="evidence">Evidence</TabsTrigger>
+-          <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
+-          <TabsTrigger value="sources">Sources</TabsTrigger>
+-          <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
+-          <TabsTrigger value="metadata">Metadata</TabsTrigger>
+-        </TabsList>
++        {/* I-p2-043 (#833): the 8-tab rail overflowed the 375w viewport (Codex visual
++            iter-2 P1). Contain it in a horizontal-scroll lane — desktop hugs content,
++            mobile scrolls instead of bleeding off-screen. */}
++        <div className="-mx-1 overflow-x-auto px-1 pb-1">
++          <TabsList>
++            <TabsTrigger value="proof">Proof Replay</TabsTrigger>
++            <TabsTrigger value="report">Report</TabsTrigger>
++            <TabsTrigger value="scope">Scope</TabsTrigger>
++            <TabsTrigger value="evidence">Evidence</TabsTrigger>
++            <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
++            <TabsTrigger value="sources">Sources</TabsTrigger>
++            <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
++            <TabsTrigger value="metadata">Metadata</TabsTrigger>
++          </TabsList>
++        </div>
+         {/* I-p2-017 (#756): the CENTERPIECE — Report = Proof Replay. The #746
+             split-view (click a verified claim → see its exact cited source span)
+             was built but wired into NO route; this surfaces it as the default
+diff --git a/web/components/inspector/bundle_header.tsx b/web/components/inspector/bundle_header.tsx
+index 680fb295..c47594ce 100644
+--- a/web/components/inspector/bundle_header.tsx
++++ b/web/components/inspector/bundle_header.tsx
+@@ -1,84 +1,99 @@
+-// I-cd-013a (GH#609) — Bundle header (top-level manifest summary).
+-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++// I-cd-013a (GH#609) — Bundle header.
++// I-p2-043 (#833) S-tier: the full 8-field audit Card dominated ABOVE the Proof
++// Replay centerpiece. Compacted to a slim metadata line + a subordinate "Full manifest"
++// disclosure carrying all 8 fields (ZERO loss — report_id and bundle_version live ONLY
++// here). Visual-gate iter 2: the signature chip moved OUT to the proof-header's chip row
++// (grouped with the two-family chip) so the expanded manifest stays one coherent block
++// instead of splitting trust state into two islands. SignatureBadge is exported for that.
++import { Fragment } from "react";
++
++import { ChevronRight, ShieldAlert, ShieldCheck } from "lucide-react";
++
+ import type { BundleManifest } from "@/lib/signed_bundle";
+ 
+ interface BundleHeaderProps {
+   manifest: BundleManifest;
+-  signaturePresent: boolean;
+ }
+ 
+-export function BundleHeader({
+-  manifest,
+-  signaturePresent,
+-}: BundleHeaderProps) {
++export function BundleHeader({ manifest }: BundleHeaderProps) {
+   const created = new Date(manifest.bundle_created_at_utc).toUTCString();
++  const fields: Array<{ label: string; value: string; mono?: boolean }> = [
++    { label: "Bundle ID", value: manifest.bundle_id, mono: true },
++    {
++      label: "Schema version",
++      value: `v${manifest.bundle_version}`,
++      mono: true,
++    },
++    { label: "POLARIS version", value: manifest.polaris_version, mono: true },
++    { label: "Generator model", value: manifest.generator_model, mono: true },
++    { label: "Decision ID", value: manifest.decision_id, mono: true },
++    { label: "Pool ID", value: manifest.pool_id, mono: true },
++    { label: "Report ID", value: manifest.report_id, mono: true },
++    { label: "Created (UTC)", value: created },
++  ];
+   return (
+-    <Card data-testid="bundle-header">
+-      <CardHeader>
+-        <CardTitle>Signed audit bundle</CardTitle>
+-      </CardHeader>
+-      <CardContent className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+-        <KeyValue label="Bundle ID" value={manifest.bundle_id} mono />
+-        <KeyValue
+-          label="Schema version"
+-          value={`v${manifest.bundle_version}`}
+-        />
+-        <KeyValue label="POLARIS version" value={manifest.polaris_version} />
+-        <KeyValue
+-          label="Generator model"
+-          value={manifest.generator_model}
+-          mono
+-        />
+-        <KeyValue label="Decision ID" value={manifest.decision_id} mono />
+-        <KeyValue label="Pool ID" value={manifest.pool_id} mono />
+-        <KeyValue label="Report ID" value={manifest.report_id} mono />
+-        <KeyValue label="Created (UTC)" value={created} />
+-        <div className="md:col-span-2">
+-          <SignatureBadge present={signaturePresent} />
+-        </div>
+-      </CardContent>
+-    </Card>
+-  );
+-}
+-
+-function KeyValue({
+-  label,
+-  value,
+-  mono = false,
+-}: {
+-  label: string;
+-  value: string;
+-  mono?: boolean;
+-}) {
+-  return (
+-    <div>
+-      <p className="text-muted-foreground text-xs tracking-wide uppercase">
+-        {label}
+-      </p>
+-      <p className={mono ? "font-mono text-sm" : "text-sm"}>{value}</p>
++    <div data-testid="bundle-header" className="flex flex-col gap-1.5">
++      <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
++        <span className="font-mono">{manifest.bundle_id}</span>
++        <span aria-hidden className="text-muted-foreground/40">
++          ·
++        </span>
++        <span className="font-mono">{manifest.generator_model}</span>
++        <span aria-hidden className="text-muted-foreground/40">
++          ·
++        </span>
++        <span>{created}</span>
++      </div>
++      <details className="group/manifest text-xs">
++        <summary className="text-muted-foreground/80 hover:text-foreground ease-standard inline-flex w-fit cursor-pointer list-none items-center gap-1 rounded-md py-0.5 transition-colors duration-150 [&::-webkit-details-marker]:hidden">
++          <ChevronRight
++            aria-hidden
++            className="ease-standard h-3 w-3 transition-transform duration-150 group-open/manifest:rotate-90"
++          />
++          Full manifest
++        </summary>
++        <dl className="border-border/60 bg-muted/40 mt-1.5 grid max-w-md grid-cols-[max-content_1fr] gap-x-4 gap-y-1 rounded-md border-l p-2.5">
++          {fields.map((f) => (
++            <Fragment key={f.label}>
++              <dt className="text-muted-foreground">{f.label}</dt>
++              <dd
++                className={
++                  f.mono
++                    ? "text-foreground font-mono break-all"
++                    : "text-foreground"
++                }
++              >
++                {f.value}
++              </dd>
++            </Fragment>
++          ))}
++        </dl>
++      </details>
+     </div>
+   );
+ }
+ 
+-function SignatureBadge({ present }: { present: boolean }) {
++export function SignatureBadge({ present }: { present: boolean }) {
+   if (present) {
+     return (
+-      <p
+-        className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200"
++      <span
++        className="border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+         data-testid="signature-badge"
+         data-state="present"
+       >
+-        Signature present
+-      </p>
++        <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
++        Signed bundle
++      </span>
+     );
+   }
+   return (
+-    <p
+-      className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
++    <span
++      className="border-contradiction/40 bg-contradiction/15 text-contradiction-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+       data-testid="signature-badge"
+       data-state="missing"
+     >
++      <ShieldAlert aria-hidden className="h-3.5 w-3.5" />
+       Signature missing
+-    </p>
++    </span>
+   );
+ }
+diff --git a/web/components/inspector/family_segregation_badge.tsx b/web/components/inspector/family_segregation_badge.tsx
+index 3c2a8377..a7fbe97e 100644
+--- a/web/components/inspector/family_segregation_badge.tsx
++++ b/web/components/inspector/family_segregation_badge.tsx
+@@ -1,6 +1,14 @@
+ // I-cd-013a (GH#609) — Two-family invariant badge.
+ // Source of truth: verified_report.evaluator_model + verified_report.family_segregation_passed
+ // (NOT metadata.json — corrected at brief iter 1 P1).
++// I-p2-043 (#833) S-tier: tokenized (was hardcoded emerald/rose) — pass=--verified,
++// FAIL=--destructive (an invariant violation, not a soft warning — Codex P2). Compacted
++// from a full p-4 card to an inline trust chip so it rides in the hero's secondary row
++// instead of stacking above the Proof Replay centerpiece. Generator/evaluator models stay
++// in the title + are surfaced in MetadataPanel and the bundle-header manifest disclosure
++// (zero data loss). Keeps data-testid + data-state for the e2e contract.
++import { ShieldCheck, ShieldX } from "lucide-react";
++
+ import type { VerifiedReportShape } from "@/lib/inspector_bundle_loader";
+ import type { BundleManifest } from "@/lib/signed_bundle";
+ 
+@@ -15,37 +23,22 @@ export function FamilySegregationBadge({
+ }: FamilySegregationBadgeProps) {
+   const passed = verifiedReport.family_segregation_passed;
+   return (
+-    <div
++    <span
+       data-testid="family-segregation-badge"
+       data-state={passed ? "pass" : "fail"}
+-      className="border-border bg-card flex flex-col gap-2 rounded-md border p-4 text-sm"
++      title={`Generator: ${manifest.generator_model} · Evaluator: ${verifiedReport.evaluator_model}`}
++      className={
++        passed
++          ? "border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium"
++          : "border-destructive/40 bg-destructive/10 text-destructive inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium"
++      }
+     >
+-      <div className="flex items-center justify-between gap-3">
+-        <p className="font-medium">Two-family invariant</p>
+-        <span
+-          className={
+-            passed
+-              ? "inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+-              : "inline-flex items-center rounded-md bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-900 dark:bg-rose-950 dark:text-rose-200"
+-          }
+-        >
+-          {passed ? "Pass" : "Fail"}
+-        </span>
+-      </div>
+-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+-        <div>
+-          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+-            Generator
+-          </p>
+-          <p className="font-mono text-sm">{manifest.generator_model}</p>
+-        </div>
+-        <div>
+-          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+-            Evaluator
+-          </p>
+-          <p className="font-mono text-sm">{verifiedReport.evaluator_model}</p>
+-        </div>
+-      </div>
+-    </div>
++      {passed ? (
++        <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
++      ) : (
++        <ShieldX aria-hidden className="h-3.5 w-3.5" />
++      )}
++      Two-family invariant {passed ? "verified" : "violated"}
++    </span>
+   );
+ }
+diff --git a/web/components/inspector/inspector_proof_header.tsx b/web/components/inspector/inspector_proof_header.tsx
+new file mode 100644
+index 00000000..51096882
+--- /dev/null
++++ b/web/components/inspector/inspector_proof_header.tsx
+@@ -0,0 +1,107 @@
++// I-p2-043 (#833) S-tier — the Inspector's bespoke proof-header band.
++// Codex visual gate iter-1 P1: the prior thin chip rows read as "form metadata, not a
++// premium proof artifact"; the abort shape lost its hero entirely. This consolidates the
++// hero question + the proof artifact (verify rate is the headline number) + the trust line
++// (two-family + signature + manifest disclosure) into ONE crafted band directly under the
++// H1 — the signature move (proof as the page's visual operating system), applied to the
++// header. Preserves the bundle-header / family-segregation-badge / signature-badge testids.
++import {
++  BundleHeader,
++  SignatureBadge,
++} from "@/components/inspector/bundle_header";
++import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
++import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
++
++interface InspectorProofHeaderProps {
++  bundle: LoadedBundle;
++  signaturePresent: boolean;
++}
++
++const VERDICT_LABELS: Record<string, string> = {
++  abort_no_verified_sections: "No verified sections",
++  abort_corpus_inadequate: "Corpus inadequate",
++  abort_corpus_approval_denied: "Corpus approval denied",
++  abort_scope_rejected: "Scope rejected",
++};
++
++function humanizeVerdict(verdict: string): string {
++  return (
++    VERDICT_LABELS[verdict] ??
++    verdict
++      .replace(/^abort_/, "")
++      .replace(/_/g, " ")
++      .trim()
++  );
++}
++
++export function InspectorProofHeader({
++  bundle,
++  signaturePresent,
++}: InspectorProofHeaderProps) {
++  const report = bundle.verifiedReport;
++  const sectionCount = report.sections?.length ?? 0;
++  const verified = sectionCount > 0;
++  const pct = Math.round(report.overall_verify_pass_rate * 100);
++
++  return (
++    <header className="flex flex-col gap-4">
++      <h1 className="font-heading text-foreground max-w-3xl text-2xl leading-tight font-bold tracking-tight text-balance sm:text-3xl">
++        {report.research_question ?? "Signed research bundle"}
++      </h1>
++
++      <div
++        data-testid="inspector-proof-header"
++        className="bg-card ring-foreground/10 shadow-card flex flex-col gap-3 rounded-xl p-4 ring-1 sm:p-5"
++      >
++        {/* primary proof artifact line — the verify rate is the headline number */}
++        {verified ? (
++          <div
++            data-testid="inspector-proof-summary"
++            className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
++          >
++            <span className="text-verified text-3xl leading-none font-bold tabular-nums">
++              {pct}%
++            </span>
++            <span className="text-foreground text-sm font-medium">
++              of claims verified
++            </span>
++            <span aria-hidden className="text-border">
++              •
++            </span>
++            <span className="text-muted-foreground text-sm">
++              {sectionCount} verified section{sectionCount === 1 ? "" : "s"} ·
++              every sentence traces to its cited source span
++            </span>
++          </div>
++        ) : (
++          <div
++            data-testid="inspector-proof-summary"
++            className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm"
++          >
++            <span className="border-contradiction/40 bg-contradiction/15 text-contradiction-foreground inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium">
++              {humanizeVerdict(report.pipeline_verdict)}
++            </span>
++            <span className="text-muted-foreground">
++              No verified sections — see the Report tab for the full pipeline
++              verdict.
++            </span>
++          </div>
++        )}
++
++        {/* trust grid — one left-aligned column: the two trust chips grouped on top,
++            then the bundle/model/date line + the manifest disclosure as one coherent
++            block (so the expanded manifest never splits into floating islands). */}
++        <div className="border-border/60 flex flex-col gap-2.5 border-t pt-3">
++          <div className="flex flex-wrap items-center gap-2">
++            <FamilySegregationBadge
++              manifest={bundle.manifest}
++              verifiedReport={report}
++            />
++            <SignatureBadge present={signaturePresent} />
++          </div>
++          <BundleHeader manifest={bundle.manifest} />
++        </div>
++      </div>
++    </header>
++  );
++}
+
+# canonical-diff-sha256: 0e9245b67fe47ebd49163ad0d514421c0176dcad013abe67f90e760293207287

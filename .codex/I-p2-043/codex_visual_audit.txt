@@ -1,0 +1,28 @@
+```yaml
+verdict: REQUEST_CHANGES
+per_screen_grades:
+  success_desktop: "A-"
+  success_mobile: "B+"
+  manifest_open: "A-"
+  abort: "B"
+
+novel_p0: []
+continuing_p0: []
+
+p1:
+  - "Mobile: the Proof Replay centerpiece is demoted below a long horizontal tab bar and two stacked cards; the source evidence panel starts too late and feels like an appendix, not the product moment."
+  - "Abort desktop: the page loses the hero entirely and collapses into audit chrome. Even with 0 verified sections, this needs a clear inspector state/title so it does not read like an empty compliance report."
+  - "Success desktop: proof now leads structurally, but the trust layer is still visually too thin. The invariant/signature rows read as form metadata, not as a premium proof artifact."
+
+p2:
+  - "The H1 has authority, but the page lacks a distinctive visual signature beyond clean typography and chips. It is credible research software, not yet S-tier differentiated."
+  - "The green invariant bar spans almost the full content width but has very little content density, making it feel like a status alert rather than a crafted proof primitive."
+  - "The signature-missing chip plus bundle/model/date metadata is visually busy and slightly under-hierarchized; it competes with the proof summary on desktop and wraps awkwardly on mobile."
+  - "The tab rail looks generic and oversized relative to the rest of the page. It introduces app-dashboard energy before the proof artifact has fully landed."
+  - "Manifest-open state is acceptable: subordinate enough, but the monospaced manifest block could use a quieter inset/background treatment to feel intentional rather than debug-adjacent."
+  - "Footer is restrained, but on mobile it consumes a lot of vertical space after a page that already feels long."
+
+highest_leverage_change_to_S: "Replace the current thin chip rows with one bespoke proof header module: compact verdict, verified-section count, claim-verification rate, invariant status, signature state, and manifest disclosure in a single crafted band directly under the H1. On mobile, make that module the anchor before the tabs and collapse metadata into one secondary line."
+
+convergence_call: continue
+```

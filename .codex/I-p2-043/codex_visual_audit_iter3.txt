@@ -1,0 +1,16 @@
+```yaml
+verdict: APPROVE
+per_screen_grades:
+  success_desktop: "A"
+  success_mobile: "A-"
+  manifest_open: "A"
+  abort: "A-"
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "The floating dark 'N' badge at lower-left reads like a dev/debug overlay and slightly cheapens the premium research-software frame, especially on mobile and abort footer states."
+  - "Mobile proof/evidence cards are contained now, but the right evidence card still feels a touch dense; line-height or excerpt clamp polish would move it closer to S."
+highest_leverage_change_to_S: "Remove or hide the lower-left debug/status badge in production captures; it is the only remaining element that visually breaks the otherwise coherent proof-led layout."
+convergence_call: accept_remaining
+```

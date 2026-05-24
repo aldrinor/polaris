@@ -1,0 +1,18 @@
+```yaml
+verdict: REQUEST_CHANGES
+per_screen_grades:
+  success_desktop: "A-: proof now leads clearly; band feels credible and materially upgraded."
+  success_mobile: "B+: hierarchy is right, but horizontal tab overflow makes the page feel unfinished."
+  manifest_open: "B: expanded manifest exposes a broken trust-layout composition."
+  abort: "A-: clear, inspectable empty/abort state with the right proof-frame language."
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Mobile still has a P1 horizontal overflow/viewport fit issue: the tab rail extends far beyond the 375w viewport, leaving the experience feeling desktop-shrunk rather than mobile-crafted. Even if tab internals are not the focus, this directly affects the proof-header-to-content handoff and premium bar."
+  - "Manifest-open proof header is visually broken: the two-family chip floats in a mostly empty left column while the signature chip, metadata, and manifest table live on the right. The disclosure should expand as one coherent proof artifact, not split trust state into two unrelated islands."
+p2:
+  - "Desktop success band has excess unused right-side space; acceptable, but the proof artifact would feel stronger if the second row used a deliberate grid instead of a sparse line."
+  - "Mobile metadata wraps cleanly enough, but the bundle/model/date line is visually dense and could benefit from stronger grouping."
+highest_leverage_change_to_S: "Make the proof header a responsive two-row artifact: headline verification row, then a structured trust grid where chips, bundle/model/date, and manifest expansion share one aligned column system; on mobile, make tabs horizontally scrollable with contained viewport width."
+convergence_call: continue
+```
