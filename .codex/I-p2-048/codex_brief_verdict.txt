@@ -1,0 +1,12 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Make the ghost timeline explicitly non-data: abstract labels only, no fake dates, counts, verdicts, deltas, or source names."
+  - "Keep the preview decorative or clearly labeled for assistive tech, e.g. aria-hidden for purely visual skeleton elements or one concise accessible caption."
+  - "Check mobile width so the horizontal timeline collapses cleanly without adding overflow or squeezing the EmptyState CTA."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

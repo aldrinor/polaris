@@ -1,0 +1,58 @@
+# Codex brief — I-p2-048 (#843): Pin Replay S-rebuild (empty state → A)
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. Same quality bar regardless of iteration.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; polish is P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; no iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## What this is
+A BRIEF (plan) review. Attached: the CURRENT LIVE /pin_replay (grade C), desktop. In the demo
+DEMO_PIN_REGISTRY is empty (since #627), so the EMPTY STATE is the only visible state — the
+populated timeseries/diff only render with completed pinned runs (backend). Approve iff the
+plan reaches A for the empty state without breaking the e2e contract.
+
+## Current live /pin_replay (attached) — honest read
+"Pin replay — same question on different dates" h1 + a good intro, then a dashed-box empty
+state (History icon + "No pinned runs yet" + "Ask a question" CTA) via the shared EmptyState
+kit, then a large empty lower half. Honest + functional but sparse; the temporal-drift
+differentiator isn't made tangible while there are no pins.
+
+## Plan (web/app/pin_replay/page.tsx — EmptyPinReplay only)
+1. Keep the EmptyState kit (icon/title/CTA) + `pin-replay-empty` testid + the intro.
+2. Add a **ghost-timeline skeleton** beneath the intro: a non-interactive, data-free preview of
+   what the pin-replay timeline produces — a horizontal axis with ~3 ghost snapshot nodes
+   connected by a faint line + ghost metric bars, labeled e.g. "Your pinned runs line up here
+   as a timeline." SKELETON ONLY (design tokens / bg-muted / animate-pulse optional) — NO
+   fabricated dates/numbers/verdicts. Makes the concept tangible + fills the page.
+3. Tighten concept framing so the empty page reads as "here's what this does" not "nothing here".
+
+## e2e contract I MUST NOT break (pin_replay_g1_g8 + pin_replay)
+- exactly ONE <header> + ONE <main> (AppShell; page is a section). The g1_g8 test runs against
+  the EMPTY state (registry empty) — keep `pin-replay-empty` + single section.
+- The populated-state spec (`pin_replay.spec.ts`: pin-snapshot-a/b, pin-replay-delta, etc.)
+  requires pinned data the demo lacks (pre-existing since #627) — I touch ONLY EmptyPinReplay;
+  the populated path (SnapshotCard/PinTimeseries/DiffSidePanel/regression-alert + all those
+  testids) stays byte-identical.
+- no banned dev-language; no console errors.
+
+## Files I have ALSO checked and they're clean (no break)
+- web/app/pin_replay/components/{pin_timeseries,diff_side_panel}.tsx — populated-state only,
+  untouched. @/components/states/state_kit (EmptyState) — reused. @/lib/pin_replay_demo,
+  pin_regression — untouched. Brand #c8102e + tokens — reused.
+
+## Question
+APPROVE iff a ghost-timeline empty state (skeleton, no fake data) is the right A-move to make
+the temporal-drift concept tangible + fill the page, without breaking the e2e/testid contract.
+Stronger ideas → P1/P2.
