@@ -1,0 +1,10 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Add the required `docs/web/s_tier_design_system.md` per-screen grade update in the implementation pass; `file_directory` only matters if structure changes."
+  - "Use `--destructive` for two-family fail state, not `--contradiction`; this is an invariant failure, not a warning."
+  - "Style the Full manifest `<details>` so it wraps as secondary disclosure and does not visually compete with the research-question hero on mobile."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

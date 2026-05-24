@@ -1,0 +1,2755 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e576e-c514-7043-91a6-56dd86d99cb7
+--------
+user
+# Codex brief — I-p2-043 (#833): Inspector centerpiece S-rebuild
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## What this brief is
+A BRIEF (acceptance-criteria + design-plan review), NOT a diff review. Approve iff the
+PLAN below (a) achieves the S-tier "Proof Replay leads" goal, (b) loses zero data (LAW II),
+(c) does not break the e2e contract I enumerate. The diff + the dual Codex VISUAL gate
+(`codex exec -i` on screenshots) come after your APPROVE here.
+
+## Operator-locked constraints (HARD — not negotiable, do not reopen)
+- Brand red `#c8102e` is OPERATOR-LOCKED. No palette change.
+- Bar = A++/S, differentiating vs Perplexity/ChatGPT-DR/Gemini. "Not half-ass, not B-."
+- Honest sovereignty wording only (no "fully sovereign" present-tense overclaim).
+- §-1.1 clinical-safety: no field/data may be silently dropped.
+
+## The page (current state, HEAD)
+`web/app/inspector/[runId]/inspector_view.tsx` renders, top→bottom:
+1. `<BundleHeader>` — a big Card with 8 manifest KeyValues (bundle_id, bundle_version
+   "Schema version", polaris_version, generator_model, decision_id, pool_id, report_id,
+   created). testid `bundle-header`; nests `signature-badge`.
+2. `<FamilySegregationBadge>` — a full bordered Card (p-4, generator/evaluator grid,
+   pass/fail pill in **hardcoded emerald/rose**, NOT design tokens). testid
+   `family-segregation-badge` + `data-state={pass|fail}`.
+3. `<Tabs defaultValue="proof">` — 8 tabs: Proof Replay / Report / Scope / Evidence /
+   Reasoning / Sources / Hash chain / Metadata. ProofReplay is already the default.
+
+**Codex's S-tier verdict (the gap):** "the top audit metadata dominates BEFORE the
+centerpiece — promote Proof Replay above metadata." The eye lands on 8 audit IDs + a
+two-family card before it ever sees the proof. Grade B+. Reads as compliance tooling,
+not research software.
+
+## The plan (3 files)
+
+### A. `inspector_view.tsx` — hero restructure (proof leads)
+Replace the two stacked metadata cards above the tabs with a compact **hero header**:
+- `<h1>` = `bundle.verifiedReport.research_question` (the subject). The canonical demo
+  bundle has it: *"What is the efficacy and safety of tirzepatide for glycemic control
+  and weight loss in adults with type 2 diabetes?"* — this is what should greet the eye.
+  If absent (abort fixture `v1_canonical`: rq=None, 0 sections) → render NO h1 (degrade).
+- A proof-forward summary line UNDER the h1: section count + `overall_verify_pass_rate`
+  (e.g. "4 sections · 100% claims verified"). Only when sections exist; for abort show a
+  muted "No verified sections — see Report tab." This line uses a NEW testid (e.g.
+  `inspector-proof-summary`), NOT `pipeline-verdict-badge` (which lives in the Report tab
+  / VerifiedReportSections and the abort spec asserts there — must not collide).
+- The slim trust strip (`<BundleHeader>`, see B) + compact two-family chip
+  (`<FamilySegregationBadge>`, see C) sit as a single secondary row in the hero — visually
+  subordinate to the h1, NOT a stack of big cards.
+- `<Tabs defaultValue="proof">` unchanged (all 8 tabs, same labels + data-tab ids).
+- `main` keeps `data-testid="inspector-view"` + `data-run-id`.
+
+### B. `bundle_header.tsx` — slim trust strip + zero-loss disclosure
+- Default render = one slim row: signature chip (`signature-badge`, tokenized
+  verified/contradiction) + bundle_id (mono) + generator_model (mono) + created.
+- **Zero field loss:** a collapsible "Full manifest" `<details>` inside the strip reveals
+  ALL 8 manifest fields (incl. `report_id` and `bundle_version`, which are NOT surfaced in
+  any other panel today — see scan below). `polaris_version`→MetadataPanel,
+  `decision_id`→ScopeDecisionCard, `pool_id`→EvidencePoolTable already exist elsewhere, but
+  the disclosure carries the complete set so the strip drops nothing.
+- Keeps `data-testid="bundle-header"` VISIBLE + `signature-badge`.
+
+### C. `family_segregation_badge.tsx` — tokenize + compact
+- Swap hardcoded `emerald-*/rose-*` → design tokens (`--verified` pass / `--destructive`
+  or `--contradiction` fail). This is an S-tier color-restraint fix.
+- Compact to an inline chip ("Two families ✓ Generator ⋮ Evaluator") suitable for the hero
+  secondary row, instead of a full p-4 card.
+- Keeps `data-testid="family-segregation-badge"` VISIBLE + `data-state={pass|fail}`.
+
+## e2e contract I MUST NOT break (verified against tests/e2e/inspector_route.spec.ts)
+- `inspector-view` visible (+ data-run-id).
+- `bundle-header` visible (`:46`). Also masked in deferred visual baselines `:172/:181`.
+- `family-segregation-badge` visible (`:47`) + `data-state="pass"` (`:55`).
+- 6 tabs report/scope/evidence/reasoning/sources/hashchain activate by role-name + their
+  `[data-tab="<id>"]` panel visible/others hidden (`:58-82`). (proof + metadata not in the
+  loop but must remain present with same labels.)
+- `toggle-provenance-tokens` in Report tab (`:84-90`) — in VerifiedReportSections, NOT my
+  scope; untouched.
+- No console errors (`:92`).
+- **No dev-language in rendered text** (`:104` — /TODO/FIXME/XXX/placeholder/lorem ipsum/).
+  My hero copy must avoid these words.
+- 3 viewports render (`:114-120`).
+- Abort fixture `v1-canonical`: `pipeline-verdict-badge` data-state="abort" in Report tab
+  (`:123-133`) — my hero must NOT define a second `pipeline-verdict-badge`.
+- Unknown runId → `bundle-pending-cta` (`:136`) — unaffected (different render path).
+
+## Files I have ALSO checked and they're clean (no change needed / no break)
+- `web/components/proof_replay/proof_replay.tsx` — the centerpiece default-tab content;
+  untouched this PR (its internal S-quality is a separate concern, not page framing).
+- `web/components/inspector/metadata_panel.tsx` — shows polaris/generator/evaluator/
+  created/schema_version (metadata.*); does NOT show manifest IDs (hence the disclosure in B).
+- `web/components/inspector/scope_decision_card.tsx` (`decision_id`),
+  `evidence_pool_table.tsx` (`pool_id`, `decision_id`) — already surface those IDs.
+- `web/components/inspector/hash_chain_panel.tsx`, `sources_panel.tsx`,
+  `reasoning_trace_timeline.tsx`, `verified_report_sections.tsx` — tab contents, untouched.
+- `web/lib/inspector_bundle_loader.ts` — `verifiedReport.research_question?` optional;
+  `overall_verify_pass_rate`, `pipeline_verdict`, sections[] available. Types unchanged.
+- e2e: `inspector_offline_fallback.spec.ts`, `audit_bundle.spec.ts`, `bundle_preview.spec.ts`,
+  `demo_journey.spec.ts` (uses `family-segregation-badge` getByTestId at `:53`, satisfied by
+  keeping the testid), `sentence_inspector*.spec.ts` (exercise ProofReplay, untouched).
+- Brand `#c8102e` + tokens in `globals.css` — reused, not changed.
+
+## Acceptance criteria (issue #833)
+1. Proof Replay leads — research question + proof above audit metadata.
+2. BundleHeader slim trust strip, `bundle-header`+`signature-badge` visible.
+3. ZERO field loss — report_id + bundle_version reachable (the disclosure).
+4. Tabs unchanged (8 labels + data-tab ids).
+5. Dual Codex gate (this brief = code-plan APPROVE; then diff + visual `-i`).
+6. e2e green; deferred visual baselines stay masked.
+7. Docs: s_tier_design_system.md per-screen grade + file_directory if structure changes.
+
+## Question for you
+APPROVE iff this plan (a) genuinely moves the Inspector from "compliance-tooling-first" to
+"proof-leads" at the A++/S bar, (b) loses zero data, (c) breaks none of the enumerated e2e
+contract. If you see a stronger S-tier structure (e.g. a different hero composition, or the
+two-family chip belongs elsewhere), say so as P1/P2 with the specific change.
+
+codex
+I’ll verify the plan against the current component and test contracts before giving the schema verdict, focusing on field preservation, test IDs, and whether the proposed hero can be implemented without semantic regressions.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files -g 'inspector_view.tsx' -g 'bundle_header.tsx' -g 'family_segregation_badge.tsx' -g 'inspector_route.spec.ts' -g 's_tier_design_system.md' -g 'globals.css'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "pipeline-verdict-badge|bundle-header|family-segregation-badge|data-tab=|Proof Replay|Metadata|overall_verify_pass_rate|research_question" web tests -S' in C:\POLARIS
+2026-05-24T00:42:28.724615Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+web\tests\e2e\inspector_route.spec.ts
+docs\web\s_tier_design_system.md
+web\components\inspector\family_segregation_badge.tsx
+web\components\inspector\bundle_header.tsx
+web\app\inspector\[runId]\inspector_view.tsx
+web\app\globals.css
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+
+ exited 1 in 1065ms:
+web\tests\e2e\inspector_route.spec.ts
+docs\web\s_tier_design_system.md
+web\components\inspector\family_segregation_badge.tsx
+web\components\inspector\bundle_header.tsx
+web\app\inspector\[runId]\inspector_view.tsx
+web\app\globals.css
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+
+ succeeded in 1171ms:
+tests\crown_jewels\test_cj_004_zero_verified_abort.py:65:        overall_verify_pass_rate=0.0,
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\manifest.json:829:    "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
+tests\fixtures\signed_bundle\v1_canonical_success\verified_report.json:9:  "overall_verify_pass_rate": 1.0,
+tests\polaris_v6\api\test_artifact_to_slice_chain.py:96:            "research_question": "Is tirzepatide effective for type 2 diabetes?",
+tests\polaris_v6\api\test_app_slice_route_mount.py:242:        "overall_verify_pass_rate": 1.0,
+tests\fixtures\signed_bundle\v1_canonical\verified_report.json:9:  "overall_verify_pass_rate": 0.0,
+tests\integration\test_memory_search_integration.py:508:        """Metadata fields (quality_tier, source, faithfulness) persist."""
+tests\integration\test_campaign_persistence.py:387:        # Metadata unchanged throughout lifecycle
+web\app\sentence_hover_test\_demo_stress.tsx:71:    overall_verify_pass_rate: 1.0,
+web\app\sentence_hover_test\follow_up_append\page.tsx:31:    overall_verify_pass_rate: 1.0,
+web\app\sentence_hover_test\_demo.tsx:459:  overall_verify_pass_rate: 1.0,
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:82:    overall_verify_pass_rate: 1.0,
+web\app\sentence_hover_test\_demo_coverage.tsx:97:    overall_verify_pass_rate: 1.0,
+tests\polaris_graph\test_audit_ir_loader.py:27:    ProtocolMetadata,
+tests\polaris_graph\test_audit_ir_loader.py:226:    assert fc.research_question
+tests\polaris_graph\test_audit_ir_loader.py:555:    assert isinstance(proto, ProtocolMetadata)
+tests\polaris_graph\test_audit_ir_loader.py:556:    assert "tirzepatide" in proto.research_question.lower()
+web\app\sentence_hover_test\memory_cite\page.tsx:40:  overall_verify_pass_rate: 1.0,
+tests\polaris_graph\benchmark\test_polaris_runner.py:91:            "overall_verify_pass_rate": 1.0,
+tests\polaris_graph\benchmark\test_dimension_scorers.py:112:        overall_verify_pass_rate=1.0,
+tests\polaris_graph\benchmark\test_dimension_scorers.py:210:        overall_verify_pass_rate=0.0,
+tests\polaris_graph\audit_bundle\test_sovereignty_ci.py:88:        overall_verify_pass_rate=1.0,
+tests\polaris_graph\benchmark\test_beat_both_scorer.py:92:            "overall_verify_pass_rate": 1.0,
+tests\polaris_graph\clinical_generator\test_verified_report.py:608:        overall_verify_pass_rate=1.0,
+tests\polaris_graph\clinical_generator\test_verified_report.py:671:        overall_verify_pass_rate=0.0,
+tests\polaris_graph\clinical_generator\test_verified_report.py:681:        overall_verify_pass_rate=0.0,
+tests\polaris_graph\clinical_generator\test_verified_report.py:728:        overall_verify_pass_rate=0.5,
+tests\polaris_graph\audit_bundle\test_snapshot_sources.py:81:        overall_verify_pass_rate=1.0,
+tests\polaris_graph\audit_bundle\test_reviewer_blind_walkthrough.py:89:        overall_verify_pass_rate=1.0,
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:111:        overall_verify_pass_rate=1.0 if verdict == "success" else 0.0,
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:199:        overall_verify_pass_rate=0.0,
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:243:    # frozen fixture + frontend BundleMetadata. Provenance IDs live in
+tests\polaris_graph\audit_bundle\test_manifest_builder.py:292:        overall_verify_pass_rate=1.0,
+tests\polaris_graph\audit_bundle\test_f15_adversarial.py:86:        overall_verify_pass_rate=1.0 if verdict == "success" else 0.0,
+tests\polaris_graph\audit_bundle\test_bundle_hash_chain.py:112:        overall_verify_pass_rate=1.0,
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:100:        overall_verify_pass_rate=1.0,
+tests\polaris_graph\audit_bundle\test_bundle_builder.py:169:        overall_verify_pass_rate=0.0,
+web\app\runs\[runId]\audit\page.tsx:42:  metadata: "Metadata",
+web\app\runs\[runId]\audit\page.tsx:94:      pass: report.overall_verify_pass_rate >= report.verifier_pass_threshold,
+web\app\runs\[runId]\audit\page.tsx:95:      detail: `${pct(report.overall_verify_pass_rate)} of sentences span-verified · threshold ${pct(report.verifier_pass_threshold)}`,
+tests\polaris_graph\test_corpus_approval_gate.py:38:        "research_question": "Semaglutide for weight loss",
+tests\polaris_graph\golden\test_slice_005_goldens.py:127:            "overall_verify_pass_rate": 1.0,
+tests\polaris_graph\golden\test_slice_004_goldens.py:271:        overall_verify_pass_rate=1.0 if verdict == "success" else 0.0,
+tests\polaris_graph\test_completeness_r6_gap3.py:70:        research_question=(
+tests\polaris_graph\test_completeness_r6_gap3.py:105:        research_question="Semaglutide weight loss in adults with obesity",
+tests\polaris_graph\test_completeness_r6_gap3.py:124:        research_question="What is the efficacy of metformin for type 2 diabetes?",
+tests\polaris_graph\test_completeness_r6_gap3.py:141:        research_question="Semaglutide safety profile",
+tests\polaris_graph\test_completeness_r6_gap3.py:157:        research_question="Semaglutide safety",
+tests\polaris_graph\test_completeness_r6_gap3.py:167:        research_question="Semaglutide weight loss",
+tests\polaris_graph\test_completeness_r6_gap3.py:188:        research_question="FDA regulation of AI-enabled medical devices under PCCP",
+tests\polaris_graph\test_completeness_r6_gap3.py:203:        research_question="semaglutide weight loss",
+tests\polaris_graph\test_citation_health.py:88:        research_question="q", schema_version="1.0",
+tests\polaris_graph\api\test_generation_route.py:200:        "overall_verify_pass_rate",
+tests\polaris_graph\api\test_generation_route.py:249:        "research_question": "Does ibuprofen cure cancer?",
+tests\polaris_graph\api\test_generation_route.py:280:        "research_question": "Does aspirin reduce headache in adults?",
+tests\v6\test_scope.py:17:def test_research_question_is_accepted(client):
+tests\polaris_graph\api\test_audit_bundle_route.py:129:        "overall_verify_pass_rate": 1.0 if verdict == "success" else 0.0,
+tests\polaris_graph\evidence_contract\test_schema.py:37:        research_question=overrides.pop("research_question", "Does aspirin reduce headache in adults?"),
+tests\polaris_graph\evidence_contract\test_schema.py:83:            research_question="q",
+tests\polaris_graph\evidence_contract\test_migration.py:66:    assert dumped["research_question"] == raw["research_question"]
+tests\polaris_graph\test_external_evaluator.py:53:        "research_question": "Semaglutide weight loss",
+tests\polaris_graph\test_external_evaluator.py:179:        protocol={"research_question": "best practices for RAG",
+tests\polaris_graph\test_external_evaluator.py:210:        protocol={"research_question":
+tests\polaris_graph\test_external_evaluator.py:225:def test_pt13_exemption_requires_lexical_echo_of_research_question() -> None:
+tests\polaris_graph\test_external_evaluator.py:255:        protocol={"research_question": adversarial_question,
+tests\polaris_graph\test_external_evaluator.py:264:        "Adversarial research_question must NOT globally suppress PT13. "
+tests\polaris_graph\test_external_evaluator.py:295:        protocol={"research_question": "best RAG practices?",
+tests\polaris_graph\test_external_evaluator.py:329:        protocol={"research_question": adversarial_question,
+tests\polaris_graph\test_external_evaluator.py:365:        protocol={"research_question": "What are the best practices for RAG?",
+tests\polaris_graph\test_external_evaluator.py:393:        protocol={"research_question": "drug efficacy review",
+tests\polaris_graph\test_external_evaluator.py:425:        protocol={"research_question": "drug X",
+tests\polaris_graph\evidence_contract\test_gate.py:81:        overall_verify_pass_rate=1.0,
+tests\polaris_graph\evidence_contract\test_gate.py:101:        research_question="q",
+tests\polaris_graph\test_domain_backends_r6_gap2.py:78:            research_question="retrieval augmented generation",
+tests\polaris_graph\test_domain_backends_r6_gap2.py:102:            research_question="FDA PCCP AI-enabled devices",
+tests\polaris_graph\test_domain_backends_r6_gap2.py:120:            research_question="Novo Nordisk obesity market",
+tests\polaris_graph\test_domain_backends_r6_gap2.py:129:        research_question="semaglutide weight loss",
+tests\polaris_graph\test_domain_backends_r6_gap2.py:139:        research_question="anything",
+tests\polaris_graph\test_domain_backends_r6_gap2.py:162:            research_question="anything",
+tests\polaris_graph\test_domain_backends_r6_gap2.py:183:            domain="tech", research_question="x",
+tests\polaris_graph\test_honest_sweep_integration.py:156:            research_question="q",
+tests\polaris_graph\test_honest_sweep_integration.py:188:                research_question="tirzepatide T2D evidence",
+tests\polaris_graph\test_honest_sweep_integration.py:224:            research_question="q",
+tests\polaris_graph\test_honest_sweep_integration.py:266:            research_question=(
+tests\polaris_graph\test_honest_sweep_integration.py:325:            research_question="q",
+tests\polaris_graph\test_honest_sweep_integration.py:358:            research_question="q",
+tests\polaris_graph\test_honest_sweep_integration.py:415:            research_question="q",
+tests\polaris_graph\test_honest_sweep_integration.py:512:            research_question="q",
+tests\polaris_graph\test_honest_sweep_integration.py:581:            research_question="q",
+tests\polaris_graph\test_honest_sweep_integration.py:643:            research_question="q",
+tests\polaris_graph\test_honest_sweep_integration.py:680:            research_question="q",
+tests\polaris_graph\test_honest_sweep_integration.py:836:            research_question=(
+web\app\layout.tsx:1:import type { Metadata } from "next";
+web\app\layout.tsx:19:export const metadata: Metadata = {
+tests\polaris_graph\evidence_contract\fixtures\v1_contract_minimal.json:4:  "research_question": "Does aspirin reduce headache in adults?",
+tests\polaris_graph\evidence_contract\fixtures\v1_contract_full.json:4:  "research_question": "Compare efficacy of aspirin, ibuprofen, and acetaminophen for adult migraine prophylaxis across CA, US, EU clinical guidance.",
+tests\polaris_graph\test_m201_evidence_selection.py:67:        research_question="What is the efficacy of semaglutide for obesity weight loss?",
+tests\polaris_graph\test_m201_evidence_selection.py:99:        research_question="semaglutide obesity",
+tests\polaris_graph\test_m201_evidence_selection.py:122:        research_question="identical",
+tests\polaris_graph\test_m201_evidence_selection.py:129:        research_question="identical",
+tests\polaris_graph\test_m201_evidence_selection.py:154:        research_question="test",
+tests\polaris_graph\test_m201_evidence_selection.py:172:        research_question="q",
+tests\polaris_graph\test_m201_evidence_selection.py:185:        research_question="q",
+tests\polaris_graph\test_m201_evidence_selection.py:198:        research_question="q",
+tests\polaris_graph\test_m201_evidence_selection.py:221:        research_question="q",
+tests\polaris_graph\test_m207_invariant_coverage.py:173:            research_question="q",
+tests\polaris_graph\test_m41_v24_regression_fixes.py:423:            research_question=(
+tests\polaris_graph\test_m41_v24_regression_fixes.py:503:            research_question="tirzepatide efficacy",
+tests\polaris_graph\test_m36_trial_summary_table.py:442:            research_question="q",
+tests\polaris_graph\test_m34_pt11_long_sentence_lookahead.py:37:        protocol={"research_question": "test"},
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:122:            research_question="tirzepatide regulatory labeling t2dm",
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:156:            research_question="tirzepatide regulatory t2dm",
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:189:            research_question="tirzepatide regulatory t2dm",
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:237:            research_question="tirzepatide regulatory t2dm",
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:270:            research_question="tirzepatide regulatory t2dm",
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:314:            research_question="tirzepatide regulatory t2dm",
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:345:            research_question="tirzepatide regulatory t2dm",
+tests\polaris_graph\test_m42c_mechanism_floor_and_prompt.py:101:            research_question="tirzepatide efficacy safety type 2 diabetes",
+tests\polaris_graph\test_m42c_mechanism_floor_and_prompt.py:143:            research_question="tirzepatide efficacy",
+tests\polaris_graph\test_m42c_mechanism_floor_and_prompt.py:168:            research_question="tirzepatide mechanism",
+tests\polaris_graph\test_m42e_primary_trial_floor.py:275:            research_question="tirzepatide",
+tests\polaris_graph\test_m42e_primary_trial_floor.py:330:            research_question="tirzepatide efficacy type 2 diabetes",
+tests\polaris_graph\test_m42e_primary_trial_floor.py:383:            research_question="tirzepatide",
+tests\polaris_graph\test_m42e_primary_trial_floor.py:412:            research_question="x",
+tests\polaris_graph\test_m42e_primary_trial_floor.py:478:            research_question="tirzepatide efficacy and safety in type 2 diabetes",
+tests\polaris_graph\test_m42e_primary_trial_floor.py:522:            research_question="tirzepatide",
+tests\polaris_graph\test_m42e_primary_trial_floor.py:549:            research_question="tirzepatide efficacy type 2 diabetes",
+tests\polaris_graph\test_m42e_primary_trial_floor.py:572:            research_question="tirzepatide",
+tests\polaris_graph\test_m42e_primary_trial_floor.py:580:            research_question="tirzepatide",
+tests\polaris_graph\test_m42e_primary_trial_floor.py:600:            research_question="tirzepatide",
+tests\polaris_graph\test_m46_selector_no_bypass.py:71:            research_question="tirzepatide efficacy in type 2 diabetes",
+tests\polaris_graph\test_m46_selector_no_bypass.py:97:            research_question="tirzepatide",
+tests\polaris_graph\test_m46_selector_no_bypass.py:121:            research_question="tirzepatide",
+tests\polaris_graph\test_m46_selector_no_bypass.py:155:            research_question="tirzepatide",
+tests\polaris_graph\test_m46_selector_no_bypass.py:187:            research_question="tirzepatide regulatory",
+tests\polaris_graph\test_m46_selector_no_bypass.py:206:            research_question="generic",
+tests\polaris_graph\test_m46_selector_no_bypass.py:232:            research_question="tirzepatide",
+tests\polaris_graph\test_m46_selector_no_bypass.py:260:            research_question="tirzepatide",
+tests\polaris_graph\test_m46_selector_no_bypass.py:297:            research_question="tirzepatide",
+tests\polaris_graph\test_m46_selector_no_bypass.py:305:            research_question="tirzepatide",
+tests\polaris_graph\test_m49_v28_preservation.py:387:# Metadata-only tests (always run)
+tests\polaris_graph\test_m42_preservation.py:281:class TestSuiteMetadata:
+tests\polaris_graph\test_m51_selector_primary_custody.py:83:            research_question="tirzepatide weight loss review meta-analysis",
+tests\polaris_graph\test_m51_selector_primary_custody.py:105:            research_question="tirzepatide clinical evidence",
+tests\polaris_graph\test_m51_selector_primary_custody.py:120:            research_question="x",
+tests\polaris_graph\test_m51_selector_primary_custody.py:143:            research_question="x",
+tests\polaris_graph\test_m51_selector_primary_custody.py:165:            research_question="x",
+tests\polaris_graph\test_m51_selector_primary_custody.py:204:            research_question="tirzepatide review meta-analysis clinical",
+tests\polaris_graph\test_m51_selector_primary_custody.py:237:            research_question="tirzepatide review",
+tests\polaris_graph\test_m51_selector_primary_custody.py:278:            research_question="x",
+tests\polaris_graph\test_m51_selector_primary_custody.py:286:            research_question="x",
+tests\polaris_graph\test_m51_selector_primary_custody.py:313:            research_question="x",
+tests\polaris_graph\test_m51_selector_primary_custody.py:349:            research_question="x",
+tests\polaris_graph\test_m51_selector_primary_custody.py:371:            research_question="x",
+web\app\inspector\[runId]\inspector_view.tsx:9:import { MetadataPanel } from "@/components/inspector/metadata_panel";
+web\app\inspector\[runId]\inspector_view.tsx:42:          <TabsTrigger value="proof">Proof Replay</TabsTrigger>
+web\app\inspector\[runId]\inspector_view.tsx:49:          <TabsTrigger value="metadata">Metadata</TabsTrigger>
+web\app\inspector\[runId]\inspector_view.tsx:51:        {/* I-p2-017 (#756): the CENTERPIECE — Report = Proof Replay. The #746
+web\app\inspector\[runId]\inspector_view.tsx:80:          <MetadataPanel metadata={bundle.metadata} />
+tests\polaris_graph\test_m55_frame_compiler.py:1:"""M-55 tests: V30 frame compiler (research_question + template +
+tests\polaris_graph\test_m55_frame_compiler.py:20:11. research_question pass-through.
+tests\polaris_graph\test_m55_frame_compiler.py:21:12. Non-string research_question raises.
+tests\polaris_graph\test_m55_frame_compiler.py:118:        assert cf.research_question == "what is the evidence for X?"
+tests\polaris_graph\test_m55_frame_compiler.py:139:    def test_research_question_passthrough(self) -> None:
+tests\polaris_graph\test_m55_frame_compiler.py:145:        assert cf.research_question == "arbitrary text"
+tests\polaris_graph\test_m55_frame_compiler.py:510:# (8) research_question validation
+tests\polaris_graph\test_m55_frame_compiler.py:521:        assert cf.research_question == ""
+tests\polaris_graph\test_m55_frame_compiler.py:529:        assert "research_question" in exc.value.reason
+tests\polaris_graph\test_m56_frame_fetcher.py:18:   - Metadata but no abstract → METADATA_ONLY
+tests\polaris_graph\test_m57_contract_outline.py:145:    research_question: str = "q",
+tests\polaris_graph\test_m57_contract_outline.py:148:    cf = compile_frame(research_question, template, slug)
+tests\polaris_graph\test_m57_contract_outline.py:178:        assert outline.research_question == "q"
+tests\polaris_graph\test_m58_slot_fill.py:141:            research_question="Is tirzepatide effective for T2D?",
+tests\polaris_graph\test_m59_slot_validator.py:126:        research_question="q",
+tests\polaris_graph\test_m60_frame_manifest.py:154:        research_question="what's the evidence?",
+tests\polaris_graph\test_m60_frame_manifest.py:188:        research_question="q",
+tests\polaris_graph\test_m60_frame_manifest.py:268:class TestGapStructuredMetadata:
+tests\polaris_graph\test_m60_frame_manifest.py:395:        assert back["research_question"] == "what's the evidence?"
+tests\polaris_graph\test_m60_frame_manifest.py:412:            research_question="q",
+tests\polaris_graph\test_m60_frame_manifest.py:738:            research_question="q",
+tests\polaris_graph\test_m62_non_clinical_regression.py:282:            research_question="IRA drug price negotiation statute",
+tests\polaris_graph\test_m63_contract_section_runner.py:272:            research_question="tirzepatide evidence",
+tests\polaris_graph\test_m63_contract_section_runner.py:375:            contract_entities_by_id={}, research_question="q",
+tests\polaris_graph\test_m63_contract_section_runner.py:404:            contract_entities_by_id={}, research_question="q",
+tests\polaris_graph\test_m63_contract_section_runner.py:467:                research_question="q",
+tests\polaris_graph\test_m63_contract_section_runner.py:548:                    "research_question":
+tests\polaris_graph\test_m63_contract_section_runner.py:640:            contract_entities_by_id={}, research_question="q",
+tests\polaris_graph\test_m63_contract_section_runner.py:717:            research_question="q",
+tests\polaris_graph\test_m63_contract_section_runner.py:896:            research_question="q",
+web\tests\e2e\demo_journey.spec.ts:53:      .getByTestId("family-segregation-badge")
+web\tests\e2e\inspector_route.spec.ts:46:    await expect(page.getByTestId("bundle-header")).toBeVisible();
+web\tests\e2e\inspector_route.spec.ts:47:    await expect(page.getByTestId("family-segregation-badge")).toBeVisible();
+web\tests\e2e\inspector_route.spec.ts:54:    const badge = page.getByTestId("family-segregation-badge");
+web\tests\e2e\inspector_route.spec.ts:74:      const panel = page.locator(`[data-tab="${tabId}"]`);
+web\tests\e2e\inspector_route.spec.ts:79:        await expect(page.locator(`[data-tab="${otherId}"]`)).toBeHidden();
+web\tests\e2e\inspector_route.spec.ts:130:    const verdict = page.getByTestId("pipeline-verdict-badge");
+web\tests\e2e\inspector_route.spec.ts:172:        mask: [page.locator('[data-testid="bundle-header"]')],
+web\tests\e2e\inspector_route.spec.ts:181:      mask: [page.locator('[data-testid="bundle-header"]')],
+web\tests\e2e\bundle_preview.spec.ts:32:  overall_verify_pass_rate: 1,
+web\tests\e2e\inspector_offline_fallback.spec.ts:55:  // Metadata panel surfaces all 5 fields (Codex iter-1 P1.2 fix).
+web\tests\e2e\inspector_offline_fallback.spec.ts:56:  await page.getByRole("tab", { name: "Metadata" }).click();
+web\app\generation\components\verified_report_view.tsx:441:              {Math.round(report.overall_verify_pass_rate * 100)}%
+tests\unit\test_live_dashboard_playwright.py:234:        page.click('[data-tab="queries"]')
+tests\unit\test_live_dashboard_playwright.py:240:        page.click('[data-tab="sources"]')
+tests\unit\test_live_dashboard_playwright.py:246:        page.click('[data-tab="storm"]')
+tests\unit\test_live_dashboard_playwright.py:252:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:258:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:264:        page.click('[data-tab="trace"]')
+tests\unit\test_live_dashboard_playwright.py:270:        page.click('[data-tab="overview"]')
+tests\unit\test_live_dashboard_playwright.py:313:        page.click('[data-tab="queries"]')
+tests\unit\test_live_dashboard_playwright.py:324:        page.click('[data-tab="sources"]')
+tests\unit\test_live_dashboard_playwright.py:334:        page.click('[data-tab="storm"]')
+tests\unit\test_live_dashboard_playwright.py:347:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:360:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:378:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:388:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:402:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:412:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:422:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:432:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:444:        page.click('[data-tab="trace"]')
+tests\unit\test_live_dashboard_playwright.py:455:        page.click('[data-tab="trace"]')
+tests\unit\test_live_dashboard_playwright.py:468:        page.click('[data-tab="overview"]')
+tests\unit\test_live_dashboard_playwright.py:686:        page.click('[data-tab="queries"]')
+tests\unit\test_live_dashboard_playwright.py:695:        page.click('[data-tab="queries"]')
+tests\unit\test_live_dashboard_playwright.py:703:        page.click('[data-tab="queries"]')
+tests\unit\test_live_dashboard_playwright.py:712:        page.click('[data-tab="queries"]')
+tests\unit\test_live_dashboard_playwright.py:724:        page.click('[data-tab="queries"]')
+tests\unit\test_live_dashboard_playwright.py:734:        page.click('[data-tab="queries"]')
+tests\unit\test_live_dashboard_playwright.py:759:        page.click('[data-tab="queries"]')
+tests\unit\test_live_dashboard_playwright.py:783:        page.click('[data-tab="queries"]')
+tests\unit\test_live_dashboard_playwright.py:792:        page.click('[data-tab="queries"]')
+tests\unit\test_live_dashboard_playwright.py:803:        page.click('[data-tab="queries"]')
+tests\unit\test_live_dashboard_playwright.py:815:        page.click('[data-tab="sources"]')
+tests\unit\test_live_dashboard_playwright.py:823:        page.click('[data-tab="sources"]')
+tests\unit\test_live_dashboard_playwright.py:832:        page.click('[data-tab="sources"]')
+tests\unit\test_live_dashboard_playwright.py:844:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:852:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:864:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:877:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:885:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:893:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:906:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:914:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:923:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:931:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:939:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:951:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:960:        page.click('[data-tab="evidence"]')
+tests\unit\test_live_dashboard_playwright.py:973:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:981:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:990:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1002:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1014:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1022:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1035:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1043:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1052:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1060:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1073:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1082:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1091:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1103:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1111:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1120:        page.click('[data-tab="report"]')
+tests\unit\test_live_dashboard_playwright.py:1134:        page.click('[data-tab="overview"]')
+tests\unit\test_live_dashboard_playwright.py:1142:        page.click('[data-tab="overview"]')
+tests\unit\test_live_dashboard_playwright.py:1151:        page.click('[data-tab="overview"]')
+tests\unit\test_live_dashboard_playwright.py:1159:        page.click('[data-tab="overview"]')
+tests\unit\test_live_dashboard_playwright.py:1167:        page.click('[data-tab="overview"]')
+tests\unit\test_live_dashboard_playwright.py:1175:        page.click('[data-tab="overview"]')
+tests\unit\test_live_dashboard_playwright.py:1188:        page.click('[data-tab="overview"]')
+tests\unit\test_live_dashboard_playwright.py:1196:        page.click('[data-tab="overview"]')
+tests\unit\test_live_dashboard_playwright.py:1206:        page.click('[data-tab="overview"]')
+tests\unit\test_live_dashboard_playwright.py:1219:        page.click('[data-tab="overview"]')
+tests\unit\test_live_dashboard_playwright.py:1232:        page.click('[data-tab="fullreport"]')
+tests\unit\test_live_dashboard_playwright.py:1244:        page.click('[data-tab="fullreport"]')
+tests\unit\test_live_dashboard_playwright.py:1253:        page.click('[data-tab="fullreport"]')
+tests\unit\test_live_dashboard_playwright.py:1261:        page.click('[data-tab="fullreport"]')
+tests\unit\test_live_dashboard_playwright.py:1274:        page.click('[data-tab="fullreport"]')
+tests\unit\test_gemini_fixes.py:4499:# FIX-180 Tests: Bibliography Metadata Enrichment
+tests\unit\test_gemini_fixes.py:4502:class TestBibliographyMetadata:
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:152:  "overall_verify_pass_rate": 1.0,
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:162:  "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?"
+web\app\generation\components\BundlePreview.tsx:24:  ["metadata", "Metadata"],
+tests\polaris_graph\test_m_int_1_parallel_fetch_integration.py:208:        research_question="test query",
+web\public\canonical_bundles\v1_canonical_success\scope_decision.json:13:  "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?"
+web\public\canonical_bundles\v1_canonical_success\metadata.json:7:  "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
+web\app\contracts\_editor.tsx:55:  const [research_question, set_q] = useState("");
+web\app\contracts\_editor.tsx:89:      research_question,
+web\app\contracts\_editor.tsx:139:              value={research_question}
+web\public\canonical_bundles\v1_canonical\verified_report.json:9:  "overall_verify_pass_rate": 0.0,
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:186:        research_question="q", schema_version="1.0",
+web\app\components\proof_showcase.tsx:6:// to the full Proof Replay.
+web\app\components\proof_showcase.tsx:71:  const question = bundle.verifiedReport?.research_question;
+tests\polaris_graph\test_pass2_remediation.py:179:        research_question="x y z",
+tests\polaris_graph\test_pass2_remediation.py:199:        research_question="x y z",
+tests\polaris_graph\test_pass2_remediation.py:222:        research_question="x y z",
+web\lib\api.ts:922:  overall_verify_pass_rate: number;
+web\lib\api.ts:1448:  research_question: string;
+web\lib\api.ts:1526:export interface AuditIrProtocolMetadata {
+web\lib\api.ts:1527:  research_question: string;
+web\lib\api.ts:1562:  protocol: AuditIrProtocolMetadata | null;
+web\lib\contracts.ts:39:  research_question: string;
+web\lib\contracts.ts:70:  if (!c.research_question.trim()) errs.push("research_question required");
+web\components\citation\citation_chip.tsx:97:              // source card (#745) / Proof Replay (#756).
+web\lib\inspector_bundle_client_loader.ts:30:  type BundleMetadata,
+web\lib\inspector_bundle_client_loader.ts:288:  const metadata = JSON.parse(_decode(metadataFile.bytes)) as BundleMetadata;
+web\lib\inspector_bundle_client_loader.ts:322:  // runId for offline mode: derive from filename (BundleMetadata doesn't
+web\lib\inspector_bundle_loader.ts:19:  type BundleMetadata,
+web\lib\inspector_bundle_loader.ts:37:  metadata: BundleMetadata;
+web\lib\inspector_bundle_loader.ts:50:  overall_verify_pass_rate: number;
+web\lib\inspector_bundle_loader.ts:61:  research_question?: string;
+web\lib\inspector_bundle_loader.ts:121:    ) as BundleMetadata;
+web\components\inspector\bundle_header.tsx:5:// Hash chain + Metadata tabs. Tokenized (verified/warning), kept data-testids.
+web\components\inspector\bundle_header.tsx:19:      data-testid="bundle-header"
+web\components\inspector\bundle_header.tsx:33:        Full manifest in the Hash chain + Metadata tabs.
+tests\polaris_graph\test_post_fetch_loop_timeout.py:123:        research_question="carbon pricing household energy costs Canada",
+tests\polaris_graph\test_post_fetch_loop_timeout.py:145:        research_question="carbon pricing household energy costs Canada",
+web\components\inspector\family_segregation_badge.tsx:19:      data-testid="family-segregation-badge"
+web\components\proof_replay\proof_replay.tsx:1:// I-p2-007 (#746): Proof Replay split-view — POLARIS's centerpiece. Click a
+web\components\inspector\metadata_panel.tsx:6:import type { BundleMetadata } from "@/lib/signed_bundle";
+web\components\inspector\metadata_panel.tsx:8:interface MetadataPanelProps {
+web\components\inspector\metadata_panel.tsx:9:  metadata: BundleMetadata;
+web\components\inspector\metadata_panel.tsx:12:export function MetadataPanel({ metadata }: MetadataPanelProps) {
+web\lib\signed_bundle.ts:100:export interface BundleMetadata {
+tests\polaris_graph\test_regression_alerts.py:94:        research_question="q", schema_version="1.0",
+web\components\inspector\verified_report_sections.tsx:29:          {(verifiedReport.overall_verify_pass_rate * 100).toFixed(0)}%
+web\components\inspector\verified_report_sections.tsx:55:      data-testid="pipeline-verdict-badge"
+tests\polaris_graph\test_run_diff.py:156:        research_question="q", schema_version="1.0",
+web\components\ui\tabs.tsx:61:    data-tab={tabId}
+tests\polaris_graph\test_scope_gate.py:28:        research_question=(
+tests\polaris_graph\test_scope_gate.py:41:    assert doc["research_question"].startswith("What is the efficacy")
+tests\polaris_graph\test_scope_gate.py:60:        research_question=(
+tests\polaris_graph\test_scope_gate.py:82:            research_question=f"Generic {domain} question for template loading.",
+tests\polaris_graph\test_scope_gate.py:98:        research_question="Tell me about cardiovascular outcomes.",
+tests\polaris_graph\test_scope_gate.py:114:        research_question="Efficacy of metformin in type 2 diabetes adults.",
+tests\polaris_graph\test_scope_gate.py:120:        research_question="Efficacy of metformin in type 2 diabetes adults.",
+tests\polaris_graph\test_scope_gate.py:133:        research_question="Tirzepatide safety in adults with T2DM.",
+tests\polaris_graph\test_scope_gate.py:160:        research_question="Safety of liraglutide in adolescents.",
+tests\polaris_graph\test_scope_gate.py:177:            research_question="   ",
+tests\polaris_graph\test_scope_gate.py:191:            research_question="Something about semaglutide.",
+tests\polaris_graph\test_scope_gate.py:210:        research_question="What is the best espresso machine for home use?",
+tests\polaris_graph\test_scope_gate.py:224:        research_question="Tell me about safety outcomes.",
+tests\polaris_graph\test_scope_gate.py:238:        research_question="What are the outcomes of semaglutide?",
+tests\polaris_graph\test_scope_gate.py:255:        research_question=(
+tests\polaris_graph\test_scope_query_validator.py:13:        "research_question": (
+tests\polaris_graph\test_scope_query_validator.py:31:    # research_question is also prepended because always_keep_anchor=True.
+tests\polaris_graph\test_scope_query_validator.py:52:        "research_question": "Efficacy of X.",
+tests\polaris_graph\test_scope_query_validator.py:70:        # Use a research_question that does NOT contain "semaglutide weight
+tests\polaris_graph\test_scope_query_validator.py:72:        "research_question": "Drug X therapeutic question.",
+tests\polaris_graph\test_scope_query_validator.py:78:    # weight loss" entry. research_question is also added as the anchor
+tests\polaris_graph\test_scope_query_validator.py:81:        q for q in result.kept if q != proto["research_question"]
+tests\polaris_graph\test_scope_query_validator.py:95:        "research_question": "Short q.",
+tests\polaris_graph\test_scope_query_validator.py:119:    # Only research_question should survive (anchor kept)
+tests\polaris_graph\test_slide_deck.py:120:        research_question="q", schema_version="1.0",
+
+codex
+The path scan found the expected files and the e2e assertions the brief cites. I’m reading the actual components now to check for plan gaps that are not visible from the brief alone.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\app\\inspector\\[runId]\\inspector_view.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\tests\\e2e\\inspector_route.spec.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\components\\inspector\\family_segregation_badge.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\components\\inspector\\bundle_header.tsx'" in C:\POLARIS
+ succeeded in 998ms:
+// I-cd-013a (GH#609) — Inspector view (client component, Tabs structure).
+"use client";
+
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BundleHeader } from "@/components/inspector/bundle_header";
+import { EvidencePoolTable } from "@/components/inspector/evidence_pool_table";
+import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
+import { HashChainPanel } from "@/components/inspector/hash_chain_panel";
+import { MetadataPanel } from "@/components/inspector/metadata_panel";
+import { ProofReplay } from "@/components/proof_replay/proof_replay";
+import { ReasoningTraceTimeline } from "@/components/inspector/reasoning_trace_timeline";
+import { ScopeDecisionCard } from "@/components/inspector/scope_decision_card";
+import { SourcesPanel } from "@/components/inspector/sources_panel";
+import { VerifiedReportSections } from "@/components/inspector/verified_report_sections";
+import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+
+interface InspectorViewProps {
+  bundle: LoadedBundle;
+  signaturePresent: boolean;
+}
+
+export function InspectorView({
+  bundle,
+  signaturePresent,
+}: InspectorViewProps) {
+  return (
+    <main
+      className="mx-auto flex max-w-6xl flex-col gap-6 p-6"
+      data-testid="inspector-view"
+      data-run-id={bundle.runId}
+    >
+      <BundleHeader
+        manifest={bundle.manifest}
+        signaturePresent={signaturePresent}
+      />
+      <FamilySegregationBadge
+        manifest={bundle.manifest}
+        verifiedReport={bundle.verifiedReport}
+      />
+      <Tabs defaultValue="proof">
+        <TabsList>
+          <TabsTrigger value="proof">Proof Replay</TabsTrigger>
+          <TabsTrigger value="report">Report</TabsTrigger>
+          <TabsTrigger value="scope">Scope</TabsTrigger>
+          <TabsTrigger value="evidence">Evidence</TabsTrigger>
+          <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
+          <TabsTrigger value="sources">Sources</TabsTrigger>
+          <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
+          <TabsTrigger value="metadata">Metadata</TabsTrigger>
+        </TabsList>
+        {/* I-p2-017 (#756): the CENTERPIECE — Report = Proof Replay. The #746
+            split-view (click a verified claim → see its exact cited source span)
+            was built but wired into NO route; this surfaces it as the default
+            inspector tab. */}
+        <TabsContent value="proof" tabId="proof">
+          <ProofReplay
+            sections={bundle.verifiedReport.sections}
+            evidencePool={bundle.evidencePool}
+          />
+        </TabsContent>
+        <TabsContent value="report" tabId="report">
+          <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
+        </TabsContent>
+        <TabsContent value="scope" tabId="scope">
+          <ScopeDecisionCard value={bundle.scopeDecision} />
+        </TabsContent>
+        <TabsContent value="evidence" tabId="evidence">
+          <EvidencePoolTable value={bundle.evidencePool} />
+        </TabsContent>
+        <TabsContent value="reasoning" tabId="reasoning">
+          <ReasoningTraceTimeline records={bundle.reasoningTrace} />
+        </TabsContent>
+        <TabsContent value="sources" tabId="sources">
+          <SourcesPanel sources={bundle.sources} />
+        </TabsContent>
+        <TabsContent value="hashchain" tabId="hashchain">
+          <HashChainPanel manifest={bundle.manifest} />
+        </TabsContent>
+        <TabsContent value="metadata" tabId="metadata">
+          <MetadataPanel metadata={bundle.metadata} />
+        </TabsContent>
+      </Tabs>
+    </main>
+  );
+}
+
+ succeeded in 1077ms:
+// I-cd-013a (GH#609) — Two-family invariant badge.
+// Source of truth: verified_report.evaluator_model + verified_report.family_segregation_passed
+// (NOT metadata.json — corrected at brief iter 1 P1).
+import type { VerifiedReportShape } from "@/lib/inspector_bundle_loader";
+import type { BundleManifest } from "@/lib/signed_bundle";
+
+interface FamilySegregationBadgeProps {
+  manifest: BundleManifest;
+  verifiedReport: VerifiedReportShape;
+}
+
+export function FamilySegregationBadge({
+  manifest,
+  verifiedReport,
+}: FamilySegregationBadgeProps) {
+  const passed = verifiedReport.family_segregation_passed;
+  return (
+    <div
+      data-testid="family-segregation-badge"
+      data-state={passed ? "pass" : "fail"}
+      className="border-border bg-card flex flex-col gap-2 rounded-md border p-4 text-sm"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-medium">Two-family invariant</p>
+        <span
+          className={
+            passed
+              ? "inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+              : "inline-flex items-center rounded-md bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-900 dark:bg-rose-950 dark:text-rose-200"
+          }
+        >
+          {passed ? "Pass" : "Fail"}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div>
+          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+            Generator
+          </p>
+          <p className="font-mono text-sm">{manifest.generator_model}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+            Evaluator
+          </p>
+          <p className="font-mono text-sm">{verifiedReport.evaluator_model}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ succeeded in 1177ms:
+// I-cd-013a (GH#609) — Inspector route e2e.
+//
+// Covers G1-G8 + per-tab assertion structure per the Codex iter-2 P2 #3
+// directive. Visual screenshot cases are restricted to chromium via
+// `test.skip(testInfo.project.name !== "chromium", "...")` per the
+// Codex iter-3 P1 multi-project resolution.
+//
+// G1 app shell · G2 no dev-language (rendered text only) · G3 interactive
+// states · G4 async states (covered by server-side bundle load) ·
+// G5 responsive (3 viewports) · G6 a11y (axe @ chromium only, future
+// I-cd-013b will fold this into accessibility.spec.ts) · G7 design tokens
+// (covered by visual snapshot) · G8 no console errors.
+
+import { expect, test } from "@playwright/test";
+
+const VIEWPORTS: Array<{ name: string; width: number; height: number }> = [
+  { name: "desktop", width: 1280, height: 800 },
+  { name: "tablet", width: 768, height: 1024 },
+  { name: "mobile", width: 375, height: 667 },
+];
+
+const TAB_IDS = [
+  "report",
+  "scope",
+  "evidence",
+  "reasoning",
+  "sources",
+  "hashchain",
+] as const;
+
+// G2: prohibited rendered-text patterns. Comments + data-testids may
+// contain these strings; only user-visible text in the rendered DOM is
+// checked here per Codex iter-3 P2 #3.
+const DEV_LANGUAGE_PATTERNS: RegExp[] = [
+  /\bTODO\b/,
+  /\bFIXME\b/,
+  /\bXXX\b/,
+  /\bplaceholder\b/i,
+  /lorem ipsum/i,
+];
+
+test.describe("Inspector route — canonical-success fixture", () => {
+  test("app shell + bundle header render (G1)", async ({ page }) => {
+    await page.goto("/inspector/v1-canonical-success", { waitUntil: "load" });
+    await expect(page.getByTestId("inspector-view")).toBeVisible();
+    await expect(page.getByTestId("bundle-header")).toBeVisible();
+    await expect(page.getByTestId("family-segregation-badge")).toBeVisible();
+  });
+
+  test("family segregation badge shows pass (verified_report SoT)", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success");
+    const badge = page.getByTestId("family-segregation-badge");
+    await expect(badge).toHaveAttribute("data-state", "pass");
+  });
+
+  test("per-tab visibility — all 6 tabs activate explicitly", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success");
+    // Map data-tab id -> rendered tab label (the latter contains spaces
+    // and may not literal-match the kebab-cased id; see inspector_view.tsx).
+    const tabLabels: Record<(typeof TAB_IDS)[number], RegExp> = {
+      report: /^report$/i,
+      scope: /^scope$/i,
+      evidence: /^evidence$/i,
+      reasoning: /^reasoning$/i,
+      sources: /^sources$/i,
+      hashchain: /^hash chain$/i,
+    };
+    for (const tabId of TAB_IDS) {
+      await page.getByRole("tab", { name: tabLabels[tabId] }).click();
+      const panel = page.locator(`[data-tab="${tabId}"]`);
+      await expect(panel).toBeVisible();
+      // The other tabs' panels must be hidden when this tab is active.
+      for (const otherId of TAB_IDS) {
+        if (otherId === tabId) continue;
+        await expect(page.locator(`[data-tab="${otherId}"]`)).toBeHidden();
+      }
+    }
+  });
+
+  test("provenance-token toggle is interactive (G3)", async ({ page }) => {
+    await page.goto("/inspector/v1-canonical-success");
+    await page.getByRole("tab", { name: /report/i }).click();
+    const firstToggle = page.getByTestId("toggle-provenance-tokens").first();
+    await expect(firstToggle).toBeVisible();
+    await firstToggle.click();
+  });
+
+  test("no console errors during render (G8)", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    expect(errors).toEqual([]);
+  });
+
+  test("no dev language in rendered text (G2 — rendered-text scope)", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success");
+    const bodyText = await page.locator("body").innerText();
+    for (const pattern of DEV_LANGUAGE_PATTERNS) {
+      expect(bodyText).not.toMatch(pattern);
+    }
+  });
+
+  for (const vp of VIEWPORTS) {
+    test(`responsive — ${vp.name} viewport renders (G5)`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+      await page.goto("/inspector/v1-canonical-success");
+      await expect(page.getByTestId("inspector-view")).toBeVisible();
+    });
+  }
+});
+
+test.describe("Inspector route — canonical (abort) fixture", () => {
+  test("renders abort-shape report with no sections (async + verdict)", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical");
+    await expect(page.getByTestId("inspector-view")).toBeVisible();
+    await page.getByRole("tab", { name: /report/i }).click();
+    const verdict = page.getByTestId("pipeline-verdict-badge");
+    await expect(verdict).toBeVisible();
+    await expect(verdict).toHaveAttribute("data-state", "abort");
+  });
+});
+
+test.describe("Inspector route — unknown runId pending CTA", () => {
+  test("unknown runId shows bundle-pending CTA, not a fixture", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/does-not-exist");
+    await expect(page.getByTestId("bundle-pending-cta")).toBeVisible();
+    await expect(page.getByTestId("cta-run-id")).toHaveText("does-not-exist");
+    // CTA must NOT render a bundle inspector for unknown runIds.
+    await expect(page.getByTestId("inspector-view")).toHaveCount(0);
+  });
+});
+
+// I-cd-013b (GH#669): visual regression baselines for the new Inspector.
+// These are `test.fixme()` because the chromium-win32 baselines have not
+// been captured yet — running with `--update-snapshots` after the dev
+// server is up will write them; a follow-up PR commits them and flips
+// the .fixme() markers off. The legacy chromium-win32 baselines (for
+// the old AuditIR Inspector) were deleted at this PR; the new ones
+// need an operator-manual capture or CI --update-snapshots run.
+const SCREENSHOT_OPTIONS = {
+  fullPage: true,
+  animations: "disabled" as const,
+  maxDiffPixelRatio: 0.02,
+};
+
+test.describe("Inspector route — visual baselines (chromium-win32; deferred)", () => {
+  test.fixme("v1-canonical-success Report tab visual baseline", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    await expect(page).toHaveScreenshot(
+      "inspector-v1-canonical-success-report.png",
+      {
+        ...SCREENSHOT_OPTIONS,
+        mask: [page.locator('[data-testid="bundle-header"]')],
+      },
+    );
+  });
+
+  test.fixme("v1-canonical abort-shape visual baseline", async ({ page }) => {
+    await page.goto("/inspector/v1-canonical", { waitUntil: "networkidle" });
+    await expect(page).toHaveScreenshot("inspector-v1-canonical-abort.png", {
+      ...SCREENSHOT_OPTIONS,
+      mask: [page.locator('[data-testid="bundle-header"]')],
+    });
+  });
+
+  test.fixme("bundle-pending CTA visual baseline", async ({ page }) => {
+    await page.goto("/inspector/does-not-exist", { waitUntil: "networkidle" });
+    await expect(page).toHaveScreenshot("inspector-bundle-pending-cta.png", {
+      ...SCREENSHOT_OPTIONS,
+      mask: [page.locator('[data-testid="cta-run-id"]')],
+    });
+  });
+});
+
+ succeeded in 1277ms:
+// I-cd-013a (GH#609) — Bundle header.
+// I-p2-043 (#829) S-tier: the full 8-field audit Card dominated ABOVE the Proof
+// Replay centerpiece ("compliance tooling before the product" — Codex). Compacted
+// to a slim trust strip so the proof leads; the full manifest detail lives in the
+// Hash chain + Metadata tabs. Tokenized (verified/warning), kept data-testids.
+import { ShieldAlert, ShieldCheck } from "lucide-react";
+
+import type { BundleManifest } from "@/lib/signed_bundle";
+
+interface BundleHeaderProps {
+  manifest: BundleManifest;
+  signaturePresent: boolean;
+}
+
+export function BundleHeader({ manifest, signaturePresent }: BundleHeaderProps) {
+  const created = new Date(manifest.bundle_created_at_utc).toUTCString();
+  return (
+    <div
+      data-testid="bundle-header"
+      className="text-muted-foreground flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs"
+    >
+      <SignatureBadge present={signaturePresent} />
+      <span className="font-mono">{manifest.bundle_id}</span>
+      <span aria-hidden className="text-muted-foreground/40">
+        ·
+      </span>
+      <span className="font-mono">{manifest.generator_model}</span>
+      <span aria-hidden className="text-muted-foreground/40">
+        ·
+      </span>
+      <span>{created}</span>
+      <span className="text-muted-foreground/70">
+        Full manifest in the Hash chain + Metadata tabs.
+      </span>
+    </div>
+  );
+}
+
+function SignatureBadge({ present }: { present: boolean }) {
+  if (present) {
+    return (
+      <span
+        className="border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium"
+        data-testid="signature-badge"
+        data-state="present"
+      >
+        <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
+        Signed bundle
+      </span>
+    );
+  }
+  return (
+    <span
+      className="border-contradiction/30 bg-contradiction/10 text-contradiction-foreground inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium"
+      data-testid="signature-badge"
+      data-state="missing"
+    >
+      <ShieldAlert aria-hidden className="h-3.5 w-3.5" />
+      Signature missing
+    </span>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\lib\\signed_bundle.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\lib\\inspector_bundle_loader.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\components\\inspector\\metadata_panel.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\components\\inspector\\hash_chain_panel.tsx'" in C:\POLARIS
+ succeeded in 928ms:
+// I-cd-013a (GH#609) — server-only bundle loader.
+//
+// Imported by web/app/inspector/[runId]/page.tsx and
+// web/app/api/inspector_bundle/[runId]/route.ts. Returns the parsed
+// canonical fixture data for runId === "v1-canonical" or
+// "v1-canonical-success"; returns null for any other runId (the page
+// renders a BundlePendingCTA in that case).
+//
+// Real-bundle backend wiring lands at I-B-08 (Seq 20); offline
+// fallback (in-browser bundle render) at I-B-09 (Seq 21). This module
+// is the swappable seam — same function signature, different data
+// path in each follow-up issue.
+
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
+import {
+  type BundleManifest,
+  type BundleMetadata,
+  type ReasoningTraceRecord,
+  parseManifest,
+  parseReasoningTraceJsonl,
+} from "@/lib/signed_bundle";
+
+// I-p2-p0 (#789): the canonical fixture ships in web/public/canonical_bundles/
+// (Dockerfile COPYs public → /app/public; cwd=/app at runtime), so it resolves
+// in dev, the standalone harness, AND the prod container — unlike the old
+// process.cwd()/../tests/fixtures path, which only existed in dev → live 500.
+const FIXTURE_ROOT = path.join(process.cwd(), "public", "canonical_bundles");
+
+export interface LoadedBundle {
+  runId: string;
+  manifest: BundleManifest;
+  scopeDecision: unknown;
+  evidencePool: unknown;
+  verifiedReport: VerifiedReportShape;
+  metadata: BundleMetadata;
+  reasoningTrace: ReasoningTraceRecord[];
+  sources: Record<string, string>;
+  /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
+   * Derived during load — NOT a manifest field. Codex diff iter-1 P2. */
+  signaturePresent: boolean;
+}
+
+export interface VerifiedReportShape {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSectionShape[];
+  overall_verify_pass_rate: number;
+  verifier_pass_threshold: number;
+  pipeline_verdict: string;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+  /** The research question this brief answered (real-run bundles). */
+  research_question?: string;
+}
+
+export interface VerifiedReportSectionShape {
+  section_id: string;
+  section_verify_pass_rate: number;
+  verified_sentences: VerifiedSentenceShape[];
+  [extra: string]: unknown;
+}
+
+export interface VerifiedSentenceShape {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  [extra: string]: unknown;
+}
+
+const KNOWN_FIXTURES: Record<string, string> = {
+  "v1-canonical": "v1_canonical",
+  "v1-canonical-success": "v1_canonical_success",
+};
+
+export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+  // typeof guard (not `!relPath`): runId could be an Object.prototype name
+  // (toString / __proto__ / constructor) → KNOWN_FIXTURES[runId] returns a
+  // function/object → path.join would throw before the try → user-triggerable
+  // 500. A non-string lookup → null → BundlePendingCta. (Codex iter-2 P1.)
+  const relPath = KNOWN_FIXTURES[runId];
+  if (typeof relPath !== "string") return null;
+  const dir = path.join(FIXTURE_ROOT, relPath);
+
+  try {
+    const manifestRaw = await fs.readFile(
+      path.join(dir, "manifest.yaml"),
+      "utf-8",
+    );
+    const manifest = parseManifest(manifestRaw);
+
+    const scopeDecision = await readJson(dir, manifest, "scope_decision");
+    const evidencePool = await readJson(dir, manifest, "evidence_pool");
+    const verifiedReport = (await readJson(
+      dir,
+      manifest,
+      "verified_report",
+    )) as VerifiedReportShape;
+
+    // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
+    // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
+    // also flagged metadata in the active producer).
+    const metadataEntry = manifest.files.find(
+      (f) => f.content_type === "metadata" && f.path === "metadata.json",
+    );
+    if (!metadataEntry) {
+      throw new Error(
+        `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
+      );
+    }
+    const metadata = JSON.parse(
+      await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
+    ) as BundleMetadata;
+
+    const reasoningTraceEntry = manifest.files.find(
+      (f) => f.content_type === "reasoning_trace",
+    );
+    const reasoningTrace = reasoningTraceEntry
+      ? parseReasoningTraceJsonl(
+          await fs.readFile(path.join(dir, reasoningTraceEntry.path), "utf-8"),
+        )
+      : [];
+
+    const sources: Record<string, string> = {};
+    for (const entry of manifest.files) {
+      if (entry.content_type !== "source_snapshot") continue;
+      sources[entry.path] = await fs.readFile(
+        path.join(dir, entry.path),
+        "utf-8",
+      );
+    }
+
+    // Signature presence check (Codex diff iter-1 P2): mirror the conformance
+    // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
+    // bundle. The UI surfaces this boolean transparently; cryptographic
+    // verification belongs to operator-side `gpg --verify` tooling.
+    let signaturePresent = false;
+    try {
+      const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
+      signaturePresent = stat.isFile() && stat.size > 0;
+    } catch {
+      signaturePresent = false;
+    }
+
+    return {
+      runId,
+      manifest,
+      scopeDecision,
+      evidencePool,
+      verifiedReport,
+      metadata,
+      reasoningTrace,
+      sources,
+      signaturePresent,
+    };
+  } catch (err) {
+    // Graceful: a missing/unreadable/malformed bundle renders the pending
+    // state (BundlePendingCta), NEVER a 500. (#789 P0 — the centerpiece must
+    // not crash the page.)
+    console.error(`[inspector] bundle load failed for ${runId}:`, err);
+    return null;
+  }
+}
+
+async function readJson(
+  dir: string,
+  manifest: BundleManifest,
+  contentType: "scope_decision" | "evidence_pool" | "verified_report",
+): Promise<unknown> {
+  const entry = manifest.files.find((f) => f.content_type === contentType);
+  if (!entry) {
+    throw new Error(
+      `bundle: manifest has no entry of content_type=${contentType}`,
+    );
+  }
+  const body = await fs.readFile(path.join(dir, entry.path), "utf-8");
+  return JSON.parse(body);
+}
+
+ succeeded in 1023ms:
+// I-cd-012 (GH#608) — frontend mirror of
+// src/polaris_graph/audit_bundle/bundle_schema.py:BundleManifest (FROZEN v1.0).
+//
+// FROZEN v1.0: Field additions, removals, type changes, or new ContentType
+// enum members require the full bump cascade documented in the Python module.
+//
+// Active consumers:
+//   - Future Inspector route (I-A-03, #609)
+//   - Offline fallback Inspector that renders a signed bundle in-browser
+//     with no GPU/no backend (I-B-09, #631)
+//
+// Active producers (mirror this contract):
+//   - src/polaris_graph/audit_bundle/manifest_builder.py
+//   - src/polaris_graph/audit_bundle/bundle_builder.py
+//   - src/polaris_graph/api/audit_bundle_route.py
+//   - src/polaris_v6/api/bundle.py
+
+import yaml from "js-yaml";
+
+// ---------------------------------------------------------------------------
+// Type literals — must match
+// src/polaris_graph/audit_bundle/bundle_schema.py:ContentType
+// ---------------------------------------------------------------------------
+
+export type ContentType =
+  | "scope_decision"
+  | "evidence_pool"
+  | "verified_report"
+  | "source_snapshot"
+  | "metadata"
+  | "reasoning_trace";
+
+export const CONTENT_TYPES: ContentType[] = [
+  "scope_decision",
+  "evidence_pool",
+  "verified_report",
+  "source_snapshot",
+  "metadata",
+  "reasoning_trace",
+];
+
+export const BUNDLE_VERSION = "1.0" as const;
+
+// ---------------------------------------------------------------------------
+// FileEntry — mirrors bundle_schema.py:FileEntry
+// ---------------------------------------------------------------------------
+
+export interface FileEntry {
+  path: string; // relative POSIX path inside the extracted bundle
+  sha256: string; // lowercase hex SHA256
+  size_bytes: number;
+  content_type: ContentType;
+}
+
+// ---------------------------------------------------------------------------
+// BundleManifest — mirrors bundle_schema.py:BundleManifest
+// ---------------------------------------------------------------------------
+
+export interface BundleManifest {
+  bundle_id: string;
+  bundle_version: typeof BUNDLE_VERSION;
+  decision_id: string;
+  pool_id: string;
+  report_id: string;
+  generator_model: string;
+  polaris_version: string;
+  files: FileEntry[];
+  bundle_created_at_utc: string; // ISO-8601 UTC
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning trace — JSONL (one record per generator LLM call)
+// ---------------------------------------------------------------------------
+
+// Mirrors src/polaris_graph/generator/reasoning_trace.py:67
+// ReasoningTraceRecord (the active producer dataclass). 15 fields.
+// Codex diff iter-1 P1: previous 5-field shape diverged from real producer.
+export interface ReasoningTraceRecord {
+  call_id: string;
+  section: string;
+  call_type: string;
+  model: string;
+  status: string; // see reasoning_trace.py STATUSES
+  content_source: string; // see reasoning_trace.py CONTENT_SOURCES
+  parent_call_id: string | null;
+  regen_reason: string | null;
+  attempt_n: number;
+  reasoning_text: string;
+  content_text: string;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  timestamp: string; // ISO-8601 UTC
+}
+
+// ---------------------------------------------------------------------------
+// Bundle metadata — content of metadata.json
+// ---------------------------------------------------------------------------
+
+export interface BundleMetadata {
+  polaris_version: string;
+  generator_model: string;
+  evaluator_model: string;
+  bundle_created_at_utc: string;
+  schema_version: typeof BUNDLE_VERSION;
+}
+
+// ---------------------------------------------------------------------------
+// Parsers
+// ---------------------------------------------------------------------------
+
+/** Parse a `manifest.yaml` text into a typed `BundleManifest`.
+ *
+ * Validation is structural (presence of required fields + bundle_version
+ * literal); deeper conformance (path traversal, SHA256 matching, content
+ * schema validity) lives in the Python `check_bundle_conformance`. */
+export function parseManifest(yamlText: string): BundleManifest {
+  const parsed = yaml.load(yamlText);
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("manifest.yaml does not parse to a YAML mapping");
+  }
+  const m = parsed as Partial<BundleManifest>;
+  if (m.bundle_version !== BUNDLE_VERSION) {
+    throw new Error(
+      `bundle_version ${m.bundle_version} != frozen ${BUNDLE_VERSION}`,
+    );
+  }
+  for (const required of [
+    "bundle_id",
+    "decision_id",
+    "pool_id",
+    "report_id",
+    "generator_model",
+    "polaris_version",
+    "files",
+    "bundle_created_at_utc",
+  ] as const) {
+    if (m[required] === undefined || m[required] === null) {
+      throw new Error(`manifest.yaml missing required field: ${required}`);
+    }
+  }
+  if (!Array.isArray(m.files)) {
+    throw new Error("manifest.yaml `files` must be an array");
+  }
+  return m as BundleManifest;
+}
+
+/** Parse a `reasoning_trace.jsonl` text body into a list of records.
+ *
+ * One JSON object per non-empty line; blank lines are skipped. Malformed
+ * lines throw to surface bundle corruption at the source. */
+export function parseReasoningTraceJsonl(text: string): ReasoningTraceRecord[] {
+  const out: ReasoningTraceRecord[] = [];
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.trim() === "") continue;
+    let record: unknown;
+    try {
+      record = JSON.parse(line);
+    } catch (err) {
+      throw new Error(
+        `reasoning_trace.jsonl line ${i + 1} is not valid JSON: ${(err as Error).message}`,
+      );
+    }
+    if (
+      typeof record !== "object" ||
+      record === null ||
+      Array.isArray(record)
+    ) {
+      throw new Error(
+        `reasoning_trace.jsonl line ${i + 1} is not a JSON object`,
+      );
+    }
+    out.push(record as ReasoningTraceRecord);
+  }
+  return out;
+}
+
+/** Helper: filter `BundleManifest.files` by ContentType. */
+export function filesByContentType(
+  manifest: BundleManifest,
+  contentType: ContentType,
+): FileEntry[] {
+  return manifest.files.filter((f) => f.content_type === contentType);
+}
+
+ succeeded in 1056ms:
+// I-cd-013a (GH#609) — manifest.files[] table (path + content_type + size + sha256 head).
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { BundleManifest } from "@/lib/signed_bundle";
+
+interface HashChainPanelProps {
+  manifest: BundleManifest;
+}
+
+export function HashChainPanel({ manifest }: HashChainPanelProps) {
+  return (
+    <Card data-testid="hash-chain-panel">
+      <CardHeader>
+        <CardTitle>Hash chain ({manifest.files.length} files)</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="border-border text-muted-foreground border-b text-xs tracking-wide uppercase">
+              <tr>
+                <th className="px-2 py-2">Path</th>
+                <th className="px-2 py-2">Content type</th>
+                <th className="px-2 py-2 text-right">Size (bytes)</th>
+                <th className="px-2 py-2">SHA256 (head)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {manifest.files.map((f) => (
+                <tr
+                  key={f.path}
+                  className="border-border border-b last:border-0"
+                  data-testid="hash-chain-row"
+                  data-content-type={f.content_type}
+                >
+                  <td className="px-2 py-2 align-top font-mono text-xs">
+                    {f.path}
+                  </td>
+                  <td className="px-2 py-2 align-top">
+                    <span className="bg-muted inline-flex items-center rounded-md px-2 py-0.5 text-xs">
+                      {f.content_type}
+                    </span>
+                  </td>
+                  <td className="px-2 py-2 text-right align-top font-mono text-xs">
+                    {f.size_bytes.toLocaleString()}
+                  </td>
+                  <td className="px-2 py-2 align-top font-mono text-xs">
+                    {f.sha256.slice(0, 16)}&hellip;
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+ succeeded in 1150ms:
+// I-cd-021 (#631): metadata panel — Codex iter-1 P1.2 finding was that
+// `LoadedBundle.metadata` was parsed but never rendered. Adds explicit
+// surfacing for both /inspector/[runId] and /inspector/offline.
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { BundleMetadata } from "@/lib/signed_bundle";
+
+interface MetadataPanelProps {
+  metadata: BundleMetadata;
+}
+
+export function MetadataPanel({ metadata }: MetadataPanelProps) {
+  return (
+    <Card data-testid="metadata-panel">
+      <CardHeader>
+        <CardTitle className="text-base">Bundle metadata</CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm">
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 md:grid-cols-[max-content,1fr]">
+          <dt className="text-muted-foreground">POLARIS version</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-polaris-version"
+          >
+            {metadata.polaris_version}
+          </dd>
+          <dt className="text-muted-foreground">Generator model</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-generator-model"
+          >
+            {metadata.generator_model}
+          </dd>
+          <dt className="text-muted-foreground">Evaluator model</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-evaluator-model"
+          >
+            {metadata.evaluator_model}
+          </dd>
+          <dt className="text-muted-foreground">Bundle created at (UTC)</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-created-at"
+          >
+            {metadata.bundle_created_at_utc}
+          </dd>
+          <dt className="text-muted-foreground">Schema version</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-schema-version"
+          >
+            {metadata.schema_version}
+          </dd>
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"--verified|--contradiction|--destructive|c8102e|signature-badge|bg-verified|text-contradiction\" web\\app\\globals.css web\\components -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'docs\\web\\s_tier_design_system.md'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\components\\inspector\\verified_report_sections.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\components\\ui\\tabs.tsx'" in C:\POLARIS
+2026-05-24T00:42:50.591677Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.9 seconds
+Output:
+rg: unrecognized flag --verified|--contradiction|--destructive|c8102e|signature-badge|bg-verified|text-contradiction
+
+ exited 1 in 932ms:
+rg: unrecognized flag --verified|--contradiction|--destructive|c8102e|signature-badge|bg-verified|text-contradiction
+
+ succeeded in 1046ms:
+# POLARIS S-tier design system (canonical)
+
+**Status:** authoritative. Source: Codex vision-authored direction
+(`.codex/ui_visual_audit/s_tier_direction_verdict.txt`, 2026-05-23), grounded in
+2026 best practice + Stripe/Linear/Vercel premium-UI invariants. Bar = **A++/S**,
+visually competitive with AND differentiated from Perplexity / ChatGPT Deep
+Research / Gemini. Tracking issue: #829 (umbrella), foundation #831 (I-p2-042).
+
+## The signature move (the differentiator)
+
+**Proof Replay is the product's visual operating system, not a component.**
+Every screen reuses the same grammar: `claim sentence → provenance token → cited
+source span → evaluator verdict → audit hash`. "Perplexity owns sources-near-answers;
+POLARIS owns _every sentence is cross-examinable_." Proof tokens, the proof rail,
+span highlights, and verdict badges appear consistently across the product.
+
+## Tokens
+
+- **Type:** Geist only. Scale: display 40/44·700, h1 32/38·700, h2 24/30·700,
+  h3 18/26·600, body 16/24·400, body-sm 14/21·400, caption 12/16·500 (uppercase
+  labels +0.08em), mono 13/18·500. Tabular nums for clinical values; mono for
+  IDs/hashes/dates/model names.
+- **Spacing grid:** 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64 / 96. Page top pad 64
+  (desktop) / 32 (mobile); section gap 48; card pad 24; inspector pad 16; form
+  field gap 16. Max content 1120px / workbench 1200px. Spacing must be _invisible
+  because systematic_ — never mix 16 and 24 arbitrarily.
+- **Color (restraint):** near-neutral + ONE accent — **Canada red `#c8102e`
+  (operator-locked 2026-05-21; do NOT change)** used once/screen, meaning-only
+  (primary action or active proof mark, never decoration). Verified = green
+  (`--verified`), warning = amber (`--contradiction`), danger = `--destructive`,
+  refusal = neutral-strong. Evidence-role tokens: tier-1/2/3, proof-token,
+  verified-bundle.
+- **Radius:** cards `rounded-xl` (~12px), controls ~8px, pills full.
+- **Border / shadow:** hairline `ring-foreground/10` (1px low-alpha) plus
+  brand-tinted elevation `--shadow-card` / `--shadow-card-hover` (a neutral
+  hairline lift and a faint Canada-red wash — never pure gray).
+- **Motion:** ONE primitive — `--ease-standard: cubic-bezier(0.2,0.8,0.2,1)`,
+  ~150–160ms. Reuse on hover/focus/tab/inspector-selection/span-reveal/skeleton.
+  No ornamental animation.
+- **Microstates (non-negotiable, every interactive element):** default / hover
+  (brand-soft or neutral tint) / focus (custom 2px ring `ring-ring/…` + 2px
+  offset, visible) / active (slight inset, buttons translateY(1px)) / disabled
+  (opacity ~.45, no pointer) / loading (skeleton matching layout, never a bare
+  spinner).
+- **Empty/loading/error:** evidence-native + designed (ghost timeseries, claim-row
+  skeletons, contract preview shell). Errors explain _which_ gate failed
+  (scope / coverage / evaluator disagreement / infrastructure).
+
+## Verification protocol (every UI PR)
+
+1. GitHub issue first; close on merge.
+2. Build the page/primitive to the spec; preserve logic + `data-testid`s.
+3. **Dual visual gate:** Claude views the screenshots AND Codex audits them via
+   `codex exec -i` at the A++/S bar — every state (empty/loading/error/populated)
+   × desktop/tablet/mobile. Plus Codex CODE review (brief + diff).
+4. e2e (Playwright) green; visual-regression baselines refreshed on intentional
+   pixel changes.
+5. Update this doc + `docs/file_directory.md`; deploy + live-verify.
+
+## Build order
+
+1. **Foundation tokens** (#831 / I-p2-042) — motion + brand-tinted shadow applied
+   to Card; type/spacing/color already tokenized. ← _in progress_
+2. **Primitives** — Button/Input/Select/Chip/Tab/Card/Badge/Skeleton/EmptyState,
+   plus the proof primitives (ProofToken/ProofRail/SourceSpan/VerdictBadge).
+3. **Proof system** — ClaimStack / ProofReplayPanel / EvaluatorVerdict /
+   AuditHashChain.
+4. **Pages** (S-bar, worst-gap weighted): Inspector → Home → Intake → Contracts →
+   Upload → Pin Replay → Sign-in.
+5. **Cred-gated** (need `POLARIS_DEMO_USER`/`POLARIS_DEMO_PASS`): dashboard,
+   benchmark, memory, source-review, and the Plan → Run → Compare journey.
+
+## Per-screen S-bar baseline (Codex, 2026-05-23 — pre-redo)
+
+Inspector B+, Home B, Intake B−, Contracts B− (post first rebuild), Sign-in B−,
+Upload C+, Pin Replay C. Target every screen at A++/S with the signature move
+systematized.
+
+ succeeded in 1110ms:
+// I-cd-013a (GH#609) — VerifiedReport.sections renderer.
+// Real field names per verified_report.py:
+//   sections[].section_verify_pass_rate
+//   sections[].verified_sentences
+//   verified_sentences[].provenance_tokens (token strings)
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type {
+  VerifiedReportSectionShape,
+  VerifiedReportShape,
+  VerifiedSentenceShape,
+} from "@/lib/inspector_bundle_loader";
+
+interface VerifiedReportSectionsProps {
+  verifiedReport: VerifiedReportShape;
+}
+
+export function VerifiedReportSections({
+  verifiedReport,
+}: VerifiedReportSectionsProps) {
+  return (
+    <Card data-testid="verified-report-sections">
+      <CardHeader>
+        <CardTitle>
+          Verified report ({verifiedReport.sections.length} sections,{" "}
+          {(verifiedReport.overall_verify_pass_rate * 100).toFixed(0)}%
+          verified)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <VerdictBadge verdict={verifiedReport.pipeline_verdict} />
+        {verifiedReport.sections.length === 0 ? (
+          <p className="border-border text-muted-foreground rounded-md border border-dashed p-4 text-center">
+            No verified sections (pipeline verdict:{" "}
+            <code className="font-mono">{verifiedReport.pipeline_verdict}</code>
+            ).
+          </p>
+        ) : (
+          verifiedReport.sections.map((s) => (
+            <SectionPanel key={s.section_id} section={s} />
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function VerdictBadge({ verdict }: { verdict: string }) {
+  const isSuccess = verdict === "success";
+  return (
+    <p
+      data-testid="pipeline-verdict-badge"
+      data-state={isSuccess ? "success" : "abort"}
+      className={
+        isSuccess
+          ? "inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+          : "inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+      }
+    >
+      Verdict: {verdict}
+    </p>
+  );
+}
+
+function SectionPanel({ section }: { section: VerifiedReportSectionShape }) {
+  return (
+    <div
+      className="border-border rounded-md border p-4"
+      data-testid="verified-report-section"
+      data-section-id={section.section_id}
+    >
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="font-medium">{section.section_id}</h3>
+        <span className="text-muted-foreground font-mono text-xs">
+          pass rate {(section.section_verify_pass_rate * 100).toFixed(0)}%
+        </span>
+      </div>
+      <ul className="space-y-2">
+        {section.verified_sentences.map((sentence, idx) => (
+          <SentenceItem
+            key={`${section.section_id}-${idx}`}
+            sentence={sentence}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SentenceItem({ sentence }: { sentence: VerifiedSentenceShape }) {
+  const [showTokens, setShowTokens] = useState(false);
+  return (
+    <li
+      className="bg-muted/30 hover:bg-muted/60 rounded-sm border border-transparent p-2 transition-colors"
+      data-testid="verified-sentence"
+      data-verifier-pass={sentence.verifier_pass}
+    >
+      <p className="text-sm">{sentence.sentence_text}</p>
+      {sentence.provenance_tokens.length > 0 && (
+        <button
+          type="button"
+          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+          onClick={() => setShowTokens((v) => !v)}
+          data-testid="toggle-provenance-tokens"
+        >
+          {showTokens ? "Hide" : "Show"} {sentence.provenance_tokens.length}{" "}
+          provenance token
+          {sentence.provenance_tokens.length === 1 ? "" : "s"}
+        </button>
+      )}
+      {showTokens && (
+        <ul className="text-muted-foreground mt-1 ml-4 list-disc font-mono text-xs">
+          {sentence.provenance_tokens.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+ succeeded in 1224ms:
+// I-cd-013a (GH#609) — Tabs primitive wrapping @base-ui/react/tabs.
+//
+// Used by web/app/inspector/[runId]/inspector_view.tsx and any
+// downstream route that needs a tabbed layout. Each TabsContent
+// carries a `data-tab` attribute so Playwright e2e can assert tab
+// state explicitly per the Codex iter-2 P2 #3 directive.
+"use client";
+
+import { Tabs as BaseTabs } from "@base-ui/react/tabs";
+import { forwardRef, type ComponentPropsWithoutRef } from "react";
+
+import { cn } from "@/lib/utils";
+
+export const Tabs = BaseTabs.Root;
+
+export const TabsList = forwardRef<
+  HTMLDivElement,
+  ComponentPropsWithoutRef<typeof BaseTabs.List>
+>(({ className, ...props }, ref) => (
+  <BaseTabs.List
+    ref={ref}
+    className={cn(
+      "border-border bg-muted text-muted-foreground inline-flex h-10 items-center justify-start gap-1 rounded-md border p-1",
+      className,
+    )}
+    {...props}
+  />
+));
+TabsList.displayName = "TabsList";
+
+export const TabsTrigger = forwardRef<
+  HTMLButtonElement,
+  ComponentPropsWithoutRef<typeof BaseTabs.Tab>
+>(({ className, ...props }, ref) => (
+  <BaseTabs.Tab
+    ref={ref}
+    className={cn(
+      "ring-offset-background inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-all",
+      // I-p2-026 (#765): explicit inactive text color. The inherited
+      // text-muted-foreground on the bg-muted strip fails WCAG 2.2 AA
+      // contrast (axe serious); text-foreground/70 clears 4.5:1 while still
+      // reading lighter than the selected tab.
+      "text-foreground/70",
+      "focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+      "data-[selected]:bg-background data-[selected]:text-foreground data-[selected]:shadow-sm",
+      "hover:bg-background/60",
+      "disabled:pointer-events-none disabled:opacity-50",
+      className,
+    )}
+    {...props}
+  />
+));
+TabsTrigger.displayName = "TabsTrigger";
+
+export const TabsContent = forwardRef<
+  HTMLDivElement,
+  ComponentPropsWithoutRef<typeof BaseTabs.Panel> & { tabId: string }
+>(({ className, tabId, ...props }, ref) => (
+  <BaseTabs.Panel
+    ref={ref}
+    data-tab={tabId}
+    className={cn(
+      "ring-offset-background focus-visible:ring-ring mt-4 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+      className,
+    )}
+    {...props}
+  />
+));
+TabsContent.displayName = "TabsContent";
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -e \"--verified\" -e \"--contradiction\" -e \"--destructive\" -e \"#c8102e\" -e \"text-contradiction\" web\\app\\globals.css web\\components -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\app\\inspector\\[runId]\\page.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\public\\canonical_bundles\\v1_canonical_success\\manifest.yaml'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\public\\canonical_bundles\\v1_canonical\\verified_report.json'" in C:\POLARIS
+ succeeded in 948ms:
+// I-cd-013a (GH#609) — gold route: /inspector/[runId].
+//
+// Server component that loads a signed audit bundle (v1.0 schema per
+// src/polaris_graph/audit_bundle/bundle_schema.py) and renders it via
+// `InspectorView`. Unknown runIds get the bundle-pending CTA (the page
+// does NOT attempt to render an unrelated fixture — see iter-1 P1).
+//
+// Real-bundle backend wiring lands at I-B-08 (Seq 20); offline fallback
+// at I-B-09 (Seq 21). For now `loadBundle` returns the canonical fixtures
+// for runId "v1-canonical" and "v1-canonical-success".
+
+import { BundlePendingCta } from "@/components/inspector/bundle_pending_cta";
+import { loadBundle } from "@/lib/inspector_bundle_loader";
+import { filesByContentType } from "@/lib/signed_bundle";
+
+import { InspectorView } from "./inspector_view";
+
+interface InspectorPageProps {
+  params: Promise<{ runId: string }>;
+}
+
+export default async function InspectorPage({ params }: InspectorPageProps) {
+  const { runId } = await params;
+  const bundle = await loadBundle(runId);
+
+  if (bundle === null) {
+    return <BundlePendingCta runId={runId} />;
+  }
+
+  // Signature presence is derived from disk in the loader (Codex diff
+  // iter-1 P2 — the page no longer hardcodes true). Cryptographic
+  // verification belongs to operator-side `gpg --verify` tooling.
+  void filesByContentType; // re-exported helper available to consumers
+  return (
+    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
+  );
+}
+
+ succeeded in 1039ms:
+web\app\globals.css:29:  --color-destructive: var(--destructive);
+web\app\globals.css:30:  --color-destructive-foreground: var(--destructive-foreground);
+web\app\globals.css:31:  --color-verified: var(--verified);
+web\app\globals.css:32:  --color-verified-foreground: var(--verified-foreground);
+web\app\globals.css:33:  --color-contradiction: var(--contradiction);
+web\app\globals.css:34:  --color-contradiction-foreground: var(--contradiction-foreground);
+web\app\globals.css:41:  --color-verified-bundle: var(--verified-bundle);
+web\app\globals.css:66:     #c8102e = rgb(200 16 46), NOT a palette change. */
+web\app\globals.css:86:     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
+web\app\globals.css:90:  --primary: #c8102e;
+web\app\globals.css:98:  --destructive: oklch(0.42 0.13 18);
+web\app\globals.css:99:  --destructive-foreground: oklch(0.985 0 0);
+web\app\globals.css:102:  --ring: #c8102e;
+web\app\globals.css:104:  --verified: oklch(0.48 0.14 152);
+web\app\globals.css:105:  --verified-foreground: oklch(0.985 0 0);
+web\app\globals.css:106:  --contradiction: oklch(0.72 0.15 75);
+web\app\globals.css:107:  --contradiction-foreground: oklch(0.27 0.04 75);
+web\app\globals.css:111:  --tier-1: #c8102e;
+web\app\globals.css:115:  --verified-bundle: oklch(0.48 0.14 152);
+web\app\globals.css:152:  --destructive: oklch(0.704 0.191 22.216);
+web\app\globals.css:157:  --destructive-foreground: oklch(0.145 0 0);
+web\components\contradiction\contradiction_panel.tsx:55:          className="text-contradiction-foreground mt-0.5 h-4 w-4 shrink-0"
+web\components\signature\maple_leaf_signature.tsx:184:      style={{ color: "#c8102e" }}
+web\components\inspector\bundle_header.tsx:54:      className="border-contradiction/30 bg-contradiction/10 text-contradiction-foreground inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium"
+web\components\source\source_card.tsx:44:    <span className="bg-contradiction/15 text-contradiction-foreground border-contradiction/40 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\verdict\verdict_chip.tsx:42:      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+web\components\verdict\verdict_chip.tsx:63:      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+
+ succeeded in 1112ms:
+bundle_created_at_utc: '2026-05-20T00:00:00Z'
+bundle_id: bundle_real_tirzepatide_0001
+bundle_version: '1.0'
+decision_id: decision_real_tirzepatide_0001
+files:
+- content_type: scope_decision
+  path: scope_decision.json
+  sha256: 988618326ea866e2876576f3f52f1cd2234d0f89f3ba6cd81e0d4fdf327cc66e
+  size_bytes: 485
+- content_type: evidence_pool
+  path: evidence_pool.json
+  sha256: 81223c9af93eb15e80246f0f92dd8fa02ba95adf8f190b488e3f279faed609fb
+  size_bytes: 41640
+- content_type: verified_report
+  path: verified_report.json
+  sha256: ae8081fa5cec4dec110c9d0a907e4e5276ef8a44fd617b98b5db2b82fc5aaed0
+  size_bytes: 6795
+- content_type: metadata
+  path: metadata.json
+  sha256: 26a068d9298a8c536a0ad8ec4b3e5de02cdc0d8331cfc80bf0be66d3bb4a372d
+  size_bytes: 436
+- content_type: reasoning_trace
+  path: reasoning_trace.jsonl
+  sha256: dd88aa24c1197da536ea9622299e9173bbff9797726081bff426a4bc8d365cba
+  size_bytes: 307
+- content_type: source_snapshot
+  path: sources/ev_000.txt
+  sha256: d4aa9c5d1cbc14c9c323855ab6cd5f7ce2cadd3025c117882e47a991a75abe42
+  size_bytes: 11179
+- content_type: source_snapshot
+  path: sources/ev_002.txt
+  sha256: f618166aa33da37c3d4e3c32385dcf2bad668bcb964ef3b5be1253c3ed9c6de3
+  size_bytes: 10488
+- content_type: source_snapshot
+  path: sources/ev_006.txt
+  sha256: f9229dae6b3adaaac32ed14391f40dbe18c378587c76c76b3bf71064c91b3b3c
+  size_bytes: 10657
+- content_type: source_snapshot
+  path: sources/ev_015.txt
+  sha256: 8fde5bfb7db0eabcdd360ca14690dccccece928ed00d4d7608a54161819dea65
+  size_bytes: 4486
+generator_model: deepseek/deepseek-v4-pro
+polaris_version: 1.0.0
+pool_id: pool_real_tirzepatide_0001
+report_id: report_real_tirzepatide_0001
+
+ succeeded in 1160ms:
+{
+  "cost_usd": 0.0,
+  "decision_id": "decision_v1_canonical_0001",
+  "evaluator_model": "google/gemma-4-31b-it",
+  "family_segregation_passed": true,
+  "finished_at_utc": "2026-05-19T00:00:00+00:00",
+  "generator_model": "deepseek/deepseek-v4-pro",
+  "latency_ms": 1500,
+  "overall_verify_pass_rate": 0.0,
+  "pipeline_verdict": "abort_no_verified_sections",
+  "pool_id": "pool_v1_canonical_0001",
+  "report_id": "report_v1_canonical_0001",
+  "sections": [],
+  "started_at_utc": "2026-05-19T00:00:00+00:00",
+  "verifier_pass_threshold": 0.4
+}
+
+codex
+So far the plan matches the fixture shape: success has the research question and abort lacks it, and the current metadata tabs do not carry the two manifest IDs the brief calls out. I’m checking adjacent consumers before deciding whether any hidden e2e or data-loss blocker remains.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\tests\\e2e\\inspector_offline_fallback.spec.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"<BundleHeader|BundleHeader\\(|family-segregation-badge|FamilySegregationBadge|inspector-proof-summary|bundle_version|report_id\" web\\app web\\components web\\tests -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\tests\\e2e\\demo_journey.spec.ts'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\lib\\inspector_bundle_client_loader.ts'" in C:\POLARIS
+ succeeded in 954ms:
+// I-cd-021 (#631) — Disconnected reviewer drops a v1.0 .tar.gz on the
+// offline Inspector route. No backend running.
+//
+// Builds a tar.gz from tests/fixtures/signed_bundle/v1_canonical_success/
+// at test-setup time and feeds it to the file input.
+
+import { execSync } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+
+import { expect, test } from "@playwright/test";
+
+const FIXTURE_DIR = path.resolve(
+  process.cwd(),
+  "..",
+  "tests/fixtures/signed_bundle/v1_canonical_success",
+);
+const OUT_DIR = path.resolve(
+  process.cwd(),
+  "..",
+  ".codex-tmp",
+  "i-cd-021-bundles",
+);
+const TAR_GZ_PATH = path.join(OUT_DIR, "v1_canonical_success.tar.gz");
+
+test.beforeAll(() => {
+  if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });
+  if (!existsSync(TAR_GZ_PATH)) {
+    execSync(`tar -czf "${TAR_GZ_PATH}" -C "${FIXTURE_DIR}" .`, {
+      stdio: "inherit",
+    });
+  }
+});
+
+test("Offline Inspector parses + renders a v1.0 tar.gz bundle in-browser", async ({
+  page,
+}) => {
+  await page.goto("/inspector/offline");
+  await expect(page.getByTestId("inspector-offline-dropzone")).toBeVisible();
+
+  await page
+    .getByTestId("inspector-offline-file-input")
+    .setInputFiles(TAR_GZ_PATH);
+
+  // Wait for InspectorView to mount in place of the dropzone.
+  await expect(page.getByTestId("inspector-view")).toBeVisible({
+    timeout: 15_000,
+  });
+
+  // Bundle header + verified report visible.
+  await expect(page.getByTestId("inspector-view")).toContainText(
+    /POLARIS|bundle|run/i,
+  );
+
+  // Metadata panel surfaces all 5 fields (Codex iter-1 P1.2 fix).
+  await page.getByRole("tab", { name: "Metadata" }).click();
+  await expect(page.getByTestId("metadata-panel")).toBeVisible();
+  await expect(page.getByTestId("metadata-polaris-version")).not.toBeEmpty();
+  await expect(page.getByTestId("metadata-generator-model")).not.toBeEmpty();
+  await expect(page.getByTestId("metadata-evaluator-model")).not.toBeEmpty();
+  await expect(page.getByTestId("metadata-created-at")).not.toBeEmpty();
+  await expect(page.getByTestId("metadata-schema-version")).toContainText(
+    "1.0",
+  );
+
+  // No error card.
+  await expect(page.getByTestId("inspector-offline-error")).toHaveCount(0);
+});
+
+test("Offline Inspector rejects a malformed file with a visible error", async ({
+  page,
+}) => {
+  await page.goto("/inspector/offline");
+
+  // Build a junk file in temp; setInputFiles accepts a path AND a payload.
+  const junkPath = path.join(OUT_DIR, "garbage.tar.gz");
+  if (!existsSync(junkPath)) {
+    writeFileSync(junkPath, "not gzip");
+  }
+
+  await page
+    .getByTestId("inspector-offline-file-input")
+    .setInputFiles(junkPath);
+
+  await expect(page.getByTestId("inspector-offline-error")).toBeVisible({
+    timeout: 5_000,
+  });
+  await expect(page.getByTestId("inspector-offline-error")).toContainText(
+    /ungzip_failed|manifest|gzip/i,
+  );
+});
+
+ succeeded in 1045ms:
+web\components\inspector\bundle_header.tsx:15:export function BundleHeader({ manifest, signaturePresent }: BundleHeaderProps) {
+web\components\inspector\family_segregation_badge.tsx:7:interface FamilySegregationBadgeProps {
+web\components\inspector\family_segregation_badge.tsx:12:export function FamilySegregationBadge({
+web\components\inspector\family_segregation_badge.tsx:15:}: FamilySegregationBadgeProps) {
+web\components\inspector\family_segregation_badge.tsx:19:      data-testid="family-segregation-badge"
+web\components\sovereignty\sovereignty_panel.tsx:16:  /** metadata.schema_version / manifest.bundle_version — rendered only if present. */
+web\tests\e2e\bundle_preview.spec.ts:28:  report_id: "r1",
+web\tests\e2e\bundle_preview.spec.ts:137:        report_id: "r1",
+web\tests\e2e\demo_journey.spec.ts:53:      .getByTestId("family-segregation-badge")
+web\app\generation\components\generation_runner.tsx:251:      a.download = `audit_${report.report_id}.tar.gz`;
+web\app\sentence_hover_test\_demo_stress.tsx:50:    report_id: `r-stress-${n}`,
+web\tests\e2e\inspector_route.spec.ts:47:    await expect(page.getByTestId("family-segregation-badge")).toBeVisible();
+web\tests\e2e\inspector_route.spec.ts:54:    const badge = page.getByTestId("family-segregation-badge");
+web\app\inspector\[runId]\inspector_view.tsx:7:import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
+web\app\inspector\[runId]\inspector_view.tsx:32:      <BundleHeader
+web\app\inspector\[runId]\inspector_view.tsx:36:      <FamilySegregationBadge
+web\app\sentence_hover_test\follow_up_append\page.tsx:8:function _report(report_id: string, sentence_text: string): VerifiedReport {
+web\app\sentence_hover_test\follow_up_append\page.tsx:10:    report_id,
+web\app\sentence_hover_test\follow_up_append\page.tsx:11:    pool_id: `p-${report_id}`,
+web\app\sentence_hover_test\follow_up_append\page.tsx:12:    decision_id: `d-${report_id}`,
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:53:    report_id: `r-edge-${mode}`,
+web\app\sentence_hover_test\_demo.tsx:107:  report_id: "r-hover-test",
+web\app\sentence_hover_test\_demo_coverage.tsx:76:    report_id: "r-cov",
+web\app\sentence_hover_test\memory_cite\page.tsx:9:  report_id: "r-memory-cite",
+
+ succeeded in 1096ms:
+/**
+ * I-cd-021 (#631) — Browser-side bundle loader.
+ *
+ * Parses a v1.0 BundleManifest tar.gz uploaded by a disconnected
+ * reviewer (no backend, no GPU). Same `LoadedBundle` shape as the
+ * server-side `inspector_bundle_loader.ts` so all Inspector components
+ * accept either source.
+ *
+ * Conformance (browser-safe subset of the 12-layer Python check):
+ *   - tar.gz size ≤ 50MB
+ *   - inflate via pako
+ *   - extract files with tar-stream (browser build)
+ *   - manifest.yaml parses cleanly (existing parseManifest)
+ *   - bundle_version == "1.0"
+ *   - all 6 required ContentTypes present in manifest.files
+ *   - each declared file is present in the tar
+ *   - SHA-256 of each file matches manifest hash (browser crypto.subtle)
+ *   - byte size matches manifest size
+ *   - signaturePresent: derived from manifest.yaml.asc existence + non-empty
+ *
+ * GPG cryptographic verify is out of scope (requires CLI / pgp.js + key
+ * trust UX, both browser-impractical for Carney handover).
+ */
+
+import pako from "pako";
+import { extract as tarExtract } from "tar-stream";
+
+import {
+  type BundleManifest,
+  type BundleMetadata,
+  type ReasoningTraceRecord,
+  parseManifest,
+  parseReasoningTraceJsonl,
+} from "@/lib/signed_bundle";
+
+import type {
+  LoadedBundle,
+  VerifiedReportShape,
+} from "@/lib/inspector_bundle_loader";
+
+const MAX_TAR_GZ_BYTES = 50 * 1024 * 1024;
+// Codex iter-1 P1.1 fix: cap DECOMPRESSED tar bytes to prevent gzip-bomb OOM.
+// A 50MB gzip can inflate to 50GB+ of zeros. 200MB is generous for legitimate
+// bundles (the largest v1.0 fixture is ~80KB; real runs may approach a few MB).
+const MAX_DECOMPRESSED_BYTES = 200 * 1024 * 1024;
+
+export class BundleClientLoaderError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+    this.name = "BundleClientLoaderError";
+  }
+}
+
+interface ExtractedFile {
+  name: string;
+  bytes: Uint8Array;
+}
+
+async function _extractTarBytes(
+  tarBytes: Uint8Array,
+): Promise<ExtractedFile[]> {
+  return new Promise((resolve, reject) => {
+    const files: ExtractedFile[] = [];
+    const extractor = tarExtract();
+    extractor.on(
+      "entry",
+      (
+        header: { name: string; type?: string },
+        stream: NodeJS.ReadableStream,
+        next: () => void,
+      ) => {
+        const chunks: Uint8Array[] = [];
+        stream.on("data", (c: Uint8Array) => chunks.push(c));
+        stream.on("end", () => {
+          if (header.type === "file") {
+            // Concat chunks into one Uint8Array.
+            const total = chunks.reduce((s, c) => s + c.length, 0);
+            const merged = new Uint8Array(total);
+            let off = 0;
+            for (const c of chunks) {
+              merged.set(c, off);
+              off += c.length;
+            }
+            files.push({
+              name: header.name.replace(/^\.\//, ""),
+              bytes: merged,
+            });
+          }
+          next();
+        });
+        stream.resume();
+      },
+    );
+    extractor.on("finish", () => resolve(files));
+    extractor.on("error", reject);
+    extractor.end(tarBytes);
+  });
+}
+
+class _GzipBombAbort extends Error {
+  readonly cap: number;
+  constructor(cap: number) {
+    super(`Decompressed bytes exceeded ${cap} cap (gzip-bomb guard).`);
+    this.cap = cap;
+  }
+}
+
+function _streamingUngzip(
+  compressed: Uint8Array,
+): Uint8Array | BundleClientLoaderError {
+  // pako.Inflate emits chunks via an onData callback; we accumulate up to
+  // MAX_DECOMPRESSED_BYTES then ABORT (Codex iter-3 P1 fix: previously
+  // onData just stopped collecting but inflator.push continued processing
+  // the rest of the stream — bomb could still hang the thread).
+  // Throwing from onData propagates out of inflator.push so we stop pako
+  // from continuing to decompress. The throw is caught locally.
+  const inflator = new pako.Inflate({ raw: false });
+  let total = 0;
+  const chunks: Uint8Array[] = [];
+
+  inflator.onData = (chunk: Uint8Array): void => {
+    total += chunk.length;
+    if (total > MAX_DECOMPRESSED_BYTES) {
+      throw new _GzipBombAbort(MAX_DECOMPRESSED_BYTES);
+    }
+    chunks.push(chunk);
+  };
+  inflator.onEnd = (_status: number): void => {
+    /* status handled via err/msg fields below */
+  };
+
+  try {
+    inflator.push(compressed, true);
+  } catch (exc) {
+    if (exc instanceof _GzipBombAbort) {
+      return new BundleClientLoaderError("decompressed_too_large", exc.message);
+    }
+    return new BundleClientLoaderError(
+      "ungzip_failed",
+      `Failed to gunzip bundle: ${(exc as Error).message}`,
+    );
+  }
+
+  if (inflator.err) {
+    return new BundleClientLoaderError(
+      "ungzip_failed",
+      `Failed to gunzip bundle: ${inflator.msg || "pako error " + inflator.err}`,
+    );
+  }
+
+  // Concatenate chunks into one Uint8Array.
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.length;
+  }
+  return out;
+}
+
+async function _sha256Hex(bytes: Uint8Array): Promise<string> {
+  // Slice into a fresh ArrayBuffer (not SharedArrayBuffer) for browser-safe
+  // BufferSource typing on crypto.subtle.digest.
+  const buf = await crypto.subtle.digest(
+    "SHA-256",
+    bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer,
+  );
+  const arr = Array.from(new Uint8Array(buf));
+  return arr.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function _findFile(
+  files: ExtractedFile[],
+  pathInManifest: string,
+): ExtractedFile | undefined {
+  // tar entries may be prefixed with bundle-dir name (e.g. "v1_canonical/").
+  // Match suffix to keep loader robust against `tar -czf bundle.tar.gz <dir>`
+  // vs `tar -czf bundle.tar.gz -C <dir> .`.
+  return files.find(
+    (f) => f.name === pathInManifest || f.name.endsWith("/" + pathInManifest),
+  );
+}
+
+function _decode(bytes: Uint8Array): string {
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+// Codex iter-1 P1.2 fix: v1.0 conformance per
+// src/polaris_graph/audit_bundle/conformance.py:_REQUIRED_CONTENT_TYPES
+// requires ALL SIX content types (including source_snapshot).
+const REQUIRED_CONTENT_TYPES = [
+  "scope_decision",
+  "evidence_pool",
+  "verified_report",
+  "metadata",
+  "source_snapshot",
+  "reasoning_trace",
+] as const;
+
+export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
+  if (file.size > MAX_TAR_GZ_BYTES) {
+    throw new BundleClientLoaderError(
+      "tar_gz_too_large",
+      `Bundle file is ${file.size} bytes, exceeds ${MAX_TAR_GZ_BYTES} byte limit.`,
+    );
+  }
+  const arrayBuffer = await file.arrayBuffer();
+  // Codex iter-2 P1.1 fix: streaming inflate via pako.Inflate, aborting as
+  // soon as cumulative decompressed bytes exceed MAX_DECOMPRESSED_BYTES.
+  // The previous one-shot pako.ungzip() materialized the full bomb before
+  // the size guard ran.
+  const tarBytes = _streamingUngzip(new Uint8Array(arrayBuffer));
+  if (tarBytes instanceof BundleClientLoaderError) {
+    throw tarBytes;
+  }
+  const files = await _extractTarBytes(tarBytes);
+  const manifestFile = _findFile(files, "manifest.yaml");
+  if (!manifestFile) {
+    throw new BundleClientLoaderError(
+      "manifest_missing",
+      "Bundle is missing manifest.yaml.",
+    );
+  }
+  let manifest: BundleManifest;
+  try {
+    manifest = parseManifest(_decode(manifestFile.bytes));
+  } catch (exc) {
+    throw new BundleClientLoaderError(
+      "manifest_parse_failed",
+      `manifest.yaml parse failed: ${(exc as Error).message}`,
+    );
+  }
+  if (manifest.bundle_version !== "1.0") {
+    throw new BundleClientLoaderError(
+      "version_mismatch",
+      `Bundle version ${JSON.stringify(manifest.bundle_version)} != frozen v1.0.`,
+    );
+  }
+  for (const required of REQUIRED_CONTENT_TYPES) {
+    if (!manifest.files.some((f) => f.content_type === required)) {
+      throw new BundleClientLoaderError(
+        "required_content_type_missing",
+        `Manifest missing required content_type ${JSON.stringify(required)}.`,
+      );
+    }
+  }
+
+  // SHA-256 + size verify every manifest entry.
+  for (const entry of manifest.files) {
+    const candidate = _findFile(files, entry.path);
+    if (!candidate) {
+      throw new BundleClientLoaderError(
+        "manifest_file_missing",
+        `Manifest declares ${JSON.stringify(entry.path)} but bundle does not contain it.`,
+      );
+    }
+    if (candidate.bytes.length !== entry.size_bytes) {
+      throw new BundleClientLoaderError(
+        "size_mismatch",
+        `${JSON.stringify(entry.path)}: manifest size=${entry.size_bytes}, actual=${candidate.bytes.length}.`,
+      );
+    }
+    const actualSha = await _sha256Hex(candidate.bytes);
+    if (actualSha !== entry.sha256) {
+      throw new BundleClientLoaderError(
+        "sha256_mismatch",
+        `${JSON.stringify(entry.path)}: manifest sha256=${JSON.stringify(entry.sha256)}, actual=${JSON.stringify(actualSha)}.`,
+      );
+    }
+  }
+
+  // metadata.json by explicit path (v1.0 spec).
+  const metadataEntry = manifest.files.find(
+    (f) => f.content_type === "metadata" && f.path === "metadata.json",
+  );
+  if (!metadataEntry) {
+    throw new BundleClientLoaderError(
+      "metadata_entry_missing",
+      "Manifest must have a metadata entry with path=metadata.json.",
+    );
+  }
+  const metadataFile = _findFile(files, "metadata.json")!;
+  const metadata = JSON.parse(_decode(metadataFile.bytes)) as BundleMetadata;
+
+  const scopeDecisionFile = _findFile(files, "scope_decision.json")!;
+  const scopeDecision = JSON.parse(_decode(scopeDecisionFile.bytes));
+
+  const evidencePoolFile = _findFile(files, "evidence_pool.json")!;
+  const evidencePool = JSON.parse(_decode(evidencePoolFile.bytes));
+
+  const verifiedReportFile = _findFile(files, "verified_report.json")!;
+  const verifiedReport = JSON.parse(
+    _decode(verifiedReportFile.bytes),
+  ) as VerifiedReportShape;
+
+  const reasoningEntry = manifest.files.find(
+    (f) => f.content_type === "reasoning_trace",
+  );
+  const reasoningTrace: ReasoningTraceRecord[] = reasoningEntry
+    ? parseReasoningTraceJsonl(
+        _decode(_findFile(files, reasoningEntry.path)!.bytes),
+      )
+    : [];
+
+  const sources: Record<string, string> = {};
+  for (const entry of manifest.files) {
+    if (entry.content_type !== "source_snapshot") continue;
+    const sourceFile = _findFile(files, entry.path);
+    if (sourceFile) {
+      sources[entry.path] = _decode(sourceFile.bytes);
+    }
+  }
+
+  const signatureFile = _findFile(files, "manifest.yaml.asc");
+  const signaturePresent = !!signatureFile && signatureFile.bytes.length > 0;
+
+  // runId for offline mode: derive from filename (BundleMetadata doesn't
+  // carry run_id; it's a session-level field outside the v1.0 freeze).
+  const runId =
+    file.name.replace(/\.tar\.gz$/, "").replace(/\.tgz$/, "") ||
+    "offline-bundle";
+
+  return {
+    runId,
+    manifest,
+    scopeDecision,
+    evidencePool,
+    verifiedReport,
+    metadata,
+    reasoningTrace,
+    sources,
+    signaturePresent,
+  };
+}
+
+ succeeded in 1165ms:
+// I-cd-031 (#621): demo journey end-to-end — home → template → ask
+// (intake) → run-step (dashboard) → inspector → claim-source.
+//
+// Verifies each step's landing page renders + links forward to the next
+// step. The "run" step itself is hardware-bound (real pipeline-A), so the
+// test pivots at /dashboard to /inspector/v1-canonical-success — the
+// frozen I-A-02b fixture (I-cd-012) that the gold-route Inspector
+// renders. That step's assertions cover the verified-report → claim →
+// source provenance UI surface.
+
+import { expect, test } from "@playwright/test";
+
+import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+
+test("demo journey: home → intake → dashboard → inspector (canonical fixture)", async ({
+  page,
+}) => {
+  // Step 1: home renders the one-CTA hero (I-p2-013 replaced the template
+  // grid); the hero search funnels to /intake.
+  await page.goto("/");
+  await expect(page.getByTestId("home-hero-search")).toBeVisible();
+  await page
+    .getByTestId("home-hero-search")
+    .getByRole("searchbox")
+    .fill("What did the SELECT trial show on cardiovascular outcomes?");
+  await page
+    .getByTestId("home-hero-search")
+    .getByRole("button", { name: "Verify" })
+    .click();
+
+  // Step 2: lands on /intake with the intake form.
+  await expect(page).toHaveURL(/\/intake/);
+  await expect(page.getByTestId("intake-page")).toBeVisible();
+
+  // Step 3: the monitoring dashboard is reachable (run-start lives at
+  // intake→plan now, I-p2-022 #761; the dashboard is monitoring-only).
+  await page.goto("/dashboard");
+  await expect(page.getByTestId("dashboard-page")).toBeVisible();
+
+  // Step 4: inspector renders the canonical v1.0 fixture (I-A-02b
+  // frozen schema, the contract Carney's office reviews).
+  await page.goto("/inspector/v1-canonical-success");
+  await expect(page.getByTestId("inspector-view")).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // Step 5: claim → source UI surface — the family-segregation badge
+  // proves the two-family invariant (CLAUDE.md §9.1 invariant 1)
+  // surfaces to the reviewer. Tightened per Codex iter-1 P2: assert
+  // the dedicated badge testid instead of a broad text match.
+  await expect(
+    page
+      .getByTestId("family-segregation-badge")
+      .or(page.locator("[data-testid*='family-segregation']").first()),
+  ).toBeVisible({ timeout: 5_000 });
+});
+
+// Codex iter-1 P1 fix: the previous version had an
+// `if (label === "Upload")` guard that silently skipped Home/Intake/
+// Dashboard/etc — so a broken nav with most labels missing would still
+// pass. This version unconditionally asserts every primary-nav label.
+test("demo journey nav-parity: header + primary nav identical across journey routes", async ({
+  page,
+}) => {
+  // I-p2-039 (#825): the demo journey is the AUTHENTICATED reviewer flow, so seed
+  // a session and assert the full authed nav (incl. Compare) on each route.
+  await setupAuthedNav(page);
+  for (const path of [
+    "/",
+    "/intake",
+    "/dashboard",
+    "/inspector/v1-canonical-success",
+  ]) {
+    await page.goto(path);
+    await expect(page.locator("header")).toHaveCount(1);
+    await expectAuthedNav(page);
+  }
+});
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\public\\canonical_bundles\\v1_canonical_success\\metadata.json'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'tests\\fixtures\\signed_bundle\\v1_canonical_success\\metadata.json'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'tests\\fixtures\\signed_bundle\\v1_canonical_success\\verified_report.json' | Select-Object -First 30" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\app\\inspector\\offline\\page.tsx'" in C:\POLARIS
+ succeeded in 875ms:
+{
+  "bundle_created_at_utc": "2026-05-19T00:00:00+00:00",
+  "evaluator_model": "google/gemma-4-31b-it",
+  "generator_model": "deepseek/deepseek-v4-pro",
+  "polaris_version": "1.0.0",
+  "schema_version": "1.0"
+}
+
+ succeeded in 1004ms:
+{
+  "bundle_created_at_utc": "2026-05-20T00:00:00+00:00",
+  "generator_model": "deepseek/deepseek-v4-pro",
+  "evaluator_model": "google/gemma-4-31b-it",
+  "polaris_version": "1.0.0",
+  "schema_version": "1.0",
+  "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
+  "source": "real pipeline run: honest_sweep_r3 clinical_tirzepatide_t2dm"
+}
+
+ succeeded in 1028ms:
+// I-cd-021 (#631) — Offline Inspector page. Renders a v1.0 signed bundle
+// in-browser from a `.tar.gz` file dropped by a disconnected reviewer.
+// No GPU, no backend, no API call.
+"use client";
+
+import { useState } from "react";
+
+import { InspectorView } from "@/app/inspector/[runId]/inspector_view";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  BundleClientLoaderError,
+  loadBundleFromTarGz,
+} from "@/lib/inspector_bundle_client_loader";
+import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+
+export default function InspectorOfflinePage() {
+  const [bundle, setBundle] = useState<LoadedBundle | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  async function handleFile(file: File) {
+    setLoading(true);
+    setError(null);
+    setBundle(null);
+    try {
+      const loaded = await loadBundleFromTarGz(file);
+      setBundle(loaded);
+    } catch (exc) {
+      const message =
+        exc instanceof BundleClientLoaderError
+          ? `${exc.code}: ${exc.message}`
+          : (exc as Error).message;
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  if (bundle) {
+    return (
+      <InspectorView
+        bundle={bundle}
+        signaturePresent={bundle.signaturePresent}
+      />
+    );
+  }
+
+  return (
+    <main
+      className="mx-auto flex max-w-3xl flex-col gap-6 p-6"
+      data-testid="inspector-offline"
+    >
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Offline Inspector</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <p className="text-muted-foreground">
+            Drop or pick a signed POLARIS audit bundle (<code>.tar.gz</code>).
+            The bundle is verified and rendered entirely in your browser — no
+            backend or GPU required. SHA-256 of every file is checked against
+            the manifest. GPG cryptographic verify is out of scope (the
+            bundle&apos;s <code>.asc</code> presence is detected, but full
+            key-trust verification needs a CLI).
+          </p>
+          <div
+            data-testid="inspector-offline-dropzone"
+            role="button"
+            tabIndex={0}
+            aria-label="Drop bundle tar.gz or click to pick a file"
+            onDrop={onDrop}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                document.getElementById("inspector-offline-input")?.click();
+              }
+            }}
+            onClick={() =>
+              document.getElementById("inspector-offline-input")?.click()
+            }
+            className={`border-border focus-visible:ring-ring flex min-h-32 cursor-pointer items-center justify-center rounded border-2 border-dashed px-6 py-8 text-center text-sm focus-visible:ring-2 focus-visible:outline-none ${
+              dragOver ? "bg-muted/60" : "bg-muted/20"
+            }`}
+          >
+            {loading
+              ? "Loading bundle…"
+              : "Drop bundle.tar.gz here or press Enter to pick a file"}
+          </div>
+          <input
+            id="inspector-offline-input"
+            data-testid="inspector-offline-file-input"
+            type="file"
+            accept=".tar.gz,.tgz,application/gzip,application/x-gzip"
+            className="sr-only"
+            onChange={onInputChange}
+          />
+          {error ? (
+            <div
+              data-testid="inspector-offline-error"
+              role="alert"
+              className="rounded border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-700 dark:text-rose-300"
+            >
+              <strong className="block">Bundle could not be loaded</strong>
+              <code className="mt-1 block text-xs">{error}</code>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+
+ succeeded in 1155ms:
+{
+  "cost_usd": 0.0,
+  "decision_id": "decision_v1_canonical_0001",
+  "evaluator_model": "google/gemma-4-31b-it",
+  "family_segregation_passed": true,
+  "finished_at_utc": "2026-05-19T00:00:00+00:00",
+  "generator_model": "deepseek/deepseek-v4-pro",
+  "latency_ms": 4200,
+  "overall_verify_pass_rate": 1.0,
+  "pipeline_verdict": "success",
+  "pool_id": "pool_v1_canonical_0001",
+  "report_id": "report_v1_canonical_0001_success",
+  "sections": [
+    {
+      "section_id": "Population",
+      "section_status": "verified",
+      "section_title": "Population",
+      "section_verify_pass_rate": 1.0,
+      "verified_sentences": [
+        {
+          "assertion_surface": "prose",
+          "contradiction": null,
+          "drop_reason": null,
+          "evaluator_agrees": true,
+          "evaluator_disagreement": null,
+          "is_synthesis_claim": false,
+          "provenance_tokens": [
+            "[#ev:src_v1_canonical_0001:0-99]"
+          ],
+          "section_id": "Population",
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath 'tests\\fixtures\\signed_bundle\\v1_canonical_success\\verified_report.json' -Pattern 'research_question'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath 'tests\\fixtures\\signed_bundle\\v1_canonical\\verified_report.json' -Pattern 'research_question'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath 'tests\\fixtures\\signed_bundle\\v1_canonical_success\\metadata.json' -Pattern 'research_question'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'tests\\fixtures\\signed_bundle\\v1_canonical_success\\manifest.yaml' | Select-Object -First 30" in C:\POLARIS
+ succeeded in 908ms:
+ succeeded in 1005ms:
+ succeeded in 1040ms:
+bundle_created_at_utc: '2026-05-19T00:00:00Z'
+bundle_id: bundle_v1_canonical_0001_success
+bundle_version: '1.0'
+decision_id: decision_v1_canonical_0001
+files:
+- content_type: scope_decision
+  path: scope_decision.json
+  sha256: 37e8a54e7536e02788cf8e1aaca546714c18549878aec92e8b6458fa59e813f5
+  size_bytes: 332
+- content_type: evidence_pool
+  path: evidence_pool.json
+  sha256: f8249c902925aefa03a2ef0e3f86a82f160f21aa0eaf11875f30bd4a9c8557b5
+  size_bytes: 1138
+- content_type: verified_report
+  path: verified_report.json
+  sha256: 813970c56041eeab246cb697fb49b75ccab905d76f8ee0c5610576e35f183111
+  size_bytes: 2458
+- content_type: metadata
+  path: metadata.json
+  sha256: 69b94105be13490815dbd18d8c3dc02485c2e8c68b123f12f95f13001f7f3fde
+  size_bytes: 211
+- content_type: metadata
+  path: REVIEWER_README.md
+  sha256: f440f60cda8861400cfa4b572c7784def6832987756e2066cf24158df96825ee
+  size_bytes: 336
+- content_type: reasoning_trace
+  path: reasoning_trace.jsonl
+  sha256: 815069307891201bc1a06324e961fda0cdf81143a210939975f007705afba2d0
+  size_bytes: 961
+- content_type: source_snapshot
+
+ succeeded in 1089ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath 'tests\\fixtures\\signed_bundle\\v1_canonical_success\\scope_decision.json' -Pattern 'research_question|question' -Context 0,1" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'tests\\fixtures\\signed_bundle\\v1_canonical_success\\scope_decision.json'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\public\\canonical_bundles\\v1_canonical\\scope_decision.json' | Select-Object -First 40" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\public\\canonical_bundles\\v1_canonical\\metadata.json'" in C:\POLARIS
+ succeeded in 1215ms:
+{
+  "ambiguity_axes": [],
+  "clarifications_needed": [],
+  "decided_at_utc": "2026-05-19T00:00:00+00:00",
+  "decision_id": "decision_v1_canonical_0001",
+  "latency_ms": 12,
+  "provenance": {
+    "ambiguity_detector_layer": "regex",
+    "classifier_layer": "regex"
+  },
+  "scope_class": "clinical_efficacy",
+  "status": "in_scope"
+}
+
+ succeeded in 1300ms:
+ succeeded in 1346ms:
+{
+  "bundle_created_at_utc": "2026-05-19T00:00:00+00:00",
+  "evaluator_model": "google/gemma-4-31b-it",
+  "generator_model": "deepseek/deepseek-v4-pro",
+  "polaris_version": "1.0.0",
+  "schema_version": "1.0"
+}
+
+ succeeded in 1464ms:
+{
+  "ambiguity_axes": [],
+  "clarifications_needed": [],
+  "decided_at_utc": "2026-05-19T00:00:00+00:00",
+  "decision_id": "decision_v1_canonical_0001",
+  "latency_ms": 12,
+  "provenance": {
+    "ambiguity_detector_layer": "regex",
+    "classifier_layer": "regex"
+  },
+  "scope_class": "clinical_efficacy",
+  "status": "in_scope"
+}
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Add the required `docs/web/s_tier_design_system.md` per-screen grade update in the implementation pass; `file_directory` only matters if structure changes."
+  - "Use `--destructive` for two-family fail state, not `--contradiction`; this is an invariant failure, not a warning."
+  - "Style the Full manifest `<details>` so it wraps as secondary disclosure and does not visually compete with the research-question hero on mobile."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+79,477

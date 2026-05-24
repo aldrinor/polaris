@@ -1,0 +1,3032 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e5781-416a-7370-b7b7-65d8e99cfc32
+--------
+user
+# Codex DIFF review — I-p2-043 (#833): Inspector centerpiece S-rebuild
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Context (already gated)
+- The brief was APPROVE'd by you (iter 1) — `.codex/I-p2-043/codex_brief_verdict.txt`.
+- The VISUAL gate APPROVE'd (iter 3) — desktop A / mobile A- / manifest A / abort A-
+  (`.codex/I-p2-043/codex_visual_audit_iter3.txt`). This is the CODE correctness review.
+- canonical-diff-sha256: 0e9245b67fe47ebd49163ad0d514421c0176dcad013abe67f90e760293207287
+
+## What the diff does (5 files, +238/-111)
+1. `bundle_header.tsx` — slim metadata line + zero-loss "Full manifest" `<details>` (all 8
+   manifest fields incl. report_id + bundle_version, surfaced nowhere else). SignatureBadge
+   exported + moved out (now rendered by the proof header beside the family chip). Keeps
+   `data-testid="bundle-header"`; SignatureBadge keeps `data-testid="signature-badge"`+state.
+2. `family_segregation_badge.tsx` — tokenized (was hardcoded emerald/rose): pass=--verified,
+   FAIL=--destructive. Compacted to an inline chip. Keeps testid + data-state. Gen/eval
+   models move to title + remain in MetadataPanel (zero loss).
+3. `inspector_proof_header.tsx` (NEW) — the bespoke proof-header band: H1 (research_question
+   or "Signed research bundle" for abort) + verify-rate headline (or amber verdict pill for
+   abort, NOT the Report tab's `pipeline-verdict-badge` testid) + grouped trust chips +
+   BundleHeader. testid `inspector-proof-summary` (verified/abort branches).
+4. `inspector_view.tsx` — renders InspectorProofHeader; the 8-tab rail wrapped in a
+   horizontal-scroll lane (mobile overflow fix). Tabs/labels/data-tab ids unchanged.
+5. `docs/web/s_tier_design_system.md` — per-screen grade update.
+
+## Verification done
+- typecheck clean; eslint 0 errors (3 pre-existing warnings in untouched files); prettier ok.
+- e2e: `inspector_route.spec.ts` 11/11 active pass (bundle-header visible, family badge
+  data-state=pass, 6 tabs, provenance toggle, no console errors, no dev-language, 3 viewports,
+  abort verdict, pending CTA); `sentence_inspector.spec.ts` pass. `inspector_offline_fallback`
+  fails at its `tar -czf` setup step (pre-existing Windows harness issue; my branch touches no
+  test files).
+
+## Review focus
+- LAW II zero data loss: confirm report_id + bundle_version remain reachable (the disclosure).
+- testid/DOM contract: confirm no e2e contract broken (bundle-header/family-segregation-badge/
+  signature-badge/inspector-view/data-tab ids/no second pipeline-verdict-badge).
+- BundleHeader API change (dropped signaturePresent) — confirm only callers are the proof
+  header (offline page → InspectorView → InspectorProofHeader).
+- Token correctness (no hardcoded colors; brand #c8102e untouched).
+- LOC: +238/-111 net +127 for a cohesive single-page centerpiece rebuild — flag if you
+  consider this a real 200-LOC-cap concern vs. acceptable for the scope.
+
+## The diff
+```diff
+diff --git a/docs/web/s_tier_design_system.md b/docs/web/s_tier_design_system.md
+index 234a3989..a608c8bf 100644
+--- a/docs/web/s_tier_design_system.md
++++ b/docs/web/s_tier_design_system.md
+@@ -65,13 +65,20 @@ span highlights, and verdict badges appear consistently across the product.
+    plus the proof primitives (ProofToken/ProofRail/SourceSpan/VerdictBadge).
+ 3. **Proof system** — ClaimStack / ProofReplayPanel / EvaluatorVerdict /
+    AuditHashChain.
+-4. **Pages** (S-bar, worst-gap weighted): Inspector → Home → Intake → Contracts →
+-   Upload → Pin Replay → Sign-in.
++4. **Pages** (S-bar, worst-gap weighted): Inspector ✓ (#833, dual visual gate iter-3
++   APPROVE) → Home → Intake → Contracts → Upload → Pin Replay → Sign-in.
+ 5. **Cred-gated** (need `POLARIS_DEMO_USER`/`POLARIS_DEMO_PASS`): dashboard,
+    benchmark, memory, source-review, and the Plan → Run → Compare journey.
+ 
+-## Per-screen S-bar baseline (Codex, 2026-05-23 — pre-redo)
++## Per-screen S-bar baseline (Codex visual gate, `-i`)
+ 
+-Inspector B+, Home B, Intake B−, Contracts B− (post first rebuild), Sign-in B−,
+-Upload C+, Pin Replay C. Target every screen at A++/S with the signature move
+-systematized.
++- **Inspector** (#833, I-p2-043): **desktop A / mobile A− / manifest A / abort A−**
++  (Codex visual iter-3 APPROVE). The audit metadata no longer leads — a bespoke
++  proof-header band (research question → verify-rate headline → grouped trust chips →
++  zero-loss manifest disclosure) makes Proof Replay the centerpiece. Residual P2 (deferred):
++  mobile evidence-card density lives in the Proof Replay split-view internals (separate
++  component issue); the lower-left "N" badge in dev captures is the Next.js dev indicator
++  (absent in production builds).
++- Pre-redo baseline (Codex, 2026-05-23): Home B, Intake B−, Contracts B− (post first
++  rebuild), Sign-in B−, Upload C+, Pin Replay C. Target every screen at A++/S with the
++  signature move systematized.
+diff --git a/web/app/inspector/[runId]/inspector_view.tsx b/web/app/inspector/[runId]/inspector_view.tsx
+index d5459872..a6bc4dc5 100644
+--- a/web/app/inspector/[runId]/inspector_view.tsx
++++ b/web/app/inspector/[runId]/inspector_view.tsx
+@@ -1,11 +1,15 @@
+ // I-cd-013a (GH#609) — Inspector view (client component, Tabs structure).
++// I-p2-043 (#833) S-tier: the page led with two stacked audit-metadata cards
++// (BundleHeader + FamilySegregationBadge) ABOVE the Proof Replay centerpiece —
++// "compliance tooling before the product" (Codex). Restructured so a bespoke
++// proof-header band (question + verify-rate proof artifact + trust line) leads and
++// Proof Replay is the default tab. See InspectorProofHeader.
+ "use client";
+ 
+ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+-import { BundleHeader } from "@/components/inspector/bundle_header";
+ import { EvidencePoolTable } from "@/components/inspector/evidence_pool_table";
+-import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
+ import { HashChainPanel } from "@/components/inspector/hash_chain_panel";
++import { InspectorProofHeader } from "@/components/inspector/inspector_proof_header";
+ import { MetadataPanel } from "@/components/inspector/metadata_panel";
+ import { ProofReplay } from "@/components/proof_replay/proof_replay";
+ import { ReasoningTraceTimeline } from "@/components/inspector/reasoning_trace_timeline";
+@@ -29,25 +33,26 @@ export function InspectorView({
+       data-testid="inspector-view"
+       data-run-id={bundle.runId}
+     >
+-      <BundleHeader
+-        manifest={bundle.manifest}
++      <InspectorProofHeader
++        bundle={bundle}
+         signaturePresent={signaturePresent}
+       />
+-      <FamilySegregationBadge
+-        manifest={bundle.manifest}
+-        verifiedReport={bundle.verifiedReport}
+-      />
+       <Tabs defaultValue="proof">
+-        <TabsList>
+-          <TabsTrigger value="proof">Proof Replay</TabsTrigger>
+-          <TabsTrigger value="report">Report</TabsTrigger>
+-          <TabsTrigger value="scope">Scope</TabsTrigger>
+-          <TabsTrigger value="evidence">Evidence</TabsTrigger>
+-          <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
+-          <TabsTrigger value="sources">Sources</TabsTrigger>
+-          <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
+-          <TabsTrigger value="metadata">Metadata</TabsTrigger>
+-        </TabsList>
++        {/* I-p2-043 (#833): the 8-tab rail overflowed the 375w viewport (Codex visual
++            iter-2 P1). Contain it in a horizontal-scroll lane — desktop hugs content,
++            mobile scrolls instead of bleeding off-screen. */}
++        <div className="-mx-1 overflow-x-auto px-1 pb-1">
++          <TabsList>
++            <TabsTrigger value="proof">Proof Replay</TabsTrigger>
++            <TabsTrigger value="report">Report</TabsTrigger>
++            <TabsTrigger value="scope">Scope</TabsTrigger>
++            <TabsTrigger value="evidence">Evidence</TabsTrigger>
++            <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
++            <TabsTrigger value="sources">Sources</TabsTrigger>
++            <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
++            <TabsTrigger value="metadata">Metadata</TabsTrigger>
++          </TabsList>
++        </div>
+         {/* I-p2-017 (#756): the CENTERPIECE — Report = Proof Replay. The #746
+             split-view (click a verified claim → see its exact cited source span)
+             was built but wired into NO route; this surfaces it as the default
+diff --git a/web/components/inspector/bundle_header.tsx b/web/components/inspector/bundle_header.tsx
+index 680fb295..c47594ce 100644
+--- a/web/components/inspector/bundle_header.tsx
++++ b/web/components/inspector/bundle_header.tsx
+@@ -1,84 +1,99 @@
+-// I-cd-013a (GH#609) — Bundle header (top-level manifest summary).
+-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++// I-cd-013a (GH#609) — Bundle header.
++// I-p2-043 (#833) S-tier: the full 8-field audit Card dominated ABOVE the Proof
++// Replay centerpiece. Compacted to a slim metadata line + a subordinate "Full manifest"
++// disclosure carrying all 8 fields (ZERO loss — report_id and bundle_version live ONLY
++// here). Visual-gate iter 2: the signature chip moved OUT to the proof-header's chip row
++// (grouped with the two-family chip) so the expanded manifest stays one coherent block
++// instead of splitting trust state into two islands. SignatureBadge is exported for that.
++import { Fragment } from "react";
++
++import { ChevronRight, ShieldAlert, ShieldCheck } from "lucide-react";
++
+ import type { BundleManifest } from "@/lib/signed_bundle";
+ 
+ interface BundleHeaderProps {
+   manifest: BundleManifest;
+-  signaturePresent: boolean;
+ }
+ 
+-export function BundleHeader({
+-  manifest,
+-  signaturePresent,
+-}: BundleHeaderProps) {
++export function BundleHeader({ manifest }: BundleHeaderProps) {
+   const created = new Date(manifest.bundle_created_at_utc).toUTCString();
++  const fields: Array<{ label: string; value: string; mono?: boolean }> = [
++    { label: "Bundle ID", value: manifest.bundle_id, mono: true },
++    {
++      label: "Schema version",
++      value: `v${manifest.bundle_version}`,
++      mono: true,
++    },
++    { label: "POLARIS version", value: manifest.polaris_version, mono: true },
++    { label: "Generator model", value: manifest.generator_model, mono: true },
++    { label: "Decision ID", value: manifest.decision_id, mono: true },
++    { label: "Pool ID", value: manifest.pool_id, mono: true },
++    { label: "Report ID", value: manifest.report_id, mono: true },
++    { label: "Created (UTC)", value: created },
++  ];
+   return (
+-    <Card data-testid="bundle-header">
+-      <CardHeader>
+-        <CardTitle>Signed audit bundle</CardTitle>
+-      </CardHeader>
+-      <CardContent className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+-        <KeyValue label="Bundle ID" value={manifest.bundle_id} mono />
+-        <KeyValue
+-          label="Schema version"
+-          value={`v${manifest.bundle_version}`}
+-        />
+-        <KeyValue label="POLARIS version" value={manifest.polaris_version} />
+-        <KeyValue
+-          label="Generator model"
+-          value={manifest.generator_model}
+-          mono
+-        />
+-        <KeyValue label="Decision ID" value={manifest.decision_id} mono />
+-        <KeyValue label="Pool ID" value={manifest.pool_id} mono />
+-        <KeyValue label="Report ID" value={manifest.report_id} mono />
+-        <KeyValue label="Created (UTC)" value={created} />
+-        <div className="md:col-span-2">
+-          <SignatureBadge present={signaturePresent} />
+-        </div>
+-      </CardContent>
+-    </Card>
+-  );
+-}
+-
+-function KeyValue({
+-  label,
+-  value,
+-  mono = false,
+-}: {
+-  label: string;
+-  value: string;
+-  mono?: boolean;
+-}) {
+-  return (
+-    <div>
+-      <p className="text-muted-foreground text-xs tracking-wide uppercase">
+-        {label}
+-      </p>
+-      <p className={mono ? "font-mono text-sm" : "text-sm"}>{value}</p>
++    <div data-testid="bundle-header" className="flex flex-col gap-1.5">
++      <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
++        <span className="font-mono">{manifest.bundle_id}</span>
++        <span aria-hidden className="text-muted-foreground/40">
++          ·
++        </span>
++        <span className="font-mono">{manifest.generator_model}</span>
++        <span aria-hidden className="text-muted-foreground/40">
++          ·
++        </span>
++        <span>{created}</span>
++      </div>
++      <details className="group/manifest text-xs">
++        <summary className="text-muted-foreground/80 hover:text-foreground ease-standard inline-flex w-fit cursor-pointer list-none items-center gap-1 rounded-md py-0.5 transition-colors duration-150 [&::-webkit-details-marker]:hidden">
++          <ChevronRight
++            aria-hidden
++            className="ease-standard h-3 w-3 transition-transform duration-150 group-open/manifest:rotate-90"
++          />
++          Full manifest
++        </summary>
++        <dl className="border-border/60 bg-muted/40 mt-1.5 grid max-w-md grid-cols-[max-content_1fr] gap-x-4 gap-y-1 rounded-md border-l p-2.5">
++          {fields.map((f) => (
++            <Fragment key={f.label}>
++              <dt className="text-muted-foreground">{f.label}</dt>
++              <dd
++                className={
++                  f.mono
++                    ? "text-foreground font-mono break-all"
++                    : "text-foreground"
++                }
++              >
++                {f.value}
++              </dd>
++            </Fragment>
++          ))}
++        </dl>
++      </details>
+     </div>
+   );
+ }
+ 
+-function SignatureBadge({ present }: { present: boolean }) {
++export function SignatureBadge({ present }: { present: boolean }) {
+   if (present) {
+     return (
+-      <p
+-        className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200"
++      <span
++        className="border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+         data-testid="signature-badge"
+         data-state="present"
+       >
+-        Signature present
+-      </p>
++        <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
++        Signed bundle
++      </span>
+     );
+   }
+   return (
+-    <p
+-      className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
++    <span
++      className="border-contradiction/40 bg-contradiction/15 text-contradiction-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+       data-testid="signature-badge"
+       data-state="missing"
+     >
++      <ShieldAlert aria-hidden className="h-3.5 w-3.5" />
+       Signature missing
+-    </p>
++    </span>
+   );
+ }
+diff --git a/web/components/inspector/family_segregation_badge.tsx b/web/components/inspector/family_segregation_badge.tsx
+index 3c2a8377..a7fbe97e 100644
+--- a/web/components/inspector/family_segregation_badge.tsx
++++ b/web/components/inspector/family_segregation_badge.tsx
+@@ -1,6 +1,14 @@
+ // I-cd-013a (GH#609) — Two-family invariant badge.
+ // Source of truth: verified_report.evaluator_model + verified_report.family_segregation_passed
+ // (NOT metadata.json — corrected at brief iter 1 P1).
++// I-p2-043 (#833) S-tier: tokenized (was hardcoded emerald/rose) — pass=--verified,
++// FAIL=--destructive (an invariant violation, not a soft warning — Codex P2). Compacted
++// from a full p-4 card to an inline trust chip so it rides in the hero's secondary row
++// instead of stacking above the Proof Replay centerpiece. Generator/evaluator models stay
++// in the title + are surfaced in MetadataPanel and the bundle-header manifest disclosure
++// (zero data loss). Keeps data-testid + data-state for the e2e contract.
++import { ShieldCheck, ShieldX } from "lucide-react";
++
+ import type { VerifiedReportShape } from "@/lib/inspector_bundle_loader";
+ import type { BundleManifest } from "@/lib/signed_bundle";
+ 
+@@ -15,37 +23,22 @@ export function FamilySegregationBadge({
+ }: FamilySegregationBadgeProps) {
+   const passed = verifiedReport.family_segregation_passed;
+   return (
+-    <div
++    <span
+       data-testid="family-segregation-badge"
+       data-state={passed ? "pass" : "fail"}
+-      className="border-border bg-card flex flex-col gap-2 rounded-md border p-4 text-sm"
++      title={`Generator: ${manifest.generator_model} · Evaluator: ${verifiedReport.evaluator_model}`}
++      className={
++        passed
++          ? "border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium"
++          : "border-destructive/40 bg-destructive/10 text-destructive inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium"
++      }
+     >
+-      <div className="flex items-center justify-between gap-3">
+-        <p className="font-medium">Two-family invariant</p>
+-        <span
+-          className={
+-            passed
+-              ? "inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+-              : "inline-flex items-center rounded-md bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-900 dark:bg-rose-950 dark:text-rose-200"
+-          }
+-        >
+-          {passed ? "Pass" : "Fail"}
+-        </span>
+-      </div>
+-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+-        <div>
+-          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+-            Generator
+-          </p>
+-          <p className="font-mono text-sm">{manifest.generator_model}</p>
+-        </div>
+-        <div>
+-          <p className="text-muted-foreground text-xs tracking-wide uppercase">
+-            Evaluator
+-          </p>
+-          <p className="font-mono text-sm">{verifiedReport.evaluator_model}</p>
+-        </div>
+-      </div>
+-    </div>
++      {passed ? (
++        <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
++      ) : (
++        <ShieldX aria-hidden className="h-3.5 w-3.5" />
++      )}
++      Two-family invariant {passed ? "verified" : "violated"}
++    </span>
+   );
+ }
+diff --git a/web/components/inspector/inspector_proof_header.tsx b/web/components/inspector/inspector_proof_header.tsx
+new file mode 100644
+index 00000000..51096882
+--- /dev/null
++++ b/web/components/inspector/inspector_proof_header.tsx
+@@ -0,0 +1,107 @@
++// I-p2-043 (#833) S-tier — the Inspector's bespoke proof-header band.
++// Codex visual gate iter-1 P1: the prior thin chip rows read as "form metadata, not a
++// premium proof artifact"; the abort shape lost its hero entirely. This consolidates the
++// hero question + the proof artifact (verify rate is the headline number) + the trust line
++// (two-family + signature + manifest disclosure) into ONE crafted band directly under the
++// H1 — the signature move (proof as the page's visual operating system), applied to the
++// header. Preserves the bundle-header / family-segregation-badge / signature-badge testids.
++import {
++  BundleHeader,
++  SignatureBadge,
++} from "@/components/inspector/bundle_header";
++import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
++import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
++
++interface InspectorProofHeaderProps {
++  bundle: LoadedBundle;
++  signaturePresent: boolean;
++}
++
++const VERDICT_LABELS: Record<string, string> = {
++  abort_no_verified_sections: "No verified sections",
++  abort_corpus_inadequate: "Corpus inadequate",
++  abort_corpus_approval_denied: "Corpus approval denied",
++  abort_scope_rejected: "Scope rejected",
++};
++
++function humanizeVerdict(verdict: string): string {
++  return (
++    VERDICT_LABELS[verdict] ??
++    verdict
++      .replace(/^abort_/, "")
++      .replace(/_/g, " ")
++      .trim()
++  );
++}
++
++export function InspectorProofHeader({
++  bundle,
++  signaturePresent,
++}: InspectorProofHeaderProps) {
++  const report = bundle.verifiedReport;
++  const sectionCount = report.sections?.length ?? 0;
++  const verified = sectionCount > 0;
++  const pct = Math.round(report.overall_verify_pass_rate * 100);
++
++  return (
++    <header className="flex flex-col gap-4">
++      <h1 className="font-heading text-foreground max-w-3xl text-2xl leading-tight font-bold tracking-tight text-balance sm:text-3xl">
++        {report.research_question ?? "Signed research bundle"}
++      </h1>
++
++      <div
++        data-testid="inspector-proof-header"
++        className="bg-card ring-foreground/10 shadow-card flex flex-col gap-3 rounded-xl p-4 ring-1 sm:p-5"
++      >
++        {/* primary proof artifact line — the verify rate is the headline number */}
++        {verified ? (
++          <div
++            data-testid="inspector-proof-summary"
++            className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
++          >
++            <span className="text-verified text-3xl leading-none font-bold tabular-nums">
++              {pct}%
++            </span>
++            <span className="text-foreground text-sm font-medium">
++              of claims verified
++            </span>
++            <span aria-hidden className="text-border">
++              •
++            </span>
++            <span className="text-muted-foreground text-sm">
++              {sectionCount} verified section{sectionCount === 1 ? "" : "s"} ·
++              every sentence traces to its cited source span
++            </span>
++          </div>
++        ) : (
++          <div
++            data-testid="inspector-proof-summary"
++            className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm"
++          >
++            <span className="border-contradiction/40 bg-contradiction/15 text-contradiction-foreground inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium">
++              {humanizeVerdict(report.pipeline_verdict)}
++            </span>
++            <span className="text-muted-foreground">
++              No verified sections — see the Report tab for the full pipeline
++              verdict.
++            </span>
++          </div>
++        )}
++
++        {/* trust grid — one left-aligned column: the two trust chips grouped on top,
++            then the bundle/model/date line + the manifest disclosure as one coherent
++            block (so the expanded manifest never splits into floating islands). */}
++        <div className="border-border/60 flex flex-col gap-2.5 border-t pt-3">
++          <div className="flex flex-wrap items-center gap-2">
++            <FamilySegregationBadge
++              manifest={bundle.manifest}
++              verifiedReport={report}
++            />
++            <SignatureBadge present={signaturePresent} />
++          </div>
++          <BundleHeader manifest={bundle.manifest} />
++        </div>
++      </div>
++    </header>
++  );
++}
+
+# canonical-diff-sha256: 0e9245b67fe47ebd49163ad0d514421c0176dcad013abe67f90e760293207287
+
+```
+
+codex
+I’ll verify the affected component contracts against the current tree, especially the `BundleHeader` callers, loaded bundle shape, and existing tests that bind to these test IDs.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "interface BundleManifest|type BundleManifest|export interface BundleManifest|LoadedBundle|VerifiedReportShape|overall_verify_pass_rate|pipeline_verdict|research_question" web -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "BundleHeader|SignatureBadge|FamilySegregationBadge|inspector-proof|pipeline-verdict-badge|data-tab|TabsTrigger" web docs -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat && git diff -- web/app/inspector/[runId]/inspector_view.tsx web/components/inspector/bundle_header.tsx web/components/inspector/family_segregation_badge.tsx web/components/inspector/inspector_proof_header.tsx docs/web/s_tier_design_system.md' in C:\POLARIS
+ succeeded in 907ms:
+web\components\ui\tabs.tsx:5:// carries a `data-tab` attribute so Playwright e2e can assert tab
+web\components\ui\tabs.tsx:31:export const TabsTrigger = forwardRef<
+web\components\ui\tabs.tsx:53:TabsTrigger.displayName = "TabsTrigger";
+web\components\ui\tabs.tsx:61:    data-tab={tabId}
+web\components\inspector\verified_report_sections.tsx:55:      data-testid="pipeline-verdict-badge"
+web\components\inspector\inspector_proof_header.tsx:9:  BundleHeader,
+web\components\inspector\inspector_proof_header.tsx:10:  SignatureBadge,
+web\components\inspector\inspector_proof_header.tsx:12:import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
+web\components\inspector\inspector_proof_header.tsx:53:        data-testid="inspector-proof-header"
+web\components\inspector\inspector_proof_header.tsx:59:            data-testid="inspector-proof-summary"
+web\components\inspector\inspector_proof_header.tsx:78:            data-testid="inspector-proof-summary"
+web\components\inspector\inspector_proof_header.tsx:96:            <FamilySegregationBadge
+web\components\inspector\inspector_proof_header.tsx:100:            <SignatureBadge present={signaturePresent} />
+web\components\inspector\inspector_proof_header.tsx:102:          <BundleHeader manifest={bundle.manifest} />
+web\app\inspector\[runId]\inspector_view.tsx:3:// (BundleHeader + FamilySegregationBadge) ABOVE the Proof Replay centerpiece —
+web\app\inspector\[runId]\inspector_view.tsx:9:import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+web\app\inspector\[runId]\inspector_view.tsx:46:            <TabsTrigger value="proof">Proof Replay</TabsTrigger>
+web\app\inspector\[runId]\inspector_view.tsx:47:            <TabsTrigger value="report">Report</TabsTrigger>
+web\app\inspector\[runId]\inspector_view.tsx:48:            <TabsTrigger value="scope">Scope</TabsTrigger>
+web\app\inspector\[runId]\inspector_view.tsx:49:            <TabsTrigger value="evidence">Evidence</TabsTrigger>
+web\app\inspector\[runId]\inspector_view.tsx:50:            <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
+web\app\inspector\[runId]\inspector_view.tsx:51:            <TabsTrigger value="sources">Sources</TabsTrigger>
+web\app\inspector\[runId]\inspector_view.tsx:52:            <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
+web\app\inspector\[runId]\inspector_view.tsx:53:            <TabsTrigger value="metadata">Metadata</TabsTrigger>
+web\components\inspector\family_segregation_badge.tsx:15:interface FamilySegregationBadgeProps {
+web\components\inspector\family_segregation_badge.tsx:20:export function FamilySegregationBadge({
+web\components\inspector\family_segregation_badge.tsx:23:}: FamilySegregationBadgeProps) {
+web\components\inspector\bundle_header.tsx:7:// instead of splitting trust state into two islands. SignatureBadge is exported for that.
+web\components\inspector\bundle_header.tsx:14:interface BundleHeaderProps {
+web\components\inspector\bundle_header.tsx:18:export function BundleHeader({ manifest }: BundleHeaderProps) {
+web\components\inspector\bundle_header.tsx:76:export function SignatureBadge({ present }: { present: boolean }) {
+web\tests\e2e\inspector_route.spec.ts:62:    // Map data-tab id -> rendered tab label (the latter contains spaces
+web\tests\e2e\inspector_route.spec.ts:74:      const panel = page.locator(`[data-tab="${tabId}"]`);
+web\tests\e2e\inspector_route.spec.ts:79:        await expect(page.locator(`[data-tab="${otherId}"]`)).toBeHidden();
+web\tests\e2e\inspector_route.spec.ts:130:    const verdict = page.getByTestId("pipeline-verdict-badge");
+
+ succeeded in 957ms:
+web\lib\api.ts:922:  overall_verify_pass_rate: number;
+web\lib\api.ts:923:  pipeline_verdict: PipelineVerdict;
+web\lib\api.ts:1448:  research_question: string;
+web\lib\api.ts:1527:  research_question: string;
+web\lib\contracts.ts:39:  research_question: string;
+web\lib\contracts.ts:70:  if (!c.research_question.trim()) errs.push("research_question required");
+web\lib\inspector_bundle_loader.ts:18:  type BundleManifest,
+web\lib\inspector_bundle_loader.ts:31:export interface LoadedBundle {
+web\lib\inspector_bundle_loader.ts:36:  verifiedReport: VerifiedReportShape;
+web\lib\inspector_bundle_loader.ts:45:export interface VerifiedReportShape {
+web\lib\inspector_bundle_loader.ts:50:  overall_verify_pass_rate: number;
+web\lib\inspector_bundle_loader.ts:52:  pipeline_verdict: string;
+web\lib\inspector_bundle_loader.ts:61:  research_question?: string;
+web\lib\inspector_bundle_loader.ts:84:export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+web\lib\inspector_bundle_loader.ts:106:    )) as VerifiedReportShape;
+web\lib\inspector_bundle_client_loader.ts:5: * reviewer (no backend, no GPU). Same `LoadedBundle` shape as the
+web\lib\inspector_bundle_client_loader.ts:29:  type BundleManifest,
+web\lib\inspector_bundle_client_loader.ts:37:  LoadedBundle,
+web\lib\inspector_bundle_client_loader.ts:38:  VerifiedReportShape,
+web\lib\inspector_bundle_client_loader.ts:205:export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
+web\lib\inspector_bundle_client_loader.ts:299:  ) as VerifiedReportShape;
+web\lib\signed_bundle.ts:59:export interface BundleManifest {
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:152:  "overall_verify_pass_rate": 1.0,
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:154:  "pipeline_verdict": "success",
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:162:  "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?"
+web\components\inspector\verified_report_sections.tsx:13:  VerifiedReportShape,
+web\components\inspector\verified_report_sections.tsx:18:  verifiedReport: VerifiedReportShape;
+web\components\inspector\verified_report_sections.tsx:29:          {(verifiedReport.overall_verify_pass_rate * 100).toFixed(0)}%
+web\components\inspector\verified_report_sections.tsx:34:        <VerdictBadge verdict={verifiedReport.pipeline_verdict} />
+web\components\inspector\verified_report_sections.tsx:38:            <code className="font-mono">{verifiedReport.pipeline_verdict}</code>
+web\tests\e2e\bundle_preview.spec.ts:32:  overall_verify_pass_rate: 1,
+web\tests\e2e\bundle_preview.spec.ts:33:  pipeline_verdict: "success",
+web\components\inspector\metadata_panel.tsx:2:// `LoadedBundle.metadata` was parsed but never rendered. Adds explicit
+web\components\inspector\inspector_proof_header.tsx:13:import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+web\components\inspector\inspector_proof_header.tsx:16:  bundle: LoadedBundle;
+web\components\inspector\inspector_proof_header.tsx:44:  const pct = Math.round(report.overall_verify_pass_rate * 100);
+web\components\inspector\inspector_proof_header.tsx:49:        {report.research_question ?? "Signed research bundle"}
+web\components\inspector\inspector_proof_header.tsx:82:              {humanizeVerdict(report.pipeline_verdict)}
+web\app\generation\components\verified_report_view.tsx:407:          <VerdictBadge verdict={report.pipeline_verdict} />
+web\app\generation\components\verified_report_view.tsx:441:              {Math.round(report.overall_verify_pass_rate * 100)}%
+web\components\inspector\family_segregation_badge.tsx:12:import type { VerifiedReportShape } from "@/lib/inspector_bundle_loader";
+web\components\inspector\family_segregation_badge.tsx:17:  verifiedReport: VerifiedReportShape;
+web\public\canonical_bundles\v1_canonical_success\scope_decision.json:13:  "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?"
+web\app\generation\components\generation_runner.tsx:194:          {state.report.pipeline_verdict === "success" ? (
+web\public\canonical_bundles\v1_canonical_success\metadata.json:7:  "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
+web\app\contracts\_editor.tsx:55:  const [research_question, set_q] = useState("");
+web\app\contracts\_editor.tsx:89:      research_question,
+web\app\contracts\_editor.tsx:139:              value={research_question}
+web\public\canonical_bundles\v1_canonical\verified_report.json:9:  "overall_verify_pass_rate": 0.0,
+web\public\canonical_bundles\v1_canonical\verified_report.json:10:  "pipeline_verdict": "abort_no_verified_sections",
+web\app\sentence_hover_test\_demo.tsx:459:  overall_verify_pass_rate: 1.0,
+web\app\sentence_hover_test\_demo.tsx:460:  pipeline_verdict: "success",
+web\app\components\proof_showcase.tsx:71:  const question = bundle.verifiedReport?.research_question;
+web\app\sentence_hover_test\_demo_stress.tsx:71:    overall_verify_pass_rate: 1.0,
+web\app\sentence_hover_test\_demo_stress.tsx:72:    pipeline_verdict: "success",
+web\app\sentence_hover_test\_demo_coverage.tsx:97:    overall_verify_pass_rate: 1.0,
+web\app\sentence_hover_test\_demo_coverage.tsx:98:    pipeline_verdict: "success",
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:82:    overall_verify_pass_rate: 1.0,
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:83:    pipeline_verdict: "success",
+web\app\sentence_hover_test\memory_cite\page.tsx:40:  overall_verify_pass_rate: 1.0,
+web\app\sentence_hover_test\memory_cite\page.tsx:41:  pipeline_verdict: "success",
+web\app\inspector\offline\page.tsx:14:import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+web\app\inspector\offline\page.tsx:17:  const [bundle, setBundle] = useState<LoadedBundle | null>(null);
+web\app\inspector\[runId]\inspector_view.tsx:19:import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+web\app\inspector\[runId]\inspector_view.tsx:22:  bundle: LoadedBundle;
+web\app\sentence_hover_test\follow_up_append\page.tsx:31:    overall_verify_pass_rate: 1.0,
+web\app\sentence_hover_test\follow_up_append\page.tsx:32:    pipeline_verdict: "success",
+web\app\runs\[runId]\audit\page.tsx:28:  type LoadedBundle,
+web\app\runs\[runId]\audit\page.tsx:29:  type VerifiedReportShape,
+web\app\runs\[runId]\audit\page.tsx:63:function totalPassedSentences(report: VerifiedReportShape): number {
+web\app\runs\[runId]\audit\page.tsx:70:function totalAttemptedSentences(report: VerifiedReportShape): number {
+web\app\runs\[runId]\audit\page.tsx:85:function buildGateLedger(report: VerifiedReportShape): GateRow[] {
+web\app\runs\[runId]\audit\page.tsx:89:      pass: report.pipeline_verdict === "success",
+web\app\runs\[runId]\audit\page.tsx:90:      detail: report.pipeline_verdict,
+web\app\runs\[runId]\audit\page.tsx:94:      pass: report.overall_verify_pass_rate >= report.verifier_pass_threshold,
+web\app\runs\[runId]\audit\page.tsx:95:      detail: `${pct(report.overall_verify_pass_rate)} of sentences span-verified · threshold ${pct(report.verifier_pass_threshold)}`,
+web\app\runs\[runId]\audit\page.tsx:142:function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
+
+ succeeded in 1108ms:
+codex
+The search matches the claimed topology: `BundleHeader` is only consumed by the new proof header, and the only `pipeline-verdict-badge` remains in the Report component. I’m checking type and test details now for any hidden contract mismatch.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\signed_bundle.ts -TotalCount 140" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\inspector_bundle_loader.ts -TotalCount 140" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\inspector_route.spec.ts -TotalCount 180" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\ui\\tabs.tsx -TotalCount 100" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+ succeeded in 1069ms:
+// I-cd-012 (GH#608) — frontend mirror of
+// src/polaris_graph/audit_bundle/bundle_schema.py:BundleManifest (FROZEN v1.0).
+//
+// FROZEN v1.0: Field additions, removals, type changes, or new ContentType
+// enum members require the full bump cascade documented in the Python module.
+//
+// Active consumers:
+//   - Future Inspector route (I-A-03, #609)
+//   - Offline fallback Inspector that renders a signed bundle in-browser
+//     with no GPU/no backend (I-B-09, #631)
+//
+// Active producers (mirror this contract):
+//   - src/polaris_graph/audit_bundle/manifest_builder.py
+//   - src/polaris_graph/audit_bundle/bundle_builder.py
+//   - src/polaris_graph/api/audit_bundle_route.py
+//   - src/polaris_v6/api/bundle.py
+
+import yaml from "js-yaml";
+
+// ---------------------------------------------------------------------------
+// Type literals — must match
+// src/polaris_graph/audit_bundle/bundle_schema.py:ContentType
+// ---------------------------------------------------------------------------
+
+export type ContentType =
+  | "scope_decision"
+  | "evidence_pool"
+  | "verified_report"
+  | "source_snapshot"
+  | "metadata"
+  | "reasoning_trace";
+
+export const CONTENT_TYPES: ContentType[] = [
+  "scope_decision",
+  "evidence_pool",
+  "verified_report",
+  "source_snapshot",
+  "metadata",
+  "reasoning_trace",
+];
+
+export const BUNDLE_VERSION = "1.0" as const;
+
+// ---------------------------------------------------------------------------
+// FileEntry — mirrors bundle_schema.py:FileEntry
+// ---------------------------------------------------------------------------
+
+export interface FileEntry {
+  path: string; // relative POSIX path inside the extracted bundle
+  sha256: string; // lowercase hex SHA256
+  size_bytes: number;
+  content_type: ContentType;
+}
+
+// ---------------------------------------------------------------------------
+// BundleManifest — mirrors bundle_schema.py:BundleManifest
+// ---------------------------------------------------------------------------
+
+export interface BundleManifest {
+  bundle_id: string;
+  bundle_version: typeof BUNDLE_VERSION;
+  decision_id: string;
+  pool_id: string;
+  report_id: string;
+  generator_model: string;
+  polaris_version: string;
+  files: FileEntry[];
+  bundle_created_at_utc: string; // ISO-8601 UTC
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning trace — JSONL (one record per generator LLM call)
+// ---------------------------------------------------------------------------
+
+// Mirrors src/polaris_graph/generator/reasoning_trace.py:67
+// ReasoningTraceRecord (the active producer dataclass). 15 fields.
+// Codex diff iter-1 P1: previous 5-field shape diverged from real producer.
+export interface ReasoningTraceRecord {
+  call_id: string;
+  section: string;
+  call_type: string;
+  model: string;
+  status: string; // see reasoning_trace.py STATUSES
+  content_source: string; // see reasoning_trace.py CONTENT_SOURCES
+  parent_call_id: string | null;
+  regen_reason: string | null;
+  attempt_n: number;
+  reasoning_text: string;
+  content_text: string;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  timestamp: string; // ISO-8601 UTC
+}
+
+// ---------------------------------------------------------------------------
+// Bundle metadata — content of metadata.json
+// ---------------------------------------------------------------------------
+
+export interface BundleMetadata {
+  polaris_version: string;
+  generator_model: string;
+  evaluator_model: string;
+  bundle_created_at_utc: string;
+  schema_version: typeof BUNDLE_VERSION;
+}
+
+// ---------------------------------------------------------------------------
+// Parsers
+// ---------------------------------------------------------------------------
+
+/** Parse a `manifest.yaml` text into a typed `BundleManifest`.
+ *
+ * Validation is structural (presence of required fields + bundle_version
+ * literal); deeper conformance (path traversal, SHA256 matching, content
+ * schema validity) lives in the Python `check_bundle_conformance`. */
+export function parseManifest(yamlText: string): BundleManifest {
+  const parsed = yaml.load(yamlText);
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("manifest.yaml does not parse to a YAML mapping");
+  }
+  const m = parsed as Partial<BundleManifest>;
+  if (m.bundle_version !== BUNDLE_VERSION) {
+    throw new Error(
+      `bundle_version ${m.bundle_version} != frozen ${BUNDLE_VERSION}`,
+    );
+  }
+  for (const required of [
+    "bundle_id",
+    "decision_id",
+    "pool_id",
+    "report_id",
+    "generator_model",
+    "polaris_version",
+    "files",
+    "bundle_created_at_utc",
+  ] as const) {
+    if (m[required] === undefined || m[required] === null) {
+      throw new Error(`manifest.yaml missing required field: ${required}`);
+    }
+
+ succeeded in 1243ms:
+// I-cd-013a (GH#609) — Inspector route e2e.
+//
+// Covers G1-G8 + per-tab assertion structure per the Codex iter-2 P2 #3
+// directive. Visual screenshot cases are restricted to chromium via
+// `test.skip(testInfo.project.name !== "chromium", "...")` per the
+// Codex iter-3 P1 multi-project resolution.
+//
+// G1 app shell · G2 no dev-language (rendered text only) · G3 interactive
+// states · G4 async states (covered by server-side bundle load) ·
+// G5 responsive (3 viewports) · G6 a11y (axe @ chromium only, future
+// I-cd-013b will fold this into accessibility.spec.ts) · G7 design tokens
+// (covered by visual snapshot) · G8 no console errors.
+
+import { expect, test } from "@playwright/test";
+
+const VIEWPORTS: Array<{ name: string; width: number; height: number }> = [
+  { name: "desktop", width: 1280, height: 800 },
+  { name: "tablet", width: 768, height: 1024 },
+  { name: "mobile", width: 375, height: 667 },
+];
+
+const TAB_IDS = [
+  "report",
+  "scope",
+  "evidence",
+  "reasoning",
+  "sources",
+  "hashchain",
+] as const;
+
+// G2: prohibited rendered-text patterns. Comments + data-testids may
+// contain these strings; only user-visible text in the rendered DOM is
+// checked here per Codex iter-3 P2 #3.
+const DEV_LANGUAGE_PATTERNS: RegExp[] = [
+  /\bTODO\b/,
+  /\bFIXME\b/,
+  /\bXXX\b/,
+  /\bplaceholder\b/i,
+  /lorem ipsum/i,
+];
+
+test.describe("Inspector route — canonical-success fixture", () => {
+  test("app shell + bundle header render (G1)", async ({ page }) => {
+    await page.goto("/inspector/v1-canonical-success", { waitUntil: "load" });
+    await expect(page.getByTestId("inspector-view")).toBeVisible();
+    await expect(page.getByTestId("bundle-header")).toBeVisible();
+    await expect(page.getByTestId("family-segregation-badge")).toBeVisible();
+  });
+
+  test("family segregation badge shows pass (verified_report SoT)", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success");
+    const badge = page.getByTestId("family-segregation-badge");
+    await expect(badge).toHaveAttribute("data-state", "pass");
+  });
+
+  test("per-tab visibility — all 6 tabs activate explicitly", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success");
+    // Map data-tab id -> rendered tab label (the latter contains spaces
+    // and may not literal-match the kebab-cased id; see inspector_view.tsx).
+    const tabLabels: Record<(typeof TAB_IDS)[number], RegExp> = {
+      report: /^report$/i,
+      scope: /^scope$/i,
+      evidence: /^evidence$/i,
+      reasoning: /^reasoning$/i,
+      sources: /^sources$/i,
+      hashchain: /^hash chain$/i,
+    };
+    for (const tabId of TAB_IDS) {
+      await page.getByRole("tab", { name: tabLabels[tabId] }).click();
+      const panel = page.locator(`[data-tab="${tabId}"]`);
+      await expect(panel).toBeVisible();
+      // The other tabs' panels must be hidden when this tab is active.
+      for (const otherId of TAB_IDS) {
+        if (otherId === tabId) continue;
+        await expect(page.locator(`[data-tab="${otherId}"]`)).toBeHidden();
+      }
+    }
+  });
+
+  test("provenance-token toggle is interactive (G3)", async ({ page }) => {
+    await page.goto("/inspector/v1-canonical-success");
+    await page.getByRole("tab", { name: /report/i }).click();
+    const firstToggle = page.getByTestId("toggle-provenance-tokens").first();
+    await expect(firstToggle).toBeVisible();
+    await firstToggle.click();
+  });
+
+  test("no console errors during render (G8)", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    expect(errors).toEqual([]);
+  });
+
+  test("no dev language in rendered text (G2 — rendered-text scope)", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success");
+    const bodyText = await page.locator("body").innerText();
+    for (const pattern of DEV_LANGUAGE_PATTERNS) {
+      expect(bodyText).not.toMatch(pattern);
+    }
+  });
+
+  for (const vp of VIEWPORTS) {
+    test(`responsive — ${vp.name} viewport renders (G5)`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+      await page.goto("/inspector/v1-canonical-success");
+      await expect(page.getByTestId("inspector-view")).toBeVisible();
+    });
+  }
+});
+
+test.describe("Inspector route — canonical (abort) fixture", () => {
+  test("renders abort-shape report with no sections (async + verdict)", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical");
+    await expect(page.getByTestId("inspector-view")).toBeVisible();
+    await page.getByRole("tab", { name: /report/i }).click();
+    const verdict = page.getByTestId("pipeline-verdict-badge");
+    await expect(verdict).toBeVisible();
+    await expect(verdict).toHaveAttribute("data-state", "abort");
+  });
+});
+
+test.describe("Inspector route — unknown runId pending CTA", () => {
+  test("unknown runId shows bundle-pending CTA, not a fixture", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/does-not-exist");
+    await expect(page.getByTestId("bundle-pending-cta")).toBeVisible();
+    await expect(page.getByTestId("cta-run-id")).toHaveText("does-not-exist");
+    // CTA must NOT render a bundle inspector for unknown runIds.
+    await expect(page.getByTestId("inspector-view")).toHaveCount(0);
+  });
+});
+
+// I-cd-013b (GH#669): visual regression baselines for the new Inspector.
+// These are `test.fixme()` because the chromium-win32 baselines have not
+// been captured yet — running with `--update-snapshots` after the dev
+// server is up will write them; a follow-up PR commits them and flips
+// the .fixme() markers off. The legacy chromium-win32 baselines (for
+// the old AuditIR Inspector) were deleted at this PR; the new ones
+// need an operator-manual capture or CI --update-snapshots run.
+const SCREENSHOT_OPTIONS = {
+  fullPage: true,
+  animations: "disabled" as const,
+  maxDiffPixelRatio: 0.02,
+};
+
+test.describe("Inspector route — visual baselines (chromium-win32; deferred)", () => {
+  test.fixme("v1-canonical-success Report tab visual baseline", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    await expect(page).toHaveScreenshot(
+      "inspector-v1-canonical-success-report.png",
+      {
+        ...SCREENSHOT_OPTIONS,
+        mask: [page.locator('[data-testid="bundle-header"]')],
+      },
+    );
+  });
+
+  test.fixme("v1-canonical abort-shape visual baseline", async ({ page }) => {
+    await page.goto("/inspector/v1-canonical", { waitUntil: "networkidle" });
+    await expect(page).toHaveScreenshot("inspector-v1-canonical-abort.png", {
+      ...SCREENSHOT_OPTIONS,
+
+ succeeded in 1328ms:
+// I-cd-013a (GH#609) — server-only bundle loader.
+//
+// Imported by web/app/inspector/[runId]/page.tsx and
+// web/app/api/inspector_bundle/[runId]/route.ts. Returns the parsed
+// canonical fixture data for runId === "v1-canonical" or
+// "v1-canonical-success"; returns null for any other runId (the page
+// renders a BundlePendingCTA in that case).
+//
+// Real-bundle backend wiring lands at I-B-08 (Seq 20); offline
+// fallback (in-browser bundle render) at I-B-09 (Seq 21). This module
+// is the swappable seam — same function signature, different data
+// path in each follow-up issue.
+
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
+import {
+  type BundleManifest,
+  type BundleMetadata,
+  type ReasoningTraceRecord,
+  parseManifest,
+  parseReasoningTraceJsonl,
+} from "@/lib/signed_bundle";
+
+// I-p2-p0 (#789): the canonical fixture ships in web/public/canonical_bundles/
+// (Dockerfile COPYs public → /app/public; cwd=/app at runtime), so it resolves
+// in dev, the standalone harness, AND the prod container — unlike the old
+// process.cwd()/../tests/fixtures path, which only existed in dev → live 500.
+const FIXTURE_ROOT = path.join(process.cwd(), "public", "canonical_bundles");
+
+export interface LoadedBundle {
+  runId: string;
+  manifest: BundleManifest;
+  scopeDecision: unknown;
+  evidencePool: unknown;
+  verifiedReport: VerifiedReportShape;
+  metadata: BundleMetadata;
+  reasoningTrace: ReasoningTraceRecord[];
+  sources: Record<string, string>;
+  /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
+   * Derived during load — NOT a manifest field. Codex diff iter-1 P2. */
+  signaturePresent: boolean;
+}
+
+export interface VerifiedReportShape {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSectionShape[];
+  overall_verify_pass_rate: number;
+  verifier_pass_threshold: number;
+  pipeline_verdict: string;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+  /** The research question this brief answered (real-run bundles). */
+  research_question?: string;
+}
+
+export interface VerifiedReportSectionShape {
+  section_id: string;
+  section_verify_pass_rate: number;
+  verified_sentences: VerifiedSentenceShape[];
+  [extra: string]: unknown;
+}
+
+export interface VerifiedSentenceShape {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  [extra: string]: unknown;
+}
+
+const KNOWN_FIXTURES: Record<string, string> = {
+  "v1-canonical": "v1_canonical",
+  "v1-canonical-success": "v1_canonical_success",
+};
+
+export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
+  // typeof guard (not `!relPath`): runId could be an Object.prototype name
+  // (toString / __proto__ / constructor) → KNOWN_FIXTURES[runId] returns a
+  // function/object → path.join would throw before the try → user-triggerable
+  // 500. A non-string lookup → null → BundlePendingCta. (Codex iter-2 P1.)
+  const relPath = KNOWN_FIXTURES[runId];
+  if (typeof relPath !== "string") return null;
+  const dir = path.join(FIXTURE_ROOT, relPath);
+
+  try {
+    const manifestRaw = await fs.readFile(
+      path.join(dir, "manifest.yaml"),
+      "utf-8",
+    );
+    const manifest = parseManifest(manifestRaw);
+
+    const scopeDecision = await readJson(dir, manifest, "scope_decision");
+    const evidencePool = await readJson(dir, manifest, "evidence_pool");
+    const verifiedReport = (await readJson(
+      dir,
+      manifest,
+      "verified_report",
+    )) as VerifiedReportShape;
+
+    // metadata.json is selected by EXPLICIT PATH per the v1.0 freeze;
+    // multiple files may carry content_type=metadata (e.g. REVIEWER_README.md
+    // also flagged metadata in the active producer).
+    const metadataEntry = manifest.files.find(
+      (f) => f.content_type === "metadata" && f.path === "metadata.json",
+    );
+    if (!metadataEntry) {
+      throw new Error(
+        `bundle ${runId}: manifest has no entry with path=metadata.json and content_type=metadata`,
+      );
+    }
+    const metadata = JSON.parse(
+      await fs.readFile(path.join(dir, "metadata.json"), "utf-8"),
+    ) as BundleMetadata;
+
+    const reasoningTraceEntry = manifest.files.find(
+      (f) => f.content_type === "reasoning_trace",
+    );
+    const reasoningTrace = reasoningTraceEntry
+      ? parseReasoningTraceJsonl(
+          await fs.readFile(path.join(dir, reasoningTraceEntry.path), "utf-8"),
+        )
+      : [];
+
+    const sources: Record<string, string> = {};
+    for (const entry of manifest.files) {
+      if (entry.content_type !== "source_snapshot") continue;
+      sources[entry.path] = await fs.readFile(
+        path.join(dir, entry.path),
+        "utf-8",
+      );
+    }
+
+
+ succeeded in 1443ms:
+// I-cd-013a (GH#609) — Tabs primitive wrapping @base-ui/react/tabs.
+//
+// Used by web/app/inspector/[runId]/inspector_view.tsx and any
+// downstream route that needs a tabbed layout. Each TabsContent
+// carries a `data-tab` attribute so Playwright e2e can assert tab
+// state explicitly per the Codex iter-2 P2 #3 directive.
+"use client";
+
+import { Tabs as BaseTabs } from "@base-ui/react/tabs";
+import { forwardRef, type ComponentPropsWithoutRef } from "react";
+
+import { cn } from "@/lib/utils";
+
+export const Tabs = BaseTabs.Root;
+
+export const TabsList = forwardRef<
+  HTMLDivElement,
+  ComponentPropsWithoutRef<typeof BaseTabs.List>
+>(({ className, ...props }, ref) => (
+  <BaseTabs.List
+    ref={ref}
+    className={cn(
+      "border-border bg-muted text-muted-foreground inline-flex h-10 items-center justify-start gap-1 rounded-md border p-1",
+      className,
+    )}
+    {...props}
+  />
+));
+TabsList.displayName = "TabsList";
+
+export const TabsTrigger = forwardRef<
+  HTMLButtonElement,
+  ComponentPropsWithoutRef<typeof BaseTabs.Tab>
+>(({ className, ...props }, ref) => (
+  <BaseTabs.Tab
+    ref={ref}
+    className={cn(
+      "ring-offset-background inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-all",
+      // I-p2-026 (#765): explicit inactive text color. The inherited
+      // text-muted-foreground on the bg-muted strip fails WCAG 2.2 AA
+      // contrast (axe serious); text-foreground/70 clears 4.5:1 while still
+      // reading lighter than the selected tab.
+      "text-foreground/70",
+      "focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+      "data-[selected]:bg-background data-[selected]:text-foreground data-[selected]:shadow-sm",
+      "hover:bg-background/60",
+      "disabled:pointer-events-none disabled:opacity-50",
+      className,
+    )}
+    {...props}
+  />
+));
+TabsTrigger.displayName = "TabsTrigger";
+
+export const TabsContent = forwardRef<
+  HTMLDivElement,
+  ComponentPropsWithoutRef<typeof BaseTabs.Panel> & { tabId: string }
+>(({ className, tabId, ...props }, ref) => (
+  <BaseTabs.Panel
+    ref={ref}
+    data-tab={tabId}
+    className={cn(
+      "ring-offset-background focus-visible:ring-ring mt-4 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+      className,
+    )}
+    {...props}
+  />
+));
+TabsContent.displayName = "TabsContent";
+
+ succeeded in 1610ms:
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-bug-775/diff_audit.err
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-p2-038/ui_direction_decision_verdict.err.txt
+?? .codex/I-p2-043/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/I-p2-024/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/benchmark_claim_extract.py
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+?? web/p2shots/
+?? web/test-results/
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "verified|contradiction|destructive|--verified|--contradiction|--destructive|brand|c8102e" web -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\inspector\\metadata_panel.tsx -TotalCount 200" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\inspector\\verified_report_sections.tsx -TotalCount 120" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\inspector\\offline\\page.tsx -TotalCount 120" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\inspector\\[runId]\\inspector_view.tsx -TotalCount 200" in C:\POLARIS
+ succeeded in 977ms:
+web\AGENTS.md:21:Per-claim verdict required: VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE — with the specific evidence span quote that supports the verdict.
+web\AGENTS.md:23:**STRICTLY BANNED:** word counts, citation counts, unique-source counts, pattern presence ("does the report mention X?"), sample-based audits ("we audited 5 of 50 claims"), string-presence checks (PASS/FAIL on "does it cite [N]?"), metadata comparison ("ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better"), spot-checking, "looks coherent" assertions without reading every cited span.
+web\app\audit_live\_panels.tsx:136:          data-testid="zero-verified-abort"
+web\app\audit_live\_panels.tsx:139:          Zero-verified abort: no kept verify decisions across{" "}
+web\components\verdict\verdict_chip.tsx:17:  | "VERIFIED"
+web\components\verdict\verdict_chip.tsx:22:  | "contradiction"
+web\components\verdict\verdict_chip.tsx:33:  VERIFIED: {
+web\components\verdict\verdict_chip.tsx:34:    label: "Verified",
+web\components\verdict\verdict_chip.tsx:36:    className: "bg-verified/10 text-verified border-verified/30",
+web\components\verdict\verdict_chip.tsx:42:      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+web\components\verdict\verdict_chip.tsx:52:    className: "bg-destructive/10 text-destructive border-destructive/40",
+web\components\verdict\verdict_chip.tsx:59:  contradiction: {
+web\components\verdict\verdict_chip.tsx:60:    label: "Contradiction",
+web\components\verdict\verdict_chip.tsx:63:      "bg-contradiction/15 text-contradiction-foreground border-contradiction/40",
+web\components\source\source_card.tsx:37:      <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\source\source_card.tsx:44:    <span className="bg-contradiction/15 text-contradiction-foreground border-contradiction/40 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\site_footer.tsx:14:  { href: "/inspector/v1-canonical-success", label: "See a verified brief" },
+web\components\site_footer.tsx:29:            verified — span by span — against its primary source by an
+web\components\proof_replay\proof_replay.tsx:2:// verified claim (left) → see the EXACT cited source span (right). Composes the
+web\components\proof_replay\proof_replay.tsx:16:import type { VerifiedReportSectionShape } from "@/lib/inspector_bundle_loader";
+web\components\proof_replay\proof_replay.tsx:19:  sections: VerifiedReportSectionShape[];
+web\components\proof_replay\proof_replay.tsx:29:  verified: boolean;
+web\components\proof_replay\proof_replay.tsx:32:function flatten(sections: VerifiedReportSectionShape[]): FlatClaim[] {
+web\components\proof_replay\proof_replay.tsx:38:    section.verified_sentences?.forEach((s, i) => {
+web\components\proof_replay\proof_replay.tsx:49:        verified: s.verifier_pass === true,
+web\components\proof_replay\proof_replay.tsx:56:function UnverifiedBadge() {
+web\components\proof_replay\proof_replay.tsx:59:      Unverified
+web\components\proof_replay\proof_replay.tsx:75:        {claim.verified ? (
+web\components\proof_replay\proof_replay.tsx:76:          <VerdictChip verdict="VERIFIED" />
+web\components\proof_replay\proof_replay.tsx:78:          <UnverifiedBadge />
+web\components\proof_replay\proof_replay.tsx:179:        No verified claims in this report.
+web\components\proof_replay\proof_replay.tsx:205:                aria-label={`${claim.verified ? "Verified" : "Unverified"} claim: ${claim.text}`}
+web\components\proof_replay\proof_replay.tsx:216:                    claim.verified ? "bg-verified" : "bg-muted-foreground"
+web\components\primary_nav.tsx:8:// authed set + brand + Canadian-hosted mark + AuthButton overflows (Codex P1).
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:9:      "section_status": "verified",
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:11:      "verified_sentences": [
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:20:          "contradiction": null,
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:34:          "contradiction": null,
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:45:      "section_status": "verified",
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:47:      "verified_sentences": [
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:57:          "contradiction": null,
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:68:      "section_status": "verified",
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:70:      "verified_sentences": [
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:79:          "contradiction": null,
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:93:          "contradiction": null,
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:107:          "contradiction": null,
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:118:      "section_status": "verified",
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:120:      "verified_sentences": [
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:129:          "contradiction": null,
+web\public\canonical_bundles\v1_canonical_success\verified_report.json:143:          "contradiction": null,
+web\components\signature\maple_leaf_signature.tsx:113:      material = new THREE.MeshBasicMaterial({ color: 0xc8102e }); // Canada red
+web\components\signature\maple_leaf_signature.tsx:184:      style={{ color: "#c8102e" }}
+web\components\ui\card.tsx:15:        // I-p2-042 (#831) S-tier foundation: brand-tinted card elevation
+web\components\ui\button.tsx:7:  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/70 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+web\components\ui\button.tsx:18:        destructive:
+web\components\ui\button.tsx:19:          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/80 focus-visible:ring-destructive/30",
+web\components\ui\input.tsx:12:        "border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/70 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm",
+web\components\inspector\bundle_header.tsx:80:        className="border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+web\components\inspector\bundle_header.tsx:91:      className="border-contradiction/40 bg-contradiction/15 text-contradiction-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+web\components\states\state_kit.tsx:86:      className="border-destructive/30 bg-destructive/5 flex flex-col gap-2 rounded-md border p-4"
+web\lib\sse_events.ts:8:  "contradiction",
+web\lib\sse_events.ts:19:  contradiction: "Contradiction events",
+web\tests\e2e\audit_bundle.spec.ts:7: * produces a VerifiedReport, the "Download audit bundle" button is
+web\tests\e2e\audit_bundle.spec.ts:25:    // Wait for either verified report or generation error
+web\tests\e2e\audit_bundle.spec.ts:27:      page.getByTestId("verified-report-view").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:38:    if (await page.getByTestId("verified-report-view").isVisible()) {
+web\tests\e2e\audit_bundle.spec.ts:51:      page.getByTestId("verified-report-view").waitFor({
+web\tests\e2e\audit_bundle.spec.ts:61:    if (!(await page.getByTestId("verified-report-view").isVisible())) {
+web\components\sovereignty\sovereignty_panel.tsx:11:  /** verified_report.family_segregation_passed — the real source of truth. */
+web\components\sovereignty\sovereignty_panel.tsx:75:              <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\sovereignty\sovereignty_panel.tsx:77:                Verified
+web\components\sovereignty\sovereignty_panel.tsx:81:                Not verified
+web\components\sovereignty\sovereignty_panel.tsx:99:            <p className="text-verified mt-1 text-[11px]">
+web\components\contradiction\contradiction_panel.tsx:1:// I-p2-010 (#749): contradiction / refusal panel. Surfaces genuine source
+web\components\contradiction\contradiction_panel.tsx:7:import type { ContradictionSignal } from "@/lib/api";
+web\components\contradiction\contradiction_panel.tsx:9:interface ContradictionPanelProps {
+web\components\contradiction\contradiction_panel.tsx:10:  contradictions?: ContradictionSignal[];
+web\components\contradiction\contradiction_panel.tsx:21:  abort_no_verified_sections:
+web\components\contradiction\contradiction_panel.tsx:22:    "No claim could be verified against a primary source.",
+web\components\contradiction\contradiction_panel.tsx:46:function ContradictionCard({ signal }: { signal: ContradictionSignal }) {
+web\components\contradiction\contradiction_panel.tsx:49:      data-testid="contradiction-card"
+web\components\contradiction\contradiction_panel.tsx:50:      className="bg-contradiction/10 border-contradiction/30 flex flex-col gap-2 rounded-md border p-4"
+web\components\contradiction\contradiction_panel.tsx:55:          className="text-contradiction-foreground mt-0.5 h-4 w-4 shrink-0"
+web\components\contradiction\contradiction_panel.tsx:89:export function ContradictionPanel({
+web\components\contradiction\contradiction_panel.tsx:90:  contradictions,
+web\components\contradiction\contradiction_panel.tsx:92:}: ContradictionPanelProps) {
+web\components\contradiction\contradiction_panel.tsx:95:  const hasContradictions = contradictions && contradictions.length > 0;
+web\components\contradiction\contradiction_panel.tsx:97:  if (!isRefusal && !hasContradictions) {
+web\components\contradiction\contradiction_panel.tsx:100:        No contradictions or refusals for this run.
+web\components\contradiction\contradiction_panel.tsx:106:    <div className="flex flex-col gap-3" data-testid="contradiction-panel">
+web\components\contradiction\contradiction_panel.tsx:108:      {hasContradictions &&
+web\components\contradiction\contradiction_panel.tsx:109:        contradictions.map((signal, i) => (
+web\components\contradiction\contradiction_panel.tsx:110:          <ContradictionCard key={i} signal={signal} />
+web\public\canonical_bundles\v1_canonical_success\reasoning_trace.jsonl:1:{"call_id": "call_0001", "call_type": "verify", "section": "verification", "status": "ok", "content_source": "real_run", "content_text": "8 sentences span-verified against real sources; 1 dropped at the \u00a7-1.1 numeric gate.", "model": "google/gemma-4-31b-it", "timestamp": "2026-05-20T00:00:00+00:00"}
+web\lib\signed_bundle.ts:28:  | "verified_report"
+web\lib\signed_bundle.ts:36:  "verified_report",
+web\tests\e2e\accessibility.spec.ts:77:// "Charts" + "Contradictions" tabs don't exist in the rebuild and have no
+web\tests\e2e\accessibility.spec.ts:79:// preserves the legacy "destructive error banner" test intent.
+web\tests\e2e\accessibility.spec.ts:120:    // Preserves the legacy "/inspector/<bad-runid> destructive error banner"
+web\tests\e2e\accessibility.spec.ts:134:// exist in the new Inspector — verified_sentences with drop_reason will
+web\tests\e2e\accessibility.spec.ts:135:// render via verified_report_sections.tsx in a future PR that extends
+web\tests\e2e\accessibility.spec.ts:248:// I-cd-013b (GH#669): the legacy /inspector/<bad-runid> destructive-error
+web\tests\e2e\accessibility.spec.ts:251:// The /runs/<bad-runid> destructive-error test below stays here — it
+web\tests\e2e\accessibility.spec.ts:255:  test("Run-detail destructive error banner (invalid runId) is WCAG-AA clean", async ({
+web\tests\e2e\accessibility.spec.ts:258:    // /runs/[runId] page also uses the destructive error pattern; verify it.
+web\lib\sentence_highlight.ts:1:// I-f5-001 — debounced sentence-hover hook for VerifiedReportView.
+web\public\canonical_bundles\v1_canonical_success\manifest.yaml:14:- content_type: verified_report
+web\public\canonical_bundles\v1_canonical_success\manifest.yaml:15:  path: verified_report.json
+web\components\inspector\verified_report_sections.tsx:1:// I-cd-013a (GH#609) — VerifiedReport.sections renderer.
+web\components\inspector\verified_report_sections.tsx:2:// Real field names per verified_report.py:
+web\components\inspector\verified_report_sections.tsx:4://   sections[].verified_sentences
+web\components\inspector\verified_report_sections.tsx:5://   verified_sentences[].provenance_tokens (token strings)
+web\components\inspector\verified_report_sections.tsx:12:  VerifiedReportSectionShape,
+web\components\inspector\verified_report_sections.tsx:13:  VerifiedReportShape,
+web\components\inspector\verified_report_sections.tsx:14:  VerifiedSentenceShape,
+web\components\inspector\verified_report_sections.tsx:17:interface VerifiedReportSectionsProps {
+web\components\inspector\verified_report_sections.tsx:18:  verifiedReport: VerifiedReportShape;
+web\components\inspector\verified_report_sections.tsx:21:export function VerifiedReportSections({
+web\components\inspector\verified_report_sections.tsx:22:  verifiedReport,
+web\components\inspector\verified_report_sections.tsx:23:}: VerifiedReportSectionsProps) {
+web\components\inspector\verified_report_sections.tsx:25:    <Card data-testid="verified-report-sections">
+web\components\inspector\verified_report_sections.tsx:28:          Verified report ({verifiedReport.sections.length} sections,{" "}
+web\components\inspector\verified_report_sections.tsx:29:          {(verifiedReport.overall_verify_pass_rate * 100).toFixed(0)}%
+web\components\inspector\verified_report_sections.tsx:30:          verified)
+web\components\inspector\verified_report_sections.tsx:34:        <VerdictBadge verdict={verifiedReport.pipeline_verdict} />
+web\components\inspector\verified_report_sections.tsx:35:        {verifiedReport.sections.length === 0 ? (
+web\components\inspector\verified_report_sections.tsx:37:            No verified sections (pipeline verdict:{" "}
+web\components\inspector\verified_report_sections.tsx:38:            <code className="font-mono">{verifiedReport.pipeline_verdict}</code>
+web\components\inspector\verified_report_sections.tsx:42:          verifiedReport.sections.map((s) => (
+web\components\inspector\verified_report_sections.tsx:68:function SectionPanel({ section }: { section: VerifiedReportSectionShape }) {
+web\components\inspector\verified_report_sections.tsx:72:      data-testid="verified-report-section"
+web\components\inspector\verified_report_sections.tsx:82:        {section.verified_sentences.map((sentence, idx) => (
+web\components\inspector\verified_report_sections.tsx:93:function SentenceItem({ sentence }: { sentence: VerifiedSentenceShape }) {
+web\components\inspector\verified_report_sections.tsx:98:      data-testid="verified-sentence"
+web\components\inspector\family_segregation_badge.tsx:2:// Source of truth: verified_report.evaluator_model + verified_report.family_segregation_passed
+web\components\inspector\family_segregation_badge.tsx:4:// I-p2-043 (#833) S-tier: tokenized (was hardcoded emerald/rose) — pass=--verified,
+web\components\inspector\family_segregation_badge.tsx:5:// FAIL=--destructive (an invariant violation, not a soft warning — Codex P2). Compacted
+web\components\inspector\family_segregation_badge.tsx:12:import type { VerifiedReportShape } from "@/lib/inspector_bundle_loader";
+web\components\inspector\family_segregation_badge.tsx:17:  verifiedReport: VerifiedReportShape;
+web\components\inspector\family_segregation_badge.tsx:22:  verifiedReport,
+web\components\inspector\family_segregation_badge.tsx:24:  const passed = verifiedReport.family_segregation_passed;
+web\components\inspector\family_segregation_badge.tsx:29:      title={`Generator: ${manifest.generator_model} · Evaluator: ${verifiedReport.evaluator_model}`}
+web\components\inspector\family_segregation_badge.tsx:32:          ? "border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+web\components\inspector\family_segregation_badge.tsx:33:          : "border-destructive/40 bg-destructive/10 text-destructive inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+web\components\inspector\family_segregation_badge.tsx:41:      Two-family invariant {passed ? "verified" : "violated"}
+web\tests\e2e\command_palette_adversarial.spec.ts:13: * Iter-1 + iter-2 Codex empirical scoring runs verified each corpus
+web\scripts\capture_screenshots.mjs:33:    description: "Runs monitoring dashboard (recent verified briefs)",
+web\scripts\capture_screenshots.mjs:52:      await page.waitForSelector("text=/Verified sentences/i", {
+web\scripts\capture_screenshots.mjs:58:    name: "inspector_contradiction_golden",
+web\scripts\capture_screenshots.mjs:60:    description: "Inspector view of housing contradiction golden run",
+web\scripts\capture_screenshots.mjs:62:      await page.waitForSelector("text=/Contradictions/i", { timeout: 8000 });
+web\scripts\capture_screenshots.mjs:64:        .getByRole("button", { name: /Contradictions/ })
+web\app\contracts\_editor.tsx:424:          className="border-destructive/30 bg-destructive/10 text-foreground flex flex-col gap-1 rounded-lg border p-3 text-sm"
+web\app\contracts\_editor.tsx:446:            className="text-verified text-sm font-medium"
+web\app\plan\page.tsx:67:    body: "Each sentence is generated section by section, then span-verified against its primary source by an independent evaluator family.",
+web\app\plan\page.tsx:310:          className="border-contradiction/30 bg-contradiction/10 flex flex-col gap-1 rounded-lg border p-4"
+web\components\inspector\inspector_proof_header.tsx:21:  abort_no_verified_sections: "No verified sections",
+web\components\inspector\inspector_proof_header.tsx:41:  const report = bundle.verifiedReport;
+web\components\inspector\inspector_proof_header.tsx:43:  const verified = sectionCount > 0;
+web\components\inspector\inspector_proof_header.tsx:57:        {verified ? (
+web\components\inspector\inspector_proof_header.tsx:62:            <span className="text-verified text-3xl leading-none font-bold tabular-nums">
+web\components\inspector\inspector_proof_header.tsx:66:              of claims verified
+web\components\inspector\inspector_proof_header.tsx:72:              {sectionCount} verified section{sectionCount === 1 ? "" : "s"} ·
+web\components\inspector\inspector_proof_header.tsx:81:            <span className="border-contradiction/40 bg-contradiction/15 text-contradiction-foreground inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium">
+web\components\inspector\inspector_proof_header.tsx:85:              No verified sections — see the Report tab for the full pipeline
+web\components\inspector\inspector_proof_header.tsx:98:              verifiedReport={report}
+web\tests\e2e\audit_live_adversarial.spec.ts:35:test("zero-verified-abort banner when all verify decisions drop", async ({
+web\tests\e2e\audit_live_adversarial.spec.ts:44:  await expect(page.getByTestId("zero-verified-abort")).toBeVisible({
+web\tests\e2e\audit_live_adversarial.spec.ts:66:  await expect(page.getByTestId("zero-verified-abort")).toBeHidden();
+web\tests\e2e\bundle_preview.spec.ts:52:    verified_report: { count: 1, bytes: 4096 },
+web\tests\e2e\bundle_preview.spec.ts:117:    "verified_report",
+web\lib\pin_regression.ts:12:  verified_sentence_count_drop: 3,
+web\lib\pin_regression.ts:16:  metric: "pass_rate" | "verified_sentence_count";
+web\lib\pin_regression.ts:61:  const sentence_drop = a.verified_sentence_count - b.verified_sentence_count;
+web\lib\pin_regression.ts:62:  if (sentence_drop > REGRESSION_THRESHOLDS.verified_sentence_count_drop) {
+web\lib\pin_regression.ts:64:      metric: "verified_sentence_count",
+web\lib\pin_regression.ts:65:      a_value: a.verified_sentence_count,
+web\lib\pin_regression.ts:66:      b_value: b.verified_sentence_count,
+web\lib\pin_regression.ts:68:      threshold: REGRESSION_THRESHOLDS.verified_sentence_count_drop,
+web\app\pin_replay\page.tsx:65:          <dt className="text-muted-foreground">Verified sentences</dt>
+web\app\pin_replay\page.tsx:67:            {snapshot.verified_sentence_count}
+web\app\pin_replay\page.tsx:95:        up the snapshots so you can see how the evidence and the verified answer
+web\app\pin_replay\page.tsx:136:    snap_b.verified_sentence_count - snap_a.verified_sentence_count;
+web\app\pin_replay\page.tsx:152:          verified-sentence count or pass-rate raise an alert.
+web\app\pin_replay\page.tsx:236:              Verified sentences:{" "}
+web\app\sign-in\page.tsx:112:      {/* Left: institutional brand + trust panel (lg+ only) */}
+web\app\sign-in\page.tsx:148:          {/* Brand lockup — shown on small screens where the panel is hidden */}
+web\app\sign-in\page.tsx:208:                    className="text-destructive text-sm font-medium"
+web\lib\inspector_bundle_loader.ts:36:  verifiedReport: VerifiedReportShape;
+web\lib\inspector_bundle_loader.ts:45:export interface VerifiedReportShape {
+web\lib\inspector_bundle_loader.ts:49:  sections: VerifiedReportSectionShape[];
+web\lib\inspector_bundle_loader.ts:64:export interface VerifiedReportSectionShape {
+web\lib\inspector_bundle_loader.ts:67:  verified_sentences: VerifiedSentenceShape[];
+web\lib\inspector_bundle_loader.ts:71:export interface VerifiedSentenceShape {
+web\lib\inspector_bundle_loader.ts:102:    const verifiedReport = (await readJson(
+web\lib\inspector_bundle_loader.ts:105:      "verified_report",
+web\lib\inspector_bundle_loader.ts:106:    )) as VerifiedReportShape;
+web\lib\inspector_bundle_loader.ts:158:      verifiedReport,
+web\lib\inspector_bundle_loader.ts:176:  contentType: "scope_decision" | "evidence_pool" | "verified_report",
+web\tests\e2e\demo_journey.spec.ts:8:// renders. That step's assertions cover the verified-report → claim →
+web\lib\inspector_bundle_client_loader.ts:38:  VerifiedReportShape,
+web\lib\inspector_bundle_client_loader.ts:199:  "verified_report",
+web\lib\inspector_bundle_client_loader.ts:296:  const verifiedReportFile = _findFile(files, "verified_report.json")!;
+web\lib\inspector_bundle_client_loader.ts:297:  const verifiedReport = JSON.parse(
+web\lib\inspector_bundle_client_loader.ts:298:    _decode(verifiedReportFile.bytes),
+web\lib\inspector_bundle_client_loader.ts:299:  ) as VerifiedReportShape;
+web\lib\inspector_bundle_client_loader.ts:333:    verifiedReport,
+web\public\canonical_bundles\v1_canonical\verified_report.json:10:  "pipeline_verdict": "abort_no_verified_sections",
+web\app\pin_replay\components\pin_timeseries.tsx:22:    value: s.verified_sentence_count,
+web\app\pin_replay\components\pin_timeseries.tsx:23:    series: "verified_sentences",
+web\app\pin_replay\components\pin_timeseries.tsx:33:    "Verified sentences over time",
+web\app\pin_replay\components\pin_timeseries.tsx:51:        <h3 className="text-sm font-medium">Verified sentence count</h3>
+web\lib\api.ts:75:  | "abort_no_verified_sections";
+web\lib\api.ts:236:  left_contradictions: number;
+web\lib\api.ts:237:  right_contradictions: number;
+web\lib\api.ts:267:  verdict: "success" | "abort_no_verified_sections";
+web\lib\api.ts:270:  verified_sentence_count: number;
+web\lib\api.ts:422:export interface VerifiedSentence {
+web\lib\api.ts:440:  verified_sentences: VerifiedSentence[];
+web\lib\api.ts:447:  contradictions: {
+web\lib\api.ts:448:    contradiction_id: string;
+web\lib\api.ts:672:// Slice 002 — Clinical Retrieval (verified clinical sources)
+web\lib\api.ts:796:// Mirrors src/polaris_graph/generator2/verified_report.py +
+web\lib\api.ts:800:export type SectionStatus = "verified" | "regenerated" | "dropped";
+web\lib\api.ts:802:export type PipelineVerdict = "success" | "abort_no_verified_sections";
+web\lib\api.ts:811:export interface ReportVerifiedSentence {
+web\lib\api.ts:820:  contradiction?: ContradictionSignal | null;
+web\lib\api.ts:831:export type ContradictionEvidenceType =
+web\lib\api.ts:849:export interface ContradictionSide {
+web\lib\api.ts:856:  evidence_type?: ContradictionEvidenceType;
+web\lib\api.ts:860:export type ContradictionKind = "multi_source" | "self_contradiction";
+web\lib\api.ts:862:export type ContradictionCategory =
+web\lib\api.ts:870:export interface ContradictionSignal {
+web\lib\api.ts:873:  sides?: ContradictionSide[];
+web\lib\api.ts:874:  kind?: ContradictionKind;
+web\lib\api.ts:875:  category?: ContradictionCategory;
+web\lib\api.ts:886:export interface VerifiedReportSection {
+web\lib\api.ts:889:  verified_sentences: ReportVerifiedSentence[];
+web\lib\api.ts:917:export interface VerifiedReport {
+web\lib\api.ts:921:  sections: VerifiedReportSection[];
+web\lib\api.ts:937:  report: VerifiedReport;
+web\lib\api.ts:998:/** Filter to non-dropped sections (verified + regenerated). */
+web\lib\api.ts:999:export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
+web\lib\api.ts:1005:  section: VerifiedReportSection,
+web\lib\api.ts:1006:): ReportVerifiedSentence[] {
+web\lib\api.ts:1007:  return section.verified_sentences.filter((s) => s.verifier_pass);
+web\lib\api.ts:1050:  report: VerifiedReport,
+web\lib\api.ts:1085:  report: VerifiedReport,
+web\lib\api.ts:1368:  is_verified: boolean;
+web\lib\api.ts:1381:export interface AuditIrVerifiedReport {
+web\lib\api.ts:1383:  sentences_verified: number;
+web\lib\api.ts:1388:export interface AuditIrContradictionClaim {
+web\lib\api.ts:1402:export interface AuditIrContradictionCluster {
+web\lib\api.ts:1410:  claims: AuditIrContradictionClaim[];
+web\lib\api.ts:1487:  sentences_verified: number;
+web\lib\api.ts:1489:  contradictions_found: number;
+web\lib\api.ts:1514:  contradictions_disclosed: number;
+web\lib\api.ts:1515:  contradictions_missing: string[];
+web\lib\api.ts:1557:  contradictions: AuditIrContradictionCluster[];
+web\lib\api.ts:1560:  verified_report: AuditIrVerifiedReport;
+web\lib\api.ts:1581: * I-rdy-008 (#504) slice 7a/7b — one verified evidence span cited by a run.
+web\lib\api.ts:1596:/** The verified evidence spans for one completed run. */
+web\lib\api.ts:1603: * Fetch the verified evidence spans for a completed run from the v6
+web\tests\e2e\follow_up_append.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toHaveCount(2);
+web\tests\e2e\frame_coverage_panel.spec.ts:59:test("Frame coverage panel is the first child of verified-report-view (above-the-fold)", async ({
+web\tests\e2e\frame_coverage_panel.spec.ts:65:  // Codex iter-1 P2: assert first-child of verified-report-view — the
+web\tests\e2e\frame_coverage_panel.spec.ts:68:    const rv = document.querySelector('[data-testid="verified-report-view"]');
+web\tests\e2e\generation.spec.ts:11: * happy path renders a verified report; without them the chain fails
+web\tests\e2e\generation.spec.ts:23:      page.getByText(/Verified clinical research/i).first(),
+web\tests\e2e\generation.spec.ts:62:    // verified report renders. Both are valid e2e outcomes.
+web\tests\e2e\generation.spec.ts:68:        .getByTestId("verified-report-view")
+web\tests\e2e\generation.spec.ts:76:      .getByTestId("verified-report-view")
+web\app\components\proof_showcase.tsx:1:// I-p2-037 (#794): proof-as-hero showcase. The home LEADS with a REAL verified
+web\app\components\proof_showcase.tsx:29:  // Pick the first verified sentence whose span genuinely resolves to a real
+web\app\components\proof_showcase.tsx:31:  const sections = bundle.verifiedReport?.sections ?? [];
+web\app\components\proof_showcase.tsx:40:    for (const s of section.verified_sentences ?? []) {
+web\app\components\proof_showcase.tsx:42:      // passed — never present a dropped/failed sentence as "verified".
+web\app\components\proof_showcase.tsx:71:  const question = bundle.verifiedReport?.research_question;
+web\app\components\proof_showcase.tsx:75:      aria-label="A real verified claim"
+web\app\components\proof_showcase.tsx:81:          A real verified claim
+web\app\components\proof_showcase.tsx:93:          <div className="text-verified inline-flex items-center gap-1.5 text-xs font-semibold">
+web\app\components\proof_showcase.tsx:95:            Verified against a primary source
+web\app\compare\page.tsx:81:          coverage overlap, and contradiction counts. This is run-vs-run — for
+web\app\compare\page.tsx:260:          Left contradictions:{" "}
+web\app\compare\page.tsx:262:            {result.left_contradictions}
+web\app\compare\page.tsx:266:          Right contradictions:{" "}
+web\app\compare\page.tsx:268:            {result.right_contradictions}
+web\app\layout.tsx:22:    "Two-family verified evidence pipelines for Government of Canada policy work.",
+web\app\dashboard\page.tsx:2:// lives at /intake → /plan (I-p2-015 #754). This page lists recent verified runs
+web\app\dashboard\page.tsx:42:      label: "Verified",
+web\app\dashboard\page.tsx:43:      cls: "text-verified border-verified/30 bg-verified/10",
+web\app\dashboard\page.tsx:57:      cls: "text-destructive border-destructive/30 bg-destructive/10",
+web\app\dashboard\page.tsx:131:          description="Once you run a research question, every verified brief shows up here for monitoring and replay."
+web\tests\e2e\inspector_offline_fallback.spec.ts:50:  // Bundle header + verified report visible.
+web\app\generation\page.tsx:23:              Verified clinical research
+web\app\generation\page.tsx:58:            Verified clinical research, end-to-end
+web\app\generation\page.tsx:62:            001), retrieval against verified clinical sources (slice 002), and
+web\app\generation\page.tsx:81:            Slice 004 (audit bundle export, GPG-signed) packages this verified
+web\app\inspector\offline\page.tsx:73:            The bundle is verified and rendered entirely in your browser — no
+web\tests\e2e\inspector_route.spec.ts:50:  test("family segregation badge shows pass (verified_report SoT)", async ({
+web\app\sentence_hover_test\memory_cite\page.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\memory_cite\page.tsx:4:import type { VerifiedReport } from "@/lib/api";
+web\app\sentence_hover_test\memory_cite\page.tsx:8:const MEMORY_REPORT: VerifiedReport = {
+web\app\sentence_hover_test\memory_cite\page.tsx:16:      verified_sentences: [
+web\app\sentence_hover_test\memory_cite\page.tsx:37:      section_status: "verified",
+web\app\sentence_hover_test\memory_cite\page.tsx:59:        <VerifiedReportView report={MEMORY_REPORT} />
+web\app\globals.css:29:  --color-destructive: var(--destructive);
+web\app\globals.css:30:  --color-destructive-foreground: var(--destructive-foreground);
+web\app\globals.css:31:  --color-verified: var(--verified);
+web\app\globals.css:32:  --color-verified-foreground: var(--verified-foreground);
+web\app\globals.css:33:  --color-contradiction: var(--contradiction);
+web\app\globals.css:34:  --color-contradiction-foreground: var(--contradiction-foreground);
+web\app\globals.css:41:  --color-verified-bundle: var(--verified-bundle);
+web\app\globals.css:64:  /* Brand-temperature card elevation (not pure gray) — restrained: a neutral
+web\app\globals.css:65:     hairline lift + a faint Canada-red wash. Uses the operator-locked brand
+web\app\globals.css:66:     #c8102e = rgb(200 16 46), NOT a palette change. */
+web\app\globals.css:86:     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
+web\app\globals.css:87:     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+web\app\globals.css:88:     destructive=deep maroon distinct from the national red. + evidence-role
+web\app\globals.css:90:  --primary: #c8102e;
+web\app\globals.css:98:  --destructive: oklch(0.42 0.13 18);
+web\app\globals.css:99:  --destructive-foreground: oklch(0.985 0 0);
+web\app\globals.css:102:  --ring: #c8102e;
+web\app\globals.css:104:  --verified: oklch(0.48 0.14 152);
+web\app\globals.css:105:  --verified-foreground: oklch(0.985 0 0);
+web\app\globals.css:106:  --contradiction: oklch(0.72 0.15 75);
+web\app\globals.css:107:  --contradiction-foreground: oklch(0.27 0.04 75);
+web\app\globals.css:111:  --tier-1: #c8102e;
+web\app\globals.css:115:  --verified-bundle: oklch(0.48 0.14 152);
+web\app\globals.css:142:     the :root state/evidence tokens (verified/contradiction/refusal/tier/
+web\app\globals.css:152:  --destructive: oklch(0.704 0.191 22.216);
+web\app\globals.css:153:  /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+web\app\globals.css:157:  --destructive-foreground: oklch(0.145 0 0);
+web\app\pin_replay\components\diff_side_panel.tsx:20:    key: "verified_sentence_count",
+web\app\pin_replay\components\diff_side_panel.tsx:21:    label: "Verified sentences",
+web\app\page.tsx:163:          {/* Proof-as-hero — a REAL verified claim + its real source span */}
+web\app\page.tsx:187:          {/* Real recent verified briefs */}
+web\app\inspector\[runId]\inspector_view.tsx:18:import { VerifiedReportSections } from "@/components/inspector/verified_report_sections";
+web\app\inspector\[runId]\inspector_view.tsx:57:            split-view (click a verified claim → see its exact cited source span)
+web\app\inspector\[runId]\inspector_view.tsx:62:            sections={bundle.verifiedReport.sections}
+web\app\inspector\[runId]\inspector_view.tsx:67:          <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
+web\app\sentence_hover_test\follow_up_append\page.tsx:4:import type { VerifiedReport } from "@/lib/api";
+web\app\sentence_hover_test\follow_up_append\page.tsx:8:function _report(report_id: string, sentence_text: string): VerifiedReport {
+web\app\sentence_hover_test\follow_up_append\page.tsx:17:        verified_sentences: [
+web\app\sentence_hover_test\follow_up_append\page.tsx:28:        section_status: "verified",
+web\public\canonical_bundles\v1_canonical\manifest.yaml:14:- content_type: verified_report
+web\public\canonical_bundles\v1_canonical\manifest.yaml:15:  path: verified_report.json
+web\app\sentence_hover_test\_demo.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo.tsx:4:import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+web\app\sentence_hover_test\_demo.tsx:106:const REPORT: VerifiedReport = {
+web\app\sentence_hover_test\_demo.tsx:114:      verified_sentences: [
+web\app\sentence_hover_test\_demo.tsx:257:        // sec_x:26 — contradiction signal (I-f8-001/I-f8-002).
+web\app\sentence_hover_test\_demo.tsx:260:          sentence_text: "Contradiction demo: ≥2 sources disagree on dose.",
+web\app\sentence_hover_test\_demo.tsx:269:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:305:        // sec_x:27 — self-contradiction (I-f8-003).
+web\app\sentence_hover_test\_demo.tsx:308:          sentence_text: "Self-contradiction demo: same source on both sides.",
+web\app\sentence_hover_test\_demo.tsx:313:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:314:            kind: "self_contradiction",
+web\app\sentence_hover_test\_demo.tsx:339:        // sec_x:28 — regulatory non-numeric contradiction (I-f8-004).
+web\app\sentence_hover_test\_demo.tsx:343:            "Regulatory non-numeric contradiction: FDA approved vs not.",
+web\app\sentence_hover_test\_demo.tsx:348:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:378:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:412:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:456:      section_status: "verified",
+web\app\sentence_hover_test\_demo.tsx:485:      <VerifiedReportView report={REPORT} pool={POOL} />
+web\app\generation\components\follow_up_append_view.tsx:3:import type { VerifiedReport } from "@/lib/api";
+web\app\generation\components\follow_up_append_view.tsx:5:import { VerifiedReportView } from "./verified_report_view";
+web\app\generation\components\follow_up_append_view.tsx:8:// verified report, a labeled separator, then the appended (follow-up)
+web\app\generation\components\follow_up_append_view.tsx:9:// verified report. Production wiring (graph_v4 generating the appended
+web\app\generation\components\follow_up_append_view.tsx:16:  original: VerifiedReport;
+web\app\generation\components\follow_up_append_view.tsx:17:  appended: VerifiedReport;
+web\app\generation\components\follow_up_append_view.tsx:21:      <VerifiedReportView report={original} />
+web\app\generation\components\follow_up_append_view.tsx:32:      <VerifiedReportView report={appended} />
+web\app\generation\components\contradiction_pane.tsx:11:  ContradictionCategory,
+web\app\generation\components\contradiction_pane.tsx:12:  ContradictionEvidenceType,
+web\app\generation\components\contradiction_pane.tsx:13:  ContradictionSignal,
+web\app\generation\components\contradiction_pane.tsx:17:const EVIDENCE_TYPE_LABEL: Record<ContradictionEvidenceType, string> = {
+web\app\generation\components\contradiction_pane.tsx:43:const CATEGORY_LABEL: Record<ContradictionCategory, string> = {
+web\app\generation\components\contradiction_pane.tsx:52:export function ContradictionPane({
+web\app\generation\components\contradiction_pane.tsx:58:  signal: ContradictionSignal | null;
+web\app\generation\components\contradiction_pane.tsx:66:        data-testid="contradiction-pane"
+web\app\generation\components\contradiction_pane.tsx:71:          <SheetTitle data-testid="contradiction-pane-title">
+web\app\generation\components\contradiction_pane.tsx:75:              if (kind === "self_contradiction") {
+web\app\generation\components\contradiction_pane.tsx:76:                return `Self-contradiction: source contradicts itself across ${sides.length} spans`;
+web\app\generation\components\contradiction_pane.tsx:78:              return `Contradiction: ${signal.disagreeing_source_count} sources disagree`;
+web\app\generation\components\contradiction_pane.tsx:85:                data-testid="contradiction-category"
+web\app\generation\components\contradiction_pane.tsx:97:              data-testid={`contradiction-side-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:101:                <code data-testid={`contradiction-source-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:112:                        data-testid={`contradiction-evidence-type-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:124:                        data-testid={`contradiction-jurisdiction-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:132:                    data-testid={`contradiction-tier-${idx}`}
+web\app\generation\components\contradiction_pane.tsx:141:                  <span data-testid={`contradiction-sample-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:145:                <span data-testid={`contradiction-hedge-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:149:                  <span data-testid={`contradiction-pt08-${idx}`}>
+web\app\generation\components\contradiction_pane.tsx:155:                data-testid={`contradiction-claim-${idx}`}
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:4:import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:52:  const report: VerifiedReport = {
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:60:        verified_sentences: Array.from({ length: N }, (_, i) => ({
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:79:        section_status: "verified",
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:99:      <VerifiedReportView report={report} pool={pool} />
+web\app\sentence_hover_test\_demo_stress.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_stress.tsx:4:import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
+web\app\sentence_hover_test\_demo_stress.tsx:49:  const report: VerifiedReport = {
+web\app\sentence_hover_test\_demo_stress.tsx:57:        verified_sentences: Array.from({ length: n }, (_, i) => ({
+web\app\sentence_hover_test\_demo_stress.tsx:68:        section_status: "verified",
+web\app\sentence_hover_test\_demo_stress.tsx:88:      <VerifiedReportView report={report} pool={pool} />
+web\app\sentence_hover_test\_demo_coverage.tsx:3:import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
+web\app\sentence_hover_test\_demo_coverage.tsx:9:  VerifiedReport,
+web\app\sentence_hover_test\_demo_coverage.tsx:75:  const report: VerifiedReport = {
+web\app\sentence_hover_test\_demo_coverage.tsx:83:        verified_sentences: [
+web\app\sentence_hover_test\_demo_coverage.tsx:94:        section_status: "verified",
+web\app\sentence_hover_test\_demo_coverage.tsx:118:      <VerifiedReportView report={report} pool={pool} />
+web\app\generation\components\BundlePreview.tsx:10:  type VerifiedReport,
+web\app\generation\components\BundlePreview.tsx:22:  ["verified_report", "Verified report"],
+web\app\generation\components\BundlePreview.tsx:41:  report: VerifiedReport;
+web\app\generation\components\generation_runner.tsx:18:  type VerifiedReport,
+web\app\generation\components\generation_runner.tsx:22:import { VerifiedReportView } from "./verified_report_view";
+web\app\generation\components\generation_runner.tsx:40:      report: VerifiedReport;
+web\app\generation\components\generation_runner.tsx:216:          <VerifiedReportView
+web\app\generation\components\generation_runner.tsx:240:  report: VerifiedReport;
+web\app\generation\components\verified_report_view.tsx:11:  type ContradictionSignal,
+web\app\generation\components\verified_report_view.tsx:15:  type ReportVerifiedSentence,
+web\app\generation\components\verified_report_view.tsx:16:  type VerifiedReport,
+web\app\generation\components\verified_report_view.tsx:17:  type VerifiedReportSection,
+web\app\generation\components\verified_report_view.tsx:22:import { ContradictionPane } from "./contradiction_pane";
+web\app\generation\components\verified_report_view.tsx:48:  verified:
+web\app\generation\components\verified_report_view.tsx:66:  verdict: "success" | "abort_no_verified_sections";
+web\app\generation\components\verified_report_view.tsx:80:      {ok ? "Success" : "Aborted (no verified sections)"}
+web\app\generation\components\verified_report_view.tsx:93:  onSelectContradiction,
+web\app\generation\components\verified_report_view.tsx:98:  sentence: ReportVerifiedSentence;
+web\app\generation\components\verified_report_view.tsx:102:  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+web\app\generation\components\verified_report_view.tsx:103:  onSelectContradiction: (signal: ContradictionSignal) => void;
+web\app\generation\components\verified_report_view.tsx:221:      {!dropped && sentence.contradiction ? (
+web\app\generation\components\verified_report_view.tsx:224:          data-testid={`inspector-contradiction-${sentence_id}`}
+web\app\generation\components\verified_report_view.tsx:225:          title={sentence.contradiction.summary}
+web\app\generation\components\verified_report_view.tsx:230:            if (sentence.contradiction)
+web\app\generation\components\verified_report_view.tsx:231:              onSelectContradiction(sentence.contradiction);
+web\app\generation\components\verified_report_view.tsx:239:              if (sentence.contradiction)
+web\app\generation\components\verified_report_view.tsx:240:                onSelectContradiction(sentence.contradiction);
+web\app\generation\components\verified_report_view.tsx:246:            const kind = sentence.contradiction.kind ?? "multi_source";
+web\app\generation\components\verified_report_view.tsx:247:            if (kind === "self_contradiction") {
+web\app\generation\components\verified_report_view.tsx:248:              // Codex iter-1 P2: self-contradiction span count comes from
+web\app\generation\components\verified_report_view.tsx:250:              const span_n = sentence.contradiction.sides?.length ?? 0;
+web\app\generation\components\verified_report_view.tsx:253:            return `⚠ ${sentence.contradiction.disagreeing_source_count} sources disagree`;
+web\app\generation\components\verified_report_view.tsx:302:  onSelectContradiction,
+web\app\generation\components\verified_report_view.tsx:307:  section: VerifiedReportSection;
+web\app\generation\components\verified_report_view.tsx:310:  onSelect: (id: string, sentence: ReportVerifiedSentence) => void;
+web\app\generation\components\verified_report_view.tsx:311:  onSelectContradiction: (signal: ContradictionSignal) => void;
+web\app\generation\components\verified_report_view.tsx:320:  const dropped_count = section.verified_sentences.length - kept.length;
+web\app\generation\components\verified_report_view.tsx:344:            No verified sentences in this section.
+web\app\generation\components\verified_report_view.tsx:348:            {section.verified_sentences.map((s, idx) => (
+web\app\generation\components\verified_report_view.tsx:356:                onSelectContradiction={onSelectContradiction}
+web\app\generation\components\verified_report_view.tsx:375:export function VerifiedReportView({
+web\app\generation\components\verified_report_view.tsx:380:  report: VerifiedReport;
+web\app\generation\components\verified_report_view.tsx:387:    sentence: ReportVerifiedSentence;
+web\app\generation\components\verified_report_view.tsx:389:  const [contradiction_open, set_contradiction_open] =
+web\app\generation\components\verified_report_view.tsx:390:    useState<ContradictionSignal | null>(null);
+web\app\generation\components\verified_report_view.tsx:400:      data-testid="verified-report-view"
+web\app\generation\components\verified_report_view.tsx:406:          <CardTitle className="text-lg">Verified report</CardTitle>
+web\app\generation\components\verified_report_view.tsx:478:          onSelectContradiction={(signal) => set_contradiction_open(signal)}
+web\app\generation\components\verified_report_view.tsx:484:      <ContradictionPane
+web\app\generation\components\verified_report_view.tsx:485:        open={contradiction_open !== null}
+web\app\generation\components\verified_report_view.tsx:486:        signal={contradiction_open}
+web\app\generation\components\verified_report_view.tsx:488:          if (!open) set_contradiction_open(null);
+web\app\generation\components\sentence_inspector.tsx:13:  type ReportVerifiedSentence,
+web\app\generation\components\sentence_inspector.tsx:237:  sentence: ReportVerifiedSentence | null;
+web\tests\e2e\performance.spec.ts:44:  test("Verified sentences tab switch < 250ms", async ({ page }) => {
+web\tests\e2e\performance.spec.ts:49:      .getByRole("button", { name: /Verified sentences/ })
+web\tests\e2e\performance.spec.ts:68:  test("Contradictions tab switch < 250ms", async ({ page }) => {
+web\tests\e2e\performance.spec.ts:72:    const tab = page.getByRole("button", { name: /Contradictions/ }).first();
+web\tests\e2e\pin_replay_diff.spec.ts:30:      page.getByTestId("pin-diff-row-verified_sentence_count"),
+web\app\runs\[runId]\page.tsx:241:          (it has an answerable, verified report). Failed/cancelled/in-progress
+web\tests\e2e\pin_regression_alert.spec.ts:24:      page.getByTestId("regression-alert-verified_sentence_count"),
+web\tests\e2e\pin_retraction_handled.spec.ts:20:      page.getByTestId("regression-alert-verified_sentence_count"),
+web\app\retrieval\page.tsx:10:    "Retrieve verified clinical sources for a research question. POLARIS runs the slice 001 scope gate, then retrieves T1/T2/T3 sources from approved clinical domains.",
+web\app\runs\[runId]\audit\page.tsx:20:// violate LAW II until it's verified live against the backend.
+web\app\runs\[runId]\audit\page.tsx:29:  type VerifiedReportShape,
+web\app\runs\[runId]\audit\page.tsx:40:  verified_report: "Verified report",
+web\app\runs\[runId]\audit\page.tsx:54:// I-p2-020 Codex iter-2 P1: `verified_sentences` carries BOTH passed AND
+web\app\runs\[runId]\audit\page.tsx:56:// Count `verifier_pass === true` for the genuinely span-verified total.
+web\app\runs\[runId]\audit\page.tsx:58:  verified_sentences: { verifier_pass: boolean }[];
+web\app\runs\[runId]\audit\page.tsx:60:  return section.verified_sentences.filter((s) => s.verifier_pass).length;
+web\app\runs\[runId]\audit\page.tsx:63:function totalPassedSentences(report: VerifiedReportShape): number {
+web\app\runs\[runId]\audit\page.tsx:70:function totalAttemptedSentences(report: VerifiedReportShape): number {
+web\app\runs\[runId]\audit\page.tsx:72:    (sum, section) => sum + section.verified_sentences.length,
+web\app\runs\[runId]\audit\page.tsx:84:// signed-bundle verified_report. No fabricated gate fields.
+web\app\runs\[runId]\audit\page.tsx:85:function buildGateLedger(report: VerifiedReportShape): GateRow[] {
+web\app\runs\[runId]\audit\page.tsx:95:      detail: `${pct(report.overall_verify_pass_rate)} of sentences span-verified · threshold ${pct(report.verifier_pass_threshold)}`,
+web\app\runs\[runId]\audit\page.tsx:111:      detail: `${pct(section.section_verify_pass_rate)} span-verified · ${passedSentences(section)}/${section.verified_sentences.length} sentences passed`,
+web\app\runs\[runId]\audit\page.tsx:122:          ? "border-verified bg-verified/10 text-verified inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+web\app\runs\[runId]\audit\page.tsx:143:  const { manifest, metadata, verifiedReport, signaturePresent, runId } =
+web\app\runs\[runId]\audit\page.tsx:145:  const gateLedger = buildGateLedger(verifiedReport);
+web\app\runs\[runId]\audit\page.tsx:163:              className="border-verified bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+web\app\runs\[runId]\audit\page.tsx:199:            Gate outcomes recorded for this run, composed from the verified
+web\app\runs\[runId]\audit\page.tsx:200:            report in the bundle — {totalPassedSentences(verifiedReport)} of{" "}
+web\app\runs\[runId]\audit\page.tsx:201:            {totalAttemptedSentences(verifiedReport)} sentences span-verified
+web\app\runs\[runId]\audit\page.tsx:202:            across {verifiedReport.sections.length} sections.
+web\app\runs\[runId]\audit\page.tsx:303:          decision, evidence pool, verified report, source snapshots and
+web\tests\e2e\sentence_hover.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\app\runs\[runId]\components\run_progress.tsx:87:      verified: asNumber(e.data.verified ?? e.data.verified_sentences),
+web\app\runs\[runId]\components\run_progress.tsx:202:  const sentencesVerified = sections.length
+web\app\runs\[runId]\components\run_progress.tsx:203:    ? sections.reduce((acc, s) => acc + s.verified, 0)
+web\app\runs\[runId]\components\run_progress.tsx:216:          label="Sentences verified"
+web\app\runs\[runId]\components\run_progress.tsx:217:          value={sentencesVerified === null ? "—" : String(sentencesVerified)}
+web\app\runs\[runId]\components\run_progress.tsx:344:  sections: { section: string; verified: number; dropped: number }[];
+web\app\runs\[runId]\components\run_progress.tsx:426:            — {s.verified} verified, {s.dropped} dropped
+web\tests\e2e\sentence_inspector.spec.ts:7:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\app\runs\[runId]\components\followup_panel.tsx:72:        Scoped to this run&apos;s verified evidence — no new retrieval is run.
+web\tests\e2e\sentence_inspector_ai_agent.spec.ts:55:  await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:3:test("Sentence row with contradiction signal shows ⚠ badge", async ({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:8:  const badge = row.getByTestId("inspector-contradiction-sec_x:26");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:17:test("Sentence row without contradiction shows NO contradiction badge", async ({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:22:  await expect(row.getByTestId("inspector-contradiction-sec_x:5")).toHaveCount(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:27:test("Click contradiction badge → ContradictionPane shows N sides", async ({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:31:  await page.getByTestId("inspector-contradiction-sec_x:26").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:32:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:35:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:39:  await expect(page.getByTestId("contradiction-side-0")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:40:  await expect(page.getByTestId("contradiction-side-1")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:41:  await expect(page.getByTestId("contradiction-side-2")).toBeVisible();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:43:  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:46:  await expect(page.getByTestId("contradiction-tier-0")).toContainText("T1");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:47:  await expect(page.getByTestId("contradiction-sample-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:50:  await expect(page.getByTestId("contradiction-hedge-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:53:  await expect(page.getByTestId("contradiction-pt08-0")).toContainText("PT04");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:54:  await expect(page.getByTestId("contradiction-claim-0")).toContainText("81mg");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:61:  await page.getByTestId("inspector-contradiction-sec_x:28").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:62:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:65:  await expect(page.getByTestId("contradiction-category")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:68:  await expect(page.getByTestId("contradiction-claim-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:71:  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:78:  await page.getByTestId("inspector-contradiction-sec_x:29").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:79:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:82:  await expect(page.getByTestId("contradiction-evidence-type-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:85:  await expect(page.getByTestId("contradiction-evidence-type-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:92:  await page.getByTestId("inspector-contradiction-sec_x:30").click();
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:93:  await expect(page.getByTestId("contradiction-pane")).toBeVisible({
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:96:  await expect(page.getByTestId("contradiction-jurisdiction-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:99:  await expect(page.getByTestId("contradiction-jurisdiction-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:104:test("Self-contradiction badge + pane (I-f8-003)", async ({ page }) => {
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:106:  const badge = page.getByTestId("inspector-contradiction-sec_x:27");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:111:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:112:    "Self-contradiction",
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:114:  await expect(page.getByTestId("contradiction-pane-title")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:118:  await expect(page.getByTestId("contradiction-source-0")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:121:  await expect(page.getByTestId("contradiction-source-1")).toContainText(
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:124:  await expect(page.getByTestId("contradiction-claim-0")).toContainText("safe");
+web\tests\e2e\sentence_inspector_contradiction.spec.ts:125:  await expect(page.getByTestId("contradiction-claim-1")).toContainText(
+web\tests\e2e\sentence_inspector_latency.spec.ts:9:    await expect(page.getByTestId("verified-report-view")).toBeVisible();
+web\app\runs\[runId]\graph\components\graph_styles.ts:13:// (all >=3:1 on white); contradiction is amber (NOT red, so red stays scarce).
+web\app\runs\[runId]\graph\components\graph_styles.ts:90:      "border-color": "#1f7a44", // verified-green (connected)
+web\app\runs\[runId]\graph\components\graph_styles.ts:99:      "border-color": "#c8102e", // Canada-red (--primary)
+web\tests\e2e\visual_60_baselines.spec.ts:50:    testid: "verified-report-view",
+web\tests\e2e\visual_60_baselines.spec.ts:60:    testid: "verified-report-view",
+web\tests\e2e\visual_60_baselines.spec.ts:65:    testid: "verified-report-view",
+
+ succeeded in 1128ms:
+// I-cd-021 (#631): metadata panel — Codex iter-1 P1.2 finding was that
+// `LoadedBundle.metadata` was parsed but never rendered. Adds explicit
+// surfacing for both /inspector/[runId] and /inspector/offline.
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { BundleMetadata } from "@/lib/signed_bundle";
+
+interface MetadataPanelProps {
+  metadata: BundleMetadata;
+}
+
+export function MetadataPanel({ metadata }: MetadataPanelProps) {
+  return (
+    <Card data-testid="metadata-panel">
+      <CardHeader>
+        <CardTitle className="text-base">Bundle metadata</CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm">
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 md:grid-cols-[max-content,1fr]">
+          <dt className="text-muted-foreground">POLARIS version</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-polaris-version"
+          >
+            {metadata.polaris_version}
+          </dd>
+          <dt className="text-muted-foreground">Generator model</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-generator-model"
+          >
+            {metadata.generator_model}
+          </dd>
+          <dt className="text-muted-foreground">Evaluator model</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-evaluator-model"
+          >
+            {metadata.evaluator_model}
+          </dd>
+          <dt className="text-muted-foreground">Bundle created at (UTC)</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-created-at"
+          >
+            {metadata.bundle_created_at_utc}
+          </dd>
+          <dt className="text-muted-foreground">Schema version</dt>
+          <dd
+            className="text-foreground font-mono"
+            data-testid="metadata-schema-version"
+          >
+            {metadata.schema_version}
+          </dd>
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+ succeeded in 1220ms:
+// I-cd-013a (GH#609) — VerifiedReport.sections renderer.
+// Real field names per verified_report.py:
+//   sections[].section_verify_pass_rate
+//   sections[].verified_sentences
+//   verified_sentences[].provenance_tokens (token strings)
+"use client";
+
+import { useState } from "react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type {
+  VerifiedReportSectionShape,
+  VerifiedReportShape,
+  VerifiedSentenceShape,
+} from "@/lib/inspector_bundle_loader";
+
+interface VerifiedReportSectionsProps {
+  verifiedReport: VerifiedReportShape;
+}
+
+export function VerifiedReportSections({
+  verifiedReport,
+}: VerifiedReportSectionsProps) {
+  return (
+    <Card data-testid="verified-report-sections">
+      <CardHeader>
+        <CardTitle>
+          Verified report ({verifiedReport.sections.length} sections,{" "}
+          {(verifiedReport.overall_verify_pass_rate * 100).toFixed(0)}%
+          verified)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <VerdictBadge verdict={verifiedReport.pipeline_verdict} />
+        {verifiedReport.sections.length === 0 ? (
+          <p className="border-border text-muted-foreground rounded-md border border-dashed p-4 text-center">
+            No verified sections (pipeline verdict:{" "}
+            <code className="font-mono">{verifiedReport.pipeline_verdict}</code>
+            ).
+          </p>
+        ) : (
+          verifiedReport.sections.map((s) => (
+            <SectionPanel key={s.section_id} section={s} />
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function VerdictBadge({ verdict }: { verdict: string }) {
+  const isSuccess = verdict === "success";
+  return (
+    <p
+      data-testid="pipeline-verdict-badge"
+      data-state={isSuccess ? "success" : "abort"}
+      className={
+        isSuccess
+          ? "inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+          : "inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+      }
+    >
+      Verdict: {verdict}
+    </p>
+  );
+}
+
+function SectionPanel({ section }: { section: VerifiedReportSectionShape }) {
+  return (
+    <div
+      className="border-border rounded-md border p-4"
+      data-testid="verified-report-section"
+      data-section-id={section.section_id}
+    >
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="font-medium">{section.section_id}</h3>
+        <span className="text-muted-foreground font-mono text-xs">
+          pass rate {(section.section_verify_pass_rate * 100).toFixed(0)}%
+        </span>
+      </div>
+      <ul className="space-y-2">
+        {section.verified_sentences.map((sentence, idx) => (
+          <SentenceItem
+            key={`${section.section_id}-${idx}`}
+            sentence={sentence}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SentenceItem({ sentence }: { sentence: VerifiedSentenceShape }) {
+  const [showTokens, setShowTokens] = useState(false);
+  return (
+    <li
+      className="bg-muted/30 hover:bg-muted/60 rounded-sm border border-transparent p-2 transition-colors"
+      data-testid="verified-sentence"
+      data-verifier-pass={sentence.verifier_pass}
+    >
+      <p className="text-sm">{sentence.sentence_text}</p>
+      {sentence.provenance_tokens.length > 0 && (
+        <button
+          type="button"
+          className="text-muted-foreground focus-visible:ring-ring mt-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-2 py-1 text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+          onClick={() => setShowTokens((v) => !v)}
+          data-testid="toggle-provenance-tokens"
+        >
+          {showTokens ? "Hide" : "Show"} {sentence.provenance_tokens.length}{" "}
+          provenance token
+          {sentence.provenance_tokens.length === 1 ? "" : "s"}
+        </button>
+      )}
+      {showTokens && (
+        <ul className="text-muted-foreground mt-1 ml-4 list-disc font-mono text-xs">
+          {sentence.provenance_tokens.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      )}
+
+ succeeded in 1364ms:
+// I-cd-021 (#631) — Offline Inspector page. Renders a v1.0 signed bundle
+// in-browser from a `.tar.gz` file dropped by a disconnected reviewer.
+// No GPU, no backend, no API call.
+"use client";
+
+import { useState } from "react";
+
+import { InspectorView } from "@/app/inspector/[runId]/inspector_view";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  BundleClientLoaderError,
+  loadBundleFromTarGz,
+} from "@/lib/inspector_bundle_client_loader";
+import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+
+export default function InspectorOfflinePage() {
+  const [bundle, setBundle] = useState<LoadedBundle | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  async function handleFile(file: File) {
+    setLoading(true);
+    setError(null);
+    setBundle(null);
+    try {
+      const loaded = await loadBundleFromTarGz(file);
+      setBundle(loaded);
+    } catch (exc) {
+      const message =
+        exc instanceof BundleClientLoaderError
+          ? `${exc.code}: ${exc.message}`
+          : (exc as Error).message;
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  if (bundle) {
+    return (
+      <InspectorView
+        bundle={bundle}
+        signaturePresent={bundle.signaturePresent}
+      />
+    );
+  }
+
+  return (
+    <main
+      className="mx-auto flex max-w-3xl flex-col gap-6 p-6"
+      data-testid="inspector-offline"
+    >
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Offline Inspector</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <p className="text-muted-foreground">
+            Drop or pick a signed POLARIS audit bundle (<code>.tar.gz</code>).
+            The bundle is verified and rendered entirely in your browser — no
+            backend or GPU required. SHA-256 of every file is checked against
+            the manifest. GPG cryptographic verify is out of scope (the
+            bundle&apos;s <code>.asc</code> presence is detected, but full
+            key-trust verification needs a CLI).
+          </p>
+          <div
+            data-testid="inspector-offline-dropzone"
+            role="button"
+            tabIndex={0}
+            aria-label="Drop bundle tar.gz or click to pick a file"
+            onDrop={onDrop}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                document.getElementById("inspector-offline-input")?.click();
+              }
+            }}
+            onClick={() =>
+              document.getElementById("inspector-offline-input")?.click()
+            }
+            className={`border-border focus-visible:ring-ring flex min-h-32 cursor-pointer items-center justify-center rounded border-2 border-dashed px-6 py-8 text-center text-sm focus-visible:ring-2 focus-visible:outline-none ${
+              dragOver ? "bg-muted/60" : "bg-muted/20"
+            }`}
+          >
+            {loading
+              ? "Loading bundle…"
+              : "Drop bundle.tar.gz here or press Enter to pick a file"}
+          </div>
+          <input
+            id="inspector-offline-input"
+            data-testid="inspector-offline-file-input"
+            type="file"
+            accept=".tar.gz,.tgz,application/gzip,application/x-gzip"
+            className="sr-only"
+            onChange={onInputChange}
+          />
+          {error ? (
+            <div
+              data-testid="inspector-offline-error"
+              role="alert"
+              className="rounded border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-700 dark:text-rose-300"
+            >
+
+2026-05-24T01:03:05.812932Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.4 seconds
+Output:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Path web\app\inspector\[runId]\inspector_view.tsx -Total[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAn object at the specified path web\app\inspector\[runId]\inspector_view.tsx does not exist, or has been filtered by the -Include or -Exclude parameter.[0m
+
+ exited 1 in 1366ms:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Path web\app\inspector\[runId]\inspector_view.tsx -Total[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAn object at the specified path web\app\inspector\[runId]\inspector_view.tsx does not exist, or has been filtered by the -Include or -Exclude parameter.[0m
+
+codex
+So far I don’t see a P0/P1 contract break: the manifest fields are still in the disclosure, the signature chip keeps its test contract, and the abort verdict test ID has not been duplicated. I’m doing one final pass over styling tokens and the rendered tab/content wiring before closing the review.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"--verified|--contradiction|--destructive|verified:|contradiction:\" web\\app web\\styles web\\components -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'web\\app\\inspector\\[runId]\\inspector_view.tsx' -TotalCount 220" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\inspector\\inspector_proof_header.tsx -TotalCount 160" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\inspector\\bundle_header.tsx -TotalCount 140" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\inspector\\family_segregation_badge.tsx -TotalCount 100" in C:\POLARIS
+2026-05-24T01:03:20.958024Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+rg: unrecognized flag --verified|--contradiction|--destructive|verified:|contradiction:
+
+ exited 1 in 967ms:
+rg: unrecognized flag --verified|--contradiction|--destructive|verified:|contradiction:
+
+ succeeded in 1103ms:
+// I-cd-013a (GH#609) — Inspector view (client component, Tabs structure).
+// I-p2-043 (#833) S-tier: the page led with two stacked audit-metadata cards
+// (BundleHeader + FamilySegregationBadge) ABOVE the Proof Replay centerpiece —
+// "compliance tooling before the product" (Codex). Restructured so a bespoke
+// proof-header band (question + verify-rate proof artifact + trust line) leads and
+// Proof Replay is the default tab. See InspectorProofHeader.
+"use client";
+
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EvidencePoolTable } from "@/components/inspector/evidence_pool_table";
+import { HashChainPanel } from "@/components/inspector/hash_chain_panel";
+import { InspectorProofHeader } from "@/components/inspector/inspector_proof_header";
+import { MetadataPanel } from "@/components/inspector/metadata_panel";
+import { ProofReplay } from "@/components/proof_replay/proof_replay";
+import { ReasoningTraceTimeline } from "@/components/inspector/reasoning_trace_timeline";
+import { ScopeDecisionCard } from "@/components/inspector/scope_decision_card";
+import { SourcesPanel } from "@/components/inspector/sources_panel";
+import { VerifiedReportSections } from "@/components/inspector/verified_report_sections";
+import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+
+interface InspectorViewProps {
+  bundle: LoadedBundle;
+  signaturePresent: boolean;
+}
+
+export function InspectorView({
+  bundle,
+  signaturePresent,
+}: InspectorViewProps) {
+  return (
+    <main
+      className="mx-auto flex max-w-6xl flex-col gap-6 p-6"
+      data-testid="inspector-view"
+      data-run-id={bundle.runId}
+    >
+      <InspectorProofHeader
+        bundle={bundle}
+        signaturePresent={signaturePresent}
+      />
+      <Tabs defaultValue="proof">
+        {/* I-p2-043 (#833): the 8-tab rail overflowed the 375w viewport (Codex visual
+            iter-2 P1). Contain it in a horizontal-scroll lane — desktop hugs content,
+            mobile scrolls instead of bleeding off-screen. */}
+        <div className="-mx-1 overflow-x-auto px-1 pb-1">
+          <TabsList>
+            <TabsTrigger value="proof">Proof Replay</TabsTrigger>
+            <TabsTrigger value="report">Report</TabsTrigger>
+            <TabsTrigger value="scope">Scope</TabsTrigger>
+            <TabsTrigger value="evidence">Evidence</TabsTrigger>
+            <TabsTrigger value="reasoning">Reasoning</TabsTrigger>
+            <TabsTrigger value="sources">Sources</TabsTrigger>
+            <TabsTrigger value="hashchain">Hash chain</TabsTrigger>
+            <TabsTrigger value="metadata">Metadata</TabsTrigger>
+          </TabsList>
+        </div>
+        {/* I-p2-017 (#756): the CENTERPIECE — Report = Proof Replay. The #746
+            split-view (click a verified claim → see its exact cited source span)
+            was built but wired into NO route; this surfaces it as the default
+            inspector tab. */}
+        <TabsContent value="proof" tabId="proof">
+          <ProofReplay
+            sections={bundle.verifiedReport.sections}
+            evidencePool={bundle.evidencePool}
+          />
+        </TabsContent>
+        <TabsContent value="report" tabId="report">
+          <VerifiedReportSections verifiedReport={bundle.verifiedReport} />
+        </TabsContent>
+        <TabsContent value="scope" tabId="scope">
+          <ScopeDecisionCard value={bundle.scopeDecision} />
+        </TabsContent>
+        <TabsContent value="evidence" tabId="evidence">
+          <EvidencePoolTable value={bundle.evidencePool} />
+        </TabsContent>
+        <TabsContent value="reasoning" tabId="reasoning">
+          <ReasoningTraceTimeline records={bundle.reasoningTrace} />
+        </TabsContent>
+        <TabsContent value="sources" tabId="sources">
+          <SourcesPanel sources={bundle.sources} />
+        </TabsContent>
+        <TabsContent value="hashchain" tabId="hashchain">
+          <HashChainPanel manifest={bundle.manifest} />
+        </TabsContent>
+        <TabsContent value="metadata" tabId="metadata">
+          <MetadataPanel metadata={bundle.metadata} />
+        </TabsContent>
+      </Tabs>
+    </main>
+  );
+}
+
+ succeeded in 1122ms:
+// I-p2-043 (#833) S-tier — the Inspector's bespoke proof-header band.
+// Codex visual gate iter-1 P1: the prior thin chip rows read as "form metadata, not a
+// premium proof artifact"; the abort shape lost its hero entirely. This consolidates the
+// hero question + the proof artifact (verify rate is the headline number) + the trust line
+// (two-family + signature + manifest disclosure) into ONE crafted band directly under the
+// H1 — the signature move (proof as the page's visual operating system), applied to the
+// header. Preserves the bundle-header / family-segregation-badge / signature-badge testids.
+import {
+  BundleHeader,
+  SignatureBadge,
+} from "@/components/inspector/bundle_header";
+import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
+import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+
+interface InspectorProofHeaderProps {
+  bundle: LoadedBundle;
+  signaturePresent: boolean;
+}
+
+const VERDICT_LABELS: Record<string, string> = {
+  abort_no_verified_sections: "No verified sections",
+  abort_corpus_inadequate: "Corpus inadequate",
+  abort_corpus_approval_denied: "Corpus approval denied",
+  abort_scope_rejected: "Scope rejected",
+};
+
+function humanizeVerdict(verdict: string): string {
+  return (
+    VERDICT_LABELS[verdict] ??
+    verdict
+      .replace(/^abort_/, "")
+      .replace(/_/g, " ")
+      .trim()
+  );
+}
+
+export function InspectorProofHeader({
+  bundle,
+  signaturePresent,
+}: InspectorProofHeaderProps) {
+  const report = bundle.verifiedReport;
+  const sectionCount = report.sections?.length ?? 0;
+  const verified = sectionCount > 0;
+  const pct = Math.round(report.overall_verify_pass_rate * 100);
+
+  return (
+    <header className="flex flex-col gap-4">
+      <h1 className="font-heading text-foreground max-w-3xl text-2xl leading-tight font-bold tracking-tight text-balance sm:text-3xl">
+        {report.research_question ?? "Signed research bundle"}
+      </h1>
+
+      <div
+        data-testid="inspector-proof-header"
+        className="bg-card ring-foreground/10 shadow-card flex flex-col gap-3 rounded-xl p-4 ring-1 sm:p-5"
+      >
+        {/* primary proof artifact line — the verify rate is the headline number */}
+        {verified ? (
+          <div
+            data-testid="inspector-proof-summary"
+            className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
+          >
+            <span className="text-verified text-3xl leading-none font-bold tabular-nums">
+              {pct}%
+            </span>
+            <span className="text-foreground text-sm font-medium">
+              of claims verified
+            </span>
+            <span aria-hidden className="text-border">
+              •
+            </span>
+            <span className="text-muted-foreground text-sm">
+              {sectionCount} verified section{sectionCount === 1 ? "" : "s"} ·
+              every sentence traces to its cited source span
+            </span>
+          </div>
+        ) : (
+          <div
+            data-testid="inspector-proof-summary"
+            className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm"
+          >
+            <span className="border-contradiction/40 bg-contradiction/15 text-contradiction-foreground inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium">
+              {humanizeVerdict(report.pipeline_verdict)}
+            </span>
+            <span className="text-muted-foreground">
+              No verified sections — see the Report tab for the full pipeline
+              verdict.
+            </span>
+          </div>
+        )}
+
+        {/* trust grid — one left-aligned column: the two trust chips grouped on top,
+            then the bundle/model/date line + the manifest disclosure as one coherent
+            block (so the expanded manifest never splits into floating islands). */}
+        <div className="border-border/60 flex flex-col gap-2.5 border-t pt-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <FamilySegregationBadge
+              manifest={bundle.manifest}
+              verifiedReport={report}
+            />
+            <SignatureBadge present={signaturePresent} />
+          </div>
+          <BundleHeader manifest={bundle.manifest} />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+ succeeded in 1241ms:
+// I-cd-013a (GH#609) — Two-family invariant badge.
+// Source of truth: verified_report.evaluator_model + verified_report.family_segregation_passed
+// (NOT metadata.json — corrected at brief iter 1 P1).
+// I-p2-043 (#833) S-tier: tokenized (was hardcoded emerald/rose) — pass=--verified,
+// FAIL=--destructive (an invariant violation, not a soft warning — Codex P2). Compacted
+// from a full p-4 card to an inline trust chip so it rides in the hero's secondary row
+// instead of stacking above the Proof Replay centerpiece. Generator/evaluator models stay
+// in the title + are surfaced in MetadataPanel and the bundle-header manifest disclosure
+// (zero data loss). Keeps data-testid + data-state for the e2e contract.
+import { ShieldCheck, ShieldX } from "lucide-react";
+
+import type { VerifiedReportShape } from "@/lib/inspector_bundle_loader";
+import type { BundleManifest } from "@/lib/signed_bundle";
+
+interface FamilySegregationBadgeProps {
+  manifest: BundleManifest;
+  verifiedReport: VerifiedReportShape;
+}
+
+export function FamilySegregationBadge({
+  manifest,
+  verifiedReport,
+}: FamilySegregationBadgeProps) {
+  const passed = verifiedReport.family_segregation_passed;
+  return (
+    <span
+      data-testid="family-segregation-badge"
+      data-state={passed ? "pass" : "fail"}
+      title={`Generator: ${manifest.generator_model} · Evaluator: ${verifiedReport.evaluator_model}`}
+      className={
+        passed
+          ? "border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+          : "border-destructive/40 bg-destructive/10 text-destructive inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+      }
+    >
+      {passed ? (
+        <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
+      ) : (
+        <ShieldX aria-hidden className="h-3.5 w-3.5" />
+      )}
+      Two-family invariant {passed ? "verified" : "violated"}
+    </span>
+  );
+}
+
+ succeeded in 1270ms:
+// I-cd-013a (GH#609) — Bundle header.
+// I-p2-043 (#833) S-tier: the full 8-field audit Card dominated ABOVE the Proof
+// Replay centerpiece. Compacted to a slim metadata line + a subordinate "Full manifest"
+// disclosure carrying all 8 fields (ZERO loss — report_id and bundle_version live ONLY
+// here). Visual-gate iter 2: the signature chip moved OUT to the proof-header's chip row
+// (grouped with the two-family chip) so the expanded manifest stays one coherent block
+// instead of splitting trust state into two islands. SignatureBadge is exported for that.
+import { Fragment } from "react";
+
+import { ChevronRight, ShieldAlert, ShieldCheck } from "lucide-react";
+
+import type { BundleManifest } from "@/lib/signed_bundle";
+
+interface BundleHeaderProps {
+  manifest: BundleManifest;
+}
+
+export function BundleHeader({ manifest }: BundleHeaderProps) {
+  const created = new Date(manifest.bundle_created_at_utc).toUTCString();
+  const fields: Array<{ label: string; value: string; mono?: boolean }> = [
+    { label: "Bundle ID", value: manifest.bundle_id, mono: true },
+    {
+      label: "Schema version",
+      value: `v${manifest.bundle_version}`,
+      mono: true,
+    },
+    { label: "POLARIS version", value: manifest.polaris_version, mono: true },
+    { label: "Generator model", value: manifest.generator_model, mono: true },
+    { label: "Decision ID", value: manifest.decision_id, mono: true },
+    { label: "Pool ID", value: manifest.pool_id, mono: true },
+    { label: "Report ID", value: manifest.report_id, mono: true },
+    { label: "Created (UTC)", value: created },
+  ];
+  return (
+    <div data-testid="bundle-header" className="flex flex-col gap-1.5">
+      <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+        <span className="font-mono">{manifest.bundle_id}</span>
+        <span aria-hidden className="text-muted-foreground/40">
+          ·
+        </span>
+        <span className="font-mono">{manifest.generator_model}</span>
+        <span aria-hidden className="text-muted-foreground/40">
+          ·
+        </span>
+        <span>{created}</span>
+      </div>
+      <details className="group/manifest text-xs">
+        <summary className="text-muted-foreground/80 hover:text-foreground ease-standard inline-flex w-fit cursor-pointer list-none items-center gap-1 rounded-md py-0.5 transition-colors duration-150 [&::-webkit-details-marker]:hidden">
+          <ChevronRight
+            aria-hidden
+            className="ease-standard h-3 w-3 transition-transform duration-150 group-open/manifest:rotate-90"
+          />
+          Full manifest
+        </summary>
+        <dl className="border-border/60 bg-muted/40 mt-1.5 grid max-w-md grid-cols-[max-content_1fr] gap-x-4 gap-y-1 rounded-md border-l p-2.5">
+          {fields.map((f) => (
+            <Fragment key={f.label}>
+              <dt className="text-muted-foreground">{f.label}</dt>
+              <dd
+                className={
+                  f.mono
+                    ? "text-foreground font-mono break-all"
+                    : "text-foreground"
+                }
+              >
+                {f.value}
+              </dd>
+            </Fragment>
+          ))}
+        </dl>
+      </details>
+    </div>
+  );
+}
+
+export function SignatureBadge({ present }: { present: boolean }) {
+  if (present) {
+    return (
+      <span
+        className="border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+        data-testid="signature-badge"
+        data-state="present"
+      >
+        <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
+        Signed bundle
+      </span>
+    );
+  }
+  return (
+    <span
+      className="border-contradiction/40 bg-contradiction/15 text-contradiction-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+      data-testid="signature-badge"
+      data-state="missing"
+    >
+      <ShieldAlert aria-hidden className="h-3.5 w-3.5" />
+      Signature missing
+    </span>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -- \"--verified|--contradiction|--destructive|verified:|contradiction:\" web\\app web\\styles web\\components -S" in C:\POLARIS
+2026-05-24T01:03:24.683543Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.7 seconds
+Output:
+web\components\proof_replay\proof_replay.tsx:29:  verified: boolean;
+web\components\proof_replay\proof_replay.tsx:49:        verified: s.verifier_pass === true,
+web\components\inspector\family_segregation_badge.tsx:4:// I-p2-043 (#833) S-tier: tokenized (was hardcoded emerald/rose) — pass=--verified,
+web\components\inspector\family_segregation_badge.tsx:5:// FAIL=--destructive (an invariant violation, not a soft warning — Codex P2). Compacted
+web\components\verdict\verdict_chip.tsx:59:  contradiction: {
+web\app\globals.css:29:  --color-destructive: var(--destructive);
+web\app\globals.css:30:  --color-destructive-foreground: var(--destructive-foreground);
+web\app\globals.css:31:  --color-verified: var(--verified);
+web\app\globals.css:32:  --color-verified-foreground: var(--verified-foreground);
+web\app\globals.css:33:  --color-contradiction: var(--contradiction);
+web\app\globals.css:34:  --color-contradiction-foreground: var(--contradiction-foreground);
+web\app\globals.css:41:  --color-verified-bundle: var(--verified-bundle);
+web\app\globals.css:98:  --destructive: oklch(0.42 0.13 18);
+web\app\globals.css:99:  --destructive-foreground: oklch(0.985 0 0);
+web\app\globals.css:104:  --verified: oklch(0.48 0.14 152);
+web\app\globals.css:105:  --verified-foreground: oklch(0.985 0 0);
+web\app\globals.css:106:  --contradiction: oklch(0.72 0.15 75);
+web\app\globals.css:107:  --contradiction-foreground: oklch(0.27 0.04 75);
+web\app\globals.css:115:  --verified-bundle: oklch(0.48 0.14 152);
+web\app\globals.css:152:  --destructive: oklch(0.704 0.191 22.216);
+web\app\globals.css:157:  --destructive-foreground: oklch(0.145 0 0);
+web\app\generation\components\contradiction_pane.tsx:76:                return `Self-contradiction: source contradicts itself across ${sides.length} spans`;
+web\app\runs\[runId]\components\run_progress.tsx:87:      verified: asNumber(e.data.verified ?? e.data.verified_sentences),
+web\app\runs\[runId]\components\run_progress.tsx:344:  sections: { section: string; verified: number; dropped: number }[];
+web\app\sentence_hover_test\_demo.tsx:269:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:313:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:343:            "Regulatory non-numeric contradiction: FDA approved vs not.",
+web\app\sentence_hover_test\_demo.tsx:348:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:378:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:412:          contradiction: {
+web\app\generation\components\verified_report_view.tsx:48:  verified:
+rg: web\styles: The system cannot find the file specified. (os error 2)
+rg: -S: The system cannot find the file specified. (os error 2)
+
+ exited 1 in 725ms:
+web\components\proof_replay\proof_replay.tsx:29:  verified: boolean;
+web\components\proof_replay\proof_replay.tsx:49:        verified: s.verifier_pass === true,
+web\components\inspector\family_segregation_badge.tsx:4:// I-p2-043 (#833) S-tier: tokenized (was hardcoded emerald/rose) — pass=--verified,
+web\components\inspector\family_segregation_badge.tsx:5:// FAIL=--destructive (an invariant violation, not a soft warning — Codex P2). Compacted
+web\components\verdict\verdict_chip.tsx:59:  contradiction: {
+web\app\globals.css:29:  --color-destructive: var(--destructive);
+web\app\globals.css:30:  --color-destructive-foreground: var(--destructive-foreground);
+web\app\globals.css:31:  --color-verified: var(--verified);
+web\app\globals.css:32:  --color-verified-foreground: var(--verified-foreground);
+web\app\globals.css:33:  --color-contradiction: var(--contradiction);
+web\app\globals.css:34:  --color-contradiction-foreground: var(--contradiction-foreground);
+web\app\globals.css:41:  --color-verified-bundle: var(--verified-bundle);
+web\app\globals.css:98:  --destructive: oklch(0.42 0.13 18);
+web\app\globals.css:99:  --destructive-foreground: oklch(0.985 0 0);
+web\app\globals.css:104:  --verified: oklch(0.48 0.14 152);
+web\app\globals.css:105:  --verified-foreground: oklch(0.985 0 0);
+web\app\globals.css:106:  --contradiction: oklch(0.72 0.15 75);
+web\app\globals.css:107:  --contradiction-foreground: oklch(0.27 0.04 75);
+web\app\globals.css:115:  --verified-bundle: oklch(0.48 0.14 152);
+web\app\globals.css:152:  --destructive: oklch(0.704 0.191 22.216);
+web\app\globals.css:157:  --destructive-foreground: oklch(0.145 0 0);
+web\app\generation\components\contradiction_pane.tsx:76:                return `Self-contradiction: source contradicts itself across ${sides.length} spans`;
+web\app\runs\[runId]\components\run_progress.tsx:87:      verified: asNumber(e.data.verified ?? e.data.verified_sentences),
+web\app\runs\[runId]\components\run_progress.tsx:344:  sections: { section: string; verified: number; dropped: number }[];
+web\app\sentence_hover_test\_demo.tsx:269:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:313:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:343:            "Regulatory non-numeric contradiction: FDA approved vs not.",
+web\app\sentence_hover_test\_demo.tsx:348:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:378:          contradiction: {
+web\app\sentence_hover_test\_demo.tsx:412:          contradiction: {
+web\app\generation\components\verified_report_view.tsx:48:  verified:
+rg: web\styles: The system cannot find the file specified. (os error 2)
+rg: -S: The system cannot find the file specified. (os error 2)
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+No code-correctness blockers found. `report_id` and `bundle_version` remain reachable in `Full manifest`; test IDs/contracts are preserved; `pipeline-verdict-badge` remains single-sourced in the Report tab; `BundleHeader` has no stray old callers; tokens resolve to existing design variables. LOC increase is acceptable for this scoped centerpiece rebuild.
+tokens used
+67,727
