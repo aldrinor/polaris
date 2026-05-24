@@ -100,5 +100,10 @@ span highlights, and verdict badges appear consistently across the product.
   version overlaid fields → made static), entity-type select height matched to inputs, chips +
   selects on the shared motion primitive, mobile entity row stacks. All field logic/testids
   preserved.
-- Pre-redo baseline (Codex, 2026-05-23): Sign-in B−, Upload C+, Pin Replay C. Target every
-  screen at A++/S with the signature move systematized.
+- **Upload** (#841, I-p2-047): **desktop A / drag-active A+ / mobile A** (Codex visual iter-1
+  APPROVE). Crafted drop zone (UploadCloud icon + real drag-active brand-tint state + hover +
+  focus + motion; drag-depth counter to avoid child-flicker), tokenized error, and a factual
+  3-step "what happens after upload" band + /intake link filling the empty surface. Logic +
+  testids preserved.
+- Pre-redo baseline (Codex, 2026-05-23): Sign-in B−, Pin Replay C. Target every screen at
+  A++/S with the signature move systematized.

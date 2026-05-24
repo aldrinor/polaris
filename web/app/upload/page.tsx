@@ -1,3 +1,6 @@
+import { ArrowRight, FileText, Layers, Sparkles } from "lucide-react";
+import Link from "next/link";
+
 import { UploadWorkspace } from "./components/upload_workspace";
 
 export const metadata = {
@@ -5,6 +8,27 @@ export const metadata = {
   description:
     "Upload documents for grounding. Drag PDFs, MD, TXT, or DOCX (50MB max).",
 };
+
+// I-p2-047 (#841): factual post-upload flow — describes the real
+// parse → chunk → ground-intake path (no fabricated claims) — so the page
+// reads intentional instead of a drop zone above empty space.
+const STEPS = [
+  {
+    icon: FileText,
+    title: "Drop your files",
+    body: "PDF, DOCX, MD, or TXT — up to 50MB each.",
+  },
+  {
+    icon: Layers,
+    title: "Parsed + chunked",
+    body: "POLARIS extracts the text and splits each document into retrievable chunks.",
+  },
+  {
+    icon: Sparkles,
+    title: "Grounds your questions",
+    body: "Include uploads as evidence when you ask a question on the intake page.",
+  },
+] as const;
 
 // I-cd-026 (#616): /upload rebuild — G6 fix. Page no longer renders its
 // own <main>; AppShell (via AppShellGate, I-cd-022) is the single
@@ -27,6 +51,35 @@ export default function UploadPage() {
       </div>
 
       <UploadWorkspace />
+
+      {/* What happens after upload — sibling band (no nested card / no landmark) */}
+      <div className="border-border/60 flex flex-col gap-5 border-t pt-8">
+        <div className="grid gap-x-6 gap-y-5 sm:grid-cols-3">
+          {STEPS.map((step, i) => (
+            <div key={step.title} className="flex flex-col gap-1.5">
+              <div className="text-muted-foreground flex items-center gap-2">
+                <span className="bg-muted text-foreground inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold tabular-nums">
+                  {i + 1}
+                </span>
+                <step.icon aria-hidden className="text-primary h-4 w-4" />
+              </div>
+              <h2 className="text-foreground text-sm font-semibold">
+                {step.title}
+              </h2>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                {step.body}
+              </p>
+            </div>
+          ))}
+        </div>
+        <Link
+          href="/intake"
+          className="text-primary focus-visible:ring-ring/70 inline-flex w-fit items-center gap-1 rounded text-sm font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+        >
+          Ask a question with your uploads
+          <ArrowRight aria-hidden className="h-4 w-4" />
+        </Link>
+      </div>
     </section>
   );
 }
