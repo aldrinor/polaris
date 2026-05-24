@@ -1,0 +1,12 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Use drag-depth or a relatedTarget/contains guard for drag-active state; naive onDragLeave can flicker when moving across children inside the drop zone."
+  - "Ensure onDragOver still calls preventDefault while setting drag-active, so real browser drops remain valid and do not navigate/open the file."
+  - "Keep the new process band compact on mobile so it fills the empty surface without pushing the selected-docs/status area too far below the fold."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```

@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 
+import { UploadCloud } from "lucide-react";
+
 import { getUpload, uploadDocument, type UploadResponse } from "@/lib/api";
 
 import { DocumentPreview } from "./document_preview";
@@ -56,6 +58,11 @@ export function UploadDropZone({
   const baseId = useId();
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [openPreviewDocId, setOpenPreviewDocId] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  // Drag-depth counter (Codex P2): naive onDragLeave flickers when the pointer
+  // crosses child elements inside the zone; count enter/leave so active is true
+  // iff the pointer is genuinely within the zone subtree.
+  const dragDepth = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   let counter = 0;
 
@@ -150,18 +157,46 @@ export function UploadDropZone({
         role="button"
         tabIndex={0}
         aria-label="Drop files here or click to browse"
+        data-drag-active={dragActive}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          dragDepth.current += 1;
+          setDragActive(true);
+        }}
         onDragOver={(e) => e.preventDefault()}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDragActive(false);
+        }}
         onDrop={(e) => {
           e.preventDefault();
+          dragDepth.current = 0;
+          setDragActive(false);
           if (e.dataTransfer?.files) handleFiles(e.dataTransfer.files);
         }}
         onClick={() => inputRef.current?.click()}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
         }}
-        className="border-border bg-muted/10 flex min-h-32 flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center"
+        className={`ease-standard focus-visible:ring-ring/70 flex min-h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-8 text-center transition-colors duration-150 outline-none focus-visible:ring-2 ${
+          dragActive
+            ? "border-primary bg-primary/10"
+            : "border-border bg-muted/10 hover:border-primary/40 hover:bg-muted/30"
+        }`}
       >
-        <p className="text-foreground text-sm font-medium">Drop files here</p>
+        <span
+          className={`ease-standard flex h-11 w-11 items-center justify-center rounded-full transition-colors duration-150 ${
+            dragActive
+              ? "bg-primary/15 text-primary"
+              : "bg-muted text-muted-foreground"
+          }`}
+        >
+          <UploadCloud aria-hidden className="h-5 w-5" />
+        </span>
+        <p className="text-foreground text-sm font-medium">
+          {dragActive ? "Drop to upload" : "Drop files here"}
+        </p>
         <p className="text-muted-foreground text-xs">
           or click to browse · PDF, DOCX, MD, TXT · max 50MB
         </p>
@@ -234,7 +269,7 @@ export function UploadDropZone({
                   </span>
                 )}
                 {f.status === "error" && (
-                  <span className="text-rose-700">{f.error}</span>
+                  <span className="text-destructive">{f.error}</span>
                 )}
               </span>
             </li>

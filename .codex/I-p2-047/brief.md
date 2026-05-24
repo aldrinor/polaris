@@ -1,0 +1,57 @@
+# Codex brief — I-p2-047 (#841): Upload page S-rebuild (C+ → A)
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. Same quality bar regardless of iteration.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; polish is P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; no iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## What this is
+A BRIEF (plan) review. Attached: the CURRENT LIVE /upload (grade C+), desktop. Approve iff the
+plan reaches A without breaking the e2e contract.
+
+## Current live /upload (attached) — honest read
+Title "Upload documents" + subtext, a PLAIN dashed-rectangle drop zone ("Drop files here / or
+click to browse · PDF, DOCX, MD, TXT · max 50MB") with NO icon and NO drag-active feedback, a
+bare "SELECTED DOCS (none)" box, then a large empty lower half. Functional but the lowest-craft
+public page; the drop zone doesn't respond to dragging; the page wastes ~half the viewport.
+
+## Plan (upload_drop_zone.tsx + page.tsx; logic/testids preserved)
+1. **Crafted drop zone**: add an UploadCloud icon; a drag-active state (onDragEnter/Leave/Over
+   → boolean → brand-tinted border+bg when dragging over) + idle hover (hover:border-primary/40
+   hover:bg-muted/30) + the ease-standard motion + rounded-xl. Keep the `upload-dropzone`
+   testid, role=button, onDrop/onClick/onKeyDown handlers, and the sr-only file input.
+2. Tokenize the upload error: `text-rose-700` → `text-destructive`.
+3. **Fill the empty surface + connect to flow** (page.tsx): a factual "what happens after
+   upload" band (Drop files → POLARIS parses + chunks → ground your intake queries) + a link to
+   /intake. Sibling section (no extra header/main). No fabricated claims.
+4. Preserve EVERY testid (upload-page, upload-dropzone, upload-file-*, include-toggle-*,
+   upload-doc-id, upload-parse-*, open-preview-*, selected-doc-ids) + the upload/poll/parse
+   logic + DocumentPreview.
+
+## e2e contract I MUST NOT break (upload_g1_g8 + upload_dropzone + upload_parse_status)
+- exactly ONE <header> + ONE <main> (AppShell; page is a section).
+- `[data-testid="upload-dropzone"]` receives programmatically-dispatched drop events → files
+  upload → `li[data-status="completed"]` + `upload-doc-id` visible. The drag-active state must
+  not interfere with the drop handler.
+- no banned dev-language (slice/scaffold/placeholder/phase 0/post-carney/i-cd-); no console errors.
+
+## Files I have ALSO checked and they're clean (no break)
+- upload_workspace.tsx (composes dropzone + SelectedDocsIndicator), selected_docs_indicator.tsx,
+  document_preview.tsx — preserved. @/lib/api (uploadDocument/getUpload) — untouched. Brand
+  #c8102e + tokens — reused.
+
+## Question
+APPROVE iff this plan takes /upload to an A-tier upload surface (responsive crafted drop zone +
+intentional, not-empty page) without breaking the e2e/testid contract. Stronger ideas → P1/P2.
