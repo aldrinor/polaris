@@ -245,6 +245,7 @@ export function ContractEditor() {
               />
               <select
                 data-testid={`ce-ent-type-${i}`}
+                aria-label={`Entity type for ${ent.name || `entity ${i + 1}`}`}
                 value={ent.entity_type}
                 onChange={(e) => {
                   const n = [...entities];

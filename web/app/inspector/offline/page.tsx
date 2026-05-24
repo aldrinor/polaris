@@ -137,6 +137,7 @@ export default function InspectorOfflinePage() {
             id="inspector-offline-input"
             data-testid="inspector-offline-file-input"
             type="file"
+            aria-label="Upload a signed POLARIS audit bundle (.tar.gz)"
             accept=".tar.gz,.tgz,application/gzip,application/x-gzip"
             className="sr-only"
             onChange={onInputChange}

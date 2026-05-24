@@ -123,7 +123,7 @@ function EmptyPinReplay() {
             ),
           )}
         </div>
-        <p className="text-muted-foreground/70 text-xs">
+        <p className="text-muted-foreground text-xs">
           Each pin becomes a point on this timeline — verified-claim rate and
           evidence shifts, side by side.
         </p>

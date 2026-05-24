@@ -41,7 +41,7 @@ export default function BenchmarkPage() {
         <p>
           <strong className="text-foreground">Reproducible.</strong> Each
           scoreboard is produced by{" "}
-          <code className="bg-muted rounded px-1 py-0.5 text-xs">
+          <code className="bg-muted text-foreground rounded px-1 py-0.5 font-mono text-xs">
             scripts/run_benchmark.py
           </code>
           . The scoreboard.json artifact is canonical (sort_keys=True), so two

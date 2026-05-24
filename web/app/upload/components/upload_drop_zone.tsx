@@ -200,15 +200,19 @@ export function UploadDropZone({
         <p className="text-muted-foreground text-xs">
           or click to browse · PDF, DOCX, MD, TXT · max 50MB
         </p>
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          accept=".pdf,.docx,.md,.txt"
-          onChange={(e) => e.target.files && handleFiles(e.target.files)}
-          className="sr-only"
-        />
       </div>
+      {/* The file input is a SIBLING of the role=button dropzone (not nested) —
+          nesting two interactive controls fails WCAG nested-interactive (axe).
+          The dropzone's onClick/onKeyDown drives inputRef.click(). */}
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept=".pdf,.docx,.md,.txt"
+        aria-label="Upload documents (PDF, DOCX, MD, TXT)"
+        onChange={(e) => e.target.files && handleFiles(e.target.files)}
+        className="sr-only"
+      />
       {files.length > 0 && (
         <ul className="flex flex-col gap-2">
           {files.map((f) => (

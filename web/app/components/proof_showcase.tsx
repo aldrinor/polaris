@@ -126,7 +126,7 @@ export async function ProofShowcase() {
               <span className="text-foreground/90">“{quote}”</span>
             )}
           </blockquote>
-          <p className="text-muted-foreground/80 text-[11px]">
+          <p className="text-muted-foreground text-[11px]">
             Highlighted text is the exact span cited by the claim.
           </p>
           {sourceTitle ? (
