@@ -1,0 +1,13 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+The new `PX_W/PX_H` and `GLYPH_W/GLYPH_H` remain internally consistent. Max pixel access is `px=95`, `py=119`, `idx+2=46078` against a `46080` byte buffer, so no out-of-bounds path.
+
+The orthographic frustum matches the 96:120 render aspect, the leaf extents plus the reduced in-plane sway fit with margin, and removing `rotation.y` addresses the prior edge-on distortion without introducing an execution risk. Decorative/accessibility behavior, WebGL graceful failure, static reduced-motion path, disposal, and brand color are preserved.
