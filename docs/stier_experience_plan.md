@@ -1,129 +1,155 @@
-# POLARIS — S-Tier Experience Plan (I-ux-001 / #872)
+# POLARIS — S-Tier Experience Plan v2 (I-ux-001 / #872)
 
-**For:** Codex deep review (UNCAPPED, until APPROVE at highest bar) per operator 2026-05-24.
-**Grounded in:** the live running system (polarisresearch.ca, screenshots `web/p2shots/audit/*` 2026-05-23 + viewed 2026-05-24), the frontier-product research synthesis (`docs/stier_experience_directive_2026_05_24.md` §4), and the actual route/source inventory.
-**Decision authority:** Codex. Every recommendation below is a proposal for Codex to confirm, sharpen, or override with evidence. Claude does not ask the operator.
+**For:** Codex UNCAPPED review (iter 2). Rebuilt to address every iter-1 finding (`.codex/I-ux-001/codex_plan_verdict_iter1.txt`).
+**Grounded in:** live running system (viewed `web/p2shots/audit/{01_home,02_intake,03_inspector}.png`), frontier-product research, and Codex iter-1's online cross-check.
+**Decision authority:** Codex. Operator not consulted (full authorization 2026-05-24).
 
----
-
-## 0. North Star (one sentence)
-
-> **POLARIS is the only deep-research product where a decision-maker can challenge any sentence and watch it prove itself — instantly, against the primary source, with a signed receipt.**
-
-Everything in the experience exists to deliver that one feeling: *"I can trust this because I can check it, and checking it is delightful."* That is the whitespace no competitor occupies (OpenEvidence constrains sources, Scite classifies citations, Consensus shows a meter, FutureHouse shows reasoning — **none ship a signed, per-sentence-provable bundle**).
-
-## 1. Grounded current-state verdict (what the running system actually is today)
-
-Not docs — the live pixels. Honest picky-user grade:
-
-| Surface | Today | The problem (observed) |
-|---|---|---|
-| **Home** | B− | Headline is strong ("check, line by line"). But the **proof showcase — our entire differentiator — is the most broken-looking element**: the "exact passage" renders as a dense justified gray block with fragmented highlight runs. The one thing nobody else has, presented as a debug dump. Feature trio below is generic, small, lifeless. |
-| **Intake** | B− | ~60% dead white space below a plain card. Static. No preview of the payoff. A picky user sees "a lot of nothing." |
-| **Inspector / Proof Replay (centerpiece)** | B/B+ | Bones right (signed-bundle hashes, two-family invariant, claim↔span split, 8 tabs). But reads as a **dense developer tool**, not an "audit every sentence" wow. Span panel cramped; highlight hard to parse; no drama. |
-| **Run progress, Compare, Graph, Audit, Source-Review, Dashboard, Memory, Benchmark, Upload, Contracts, Pin-Replay, Sign-in** | C to B | Functional, WCAG-clean (axe 0), but flat hierarchy, inconsistent density, and — across the board — **zero liveliness**. Nothing moves, nothing reveals, nothing feels alive. |
-| **Systemic** | — | Flat typographic hierarchy; empty-space discipline absent (intake) or dense (inspector); motion entirely missing; the proof — the hero — looks the *least* premium. |
-
-**Thesis:** the product *bones are correct* — proof-as-hero is the right bet and the pieces exist. The failure is **execution quality + liveliness**. The single highest-leverage move is to make the **proof moment premium and alive** (home demo + inspector), then a systematic craft + motion pass across every page.
-
-## 2. Product-direction decisions (the operator's four questions — answered with evidence)
-
-> Codex: confirm/override each with your own online cross-check.
-
-### Q1 — Prolonged conversation, repeating pipeline, or one-shot brief? → **Brief-first, with claim-anchored follow-up. NOT a general chat.**
-- **Evidence:** Elicit's value is explicitly "less like a conversation, more like a structured, verifiable artifact"; ChatGPT/Gemini DR deliver a one-shot brief then allow follow-up; OpenEvidence is fast Q→A for point-of-care. A freeform chat **dilutes per-sentence provability** — every turn would need its own provenance/verdict, and the signed-bundle guarantee weakens.
-- **Decision:** the primary artifact is a **one-shot, audit-grade brief**. After delivery, follow-ups are **anchored to a specific claim** (already built, #757) so each answer inherits the provenance model. The "repeat the pipeline" need is met by *running again with a refined plan*, not by chatting.
-
-### Q2 — Branch research → knowledge graph? → **Yes, as the secondary "snowball" / return surface. Not the hero.**
-- **Evidence:** Perplexity Spaces accrue memory and get stickier with use; Undermind's depth comes from following citation trails. A graph that **compounds across runs on a policy topic** is a genuine return-driver.
-- **Decision:** keep/upgrade the knowledge graph (#758) as the *come-back-tomorrow* surface — it grows as you run more questions in a topic. The proof artifact stays the hero; the graph is the depth/retention layer.
-
-### Q3 — Agentic, continuously-deploying tools (Claude Code / Codex-web style)? → **Yes — but bounded + visible-as-rigor, not unbounded autonomy.**
-- **Evidence:** Genspark/Manus impress via visible multi-step execution; FutureHouse exposes the agent's *source-evaluation reasoning* for trust. For a clinical reviewer, the agentic loop must read as **rigor** (which guideline, which RCT, why this source over that), not spectacle.
-- **Decision:** the pipeline IS agentic (scope → retrieve → adequacy → generate → verify). Surface it as a **live, legible "rigor feed"** on the run-progress page: each step shows the *evidence decision* it made. An unbounded "do anything" agent would break auditability (every action must be provable), so depth is bounded and every step is on the record. This is our honest, differentiated take on "agentic."
-
-### Q4 — What makes a picky user stay? → **The proof moment + reliability + a compounding topic workspace.**
-- **Evidence:** OpenEvidence retention (40%+ of US physicians daily) is built on *reliability* ("it has to work, every time"), not features; Spaces retain via compounding memory; the trust surfaces (citation context, evidence meter, reasoning trace) are what experts return for.
-- **Decision:** (a) make the proof interaction *delightful and instant* so the first session creates a "I've never seen research I could check like this" memory; (b) ruthless reliability (no dead-ends — see #871); (c) a topic workspace (graph + run history) that's richer every visit.
-
-## 3. The end-to-end experience (the journey, with the emotional beat at each step)
-
-A real user, start to finish — each step must be S-tier *and* cohere as one experience:
-
-1. **Land (Home)** → *"Wait, I can actually check every sentence?"* A live, real verified claim with a one-click "prove it" reveal that animates the span lighting up in its source. One obvious CTA: **Ask a question**.
-2. **Ask (Intake)** → *"It understands what I'm asking and won't waste my time."* Big, confident question field; auto-detected domain; it shows it will confirm scope first. Fill the dead space with a *live preview of what a finished brief looks like* (a thin proof-replay teaser) so the payoff is visible before they commit.
-3. **Confirm (Plan review)** → *"I'm in control."* An editable plan (the Gemini-DR pattern) — interpreted question, sources it will use, what it will and won't claim — before a single token is spent.
-4. **Watch (Run progress)** → *"This is doing real, rigorous work."* The legible rigor feed: scope ✓ → retrieval (sources found, tiered) → adequacy gate → generation → per-sentence verification, each with the evidence decision visible. Honest about aborts (refusal/inadequate = a *feature*, shown with dignity).
-5. **Read (Report = Proof Replay)** → *the hero.* A clean, premium brief. A single at-a-glance **verdict header** (the whole brief's provenance state). Hover/click any sentence → its evidence span lights up beside it with a verdict chip. This is the moment that sells the product.
-6. **Interrogate (Follow-up / Compare)** → *"I can push on this."* Claim-anchored follow-ups; compare two runs/claims side by side.
-7. **Explore (Knowledge graph)** → *"There's a whole map here, and it grows."* The snowball — claims/sources/contradictions as a navigable, compounding graph.
-8. **Take it away (Audit / Export)** → *"I can hand this to my counsel and they can verify it offline."* The signed bundle + manifest + offline inspector. The receipt.
-
-## 4. Information architecture
-
-- **Public:** Home (proof demo) · Transparency · Sign-in. Nav minimal, confident.
-- **Authed primary journey:** Ask → Plan → Run → Report(Proof Replay) → Follow-up/Compare → Graph → Export. This is *one continuous flow*, not 8 disconnected routes — the nav and in-page CTAs must make the next step obvious.
-- **Authed supporting:** Dashboard (monitoring), Source-Review (set health), Upload (private docs), Memory, Benchmark, Contracts, Pin-Replay. These are *tools*, visually subordinate to the journey.
-- Kill internal jargon in user-facing copy (operator flag: "refusal-bait", "PICO axis", "scope" without explanation).
-
-## 5. The hero interaction — Proof Replay (exact spec)
-
-This is the product. It must be flawless and alive on both Home (teaser) and Inspector (full).
-- **Resting state:** the brief reads as a clean, authoritative document. Each sentence carries a subtle verdict affordance (a hairline underline tint by verdict color, not noisy chips inline).
-- **On hover/focus of a sentence:** the matching evidence span in the source panel **animates to highlight** (≈200ms ease), the source card scrolls/settles to it, and a verdict chip (VERIFIED / PARTIAL / UNSUPPORTED) appears with the tier + source name. Reverse on blur.
-- **On click:** pins the pairing; shows the full span in context + the provenance token + "open source" + numeric-match detail.
-- **At-a-glance:** a brief-level verdict header (e.g., "18 claims · 16 verified · 2 partial · 0 unsupported") — the Consensus-Meter analog, but per-claim and provable.
-- **Motion is meaning:** the highlight reveal *is* the proof happening. This is the single most important place to invest motion craft.
-- **Fix now:** the Home showcase span rendering (broken justified gray block) and the Inspector span panel (cramped, dev-tool dense) → premium typographic treatment, generous reading measure, clear highlight, calm color.
-
-## 6. Visual & motion system (concrete — upgrade, don't restart)
-
-Keep the warm-editorial-institutional base (#704) + brand red `#c8102e` (operator-LOCKED). Raise it to the Linear/Stripe craft bar:
-- **Type:** one family (Geist). A real scale — display / h1 / h2 / h3 / body-lg / body / caption / mono — with deliberate line-height + measure (60–75ch for brief prose). Hierarchy carried by **type + space**, not color/chrome.
-- **Color:** near-monochrome ground + ONE meaning accent. Verdict palette is *semantic only*: `--verified` (green), `--contradiction`/partial (amber), `--unsupported`/`--destructive` (red), `--refusal`. Brand red reserved for primary action + identity. No decorative color.
-- **Space:** an 8px rhythm; fix intake's dead space (add the proof teaser / recent briefs); fix inspector density (breathing room in the span panel).
-- **Elevation:** designed shadows (`shadow-card`/`-hover`), hairline borders 0.5–1px low-alpha — never default `<hr>`.
-- **Microstates:** ALL SIX on every interactive element (default/hover/focus/active/disabled/loading). Keyboard focus rings visible everywhere (WCAG 2.2 AA already at axe-0 — keep it).
-- **Motion (the "lively" layer — currently absent, first-class here):** a small motion-token set (durations 120/200/320ms; `ease-standard`). Choreograph: the proof-span reveal; the run-progress rigor feed advancing; verdict chips settling; number count-ups on the verdict header; empty/loading states with character (not bare spinners); page transitions that feel intentional. All `prefers-reduced-motion` safe.
-- **Signature:** the maple-leaf sovereign mark must be crisp and confident (operator: current is a "faint low-fidelity dot-cloud"), used sparingly as the sovereignty/identity beat.
-
-## 7. Per-page S-tier targets
-
-> Current grade → target S. Codex sets the exact bar per page at visual-audit time.
-
-| Route | Now | Key moves to S-tier |
-|---|---|---|
-| `/` Home | B− | Fix the proof showcase (premium span render + animated reveal); tighten the feature trio into one differentiation statement; add life. |
-| `/intake` Ask | B− | Kill dead space with a live brief-preview/proof teaser + recent briefs; confident question field; de-jargon copy. |
-| `/plan` | B | Editable plan as a real control surface; show what it will/won't claim. |
-| `/runs/[id]` Run progress | B | The legible "rigor feed"; honest abort states with dignity; motion on step advance. |
-| `/runs/[id]` Report = Proof Replay | B/B+ | The hero §5 — premium document + alive proof reveal + verdict header. |
-| `/inspector/[id]` | B/B+ | Same proof-replay craft; calm the dev-tool density; signed-bundle/two-family as a trust beat, not a hash dump. |
-| `/compare`, follow-up | B | Claim-anchored, clear left↔right, premium. |
-| `/runs/[id]/graph` Knowledge graph | B | The compounding snowball; legible, navigable, alive; mobile-real. |
-| `/audit` export | B | The "receipt" — signed package + manifest + offline-inspector handoff, presented as trust not tables. |
-| `/source_review`, `/dashboard`, `/memory`, `/benchmark`, `/upload`, `/contracts`, `/pin_replay`, `/sign-in` | C–B | Subordinate-but-crafted; consistent system; de-jargon; microstates + motion. |
-
-## 8. Differentiation thesis (vs each, in one line)
-
-- vs **ChatGPT/Gemini DR:** they give a long prose report you must trust; we give a brief you can *check sentence-by-sentence*, signed.
-- vs **OpenEvidence:** they constrain sources for trust; we *prove* each claim against the source and hand you the receipt.
-- vs **Scite/Consensus:** they classify/aggregate citations; we verify the *generated sentence* against its span with a verdict.
-- vs **Elicit:** they give a structured extraction table; we give a narrative brief where every sentence is independently provable.
-- vs **all:** sovereign (Canadian-hosted, disclosed), two-family-verified, and the only one that emits a **signed, offline-verifiable bundle**.
-
-## 9. Execution sequence (after Codex APPROVEs this plan)
-
-Foundation first (system), then hero, then journey, then supporting — each page: issue → brief → Codex brief review → build → **Codex 16-dim visual audit (`codex exec -i`, screenshot matrix)** → Codex diff review → merge → redeploy → screenshot-verify LIVE → close.
-1. **Design-system + motion foundation** (type scale, color semantics, motion tokens, microstate primitives, crisp maple leaf).
-2. **The hero: Proof Replay** (home showcase + inspector/report) — fix the broken span render; build the animated reveal + verdict header.
-3. **Journey pages** in flow order: Intake → Plan → Run-progress → Report → Follow-up/Compare → Graph → Export.
-4. **Supporting pages** to the consistent system.
-5. **Reliability prerequisite — #871 (corpus_inadequate on real flagship clinical Q):** the hero must be real, not a fixture. A live run currently dead-ends. **Recommendation: Codex sequences #871 as a hard prerequisite for a *real* end-to-end demo** (the proof moment can't be canned for Carney). Flagged for Codex's call.
-
-## 10. Definition of S-tier (acceptance)
-
-A page is S-tier only when: (a) Codex's 16-dimension visual audit PASSes all dims via `codex exec -i` on a desktop+tablet+mobile screenshot matrix; (b) it's alive (purposeful motion, all six microstates, reduced-motion safe); (c) zero internal jargon in user-facing copy; (d) WCAG 2.2 AA (axe 0); (e) it coheres with the system and the adjacent journey steps; (f) verified LIVE on polarisresearch.ca after redeploy. The initiative is done when every page clears that bar and a real end-to-end run produces a real verified brief that renders through the hero.
+**What changed v1→v2 (per iter-1):** (a) moat re-stated — NOT "claims tied to sources" (Elicit/Scite/Consensus already do exact-quote citation) but **signed + independently-evaluated + per-sentence + offline-verifiable receipt + clinical-grade certainty**; (b) reframed from 8 routes → **one verified-brief workspace** (artifact-centric); (c) hero upgraded to a guided **"challenge any sentence"** chain-of-custody replay; (d) NEW **clinical evidence-quality (GRADE-like) layer**; (e) #871 moved to PARALLEL (not a hero blocker); (f) concrete component/motion/responsive/failure-state specs, offline-verify UX, counter-positioning table, interaction acceptance tests, PM demo script.
 
 ---
-*Codex: review uncapped. Critique product direction (§2), the journey (§3), the hero spec (§5), the visual/motion system (§6), and the sequence (§9). Cross-check current best practice online. Override anything weak. Two consecutive clean APPROVEs from independent context = locked.*
+
+## 0. North Star (sharpened)
+
+> **POLARIS is a verified-brief workspace: challenge any sentence and it proves itself — an independent evaluator's verdict, the resolved source span, a clinical-certainty read, and a signature you can verify offline.**
+
+The moat is NOT "we cite sources" (competitors do that). The moat is the **chain of custody**: every sentence is (1) checked by a *different model family* than wrote it, (2) bound to a primary-source span, (3) graded for *clinical decision-safety* (not just textual support), and (4) sealed in a **signed bundle a third party can verify offline, with no POLARIS server**. No competitor ships that. The whole experience exists to make that chain *visible, interactive, and unforgettable*.
+
+## 1. Honest competitor counter-positioning (what they do BETTER → how POLARIS answers)
+
+| Competitor | What they genuinely do well | POLARIS's honest answer |
+|---|---|---|
+| **OpenEvidence** | Physician trust, point-of-care speed, daily habit; source-constrained | We're not point-of-care; we're the *defensible-decision* tool — independently-evaluated + signed + offline-verifiable, for a reviewer who must justify a call. |
+| **ChatGPT / Gemini DR** | Editable plans, visible progress, polished visual reports, follow-up | We match plan+progress+follow-up, and add the one thing they can't: a per-sentence verdict from an independent family + a signed receipt. Length is their liability; provability is our advantage. |
+| **Elicit** | Structured extraction tables; each cell quotes its source | We're a narrative brief (a policy reviewer reads prose, not a spreadsheet) where every sentence is independently verified + signed. |
+| **Scite / Consensus** | Citation context/classification; evidence meter; claim/evidence tables | They grade the *literature's* agreement; we grade *our own generated sentence* against its span with an independent verdict + clinical-safety read. |
+| **Perplexity (Spaces/Comet)** | Compounding workspaces; agentic tasks/browser | Our compounding surface is the topic knowledge-graph; our "agentic" is bounded + on-the-record (auditable), not open autonomy. |
+| **Manus / Genspark** | Visible autonomous multi-tool execution ("wow") | We show agentic *rigor* (which guideline, which RCT, why rejected), not spectacle — because every step must be provable. |
+| **FutureHouse** | Exposes agent reasoning trace for trust | We expose reasoning AND bind it to a signed, independently-evaluated, offline-verifiable receipt. |
+
+*Defensible uniqueness, one line: signed + two-family-evaluated + per-sentence + clinical-grade + offline-verifiable. That is the visible product.*
+
+## 2. The flagship artifact: ONE verified-brief workspace (artifact-centric, not route-centric)
+
+iter-1 P0: the journey "still reads like 8 routes." Fix: there is **one object — the Verified Brief** — and the "pages" are *views/panels of that one object*, with a persistent mental model and shared chrome:
+- **The Brief** (the artifact) contains: the prose report · the evidence set · the per-sentence proof chain · the clinical-certainty layer · the contradiction/follow-up graph · the signed receipt.
+- **Views of the brief:** Read (report) · Challenge (proof replay) · Evidence (sources) · Map (graph) · Receipt (signed bundle / offline verify). One persistent header (the brief's identity + provenance verdict) across all views; switching views never loses the user's place or the claim they're inspecting.
+- **Producing a brief:** Ask → Plan → Run → (brief opens). **Monitoring/tools** (dashboard, source-review, upload, memory, benchmark, contracts, pin-replay) are subordinate utilities, visually distinct from the brief workspace.
+- A claim selected in Read stays selected in Challenge, Evidence, and Map. The artifact is the spine.
+
+## 3. Product-direction decisions (confirmed + extended)
+
+Confirmed by Codex iter-1 (do NOT pivot to chat):
+- **Brief-first**, one-shot audit-grade artifact. **Claim-anchored follow-ups** (explicit actions, §6). **Compounding knowledge-graph** as the return surface (§9). **Bounded, on-the-record agentic rigor** (§8), not open autonomy.
+- **NEW — clinical evidence-quality layer (§5)** is now a first-class product pillar, not an afterthought. Span-support ≠ decision-safety.
+
+## 4. THE HERO — "Challenge any sentence" (chain-of-custody proof replay)
+
+The single make-or-break interaction. Must be unforgettable, keyboard-first, mobile-real, instant.
+
+**Resting state:** the brief reads as a clean clinical document. Each sentence carries a quiet verdict affordance (hairline tint by verdict color; a small chevron on focus — not noisy inline chips).
+
+**Challenge a sentence** (click / tap / `J`-`K` to move, `Enter` to challenge):
+A guided 4-beat reveal in a docked proof panel (desktop: right rail; mobile: bottom sheet):
+1. **Claim** — the sentence lifts/echoes into the panel.
+2. **Verdict** — the independent evaluator's verdict animates in: VERIFIED / PARTIAL / UNSUPPORTED, **with the evaluator family named** ("checked by an independent model family, not the writer") and the specific check (numeric match, ≥2 content-word overlap, span bounds).
+3. **Source** — the primary-source span resolves: the source card settles, the exact span highlights (phrase-grouped, margin-annotated — not pink word tiles), with journal · year · DOI · tier · *why this source was selected*.
+4. **Signature** — a human-readable chain-of-custody line: "This claim + span are sealed in bundle `…`, signed, verifiable offline." One click → Receipt view.
+
+**At-a-glance brief verdict header (full provenance, not shallow counts):** claims (n) · verified / partial / unsupported (with unsupported *reasons*) · **independent-family result** · **signature state** · adequacy (tier mix: T1/T2/T3) · timestamp · model + version identity. A compact "provenance strip" always visible.
+
+**Performance budget:** time-to-first-proof < 400ms from challenge; span highlight < 150ms; claim-to-claim switch < 120ms. Motion `prefers-reduced-motion`: instant state swap, no animation.
+
+**Mobile/tablet:** tap a sentence → bottom-sheet proof panel; swipe between the 4 beats; no hover dependency anywhere.
+
+**Home teaser:** a real verified claim from the existing real signed bundle, with a single "Challenge this sentence" that runs beats 1→4 inline — the 8-second "I've never seen research I could check like this" moment.
+
+## 5. Clinical evidence-quality layer (NEW — iter-1 P0)
+
+A senior reviewer needs *decision-safety*, not just "the sentence matches a span." Each claim and the brief carry:
+- **Certainty** (GRADE-style: high/moderate/low/very-low) with the downgrade reasons (risk of bias, imprecision, indirectness, inconsistency, publication bias).
+- **Evidence hierarchy / study type** per source: RCT vs guideline vs observational vs review (this is what #817 was about) — visibly distinguished.
+- **Applicability / population fit** — does the evidence's population match the question's? Flag mismatch.
+- **Harms / safety** surfaced alongside efficacy, never buried.
+- **Conflict handling** — contradictory sources shown as a contradiction, with both sides + the contradiction panel (#749 exists).
+- **Refusal/abort as a feature** — "the evidence base is inadequate to answer safely" is a *first-class, dignified* outcome, not an error page.
+
+This layer is what makes POLARIS safe for a PM-office decision and is itself differentiating (no competitor grades its *own generated claim* for clinical certainty).
+
+## 6. The journey (views of the one artifact) + failure-state design
+
+land → ask → plan → run → **brief workspace opens** → challenge / follow-up → map → receipt. Each step's emotional beat per v1 §3, now with **designed failure states** (iter-1 missing-entirely):
+- **Inadequate corpus** (#871 class): a dignified "we won't answer what the evidence can't support" screen — shows what was searched, why it fell short, and what would make it answerable. NOT a stack trace.
+- **Partial evidence:** brief renders with explicit gaps marked.
+- **Contradictory sources:** contradiction panel foregrounded.
+- **Unsigned / signature-missing bundle:** clear, human-readable trust warning (never silent).
+
+**Follow-up (claim-anchored, explicit UI — iter-1 P1):** from any challenged sentence: "Ask about this sentence" · "Challenge this source" · "Compare against guideline" · "Find contradicting evidence" — each preserves provenance and opens a new verified sub-answer.
+
+## 7. Intake redesign (structural — iter-1 P1)
+
+Not "fill empty space with a teaser." Rebuild as a **pre-flight that earns trust before spending a run:** big confident question field → **live scope interpretation** (how POLARIS reads the question, in plain clinical language) → **evidence-availability preview** (roughly what tiers/sources exist for this) → **source-policy summary** (what it will/won't include) → plain-language "here's what you'll get / what we won't claim." De-jargon entirely (no "refusal-bait", "PICO axis", bare "scope").
+
+## 8. Plan review = source-strategy control surface (iter-1 P1)
+
+Editable before any token spent: primary studies vs guidelines weighting · date range · **Canadian relevance** · endpoints of interest · explicit exclusions · minimum adequacy threshold. The Gemini-DR "editable plan" pattern, but clinical and provenance-aware.
+
+## 9. Run progress = real evidence decisions, not theatre (iter-1 P1)
+
+The legible rigor feed shows actual decisions: sources searched · sources **rejected (with reason)** · tier counts accumulating · adequacy gate (pass/fail against threshold) · generation · **per-sentence evaluator pass/fail** · recovery path on failure. Motion communicates state (Vercel status model), never decorates. Honest on abort.
+
+## 10. Knowledge graph with a JOB (iter-1 P1)
+
+Not a generic node cloud. Concrete jobs: **contradiction map** (which claims/sources conflict) · **treatment/effect timeline** · **source lineage** (what cites what) · **guideline links** · **follow-up paths** (where you branched). Compounds across runs in a topic = the return surface. Legible, navigable, mobile-real.
+
+## 11. Receipt = guided offline-verify UX (iter-1 P0/P1)
+
+Not a manifest dump. A **"verify this brief offline" guided flow**: download the signed bundle → human-readable receipt (what's sealed, by whom, when, two-family identities) → step-by-step "how your counsel verifies this with no POLARIS server" (the offline inspector #631) → the bundle hash + signature presented as *trust*, with hashes/IDs behind progressive disclosure under a plain-language trust summary.
+
+## 12. Visual & motion system (concrete — iter-1 P0/P1)
+
+Keep warm-editorial base + brand red `#c8102e` (LOCKED). Raise to Linear/Stripe/Vercel craft with **concrete specs** (the v1 hand-waving was the finding):
+- **Type:** Geist; explicit scale (display 48/40, h1 32, h2 24, h3 20, body-lg 18, body 16, caption 14, mono 13) with line-heights + measure (62–72ch for brief prose).
+- **Color = meaning only:** verdict palette (`--verified`/`--partial`(amber)/`--unsupported`(red)/`--refusal`); brand red = primary action + identity only; near-monochrome ground.
+- **Density modes:** comfortable (reading) vs compact (evidence/dashboard tables) — explicit per surface.
+- **Components (spec each: all six states + responsive + a11y):** verdict chip, source card (journal/year/DOI/tier/why-selected), proof panel, provenance strip, claim sentence, contradiction panel, certainty badge, run-progress row, empty/loading/error (stable skeletons, no dead ends — Vercel guideline), command bar (keyboard-first proof nav, Raycast-style).
+- **Motion storyboards (exact what/why/when + reduced-motion equivalent):** (a) proof reveal 4-beat; (b) run-progress row advance; (c) source-card settle + span highlight; (d) verdict-header count change (count-up); (e) view transitions; (f) empty→content. Durations 120/200/320ms, `ease-standard`; all reduced-motion safe (instant swaps).
+- **De-jargon trust language:** "two-family invariant"→"checked by an independent model family"; "Signature missing"→"⚠ This bundle is not signed — trust not established"; "POOL ID"→"Evidence set".
+- **Maple-leaf mark:** production spec — crisp SVG (not dot-cloud), size/contrast rules, appears at sovereignty/identity beats only.
+- **Trust material** lives in the proof surface + transparency page, not buried in the footer. "Canadian-hosted" gets an accessible disclosure distinguishing hosting/data (Canada) from US-routed LLM inference (disclosed).
+
+## 13. Per-page targets — naming the structural REBUILDS (iter-1 P1)
+
+| Surface | Now | Verdict | Scope |
+|---|---|---|---|
+| Home | B− | rebuild proof showcase | premium span render + inline "challenge" teaser; replace generic trio with concrete proof metrics + signed-receipt story |
+| Intake | B− | **structural rebuild** (§7) | live scope interpretation + evidence preview + source policy |
+| Plan | B | extend (§8) | source-strategy controls |
+| Run progress | B | rebuild (§9) | real evidence decisions feed |
+| Report = Proof Replay (hero) | B/B+ | **structural rebuild** (§4) | challenge-any-sentence chain-of-custody + clinical layer + provenance header |
+| Inspector | B/B+ | **structural rebuild** | progressive-disclosure trust summary over hashes; same hero replay |
+| Compare / follow-up | B | extend (§6) | explicit claim-anchored actions |
+| Knowledge graph | B | **structural rebuild** (§10) | give it a job |
+| Export/Receipt | B | **structural rebuild** (§11) | guided offline-verify flow |
+| Source-review, dashboard, memory, benchmark, upload, contracts, pin-replay, sign-in | C–B | polish to system | subordinate; consistent components + motion + de-jargon |
+
+## 14. Execution sequence (iter-1: prototype before code; #871 parallel)
+
+1. **Design + motion foundation** + **Figma/motion prototype of the hero** (proof replay 4-beat) BEFORE implementation. Codex reviews the prototype (`-i`).
+2. **Component system** (verdict chip, source card, proof panel, provenance strip, certainty badge, command bar, states) to spec.
+3. **The hero** (Report/Inspector + Home teaser) — built against the **existing real signed bundle** (do NOT wait on #871).
+4. **Clinical evidence-quality layer** woven into hero + report.
+5. **Journey views** in flow order: Intake → Plan → Run-progress → Brief workspace → Follow-up/Compare → Map → Receipt, each with failure states.
+6. **Supporting surfaces** to the system.
+7. **#871 in PARALLEL** as a reliability blocker (hard prerequisite for the *live Carney demo*, not for building the proof experience).
+8. **PM/policy demo script** (not just clinical curiosity) — the narrated walkthrough for the gift.
+
+Each page: issue → brief → Codex brief review → build → **Codex 16-dim visual audit (`codex exec -i`, desktop+tablet+mobile matrix)** → Codex diff review → merge → redeploy → screenshot-verify LIVE → close.
+
+## 15. Definition of S-tier + interaction acceptance (iter-1)
+
+A surface is S-tier only when: (a) Codex 16-dim visual audit PASS via `codex exec -i` on desktop+tablet+mobile; (b) alive (motion storyboards implemented, all six microstates, reduced-motion safe); (c) zero internal jargon in user-facing copy; (d) WCAG 2.2 AA (axe 0) + keyboard-first proof nav; (e) coheres with the one-artifact model; (f) **interaction acceptance tests pass** (Playwright traces/videos, NOT just screenshots): time-to-first-proof < 400ms, time-to-verify-one-claim, full keyboard path, mobile tap path, reduced-motion path; (g) verified LIVE post-redeploy.
+
+The initiative is done when every surface clears that bar, the verified-brief workspace feels like one artifact, the clinical-quality layer is present, the offline-verify flow works, and a real end-to-end run produces a real verified brief that renders through the hero (with #871 fixed for the live demo).
+
+---
+*Codex iter 2: verify v2 against your iter-1 findings (do not trust these change-claims — read the plan). Re-cross-check online. APPROVE only if this, executed faithfully, is frontier-beating + unforgettable + clinical-grade. Uncapped.*
