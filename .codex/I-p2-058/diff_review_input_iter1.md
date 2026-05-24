@@ -1,0 +1,527 @@
+# Codex DIFF review — I-p2-058 (#863): Knowledge-graph frontier/lively rebuild
+
+HARD ITERATION CAP: 5. iter 1. Front-load ALL findings; reserve P0/P1 for real execution risks.
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Already gated
+- Visual `-i` APPROVE iter-3 (desktop A- / selected A- / mobile B+) — frontier/lively bar.
+- canonical-diff-sha256: ecd76d267f04dd155599f7aa6964e02953321b9269bf39c1d2f058b19198ecc6
+- CI hashes the PR diff excluding only .codex/<id>/ + outputs/audits/<id>/ → this canonical diff is
+  the 4 graph files + the docs tracker.
+
+## What the diff does (5 files)
+1. graph_styles.ts — STYLESHEET rebuilt: per-type shapes, label halos, frame-status colours,
+   directional/layered edges, `.faded` 0.22; LAYOUT_FCOSE animate:true + tuned separation.
+2. claim_graph.tsx — dot-grid backdrop + card elevation; selection effect now dims
+   `elements().difference(selected.closedNeighborhood())` with `.faded`; mobile viewport h-440.
+3. use_graph_state.ts — selectedNodeId useState LAZY INITIALIZER seeds the first section (else
+   first node) so the graph opens focal. No effect (no setState-in-effect).
+4. accessible_graph_list.tsx — TypeGlyph per row; "Inspect" text → ArrowUpRight icon-button
+   (keeps onFocus→select + the Link + aria-label); tokenized tier badge; row hover.
+5. docs/web/s_tier_design_system.md — tracker note.
+
+## Verification
+- typecheck clean; eslint clean (incl. the lazy-init avoids react-hooks/set-state-in-effect);
+  prettier clean.
+
+## Review focus (correctness, not aesthetics — visual already gated)
+- Keyboard nav (Arrow/Enter/Esc/`/`) + search-hit + snowball still work: the list still renders the
+  same `visibleOrdered` rows with `data-testid=graph-list-row-*`; onKeyDown unchanged; the Inspect
+  control still fires onFocus→setSelectedNodeId and Links to inspectorHref.
+- `.faded` correctness: `cyInstance.elements().removeClass("selected faded")` then re-add — confirm
+  no stuck-faded state on deselect/search. closedNeighborhood() is the right set (node+edges+adj).
+- Default-selected seed reads payload at first render only (lazy init) — confirm no infinite loop /
+  no crash when payload has 0 nodes (optional chaining → null).
+- No fabricated SHIPPED data (the fixture used to render is NOT in the diff; frame-status colours
+  are real GraphNodeData.frame_status). No raw-palette regressions (tier badge tokenized).
+
+## The full canonical diff
+```diff
+diff --git a/docs/web/s_tier_design_system.md b/docs/web/s_tier_design_system.md
+index fd5b4f27..15975229 100644
+--- a/docs/web/s_tier_design_system.md
++++ b/docs/web/s_tier_design_system.md
+@@ -180,6 +180,18 @@ Contracts A/A- · Upload A/A+/A · Pin Replay A/A- · Sign-in A/A), each dual-Co
+   `status === "completed"` — per §9.1 `mark_aborted()` persists lifecycle 'completed' for abort_*
+   runs (Codex visual iter-1 P2 + diff iter-1/2/3 P2).
+ 
++### Secondary cred-gated pages (post-journey frontier/lively pass)
++
++- **Knowledge graph** (#863, I-p2-058): **desktop A- / selected A- / mobile B→B+** (Codex visual
++  iter-3 APPROVE, frontier/lively bar). Was "raw Cytoscape in a clean admin page" (Codex). Rebuilt
++  to a SEMANTIC GRAPH GRAMMAR (no rainbow — design stays near-neutral + scarce-red selection):
++  distinct node SHAPES (hexagon section / dot claim / pill source / status-coloured diamond frame),
++  label halos, directional layered edges (amber contradiction arrow), animated fcose settle,
++  dot-grid canvas depth, a DEFAULT FOCAL spotlight on load (section selected, non-neighbours dimmed
++  to 0.22 as context), and a rail turned into a navigator (canvas-matching type glyphs + arrow
++  links, not a column of "Inspect"). Fixed a raw `bg-green-100` tier badge → token. Shorter mobile
++  graph viewport so the accessible list (mobile-primary navigator) arrives sooner.
++
+ **The full cred-gated journey is now at the A bar** (Dashboard A/A-/A · Benchmark A/A-/A-/A-/A ·
+ Memory A/A-/A · Compare A/A/A/A · Source Review S-/A++/A+ · Plan A/A/A/A- · Run progress A/A/A),
+ each rendered locally (seeded session + route-mocked fixture, visual-audit-only) under the dual
+diff --git a/web/app/runs/[runId]/graph/components/accessible_graph_list.tsx b/web/app/runs/[runId]/graph/components/accessible_graph_list.tsx
+index f691a5a3..26629e35 100644
+--- a/web/app/runs/[runId]/graph/components/accessible_graph_list.tsx
++++ b/web/app/runs/[runId]/graph/components/accessible_graph_list.tsx
+@@ -13,15 +13,53 @@
+  * Enter=open Inspector, Esc=clear selection, `/`=focus search.
+  */
+ 
++import { ArrowUpRight } from "lucide-react";
+ import Link from "next/link";
+ import { useRouter } from "next/navigation";
+ import { useMemo, type KeyboardEvent, type RefObject } from "react";
+ 
+ import { Button } from "@/components/ui/button";
+-import type { GraphNode, GraphPayload } from "@/lib/api";
++import { cn } from "@/lib/utils";
++import type { GraphNode, GraphNodeData, GraphPayload } from "@/lib/api";
+ 
+ import type { GraphAdjacency, GraphState } from "./use_graph_state";
+ 
++// A small glyph that mirrors the canvas grammar (hexagon section / dot claim /
++// pill source / status diamond frame) so the rail reads as a navigator of the
++// same graph, not a detached admin table (Codex frontier audit iter-2 P1).
++function TypeGlyph({ data }: { data: GraphNodeData }) {
++  if (data.type === "section")
++    return (
++      <span
++        aria-hidden
++        className="size-2.5 shrink-0 rotate-12 rounded-sm bg-slate-900"
++      />
++    );
++  if (data.type === "source")
++    return (
++      <span
++        aria-hidden
++        className="h-2 w-3.5 shrink-0 rounded-sm bg-slate-700"
++      />
++    );
++  if (data.type === "frame") {
++    const tone =
++      data.frame_status === "pass"
++        ? "bg-verified"
++        : data.frame_status === "partial"
++          ? "bg-contradiction"
++          : data.frame_status === "fail"
++            ? "bg-destructive"
++            : "bg-slate-500";
++    return (
++      <span aria-hidden className={cn("size-2.5 shrink-0 rotate-45", tone)} />
++    );
++  }
++  return (
++    <span aria-hidden className="size-2 shrink-0 rounded-full bg-slate-600" />
++  );
++}
++
+ interface AccessibleGraphListProps {
+   payload: GraphPayload;
+   state: GraphState;
+@@ -139,32 +177,41 @@ export function AccessibleGraphList({
+               key={n.data.id}
+               data-testid={`graph-list-row-${n.data.id}`}
+               aria-current={isSelected ? "true" : undefined}
+-              className={`flex items-center justify-between gap-3 px-3 py-2 text-xs ${
+-                isSelected ? "bg-accent" : ""
++              className={`ease-standard flex items-center justify-between gap-3 px-3 py-2 text-xs transition-colors duration-150 ${
++                isSelected ? "bg-accent" : "hover:bg-muted/40"
+               }`}
+             >
+               <div className="flex min-w-0 flex-1 items-center gap-2">
+-                <span className="text-muted-foreground font-mono text-[10px] uppercase">
++                <TypeGlyph data={n.data} />
++                <span className="text-muted-foreground w-11 shrink-0 font-mono text-[10px] uppercase">
+                   {n.data.type}
+                 </span>
+                 {n.data.tier && (
+-                  <span className="rounded bg-green-100 px-1 text-[10px] font-medium text-green-800">
++                  <span className="border-border bg-muted/60 text-foreground shrink-0 rounded border px-1 font-mono text-[10px] font-medium tabular-nums">
+                     {n.data.tier}
+                   </span>
+                 )}
+-                <span className="truncate" title={n.data.label}>
++                <span className="text-foreground truncate" title={n.data.label}>
+                   {n.data.label}
+                 </span>
+               </div>
++              {/* Inspect de-emphasized to an arrow so the node label is the
++                  focus, not a column of repeated "Inspect" links (Codex P1). */}
+               <Button
+                 variant="ghost"
+-                size="sm"
++                size="icon"
++                className="text-muted-foreground hover:text-primary size-7 shrink-0"
+                 onFocus={() => setSelectedNodeId(n.data.id)}
+                 nativeButton={false}
+-                render={<Link href={inspectorHref(n.data.id)} />}
+-              >
+-                Inspect
+-              </Button>
++                render={
++                  <Link
++                    href={inspectorHref(n.data.id)}
++                    aria-label={`Inspect ${n.data.label}`}
++                  >
++                    <ArrowUpRight aria-hidden className="h-4 w-4" />
++                  </Link>
++                }
++              />
+             </li>
+           );
+         })}
+diff --git a/web/app/runs/[runId]/graph/components/claim_graph.tsx b/web/app/runs/[runId]/graph/components/claim_graph.tsx
+index 2dd3f90d..6a1da453 100644
+--- a/web/app/runs/[runId]/graph/components/claim_graph.tsx
++++ b/web/app/runs/[runId]/graph/components/claim_graph.tsx
+@@ -153,22 +153,37 @@ export function ClaimGraph({
+       .addClass("search-hit");
+   }, [cyInstance, searchQuery]);
+ 
+-  // Selection sync — selected node gets a halo via .selected class.
++  // Selection sync — the selected node gets the Canada-red halo, and everything
++  // OUTSIDE its closed neighbourhood is dimmed (.faded) so the focal claim +
++  // its evidence stand out (I-p2-058 #863: the focal "spotlight" frontier move).
+   useEffect(() => {
+     if (!cyInstance) return;
+-    cyInstance.nodes().removeClass("selected");
+-    if (selectedNodeId) {
+-      cyInstance.getElementById(selectedNodeId).addClass("selected");
+-    }
++    cyInstance.elements().removeClass("selected faded");
++    if (!selectedNodeId) return;
++    const sel = cyInstance.getElementById(selectedNodeId);
++    if (sel.empty()) return;
++    sel.addClass("selected");
++    const focus = sel.closedNeighborhood(); // node + its edges + adjacent nodes
++    cyInstance.elements().difference(focus).addClass("faded");
+   }, [cyInstance, selectedNodeId]);
+ 
+   return (
+     <section
+       aria-label="Claim graph canvas"
+       data-testid="claim-graph"
+-      className="border-border relative flex w-full flex-col overflow-hidden rounded-md border"
++      className="border-border bg-card shadow-card relative flex w-full flex-col overflow-hidden rounded-xl border"
+     >
+-      <div className="relative h-[600px] w-full">
++      {/* Faint dot-grid backdrop gives the canvas spatial depth (Codex P1:
++          "too flat/document-like") — palette-safe (slate-200 dots on near-white). */}
++      <div
++        className="relative h-[440px] w-full sm:h-[600px]"
++        style={{
++          backgroundColor: "#fcfcfb",
++          backgroundImage:
++            "radial-gradient(circle, rgba(100,116,139,0.18) 1px, transparent 1px)",
++          backgroundSize: "22px 22px",
++        }}
++      >
+         <CytoscapeComponent
+           elements={elements}
+           style={{ width: "100%", height: "100%" }}
+diff --git a/web/app/runs/[runId]/graph/components/graph_styles.ts b/web/app/runs/[runId]/graph/components/graph_styles.ts
+index 3af3b3e1..274a590f 100644
+--- a/web/app/runs/[runId]/graph/components/graph_styles.ts
++++ b/web/app/runs/[runId]/graph/components/graph_styles.ts
+@@ -1,138 +1,205 @@
+ /**
+  * Cytoscape stylesheet + layout constants for ClaimGraph.
+  *
+- * Extracted from claim_graph.tsx in I-snowball-004 to keep the component
+- * under 200 LOC after adding event handlers + hover card + a11y list.
++ * I-p2-058 (#863): rebuilt to a SEMANTIC GRAPH GRAMMAR so the canvas reads as a
++ * knowledge-graph PRODUCT, not raw Cytoscape (Codex frontier/lively audit). The
++ * design language stays near-neutral + ONE accent: Canada-red `#c8102e` is
++ * reserved for the SELECTION state (scarcity). Liveliness comes from MOTION
++ * (animated settle), SHAPE (each node type has a distinct silhouette), label
++ * halos (readable over edges), directional edges, and dimming non-neighbours of
++ * the selected node — NOT from arbitrary colour. The only meaning-colours are
++ * the sanctioned ones: verified-green, contradiction-amber, frame-status
++ * (pass/partial/fail), all >=3:1 on white.
++ *
++ * Concrete hex (cytoscape canvas can't read CSS vars); values mirror the tokens.
+  */
+ 
+ import type cytoscape from "cytoscape";
+ 
+-// I-p2-012 (#751): aligned to the #742 white + Canada-red system. Concrete
+-// values (cytoscape canvas can't read CSS vars). Red is reserved for the
+-// SELECTION state (scarcity); node types are muted lightness-tiered slates
+-// (all >=3:1 on white); contradiction is amber (NOT red, so red stays scarce).
+-// State selectors are ordered search-hit -> snowball -> selected so the
+-// Canada-red selection always wins cytoscape's source-order precedence.
++const SLATE_SENTENCE = "#475569"; // slate-600 — claims (many, small)
++const SLATE_SOURCE = "#334155"; // slate-700 — evidence
++const SLATE_SECTION = "#0f172a"; // slate-900 — section anchors
++const SLATE_FRAME = "#64748b"; // slate-500 — frame (overridden by status)
++const VERIFIED = "#1f7a44"; // --verified (green)
++const AMBER = "#a16207"; // --contradiction (amber; NOT red)
++const DESTRUCTIVE = "#991b1b"; // --destructive (dark red, frame fail only)
++const BRAND = "#c8102e"; // --primary (SELECTION only — scarcity)
++const LABEL = "#1e293b"; // slate-800 label text on white
++const HALO = "#ffffff";
++const HAIRLINE = "#ffffff"; // node rim → separates nodes from edges/each other
++
+ export const STYLESHEET: cytoscape.StylesheetStyle[] = [
++  // Base: every node gets a white rim + a label halo so labels stay readable
++  // over edges (fixes the collision mush), plus a 150ms transition so hover /
++  // selection / fade feel alive.
+   {
+-    selector: "node[type='sentence']",
++    selector: "node",
+     style: {
+-      "background-color": "#475569", // slate-600
+-      width: 18,
+-      height: 18,
+       label: "data(label)",
+-      "font-size": 8,
+-      color: "#1e293b", // label below node, on white
++      color: LABEL,
++      "font-size": 9,
+       "text-valign": "bottom",
+       "text-halign": "center",
+-      "text-margin-y": 4,
++      "text-margin-y": 5,
++      "text-background-color": HALO,
++      "text-background-opacity": 0.85,
++      "text-background-padding": 2 as unknown as string,
++      "text-background-shape": "roundrectangle",
++      "text-max-width": "150px",
++      "text-wrap": "ellipsis",
++      "border-width": 1.5,
++      "border-color": HAIRLINE,
++      "border-opacity": 0.95,
++      "transition-property":
++        "opacity, border-width, border-color, width, height",
++      "transition-duration": "0.15s" as unknown as number,
+     },
+   },
++  // sentence/claim — small ellipse (the leaves)
++  {
++    selector: "node[type='sentence']",
++    style: {
++      shape: "ellipse",
++      "background-color": SLATE_SENTENCE,
++      width: 16,
++      height: 16,
++      "font-size": 8,
++    },
++  },
++  // source — rounded pill (evidence)
+   {
+     selector: "node[type='source']",
+     style: {
+-      "background-color": "#334155", // slate-700
+-      width: 26,
+-      height: 26,
+-      label: "data(label)",
++      shape: "round-rectangle",
++      "background-color": SLATE_SOURCE,
++      width: 34,
++      height: 22,
+       "font-size": 9,
+-      color: "#1e293b", // label below node, on white
+-      "text-valign": "bottom",
+-      "text-halign": "center",
+-      "text-margin-y": 4,
+-      "text-max-width": "180px",
+-      "text-wrap": "ellipsis",
+     },
+   },
++  // section — hexagon anchor (the spine of the brief)
+   {
+     selector: "node[type='section']",
+     style: {
+-      "background-color": "#1e293b", // slate-800 (anchor)
+-      width: 30,
+-      height: 30,
+-      label: "data(label)",
++      shape: "hexagon",
++      "background-color": SLATE_SECTION,
++      width: 40,
++      height: 40,
++      "font-size": 11,
+       "font-weight": "bold" as never,
+-      "font-size": 10,
+-      color: "#1e293b", // label renders above node on white (cytoscape default valign top)
+     },
+   },
++  // frame — diamond, coloured by coverage status (sanctioned meaning colour)
+   {
+     selector: "node[type='frame']",
+     style: {
+-      "background-color": "#64748b", // slate-500
+-      width: 22,
+-      height: 22,
+-      label: "data(label)",
++      shape: "diamond",
++      "background-color": SLATE_FRAME,
++      width: 28,
++      height: 28,
+       "font-size": 9,
+-      color: "#1e293b", // label renders above node on white (cytoscape default valign top)
+     },
+   },
++  {
++    selector: "node[frame_status='pass']",
++    style: { "background-color": VERIFIED },
++  },
++  {
++    selector: "node[frame_status='partial']",
++    style: { "background-color": AMBER },
++  },
++  {
++    selector: "node[frame_status='fail']",
++    style: { "background-color": DESTRUCTIVE },
++  },
+   {
+     selector: "node.bibliography_missing",
+     style: {
+-      "background-color": "#94a3b8", // faded = missing
++      "background-opacity": 0.4,
+       "border-style": "dashed",
+-      "border-width": 1,
+-      "border-color": "#475569", // >=3:1 dashed marker conveys "missing"
++      "border-color": "#475569",
++      "border-opacity": 1,
+     },
+   },
++  // Dim everything that is NOT a neighbour of the selected node (set from
++  // claim_graph on selection) — the focal "spotlight" frontier move.
++  { selector: ".faded", style: { opacity: 0.22 } },
++  // State borders — ordered search-hit -> snowball -> selected so Canada-red
++  // selection always wins cytoscape source-order precedence (scarcity).
+   {
+     selector: "node.search-hit",
+-    style: {
+-      "border-width": 3,
+-      "border-color": "#a16207", // amber-700 (search mode)
+-    },
++    style: { "border-width": 3, "border-color": AMBER, "border-opacity": 1 },
+   },
+   {
+     selector: "node.snowball-neighbor",
+     style: {
+       "border-width": 3,
+-      "border-color": "#1f7a44", // verified-green (connected)
++      "border-color": VERIFIED,
++      "border-opacity": 1,
+       "background-opacity": 0.95,
+     },
+   },
+   {
+-    // LAST among state selectors: Canada-red selection always wins (scarcity).
+     selector: "node.selected",
++    style: { "border-width": 4, "border-color": BRAND, "border-opacity": 1 },
++  },
++  // Edges — directional + layered. cites points claim -> source.
++  {
++    selector: "edge",
+     style: {
+-      "border-width": 4,
+-      "border-color": "#c8102e", // Canada-red (--primary)
++      "curve-style": "bezier",
++      "transition-property": "opacity, line-color, width",
++      "transition-duration": "0.15s" as unknown as number,
+     },
+   },
+   {
+     selector: "edge[edge_type='cites']",
+     style: {
+-      "line-color": "#475569", // slate-600 (proof relationship)
+-      width: 1,
+-      "curve-style": "bezier",
++      "line-color": "#94a3b8", // slate-400 (proof relationship, recedes)
++      width: 1.5,
++      "target-arrow-shape": "triangle",
++      "target-arrow-color": "#94a3b8",
++      "arrow-scale": 0.7,
+     },
+   },
+   {
+     selector: "edge[edge_type='contradicts']",
+     style: {
+-      "line-color": "#a16207", // amber (conflict; NOT red)
+-      width: 2,
++      "line-color": AMBER,
++      width: 2.5,
++      "target-arrow-shape": "triangle",
++      "target-arrow-color": AMBER,
++      "arrow-scale": 0.9,
+       "curve-style": "bezier",
+-      "line-style": "solid",
+     },
+   },
+   {
+     selector: "edge[edge_type='section_member']",
+     style: {
+-      "line-color": "#64748b", // slate-500 dashed, full opacity (>=3:1)
++      "line-color": "#cbd5e1", // slate-300 dashed structural edge (recedes most)
+       "line-style": "dashed",
+       width: 1,
+     },
+   },
+ ];
+ 
++// I-p2-058 (#863): animate the settle (a brief seeded layout reveal) + more
++// breathing room so clusters form readable neighbourhoods instead of a cramped
++// diagonal string (Codex P1). animate:"end" runs the layout then animates nodes
++// to their final spots — a controlled reveal without a chaotic live simulation.
+ export const LAYOUT_FCOSE = {
+   name: "fcose",
+-  randomize: false,
++  randomize: true,
+   quality: "proof",
+-  animate: false,
+-  nodeSeparation: 75,
+-  idealEdgeLength: 50,
++  animate: true,
++  animationDuration: 750,
++  animationEasing: "ease-out",
++  nodeSeparation: 140,
++  idealEdgeLength: 95,
++  nodeRepulsion: 7000,
++  gravity: 0.25,
++  packComponents: true,
++  padding: 36,
+ } as unknown as cytoscape.LayoutOptions;
+ 
+ export const LAYOUT_PRESET: cytoscape.LayoutOptions = { name: "preset" };
+diff --git a/web/app/runs/[runId]/graph/components/use_graph_state.ts b/web/app/runs/[runId]/graph/components/use_graph_state.ts
+index 0d01ab69..901b5f1b 100644
+--- a/web/app/runs/[runId]/graph/components/use_graph_state.ts
++++ b/web/app/runs/[runId]/graph/components/use_graph_state.ts
+@@ -46,7 +46,16 @@ export function nodeMatchesQuery(node: GraphNode, query: string): boolean {
+ export function useGraphState(
+   payload: GraphPayload,
+ ): [GraphState, GraphAdjacency, GraphActions] {
+-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
++  // I-p2-058 (#863): open with a FOCAL node already selected (a section anchor,
++  // else the first node) so the graph lands on a narrative path — the spotlight
++  // is the default product moment, not something you must discover by clicking
++  // (Codex frontier audit iter-2 P1). Lazy initializer → no setState-in-effect.
++  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
++    () =>
++      payload.elements.nodes.find((n) => n.data.type === "section")?.data.id ??
++      payload.elements.nodes[0]?.data.id ??
++      null,
++  );
+   const [searchQuery, setSearchQuery] = useState<string>("");
+   const [snowballHighlight, setSnowballHighlight] =
+     useState<Set<string> | null>(null);
+
+# canonical-diff-sha256: ecd76d267f04dd155599f7aa6964e02953321b9269bf39c1d2f058b19198ecc6
+
+```
