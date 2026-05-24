@@ -201,6 +201,17 @@ Contracts A/A- · Upload A/A+/A · Pin Replay A/A- · Sign-in A/A), each dual-Co
   ledger + integrity manifest tables made RESPONSIVE — dense table on sm+, stacked cards on mobile
   so the abort reason / threshold / full SHA-256 are fully readable, not clipped (Codex iter-1 P1).
 
+- **Offline Inspector** (#867, I-p2-060): **default desktop A / mobile A-** (Codex visual iter-1
+  APPROVE). The disconnected-reviewer entry (drop a signed `.tar.gz` → SHA-256-verified + rendered
+  in-browser, no backend/GPU); the LOADED state reuses the S-tier InspectorView (#833). Assess-first:
+  the plain text dropzone + a raw `bg-rose-500` error block → a crafted drop zone (UploadCloud icon,
+  drag-active brand-tint, hover, motion, `rounded-xl`, a "Verifying bundle… checking SHA-256"
+  loading state) + the shared `ErrorState` (tokens). Honest SHA-256-checked / GPG-out-of-scope copy
+  preserved.
+
+**With Inspector ✓, the knowledge graph, audit/export, and offline inspector at the A bar, every
+production page (public + cred-gated journey + secondary) has now passed the dual Codex gate.**
+
 **The full cred-gated journey is now at the A bar** (Dashboard A/A-/A · Benchmark A/A-/A-/A-/A ·
 Memory A/A-/A · Compare A/A/A/A · Source Review S-/A++/A+ · Plan A/A/A/A- · Run progress A/A/A),
 each rendered locally (seeded session + route-mocked fixture, visual-audit-only) under the dual

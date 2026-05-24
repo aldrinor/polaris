@@ -1,0 +1,770 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e58c0-1ba8-7121-ba95-8373a158b2b1
+--------
+user
+# Codex DIFF review — I-p2-060 (#867): Offline Inspector dropzone polish
+
+HARD ITERATION CAP: 5. iter 1. Front-load ALL findings; reserve P0/P1 for real risks. APPROVE iff
+zero NOVEL P0 + zero continuing P0 + zero P1.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Already gated
+- Visual `-i` APPROVE iter-1 (default desktop A / mobile A-).
+- canonical-diff-sha256: fc59b62b0bf4337b823a7a5a4c3df55eefa7e1268abee64d57ed52ea77cbfabc
+
+## What the diff does (2 files; presentation only)
+1. app/inspector/offline/page.tsx — dropzone div restyled (icon + drag-active brand-tint + hover +
+   motion + rounded-xl + loading/idle copy with UploadCloud/FileCheck2 icons); the raw
+   bg-rose-500/text-rose-700 error block → the shared ErrorState component. Imports added
+   (UploadCloud, FileCheck2, ErrorState).
+2. docs tracker.
+
+## Verification
+- typecheck clean; eslint clean; prettier clean. Preserved: handleFile/onDrop/onInputChange/onKeyDown
+  logic, loadBundleFromTarGz, the SHA-256/GPG honest copy, and testids (inspector-offline,
+  inspector-offline-dropzone, inspector-offline-file-input, inspector-offline-error).
+
+## Review focus
+- The dropzone is still a keyboard-operable role=button (tabIndex/onKeyDown Enter/Space) + the
+  hidden file input is intact — confirm the icon/copy change didn't drop the a11y affordances or
+  the testid the e2e uses. ErrorState message is the loader's code:message (specific, not generic).
+
+## The full diff
+```diff
+diff --git a/docs/web/s_tier_design_system.md b/docs/web/s_tier_design_system.md
+index 87906443..c4128fec 100644
+--- a/docs/web/s_tier_design_system.md
++++ b/docs/web/s_tier_design_system.md
+@@ -201,6 +201,17 @@ Contracts A/A- · Upload A/A+/A · Pin Replay A/A- · Sign-in A/A), each dual-Co
+   ledger + integrity manifest tables made RESPONSIVE — dense table on sm+, stacked cards on mobile
+   so the abort reason / threshold / full SHA-256 are fully readable, not clipped (Codex iter-1 P1).
+ 
++- **Offline Inspector** (#867, I-p2-060): **default desktop A / mobile A-** (Codex visual iter-1
++  APPROVE). The disconnected-reviewer entry (drop a signed `.tar.gz` → SHA-256-verified + rendered
++  in-browser, no backend/GPU); the LOADED state reuses the S-tier InspectorView (#833). Assess-first:
++  the plain text dropzone + a raw `bg-rose-500` error block → a crafted drop zone (UploadCloud icon,
++  drag-active brand-tint, hover, motion, `rounded-xl`, a "Verifying bundle… checking SHA-256"
++  loading state) + the shared `ErrorState` (tokens). Honest SHA-256-checked / GPG-out-of-scope copy
++  preserved.
++
++**With Inspector ✓, the knowledge graph, audit/export, and offline inspector at the A bar, every
++production page (public + cred-gated journey + secondary) has now passed the dual Codex gate.**
++
+ **The full cred-gated journey is now at the A bar** (Dashboard A/A-/A · Benchmark A/A-/A-/A-/A ·
+ Memory A/A-/A · Compare A/A/A/A · Source Review S-/A++/A+ · Plan A/A/A/A- · Run progress A/A/A),
+ each rendered locally (seeded session + route-mocked fixture, visual-audit-only) under the dual
+diff --git a/web/app/inspector/offline/page.tsx b/web/app/inspector/offline/page.tsx
+index e7b67225..015ba450 100644
+--- a/web/app/inspector/offline/page.tsx
++++ b/web/app/inspector/offline/page.tsx
+@@ -3,9 +3,11 @@
+ // No GPU, no backend, no API call.
+ "use client";
+ 
++import { FileCheck2, UploadCloud } from "lucide-react";
+ import { useState } from "react";
+ 
+ import { InspectorView } from "@/app/inspector/[runId]/inspector_view";
++import { ErrorState } from "@/components/states/state_kit";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import {
+   BundleClientLoaderError,
+@@ -96,13 +98,40 @@ export default function InspectorOfflinePage() {
+             onClick={() =>
+               document.getElementById("inspector-offline-input")?.click()
+             }
+-            className={`border-border focus-visible:ring-ring flex min-h-32 cursor-pointer items-center justify-center rounded border-2 border-dashed px-6 py-8 text-center text-sm focus-visible:ring-2 focus-visible:outline-none ${
+-              dragOver ? "bg-muted/60" : "bg-muted/20"
++            className={`focus-visible:ring-ring/70 ease-standard flex min-h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors duration-150 focus-visible:ring-2 focus-visible:outline-none ${
++              dragOver
++                ? "border-primary/50 bg-primary/5"
++                : "border-border bg-muted/20 hover:border-primary/30 hover:bg-muted/40"
+             }`}
+           >
+-            {loading
+-              ? "Loading bundle…"
+-              : "Drop bundle.tar.gz here or press Enter to pick a file"}
++            {loading ? (
++              <>
++                <FileCheck2
++                  aria-hidden
++                  className="text-muted-foreground h-7 w-7 animate-pulse motion-reduce:animate-none"
++                />
++                <span className="text-foreground text-sm font-medium">
++                  Verifying bundle…
++                </span>
++                <span className="text-muted-foreground text-xs">
++                  Checking SHA-256 of every file against the manifest
++                </span>
++              </>
++            ) : (
++              <>
++                <UploadCloud
++                  aria-hidden
++                  className={`h-7 w-7 ${dragOver ? "text-primary" : "text-muted-foreground"}`}
++                />
++                <span className="text-foreground text-sm font-medium">
++                  {dragOver ? "Drop to verify" : "Drop a signed bundle"}
++                </span>
++                <span className="text-muted-foreground text-xs">
++                  <code className="font-mono">.tar.gz</code> — or press Enter /
++                  click to pick a file
++                </span>
++              </>
++            )}
+           </div>
+           <input
+             id="inspector-offline-input"
+@@ -113,13 +142,8 @@ export default function InspectorOfflinePage() {
+             onChange={onInputChange}
+           />
+           {error ? (
+-            <div
+-              data-testid="inspector-offline-error"
+-              role="alert"
+-              className="rounded border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-700 dark:text-rose-300"
+-            >
+-              <strong className="block">Bundle could not be loaded</strong>
+-              <code className="mt-1 block text-xs">{error}</code>
++            <div data-testid="inspector-offline-error">
++              <ErrorState title="Bundle could not be loaded" message={error} />
+             </div>
+           ) : null}
+         </CardContent>
+
+# canonical-diff-sha256: fc59b62b0bf4337b823a7a5a4c3df55eefa7e1268abee64d57ed52ea77cbfabc
+
+```
+
+codex
+I’ll verify the actual component around the diff and the shared `ErrorState` contract, since the main review risk is whether the replacement preserved alert semantics and the e2e selectors.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"inspector-offline|role=\\\"button\\\"|ErrorState|inspector-offline-error|inspector-offline-input|onKeyDown|onDrop|tabIndex\" web/app/inspector/offline/page.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"function ErrorState|const ErrorState|export .*ErrorState|role=\\\"alert\\\"|aria-live\" web/components web/app -g \"*.tsx\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "ease-standard|duration-150|motion-reduce" web -g "*.{ts,tsx,css,js,jsx}"' in C:\POLARIS
+2026-05-24T06:50:59.041257Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+rg: regex parse error:
+    (?:inspector-offline|role=\)
+    ^
+error: unclosed group
+
+ exited 1 in 1030ms:
+rg: regex parse error:
+    (?:inspector-offline|role=\)
+    ^
+error: unclosed group
+
+2026-05-24T06:50:59.231638Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+rg: regex parse error:
+    (?:function ErrorState|const ErrorState|export .*ErrorState|role=\)
+    ^
+error: unclosed group
+
+ exited 1 in 1221ms:
+rg: regex parse error:
+    (?:function ErrorState|const ErrorState|export .*ErrorState|role=\)
+    ^
+error: unclosed group
+
+ succeeded in 1392ms:
+web\app\contracts\_editor.tsx:35:  "border-input focus-visible:border-ring focus-visible:ring-ring/70 ease-standard h-9 rounded-lg border bg-transparent px-2.5 text-sm transition-colors duration-150 outline-none focus-visible:ring-3";
+web\app\contracts\_editor.tsx:175:                    className={`focus-within:ring-ring/70 ease-standard cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-150 focus-within:ring-2 ${
+web\app\upload\components\upload_drop_zone.tsx:182:        className={`ease-standard focus-visible:ring-ring/70 flex min-h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-8 text-center transition-colors duration-150 outline-none focus-visible:ring-2 ${
+web\app\upload\components\upload_drop_zone.tsx:189:          className={`ease-standard flex h-11 w-11 items-center justify-center rounded-full transition-colors duration-150 ${
+web\app\intake\components\intake_form.tsx:159:                  className="text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-muted border-border ease-standard rounded-full border px-2.5 py-1 text-xs transition-colors duration-150"
+web\app\intake\components\disambiguation_modal.tsx:48:        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/20 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs" />
+web\components\ui\sheet.tsx:31:        "fixed inset-0 z-50 bg-black/10 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
+web\app\intake\components\ambiguity_modal.tsx:35:            "fixed inset-0 z-50 bg-black/20 transition-opacity duration-150",
+web\app\benchmark\components\benchmark_board.tsx:166:              className="border-border bg-background hover:border-primary/40 hover:bg-muted/40 focus-visible:ring-ring/70 ease-standard text-foreground flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left font-mono text-sm transition-colors duration-150 focus-visible:ring-2 focus-visible:outline-none"
+web\app\components\proof_showcase.tsx:77:      className="ring-foreground/10 bg-card shadow-card ease-standard hover:shadow-card-hover relative overflow-hidden rounded-2xl ring-1 transition-shadow duration-150"
+web\components\ui\card.tsx:17:        "group/card bg-card text-card-foreground ring-foreground/10 shadow-card ease-standard flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 transition-shadow duration-150 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+web\app\page.tsx:179:                className="group/pillar bg-card ring-foreground/10 shadow-card ease-standard hover:shadow-card-hover flex flex-col gap-2 rounded-xl p-5 ring-1 transition-shadow duration-150"
+web\app\globals.css:63:  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+web\app\inspector\offline\page.tsx:101:            className={`focus-visible:ring-ring/70 ease-standard flex min-h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors duration-150 focus-visible:ring-2 focus-visible:outline-none ${
+web\app\inspector\offline\page.tsx:111:                  className="text-muted-foreground h-7 w-7 animate-pulse motion-reduce:animate-none"
+web\app\memory\page.tsx:274:                    className="border-border text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive focus-visible:ring-ring/70 ease-standard inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors duration-150 focus-visible:ring-2 focus-visible:outline-none"
+web\app\pin_replay\page.tsx:118:                  className={`bg-muted w-full rounded-md ${h} ${i % 2 ? "" : "animate-pulse motion-reduce:animate-none"}`}
+web\components\states\state_kit.tsx:49:          className="bg-muted h-4 w-full animate-pulse rounded motion-reduce:animate-none"
+web\app\runs\[runId]\graph\page.tsx:80:            role=alert/status + motion-reduce) instead of hand-rolled. */}
+web\components\inspector\bundle_header.tsx:48:        <summary className="text-muted-foreground/80 hover:text-foreground ease-standard inline-flex w-fit cursor-pointer list-none items-center gap-1 rounded-md py-0.5 transition-colors duration-150 [&::-webkit-details-marker]:hidden">
+web\components\inspector\bundle_header.tsx:51:            className="ease-standard h-3 w-3 transition-transform duration-150 group-open/manifest:rotate-90"
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:180:              className={`ease-standard flex items-center justify-between gap-3 px-3 py-2 text-xs transition-colors duration-150 ${
+
+codex
+The first search tripped over PowerShell quoting, so I’m rerunning it with fixed quoting and checking only the relevant local contracts.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'inspector-offline|role=\"button\"|ErrorState|inspector-offline-error|inspector-offline-input|onKeyDown|onDrop|tabIndex' web/app/inspector/offline/page.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'function ErrorState|const ErrorState|export .*ErrorState|role=\"alert\"|aria-live' web/components web/app -g '*.tsx'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\states\\state_kit.tsx -TotalCount 140" in C:\POLARIS
+ succeeded in 821ms:
+10:import { ErrorState } from "@/components/states/state_kit";
+47:  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+66:      data-testid="inspector-offline"
+82:            data-testid="inspector-offline-dropzone"
+83:            role="button"
+84:            tabIndex={0}
+86:            onDrop={onDrop}
+92:            onKeyDown={(e) => {
+95:                document.getElementById("inspector-offline-input")?.click();
+99:              document.getElementById("inspector-offline-input")?.click()
+137:            id="inspector-offline-input"
+138:            data-testid="inspector-offline-file-input"
+145:            <div data-testid="inspector-offline-error">
+146:              <ErrorState title="Bundle could not be loaded" message={error} />
+
+ succeeded in 885ms:
+web/app\contracts\_editor.tsx:425:          role="alert"
+web/app\pin_replay\page.tsx:191:            role="alert"
+web/app\plan\page.tsx:289:          role="alert"
+web/app\plan\page.tsx:308:          role="alert"
+web/app\sign-in\page.tsx:206:                    role="alert"
+web/components\ui\vega-chart.tsx:77:          role="alert"
+web/components\states\state_kit.tsx:62:export function ErrorState({
+web/components\states\state_kit.tsx:85:      role="alert"
+web/components\proof_replay\proof_replay.tsx:227:        aria-live="polite"
+
+ succeeded in 1014ms:
+// I-p2-011 (#750): empty / loading / error states kit. Consistent + honest
+// states every page adopts (G-CONTENT: no generic "Something went wrong" / bare
+// spinners). Reduced-motion handled locally; a11y role=status/alert.
+"use client";
+
+import { useEffect, type ReactNode } from "react";
+
+import type { LucideIcon } from "lucide-react";
+
+export function EmptyState({
+  title,
+  description,
+  icon: Icon,
+  action,
+}: {
+  title: string;
+  description?: string;
+  icon?: LucideIcon;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="border-border text-muted-foreground flex flex-col items-center gap-2 rounded-md border border-dashed p-8 text-center">
+      {Icon && <Icon aria-hidden className="h-6 w-6" />}
+      <p className="text-foreground text-sm font-medium">{title}</p>
+      {description && <p className="max-w-sm text-xs">{description}</p>}
+      {action && <div className="mt-2">{action}</div>}
+    </div>
+  );
+}
+
+export function LoadingState({
+  label = "Loading…",
+  rows = 3,
+}: {
+  label?: string;
+  rows?: number;
+}) {
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+      className="flex flex-col gap-2"
+    >
+      {Array.from({ length: rows }).map((_, i) => (
+        <div
+          key={i}
+          aria-hidden
+          className="bg-muted h-4 w-full animate-pulse rounded motion-reduce:animate-none"
+        />
+      ))}
+      <span className="sr-only">{label}</span>
+    </div>
+  );
+}
+
+// G-CONTENT guardrail: catch lazy generic error copy in dev (full enforcement
+// is the per-page G-CONTENT design audit).
+const GENERIC_MESSAGE =
+  /something went wrong|unknown error|failed to load|an error occurred/i;
+
+export function ErrorState({
+  title = "Couldn't load this",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  /** REQUIRED — the specific, operational error (never generic). */
+  message: string;
+  onRetry?: () => void;
+}) {
+  useEffect(() => {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      GENERIC_MESSAGE.test(message)
+    ) {
+      console.warn(
+        `[ErrorState] generic message "${message}" — G-CONTENT: use a specific, operational error.`,
+      );
+    }
+  }, [message]);
+
+  return (
+    <div
+      role="alert"
+      className="border-destructive/30 bg-destructive/5 flex flex-col gap-2 rounded-md border p-4"
+    >
+      <p className="text-foreground text-sm font-medium">{title}</p>
+      <p className="text-muted-foreground text-xs">{message}</p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="text-primary focus-visible:ring-ring/70 self-start rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+        >
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+
+codex
+The local `ErrorState` does provide `role="alert"`, so the alert semantics survive. I’m checking test usage now to avoid missing a selector coupling to the old exact DOM shape.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "inspector-offline-error|inspector-offline-dropzone|inspector-offline-file-input|inspector-offline-input|Bundle could not be loaded|Drop bundle|Drop a signed bundle" .' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/app/inspector/offline/page.tsx docs/web/s_tier_design_system.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\inspector\\offline\\page.tsx -TotalCount 190" in C:\POLARIS
+ succeeded in 1033ms:
+// I-cd-021 (#631) — Offline Inspector page. Renders a v1.0 signed bundle
+// in-browser from a `.tar.gz` file dropped by a disconnected reviewer.
+// No GPU, no backend, no API call.
+"use client";
+
+import { FileCheck2, UploadCloud } from "lucide-react";
+import { useState } from "react";
+
+import { InspectorView } from "@/app/inspector/[runId]/inspector_view";
+import { ErrorState } from "@/components/states/state_kit";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  BundleClientLoaderError,
+  loadBundleFromTarGz,
+} from "@/lib/inspector_bundle_client_loader";
+import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+
+export default function InspectorOfflinePage() {
+  const [bundle, setBundle] = useState<LoadedBundle | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  async function handleFile(file: File) {
+    setLoading(true);
+    setError(null);
+    setBundle(null);
+    try {
+      const loaded = await loadBundleFromTarGz(file);
+      setBundle(loaded);
+    } catch (exc) {
+      const message =
+        exc instanceof BundleClientLoaderError
+          ? `${exc.code}: ${exc.message}`
+          : (exc as Error).message;
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  if (bundle) {
+    return (
+      <InspectorView
+        bundle={bundle}
+        signaturePresent={bundle.signaturePresent}
+      />
+    );
+  }
+
+  return (
+    <main
+      className="mx-auto flex max-w-3xl flex-col gap-6 p-6"
+      data-testid="inspector-offline"
+    >
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Offline Inspector</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <p className="text-muted-foreground">
+            Drop or pick a signed POLARIS audit bundle (<code>.tar.gz</code>).
+            The bundle is verified and rendered entirely in your browser — no
+            backend or GPU required. SHA-256 of every file is checked against
+            the manifest. GPG cryptographic verify is out of scope (the
+            bundle&apos;s <code>.asc</code> presence is detected, but full
+            key-trust verification needs a CLI).
+          </p>
+          <div
+            data-testid="inspector-offline-dropzone"
+            role="button"
+            tabIndex={0}
+            aria-label="Drop bundle tar.gz or click to pick a file"
+            onDrop={onDrop}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                document.getElementById("inspector-offline-input")?.click();
+              }
+            }}
+            onClick={() =>
+              document.getElementById("inspector-offline-input")?.click()
+            }
+            className={`focus-visible:ring-ring/70 ease-standard flex min-h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors duration-150 focus-visible:ring-2 focus-visible:outline-none ${
+              dragOver
+                ? "border-primary/50 bg-primary/5"
+                : "border-border bg-muted/20 hover:border-primary/30 hover:bg-muted/40"
+            }`}
+          >
+            {loading ? (
+              <>
+                <FileCheck2
+                  aria-hidden
+                  className="text-muted-foreground h-7 w-7 animate-pulse motion-reduce:animate-none"
+                />
+                <span className="text-foreground text-sm font-medium">
+                  Verifying bundle…
+                </span>
+                <span className="text-muted-foreground text-xs">
+                  Checking SHA-256 of every file against the manifest
+                </span>
+              </>
+            ) : (
+              <>
+                <UploadCloud
+                  aria-hidden
+                  className={`h-7 w-7 ${dragOver ? "text-primary" : "text-muted-foreground"}`}
+                />
+                <span className="text-foreground text-sm font-medium">
+                  {dragOver ? "Drop to verify" : "Drop a signed bundle"}
+                </span>
+                <span className="text-muted-foreground text-xs">
+                  <code className="font-mono">.tar.gz</code> — or press Enter /
+                  click to pick a file
+                </span>
+              </>
+            )}
+          </div>
+          <input
+            id="inspector-offline-input"
+            data-testid="inspector-offline-file-input"
+            type="file"
+            accept=".tar.gz,.tgz,application/gzip,application/x-gzip"
+            className="sr-only"
+            onChange={onInputChange}
+          />
+          {error ? (
+            <div data-testid="inspector-offline-error">
+              <ErrorState title="Bundle could not be loaded" message={error} />
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+
+2026-05-24T06:51:23.434632Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+.\web\tests\e2e\inspector_offline_fallback.spec.ts:39:  await expect(page.getByTestId("inspector-offline-dropzone")).toBeVisible();
+.\web\tests\e2e\inspector_offline_fallback.spec.ts:42:    .getByTestId("inspector-offline-file-input")
+.\web\tests\e2e\inspector_offline_fallback.spec.ts:67:  await expect(page.getByTestId("inspector-offline-error")).toHaveCount(0);
+.\web\tests\e2e\inspector_offline_fallback.spec.ts:82:    .getByTestId("inspector-offline-file-input")
+.\web\tests\e2e\inspector_offline_fallback.spec.ts:85:  await expect(page.getByTestId("inspector-offline-error")).toBeVisible({
+.\web\tests\e2e\inspector_offline_fallback.spec.ts:88:  await expect(page.getByTestId("inspector-offline-error")).toContainText(
+.\web\app\inspector\offline\page.tsx:82:            data-testid="inspector-offline-dropzone"
+.\web\app\inspector\offline\page.tsx:85:            aria-label="Drop bundle tar.gz or click to pick a file"
+.\web\app\inspector\offline\page.tsx:95:                document.getElementById("inspector-offline-input")?.click();
+.\web\app\inspector\offline\page.tsx:99:              document.getElementById("inspector-offline-input")?.click()
+.\web\app\inspector\offline\page.tsx:127:                  {dragOver ? "Drop to verify" : "Drop a signed bundle"}
+.\web\app\inspector\offline\page.tsx:137:            id="inspector-offline-input"
+.\web\app\inspector\offline\page.tsx:138:            data-testid="inspector-offline-file-input"
+.\web\app\inspector\offline\page.tsx:145:            <div data-testid="inspector-offline-error">
+.\web\app\inspector\offline\page.tsx:146:              <ErrorState title="Bundle could not be loaded" message={error} />
+rg: .\codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: .\codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: .\mode700_probe: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+ exited 1 in 1102ms:
+.\web\tests\e2e\inspector_offline_fallback.spec.ts:39:  await expect(page.getByTestId("inspector-offline-dropzone")).toBeVisible();
+.\web\tests\e2e\inspector_offline_fallback.spec.ts:42:    .getByTestId("inspector-offline-file-input")
+.\web\tests\e2e\inspector_offline_fallback.spec.ts:67:  await expect(page.getByTestId("inspector-offline-error")).toHaveCount(0);
+.\web\tests\e2e\inspector_offline_fallback.spec.ts:82:    .getByTestId("inspector-offline-file-input")
+.\web\tests\e2e\inspector_offline_fallback.spec.ts:85:  await expect(page.getByTestId("inspector-offline-error")).toBeVisible({
+.\web\tests\e2e\inspector_offline_fallback.spec.ts:88:  await expect(page.getByTestId("inspector-offline-error")).toContainText(
+.\web\app\inspector\offline\page.tsx:82:            data-testid="inspector-offline-dropzone"
+.\web\app\inspector\offline\page.tsx:85:            aria-label="Drop bundle tar.gz or click to pick a file"
+.\web\app\inspector\offline\page.tsx:95:                document.getElementById("inspector-offline-input")?.click();
+.\web\app\inspector\offline\page.tsx:99:              document.getElementById("inspector-offline-input")?.click()
+.\web\app\inspector\offline\page.tsx:127:                  {dragOver ? "Drop to verify" : "Drop a signed bundle"}
+.\web\app\inspector\offline\page.tsx:137:            id="inspector-offline-input"
+.\web\app\inspector\offline\page.tsx:138:            data-testid="inspector-offline-file-input"
+.\web\app\inspector\offline\page.tsx:145:            <div data-testid="inspector-offline-error">
+.\web\app\inspector\offline\page.tsx:146:              <ErrorState title="Bundle could not be loaded" message={error} />
+rg: .\codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: .\codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: .\mode700_probe: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+ succeeded in 1145ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\inspector_offline_fallback.spec.ts -TotalCount 120" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"ErrorState\\(\" web/app web/components -g \"*.tsx\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"data-testid=\\\".*error\\\"[\\s\\S]*role=\\\"alert\\\"|getByTestId\\(.*error.*\\).*role|toHaveAttribute\\(.*role\" web\\tests -g \"*.ts\"" in C:\POLARIS
+ succeeded in 818ms:
+web/components\states\state_kit.tsx:62:export function ErrorState({
+
+ succeeded in 966ms:
+// I-cd-021 (#631) — Disconnected reviewer drops a v1.0 .tar.gz on the
+// offline Inspector route. No backend running.
+//
+// Builds a tar.gz from tests/fixtures/signed_bundle/v1_canonical_success/
+// at test-setup time and feeds it to the file input.
+
+import { execSync } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+
+import { expect, test } from "@playwright/test";
+
+const FIXTURE_DIR = path.resolve(
+  process.cwd(),
+  "..",
+  "tests/fixtures/signed_bundle/v1_canonical_success",
+);
+const OUT_DIR = path.resolve(
+  process.cwd(),
+  "..",
+  ".codex-tmp",
+  "i-cd-021-bundles",
+);
+const TAR_GZ_PATH = path.join(OUT_DIR, "v1_canonical_success.tar.gz");
+
+test.beforeAll(() => {
+  if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });
+  if (!existsSync(TAR_GZ_PATH)) {
+    execSync(`tar -czf "${TAR_GZ_PATH}" -C "${FIXTURE_DIR}" .`, {
+      stdio: "inherit",
+    });
+  }
+});
+
+test("Offline Inspector parses + renders a v1.0 tar.gz bundle in-browser", async ({
+  page,
+}) => {
+  await page.goto("/inspector/offline");
+  await expect(page.getByTestId("inspector-offline-dropzone")).toBeVisible();
+
+  await page
+    .getByTestId("inspector-offline-file-input")
+    .setInputFiles(TAR_GZ_PATH);
+
+  // Wait for InspectorView to mount in place of the dropzone.
+  await expect(page.getByTestId("inspector-view")).toBeVisible({
+    timeout: 15_000,
+  });
+
+  // Bundle header + verified report visible.
+  await expect(page.getByTestId("inspector-view")).toContainText(
+    /POLARIS|bundle|run/i,
+  );
+
+  // Metadata panel surfaces all 5 fields (Codex iter-1 P1.2 fix).
+  await page.getByRole("tab", { name: "Metadata" }).click();
+  await expect(page.getByTestId("metadata-panel")).toBeVisible();
+  await expect(page.getByTestId("metadata-polaris-version")).not.toBeEmpty();
+  await expect(page.getByTestId("metadata-generator-model")).not.toBeEmpty();
+  await expect(page.getByTestId("metadata-evaluator-model")).not.toBeEmpty();
+  await expect(page.getByTestId("metadata-created-at")).not.toBeEmpty();
+  await expect(page.getByTestId("metadata-schema-version")).toContainText(
+    "1.0",
+  );
+
+  // No error card.
+  await expect(page.getByTestId("inspector-offline-error")).toHaveCount(0);
+});
+
+test("Offline Inspector rejects a malformed file with a visible error", async ({
+  page,
+}) => {
+  await page.goto("/inspector/offline");
+
+  // Build a junk file in temp; setInputFiles accepts a path AND a payload.
+  const junkPath = path.join(OUT_DIR, "garbage.tar.gz");
+  if (!existsSync(junkPath)) {
+    writeFileSync(junkPath, "not gzip");
+  }
+
+  await page
+    .getByTestId("inspector-offline-file-input")
+    .setInputFiles(junkPath);
+
+  await expect(page.getByTestId("inspector-offline-error")).toBeVisible({
+    timeout: 5_000,
+  });
+  await expect(page.getByTestId("inspector-offline-error")).toContainText(
+    /ungzip_failed|manifest|gzip/i,
+  );
+});
+
+2026-05-24T06:51:30.449906Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+[31;1mParserError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m rg -n "data-testid=\".[36;1m*[0merror\"[\s\S]*role=\"alert\"|getByTestId\(.*er .[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                       ~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mMissing property name after reference operator.[0m
+
+ exited 1 in 1093ms:
+[31;1mParserError: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m rg -n "data-testid=\".[36;1m*[0merror\"[\s\S]*role=\"alert\"|getByTestId\(.*er .[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                       ~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mMissing property name after reference operator.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"onDragLeave|<UploadCloud|<FileCheck2|data-testid=\\\"inspector-offline-error\\\"|<ErrorState\" web/app/inspector/offline/page.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"role=\\\"alert\\\"|export function ErrorState\" web/components/states/state_kit.tsx" in C:\POLARIS
+2026-05-24T06:52:00.004910Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.8 seconds
+Output:
+rg: regex parse error:
+    (?:onDragLeave|<UploadCloud|<FileCheck2|data-testid=\)
+    ^
+error: unclosed group
+
+ exited 1 in 797ms:
+rg: regex parse error:
+    (?:onDragLeave|<UploadCloud|<FileCheck2|data-testid=\)
+    ^
+error: unclosed group
+
+2026-05-24T06:52:00.118687Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.9 seconds
+Output:
+rg: regex parse error:
+    (?:role=\)
+    ^
+error: unclosed group
+
+ exited 1 in 858ms:
+rg: regex parse error:
+    (?:role=\)
+    ^
+error: unclosed group
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'role=\"alert\"|export function ErrorState' web/components/states/state_kit.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'onDragLeave|<UploadCloud|<FileCheck2|data-testid=\"inspector-offline-error\"|<ErrorState' web/app/inspector/offline/page.tsx" in C:\POLARIS
+ succeeded in 852ms:
+91:            onDragLeave={() => setDragOver(false)}
+109:                <FileCheck2
+122:                <UploadCloud
+145:            <div data-testid="inspector-offline-error">
+146:              <ErrorState title="Bundle could not be loaded" message={error} />
+
+ succeeded in 956ms:
+62:export function ErrorState({
+85:      role="alert"
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/app/inspector/offline/page.tsx:91: The new icon/span children can make `onDragLeave={() => setDragOver(false)}` briefly clear drag-active styling when the dragged item crosses descendants, causing visual flicker. Drop behavior still works, so this is polish only."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+50,241
