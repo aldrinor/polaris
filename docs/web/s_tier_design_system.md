@@ -119,6 +119,28 @@ span highlights, and verdict badges appear consistently across the product.
 
 **All 7 PUBLIC pages now at the A bar** (Inspector A/A-/A/A- · Home A/A-/A- · Intake A-/A- ·
 Contracts A/A- · Upload A/A+/A · Pin Replay A/A- · Sign-in A/A), each dual-Codex-gated
-(visual `-i` + code) → merged → deployed → verified live. Remaining UI: the cred-gated journey
-(dashboard / benchmark / memory / source-review / Plan→Run→Compare) — blocked on demo creds in
-the VM `.env`.
+(visual `-i` + code) → merged → deployed → verified live.
+
+### Cred-gated pages (rendered locally via seeded session + route-mocked fixture; LIVE-populated verify deferred to reviewer creds)
+
+- **Dashboard / Runs** (#849, I-p2-051): **desktop A / mobile A- / empty A** (Codex visual iter-1
+  APPROVE). Fixed a real CJK-date locale bug (`toLocaleDateString(undefined)` → `"en-CA"`; same
+  fix on Home's `recent_runs_strip`), elevated the runs list (`shadow-card`), mobile title
+  `line-clamp-2`.
+- **Benchmark** (#851, I-p2-052): **desktop A / mobile A- / empty A- / error A- / list A** (Codex
+  visual iter-2 APPROVE). Replaced dev-language amber/rose state cards (leaked
+  `POLARIS_BENCHMARK_RESULTS_DIR` / `scripts/run_benchmark.py`) with the state-kit + tokens;
+  headline tally, brand POLARIS column, tabular-nums, `--verified` winners, dash + "POLARIS-only"
+  for unreported peer dims, readable stacked mobile. Removed a hardcoded "scores 1.0" overclaim
+  (LAW II) — capability claim, scores come from the published scoreboard. The empty state is the
+  live-visible state.
+- **Memory** (#853, I-p2-053): **desktop A / mobile A- / empty A** (Codex visual iter-2 APPROVE).
+  Was the rawest cred-gated page (raw controls, raw enum labels, `bg-blue-500`/`bg-rose-500`, NO
+  loading/error/empty states). Rebuilt to the design system: Card form (human kind labels, raw
+  option values preserved for the e2e), state-kit states, meaning-tinted kind chips
+  (preferred=verified / rejected=refusal / rest neutral, brand reserved for the Remember action),
+  3-line rows + "SAVED MEMORY · N". Fixed a `react-hooks/set-state-in-effect` lint blocker (Codex
+  diff P1) via the codebase IIFE-in-effect idiom.
+
+Remaining cred-gated UI: source-review + the Plan→Run→Compare journey. LIVE-populated verification
+of all cred-gated pages awaits the demo reviewer credential.
