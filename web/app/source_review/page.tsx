@@ -68,7 +68,7 @@ function TierCard({
   minRequired: number;
 }) {
   return (
-    <div className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4">
+    <div className="border-border bg-card shadow-card flex flex-col gap-3 rounded-xl border p-4">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span
@@ -115,6 +115,9 @@ function SourceReviewContent() {
 
   const [template, setTemplate] = useState<TemplateContent | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Bump to re-run the fetch effect (the ErrorState retry); the reset lives in
+  // the handler, not the effect, so no synchronous setState-in-effect.
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,7 +143,7 @@ function SourceReviewContent() {
     return () => {
       cancelled = true;
     };
-  }, [templateId]);
+  }, [templateId, reloadKey]);
 
   const planHref = `/plan?q=${encodeURIComponent(question)}&template=${encodeURIComponent(templateId)}`;
 
@@ -166,7 +169,7 @@ function SourceReviewContent() {
       </div>
 
       {question && (
-        <div className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4">
+        <div className="border-border bg-card shadow-card flex flex-col gap-2 rounded-xl border p-4">
           <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
             Your question
           </span>
@@ -179,7 +182,15 @@ function SourceReviewContent() {
       )}
 
       {error && (
-        <ErrorState title="Couldn't load the source set" message={error} />
+        <ErrorState
+          title="Couldn't load the source set"
+          message={error}
+          onRetry={() => {
+            setError(null);
+            setTemplate(null);
+            setReloadKey((k) => k + 1);
+          }}
+        />
       )}
 
       {!template && !error && (
@@ -226,7 +237,7 @@ function SourceReviewContent() {
               adequacy bar, NOT a retrieved corpus. Retrieval happens in the run.
               I-p2-026 (#765): bg-card (white), not bg-muted/40 — muted-foreground
               text on the muted tint failed WCAG 2.2 AA contrast (axe serious). */}
-          <div className="border-border bg-card flex flex-col gap-1 rounded-lg border p-4">
+          <div className="border-border bg-card shadow-card flex flex-col gap-1 rounded-xl border p-4">
             <span className="text-foreground text-xs font-semibold">
               How sources are gathered
             </span>

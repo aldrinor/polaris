@@ -149,5 +149,13 @@ Contracts A/A- · Upload A/A+/A · Pin Replay A/A- · Sign-in A/A), each dual-Co
   + contradictions. Run identity made unambiguous (Codex iter-1 P1): option labels lead with the
   unique run id + date, and the result header shows the compared pair (`left ↔ right`).
 
-Remaining cred-gated UI: source-review + the Plan→Run→Compare journey. LIVE-populated verification
-of all cred-gated pages awaits the demo reviewer credential.
+- **Source Review** (#857, I-p2-055): **populated desktop S- / mobile A++ / error A+** (Codex
+  visual iter-2 APPROVE). Already the strongest cred-gated page (state-kit states, tier-token dots,
+  exemplary honest framing — shows the curated source-set DEFINITION + per-tier adequacy bar, not a
+  fabricated corpus or readiness %). Assess-first: gave the question / tier / "how sources" cards
+  brand-tinted `shadow-card` + `rounded-xl` (were flat) for parity with the set, and added a
+  "Try again" retry to the error state (Codex iter-1 P2). The honest no-fabricated-corpus framing
+  is preserved.
+
+Remaining cred-gated UI: the Plan→Run→Compare journey. LIVE-populated verification of all
+cred-gated pages awaits the demo reviewer credential.
