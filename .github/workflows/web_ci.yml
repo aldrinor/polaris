@@ -294,10 +294,11 @@ jobs:
 
   check_signed_bundles:
     # I-ux-001a (#874) — LAW-II guard. Every bundle the UI may label
-    # "Signed bundle" MUST GPG-verify in an isolated GNUPGHOME against the
-    # shipped trust-root pubkey AND have a signing-key fingerprint matching
-    # the pinned canonical key. Prevents the iter-3 P0 regression: a missing
-    # or placeholder `.asc` silently rendering as "signed" in the inspector.
+    # "Signed bundle" MUST verify (via `gpgv` against a freshly-dearmored
+    # binary keyring built only from the shipped trust root) AND have a
+    # signing-key fingerprint matching the pinned canonical key. Prevents
+    # the iter-3 P0 regression: a missing or placeholder `.asc` silently
+    # rendering as "signed" in the inspector.
     name: check_signed_bundles (Prereq 0 honesty guard)
     runs-on: ubuntu-latest
     needs: lint_format_typecheck_build
@@ -315,10 +316,11 @@ jobs:
         with:
           python-version: "3.13"
       - name: run_guard
-        # gpg is preinstalled on ubuntu-latest. Script imports the shipped
-        # pubkey into a fully-isolated GNUPGHOME (with no-use-keyboxd so
-        # host config can't leak in) and verifies; exits non-zero on any
-        # failure.
+        # gpg + gpgv are preinstalled on ubuntu-latest. The guard dearmors
+        # the shipped pubkey into a fresh binary keyring per bundle and
+        # invokes `gpgv` (which does NOT read host config / keyboxd / agent),
+        # asserting the signing-key fingerprint matches the pinned canonical
+        # key. Exits non-zero on any failure.
         run: python scripts/check_signed_bundles.py
 
   pytest_v6_backend:

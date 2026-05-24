@@ -8,11 +8,13 @@
 // /api/inspector_bundle/[runId] route use); no client JS needed (download is a
 // plain <a download> to that route).
 //
-// Honesty (LAW II): the canonical bundle ships WITHOUT manifest.yaml.asc (the
-// GPG seal was deliberately deferred — operator "skip the seal, build the real
-// proof"). So `signaturePresent` is false and the page says exactly that:
-// integrity manifest present, GPG signature pending sovereign signing. It never
-// claims a signature that isn't on disk.
+// Honesty (LAW II): per I-ux-001a the canonical bundle ships WITH a real
+// detached GPG signature (Ed25519, key FB221F...01CC) over manifest.yaml.
+// The loader exposes a tri-valued signatureState (missing | present_unverified
+// | gpg_verified); the page renders the honest state per Codex iter-3 P0 on
+// the I-ux-001 plan. Only gpg_verified claims "Signed bundle"; the CI guard
+// (scripts/check_signed_bundles.py) prevents the unsigned-but-labelled-signed
+// regression.
 //
 // The richer per-gate audit log (corpus adequacy / approval / evaluator
 // rule-checks from AuditIrRun via GET /api/inspector/runs/{id}) is a documented

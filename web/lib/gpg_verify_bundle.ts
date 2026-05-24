@@ -14,53 +14,37 @@
 
 import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
-import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-// I-ux-001a Codex iter-1 P1: Next.js server CWD is `web/`, NOT the repo root.
-// Anchor the trust-root + pin paths to the discovered repo root so the verifier
-// reliably finds them. Order of resolution:
-//   1. $POLARIS_REPO_ROOT (explicit override; CI/Docker can set this)
-//   2. walk up from this module's directory until a sentinel file appears
-//   3. process.cwd() as last resort (works if launched from repo root)
-function _findRepoRoot(): string {
-  const fromEnv = process.env.POLARIS_REPO_ROOT;
-  if (fromEnv && existsSync(path.join(fromEnv, "state/polaris_gpg_keyid.txt"))) {
-    return fromEnv;
-  }
-  // __dirname is unavailable in ESM but Next.js compiles to CJS at runtime;
-  // fall back to walking up from process.cwd() which under Next is `web/`.
-  let cur = process.cwd();
-  for (let i = 0; i < 6; i++) {
-    if (existsSync(path.join(cur, "state/polaris_gpg_keyid.txt"))) return cur;
-    const parent = path.dirname(cur);
-    if (parent === cur) break;
-    cur = parent;
-  }
-  return process.cwd();
-}
-const REPO_ROOT = _findRepoRoot();
-const TRUST_ROOT_PUBKEY = path.join(REPO_ROOT, "docs/carney_handover/polaris_demo_pubkey.asc");
-const PINNED_FP_FILE = path.join(REPO_ROOT, "state/polaris_gpg_keyid.txt");
+// I-ux-001a Codex iter-2 P1: bake the trust root + pinned fingerprint as
+// constants instead of reading from disk. Two wins: (1) the prior CWD walk-up
+// from Next.js cwd=web/ is gone (Codex iter-1 P1 root cause), (2) the
+// production Docker (web/Dockerfile, build context=./web) no longer needs to
+// ship docs/ or state/ files outside its context. These values are PUBLIC by
+// design per `docs/carney_secret_inventory.md` #1 ("Public key may stay
+// published"); the pinned fingerprint is in `state/polaris_gpg_keyid.txt`.
+// Rotation of the trust root requires updating these constants + a redeploy.
+const PINNED_FP = "FB221FA8ED185F8E3F76F7E6F6F31CEDFF490C02";
+const TRUST_ROOT_ARMORED = `-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+mDMEagVkwhYJKwYBBAHaRw8BAQdAO2QA4JrOV+y8gsmMF3vHX3cK/AXXU4Km6iIo
+o4q3GLG0PFBPTEFSSVMgQ2FybmV5IERlbW8gKENhcm5leSBkZW1vIGJ1bmRsZSBz
+aWduaW5nKSA8c2lnbmluZ0Bwb2xhcmlzLmxvY2FsPoiZBBMWCgBBFiEE+yIfqO0Y
+X44/dvfm9vMc7f9JDAIFAmoFZMICGwMFCQHhM4AFCwkIBwICIgIGFQoJCAsCBBYC
+AwECHgcCF4AACgkQ9vMc7f9JDAJ3rwD/Ujpoz/Z6QzdDDqgGzHCAa9pIDpvBuTNk
+hREUW3S7eKgBAOdzj/k8mPoWUqEqBkC/K8olvAqlKGDIxcRInR6XGVAD
+=mAgx
+-----END PGP PUBLIC KEY BLOCK-----
+`;
 
 export interface SignatureVerifyResult {
   state: "missing" | "present_unverified" | "gpg_verified";
   /** Hex fingerprint of the signing key when state=gpg_verified. */
   fingerprint?: string;
-}
-
-async function _readPinnedFingerprint(): Promise<string | null> {
-  try {
-    const raw = await fs.readFile(PINNED_FP_FILE, "utf-8");
-    const fp = raw.trim().toUpperCase().replace(/\s+/g, "");
-    return /^[0-9A-F]{40}$/.test(fp) ? fp : null;
-  } catch {
-    return null;
-  }
 }
 
 export async function verifyBundleSignature(
@@ -77,41 +61,36 @@ export async function verifyBundleSignature(
     return { state: "missing" };
   }
 
-  // 2. resolve the pinned canonical fingerprint + the shipped trust root.
-  //    Without either we can never claim gpg_verified — degrade honestly.
-  const pinnedFp = await _readPinnedFingerprint();
-  if (!pinnedFp) return { state: "present_unverified" };
-
-  let trustRoot: string;
-  try {
-    await fs.access(TRUST_ROOT_PUBKEY);
-    trustRoot = TRUST_ROOT_PUBKEY;
-  } catch {
-    return { state: "present_unverified" };
-  }
-
-  // 3. Verify with `gpgv` against a freshly-dearmored binary keyring built
-  //    ONLY from the shipped trust root (Codex iter-1 P1 on the diff).
-  //    gpgv is the dedicated verify-only tool: no gpg-agent spawn, no
-  //    keyboxd, no host gpg.conf. The keyring is built fresh each request
-  //    so the only key gpgv can trust is the one we pin.
+  // 2. Verify with `gpgv` against a freshly-dearmored binary keyring built
+  //    ONLY from the baked-in trust root. gpgv is the dedicated verify-only
+  //    tool: no gpg-agent spawn, no keyboxd, no host gpg.conf. The keyring
+  //    is built fresh each request so the only key gpgv can trust is the
+  //    one we pin. Production Docker installs gnupg (apk) so gpg+gpgv are
+  //    available; if not, the spawn promise rejects → present_unverified
+  //    (Codex iter-2 P1: controlled downgrade, no thrown process error).
   let tmpDir: string | null = null;
   try {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "polaris-gpgv-"));
     const keyringPath = path.join(tmpDir, "trust.gpg");
-    // Dearmor the .asc pubkey into a binary keyring.
-    const armored = await fs.readFile(trustRoot);
-    const de = await new Promise<{ ok: boolean; bin?: Buffer; err: string }>((resolve) => {
-      const cp = require("node:child_process").spawn("gpg", ["--no-options", "--batch", "--dearmor"]);
+    const armored = Buffer.from(TRUST_ROOT_ARMORED, "utf-8");
+    // Dearmor: write the armored pubkey to stdin, capture binary stdout.
+    // Promise wrapped manually to catch spawn errors (ENOENT etc) as a
+    // controlled downgrade rather than an unhandled process throw.
+    const de = await new Promise<{ ok: boolean; bin?: Buffer }>((resolve) => {
+      const { spawn } = require("node:child_process") as typeof import("node:child_process");
+      let cp;
+      try {
+        cp = spawn("gpg", ["--no-options", "--batch", "--dearmor"]);
+      } catch {
+        return resolve({ ok: false });
+      }
       const chunks: Buffer[] = [];
-      const errChunks: Buffer[] = [];
       cp.stdout.on("data", (d: Buffer) => chunks.push(d));
-      cp.stderr.on("data", (d: Buffer) => errChunks.push(d));
-      cp.on("close", (code: number) => resolve({
-        ok: code === 0,
-        bin: code === 0 ? Buffer.concat(chunks) : undefined,
-        err: Buffer.concat(errChunks).toString("utf-8"),
-      }));
+      cp.on("error", () => resolve({ ok: false })); // gpg missing → downgrade
+      cp.on("close", (code: number | null) =>
+        resolve({ ok: code === 0, bin: code === 0 ? Buffer.concat(chunks) : undefined }),
+      );
+      cp.stdin.on("error", () => resolve({ ok: false }));
       cp.stdin.write(armored);
       cp.stdin.end();
     });
@@ -120,6 +99,7 @@ export async function verifyBundleSignature(
 
     // MSYS gpgv mangles absolute Windows paths in --keyring (prepends ~/.gnupg/
     // to anything with a colon). Workaround: cwd=tmpDir + relative keyring.
+    // execFile's promisified form rejects on spawn error → caught below.
     const { stdout, stderr } = await execFileAsync("gpgv", [
       "--keyring", "./trust.gpg", "--status-fd", "1",
       path.resolve(ascPath), path.resolve(manifestPath),
@@ -127,7 +107,7 @@ export async function verifyBundleSignature(
     const m = (stdout + stderr).match(/VALIDSIG\s+([0-9A-F]{40})\b/i);
     const fp = m ? m[1].toUpperCase() : null;
     if (!fp) return { state: "present_unverified" };
-    if (fp !== pinnedFp) return { state: "present_unverified" };
+    if (fp !== PINNED_FP) return { state: "present_unverified" };
     return { state: "gpg_verified", fingerprint: fp };
   } catch {
     return { state: "present_unverified" };
