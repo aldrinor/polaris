@@ -274,6 +274,28 @@ jobs:
         # Verify the v6 backend's pinned set also resolves cleanly.
         run: pip install --dry-run -r requirements-v6.txt
 
+  check_signed_bundles:
+    # I-ux-001a (#874) — LAW-II guard. Every bundle the UI may label
+    # "Signed bundle" MUST GPG-verify against the shipped trust-root pubkey
+    # in an isolated keyring AND have a signing-key fingerprint matching the
+    # pinned canonical key. Prevents the iter-3 P0 regression: a missing or
+    # placeholder `.asc` silently rendering as "signed" in the inspector.
+    name: check_signed_bundles (Prereq 0 honesty guard)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: run_guard
+        # gpg is preinstalled on ubuntu-latest. Script imports the shipped
+        # pubkey into an isolated keyring (--no-default-keyring --keyring)
+        # and verifies; exits non-zero on any failure.
+        run: python scripts/check_signed_bundles.py
+
   pytest_v6_backend:
     name: pytest tests/v6/ (Phase 0 backend coverage)
     runs-on: ubuntu-latest

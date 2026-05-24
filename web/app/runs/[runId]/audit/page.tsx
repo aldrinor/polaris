@@ -140,7 +140,7 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 }
 
 function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
-  const { manifest, metadata, verifiedReport, signaturePresent, runId } =
+  const { manifest, metadata, verifiedReport, signatureState, signatureKeyFingerprint, runId } =
     bundle;
   const gateLedger = buildGateLedger(verifiedReport);
   const files: FileEntry[] = manifest.files;
@@ -154,23 +154,33 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
           <h2 className="text-foreground text-sm font-semibold">
             Integrity &amp; provenance
           </h2>
-          {/* HONEST signature status — never claims a seal that isn't on disk.
-              I-p2-020 Codex iter-3 P1: `signaturePresent` is only an .asc
-              PRESENCE check (loader), not a cryptographic verify — say
-              "present" + point to operator-side gpg --verify, never "signed". */}
-          {signaturePresent ? (
+          {/* I-ux-001a honest tri-valued signature status. Only gpg_verified
+              may claim "Signed bundle." present_unverified states the file is
+              attached but not yet cryptographically verified in this view;
+              missing says trust is not established. The CI guard
+              (scripts/check_signed_bundles.py) prevents the gpg_verified path
+              from regressing — if the demo bundle ever ships without a
+              valid signature, CI fails. */}
+          {signatureState === "gpg_verified" ? (
             <span
               className="border-verified bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
-              title="A detached signature file (manifest.yaml.asc) is present. Confirm validity offline with `gpg --verify manifest.yaml.asc` against the published signing key — presence here is not a cryptographic verification."
+              title={`Cryptographically verified against the published trust-root pubkey (signing key ${signatureKeyFingerprint ?? "—"}).`}
             >
-              ⬡ Detached signature present · verify with gpg
+              ⬡ Signed bundle · GPG verified
+            </span>
+          ) : signatureState === "present_unverified" ? (
+            <span
+              className="border-contradiction/40 bg-contradiction/10 text-contradiction-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+              title="A signature is attached but not verified in this view. Verify offline: gpg --verify manifest.yaml.asc manifest.yaml (after importing the published trust-root pubkey)."
+            >
+              ⬡ Signature attached · verify offline with gpg
             </span>
           ) : (
             <span
               className="border-border text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
-              title="The bundle ships with a SHA-256 integrity manifest now; the detached GPG signature is added once the sovereign Canadian signer is live."
+              title="No signature file is present. Trust has not been established for this bundle."
             >
-              ◌ Integrity manifest present · GPG signature pending
+              ◌ Not signed · trust not established
             </span>
           )}
         </div>

@@ -27,11 +27,9 @@ export default async function InspectorPage({ params }: InspectorPageProps) {
     return <BundlePendingCta runId={runId} />;
   }
 
-  // Signature presence is derived from disk in the loader (Codex diff
-  // iter-1 P2 — the page no longer hardcodes true). Cryptographic
-  // verification belongs to operator-side `gpg --verify` tooling.
+  // I-ux-001a: signature state lives on the LoadedBundle (tri-valued); the
+  // server loader runs `gpg --verify` in an isolated keyring against the
+  // shipped trust root + asserts the pinned canonical fingerprint.
   void filesByContentType; // re-exported helper available to consumers
-  return (
-    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
-  );
+  return <InspectorView bundle={bundle} />;
 }
