@@ -32,7 +32,7 @@ const TIER_META = [
 ] as const;
 
 const SELECT_CLASS =
-  "border-input focus-visible:border-ring focus-visible:ring-ring/70 h-8 rounded-lg border bg-transparent px-2.5 text-sm transition-colors outline-none focus-visible:ring-3";
+  "border-input focus-visible:border-ring focus-visible:ring-ring/70 ease-standard h-9 rounded-lg border bg-transparent px-2.5 text-sm transition-colors duration-150 outline-none focus-visible:ring-3";
 
 function FieldLabel({
   children,
@@ -172,7 +172,7 @@ export function ContractEditor() {
                 return (
                   <label
                     key={j}
-                    className={`focus-within:ring-ring/70 cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-within:ring-2 ${
+                    className={`focus-within:ring-ring/70 ease-standard cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-150 focus-within:ring-2 ${
                       active
                         ? "border-primary bg-primary/10 text-foreground"
                         : "border-border text-muted-foreground hover:bg-muted"
@@ -228,7 +228,10 @@ export function ContractEditor() {
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {entities.map((ent, i) => (
-            <div key={i} className="flex items-center gap-2">
+            <div
+              key={i}
+              className="flex flex-col gap-2 sm:flex-row sm:items-center"
+            >
               <Input
                 data-testid={`ce-ent-name-${i}`}
                 placeholder="Entity name (e.g. tirzepatide)"
@@ -432,7 +435,11 @@ export function ContractEditor() {
         </div>
       )}
 
-      <div className="flex items-center gap-3">
+      {/* I-p2-046 (#839): crafted action bar (ring + brand shadow + explainer) — a
+          static dock at the form end, NOT sticky, so it never overlays editable
+          fields (Codex visual iter-1 P1). Inside <form> so contract-submit submits;
+          contract-saved + contract-errors testids unchanged. */}
+      <div className="bg-card ring-foreground/10 shadow-card mt-1 flex flex-wrap items-center gap-3 rounded-xl px-4 py-3 ring-1">
         <Button
           type="submit"
           data-testid="contract-submit"
@@ -440,13 +447,18 @@ export function ContractEditor() {
         >
           Save + download
         </Button>
-        {saved && (
+        {saved ? (
           <p
             data-testid="contract-saved"
             className="text-verified text-sm font-medium"
           >
             Contract {saved.contract_id.slice(0, 8)} saved.
           </p>
+        ) : (
+          <span className="text-muted-foreground text-xs">
+            Downloads the signed contract JSON. The Evidence Contract Gate
+            enforces it before generation runs.
+          </span>
         )}
       </div>
     </form>
