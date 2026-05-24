@@ -25,9 +25,10 @@ export default function BenchmarkPage() {
           Head-to-head comparison of POLARIS vs commercial deep-research
           products on 7 dimensions: sourcing tier mix, numeric grounding,
           provenance density, refusal correctness, coverage completeness,
-          latency, and auditability. POLARIS uniquely scores 1.0 on refusal
-          correctness and auditability — these are features no commercial system
-          attempts.
+          latency, and auditability. Refusal correctness and auditability are
+          dimensions no commercial deep-research product reports against —
+          POLARIS is built to be graded on them. Every score below comes from
+          the published scoreboard, not this page.
         </p>
       </div>
 
