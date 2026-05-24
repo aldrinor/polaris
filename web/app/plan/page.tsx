@@ -236,7 +236,7 @@ function PlanContent() {
       </div>
 
       {/* The vetted question (display-only) */}
-      <div className="border-border bg-card flex flex-col gap-2 rounded-xl border p-5">
+      <div className="border-border bg-card shadow-card flex flex-col gap-2 rounded-xl border p-5">
         <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
           Your question
         </span>
@@ -267,9 +267,9 @@ function PlanContent() {
           {PLAN_STEPS.map((step, i) => (
             <li
               key={step.title}
-              className="border-border bg-card flex flex-col gap-1.5 rounded-lg border p-4"
+              className="border-border bg-card shadow-card flex flex-col gap-1.5 rounded-xl border p-4"
             >
-              <div className="text-primary flex items-center gap-2">
+              <div className="text-muted-foreground flex items-center gap-2">
                 <step.icon aria-hidden className="h-4 w-4 shrink-0" />
                 <span className="text-foreground text-sm font-medium">
                   {i + 1}. {step.title}

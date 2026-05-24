@@ -157,5 +157,13 @@ Contracts A/A- · Upload A/A+/A · Pin Replay A/A- · Sign-in A/A), each dual-Co
   "Try again" retry to the error state (Codex iter-1 P2). The honest no-fabricated-corpus framing
   is preserved.
 
-Remaining cred-gated UI: the Plan→Run→Compare journey. LIVE-populated verification of all
-cred-gated pages awaits the demo reviewer credential.
+- **Plan review** (#859, I-p2-056): **ready desktop A / ready mobile A / blocked A / no-question
+  A-** (Codex visual iter-1 APPROVE). The run-start surface (intake → plan → run); on mount it
+  re-runs the full intake gate, and Start is enabled only for an in_scope, disambiguation-resolved
+  question. Assess-first: gave the question card + the four "What POLARIS will do" step cards
+  `shadow-card` + `rounded-xl`, and toned the four step icons from brand-red to muted (brand
+  reserved for the single Start-run action). The scope/concurrent guards + honest framing
+  preserved. Residual P2 (accept_remaining): no-question empty state vertical rhythm.
+
+Remaining cred-gated UI: the Run-progress page (the last journey leg). LIVE-populated verification
+of all cred-gated pages awaits the demo reviewer credential.
