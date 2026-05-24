@@ -17,7 +17,10 @@ const geist_mono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "POLARIS Canada — Sovereign Deep Research",
+  // I-p2-044 (#835): honest wording — "Canadian-hosted", not the present-tense
+  // "Sovereign" overclaim (LLM inference is routed via OpenRouter-US, disclosed
+  // at /transparency). Codex diff-review P1.
+  title: "POLARIS Canada — Canadian-hosted Deep Research",
   description:
     "Two-family verified evidence pipelines for Government of Canada policy work.",
 };
