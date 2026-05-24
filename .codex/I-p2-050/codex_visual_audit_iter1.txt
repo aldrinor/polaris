@@ -1,0 +1,12 @@
+```yaml
+verdict: APPROVE
+per_screen_grades: { leaf_closeup: "A-", home_fold: "A-" }
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Tiny red Braille glyphs still produce mild pink/orange antialias fringing, especially in the closeup, but it does not block recognition."
+  - "At hero size the silhouette reads clearly, though the ASCII texture makes the outer points slightly soft rather than crisp."
+highest_leverage_change_to_S: "Slightly increase dot contrast/weight or render the Braille at a marginally larger source size before downscaling, preserving the ASCII texture while sharpening the lobe points and stem."
+convergence_call: accept_remaining
+```
