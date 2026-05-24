@@ -1,0 +1,32 @@
+# Codex VISUAL audit — I-p2-045 (#837) Intake ("Ask"), A++/S bar — iter 1 of 5
+
+You have VISION. Audit the rebuilt /intake at the A++/S bar (competitive + differentiated vs
+Perplexity/ChatGPT-DR/Gemini; "not half-ass, not B-"). Front-load all; don't pick bone from
+egg; APPROVE iff zero P0/P1.
+
+## What changed (vs the B- baseline: a small Check-scope card floating in a mostly-empty page)
+- "CLINICAL SCOPE DISCOVERY" eyebrow above the H1 (also restores the string the existing
+  intake.spec asserts).
+- Question input enlarged (h-12, text-base) — the product's primary action reads as the hero.
+- Sample chips refined (tokenized hover). Card carries the brand shadow-card elevation.
+- A factual 3-step "how it works" band (Ask → Scope-checked first → Get a verified brief) now
+  fills the formerly-empty lower half — describes the REAL flow, no fabricated metrics.
+
+## Attached
+1. `intake_desktop.png`  2. `intake_mobile.png`
+
+## Locked (do NOT flag)
+- Brand `#c8102e` locked. Scope-check logic + result UI unchanged. Copy is factual (no metrics).
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+per_screen_grades: { intake_desktop: "", intake_mobile: "" }
+novel_p0: [...]
+continuing_p0: []
+p1: [...]
+p2: [...]
+highest_leverage_change_to_S: "..."
+convergence_call: continue | accept_remaining
+```
+APPROVE iff /intake reads premium A-/A (input-as-hero + intentional, not empty), zero P0/P1.

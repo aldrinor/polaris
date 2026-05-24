@@ -133,6 +133,7 @@ export function IntakeForm() {
               maxLength={2000}
               disabled={state.kind === "loading"}
               autoComplete="off"
+              className="h-12 text-base"
             />
             <p className="text-muted-foreground text-xs">
               POLARIS only researches clinical evidence questions (efficacy,
@@ -155,7 +156,7 @@ export function IntakeForm() {
                   key={sample}
                   type="button"
                   onClick={() => setQuestion(sample)}
-                  className="text-muted-foreground hover:text-foreground border-border rounded-full border px-2 py-1 text-xs transition-colors"
+                  className="text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-muted border-border ease-standard rounded-full border px-2.5 py-1 text-xs transition-colors duration-150"
                 >
                   {sample}
                 </button>

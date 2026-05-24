@@ -90,6 +90,10 @@ span highlights, and verdict badges appear consistently across the product.
   on the baseline too; fix = switch to `innerText` like the inspector spec. **G8**
   (zero-console) fails on a 500 from `/api/v6/runs?status=completed` (RecentRunsStrip) when no
   v6 backend runs in the test env — unrelated to G2. Both follow-ups.
-- Pre-redo baseline (Codex, 2026-05-23): Intake B−, Contracts B− (post first rebuild),
-  Sign-in B−, Upload C+, Pin Replay C. Target every screen at A++/S with the signature move
-  systematized.
+- **Intake** (#837, I-p2-045): **desktop A− / mobile A−** (Codex visual iter-1 APPROVE). Was
+  a small Check-scope card floating in an empty page; now a "CLINICAL SCOPE DISCOVERY" eyebrow
+  + enlarged hero input + a factual 3-step "how it works" band (ask → scope-checked → verified
+  brief) filling the surface. Restored the eyebrow string the existing `intake.spec` asserts
+  (stale since the #613 rebuild) — a design element, not a test relaxation.
+- Pre-redo baseline (Codex, 2026-05-23): Contracts B− (post first rebuild), Sign-in B−,
+  Upload C+, Pin Replay C. Target every screen at A++/S with the signature move systematized.
