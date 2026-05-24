@@ -1,0 +1,89 @@
+diff --git a/docs/web/s_tier_design_system.md b/docs/web/s_tier_design_system.md
+index 1994b739..c284f853 100644
+--- a/docs/web/s_tier_design_system.md
++++ b/docs/web/s_tier_design_system.md
+@@ -149,5 +149,13 @@ Contracts A/A- · Upload A/A+/A · Pin Replay A/A- · Sign-in A/A), each dual-Co
+   + contradictions. Run identity made unambiguous (Codex iter-1 P1): option labels lead with the
+   unique run id + date, and the result header shows the compared pair (`left ↔ right`).
+ 
+-Remaining cred-gated UI: source-review + the Plan→Run→Compare journey. LIVE-populated verification
+-of all cred-gated pages awaits the demo reviewer credential.
++- **Source Review** (#857, I-p2-055): **populated desktop S- / mobile A++ / error A+** (Codex
++  visual iter-2 APPROVE). Already the strongest cred-gated page (state-kit states, tier-token dots,
++  exemplary honest framing — shows the curated source-set DEFINITION + per-tier adequacy bar, not a
++  fabricated corpus or readiness %). Assess-first: gave the question / tier / "how sources" cards
++  brand-tinted `shadow-card` + `rounded-xl` (were flat) for parity with the set, and added a
++  "Try again" retry to the error state (Codex iter-1 P2). The honest no-fabricated-corpus framing
++  is preserved.
++
++Remaining cred-gated UI: the Plan→Run→Compare journey. LIVE-populated verification of all
++cred-gated pages awaits the demo reviewer credential.
+diff --git a/web/app/source_review/page.tsx b/web/app/source_review/page.tsx
+index 3a50bc2b..4ee2cfda 100644
+--- a/web/app/source_review/page.tsx
++++ b/web/app/source_review/page.tsx
+@@ -68,7 +68,7 @@ function TierCard({
+   minRequired: number;
+ }) {
+   return (
+-    <div className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4">
++    <div className="border-border bg-card shadow-card flex flex-col gap-3 rounded-xl border p-4">
+       <div className="flex items-center justify-between gap-2">
+         <div className="flex items-center gap-2">
+           <span
+@@ -115,6 +115,9 @@ function SourceReviewContent() {
+ 
+   const [template, setTemplate] = useState<TemplateContent | null>(null);
+   const [error, setError] = useState<string | null>(null);
++  // Bump to re-run the fetch effect (the ErrorState retry); the reset lives in
++  // the handler, not the effect, so no synchronous setState-in-effect.
++  const [reloadKey, setReloadKey] = useState(0);
+ 
+   useEffect(() => {
+     let cancelled = false;
+@@ -140,7 +143,7 @@ function SourceReviewContent() {
+     return () => {
+       cancelled = true;
+     };
+-  }, [templateId]);
++  }, [templateId, reloadKey]);
+ 
+   const planHref = `/plan?q=${encodeURIComponent(question)}&template=${encodeURIComponent(templateId)}`;
+ 
+@@ -166,7 +169,7 @@ function SourceReviewContent() {
+       </div>
+ 
+       {question && (
+-        <div className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4">
++        <div className="border-border bg-card shadow-card flex flex-col gap-2 rounded-xl border p-4">
+           <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+             Your question
+           </span>
+@@ -179,7 +182,15 @@ function SourceReviewContent() {
+       )}
+ 
+       {error && (
+-        <ErrorState title="Couldn't load the source set" message={error} />
++        <ErrorState
++          title="Couldn't load the source set"
++          message={error}
++          onRetry={() => {
++            setError(null);
++            setTemplate(null);
++            setReloadKey((k) => k + 1);
++          }}
++        />
+       )}
+ 
+       {!template && !error && (
+@@ -226,7 +237,7 @@ function SourceReviewContent() {
+               adequacy bar, NOT a retrieved corpus. Retrieval happens in the run.
+               I-p2-026 (#765): bg-card (white), not bg-muted/40 — muted-foreground
+               text on the muted tint failed WCAG 2.2 AA contrast (axe serious). */}
+-          <div className="border-border bg-card flex flex-col gap-1 rounded-lg border p-4">
++          <div className="border-border bg-card shadow-card flex flex-col gap-1 rounded-xl border p-4">
+             <span className="text-foreground text-xs font-semibold">
+               How sources are gathered
+             </span>
+
+# canonical-diff-sha256: 8116403775b465126934f8035fd8c7c058fd2a915362d8d0c2e61e037478928a
