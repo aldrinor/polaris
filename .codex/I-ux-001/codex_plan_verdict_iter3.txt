@@ -1,0 +1,33 @@
+## Per-criterion (iter-2 resolution)
+- 1 [clinical-safety method]: RESOLVED — §5 now correctly makes GRADE/SoF outcome-level across a body of evidence, with absolute/relative effects, CI, study counts, downgrade domains, harms, applicability, and automation limits. This matches Cochrane/GRADE guidance.
+- 2 [regulatory/intended-use]: RESOLVED — §6 now gives intended user/use, non-intended uses, non-reliance, knowns/unknowns, evaluator-validation limits, Canadian applicability, and transparency principles. Add one wording nit in P2.
+- 3 [two-judgment separation]: RESOLVED — §0/§4/§5/§12 separate faithfulness from evidence strength conceptually and visually.
+- 4 [verifier over-trust]: RESOLVED — §7 adds deterministic checks, measured reliability, disagreement handling, and “what this cannot prove.”
+- 5 [cherry-picking]: RESOLVED — §8 has locked conservative defaults, receipt-logged deviations, sensitivity runs, inclusion/exclusion logs, and Canadian source policy.
+- 6 [offline verify execution-safety]: PARTIAL — §11 names the right UX states, but §4/§14 rely on an “existing real signed bundle” that the current live/local tirzepatide artifact does not appear to have.
+- 7 [hero clinical-grade]: RESOLVED — §4 is now a true two-judgment proof interaction, not just premium citation UI.
+- 8 [PM demo script]: RESOLVED — §14 is concrete enough as a 90s policy walkthrough; blocked only by the signed-bundle substrate issue.
+- 9 [iter-2 P2/P3]: RESOLVED — §8 includes Canadian source policy; §15 includes WCAG 2.2 AA plus real assistive-tech testing.
+- 10 [new weaknesses]: PARTIAL — v3’s main new weak spot is the signed-demo premise; secondary execution details remain worth tightening.
+
+## Findings
+### P0
+- The plan’s signed-bundle premise is not honest enough to approve. [docs/stier_experience_plan.md](C:/POLARIS/docs/stier_experience_plan.md:56) and [docs/stier_experience_plan.md](C:/POLARIS/docs/stier_experience_plan.md:138) say the hero uses an “existing real signed bundle,” and §14 promises offline receipt handoff. But the live screenshot shows “Signature missing,” and local `web/public/canonical_bundles/v1_canonical_success` has no `manifest.yaml.asc`; the loader only marks `signaturePresent` when that file exists and is non-empty ([web/lib/inspector_bundle_loader.ts](C:/POLARIS/web/lib/inspector_bundle_loader.ts:142)). Test fixtures explicitly say their `.asc` is a placeholder, not a real key signature ([tests/fixtures/signed_bundle/README.md](C:/POLARIS/tests/fixtures/signed_bundle/README.md:15)). Fix: add a hard pre-step that produces and dry-run-verifies a real signed PM demo bundle, blocks hero/demo signoff on missing/placeholder signatures, and forbids “signed” language unless GPG verification succeeds.
+
+### P1
+- Abstention and SoF gates are still named, not operationalized. §5 says “below a defined adequacy/certainty floor,” but the plan should specify the launch gate: required outcomes for clinical demo, minimum source/body adequacy, how multi-outcome claims map to SoF certainty, and when the UI must refuse instead of badge. This is no longer a GRADE-method P0, but it is execution-risky.
+- Verifier reliability needs a release gate, not only a display promise. §7 says “measured reliability,” but the plan should require the actual gold-set metric threshold, calibration examples, and disagreement escalation before the PM build can call the independent-family check trustworthy.
+
+### P2 / P3
+- In §6, add explicit “not for individual-patient recommendations” and “not for urgent/time-sensitive clinical decisions.” That aligns better with Health Canada/FDA non-device CDS framing.
+- Current live Home/Intake/Inspector remain not gift-grade, but §13 honestly calls them structural rebuilds, so this is not a plan blocker.
+
+## New-since-v2
+- v3 leans harder on “existing real signed bundle,” but the current tirzepatide demo substrate is visibly/local-evidently unsigned.
+- v3 fixes GRADE conceptually; the remaining risk is acceptance specificity, not the core method.
+
+## Verdict
+verdict: REQUEST_CHANGES  
+convergence_call: continue
+
+Sources checked: [Cochrane Handbook ch.14](https://www.cochrane.org/authors/handbooks-and-manuals/handbook/current/chapter-14), [Health Canada SaMD guidance](https://www.canada.ca/en/health-canada/services/drugs-health-products/medical-devices/application-information/guidance-documents/software-medical-device-guidance-document.html), [Health Canada/FDA/MHRA transparency principles](https://www.canada.ca/en/health-canada/services/drugs-health-products/medical-devices/transparency-machine-learning-guiding-principles.html), [FDA CDS policy navigator](https://www.fda.gov/medical-devices/digital-health-center-excellence/step-6-software-function-intended-provide-clinical-decision-support), [Canada accessibility guidance](https://www.canada.ca/en/government/system/digital-government/government-canada-digital-standards/build-accessibility-start.html), [WCAG 2.2](https://www.w3.org/TR/WCAG22/).

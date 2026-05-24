@@ -1,0 +1,51 @@
+## Per-criterion (iter-1 resolution)
+- 1 [differentiation]: RESOLVED — §0/§1 correctly moves the moat from “cites sources” to signed, two-family, per-sentence, offline-verifiable clinical receipt; competitor table is now honest.
+- 2 [clinical evidence-quality]: PARTIAL — §5 names the right ingredients, but “GRADE-like per claim” is not yet method-safe; GRADE is evidence/outcome-level, not just sentence-level.
+- 3 [hero]: PARTIAL — §4 is much stronger and can be memorable, but the replay still needs clinical certainty/harms/applicability as a visible beat, not only claim → verdict → span → signature.
+- 4 [artifact-centric]: RESOLVED — §2 now reads as one Verified Brief workspace with shared claim selection across Read/Challenge/Evidence/Map/Receipt.
+- 5 [#871 sequencing]: RESOLVED — §14 correctly builds hero against the existing bundle while #871 runs in parallel.
+- 6a [claim follow-up]: RESOLVED — §6 names claim-anchored actions.
+- 6b [intake]: RESOLVED — §7 makes intake a pre-flight, not empty form space.
+- 6c [source-strategy controls]: PARTIAL — §8 adds controls but lacks anti-cherry-picking defaults and receipt-visible policy deviations.
+- 6d [real run feed]: RESOLVED — §9 shows actual evidence decisions.
+- 6e [verdict header provenance]: RESOLVED — §4 adds provenance, adequacy, source mix, signature, model/version.
+- 6f [graph job]: RESOLVED — §10 gives graph concrete jobs.
+- 6g [offline verify]: PARTIAL — §11 describes guided UX, but not trust root/key state/failure semantics.
+- 6h [mobile replay]: RESOLVED — §4 includes bottom sheet/tap/swipe.
+- 6i [motion]: PARTIAL — §12 lists storyboard targets, but not enough frame-by-frame behavior to prevent ornamental motion.
+- 6j [de-jargon]: RESOLVED — §12 gives concrete copy direction.
+- 6k [progressive inspector]: RESOLVED — §11/§13 move hashes behind trust summary.
+- 6l [counter-positioning]: RESOLVED — §1 is now useful.
+- 6m [prototype before code]: RESOLVED — §14 requires prototype review first.
+- 6n [perf budget]: RESOLVED — §4 sets latency targets.
+- 6o [interaction tests]: RESOLVED — §15 requires Playwright traces, mobile, keyboard, reduced motion.
+- 7 [missing-entirely items]: PARTIAL — all are now present, but GRADE/source policy/offline verification remain under-specified.
+- 8 [new weaknesses]: PARTIAL — v2 introduces new risk by using “clinical-grade” and “decision-safety” language before defining regulatory posture, evidence-certainty method, and evaluator validation.
+
+## Findings
+### P0
+- Clinical safety is still not approvable. §5 says “GRADE-style” certainty per claim, but GRADE certainty depends on a body of evidence and domains like risk of bias, inconsistency, indirectness, imprecision, and publication bias; policy decisions also require benefits/harms, values, resources, equity, acceptability, and feasibility. Fix: define a real clinical evidence artifact: outcome-level Summary of Findings, absolute effects, harms, applicability, source hierarchy, downgrade reasons, and abstention thresholds. Sources checked: [CDC ACIP GRADE Handbook](https://www.cdc.gov/acip-grade-handbook/hcp/chapter-7-grade-criteria-determining-certainty-of-evidence/index.html), [GRADE EtD framework](https://link.springer.com/article/10.1186/s12961-018-0320-2).
+- Regulatory/intended-use boundary is missing. “Clinical-grade” for a PM-office recipient cannot float without explicit intended user, intended/non-intended use, non-reliance language, knowns/unknowns, data quality requirements, evaluator validation, and Canadian-population applicability. Health Canada and FDA both emphasize clear information, logic/basis, validation, and independent review of CDS basis. Sources checked: [Health Canada MLMD guidance, Apr. 1 2026](https://www.canada.ca/en/health-canada/services/drugs-health-products/medical-devices/application-information/guidance-documents/pre-market-guidance-machine-learning-enabled-medical-devices.html), [Health Canada/FDA/MHRA transparency principles](https://www.canada.ca/en/health-canada/services/drugs-health-products/medical-devices/transparency-machine-learning-guiding-principles.html), [FDA CDS policy navigator](https://www.fda.gov/medical-devices/digital-health-center-excellence/step-6-software-function-intended-provide-clinical-decision-support).
+
+### P1
+- The “independent model family” proof risks being over-trusted. It is a strong product differentiator, but not clinical validation. Add evaluator accuracy metrics, disagreement handling, calibration examples, deterministic numeric checks, and a visible “what this verifier cannot prove” panel.
+- Source-strategy controls can enable cherry-picking. §8 needs locked conservative defaults, visible deviations, sensitivity runs, and receipt-level recording of every inclusion/exclusion policy.
+- The hero is close, but not yet clinical-grade. The replay must show two separate judgments: “text is supported by this span” and “the evidence is strong enough for this clinical/policy claim.” Without that separation it regresses to premium citation UI.
+- Offline verification is not execution-safe yet. §11 needs key identity, signing authority, key rotation/revocation, pass/fail states, signature-missing copy, and a dry-run verifier script path.
+- The PM demo script is only named. §14 should specify the actual 90-second walkthrough, including one verified claim, one partial/unsupported claim, one inadequacy refusal, and the offline receipt handoff.
+
+### P2 / P3
+- Add Canadian clinical source policy explicitly: CADTH, Health Canada labels/advisories, Canadian guidelines where available, and when non-Canadian evidence is acceptable.
+- Keep WCAG/accessibility acceptance tied to real testing with assistive tech, not only axe. Canada’s digital standards call for accessibility from the start and user testing with people with disabilities. Sources checked: [Canada Digital Standards](https://www.canada.ca/en/government/system/digital-government/government-canada-digital-standards.html), [W3C WCAG 2.2](https://www.w3.org/TR/WCAG22/).
+- The live screenshots remain visually calm but not yet gift-grade; that is acceptable only because §13 explicitly calls for structural rebuilds.
+
+## New-since-v1
+- “Clinical-grade certainty” is now central, but the method is not defined enough to support the claim.
+- “Two-family” is now promoted as a trust mechanism; it needs measured reliability and limits, or it becomes a new overclaim.
+- Source controls are now user-editable; without guardrails they can undermine the audit story.
+
+## Verdict
+verdict: REQUEST_CHANGES  
+convergence_call: continue
+
+v2 is a major convergence step and the product direction is now right. I would not approve it yet at the stated bar because the clinical-safety layer, regulatory posture, and verifier trust semantics are still weak spots in the core moat.

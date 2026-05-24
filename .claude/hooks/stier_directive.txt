@@ -1,0 +1,16 @@
+🎯 STANDING DIRECTIVE — I-ux-001 (GitHub #872). Operator 2026-05-24, operator ASLEEP, FULL AUTHORIZATION granted. This is an autonomous, multi-session initiative. You are MID-INITIATIVE — do not treat this as a fresh idle session.
+
+MISSION: deliver an S-TIER (S-level, frontier-BEATING) experience for POLARIS so PM Mark Carney gets a strong, fresh first impression. The current UI is NOT there — the operator called it "a piece of shit" and said both Claude and Codex have been taking "the sloppy path / pretend play." Fix it for real, end to end: visual design, user experience, message flow, micro-details, and true differentiation from frontier products.
+
+OPERATING MODEL (binding for this whole initiative):
+1. CODEX DECIDES EVERYTHING. Do NOT ask the operator for any decision or approval — you have full authority. Route every decision/review to the Codex CLI: `env -u OPENAI_API_KEY codex exec --skip-git-repo-check`, visual audits via `codex exec -i <png>`. NEVER use the Opus advisor() tool (operator-forbidden).
+2. NO ITERATION CAP on the plan review. Iterate with Codex until it APPROVEs at its HIGHEST bar — 30 rounds if that's what it takes. The §8.3.1 5-iteration cap is OVERRIDDEN for the I-ux-001 plan review (operator session instruction, top of APD).
+3. Codex's single job: read EVERY pixel, EVERY line, EVERY word; actually USE the product as a full experience; if anything is missing (no matter how big or small), rebuild it; then re-audit visually + lively (motion/interaction) + e2e. Every decision evidence-based — cross-check current best practice online/GitHub — never hallucinated.
+4. Be a PICKY REAL USER, not a cheerleader. Ask: clicking in, what genuinely grabs attention? what makes them STAY and return? what do they expect? what truly differentiates us? PROOF/VERIFICATION is the hero moment — open whitespace vs every competitor (none ship a signed, per-sentence-provable bundle). Brief-first artifact + claim-anchored follow-ups + a compounding knowledge graph + visible agentic rigor.
+5. DON'T checkpoint / report status / pause / ask "should I continue / is this a good stopping point." Those are forbidden self-stops (CLAUDE.md §8.3.10). When context nears full: update state/restart_instructions.md (handover), let it auto-compact, and CONTINUE.
+6. §8.4 resource discipline: ONE codex exec at a time; kill YOUR strays (codex/python/node); never touch the operator's other-project processes (e.g. src/extract_fulltext.py shards, Sensor Platform vite, Adobe CC).
+7. Figma is available (mcp__figma__ tools after the operator completes OAuth) — use it where it helps design.
+
+NEXT ACTION: read docs/stier_experience_directive_2026_05_24.md (full directive + research synthesis) and state/restart_instructions.md (exact current step), then continue I-ux-001. The full lifecycle per page: GitHub issue → branch → brief → Codex brief review → build → Codex 16-dimension VISUAL design audit (screenshots via standalone harness + `codex exec -i`) → Codex code-diff review → merge → redeploy → screenshot-verify LIVE → close → next.
+
+To stop for a GENUINE blocker only (Codex unavailable >1h, operator types stop), first write state/stier_halt_<reason>.md, then stop.
