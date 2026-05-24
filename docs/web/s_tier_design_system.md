@@ -192,6 +192,15 @@ Contracts A/A- · Upload A/A+/A · Pin Replay A/A- · Sign-in A/A), each dual-Co
   links, not a column of "Inspect"). Fixed a raw `bg-green-100` tier badge → token. Shorter mobile
   graph viewport so the accessible list (mobile-primary navigator) arrives sooner.
 
+- **Audit & export** (#865, I-p2-059): **desktop A / mobile A-** (Codex visual iter-2 APPROVE).
+  The compliance/export surface (integrity manifest + pipeline gate ledger + two-family provenance
+  + download), a server component rendering the REAL canonical bundle from disk — so its populated
+  state is genuinely live-verifiable (`/runs/v1-canonical/audit`), not fixture-only. Already
+  exemplary on honesty (never claims a seal not on disk; gate ledger from real bundle fields only).
+  Assess-first: brand-tinted `shadow-card` + `rounded-xl` on the section cards + tables; the gate
+  ledger + integrity manifest tables made RESPONSIVE — dense table on sm+, stacked cards on mobile
+  so the abort reason / threshold / full SHA-256 are fully readable, not clipped (Codex iter-1 P1).
+
 **The full cred-gated journey is now at the A bar** (Dashboard A/A-/A · Benchmark A/A-/A-/A-/A ·
 Memory A/A-/A · Compare A/A/A/A · Source Review S-/A++/A+ · Plan A/A/A/A- · Run progress A/A/A),
 each rendered locally (seeded session + route-mocked fixture, visual-audit-only) under the dual

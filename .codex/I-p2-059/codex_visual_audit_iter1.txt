@@ -1,0 +1,11 @@
+```yaml
+verdict: REQUEST_CHANGES
+per_screen_grades: { desktop: "A", mobile: "B" }
+novel_p0: []
+p1:
+  - "Mobile pipeline gate ledger detail column is clipped/truncated at the right edge, so key audit details like abort_no_verified_sections and the strict-verify threshold are not fully readable in the captured default view. For this compliance/export surface, the gate reason must be readable without ambiguous clipping."
+p2:
+  - "Mobile provenance values wrap awkwardly for bundle ID and created timestamp, but the content remains understandable."
+  - "Mobile manifest hides bytes/SHA columns in the shown viewport; acceptable if intentionally responsive, but a details affordance or row expansion would make the integrity manifest stronger."
+convergence_call: continue
+```
