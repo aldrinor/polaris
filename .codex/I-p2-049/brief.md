@@ -1,0 +1,70 @@
+# Codex brief — I-p2-049 (#845): Sign-in S-rebuild (last public page; B- → A)
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. Same quality bar regardless of iteration.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; polish is P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; no iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## What this is
+A BRIEF (plan) review. Attached: the CURRENT LIVE /sign-in (grade B-), desktop. Approve iff
+the plan reaches A AND fixes the correctness issue without breaking the e2e contract.
+
+## Current live /sign-in (attached) — honest read
+A competent institutional split-screen: LEFT aside (POLARIS·Canada top, maple-leaf mark + h1
+"Deep research you can check, line by line." + 3 trust points, bottom tagline strip); RIGHT a
+"Sign in" card (Username/Password/Continue/Back to home). Clean B-. BUT it carries THREE
+present-tense sovereignty OVERCLAIMS (same issue fixed on Home): trust point "Sovereign
+Canadian processing, integrity-hashed.", strip "Sovereign Canadian deep research · auditable
+evidence", mobile lockup "Sovereign Deep Research".
+
+## Plan (web/app/sign-in/page.tsx; logic/testids preserved)
+1. **Correctness (LAW II):** all three "Sovereign…" → "Canadian-hosted…" (honest; LLM inference
+   routes via OpenRouter-US, disclosed at /transparency). No present-tense sovereignty claim left.
+2. **Polish to A:** tighten the left-panel vertical rhythm; refine the trust points (consistent
+   icon/text alignment + the motion/hover where interactive); the form card + Continue button
+   microstates (the brand button should read as full #c8102e, not washed). Keep the split-screen.
+3. Preserve auth logic + testids: `sign-in-form`, Username/Password labels, `sign-in-submit`,
+   `sign-in-error`, static-account auth + redirect; the lg:hidden mobile brand lockup.
+
+## e2e contract I MUST NOT break (sign_in.spec.ts)
+- `sign-in-form` visible; getByLabel("Username")/("Password") visible; `sign-in-submit`
+  visible; bad creds → `sign-in-error` visible; good creds → redirect. Keep these exactly.
+
+## Files I have ALSO checked and they're clean (no break)
+- tests/e2e/_nav_auth.ts (auth helper), @/lib/api or static_accounts auth path — untouched.
+  @/components/ui/{card,button,input}, MapleLeafSignatureLazy — reused. Brand #c8102e + tokens.
+
+## Question
+APPROVE iff this plan fixes the 3 overclaims + takes /sign-in to a confident A-tier
+institutional auth screen without breaking the e2e/auth contract. Stronger ideas → P1/P2.
+
+---
+## iter 2 — adopt your narrower honest wording (P1 + P2)
+You're right that "Canadian-hosted processing" can still read as covering US-routed LLM
+inference. Narrowing to claims that are UNAMBIGUOUSLY true (the evidence records/workspace are
+Canadian-hosted + integrity-hashed; inference is NOT claimed):
+- **P1 (line 25 trust point):** "Sovereign Canadian processing, integrity-hashed." →
+  "Canadian-hosted evidence records, integrity-hashed." (the bundles/records are the thing
+  that's Canadian-hosted; says nothing about where inference runs).
+- **P2 (line 141 strip):** "Sovereign Canadian deep research · auditable evidence" →
+  "Canadian-hosted research workspace · auditable evidence".
+- **P2 (line 155 mobile lockup):** "Sovereign Deep Research" → "Canadian-hosted Research".
+- **P2 (button):** Continue button = brand #c8102e default with accessible hover/focus; keep
+  submit behavior + `sign-in-submit` testid.
+The footer (every page, incl. sign-in) already discloses "LLM inference is currently routed via
+OpenRouter (US), disclosed at /transparency" — so these narrower claims + that disclosure are
+honest end-to-end. No present-tense claim that inference/processing is Canadian.
+
+Re-APPROVE iff this wording cannot be read as covering US-routed inference + the plan holds.

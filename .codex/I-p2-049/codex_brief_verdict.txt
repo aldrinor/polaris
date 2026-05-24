@@ -1,0 +1,10 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Consider making the mobile lockup match the narrowed desktop language, e.g. 'Canadian-hosted Workspace', because 'Canadian-hosted Research' is still broader than the evidence-record/workspace claim. This is not blocking given the footer disclosure and removal of 'sovereign/processing'."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
