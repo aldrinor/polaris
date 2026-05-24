@@ -1,0 +1,56 @@
+# Codex brief — I-p2-046 (#839): Contracts editor S-rebuild (B- → A)
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. Same quality bar regardless of iteration.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; polish is P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; no iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## What this is
+A BRIEF (plan) review. Attached: the CURRENT LIVE /contracts (grade B-), desktop. Approve iff
+the plan reaches A without breaking the e2e contract.
+
+## Current live /contracts (attached) — honest read
+A competent, functional multi-card editor (Evidence Contract editor): "The question",
+"Scope & coverage" (jurisdiction chips CA/US/EU/UK/GLOBAL + Tier 1/2/3 min-source-coverage
+number inputs), "Expected entities" (name input + a RAW HTML `<select>` type dropdown + add),
+"Expected claims" (id/statement/related-entities + required-in chips + add), then a
+"Save + download" button at the very bottom. Already Card-elevated (B-). The most off-system
+element is the raw `<select>` dropdowns; the long form's primary action sits below the fold.
+
+## Plan (web/app/contracts/_editor.tsx — 454 lines, all logic/testids preserved)
+1. **Tokenize the `<select>` entity-type dropdowns** to match the Input (h-9/10, border-input,
+   rounded-md, focus-visible ring) — currently raw browser styling, the biggest A-gap.
+2. **Sticky "Save + download" action bar**: a bottom sticky bar (border-t, bg-background/blur)
+   holding the primary submit + the saved-state, so it's reachable without scrolling to the
+   end. Keeps `contract-submit` + `contract-saved` testids.
+3. **Microstate + rhythm polish**: jurisdiction + required-in chips get the shared ease-standard
+   transition + consistent hover; consistent card spacing; numeric tier inputs aligned.
+4. Preserve EVERY data-testid (contract-form, ce-question, ce-by, ce-jur-*, tier inputs,
+   ce-ent-name-*, ce-ent-type-*, ce-rm-ent-*, ce-add-entity, ce-claim-*, contract-submit,
+   contract-saved) + all state/handlers + the sr-only-checkbox chip toggle pattern.
+
+## e2e contract I MUST NOT break (contracts_g1_g8 + contract_editor.spec)
+- exactly ONE <header> + ONE <main> (AppShell-provided; page is a section).
+- fill ce-question/ce-by/ce-ent-name-0/ce-claim-stmt-0/ce-claim-ents-0 → click contract-submit
+  → contract-saved becomes visible. A sticky submit bar must keep contract-submit clickable +
+  contract-saved visible.
+
+## Files I have ALSO checked and they're clean (no break)
+- web/app/contracts/page.tsx (wraps _editor) — minimal. @/components/ui/{input,button,card},
+  FieldLabel — reused. Brand #c8102e + tokens — reused.
+
+## Question
+APPROVE iff this plan takes /contracts to a confident A-tier config tool (tokenized controls +
+reachable primary action) without breaking the e2e/testid contract. Stronger ideas → P1/P2.

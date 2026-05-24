@@ -1,0 +1,12 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Ensure the sticky submit control remains inside `contract-form`, or explicitly binds to it with `form=...`, so `contract-submit` still triggers the existing submit path."
+  - "Give the sticky bar enough bottom padding/spacing in the form so it does not cover the final claim card or footer content while scrolling."
+  - "When tokenizing the entity-type `<select>`, keep it a native/select-compatible control unless there is a strong reason to replace it, so `ce-ent-type-*` test behavior remains stable."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```

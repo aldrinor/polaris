@@ -1,0 +1,13 @@
+```yaml
+verdict: REQUEST_CHANGES
+per_screen_grades: { desktop_sticky: "A-", desktop_full: "B+", mobile: "B+" }
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Sticky action bar is visually and functionally colliding with active form content. In desktop_full it covers the Expected entities body; in mobile it covers the Minimum source coverage controls/area. For a power-user config surface, the persistent action needs to remain reachable without obscuring editable fields."
+p2:
+  - "Mobile entity row is cramped: the entity input truncates early and the select consumes a lot of width. Still usable, but below S-tier polish."
+  - "The action bar craft is good, but its in-form placement reads slightly like an accidental overlay in full-page capture because it interrupts card rhythm mid-section."
+highest_leverage_change_to_S: "Reserve layout space for the sticky action bar at the form bottom/viewport intersection, or constrain it to a bottom dock that never overlays editable controls; keep the current visual treatment."
+convergence_call: continue
+```

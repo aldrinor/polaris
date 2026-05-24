@@ -1,0 +1,15 @@
+```yaml
+verdict: APPROVE
+per_screen_grades:
+  desktop_full: "A"
+  mobile: "A-"
+  desktop_scrolled: "A"
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Mobile Expected claims fields still feel tight; the related-entities placeholder truncates and the inner card has limited breathing room."
+  - "Desktop scrolled state is functionally clean, though the content begins very close beneath the fixed header."
+highest_leverage_change_to_S: "Polish the mobile form density: shorten responsive placeholder copy and add a bit more vertical rhythm inside nested claim/entity controls."
+convergence_call: accept_remaining
+```

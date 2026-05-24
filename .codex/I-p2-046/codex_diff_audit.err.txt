@@ -1,0 +1,1531 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e57c9-40e0-77e1-aefd-a108be202fd3
+--------
+user
+# Codex DIFF review — I-p2-046 (#839): Contracts editor S-rebuild
+
+HARD ITERATION CAP: 5. iter 1. Front-load ALL findings; reserve P0/P1 for real execution
+risks. APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Already gated
+- Brief APPROVE (iter 1). Visual `-i` APPROVE (iter 2: desktop A / mobile A-; iter-1 P1 sticky
+  overlay fixed by making the bar static).
+- canonical-diff-sha256: 51106d3d19f2f4a7be6d5bf1327e5fb1262f8c49148ddb9a4113a91511c637e5
+
+## What the diff does (web/app/contracts/_editor.tsx + doc)
+1. SELECT_CLASS: h-8 → h-9 (match Input) + ease-standard/duration-150.
+2. Submit area: bare `<div flex>` → a STATIC crafted action bar (bg-card ring-1 ring-foreground/10
+   shadow-card rounded-xl px-4 py-3) holding the submit + an explainer span (or contract-saved).
+   Still inside <form>; contract-submit + contract-saved testids unchanged. NOT sticky (iter-1
+   sticky version overlaid fields).
+3. Jurisdiction chip className: added ease-standard/duration-150.
+4. Entity row: `flex items-center` → `flex flex-col gap-2 sm:flex-row sm:items-center` (mobile
+   stacks so the name input doesn't truncate).
+5. doc grade.
+
+## Verification
+- typecheck clean; prettier ok; eslint 0 errors.
+- e2e contracts_g1_g8 4/4 pass (1 header/1 main, no banned dev-language, nav parity, no console
+  errors). contract_editor submit spec needs the save backend (not up in dev) — unchanged path.
+
+## Review focus
+- contract-submit still inside <form> (submits) + contract-saved still rendered; no testid
+  changed. The native <select> stays native (ce-ent-type-* fill/select compat). Tokens only;
+  brand #c8102e untouched. No logic change to save/validation.
+
+## The diff
+```diff
+diff --git a/docs/web/s_tier_design_system.md b/docs/web/s_tier_design_system.md
+index ecf515b6..f0143fdd 100644
+--- a/docs/web/s_tier_design_system.md
++++ b/docs/web/s_tier_design_system.md
+@@ -95,5 +95,10 @@ span highlights, and verdict badges appear consistently across the product.
+   + enlarged hero input + a factual 3-step "how it works" band (ask → scope-checked → verified
+   brief) filling the surface. Restored the eyebrow string the existing `intake.spec` asserts
+   (stale since the #613 rebuild) — a design element, not a test relaxation.
+-- Pre-redo baseline (Codex, 2026-05-23): Contracts B− (post first rebuild), Sign-in B−,
+-  Upload C+, Pin Replay C. Target every screen at A++/S with the signature move systematized.
++- **Contracts** (#839, I-p2-046): **desktop A / mobile A−** (Codex visual iter-2 APPROVE). A
++  crafted static "Save + download" action bar (ring + brand shadow + explainer; iter-1 sticky
++  version overlaid fields → made static), entity-type select height matched to inputs, chips +
++  selects on the shared motion primitive, mobile entity row stacks. All field logic/testids
++  preserved.
++- Pre-redo baseline (Codex, 2026-05-23): Sign-in B−, Upload C+, Pin Replay C. Target every
++  screen at A++/S with the signature move systematized.
+diff --git a/web/app/contracts/_editor.tsx b/web/app/contracts/_editor.tsx
+index 4fa161f2..0dc4f1c1 100644
+--- a/web/app/contracts/_editor.tsx
++++ b/web/app/contracts/_editor.tsx
+@@ -32,7 +32,7 @@ const TIER_META = [
+ ] as const;
+ 
+ const SELECT_CLASS =
+-  "border-input focus-visible:border-ring focus-visible:ring-ring/70 h-8 rounded-lg border bg-transparent px-2.5 text-sm transition-colors outline-none focus-visible:ring-3";
++  "border-input focus-visible:border-ring focus-visible:ring-ring/70 ease-standard h-9 rounded-lg border bg-transparent px-2.5 text-sm transition-colors duration-150 outline-none focus-visible:ring-3";
+ 
+ function FieldLabel({
+   children,
+@@ -172,7 +172,7 @@ export function ContractEditor() {
+                 return (
+                   <label
+                     key={j}
+-                    className={`focus-within:ring-ring/70 cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-within:ring-2 ${
++                    className={`focus-within:ring-ring/70 ease-standard cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-150 focus-within:ring-2 ${
+                       active
+                         ? "border-primary bg-primary/10 text-foreground"
+                         : "border-border text-muted-foreground hover:bg-muted"
+@@ -228,7 +228,10 @@ export function ContractEditor() {
+         </CardHeader>
+         <CardContent className="flex flex-col gap-3">
+           {entities.map((ent, i) => (
+-            <div key={i} className="flex items-center gap-2">
++            <div
++              key={i}
++              className="flex flex-col gap-2 sm:flex-row sm:items-center"
++            >
+               <Input
+                 data-testid={`ce-ent-name-${i}`}
+                 placeholder="Entity name (e.g. tirzepatide)"
+@@ -432,7 +435,11 @@ export function ContractEditor() {
+         </div>
+       )}
+ 
+-      <div className="flex items-center gap-3">
++      {/* I-p2-046 (#839): crafted action bar (ring + brand shadow + explainer) — a
++          static dock at the form end, NOT sticky, so it never overlays editable
++          fields (Codex visual iter-1 P1). Inside <form> so contract-submit submits;
++          contract-saved + contract-errors testids unchanged. */}
++      <div className="bg-card ring-foreground/10 shadow-card mt-1 flex flex-wrap items-center gap-3 rounded-xl px-4 py-3 ring-1">
+         <Button
+           type="submit"
+           data-testid="contract-submit"
+@@ -440,13 +447,18 @@ export function ContractEditor() {
+         >
+           Save + download
+         </Button>
+-        {saved && (
++        {saved ? (
+           <p
+             data-testid="contract-saved"
+             className="text-verified text-sm font-medium"
+           >
+             Contract {saved.contract_id.slice(0, 8)} saved.
+           </p>
++        ) : (
++          <span className="text-muted-foreground text-xs">
++            Downloads the signed contract JSON. The Evidence Contract Gate
++            enforces it before generation runs.
++          </span>
+         )}
+       </div>
+     </form>
+
+# canonical-diff-sha256: 51106d3d19f2f4a7be6d5bf1327e5fb1262f8c49148ddb9a4113a91511c637e5
+
+```
+
+codex
+I’ll inspect the touched editor context and the surrounding form/layout contract so the review is based on actual code, not only the excerpt.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"contract-submit|contract-saved|contract-errors|SELECT_CLASS|entities\\.map|Evidence Contract Gate|<form|</form>\" web/app/contracts/_editor.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/contracts/_editor.tsx -TotalCount 520' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- docs/web/s_tier_design_system.md web/app/contracts/_editor.tsx' in C:\POLARIS
+ succeeded in 856ms:
+34:const SELECT_CLASS =
+121:    <form
+230:          {entities.map((ent, i) => (
+254:                className={SELECT_CLASS}
+426:          data-testid="contract-errors"
+440:          fields (Codex visual iter-1 P1). Inside <form> so contract-submit submits;
+441:          contract-saved + contract-errors testids unchanged. */}
+445:          data-testid="contract-submit"
+452:            data-testid="contract-saved"
+459:            Downloads the signed contract JSON. The Evidence Contract Gate
+464:    </form>
+
+ succeeded in 965ms:
+"use client";
+
+import { Plus, X } from "lucide-react";
+import { useMemo, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  buildContract,
+  ENTITY_TYPES,
+  type EntityType,
+  type EvidenceContract,
+  type ExpectedClaim,
+  type ExpectedEntity,
+  JURISDICTIONS,
+  type Jurisdiction,
+  validateContract,
+} from "@/lib/contracts";
+
+// I-p2-041 (#829) P2 visual redo: Contracts was Codex-graded D+ ("raw internal
+// form" — native checkboxes/inputs, cramped fieldsets, black default button).
+// This rebuilds the VISUAL layer on the design system (Card sections, labelled
+// fields, accessible chip-toggles, button hierarchy, tier helper copy) while
+// preserving ALL state/logic and every data-testid the e2e suite relies on.
+
+// Kill the bare "T1/T2/T3" jargon: each tier gets a plain-language hint.
+const TIER_META = [
+  { label: "Tier 1", hint: "RCTs / systematic reviews", testid: "ce-t1" },
+  { label: "Tier 2", hint: "guidelines / cohort studies", testid: "ce-t2" },
+  { label: "Tier 3", hint: "narrative reviews / context", testid: "ce-t3" },
+] as const;
+
+const SELECT_CLASS =
+  "border-input focus-visible:border-ring focus-visible:ring-ring/70 ease-standard h-9 rounded-lg border bg-transparent px-2.5 text-sm transition-colors duration-150 outline-none focus-visible:ring-3";
+
+function FieldLabel({
+  children,
+  hint,
+}: {
+  children: React.ReactNode;
+  hint?: string;
+}) {
+  return (
+    <span className="flex flex-col gap-0.5">
+      <span className="text-foreground text-sm font-medium">{children}</span>
+      {hint ? (
+        <span className="text-muted-foreground text-xs">{hint}</span>
+      ) : null}
+    </span>
+  );
+}
+
+export function ContractEditor() {
+  const [research_question, set_q] = useState("");
+  const [created_by, set_by] = useState("");
+  const [jurisdictions, set_jurs] = useState<Jurisdiction[]>(["CA"]);
+  const [t1, set_t1] = useState(0);
+  const [t2, set_t2] = useState(0);
+  const [t3, set_t3] = useState(0);
+  const [entities, set_entities] = useState<ExpectedEntity[]>([
+    { name: "", aliases: [], entity_type: "drug" },
+  ]);
+  const [claims, set_claims] = useState<ExpectedClaim[]>([
+    {
+      claim_id: "c1",
+      statement: "",
+      expected_entities: [],
+      required_jurisdictions: ["CA"],
+    },
+  ]);
+  const [errs, set_errs] = useState<string[]>([]);
+  const [saved, set_saved] = useState<EvidenceContract | null>(null);
+  const tier_setters = [set_t1, set_t2, set_t3] as const;
+  const tier_values = [t1, t2, t3] as const;
+  const pruned_claims = useMemo(
+    () =>
+      claims.map((cl) => ({
+        ...cl,
+        required_jurisdictions: cl.required_jurisdictions.filter((j) =>
+          jurisdictions.includes(j),
+        ),
+      })),
+    [claims, jurisdictions],
+  );
+
+  function on_submit() {
+    const c = buildContract({
+      research_question,
+      created_by,
+      jurisdictions,
+      expected_entities: entities,
+      expected_claims: pruned_claims,
+      expected_source_coverage: {
+        tier_t1_min: t1,
+        tier_t2_min: t2,
+        tier_t3_min: t3,
+      },
+    });
+    const e = validateContract(c);
+    set_errs(e);
+    if (e.length === 0) {
+      set_saved(c);
+      const blob = new Blob([JSON.stringify(c, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `contract_${c.contract_id.slice(0, 8)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  function toggle_jur(j: Jurisdiction, on: boolean) {
+    set_jurs(on ? [...jurisdictions, j] : jurisdictions.filter((x) => x !== j));
+  }
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        on_submit();
+      }}
+      data-testid="contract-form"
+      className="flex flex-col gap-5"
+    >
+      {/* The question */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">The question</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <label className="flex flex-col gap-1.5">
+            <FieldLabel>Research question</FieldLabel>
+            <Input
+              data-testid="ce-question"
+              value={research_question}
+              onChange={(e) => set_q(e.target.value)}
+              placeholder="e.g. What is the efficacy and safety of tirzepatide in type 2 diabetes?"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <FieldLabel hint="Recorded on the contract for the audit trail.">
+              Created by
+            </FieldLabel>
+            <Input
+              data-testid="ce-by"
+              value={created_by}
+              onChange={(e) => set_by(e.target.value)}
+              placeholder="Your name or team"
+              className="max-w-xs"
+            />
+          </label>
+        </CardContent>
+      </Card>
+
+      {/* Scope: jurisdictions + coverage */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Scope &amp; coverage</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-5">
+          <div className="flex flex-col gap-2">
+            <FieldLabel hint="Which regulatory jurisdictions the brief must address.">
+              Jurisdictions
+            </FieldLabel>
+            <div className="flex flex-wrap gap-2">
+              {JURISDICTIONS.map((j) => {
+                const active = jurisdictions.includes(j);
+                return (
+                  <label
+                    key={j}
+                    className={`focus-within:ring-ring/70 ease-standard cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-150 focus-within:ring-2 ${
+                      active
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      data-testid={`ce-jur-${j}`}
+                      checked={active}
+                      onChange={(e) => toggle_jur(j, e.target.checked)}
+                    />
+                    {j}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <FieldLabel hint="Minimum sources of each evidence tier the report must cite before generation is allowed.">
+              Minimum source coverage
+            </FieldLabel>
+            <div className="grid max-w-md grid-cols-3 gap-3">
+              {TIER_META.map((tier, i) => (
+                <label key={tier.testid} className="flex flex-col gap-1">
+                  <span className="text-foreground text-sm font-medium">
+                    {tier.label}
+                  </span>
+                  <Input
+                    data-testid={tier.testid}
+                    type="number"
+                    min={0}
+                    value={tier_values[i]}
+                    onChange={(e) =>
+                      tier_setters[i](parseInt(e.target.value) || 0)
+                    }
+                  />
+                  <span className="text-muted-foreground text-[11px] leading-tight">
+                    {tier.hint}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Entities */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Expected entities</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {entities.map((ent, i) => (
+            <div
+              key={i}
+              className="flex flex-col gap-2 sm:flex-row sm:items-center"
+            >
+              <Input
+                data-testid={`ce-ent-name-${i}`}
+                placeholder="Entity name (e.g. tirzepatide)"
+                value={ent.name}
+                onChange={(e) => {
+                  const n = [...entities];
+                  n[i] = { ...ent, name: e.target.value };
+                  set_entities(n);
+                }}
+                className="flex-1"
+              />
+              <select
+                data-testid={`ce-ent-type-${i}`}
+                value={ent.entity_type}
+                onChange={(e) => {
+                  const n = [...entities];
+                  n[i] = { ...ent, entity_type: e.target.value as EntityType };
+                  set_entities(n);
+                }}
+                className={SELECT_CLASS}
+              >
+                {ENTITY_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+              {entities.length > 1 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  data-testid={`ce-rm-ent-${i}`}
+                  aria-label="Remove entity"
+                  onClick={() =>
+                    set_entities(entities.filter((_, j) => j !== i))
+                  }
+                >
+                  <X aria-hidden className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="ce-add-entity"
+            className="w-fit"
+            onClick={() =>
+              set_entities([
+                ...entities,
+                { name: "", aliases: [], entity_type: "drug" },
+              ])
+            }
+          >
+            <Plus aria-hidden className="h-4 w-4" /> Add entity
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Claims */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Expected claims</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {pruned_claims.map((cl, i) => (
+            <div
+              key={i}
+              className="border-border flex flex-col gap-2 rounded-lg border p-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <Input
+                  data-testid={`ce-claim-id-${i}`}
+                  placeholder="claim id"
+                  value={cl.claim_id}
+                  onChange={(e) => {
+                    const n = [...claims];
+                    n[i] = { ...cl, claim_id: e.target.value };
+                    set_claims(n);
+                  }}
+                  className="w-24 font-mono"
+                />
+                {claims.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    data-testid={`ce-rm-claim-${i}`}
+                    onClick={() => set_claims(claims.filter((_, j) => j !== i))}
+                  >
+                    <X aria-hidden className="h-4 w-4" /> Remove
+                  </Button>
+                )}
+              </div>
+              <Input
+                data-testid={`ce-claim-stmt-${i}`}
+                placeholder="Claim the brief must support"
+                value={cl.statement}
+                onChange={(e) => {
+                  const n = [...claims];
+                  n[i] = { ...cl, statement: e.target.value };
+                  set_claims(n);
+                }}
+              />
+              <Input
+                data-testid={`ce-claim-ents-${i}`}
+                placeholder="Related entities (comma-separated)"
+                value={cl.expected_entities.join(",")}
+                onChange={(e) => {
+                  const n = [...claims];
+                  n[i] = {
+                    ...cl,
+                    expected_entities: e.target.value
+                      .split(",")
+                      .map((x) => x.trim())
+                      .filter(Boolean),
+                  };
+                  set_claims(n);
+                }}
+              />
+              <div
+                data-testid={`ce-claim-jurs-${i}`}
+                className="flex flex-wrap items-center gap-2"
+              >
+                <span className="text-muted-foreground text-xs">
+                  Required in:
+                </span>
+                {jurisdictions.map((j) => {
+                  const on = cl.required_jurisdictions.includes(j);
+                  return (
+                    <label
+                      key={j}
+                      className={`focus-within:ring-ring/70 cursor-pointer rounded-full border px-2.5 py-0.5 text-xs transition-colors focus-within:ring-2 ${
+                        on
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        data-testid={`ce-claim-${i}-jur-${j}`}
+                        checked={on}
+                        onChange={(e) => {
+                          const n = [...claims];
+                          n[i] = {
+                            ...cl,
+                            required_jurisdictions: e.target.checked
+                              ? [...cl.required_jurisdictions, j]
+                              : cl.required_jurisdictions.filter(
+                                  (x) => x !== j,
+                                ),
+                          };
+                          set_claims(n);
+                        }}
+                      />
+                      {j}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="ce-add-claim"
+            className="w-fit"
+            onClick={() =>
+              set_claims([
+                ...claims,
+                {
+                  claim_id: `c${claims.length + 1}`,
+                  statement: "",
+                  expected_entities: [],
+                  required_jurisdictions: [...jurisdictions],
+                },
+              ])
+            }
+          >
+            <Plus aria-hidden className="h-4 w-4" /> Add claim
+          </Button>
+        </CardContent>
+      </Card>
+
+      {errs.length > 0 && (
+        <div
+          role="alert"
+          data-testid="contract-errors"
+          className="border-destructive/30 bg-destructive/10 text-foreground flex flex-col gap-1 rounded-lg border p-3 text-sm"
+        >
+          <span className="font-medium">Fix before saving:</span>
+          <ul className="text-muted-foreground list-disc pl-5">
+            {errs.map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* I-p2-046 (#839): crafted action bar (ring + brand shadow + explainer) — a
+          static dock at the form end, NOT sticky, so it never overlays editable
+          fields (Codex visual iter-1 P1). Inside <form> so contract-submit submits;
+          contract-saved + contract-errors testids unchanged. */}
+      <div className="bg-card ring-foreground/10 shadow-card mt-1 flex flex-wrap items-center gap-3 rounded-xl px-4 py-3 ring-1">
+        <Button
+          type="submit"
+          data-testid="contract-submit"
+          className="h-10 px-6"
+        >
+          Save + download
+        </Button>
+        {saved ? (
+          <p
+            data-testid="contract-saved"
+            className="text-verified text-sm font-medium"
+          >
+            Contract {saved.contract_id.slice(0, 8)} saved.
+          </p>
+        ) : (
+          <span className="text-muted-foreground text-xs">
+            Downloads the signed contract JSON. The Evidence Contract Gate
+            enforces it before generation runs.
+          </span>
+        )}
+      </div>
+    </form>
+  );
+}
+
+ succeeded in 1029ms:
+codex
+The actual file matches the supplied shape: the submit button remains under the same form, and `contract-saved` is still conditional after a successful save. I’m checking the design-token classes now because that is the only place this diff could quietly break at build/runtime without changing logic.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "shadow-card|ease-standard|text-verified|ring-foreground|bg-card" web docs package.json tailwind.config.* postcss.config.*' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "banned|dev-language|Evidence Contract Gate|contract_editor|contracts_g1_g8|contract-submit|contract-saved" web -S' in C:\POLARIS
+2026-05-24T02:21:31.359983Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+web\app\globals.css:63:  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+web\app\globals.css:67:  --shadow-card:
+web\app\globals.css:69:  --shadow-card-hover:
+web\app\dashboard\page.tsx:43:      cls: "text-verified border-verified/30 bg-verified/10",
+web\app\compare\page.tsx:189:    <div className="border-border bg-card flex flex-col gap-1 rounded-lg border p-3">
+web\app\compare\page.tsx:219:      <div className="border-border bg-card flex flex-wrap items-center gap-4 rounded-lg border p-4">
+web\components\verdict\verdict_chip.tsx:36:    className: "bg-verified/10 text-verified border-verified/30",
+web\app\contracts\_editor.tsx:35:  "border-input focus-visible:border-ring focus-visible:ring-ring/70 ease-standard h-9 rounded-lg border bg-transparent px-2.5 text-sm transition-colors duration-150 outline-none focus-visible:ring-3";
+web\app\contracts\_editor.tsx:175:                    className={`focus-within:ring-ring/70 ease-standard cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-150 focus-within:ring-2 ${
+web\app\contracts\_editor.tsx:442:      <div className="bg-card ring-foreground/10 shadow-card mt-1 flex flex-wrap items-center gap-3 rounded-xl px-4 py-3 ring-1">
+web\app\contracts\_editor.tsx:453:            className="text-verified text-sm font-medium"
+web\app\components\recent_runs_strip.tsx:76:              className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring group flex max-w-xs flex-col gap-1 rounded-lg border px-3 py-2 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+web\app\intake\components\intake_form.tsx:159:                  className="text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-muted border-border ease-standard rounded-full border px-2.5 py-1 text-xs transition-colors duration-150"
+web\app\components\proof_showcase.tsx:77:      className="ring-foreground/10 bg-card shadow-card ease-standard hover:shadow-card-hover relative overflow-hidden rounded-2xl ring-1 transition-shadow duration-150"
+web\app\components\proof_showcase.tsx:93:          <div className="text-verified inline-flex items-center gap-1.5 text-xs font-semibold">
+web\app\page.tsx:136:            <span className="text-muted-foreground border-border bg-card inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
+web\app\page.tsx:179:                className="group/pillar bg-card ring-foreground/10 shadow-card ease-standard hover:shadow-card-hover flex flex-col gap-2 rounded-xl p-5 ring-1 transition-shadow duration-150"
+web\app\plan\page.tsx:239:      <div className="border-border bg-card flex flex-col gap-2 rounded-xl border p-5">
+web\app\plan\page.tsx:270:              className="border-border bg-card flex flex-col gap-1.5 rounded-lg border p-4"
+web\app\source_review\page.tsx:71:    <div className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4">
+web\app\source_review\page.tsx:169:        <div className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4">
+web\app\source_review\page.tsx:227:              I-p2-026 (#765): bg-card (white), not bg-muted/40 — muted-foreground
+web\app\source_review\page.tsx:229:          <div className="border-border bg-card flex flex-col gap-1 rounded-lg border p-4">
+web\components\ui\card.tsx:16:        // (shadow-card) + the shared motion primitive on shadow transitions.
+web\components\ui\card.tsx:17:        "group/card bg-card text-card-foreground ring-foreground/10 shadow-card ease-standard flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 transition-shadow duration-150 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+web\app\runs\[runId]\components\run_progress.tsx:253:              className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4"
+web\app\runs\[runId]\components\run_progress.tsx:285:    <div className="border-border bg-card flex flex-col gap-1 rounded-lg border px-3 py-2">
+web\app\runs\[runId]\audit\page.tsx:122:          ? "border-verified bg-verified/10 text-verified inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+web\app\runs\[runId]\audit\page.tsx:152:      <section className="border-border bg-card flex flex-col gap-4 rounded-lg border p-5">
+web\app\runs\[runId]\audit\page.tsx:163:              className="border-verified bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+web\app\runs\[runId]\audit\page.tsx:294:      <section className="border-border bg-card flex flex-col gap-3 rounded-lg border p-5">
+web\app\runs\[runId]\components\followup_panel.tsx:68:      className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4"
+web\components\sovereignty\sovereignty_panel.tsx:47:      className="border-border bg-card flex flex-col gap-4 rounded-md border p-4 text-sm"
+web\components\sovereignty\sovereignty_panel.tsx:75:              <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\sovereignty\sovereignty_panel.tsx:99:            <p className="text-verified mt-1 text-[11px]">
+web\components\inspector\bundle_header.tsx:48:        <summary className="text-muted-foreground/80 hover:text-foreground ease-standard inline-flex w-fit cursor-pointer list-none items-center gap-1 rounded-md py-0.5 transition-colors duration-150 [&::-webkit-details-marker]:hidden">
+web\components\inspector\bundle_header.tsx:51:            className="ease-standard h-3 w-3 transition-transform duration-150 group-open/manifest:rotate-90"
+web\components\inspector\bundle_header.tsx:80:        className="border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+web\components\source\source_card.tsx:37:      <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\source\source_card.tsx:57:      className="border-border bg-card flex flex-col gap-2 rounded-md border p-4 text-sm"
+docs\web\s_tier_design_system.md:34:- **Border / shadow:** hairline `ring-foreground/10` (1px low-alpha) plus
+docs\web\s_tier_design_system.md:35:  brand-tinted elevation `--shadow-card` / `--shadow-card-hover` (a neutral
+docs\web\s_tier_design_system.md:37:- **Motion:** ONE primitive — `--ease-standard: cubic-bezier(0.2,0.8,0.2,1)`,
+web\components\inspector\inspector_proof_header.tsx:54:        className="bg-card ring-foreground/10 shadow-card flex flex-col gap-3 rounded-xl p-4 ring-1 sm:p-5"
+web\components\inspector\inspector_proof_header.tsx:62:            <span className="text-verified text-3xl leading-none font-bold tabular-nums">
+web\components\inspector\family_segregation_badge.tsx:32:          ? "border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+rg: package.json: The system cannot find the file specified. (os error 2)
+rg: tailwind.config.*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+rg: postcss.config.*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+ exited 1 in 1013ms:
+web\app\globals.css:63:  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+web\app\globals.css:67:  --shadow-card:
+web\app\globals.css:69:  --shadow-card-hover:
+web\app\dashboard\page.tsx:43:      cls: "text-verified border-verified/30 bg-verified/10",
+web\app\compare\page.tsx:189:    <div className="border-border bg-card flex flex-col gap-1 rounded-lg border p-3">
+web\app\compare\page.tsx:219:      <div className="border-border bg-card flex flex-wrap items-center gap-4 rounded-lg border p-4">
+web\components\verdict\verdict_chip.tsx:36:    className: "bg-verified/10 text-verified border-verified/30",
+web\app\contracts\_editor.tsx:35:  "border-input focus-visible:border-ring focus-visible:ring-ring/70 ease-standard h-9 rounded-lg border bg-transparent px-2.5 text-sm transition-colors duration-150 outline-none focus-visible:ring-3";
+web\app\contracts\_editor.tsx:175:                    className={`focus-within:ring-ring/70 ease-standard cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-150 focus-within:ring-2 ${
+web\app\contracts\_editor.tsx:442:      <div className="bg-card ring-foreground/10 shadow-card mt-1 flex flex-wrap items-center gap-3 rounded-xl px-4 py-3 ring-1">
+web\app\contracts\_editor.tsx:453:            className="text-verified text-sm font-medium"
+web\app\components\recent_runs_strip.tsx:76:              className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring group flex max-w-xs flex-col gap-1 rounded-lg border px-3 py-2 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+web\app\intake\components\intake_form.tsx:159:                  className="text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-muted border-border ease-standard rounded-full border px-2.5 py-1 text-xs transition-colors duration-150"
+web\app\components\proof_showcase.tsx:77:      className="ring-foreground/10 bg-card shadow-card ease-standard hover:shadow-card-hover relative overflow-hidden rounded-2xl ring-1 transition-shadow duration-150"
+web\app\components\proof_showcase.tsx:93:          <div className="text-verified inline-flex items-center gap-1.5 text-xs font-semibold">
+web\app\page.tsx:136:            <span className="text-muted-foreground border-border bg-card inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
+web\app\page.tsx:179:                className="group/pillar bg-card ring-foreground/10 shadow-card ease-standard hover:shadow-card-hover flex flex-col gap-2 rounded-xl p-5 ring-1 transition-shadow duration-150"
+web\app\plan\page.tsx:239:      <div className="border-border bg-card flex flex-col gap-2 rounded-xl border p-5">
+web\app\plan\page.tsx:270:              className="border-border bg-card flex flex-col gap-1.5 rounded-lg border p-4"
+web\app\source_review\page.tsx:71:    <div className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4">
+web\app\source_review\page.tsx:169:        <div className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4">
+web\app\source_review\page.tsx:227:              I-p2-026 (#765): bg-card (white), not bg-muted/40 — muted-foreground
+web\app\source_review\page.tsx:229:          <div className="border-border bg-card flex flex-col gap-1 rounded-lg border p-4">
+web\components\ui\card.tsx:16:        // (shadow-card) + the shared motion primitive on shadow transitions.
+web\components\ui\card.tsx:17:        "group/card bg-card text-card-foreground ring-foreground/10 shadow-card ease-standard flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 transition-shadow duration-150 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+web\app\runs\[runId]\components\run_progress.tsx:253:              className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4"
+web\app\runs\[runId]\components\run_progress.tsx:285:    <div className="border-border bg-card flex flex-col gap-1 rounded-lg border px-3 py-2">
+web\app\runs\[runId]\audit\page.tsx:122:          ? "border-verified bg-verified/10 text-verified inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+web\app\runs\[runId]\audit\page.tsx:152:      <section className="border-border bg-card flex flex-col gap-4 rounded-lg border p-5">
+web\app\runs\[runId]\audit\page.tsx:163:              className="border-verified bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+web\app\runs\[runId]\audit\page.tsx:294:      <section className="border-border bg-card flex flex-col gap-3 rounded-lg border p-5">
+web\app\runs\[runId]\components\followup_panel.tsx:68:      className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4"
+web\components\sovereignty\sovereignty_panel.tsx:47:      className="border-border bg-card flex flex-col gap-4 rounded-md border p-4 text-sm"
+web\components\sovereignty\sovereignty_panel.tsx:75:              <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\sovereignty\sovereignty_panel.tsx:99:            <p className="text-verified mt-1 text-[11px]">
+web\components\inspector\bundle_header.tsx:48:        <summary className="text-muted-foreground/80 hover:text-foreground ease-standard inline-flex w-fit cursor-pointer list-none items-center gap-1 rounded-md py-0.5 transition-colors duration-150 [&::-webkit-details-marker]:hidden">
+web\components\inspector\bundle_header.tsx:51:            className="ease-standard h-3 w-3 transition-transform duration-150 group-open/manifest:rotate-90"
+web\components\inspector\bundle_header.tsx:80:        className="border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+web\components\source\source_card.tsx:37:      <span className="bg-verified/10 text-verified border-verified/30 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium">
+web\components\source\source_card.tsx:57:      className="border-border bg-card flex flex-col gap-2 rounded-md border p-4 text-sm"
+docs\web\s_tier_design_system.md:34:- **Border / shadow:** hairline `ring-foreground/10` (1px low-alpha) plus
+docs\web\s_tier_design_system.md:35:  brand-tinted elevation `--shadow-card` / `--shadow-card-hover` (a neutral
+docs\web\s_tier_design_system.md:37:- **Motion:** ONE primitive — `--ease-standard: cubic-bezier(0.2,0.8,0.2,1)`,
+web\components\inspector\inspector_proof_header.tsx:54:        className="bg-card ring-foreground/10 shadow-card flex flex-col gap-3 rounded-xl p-4 ring-1 sm:p-5"
+web\components\inspector\inspector_proof_header.tsx:62:            <span className="text-verified text-3xl leading-none font-bold tabular-nums">
+web\components\inspector\family_segregation_badge.tsx:32:          ? "border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+rg: package.json: The system cannot find the file specified. (os error 2)
+rg: tailwind.config.*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+rg: postcss.config.*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+ succeeded in 1104ms:
+?? .claude/hooks/__pycache__/
+?? .claude/hooks/phase2_stop_hook.py
+?? .codex/I-A-01/
+?? .codex/I-audit-002/
+?? .codex/I-bug-085/
+?? .codex/I-bug-775/diff_audit.err
+?? .codex/I-cd-009/diff_review_input_iter1.md
+?? .codex/I-cd-010/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter1.md
+?? .codex/I-cd-012/diff_review_input_iter2.md
+?? .codex/I-cd-013/diff_review_input_iter1.md
+?? .codex/I-cd-013/diff_review_input_iter2.md
+?? .codex/I-cd-013b/diff_review_input_iter1.md
+?? .codex/I-cd-013b/diff_review_input_iter2.md
+?? .codex/I-cd-014/diff_review_input_iter1.md
+?? .codex/I-cd-014/diff_review_input_iter2.md
+?? .codex/I-cd-015/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter1.md
+?? .codex/I-cd-016/diff_review_input_iter2.md
+?? .codex/I-cd-016/diff_review_input_iter3.md
+?? .codex/I-cd-016/diff_review_input_iter4.md
+?? .codex/I-cd-016/scope_consult_verdict.txt
+?? .codex/I-cd-019/
+?? .codex/I-cd-567/
+?? .codex/I-cd-680/merge_gate_decision.md
+?? .codex/I-cd-680/merge_gate_decision_output.txt
+?? .codex/I-cd-680/merge_gate_decision_v2.md
+?? .codex/I-cd-680/merge_gate_decision_v2_output.txt
+?? .codex/I-eval-002/codex_next_move_brief.md
+?? .codex/I-eval-002/codex_next_move_output.txt
+?? .codex/I-eval-004/
+?? .codex/I-eval-005/
+?? .codex/I-eval-006/
+?? .codex/I-eval-007/
+?? .codex/I-eval-008/
+?? .codex/I-gen-002-phase3/codex_diagnosis_output.txt
+?? .codex/I-gen-002-phase3/codex_diff.patch
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_1.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_2.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_3.md
+?? .codex/I-gen-002-phase3/codex_diff_brief_iter_4.md
+?? .codex/I-gen-002-phase3/codex_post_merge_diagnosis_brief.md
+?? .codex/I-gen-003/halt_override_consult_brief.md
+?? .codex/I-gen-003/halt_override_consult_verdict.txt
+?? .codex/I-lint-001/scope_consult.md
+?? .codex/I-lint-001/scope_consult_verdict.txt
+?? .codex/I-p2-001/
+?? .codex/I-p2-038/ui_direction_decision_verdict.err.txt
+?? .codex/I-p2-043/merge_path_consult.md
+?? .codex/I-p2-043/merge_path_verdict.err.txt
+?? .codex/I-p2-043/merge_path_verdict.txt
+?? .codex/I-p2-046/
+?? .codex/I-rdy-004/diff_brief.md
+?? .codex/I-rdy-004/diff_brief_iter2.md
+?? .codex/I-snowball-001/
+?? .codex/I-ui-001/e2e_merge_decision.md
+?? .codex/I-ui-001/e2e_merge_decision_output.txt
+?? .codex/I-ui-plan-001/
+?? .codex/I-ux-research-001/
+?? .codex/autonomous_overnight_loop/
+?? .codex/canonical_pin_reconciliation/
+?? .codex/carney-hardware-spec/
+?? .codex/issue_breakdown_review/
+?? .codex/operational_plan_review/
+?? .codex/pr_merge_disposition/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? codex_review_tmp/
+?? codex_tmp_i_carney_003_pubkey.asc
+?? live/
+?? outputs/audits/I-cd-002-followup/redeploy_run.log
+?? outputs/audits/I-cd-002/redeploy_run.log
+?? outputs/audits/I-p2-001/
+?? outputs/audits/I-p2-024/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v32_baseline_content_audit/
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? pytest_i_cd_705_tmp/
+?? remote.git/
+?? scripts/benchmark_claim_extract.py
+?? scripts/build_q_audit_yaml.py
+?? scripts/build_q_codex_batches.py
+?? scripts/claude_cross_review.py
+?? scripts/click_start_research.py
+?? scripts/fetch_q_sources.py
+?? scripts/harvest_gemini_q.py
+?? scripts/master_beat_both_report.py
+?? scripts/open_gemini_chats.py
+?? scripts/pg_smoke_v4_pro_reasoning_first.py
+?? scripts/poll_click_starts.py
+?? scripts/probe_all_gemini.py
+?? scripts/probe_all_pages.py
+?? scripts/probe_chatgpt_full.py
+?? scripts/probe_chatgpt_messages.py
+?? scripts/probe_chatgpt_now.py
+?? scripts/probe_dr_status.py
+?? scripts/probe_gemini_full.py
+?? scripts/probe_gemini_state.py
+?? scripts/refresh_gemini_tabs.py
+?? scripts/retry_chatgpt_q.py
+?? scripts/run_codex_batches_q.sh
+?? scripts/run_remaining_qs.sh
+?? scripts/submit_q_to_both.py
+?? scripts/tally_q_audit.py
+?? src/a.txt
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/i_hygiene_001_acl_locked_remainder.txt
+?? state/polaris_restart/i_hygiene_001_elevated_cleanup.ps1
+?? state/polaris_restart/i_hygiene_001_move_failures.txt
+?? state/polaris_restart/next_session_plan.md
+?? web/p2shots/
+?? web/test-results/
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+
+ succeeded in 1136ms:
+web\app\pin_replay\page.tsx:140:  // post-Carney" dev-language marker; subtitle is now neutral.
+web\app\intake\page.tsx:39:// dev-language strings.
+web\tests\e2e\dashboard_g1_g8.spec.ts:23:test("G2: /dashboard contains no banned dev-language strings", async ({
+web\tests\e2e\dashboard_g1_g8.spec.ts:28:  for (const banned of BANNED_DEV_LANGUAGE) {
+web\tests\e2e\dashboard_g1_g8.spec.ts:29:    expect(body_text).not.toMatch(banned);
+web\app\benchmark\page.tsx:13:// benchmark)" dev-language strings via header/footer removal.
+web\tests\e2e\benchmark_g1_g8.spec.ts:26:test("G2: /benchmark contains no banned dev-language strings (body + titles + aria-labels)", async ({
+web\tests\e2e\benchmark_g1_g8.spec.ts:44:  for (const banned of BANNED_DEV_LANGUAGE) {
+web\tests\e2e\benchmark_g1_g8.spec.ts:45:    expect(all_text).not.toMatch(banned);
+web\tests\e2e\contract_editor.spec.ts:11:  await page.getByTestId("contract-submit").click();
+web\tests\e2e\contract_editor.spec.ts:12:  await expect(page.getByTestId("contract-saved")).toBeVisible({
+web\tests\e2e\contracts_g1_g8.spec.ts:28:test("G2: /contracts contains no banned dev-language strings (body + titles + aria-labels)", async ({
+web\tests\e2e\contracts_g1_g8.spec.ts:46:  for (const banned of BANNED_DEV_LANGUAGE) {
+web\tests\e2e\contracts_g1_g8.spec.ts:47:    expect(all_text).not.toMatch(banned);
+web\tests\e2e\home_g1_g8.spec.ts:56:test("G2: home contains no banned dev-language strings", async ({ page }) => {
+web\tests\e2e\home_g1_g8.spec.ts:59:  for (const banned of BANNED_DEV_LANGUAGE) {
+web\tests\e2e\home_g1_g8.spec.ts:60:    expect(body_text).not.toMatch(banned);
+web\tests\e2e\inspector_route.spec.ts:8:// G1 app shell · G2 no dev-language (rendered text only) · G3 interactive
+web\app\contracts\_editor.tsx:440:          fields (Codex visual iter-1 P1). Inside <form> so contract-submit submits;
+web\app\contracts\_editor.tsx:441:          contract-saved + contract-errors testids unchanged. */}
+web\app\contracts\_editor.tsx:445:          data-testid="contract-submit"
+web\app\contracts\_editor.tsx:452:            data-testid="contract-saved"
+web\app\contracts\_editor.tsx:459:            Downloads the signed contract JSON. The Evidence Contract Gate
+web\tests\e2e\intake_g1_g8.spec.ts:24:test("G2: /intake contains no banned dev-language strings", async ({
+web\tests\e2e\intake_g1_g8.spec.ts:29:  for (const banned of BANNED_DEV_LANGUAGE) {
+web\tests\e2e\intake_g1_g8.spec.ts:30:    expect(body_text).not.toMatch(banned);
+web\app\runs\[runId]\page.tsx:110:  // dev-language. The header's Export-bundle + New-run buttons move
+web\tests\e2e\memory_g1_g8.spec.ts:25:test("G2: /memory contains no banned dev-language strings (body + titles + aria-labels)", async ({
+web\tests\e2e\memory_g1_g8.spec.ts:43:  for (const banned of BANNED_DEV_LANGUAGE) {
+web\tests\e2e\memory_g1_g8.spec.ts:44:    expect(all_text).not.toMatch(banned);
+web\app\runs\[runId]\graph\page.tsx:57:            {/* I-p2-019 (#758): G2 — dropped the "F-snowball" dev-language. */}
+web\tests\e2e\pin_replay_g1_g8.spec.ts:28:test("G2: /pin_replay contains no banned dev-language strings (body + titles + aria-labels)", async ({
+web\tests\e2e\pin_replay_g1_g8.spec.ts:46:  for (const banned of BANNED_DEV_LANGUAGE) {
+web\tests\e2e\pin_replay_g1_g8.spec.ts:47:    expect(all_text).not.toMatch(banned);
+web\tests\e2e\runs_runid_g1_g8.spec.ts:31:test("G2: /runs/[runId] contains no banned dev-language strings (body + titles + aria-labels)", async ({
+web\tests\e2e\runs_runid_g1_g8.spec.ts:50:  for (const banned of BANNED_DEV_LANGUAGE) {
+web\tests\e2e\runs_runid_g1_g8.spec.ts:51:    expect(all_text).not.toMatch(banned);
+web\tests\e2e\upload_g1_g8.spec.ts:24:test("G2: /upload contains no banned dev-language strings (body + titles + aria-labels)", async ({
+web\tests\e2e\upload_g1_g8.spec.ts:42:  for (const banned of BANNED_DEV_LANGUAGE) {
+web\tests\e2e\upload_g1_g8.spec.ts:43:    expect(all_text).not.toMatch(banned);
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/contracts_g1_g8.spec.ts -TotalCount 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "BANNED_DEV_LANGUAGE|post-Carney|iteration|dev|Gate|contract" web/tests/e2e -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/globals.css -TotalCount 100' in C:\POLARIS
+ succeeded in 824ms:
+// I-cd-028 (#618): /contracts route G1-G8 acceptance gates.
+
+import { expect, test } from "@playwright/test";
+import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+
+const BANNED_DEV_LANGUAGE = [
+  /\bslice\b/i,
+  /\bscaffold\b/i,
+  /\bplaceholder\b/i,
+  /\bphase 0\b/i,
+  /\bphase 1\b/i,
+  /\bphase 2[a-z]?\b/i,
+  /\bF4 plan\b/i,
+  /\bpost[- ]carney\b/i,
+  /\bi-cd-/i,
+  /\bi-ecg-/i,
+  /POLARIS_REQUIRE_CONTRACT/i,
+];
+
+test("G1 + G6: /contracts has exactly one header + one main", async ({
+  page,
+}) => {
+  await page.goto("/contracts");
+  await expect(page.locator("header")).toHaveCount(1);
+  await expect(page.locator("main")).toHaveCount(1);
+});
+
+test("G2: /contracts contains no banned dev-language strings (body + titles + aria-labels)", async ({
+  page,
+}) => {
+  await page.goto("/contracts");
+  const body_text = (await page.locator("body").textContent()) || "";
+  const title_text =
+    (await page
+      .locator("[title]")
+      .evaluateAll((els: Element[]) =>
+        els.map((el) => el.getAttribute("title") || "").join(" · "),
+      )) || "";
+  const aria_text =
+    (await page
+      .locator("[aria-label]")
+      .evaluateAll((els: Element[]) =>
+        els.map((el) => el.getAttribute("aria-label") || "").join(" · "),
+      )) || "";
+  const all_text = `${body_text} · ${title_text} · ${aria_text}`;
+  for (const banned of BANNED_DEV_LANGUAGE) {
+    expect(all_text).not.toMatch(banned);
+  }
+});
+
+test("G1 nav parity: primary nav visible on /contracts", async ({ page }) => {
+  await setupAuthedNav(page);
+  await page.goto("/contracts");
+  await expectAuthedNav(page);
+});
+
+test("G8: /contracts renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto("/contracts");
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForTimeout(1500);
+  expect(errors).toEqual([]);
+});
+
+ succeeded in 911ms:
+web/tests/e2e\benchmark_g1_g8.spec.ts:6:const BANNED_DEV_LANGUAGE = [
+web/tests/e2e\benchmark_g1_g8.spec.ts:26:test("G2: /benchmark contains no banned dev-language strings (body + titles + aria-labels)", async ({
+web/tests/e2e\benchmark_g1_g8.spec.ts:44:  for (const banned of BANNED_DEV_LANGUAGE) {
+web/tests/e2e\contracts_g1_g8.spec.ts:1:// I-cd-028 (#618): /contracts route G1-G8 acceptance gates.
+web/tests/e2e\contracts_g1_g8.spec.ts:6:const BANNED_DEV_LANGUAGE = [
+web/tests/e2e\contracts_g1_g8.spec.ts:20:test("G1 + G6: /contracts has exactly one header + one main", async ({
+web/tests/e2e\contracts_g1_g8.spec.ts:23:  await page.goto("/contracts");
+web/tests/e2e\contracts_g1_g8.spec.ts:28:test("G2: /contracts contains no banned dev-language strings (body + titles + aria-labels)", async ({
+web/tests/e2e\contracts_g1_g8.spec.ts:31:  await page.goto("/contracts");
+web/tests/e2e\contracts_g1_g8.spec.ts:46:  for (const banned of BANNED_DEV_LANGUAGE) {
+web/tests/e2e\contracts_g1_g8.spec.ts:51:test("G1 nav parity: primary nav visible on /contracts", async ({ page }) => {
+web/tests/e2e\contracts_g1_g8.spec.ts:53:  await page.goto("/contracts");
+web/tests/e2e\contracts_g1_g8.spec.ts:57:test("G8: /contracts renders with zero console errors", async ({ page }) => {
+web/tests/e2e\contracts_g1_g8.spec.ts:62:  await page.goto("/contracts");
+web/tests/e2e\demo_journey.spec.ts:41:  // frozen schema, the contract Carney's office reviews).
+web/tests/e2e\dashboard_g1_g8.spec.ts:6:const BANNED_DEV_LANGUAGE = [
+web/tests/e2e\dashboard_g1_g8.spec.ts:23:test("G2: /dashboard contains no banned dev-language strings", async ({
+web/tests/e2e\dashboard_g1_g8.spec.ts:28:  for (const banned of BANNED_DEV_LANGUAGE) {
+web/tests/e2e\contract_editor.spec.ts:3:test("create + edit + save evidence contract", async ({ page }) => {
+web/tests/e2e\contract_editor.spec.ts:4:  await page.goto("/contracts");
+web/tests/e2e\contract_editor.spec.ts:11:  await page.getByTestId("contract-submit").click();
+web/tests/e2e\contract_editor.spec.ts:12:  await expect(page.getByTestId("contract-saved")).toBeVisible({
+web/tests/e2e\contract_editor.spec.ts:16:  expect(download.suggestedFilename()).toMatch(/^contract_[a-f0-9]{8}\.json$/);
+web/tests/e2e\cross_browser_smoke.spec.ts:23:  { feature: "F11", path: "/contracts", testid: "contract-form" },
+web/tests/e2e\cross_browser_smoke.spec.ts:43:      "contract-errors",
+web/tests/e2e\demo_walkthrough.spec.ts:6: * Drives the flow a non-developer follows during the demo:
+web/tests/e2e\evidence_tooltip_mobile.spec.ts:1:import { devices, expect, test } from "@playwright/test";
+web/tests/e2e\evidence_tooltip_mobile.spec.ts:3:test.use({ ...devices["iPhone 12"] });
+web/tests/e2e\home_g1_g8.spec.ts:9:const BANNED_DEV_LANGUAGE = [
+web/tests/e2e\home_g1_g8.spec.ts:56:test("G2: home contains no banned dev-language strings", async ({ page }) => {
+web/tests/e2e\home_g1_g8.spec.ts:59:  for (const banned of BANNED_DEV_LANGUAGE) {
+web/tests/e2e\inspector_route.spec.ts:8:// G1 app shell · G2 no dev-language (rendered text only) · G3 interactive
+web/tests/e2e\inspector_route.spec.ts:104:  test("no dev language in rendered text (G2 — rendered-text scope)", async ({
+web/tests/e2e\inspector_route.spec.ts:150:// been captured yet — running with `--update-snapshots` after the dev
+web/tests/e2e\memory_g1_g8.spec.ts:6:const BANNED_DEV_LANGUAGE = [
+web/tests/e2e\memory_g1_g8.spec.ts:25:test("G2: /memory contains no banned dev-language strings (body + titles + aria-labels)", async ({
+web/tests/e2e\memory_g1_g8.spec.ts:43:  for (const banned of BANNED_DEV_LANGUAGE) {
+web/tests/e2e\intake_g1_g8.spec.ts:7:const BANNED_DEV_LANGUAGE = [
+web/tests/e2e\intake_g1_g8.spec.ts:24:test("G2: /intake contains no banned dev-language strings", async ({
+web/tests/e2e\intake_g1_g8.spec.ts:29:  for (const banned of BANNED_DEV_LANGUAGE) {
+web/tests/e2e\p2c_005_mobile.spec.ts:11:import { devices, expect, test } from "@playwright/test";
+web/tests/e2e\p2c_005_mobile.spec.ts:17:  userAgent: devices["iPhone 13"].userAgent,
+web/tests/e2e\pin_replay_g1_g8.spec.ts:6:const BANNED_DEV_LANGUAGE = [
+web/tests/e2e\pin_replay_g1_g8.spec.ts:28:test("G2: /pin_replay contains no banned dev-language strings (body + titles + aria-labels)", async ({
+web/tests/e2e\pin_replay_g1_g8.spec.ts:46:  for (const banned of BANNED_DEV_LANGUAGE) {
+web/tests/e2e\runs_runid_g1_g8.spec.ts:6:const BANNED_DEV_LANGUAGE = [
+web/tests/e2e\runs_runid_g1_g8.spec.ts:31:test("G2: /runs/[runId] contains no banned dev-language strings (body + titles + aria-labels)", async ({
+web/tests/e2e\runs_runid_g1_g8.spec.ts:50:  for (const banned of BANNED_DEV_LANGUAGE) {
+web/tests/e2e\sentence_inspector_ai_agent.spec.ts:104:    // Per Codex iter-1 P1: close + assert detach before next iteration.
+web/tests/e2e\sign_in.spec.ts:6://   POLARIS_JWT_SECRET="local-dev-32char-secret-for-tests-only" \
+web/tests/e2e\sign_in.spec.ts:10://   # Terminal B — Next.js (use `next dev` for local iteration OR
+web/tests/e2e\sign_in.spec.ts:12://   cd web && npx next dev -p 3738
+web/tests/e2e\sign_in.spec.ts:20:// captured by operator via `--update-snapshots` after first dev-server
+web/tests/e2e\upload_g1_g8.spec.ts:6:const BANNED_DEV_LANGUAGE = [
+web/tests/e2e\upload_g1_g8.spec.ts:24:test("G2: /upload contains no banned dev-language strings (body + titles + aria-labels)", async ({
+web/tests/e2e\upload_g1_g8.spec.ts:42:  for (const banned of BANNED_DEV_LANGUAGE) {
+web/tests/e2e\_nav_auth.ts:1:// I-p2-039 (#825): shared helpers for the AUTH-AWARE primary-nav contract.
+web/tests/e2e\visual_60_baselines.spec.ts:73:  { feature: "F11", path: "/contracts", testid: "contract-form" },
+
+ succeeded in 925ms:
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-verified: var(--verified);
+  --color-verified-foreground: var(--verified-foreground);
+  --color-contradiction: var(--contradiction);
+  --color-contradiction-foreground: var(--contradiction-foreground);
+  --color-refusal: var(--refusal);
+  --color-refusal-foreground: var(--refusal-foreground);
+  --color-tier-1: var(--tier-1);
+  --color-tier-2: var(--tier-2);
+  --color-tier-3: var(--tier-3);
+  --color-proof-token: var(--proof-token);
+  --color-verified-bundle: var(--verified-bundle);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  /* I-p2-042 (#831) S-tier foundation: ONE motion primitive (Codex direction)
+     — consistent inspection/selection feel; reuse on hover/focus/tab/span. */
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Brand-temperature card elevation (not pure gray) — restrained: a neutral
+     hairline lift + a faint Canada-red wash. Uses the operator-locked brand
+     #c8102e = rgb(200 16 46), NOT a palette change. */
+  --shadow-card:
+    0 1px 2px rgba(9, 9, 11, 0.04), 0 14px 40px rgba(200, 16, 46, 0.035);
+  --shadow-card-hover:
+    0 1px 2px rgba(9, 9, 11, 0.05), 0 20px 52px rgba(200, 16, 46, 0.055);
+}
+
+:root {
+  /* I-ui-010 (#730): Frontier Minimal — near-monochrome zinc + ONE confident
+     accent (default = blue oklch(0.50 0.18 255); the prior cyan read grey).
+     AA-measured: primary/white-fg ~4.6:1; accent/accent-fg AA. Hairline
+     border. Accent hue is operator-confirmable (one-token swap; alt indigo
+     oklch(0.50 0.16 270) / teal oklch(0.52 0.12 215)). chart-* left mono. */
+  --background: oklch(0.985 0.001 286.375);
+  --foreground: oklch(0.21 0.006 285.9);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  /* I-p2-003 (#742): white surface + ONE national accent = dark Canada-flag
+     red #C8102E (AA 5.88:1 on white). State colors are SEPARATE tokens (never
+     red-only): verified=green, contradiction=amber, refusal=neutral-strong,
+     destructive=deep maroon distinct from the national red. + evidence-role
+     tokens (tiers + proof). Operator design lock 2026-05-21. */
+  --primary: #c8102e;
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.21 0.006 285.9);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.96 0.03 25);
+  --accent-foreground: oklch(0.45 0.16 26);
+  --destructive: oklch(0.42 0.13 18);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+
+codex
+The token classes are already present in the app theme and other components, and the banned-language contract test does not flag the new visible copy. No execution-risk issue has surfaced from the touched code path.
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+25,905
