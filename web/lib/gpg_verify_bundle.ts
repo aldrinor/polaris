@@ -12,7 +12,7 @@
 // Returns `gpg_verified` only on full pass; `present_unverified` if the file
 // exists but verification fails for any reason; `missing` otherwise.
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -75,8 +75,10 @@ export async function verifyBundleSignature(
     // Dearmor: write the armored pubkey to stdin, capture binary stdout.
     // Promise wrapped manually to catch spawn errors (ENOENT etc) as a
     // controlled downgrade rather than an unhandled process throw.
+    // I-ux-001a Codex iter-3 fix path + iter-4 ESLint fix: top-level `spawn`
+    // import (no `require()` — forbidden by @typescript-eslint/no-require-imports).
+    // The Promise wrapping catches spawn errors as a controlled downgrade.
     const de = await new Promise<{ ok: boolean; bin?: Buffer }>((resolve) => {
-      const { spawn } = require("node:child_process") as typeof import("node:child_process");
       let cp;
       try {
         cp = spawn("gpg", ["--no-options", "--batch", "--dearmor"]);

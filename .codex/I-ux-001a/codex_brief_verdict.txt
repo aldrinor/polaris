@@ -1,0 +1,34 @@
+## Pre-flight checklist
+- I read `.codex/I-ux-001a/brief.md`, `outputs/audits/I-ux-001a/gpg_verify_demo_bundle.txt`, the referenced loader/UI/build files, `web_ci.yml`, current inspector tests, `state/polaris_gpg_keyid.txt`, and the shipped pubkey header.
+- Out of scope per brief: treating the not-yet-implemented code diff as a failure, tar-bundle internals, browser-side GPG verification.
+
+## Per-criterion forced enumeration
+- Criterion 1 [bundle signed]: NONE.
+- Criterion 2 [build script signs]: NONE.
+- Criterion 3 [tri-valued loader]: P2: require isolated GPG verification more explicitly, e.g. temp homedir/no default keyring and canonical fingerprint assertion.
+- Criterion 4 [UI honesty]: NONE.
+- Criterion 5 [CI guard]: P2: same isolation/fingerprint requirement should be explicit for CI, so ambient keyrings cannot satisfy `gpg --verify`.
+- Criterion 6 [tests]: P3: state explicitly that client-loader tests must prove browser output never returns `gpg_verified`.
+- Criterion 7 [no regression]: NONE.
+- Criterion 8 [LOC]: NONE.
+- Criterion 9 [artifacts]: P3: “artifact triple” should name the exact three required files.
+
+## Findings
+### P0
+None.
+
+### P1
+None.
+
+### P2
+- Criteria 3 and 5 should explicitly require verification against an isolated trust root, not ambient `gpg` state. The text says “against the bundled trust-root key,” which is directionally right, but the acceptance gate is stronger if it mandates temp GNUPGHOME/`--no-default-keyring` or equivalent plus fingerprint match to `FB221FA8ED185F8E3F76F7E6F6F31CEDFF490C02`.
+
+### P3 / deferred_polish
+- Criterion 6 can be clearer that browser/client loader tests should assert `missing` and `present_unverified`, and assert `gpg_verified` is impossible in-browser.
+- Criterion 9 should spell out the artifact triple by filename.
+- Referenced context files `docs/stier_experience_plan.md` and `.codex/I-ux-001/PLAN_APPROVED.md` were not present in this workspace, but the brief is self-contained enough for this gate.
+
+## Verdict
+verdict: APPROVE
+
+Convergence: APPROVE because there are zero P0 and zero P1 findings.
