@@ -20,26 +20,25 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-// I-ux-001a Codex iter-2 P1: bake the trust root + pinned fingerprint as
-// constants instead of reading from disk. Two wins: (1) the prior CWD walk-up
-// from Next.js cwd=web/ is gone (Codex iter-1 P1 root cause), (2) the
-// production Docker (web/Dockerfile, build context=./web) no longer needs to
-// ship docs/ or state/ files outside its context. These values are PUBLIC by
-// design per `docs/carney_secret_inventory.md` #1 ("Public key may stay
-// published"); the pinned fingerprint is in `state/polaris_gpg_keyid.txt`.
-// Rotation of the trust root requires updating these constants + a redeploy.
+// I-ux-001a: bake the trust root + pinned fingerprint as constants instead of
+// reading from disk. Two wins: (1) the prior CWD walk-up from Next.js cwd=web/
+// is gone (Codex iter-1 P1 root cause), (2) the production Docker (build
+// context=./web) no longer needs to ship docs/ or state/ files outside its
+// context. Both values are PUBLIC by design per docs/carney_secret_inventory.md
+// #1 ("Public key may stay published"). Rotation = update both constants and
+// the corresponding source files + redeploy.
+//
+// IMPORTANT (Codex iter-3 P1): TRUST_ROOT_ARMORED is BASE64-encoded so we never
+// transcribe multi-line ASCII-armored text by hand again. The earlier hand-
+// copied version had a 4-byte transcription error → wrong fingerprint → prod
+// would always degrade to present_unverified. The bytes below are
+// `base64(file_contents(docs/carney_handover/polaris_demo_pubkey.asc))`.
+// `tests/scripts/test_trust_root_consts.py` asserts both constants exactly
+// match the shipped source files + that the dearmored bytes produce the
+// pinned fingerprint, so this regression cannot recur silently.
 const PINNED_FP = "FB221FA8ED185F8E3F76F7E6F6F31CEDFF490C02";
-const TRUST_ROOT_ARMORED = `-----BEGIN PGP PUBLIC KEY BLOCK-----
-
-mDMEagVkwhYJKwYBBAHaRw8BAQdAO2QA4JrOV+y8gsmMF3vHX3cK/AXXU4Km6iIo
-o4q3GLG0PFBPTEFSSVMgQ2FybmV5IERlbW8gKENhcm5leSBkZW1vIGJ1bmRsZSBz
-aWduaW5nKSA8c2lnbmluZ0Bwb2xhcmlzLmxvY2FsPoiZBBMWCgBBFiEE+yIfqO0Y
-X44/dvfm9vMc7f9JDAIFAmoFZMICGwMFCQHhM4AFCwkIBwICIgIGFQoJCAsCBBYC
-AwECHgcCF4AACgkQ9vMc7f9JDAJ3rwD/Ujpoz/Z6QzdDDqgGzHCAa9pIDpvBuTNk
-hREUW3S7eKgBAOdzj/k8mPoWUqEqBkC/K8olvAqlKGDIxcRInR6XGVAD
-=mAgx
------END PGP PUBLIC KEY BLOCK-----
-`;
+const TRUST_ROOT_BASE64 =
+  "LS0tLS1CRUdJTiBQR1AgUFVCTElDIEtFWSBCTE9DSy0tLS0tDQoNCm1ETUVhZ1Zrd2hZSkt3WUJCQUhhUnc4QkFRZEFPMlFBNEpyT1YreThnc21NRjN2SFgzY0svQVhYVTRLbTZpSW8NClpRT2dWM2EwU0ZCUFRFRlNTVk1nUTJGeWJtVjVJRVJsYlc4Z0tFTmhjbTVsZVNCa1pXMXZJR0oxYm1Sc1pTQnoNCmFXZHVhVzVuS1NBOGMybG5ibWx1WjBCd2IyeGhjbWx6TG14dlkyRnNQb2laQkJNV0NnQkJGaUVFK3lJZnFPMFkNClg0NC9kdmZtOXZNYzdmOUpEQUlGQW1vRlpNSUNHd01GQ1FIaE00QUZDd2tJQndJQ0lnSUdGUW9KQ0FzQ0JCWUMNCkF3RUNIZ2NDRjRBQUNna1E5dk1jN2Y5SkRBS0dyd0VBbnF3Rm5HeFdkTW4rUzJycHptbkdRTU10KzFrZGFMM0cNCmhSRVVXM1M3ZUtnQkFPZHpqL2s4bVBvV1VxRXFCa0MvSzhvbHZBcWxLR0RJeGNSSW5SNlhHVkFEDQo9bUFneA0KLS0tLS1FTkQgUEdQIFBVQkxJQyBLRVkgQkxPQ0stLS0tLQ0K";
 
 export interface SignatureVerifyResult {
   state: "missing" | "present_unverified" | "gpg_verified";
@@ -72,7 +71,7 @@ export async function verifyBundleSignature(
   try {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "polaris-gpgv-"));
     const keyringPath = path.join(tmpDir, "trust.gpg");
-    const armored = Buffer.from(TRUST_ROOT_ARMORED, "utf-8");
+    const armored = Buffer.from(TRUST_ROOT_BASE64, "base64");
     // Dearmor: write the armored pubkey to stdin, capture binary stdout.
     // Promise wrapped manually to catch spawn errors (ENOENT etc) as a
     // controlled downgrade rather than an unhandled process throw.

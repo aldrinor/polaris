@@ -11,8 +11,13 @@ into the v1.0 signed-bundle format the inspector loads.
 the cited span (strict_verify-style numeric-fidelity re-check). Spans that fail
 are dropped — we never ship a claim whose source span doesn't support it.
 
-Signature: NONE (operator chose "skip the seal" — option b). No manifest.yaml.asc
-is written, so the inspector honestly renders signaturePresent=false.
+Signature (I-ux-001a, #874): signed by DEFAULT with the canonical Carney-demo
+Ed25519 key (fingerprint FB221FA8ED185F8E3F76F7E6F6F31CEDFF490C02, bootstrapped
+by scripts/bootstrap_gpg_demo_key.sh into GNUPGHOME=~/.gnupg-polaris). The
+emitted manifest.yaml.asc verifies end-to-end against the shipped trust root at
+docs/carney_handover/polaris_demo_pubkey.asc, and the loader renders
+signatureState="gpg_verified". Pass --unsigned to skip signing (the prior
+"option b" workflow); the loader then renders the honest "Not signed" state.
 """
 
 from __future__ import annotations
@@ -260,7 +265,7 @@ def main() -> int:
     for src in sources:
         write(OUT / "sources" / f"{src['source_id']}.txt", src["full_text"])
 
-    # --- manifest (sha256 + sizes; NO .asc → signature honestly absent) ---
+    # --- manifest (sha256 + sizes; .asc is added by _sign_manifest_or_fail below) ---
     file_entries = [
         ("scope_decision", "scope_decision.json"),
         ("evidence_pool", "evidence_pool.json"),
