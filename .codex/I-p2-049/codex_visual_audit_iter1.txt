@@ -1,0 +1,12 @@
+```yaml
+verdict: APPROVE
+per_screen_grades: { signin_desktop: "A", signin_mobile: "A" }
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Mobile card sits slightly low relative to the lockup, leaving a heavy empty tail below; acceptable, but a small upward tightening would feel more intentional."
+  - "Desktop left-panel maple-leaf mark is a little visually isolated between the brand and headline; acceptable as signature placement, but it is not fully integrated."
+highest_leverage_change_to_S: "Tighten vertical composition: bring the desktop leaf/headline/bullets into a more unified stack and move the mobile card slightly upward so the lockup + form reads as one institutional auth unit."
+convergence_call: accept_remaining
+```
