@@ -142,5 +142,12 @@ Contracts A/A- · Upload A/A+/A · Pin Replay A/A- · Sign-in A/A), each dual-Co
   3-line rows + "SAVED MEMORY · N". Fixed a `react-hooks/set-state-in-effect` lint blocker (Codex
   diff P1) via the codebase IIFE-in-effect idiom.
 
+- **Compare** (#855, I-p2-054): **result desktop A / result mobile A / picker A / empty A** (Codex
+  visual iter-2 APPROVE). Added a LoadingState + designed EmptyState; fixed a confusing brand-red
+  `✓` flag (now `--verified` green Check for pass, muted X for an informational mismatch);
+  tokenized the run-picker selects; Card-elevated the picker + headline + evidence + frame-coverage
+  + contradictions. Run identity made unambiguous (Codex iter-1 P1): option labels lead with the
+  unique run id + date, and the result header shows the compared pair (`left ↔ right`).
+
 Remaining cred-gated UI: source-review + the Plan→Run→Compare journey. LIVE-populated verification
 of all cred-gated pages awaits the demo reviewer credential.
