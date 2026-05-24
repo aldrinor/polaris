@@ -1,0 +1,36 @@
+```yaml
+verdict: REQUEST_CHANGES
+per_screen_grades:
+  desktop: "C-: clean shell, but the graph itself reads like an unfinished force-layout debug view."
+  mobile: "D: the graph is too small, too empty, and mostly illegible; it does not feel designed for mobile."
+novel_p0:
+  - "Mobile fit is a blocker: the network occupies a tiny island inside a huge blank canvas. Use viewport-aware bounding boxes, min zoom, and a mobile-specific layout/scale."
+  - "There is no visual grammar. Node size, darkness, and placement feel arbitrary because type, evidence role, claim role, and frame role are not encoded through shape/outline/badge."
+  - "No focal state. The page needs an initial selected node/path with connected neighbors emphasized, not an inert all-equal graph."
+  - "The list and graph do not feel connected. Hover/selection should cross-highlight rows, nodes, and edges immediately."
+  - "Canvas treatment is too flat/document-like. The graph needs spatial depth: subtle grid/dots, soft shadows, edge layering, and selected-path elevation."
+p1:
+  - "Confirm: animate:false is hurting first impression. Add seeded settle animation with a short, controlled layout reveal."
+  - "Confirm: labels collide badly, especially SURPASS-2 NEJM / Safety / Cochrane. Add label priority, halos, wrapping/truncation, collision avoidance, and zoom-level label density."
+  - "Confirm: diagonal chain composition feels cramped and accidental. Tune fcose constraints or post-layout spreading so clusters form readable neighborhoods instead of a single string."
+  - "Confirm: edges are too thin and directionless. Add tapered or arrowed edges, curvature for parallel edges, stronger selected-path styling, and muted non-neighbor edges."
+  - "Differentiate source nodes, sentence/claim nodes, section nodes, and frame nodes using palette-safe shape language: pills, rings, squares, diamonds, double borders, or small type badges."
+  - "Use Canada-red only for active selection; keep verified/contradiction/frame-status colors semantic and scarce."
+  - "Improve label placement by node type: sources can use compact badges, frames can use larger anchored labels, sentences should truncate until focused."
+p2:
+  - "Toolbar wrapping on mobile feels clumsy. Group controls into a compact action row/menu and keep primary graph actions reachable."
+  - "The footer hash line reads like debug metadata. Tone it down or move it into an export/detail affordance."
+  - "Right-side inspector rows are visually monotonous. Add type icons/badges and active/hover states so it feels like a live navigator."
+  - "Desktop wastes a lot of canvas while the graph remains bunched. Increase useful graph scale and center of mass."
+  - "Add microinteractions: hover glow, neighbor pulse, edge draw-on, selected path trace, and smooth zoom-to-node."
+frontier_gap: "The biggest gap is not color; it is the absence of a designed graph grammar and focal interaction. It looks like raw Cytoscape output inside a clean admin page, not a knowledge graph product."
+lively_changes:
+  - "Run a brief seeded settle animation on load, then stabilize."
+  - "Animate selected paths with a subtle edge trace and neighbor fade-in."
+  - "Use shape, rings, badges, and stroke weight to encode meaning without adding arbitrary colors."
+  - "Add label level-of-detail: fewer labels at rest, clearer labels on hover/selection/zoom."
+  - "Create cluster composition: frames as anchors, claims orbiting frames, sources offset as evidence satellites."
+  - "Add a quiet graph backdrop and depth through shadows, edge layering, and focused-path elevation."
+highest_leverage_change_to_S: "Build a semantic graph grammar plus default selected-path experience: distinct node shapes by type, readable label rules, directional selected edges, dimmed non-neighbors, and cross-highlighted inspector rows. That single move would make the page feel intentional instead of raw."
+convergence_call: continue
+```

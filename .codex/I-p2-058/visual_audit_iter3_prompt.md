@@ -1,0 +1,36 @@
+# Codex VISUAL audit — I-p2-058 (#863) Knowledge graph — FRONTIER + LIVELY — iter 3 of 5
+
+You have VISION. iter-2 (desktop B / selected A- / mobile B-): two P1s — (1) default view lacked a
+focal path (best moment only after interaction); (2) right rail read like an admin table of repeated
+Inspect links.
+
+## What changed (this iter, addressing both P1s)
+- DEFAULT FOCAL PATH: the graph now OPENS with a section node already selected (seeded in state) —
+  graph_desktop shows it landing on the "Efficacy" section spotlight (red hexagon + halo, its frame
+  + claims + source lit), with the rest of the graph DIMMED-BUT-VISIBLE as context (fade softened
+  0.12 → 0.22 so it reads as a focal path within a present graph, not an empty canvas).
+- RAIL → NAVIGATOR: each row now leads with a TYPE GLYPH that mirrors the canvas grammar (dark
+  square = section, dot = claim, pill = source, diamond coloured by status = frame), the repeated
+  "Inspect" text is replaced by a single subtle arrow icon (label is the focus, not a link column),
+  the selected row is cross-highlighted, rows gain hover. Tier badges tokenized.
+
+## Attached
+1. graph_desktop (now opens focal on Efficacy)  2. graph_selected_desktop (GI adverse events focus)
+3. graph_mobile
+
+## Locked / do NOT flag
+- Brand red = selection only. There is no per-node "confidence" field in the graph payload, so the
+  rail surfaces the HONEST available signals (type via glyph, source tier, frame status colour) —
+  do not ask to fabricate confidence. Mobile graph is desktop-first; the list is the mobile-primary
+  navigator. Animated settle is live (not visible in a static shot).
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+per_screen_grades: { desktop: "", selected: "", mobile: "" }
+novel_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+```
+APPROVE iff it reads as a frontier-competitive knowledge-graph product, zero P0/P1.

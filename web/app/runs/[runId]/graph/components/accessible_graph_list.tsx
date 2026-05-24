@@ -13,14 +13,52 @@
  * Enter=open Inspector, Esc=clear selection, `/`=focus search.
  */
 
+import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, type KeyboardEvent, type RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { GraphNode, GraphPayload } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import type { GraphNode, GraphNodeData, GraphPayload } from "@/lib/api";
 
 import type { GraphAdjacency, GraphState } from "./use_graph_state";
+
+// A small glyph that mirrors the canvas grammar (hexagon section / dot claim /
+// pill source / status diamond frame) so the rail reads as a navigator of the
+// same graph, not a detached admin table (Codex frontier audit iter-2 P1).
+function TypeGlyph({ data }: { data: GraphNodeData }) {
+  if (data.type === "section")
+    return (
+      <span
+        aria-hidden
+        className="size-2.5 shrink-0 rotate-12 rounded-sm bg-slate-900"
+      />
+    );
+  if (data.type === "source")
+    return (
+      <span
+        aria-hidden
+        className="h-2 w-3.5 shrink-0 rounded-sm bg-slate-700"
+      />
+    );
+  if (data.type === "frame") {
+    const tone =
+      data.frame_status === "pass"
+        ? "bg-verified"
+        : data.frame_status === "partial"
+          ? "bg-contradiction"
+          : data.frame_status === "fail"
+            ? "bg-destructive"
+            : "bg-slate-500";
+    return (
+      <span aria-hidden className={cn("size-2.5 shrink-0 rotate-45", tone)} />
+    );
+  }
+  return (
+    <span aria-hidden className="size-2 shrink-0 rounded-full bg-slate-600" />
+  );
+}
 
 interface AccessibleGraphListProps {
   payload: GraphPayload;
@@ -139,32 +177,41 @@ export function AccessibleGraphList({
               key={n.data.id}
               data-testid={`graph-list-row-${n.data.id}`}
               aria-current={isSelected ? "true" : undefined}
-              className={`flex items-center justify-between gap-3 px-3 py-2 text-xs ${
-                isSelected ? "bg-accent" : ""
+              className={`ease-standard flex items-center justify-between gap-3 px-3 py-2 text-xs transition-colors duration-150 ${
+                isSelected ? "bg-accent" : "hover:bg-muted/40"
               }`}
             >
               <div className="flex min-w-0 flex-1 items-center gap-2">
-                <span className="text-muted-foreground font-mono text-[10px] uppercase">
+                <TypeGlyph data={n.data} />
+                <span className="text-muted-foreground w-11 shrink-0 font-mono text-[10px] uppercase">
                   {n.data.type}
                 </span>
                 {n.data.tier && (
-                  <span className="rounded bg-green-100 px-1 text-[10px] font-medium text-green-800">
+                  <span className="border-border bg-muted/60 text-foreground shrink-0 rounded border px-1 font-mono text-[10px] font-medium tabular-nums">
                     {n.data.tier}
                   </span>
                 )}
-                <span className="truncate" title={n.data.label}>
+                <span className="text-foreground truncate" title={n.data.label}>
                   {n.data.label}
                 </span>
               </div>
+              {/* Inspect de-emphasized to an arrow so the node label is the
+                  focus, not a column of repeated "Inspect" links (Codex P1). */}
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
+                className="text-muted-foreground hover:text-primary size-7 shrink-0"
                 onFocus={() => setSelectedNodeId(n.data.id)}
                 nativeButton={false}
-                render={<Link href={inspectorHref(n.data.id)} />}
-              >
-                Inspect
-              </Button>
+                render={
+                  <Link
+                    href={inspectorHref(n.data.id)}
+                    aria-label={`Inspect ${n.data.label}`}
+                  >
+                    <ArrowUpRight aria-hidden className="h-4 w-4" />
+                  </Link>
+                }
+              />
             </li>
           );
         })}

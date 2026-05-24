@@ -46,7 +46,16 @@ export function nodeMatchesQuery(node: GraphNode, query: string): boolean {
 export function useGraphState(
   payload: GraphPayload,
 ): [GraphState, GraphAdjacency, GraphActions] {
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // I-p2-058 (#863): open with a FOCAL node already selected (a section anchor,
+  // else the first node) so the graph lands on a narrative path — the spotlight
+  // is the default product moment, not something you must discover by clicking
+  // (Codex frontier audit iter-2 P1). Lazy initializer → no setState-in-effect.
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
+    () =>
+      payload.elements.nodes.find((n) => n.data.type === "section")?.data.id ??
+      payload.elements.nodes[0]?.data.id ??
+      null,
+  );
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [snowballHighlight, setSnowballHighlight] =
     useState<Set<string> | null>(null);

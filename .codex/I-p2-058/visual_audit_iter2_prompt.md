@@ -1,0 +1,42 @@
+# Codex VISUAL audit — I-p2-058 (#863) Knowledge graph — FRONTIER + LIVELY bar — iter 2 of 5
+
+You have VISION. iter-1 was REQUEST_CHANGES: frontier_gap = "raw Cytoscape output inside a clean
+admin page, not a knowledge graph product"; highest-leverage = "semantic graph grammar + default
+selected-path experience". I implemented against your critique.
+
+## What changed (this iter)
+- SEMANTIC SHAPE GRAMMAR: section = hexagon (dark anchor), frame = diamond COLOURED BY STATUS
+  (pass=verified-green, partial=amber, fail=destructive), source = rounded pill, claim = small
+  ellipse. Distinct silhouettes encode type without arbitrary colour.
+- LABEL HALOS (white rounded bg) + ellipsis + max-width → labels readable over edges, collision
+  mush gone.
+- DIRECTIONAL EDGES: cites = thin arrowed slate (recedes), contradicts = thicker amber arrow,
+  section_member = dashed slate-300 (recedes most). Edge layering by importance.
+- ANIMATED SETTLE: fcose now animate:true (750ms ease-out) + more separation/repulsion → two
+  readable clusters (Efficacy / Safety), not a cramped diagonal string.
+- DOT-GRID CANVAS BACKDROP + card elevation → spatial depth (was flat/document-like).
+- FOCAL SPOTLIGHT: selecting a node dims everything outside its closed neighbourhood (.faded
+  opacity 0.12), Canada-red halo on the selected node (scarcity), list row cross-highlighted. See
+  graph_selected_desktop (selected "GI adverse events" → its Safety section + FDA source + the
+  amber contradiction edge stay lit, rest fades).
+- Right list: fixed a raw `bg-green-100` tier badge → tokenized neutral chip; rows gain hover.
+
+## Attached
+1. graph_desktop (default)  2. graph_selected_desktop (focal spotlight)  3. graph_mobile
+
+## Locked / do NOT flag
+- Brand #c8102e = selection only (scarcity). Mobile: the graph is desktop-first; the accessible
+  list below is the mobile-primary navigator by design. Animated settle isn't visible in a static
+  screenshot but is live. Fixture is visual-audit-only.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+per_screen_grades: { desktop: "", selected: "", mobile: "" }
+novel_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+```
+APPROVE iff it now reads as a frontier-competitive knowledge-graph product (PM would lean in),
+zero P0/P1.

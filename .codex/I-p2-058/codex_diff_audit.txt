@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/app/runs/[runId]/graph/components/use_graph_state.ts:53 + web/app/runs/[runId]/graph/components/accessible_graph_list.tsx:134: the new default selection can remain outside `visibleOrdered` after a search filters it out. Toolbar/Enter still target the selected canvas node until focus moves to a visible row. Row Inspect links remain correct via `onFocus`, so this is not an execution blocker."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

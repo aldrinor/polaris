@@ -153,22 +153,37 @@ export function ClaimGraph({
       .addClass("search-hit");
   }, [cyInstance, searchQuery]);
 
-  // Selection sync — selected node gets a halo via .selected class.
+  // Selection sync — the selected node gets the Canada-red halo, and everything
+  // OUTSIDE its closed neighbourhood is dimmed (.faded) so the focal claim +
+  // its evidence stand out (I-p2-058 #863: the focal "spotlight" frontier move).
   useEffect(() => {
     if (!cyInstance) return;
-    cyInstance.nodes().removeClass("selected");
-    if (selectedNodeId) {
-      cyInstance.getElementById(selectedNodeId).addClass("selected");
-    }
+    cyInstance.elements().removeClass("selected faded");
+    if (!selectedNodeId) return;
+    const sel = cyInstance.getElementById(selectedNodeId);
+    if (sel.empty()) return;
+    sel.addClass("selected");
+    const focus = sel.closedNeighborhood(); // node + its edges + adjacent nodes
+    cyInstance.elements().difference(focus).addClass("faded");
   }, [cyInstance, selectedNodeId]);
 
   return (
     <section
       aria-label="Claim graph canvas"
       data-testid="claim-graph"
-      className="border-border relative flex w-full flex-col overflow-hidden rounded-md border"
+      className="border-border bg-card shadow-card relative flex w-full flex-col overflow-hidden rounded-xl border"
     >
-      <div className="relative h-[600px] w-full">
+      {/* Faint dot-grid backdrop gives the canvas spatial depth (Codex P1:
+          "too flat/document-like") — palette-safe (slate-200 dots on near-white). */}
+      <div
+        className="relative h-[440px] w-full sm:h-[600px]"
+        style={{
+          backgroundColor: "#fcfcfb",
+          backgroundImage:
+            "radial-gradient(circle, rgba(100,116,139,0.18) 1px, transparent 1px)",
+          backgroundSize: "22px 22px",
+        }}
+      >
         <CytoscapeComponent
           elements={elements}
           style={{ width: "100%", height: "100%" }}

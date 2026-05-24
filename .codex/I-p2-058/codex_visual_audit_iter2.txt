@@ -1,0 +1,16 @@
+```yaml
+verdict: REQUEST_CHANGES
+per_screen_grades:
+  desktop: "B"
+  selected: "A-"
+  mobile: "B-"
+novel_p0: []
+p1:
+  - "Default desktop still lacks the promised default selected-path experience. It opens as an uncommitted map with no narrative route, active object, or evidence trail, so the strongest product moment only appears after interaction."
+  - "The right rail still reads like an admin table, not an insight/product surface. The repeated Inspect links dominate without adding context, status, confidence, or why each node matters."
+p2:
+  - "The graph grammar is much stronger: silhouettes, edge hierarchy, halos, and spotlighting are all materially better."
+  - "Default graph scale leaves a lot of empty canvas; clusters could be larger or slightly more composed to feel intentionally staged."
+  - "Mobile list is usable, but the graph preview is visually too small to communicate much beyond existence."
+convergence_call: continue
+```
