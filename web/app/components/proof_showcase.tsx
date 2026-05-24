@@ -74,7 +74,7 @@ export async function ProofShowcase() {
     <section
       aria-label="A real verified claim"
       data-testid="proof-showcase"
-      className="border-border bg-card relative overflow-hidden rounded-2xl border shadow-sm"
+      className="ring-foreground/10 bg-card shadow-card ease-standard hover:shadow-card-hover relative overflow-hidden rounded-2xl ring-1 transition-shadow duration-150"
     >
       <div className="border-border/70 bg-muted/30 flex items-center justify-between gap-3 border-b px-5 py-3">
         <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
@@ -89,12 +89,12 @@ export async function ProofShowcase() {
 
       <div className="grid gap-0 md:grid-cols-2">
         {/* The claim + verdict */}
-        <div className="flex flex-col gap-3 p-6">
+        <div className="flex min-w-0 flex-col gap-3 p-6">
           <div className="text-verified inline-flex items-center gap-1.5 text-xs font-semibold">
             <BadgeCheck aria-hidden className="h-4 w-4" />
             Verified against a primary source
           </div>
-          <p className="text-foreground text-lg leading-relaxed font-medium text-pretty">
+          <p className="text-foreground text-lg leading-relaxed font-medium text-pretty break-words">
             {claim}
           </p>
           {question ? (
@@ -106,12 +106,12 @@ export async function ProofShowcase() {
         </div>
 
         {/* The exact real source span — the proof */}
-        <div className="border-border/70 bg-muted/20 flex flex-col gap-3 border-t p-6 md:border-t-0 md:border-l">
+        <div className="border-border/70 bg-muted/20 flex min-w-0 flex-col gap-3 border-t p-6 md:border-t-0 md:border-l">
           <div className="text-muted-foreground inline-flex items-center gap-1.5 text-xs font-medium">
             <Quote aria-hidden className="h-4 w-4" />
             The exact passage it came from
           </div>
-          <blockquote className="border-primary/40 text-muted-foreground border-l-2 pl-3 text-sm leading-relaxed">
+          <blockquote className="border-primary/40 text-muted-foreground border-l-2 pl-3 text-sm leading-relaxed break-words hyphens-auto">
             {ctx ? (
               <span className="font-serif">
                 {ctx.leadingEllipsis ? "… " : "“"}
@@ -148,7 +148,7 @@ export async function ProofShowcase() {
         </div>
       </div>
 
-      <div className="border-border/70 flex items-center justify-between gap-3 border-t px-5 py-3">
+      <div className="border-border/70 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t px-5 py-3">
         <span className="text-muted-foreground text-xs">
           Every sentence in a POLARIS brief is checked this way.
         </span>

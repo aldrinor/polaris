@@ -1,0 +1,217 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e57ae-b1ef-75c0-9acd-ce91751bdfcc
+--------
+user
+# Codex DIFF review — I-p2-044 (#835): Home S-rebuild — iter 2 of 5
+
+HARD ITERATION CAP: 5. iter 2. iter 1 raised 1 P1 (residual <title> overclaim) + 1 P2 (doc G8
+mis-triage); both fixed. APPROVE iff zero P0/P1. Same schema.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Fixes since iter 1
+- **P1 (continuing) residual overclaim** → `web/app/layout.tsx:20` metadata.title
+  "POLARIS Canada — Sovereign Deep Research" → "POLARIS Canada — Canadian-hosted Deep Research"
+  (verified in rendered `<title>` on the dev server). No present-tense sovereignty claim
+  remains on the home page (hero pill, pillar, and `<title>` all honest now).
+- **P2 doc G8 mis-triage** → `docs/web/s_tier_design_system.md` now states G8 fails on a 500
+  from `/api/v6/runs?status=completed` (RecentRunsStrip, no dev backend) — distinct from G2's
+  `body.textContent()`/placeholder false positive.
+
+## Full canonical diff (4 files: page.tsx, proof_showcase.tsx, layout.tsx, doc)
+- canonical-diff-sha256: a3be626e4076aaa39e8d4ae3054838bc3e1aad96a618bf6fd7af6414c43b1bc4
+- Brief APPROVE (iter1) + Visual `-i` APPROVE (iter2: desktop A / fold A- / mobile A-) already
+  gated. Verify: prettier ok, typecheck clean, eslint 0 errors.
+
+## The diff
+```diff
+diff --git a/docs/web/s_tier_design_system.md b/docs/web/s_tier_design_system.md
+index a608c8bf..9a228449 100644
+--- a/docs/web/s_tier_design_system.md
++++ b/docs/web/s_tier_design_system.md
+@@ -79,6 +79,17 @@ span highlights, and verdict badges appear consistently across the product.
+   mobile evidence-card density lives in the Proof Replay split-view internals (separate
+   component issue); the lower-left "N" badge in dev captures is the Next.js dev indicator
+   (absent in production builds).
+-- Pre-redo baseline (Codex, 2026-05-23): Home B, Intake B−, Contracts B− (post first
+-  rebuild), Sign-in B−, Upload C+, Pin Replay C. Target every screen at A++/S with the
+-  signature move systematized.
++- **Home** (#835, I-p2-044): **desktop A / fold A− / mobile A−** (Codex visual iter-2
++  APPROVE). Fixed the "Sovereign Canadian deep research" present-tense overclaim → honest
++  "Canadian-hosted deep research"; compacted the hero so the real ProofShowcase enters the
++  first viewport as the front-door artifact (brand-tinted elevation); pillars are crafted
++  cards; mobile proof overflow fixed (min-w-0 + break-words); also fixed the global
++  `layout.tsx` `<title>` "Sovereign Deep Research" overclaim. Known pre-existing (not this
++  PR), two distinct causes: **G2** (no-banned-dev-language) uses `body.textContent()`, catching
++  the hero Input's `placeholder:` class in the RSC payload (`/placeholder/i`) — proven to fail
++  on the baseline too; fix = switch to `innerText` like the inspector spec. **G8**
++  (zero-console) fails on a 500 from `/api/v6/runs?status=completed` (RecentRunsStrip) when no
++  v6 backend runs in the test env — unrelated to G2. Both follow-ups.
++- Pre-redo baseline (Codex, 2026-05-23): Intake B−, Contracts B− (post first rebuild),
++  Sign-in B−, Upload C+, Pin Replay C. Target every screen at A++/S with the signature move
++  systematized.
+diff --git a/web/app/components/proof_showcase.tsx b/web/app/components/proof_showcase.tsx
+index affe06fe..f7d70201 100644
+--- a/web/app/components/proof_showcase.tsx
++++ b/web/app/components/proof_showcase.tsx
+@@ -74,7 +74,7 @@ export async function ProofShowcase() {
+     <section
+       aria-label="A real verified claim"
+       data-testid="proof-showcase"
+-      className="border-border bg-card relative overflow-hidden rounded-2xl border shadow-sm"
++      className="ring-foreground/10 bg-card shadow-card ease-standard hover:shadow-card-hover relative overflow-hidden rounded-2xl ring-1 transition-shadow duration-150"
+     >
+       <div className="border-border/70 bg-muted/30 flex items-center justify-between gap-3 border-b px-5 py-3">
+         <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+@@ -89,12 +89,12 @@ export async function ProofShowcase() {
+ 
+       <div className="grid gap-0 md:grid-cols-2">
+         {/* The claim + verdict */}
+-        <div className="flex flex-col gap-3 p-6">
++        <div className="flex min-w-0 flex-col gap-3 p-6">
+           <div className="text-verified inline-flex items-center gap-1.5 text-xs font-semibold">
+             <BadgeCheck aria-hidden className="h-4 w-4" />
+             Verified against a primary source
+           </div>
+-          <p className="text-foreground text-lg leading-relaxed font-medium text-pretty">
++          <p className="text-foreground text-lg leading-relaxed font-medium text-pretty break-words">
+             {claim}
+           </p>
+           {question ? (
+@@ -106,12 +106,12 @@ export async function ProofShowcase() {
+         </div>
+ 
+         {/* The exact real source span — the proof */}
+-        <div className="border-border/70 bg-muted/20 flex flex-col gap-3 border-t p-6 md:border-t-0 md:border-l">
++        <div className="border-border/70 bg-muted/20 flex min-w-0 flex-col gap-3 border-t p-6 md:border-t-0 md:border-l">
+           <div className="text-muted-foreground inline-flex items-center gap-1.5 text-xs font-medium">
+             <Quote aria-hidden className="h-4 w-4" />
+             The exact passage it came from
+           </div>
+-          <blockquote className="border-primary/40 text-muted-foreground border-l-2 pl-3 text-sm leading-relaxed">
++          <blockquote className="border-primary/40 text-muted-foreground border-l-2 pl-3 text-sm leading-relaxed break-words hyphens-auto">
+             {ctx ? (
+               <span className="font-serif">
+                 {ctx.leadingEllipsis ? "… " : "“"}
+@@ -148,7 +148,7 @@ export async function ProofShowcase() {
+         </div>
+       </div>
+ 
+-      <div className="border-border/70 flex items-center justify-between gap-3 border-t px-5 py-3">
++      <div className="border-border/70 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t px-5 py-3">
+         <span className="text-muted-foreground text-xs">
+           Every sentence in a POLARIS brief is checked this way.
+         </span>
+diff --git a/web/app/layout.tsx b/web/app/layout.tsx
+index 90d8f684..eb3292f0 100644
+--- a/web/app/layout.tsx
++++ b/web/app/layout.tsx
+@@ -17,7 +17,10 @@ const geist_mono = Geist_Mono({
+ });
+ 
+ export const metadata: Metadata = {
+-  title: "POLARIS Canada — Sovereign Deep Research",
++  // I-p2-044 (#835): honest wording — "Canadian-hosted", not the present-tense
++  // "Sovereign" overclaim (LLM inference is routed via OpenRouter-US, disclosed
++  // at /transparency). Codex diff-review P1.
++  title: "POLARIS Canada — Canadian-hosted Deep Research",
+   description:
+     "Two-family verified evidence pipelines for Government of Canada policy work.",
+ };
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index 2d5f9e23..ad50b0bb 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -110,8 +110,8 @@ const PILLARS = [
+   },
+   {
+     icon: ShieldCheck,
+-    title: "Sovereign",
+-    body: "Built for Canadian-hosted, sovereign deployment. Public sources are fetched via logged Canadian egress, and every brief is integrity-hashed and auditable.",
++    title: "Canadian-hosted",
++    body: "Built for Canadian-hosted deployment. Public sources are fetched via logged Canadian egress, and every brief is integrity-hashed and auditable.",
+   },
+   {
+     icon: Network,
+@@ -124,13 +124,17 @@ export default function HomePage() {
+   return (
+     <div className="flex min-h-screen flex-col">
+       <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+-        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-14 px-6 py-14 sm:py-16">
+-          {/* Hero — one primary action */}
+-          <section className="flex flex-col items-center gap-5 text-center">
++        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-12 px-6 py-10 sm:py-12">
++          {/* Hero — one primary action, compact so the proof artifact enters the
++              first viewport (I-p2-044 #835, Codex visual direction: proof leads). */}
++          <section className="flex flex-col items-center gap-4 text-center">
+             {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
+             <MapleLeafSignatureLazy />
+-            <span className="text-muted-foreground border-border inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
+-              ⬡ Sovereign Canadian deep research
++            {/* I-p2-044 (#835): honest wording — "Canadian-hosted", not the
++                present-tense "Sovereign" overclaim (LLM inference is routed via
++                OpenRouter-US, disclosed at /transparency). */}
++            <span className="text-muted-foreground border-border bg-card inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
++              ⬡ Canadian-hosted deep research
+             </span>
+             <h1 className="text-foreground max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
+               Deep research you can check, line by line.
+@@ -160,16 +164,20 @@ export default function HomePage() {
+             </form>
+           </section>
+ 
+-          {/* Proof-as-hero — a REAL verified claim + its real source span */}
++          {/* Proof IS the hero — a REAL verified claim + its real source span, the
++              central front-door artifact (not a card below the fold). */}
+           <ProofShowcase />
+ 
+-          {/* Differentiator pillars */}
++          {/* Differentiator pillars — crafted cards (was plain text columns) */}
+           <section
+             aria-label="Why POLARIS"
+-            className="border-border/60 grid gap-8 border-t pt-12 sm:grid-cols-3"
++            className="grid gap-4 sm:grid-cols-3"
+           >
+             {PILLARS.map((pillar) => (
+-              <div key={pillar.title} className="flex flex-col gap-2">
++              <div
++                key={pillar.title}
++                className="group/pillar bg-card ring-foreground/10 shadow-card ease-standard hover:shadow-card-hover flex flex-col gap-2 rounded-xl p-5 ring-1 transition-shadow duration-150"
++              >
+                 <pillar.icon
+                   aria-hidden
+                   className="text-primary h-5 w-5 shrink-0"
+
+# canonical-diff-sha256: a3be626e4076aaa39e8d4ae3054838bc3e1aad96a618bf6fd7af6414c43b1bc4
+
+```
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+4,898

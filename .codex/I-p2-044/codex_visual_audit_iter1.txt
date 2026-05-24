@@ -1,0 +1,16 @@
+```yaml
+verdict: REQUEST_CHANGES
+per_screen_grades: { home_fold: "A-", home_desktop: "A-", home_mobile: "B-" }
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Mobile ProofShowcase has horizontal clipping/overflow in the flagship claim and cited passage. The core artifact is not fully readable on a primary viewport, which breaks the proof-led promise."
+  - "A fixed black 'N' badge is visible and overlaps the mobile proof card. If user-visible, it must be removed or moved; if dev-only, disable it for acceptance captures."
+p2:
+  - "Desktop proof does enter the first viewport, but the hero/form still owns more attention than the proof artifact. For S-tier, pull the showcase higher and make the claim-source relationship feel like the hero object."
+  - "The cited passage pane feels dense and slightly legal-document-like. Better spacing and a more deliberate source-reader treatment would raise perceived quality."
+  - "Mobile CTA row in the proof card is cramped; 'See the full proof' wraps awkwardly and weakens the finish."
+  - "Pillar cards are materially improved, but their icon/heading rhythm is still a little generic compared with the sharper proof concept."
+highest_leverage_change_to_S: "Make the mobile ProofShowcase a polished one-column artifact with zero clipping and no overlay, then bias the desktop first viewport further toward the proof card so the source-backed verification system is the unmistakable product signature."
+convergence_call: continue
+```

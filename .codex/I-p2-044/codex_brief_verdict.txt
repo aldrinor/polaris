@@ -1,0 +1,11 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Execution should integrate ProofShowcase into the first hero viewport, not merely restyle it below the hero. The plan says 'Proof as the hero', which is the right direction; implementation should make the proof object the central front-door artifact."
+  - "Keep the corrected wording exact: 'Canadian-hosted deep research'. Avoid adjacent copy that reintroduces present-tense sovereignty overclaim."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

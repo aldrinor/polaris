@@ -1,0 +1,12 @@
+```yaml
+verdict: APPROVE
+per_screen_grades: { home_fold: "A-", home_desktop: "A", home_mobile: "A-" }
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Desktop hero still spends a lot of first-viewport height before the proof artifact; it passes because the verified claim is visible and clearly leads the product story, but tightening the vertical rhythm would push it closer to S."
+  - "Mobile footer link stack is functional but visually quieter and less resolved than the main page."
+highest_leverage_change_to_S: "Reduce the desktop hero's vertical padding so the proof card rises further into the first viewport while preserving the centered premium composition."
+convergence_call: accept_remaining
+```

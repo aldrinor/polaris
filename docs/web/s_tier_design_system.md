@@ -79,6 +79,17 @@ span highlights, and verdict badges appear consistently across the product.
   mobile evidence-card density lives in the Proof Replay split-view internals (separate
   component issue); the lower-left "N" badge in dev captures is the Next.js dev indicator
   (absent in production builds).
-- Pre-redo baseline (Codex, 2026-05-23): Home B, Intake B−, Contracts B− (post first
-  rebuild), Sign-in B−, Upload C+, Pin Replay C. Target every screen at A++/S with the
-  signature move systematized.
+- **Home** (#835, I-p2-044): **desktop A / fold A− / mobile A−** (Codex visual iter-2
+  APPROVE). Fixed the "Sovereign Canadian deep research" present-tense overclaim → honest
+  "Canadian-hosted deep research"; compacted the hero so the real ProofShowcase enters the
+  first viewport as the front-door artifact (brand-tinted elevation); pillars are crafted
+  cards; mobile proof overflow fixed (min-w-0 + break-words); also fixed the global
+  `layout.tsx` `<title>` "Sovereign Deep Research" overclaim. Known pre-existing (not this
+  PR), two distinct causes: **G2** (no-banned-dev-language) uses `body.textContent()`, catching
+  the hero Input's `placeholder:` class in the RSC payload (`/placeholder/i`) — proven to fail
+  on the baseline too; fix = switch to `innerText` like the inspector spec. **G8**
+  (zero-console) fails on a 500 from `/api/v6/runs?status=completed` (RecentRunsStrip) when no
+  v6 backend runs in the test env — unrelated to G2. Both follow-ups.
+- Pre-redo baseline (Codex, 2026-05-23): Intake B−, Contracts B− (post first rebuild),
+  Sign-in B−, Upload C+, Pin Replay C. Target every screen at A++/S with the signature move
+  systematized.
