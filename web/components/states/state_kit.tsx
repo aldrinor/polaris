@@ -86,7 +86,10 @@ export function ErrorState({
       className="border-destructive/30 bg-destructive/5 flex flex-col gap-2 rounded-md border p-4"
     >
       <p className="text-foreground text-sm font-medium">{title}</p>
-      <p className="text-muted-foreground text-xs">{message}</p>
+      {/* text-foreground/80, not muted: muted-foreground on the bg-destructive/5
+          tint falls below WCAG-AA 4.5:1 (axe). The error detail must stay
+          readable on the tint. */}
+      <p className="text-foreground/80 text-xs">{message}</p>
       {onRetry && (
         <button
           type="button"

@@ -29,7 +29,7 @@ export function SiteFooter() {
             verified — span by span — against its primary source by an
             independent evaluator family.
           </p>
-          <span className="text-muted-foreground/80 mt-1 inline-flex items-center gap-1.5 text-[11px]">
+          <span className="text-muted-foreground mt-1 inline-flex items-center gap-1.5 text-[11px]">
             <span aria-hidden>⬡</span> Hosted in Canada (Québec) · public
             sources via logged Canadian egress
           </span>
@@ -52,7 +52,7 @@ export function SiteFooter() {
       </div>
 
       <div className="border-border/60 border-t">
-        <div className="text-muted-foreground/70 mx-auto flex w-full max-w-7xl flex-col gap-1 px-6 py-4 text-[11px] sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-muted-foreground mx-auto flex w-full max-w-7xl flex-col gap-1 px-6 py-4 text-[11px] sm:flex-row sm:items-center sm:justify-between">
           <span>© {year} POLARIS · Canadian-hosted deep research</span>
           <span>
             LLM inference is currently routed via OpenRouter (US), disclosed at{" "}

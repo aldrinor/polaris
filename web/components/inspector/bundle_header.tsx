@@ -45,7 +45,7 @@ export function BundleHeader({ manifest }: BundleHeaderProps) {
         <span>{created}</span>
       </div>
       <details className="group/manifest text-xs">
-        <summary className="text-muted-foreground/80 hover:text-foreground ease-standard inline-flex w-fit cursor-pointer list-none items-center gap-1 rounded-md py-0.5 transition-colors duration-150 [&::-webkit-details-marker]:hidden">
+        <summary className="text-muted-foreground hover:text-foreground ease-standard inline-flex w-fit cursor-pointer list-none items-center gap-1 rounded-md py-0.5 transition-colors duration-150 [&::-webkit-details-marker]:hidden">
           <ChevronRight
             aria-hidden
             className="ease-standard h-3 w-3 transition-transform duration-150 group-open/manifest:rotate-90"
