@@ -9,11 +9,14 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 
-// Offscreen render resolution → Braille grid (2px×4px per glyph).
-const PX_W = 120;
-const PX_H = 80;
-const GLYPH_W = PX_W / 2; // 60
-const GLYPH_H = PX_H / 4; // 20
+// Offscreen render resolution → Braille grid (2px×4px per glyph). I-p2-050 (#847):
+// the source is sized slightly TALLER than wide to match a maple leaf, and the
+// camera frustum (below) is sized to the SAME aspect so the rendered leaf is not
+// stretched. PX_H must be a multiple of 4, PX_W a multiple of 2.
+const PX_W = 96;
+const PX_H = 120;
+const GLYPH_W = PX_W / 2; // 48
+const GLYPH_H = PX_H / 4; // 30
 const LUMA_THRESHOLD = 200; // below = leaf pixel (dot set)
 const FRAME_MS = 1000 / 24; // cap ~24fps
 
@@ -26,20 +29,24 @@ const DOT_BITS: readonly [number, number][] = [
 ];
 
 // A symmetric, recognizable maple-leaf half-silhouette (x>=0, bottom→top),
-// mirrored to form the full leaf. Normalized to roughly [-1, 1].
+// mirrored to form the full leaf. Normalized to roughly [-1, 1]. I-p2-050 (#847):
+// rebuilt to trace the iconic Canadian leaf — narrow stem, three lobes (lower,
+// middle/widest, upper) separated by deep V-notches, tapering to a sharp top point.
 const MAPLE_HALF: readonly [number, number][] = [
-  [0.0, -1.0],
-  [0.05, -0.52],
-  [0.32, -0.46],
-  [0.18, -0.32],
-  [0.56, -0.18],
-  [0.3, -0.08],
-  [0.46, 0.12],
-  [0.22, 0.19],
-  [0.31, 0.46],
-  [0.12, 0.5],
-  [0.13, 0.92],
-  [0.0, 1.0],
+  [0.0, -1.0], // stem tip (bottom)
+  [0.05, -0.55], // stem shoulder → leaf base
+  [0.17, -0.5], // lower lobe rise
+  [0.12, -0.36], // notch in
+  [0.42, -0.34], // lower lobe point
+  [0.27, -0.13], // notch in
+  [0.66, -0.1], // middle lobe point (widest)
+  [0.37, 0.05], // deep notch
+  [0.44, 0.27], // upper lobe point
+  [0.2, 0.25], // notch in
+  [0.26, 0.54], // upper inner point
+  [0.09, 0.55], // notch near top
+  [0.12, 0.82], // top shoulder
+  [0.0, 1.0], // top tip
 ];
 
 function buildLeafShape(): THREE.Shape {
@@ -102,7 +109,16 @@ export default function MapleLeafSignature() {
       target = new THREE.WebGLRenderTarget(PX_W, PX_H);
 
       const scene = new THREE.Scene();
-      const cam = new THREE.OrthographicCamera(-1.3, 1.3, 1.3, -1.3, 0.1, 10);
+      // I-p2-050 (#847): frustum aspect = PX_W:PX_H (0.8) so the rendered leaf is
+      // NOT horizontally stretched; sized to fit the [-1,1] leaf with margin.
+      const cam = new THREE.OrthographicCamera(
+        -0.944,
+        0.944,
+        1.18,
+        -1.18,
+        0.1,
+        10,
+      );
       cam.position.z = 3;
 
       geometry = new THREE.ExtrudeGeometry(buildLeafShape(), {
@@ -116,8 +132,10 @@ export default function MapleLeafSignature() {
 
       const buf = new Uint8Array(PX_W * PX_H * 4);
       const renderOnce = (t: number) => {
-        mesh.rotation.y = t * 0.0006;
-        mesh.rotation.z = Math.sin(t * 0.0004) * 0.25; // gentle float
+        // I-p2-050 (#847): NO rotation.y — a Y-spin foreshortens the leaf edge-on
+        // (the old distortion). Keep only a gentle IN-PLANE sway (rotation.z), so it
+        // still "floats" per #767 but always reads as an upright, face-on leaf.
+        mesh.rotation.z = Math.sin(t * 0.0005) * 0.14;
         renderer!.setRenderTarget(target!);
         renderer!.render(scene, cam);
         renderer!.readRenderTargetPixels(target!, 0, 0, PX_W, PX_H, buf);
@@ -180,7 +198,7 @@ export default function MapleLeafSignature() {
     <pre
       ref={preRef}
       aria-hidden
-      className="pointer-events-none overflow-hidden font-mono text-[6px] leading-[0.62] tracking-[-0.06em] select-none sm:text-[8px]"
+      className="pointer-events-none overflow-hidden font-mono text-[5px] leading-[1.05] tracking-[-0.06em] select-none sm:text-[6px]"
       style={{ color: "#c8102e" }}
     >
       {art}
