@@ -95,5 +95,10 @@ span highlights, and verdict badges appear consistently across the product.
   + enlarged hero input + a factual 3-step "how it works" band (ask → scope-checked → verified
   brief) filling the surface. Restored the eyebrow string the existing `intake.spec` asserts
   (stale since the #613 rebuild) — a design element, not a test relaxation.
-- Pre-redo baseline (Codex, 2026-05-23): Contracts B− (post first rebuild), Sign-in B−,
-  Upload C+, Pin Replay C. Target every screen at A++/S with the signature move systematized.
+- **Contracts** (#839, I-p2-046): **desktop A / mobile A−** (Codex visual iter-2 APPROVE). A
+  crafted static "Save + download" action bar (ring + brand shadow + explainer; iter-1 sticky
+  version overlaid fields → made static), entity-type select height matched to inputs, chips +
+  selects on the shared motion primitive, mobile entity row stacks. All field logic/testids
+  preserved.
+- Pre-redo baseline (Codex, 2026-05-23): Sign-in B−, Upload C+, Pin Replay C. Target every
+  screen at A++/S with the signature move systematized.
