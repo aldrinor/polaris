@@ -67,6 +67,8 @@ Near-monochrome ground; ONE brand accent (red, OPERATOR-LOCKED `#c8102e`); two i
 --ring              color-mix(in oklch, #c8102e 70%, transparent)  focus ring
 ```
 
+> Focus-visible spacing is implemented in the component contract (`components_catalogue.md` §0) via the box-shadow stack `0 0 0 2px var(--background), 0 0 0 4px var(--ring)`. No separate `--ring-offset` token is defined — the offset is encoded in the shadow itself (Codex iter-2 P3 / iter-3 P3 fix: previous drafts named an undefined `--ring-offset`, removed).
+
 ### 2.3 Faithfulness palette (judgment #1: "is the sentence faithful to its source?")
 Used by: verdict chips, sentence-level tints in the brief, proof-panel beat-2.
 ```
@@ -98,8 +100,10 @@ Used by: certainty badges, SoF certainty column, proof-panel beat-3, dual-proven
 ```
 --certainty-high          oklch(0.42 0.10 245)   deep slate-blue (calm authority)
 --certainty-high-fg       oklch(0.99 0.005 95)   near-white on the dark levels (≥7:1 AAA)
---certainty-moderate      oklch(0.56 0.09 245)
---certainty-moderate-fg   oklch(0.99 0.005 95)   still near-white at this level (≥4.7:1 AA)
+--certainty-moderate      oklch(0.50 0.10 245)   bumped 0.06 → 0.50 lightness so the near-white fg
+                                                  passes WCAG AA. (Codex iter-3 P1: at lightness 0.56
+                                                  the contrast was ~4.48:1 — JUST under AA 4.5:1.)
+--certainty-moderate-fg   oklch(0.99 0.005 95)   near-white (≥4.6:1 AA verified)
 --certainty-low           oklch(0.70 0.06 245)   light slate-blue
 --certainty-low-fg        oklch(0.21 0.01 95)    near-black foreground (≥6.3:1 AAA)
                                                  — Codex iter-2 P1: near-white on --certainty-low is only ~2.6:1,

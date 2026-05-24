@@ -60,21 +60,25 @@ Six microstates × the CSS contract that satisfies them. Selector group `.intera
   }
 
   /* loading: stable skeleton + aria-busy + VISIBLE spinner.
-     Codex iter-2 P1: the prior contract set `color: transparent` while the
-     spinner used `currentColor`, making the spinner invisible. Fix: hide the
-     text via a span wrapper, NOT color, and color the spinner from an
-     explicit token (--foreground or its on-surface inverse). */
+     Codex iter-2 P1 / iter-3 P1: every selector in the baseline group gets
+     ALL THREE rules (position+pointer-events, child-hide, spinner ::after),
+     not just .btn/.link/.interactive. */
   .interactive[aria-busy="true"],
   button[aria-busy="true"], [role="button"][aria-busy="true"],
+  a[aria-busy="true"], summary[aria-busy="true"],
   .btn[aria-busy="true"], .link[aria-busy="true"] {
     position: relative;
     pointer-events: none;
   }
   .interactive[aria-busy="true"] > *,
+  button[aria-busy="true"] > *, [role="button"][aria-busy="true"] > *,
+  a[aria-busy="true"] > *, summary[aria-busy="true"] > *,
   .btn[aria-busy="true"] > *, .link[aria-busy="true"] > * {
     visibility: hidden; /* hide label without losing layout/width */
   }
   .interactive[aria-busy="true"]::after,
+  button[aria-busy="true"]::after, [role="button"][aria-busy="true"]::after,
+  a[aria-busy="true"]::after, summary[aria-busy="true"]::after,
   .btn[aria-busy="true"]::after, .link[aria-busy="true"]::after {
     content: "";
     position: absolute; inset: 0; margin: auto;
@@ -91,8 +95,11 @@ Six microstates × the CSS contract that satisfies them. Selector group `.intera
     .interactive, button, [role="button"], a[href], summary, .btn, .link {
       transition: none;
     }
-    .interactive:active, button:active, .btn:active, .link:active { transform: none; }
+    .interactive:active, button:active, [role="button"]:active,
+    .btn:active, .link:active { transform: none; }
     .interactive[aria-busy="true"]::after,
+    button[aria-busy="true"]::after, [role="button"][aria-busy="true"]::after,
+    a[aria-busy="true"]::after, summary[aria-busy="true"]::after,
     .btn[aria-busy="true"]::after, .link[aria-busy="true"]::after {
       animation: none;
       /* still show a non-spinning indicator so loading remains visible */
@@ -226,7 +233,7 @@ interface CertaintyBadgeProps {
 
 **Visual:**
 - Pill: same dimensions as FaithfulnessChip (visual rhyme) but **different shape detail**: square corners on the leading edge (`border-radius: 4px 9999px 9999px 4px`). Squareness signals "different category of read" without needing a different color family.
-- Color per level: solid `--certainty-<level>` background, `--certainty-fg` text. No tint+border; this is a solid pill (vs the FaithfulnessChip tint+border) — the visual treatment itself signals "different read."
+- Color per level: solid `--certainty-<level>` background, paired with the matching per-level foreground token `var(--certainty-<level>-fg)` (Codex iter-3 P1: the single `--certainty-fg` token is intentionally NOT defined — components must read the per-level pair). No tint+border; this is a solid pill (vs the FaithfulnessChip tint+border) — the visual treatment itself signals "different read."
 - Beneath: caption row `<studyType>` + (if present) `<dominantDowngrade>` + `<a href=>→ Summary of Findings</a>` (the link inherits the shared baseline §0).
 
 **Microstates:** baseline. Interactive only via the SoF link, not the pill itself.
@@ -264,9 +271,12 @@ interface SourceSpanPreviewProps {
   /** The full source text (already fetched by the loader). */
   text: string;
   /** Span ranges to highlight, half-open intervals in chars (start inclusive, end exclusive). */
-  spans: { start: number; end: number; faithfulness: "verified" | "partial" }[];
-  /** Tint family: takes its color from the FaithfulnessChip's state. */
-  tint: "verified" | "partial";
+  spans: { start: number; end: number; faithfulness: "verified" | "partial" | "unsupported" }[];
+  /** Tint family: takes its color from the FaithfulnessChip's state. Codex
+   * iter-3 P2: `unsupported` is REQUIRED — Stage 6 of the storyboard
+   * (verdict=UNSUPPORTED) still shows the source span so the reviewer can
+   * see the gap. */
+  tint: "verified" | "partial" | "unsupported";
   /** Scroll the first span into view on mount/update. Default true. */
   autoScroll?: boolean;
 }
@@ -274,7 +284,7 @@ interface SourceSpanPreviewProps {
 
 **Visual:**
 - `<pre>` wrapper with `white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--text-mono);` — fixed-width so highlights align cleanly with the source text.
-- Each contiguous range from `spans` is rendered as a single `<mark>` with `background: var(--<tint>-bg); color: var(--foreground); border-radius: 2px; padding: 0 2px;` — phrase-grouped (one rect per range; non-matched text has NO background).
+- Each contiguous range from `spans` is rendered as a single `<mark>` with `background: var(--<tint>-bg); color: var(--foreground); border-radius: 2px; padding: 0 2px;` — phrase-grouped (one rect per range; non-matched text has NO background). For `tint="unsupported"` the highlight signals *"this is what the writer cited — and it does NOT contain the claim"* and pairs with a leading `<XCircle>` icon outside the `<mark>` (so the source text remains selectable without decoration).
 - A leading `<MapleLeaf>` mark NOT shown here (that's for the SignaturePill); the source preview is calm and editorial.
 - Container has `max-height: 60vh; overflow: auto;` on desktop, `40vh` on the mobile bottom-sheet variant.
 
