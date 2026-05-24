@@ -209,7 +209,7 @@ Each component declares its concrete CSS contract per-state in `components_catal
 |---|---|---|
 | **default** | resting | base tokens; calm |
 | **hover** | pointer in (`:hover`) | tint shift (≤8% saturation) at `--motion-fast`; no layout shift |
-| **focus** | keyboard `:focus-visible` | `--ring` 2px outset + `--ring-offset` 2px against background; *always visible* |
+| **focus** | keyboard `:focus-visible` | `--ring` 2px outset, with the offset encoded directly in the box-shadow stack (see `components_catalogue.md` §0); *always visible* |
 | **active** | pressed (`:active`) | tint shift +12%, micro-scale 0.97 at `--motion-fast` |
 | **disabled** | `aria-disabled` / `disabled` | opacity 0.55, cursor not-allowed, no hover/active reaction |
 | **loading** | in-flight | stable skeleton (no layout shift), `aria-busy="true"`, accessible "loading <thing>" label |
