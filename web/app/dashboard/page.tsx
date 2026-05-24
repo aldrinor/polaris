@@ -26,7 +26,10 @@ function formatWhen(value: string | null | undefined): string | null {
   if (!value) return null;
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString(undefined, {
+  // I-p2-051 (#849): force en-CA — `undefined` uses the runtime/system locale,
+  // which rendered CJK dates ("2026年5月21日") on a non-English server. The demo
+  // is Canadian/English; dates must be deterministic regardless of host locale.
+  return d.toLocaleDateString("en-CA", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -141,7 +144,7 @@ export default function DashboardPage() {
 
       {state.kind === "ok" && state.runs.length > 0 ? (
         <ul
-          className="border-border divide-border divide-y rounded-xl border"
+          className="border-border divide-border bg-card shadow-card divide-y overflow-hidden rounded-xl border"
           data-testid="runs-list"
         >
           {state.runs.map((run) => {
@@ -155,7 +158,7 @@ export default function DashboardPage() {
                   className="hover:bg-muted/40 focus-visible:ring-ring/70 flex items-center justify-between gap-4 px-4 py-3 transition-colors focus-visible:ring-2 focus-visible:outline-none"
                 >
                   <div className="flex min-w-0 flex-col gap-1">
-                    <span className="text-foreground line-clamp-1 text-sm font-medium">
+                    <span className="text-foreground line-clamp-2 text-sm font-medium">
                       {run.question || run.run_id}
                     </span>
                     <span className="text-muted-foreground text-xs">

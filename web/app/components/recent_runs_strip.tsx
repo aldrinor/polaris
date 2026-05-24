@@ -22,7 +22,9 @@ function formatFinished(value: string | null): string | null {
   if (!value) return null;
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null; // tolerate malformed finished_at
-  return d.toLocaleDateString(undefined, {
+  // I-p2-051 (#849): force en-CA — `undefined` uses the host locale, which
+  // rendered CJK dates on a non-English server. Deterministic English dates.
+  return d.toLocaleDateString("en-CA", {
     month: "short",
     day: "numeric",
   });
