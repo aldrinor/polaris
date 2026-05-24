@@ -1,0 +1,47 @@
+diff --git a/docs/web/s_tier_design_system.md b/docs/web/s_tier_design_system.md
+index c284f853..691c8aba 100644
+--- a/docs/web/s_tier_design_system.md
++++ b/docs/web/s_tier_design_system.md
+@@ -157,5 +157,13 @@ Contracts A/A- · Upload A/A+/A · Pin Replay A/A- · Sign-in A/A), each dual-Co
+   "Try again" retry to the error state (Codex iter-1 P2). The honest no-fabricated-corpus framing
+   is preserved.
+ 
+-Remaining cred-gated UI: the Plan→Run→Compare journey. LIVE-populated verification of all
+-cred-gated pages awaits the demo reviewer credential.
++- **Plan review** (#859, I-p2-056): **ready desktop A / ready mobile A / blocked A / no-question
++  A-** (Codex visual iter-1 APPROVE). The run-start surface (intake → plan → run); on mount it
++  re-runs the full intake gate, and Start is enabled only for an in_scope, disambiguation-resolved
++  question. Assess-first: gave the question card + the four "What POLARIS will do" step cards
++  `shadow-card` + `rounded-xl`, and toned the four step icons from brand-red to muted (brand
++  reserved for the single Start-run action). The scope/concurrent guards + honest framing
++  preserved. Residual P2 (accept_remaining): no-question empty state vertical rhythm.
++
++Remaining cred-gated UI: the Run-progress page (the last journey leg). LIVE-populated verification
++of all cred-gated pages awaits the demo reviewer credential.
+diff --git a/web/app/plan/page.tsx b/web/app/plan/page.tsx
+index 5df298a7..e19c88b2 100644
+--- a/web/app/plan/page.tsx
++++ b/web/app/plan/page.tsx
+@@ -236,7 +236,7 @@ function PlanContent() {
+       </div>
+ 
+       {/* The vetted question (display-only) */}
+-      <div className="border-border bg-card flex flex-col gap-2 rounded-xl border p-5">
++      <div className="border-border bg-card shadow-card flex flex-col gap-2 rounded-xl border p-5">
+         <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+           Your question
+         </span>
+@@ -267,9 +267,9 @@ function PlanContent() {
+           {PLAN_STEPS.map((step, i) => (
+             <li
+               key={step.title}
+-              className="border-border bg-card flex flex-col gap-1.5 rounded-lg border p-4"
++              className="border-border bg-card shadow-card flex flex-col gap-1.5 rounded-xl border p-4"
+             >
+-              <div className="text-primary flex items-center gap-2">
++              <div className="text-muted-foreground flex items-center gap-2">
+                 <step.icon aria-hidden className="h-4 w-4 shrink-0" />
+                 <span className="text-foreground text-sm font-medium">
+                   {i + 1}. {step.title}
+
+# canonical-diff-sha256: 7518b871a40c077f02584e3c1c5ce60fe732aa15780f9c524213b2cba6b5af27
