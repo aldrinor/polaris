@@ -1,0 +1,148 @@
+diff --git a/web/app/benchmark/page.tsx b/web/app/benchmark/page.tsx
+index 9a659ca6..07d1ae48 100644
+--- a/web/app/benchmark/page.tsx
++++ b/web/app/benchmark/page.tsx
+@@ -41,7 +41,7 @@ export default function BenchmarkPage() {
+         <p>
+           <strong className="text-foreground">Reproducible.</strong> Each
+           scoreboard is produced by{" "}
+-          <code className="bg-muted rounded px-1 py-0.5 text-xs">
++          <code className="bg-muted text-foreground rounded px-1 py-0.5 font-mono text-xs">
+             scripts/run_benchmark.py
+           </code>
+           . The scoreboard.json artifact is canonical (sort_keys=True), so two
+diff --git a/web/app/components/proof_showcase.tsx b/web/app/components/proof_showcase.tsx
+index f7d70201..ef5fb9c0 100644
+--- a/web/app/components/proof_showcase.tsx
++++ b/web/app/components/proof_showcase.tsx
+@@ -126,7 +126,7 @@ export async function ProofShowcase() {
+               <span className="text-foreground/90">“{quote}”</span>
+             )}
+           </blockquote>
+-          <p className="text-muted-foreground/80 text-[11px]">
++          <p className="text-muted-foreground text-[11px]">
+             Highlighted text is the exact span cited by the claim.
+           </p>
+           {sourceTitle ? (
+diff --git a/web/app/contracts/_editor.tsx b/web/app/contracts/_editor.tsx
+index 0dc4f1c1..e45a46a7 100644
+--- a/web/app/contracts/_editor.tsx
++++ b/web/app/contracts/_editor.tsx
+@@ -245,6 +245,7 @@ export function ContractEditor() {
+               />
+               <select
+                 data-testid={`ce-ent-type-${i}`}
++                aria-label={`Entity type for ${ent.name || `entity ${i + 1}`}`}
+                 value={ent.entity_type}
+                 onChange={(e) => {
+                   const n = [...entities];
+diff --git a/web/app/inspector/offline/page.tsx b/web/app/inspector/offline/page.tsx
+index 015ba450..1c184eff 100644
+--- a/web/app/inspector/offline/page.tsx
++++ b/web/app/inspector/offline/page.tsx
+@@ -137,6 +137,7 @@ export default function InspectorOfflinePage() {
+             id="inspector-offline-input"
+             data-testid="inspector-offline-file-input"
+             type="file"
++            aria-label="Upload a signed POLARIS audit bundle (.tar.gz)"
+             accept=".tar.gz,.tgz,application/gzip,application/x-gzip"
+             className="sr-only"
+             onChange={onInputChange}
+diff --git a/web/app/pin_replay/page.tsx b/web/app/pin_replay/page.tsx
+index 913de9d8..b18c271b 100644
+--- a/web/app/pin_replay/page.tsx
++++ b/web/app/pin_replay/page.tsx
+@@ -123,7 +123,7 @@ function EmptyPinReplay() {
+             ),
+           )}
+         </div>
+-        <p className="text-muted-foreground/70 text-xs">
++        <p className="text-muted-foreground text-xs">
+           Each pin becomes a point on this timeline — verified-claim rate and
+           evidence shifts, side by side.
+         </p>
+diff --git a/web/app/upload/components/upload_drop_zone.tsx b/web/app/upload/components/upload_drop_zone.tsx
+index b65c3580..7eb8f26b 100644
+--- a/web/app/upload/components/upload_drop_zone.tsx
++++ b/web/app/upload/components/upload_drop_zone.tsx
+@@ -200,15 +200,19 @@ export function UploadDropZone({
+         <p className="text-muted-foreground text-xs">
+           or click to browse · PDF, DOCX, MD, TXT · max 50MB
+         </p>
+-        <input
+-          ref={inputRef}
+-          type="file"
+-          multiple
+-          accept=".pdf,.docx,.md,.txt"
+-          onChange={(e) => e.target.files && handleFiles(e.target.files)}
+-          className="sr-only"
+-        />
+       </div>
++      {/* The file input is a SIBLING of the role=button dropzone (not nested) —
++          nesting two interactive controls fails WCAG nested-interactive (axe).
++          The dropzone's onClick/onKeyDown drives inputRef.click(). */}
++      <input
++        ref={inputRef}
++        type="file"
++        multiple
++        accept=".pdf,.docx,.md,.txt"
++        aria-label="Upload documents (PDF, DOCX, MD, TXT)"
++        onChange={(e) => e.target.files && handleFiles(e.target.files)}
++        className="sr-only"
++      />
+       {files.length > 0 && (
+         <ul className="flex flex-col gap-2">
+           {files.map((f) => (
+diff --git a/web/components/inspector/bundle_header.tsx b/web/components/inspector/bundle_header.tsx
+index c47594ce..6627455b 100644
+--- a/web/components/inspector/bundle_header.tsx
++++ b/web/components/inspector/bundle_header.tsx
+@@ -45,7 +45,7 @@ export function BundleHeader({ manifest }: BundleHeaderProps) {
+         <span>{created}</span>
+       </div>
+       <details className="group/manifest text-xs">
+-        <summary className="text-muted-foreground/80 hover:text-foreground ease-standard inline-flex w-fit cursor-pointer list-none items-center gap-1 rounded-md py-0.5 transition-colors duration-150 [&::-webkit-details-marker]:hidden">
++        <summary className="text-muted-foreground hover:text-foreground ease-standard inline-flex w-fit cursor-pointer list-none items-center gap-1 rounded-md py-0.5 transition-colors duration-150 [&::-webkit-details-marker]:hidden">
+           <ChevronRight
+             aria-hidden
+             className="ease-standard h-3 w-3 transition-transform duration-150 group-open/manifest:rotate-90"
+diff --git a/web/components/site_footer.tsx b/web/components/site_footer.tsx
+index 429800e0..d103ae72 100644
+--- a/web/components/site_footer.tsx
++++ b/web/components/site_footer.tsx
+@@ -29,7 +29,7 @@ export function SiteFooter() {
+             verified — span by span — against its primary source by an
+             independent evaluator family.
+           </p>
+-          <span className="text-muted-foreground/80 mt-1 inline-flex items-center gap-1.5 text-[11px]">
++          <span className="text-muted-foreground mt-1 inline-flex items-center gap-1.5 text-[11px]">
+             <span aria-hidden>⬡</span> Hosted in Canada (Québec) · public
+             sources via logged Canadian egress
+           </span>
+@@ -52,7 +52,7 @@ export function SiteFooter() {
+       </div>
+ 
+       <div className="border-border/60 border-t">
+-        <div className="text-muted-foreground/70 mx-auto flex w-full max-w-7xl flex-col gap-1 px-6 py-4 text-[11px] sm:flex-row sm:items-center sm:justify-between">
++        <div className="text-muted-foreground mx-auto flex w-full max-w-7xl flex-col gap-1 px-6 py-4 text-[11px] sm:flex-row sm:items-center sm:justify-between">
+           <span>© {year} POLARIS · Canadian-hosted deep research</span>
+           <span>
+             LLM inference is currently routed via OpenRouter (US), disclosed at{" "}
+diff --git a/web/components/states/state_kit.tsx b/web/components/states/state_kit.tsx
+index 8ff79e81..0fd88fc3 100644
+--- a/web/components/states/state_kit.tsx
++++ b/web/components/states/state_kit.tsx
+@@ -86,7 +86,10 @@ export function ErrorState({
+       className="border-destructive/30 bg-destructive/5 flex flex-col gap-2 rounded-md border p-4"
+     >
+       <p className="text-foreground text-sm font-medium">{title}</p>
+-      <p className="text-muted-foreground text-xs">{message}</p>
++      {/* text-foreground/80, not muted: muted-foreground on the bg-destructive/5
++          tint falls below WCAG-AA 4.5:1 (axe). The error detail must stay
++          readable on the tint. */}
++      <p className="text-foreground/80 text-xs">{message}</p>
+       {onRetry && (
+         <button
+           type="button"
+
+# canonical-diff-sha256: ac3f72197c29e10a048866358e17b91de313fe0650cac7d9b2b680ad63ff1284

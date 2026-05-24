@@ -1,0 +1,27 @@
+# Codex VISUAL audit — I-p2-061 (#869) WCAG-AA contrast fixes — iter 1 of 5
+
+You have VISION. These are WCAG-AA CONTRAST darkening fixes (axe-measured 15→0 violations across all
+routes). Confirm the darker text reads well + nothing regressed visually. This is a confirmation,
+not a redesign.
+
+## What changed (contrast/a11y only — no layout/logic)
+- Global footer fine print: `text-muted-foreground/70` & `/80` (2.6-3.1:1, FAILED AA) → full
+  `text-muted-foreground` (passes). See home_footer (bottom of page).
+- ErrorState message: muted on the destructive tint → `text-foreground/80` (readable, AA). See
+  benchmark_error (the "Couldn't load the benchmark catalog" box — no backend in this capture).
+- Plus aria-labels on file inputs/selects + un-nested the upload input (not visible).
+
+## Attached
+1. home_footer (the fixed footer fine print + transparency disclosure)
+2. benchmark_error (the fixed ErrorState message contrast)
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+per_screen_grades: { home_footer: "", benchmark_error: "" }
+novel_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+```
+APPROVE iff the darker text reads cleanly (legible, not heavy/ugly) + no visual regression.
