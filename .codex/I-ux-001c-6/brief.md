@@ -56,7 +56,7 @@ NEW
 2. `web/tests/e2e/dashboard_v6.spec.ts` — 2 Playwright cases:
    - Eyebrow + H1 + subtitle render with v6 copy
    - Start-new-research link still navigates to /intake
-   Mocks `**/api/runs**` so the auth-gated listCompletedRuns doesn't race.
+   Mocks `**/api/v6/runs**` so the auth-gated listCompletedRuns (which calls `/api/v6/runs?status=completed&limit=50`) doesn't race. (Codex brief iter-1 P1 fix: previous `**/api/runs**` glob didn't match the actual BACKEND_URL + endpoint.)
 
 ## Files I have ALSO checked
 
