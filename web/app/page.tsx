@@ -1,13 +1,32 @@
-import { BadgeCheck, Network, ShieldCheck } from "lucide-react";
+// I-ux-001c (#878) sub-PR 2: v6 marketing-auth hero.
+//
+// Replaces the previous home (search bar + templates grid + ProofShowcase +
+// RecentRunsStrip + pillars) with the brief-iter-4-APPROVE'd v6 hero:
+//   - Tiny brand-red eyebrow
+//   - One H1 (display 56/68 Geist Bold equivalent): "Every sentence proves itself."
+//   - One subtitle paragraph, honest sovereignty wording
+//   - Proof-as-CTA card (REAL verified claim + numeric stamp + sig pill)
+//   - One primary CTA: "Try a verified brief →" → /intake
+//
+// Page is wrapped in HomePaletteShell (Ctrl+K + sign-in-link focus restore).
+// AppShellGate keeps `/` chromeless; this page is its own marketing surface.
+//
+// Honest sovereignty wording (Codex iter-1 P1-001 fix on the iter-2 brief):
+// "Canadian-hosted clinical research system, built toward sovereign Canadian
+// deployment" — NEVER present-tense "sovereign" overclaim (LLM inference is
+// routed via OpenRouter-US, disclosed in /transparency).
+import { ArrowRight } from "lucide-react";
+import Link from "next/link";
 
-import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
-import { ProofShowcase } from "@/app/components/proof_showcase";
-import { RecentRunsStrip } from "@/app/components/recent_runs_strip";
+import { HomePaletteShell } from "@/components/home/home_palette_shell";
+import { ProofAsCta } from "@/components/home/proof_as_cta";
 import { MapleLeafSignatureLazy } from "@/components/signature/maple_leaf_signature_lazy";
 import { SiteFooter } from "@/components/site_footer";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { loadHomeBrief } from "@/lib/home_brief_loader";
 
+// Template list passed to the CommandPalette (Ctrl+K). Shape preserved from
+// the legacy HomeKeyboardShell so the existing 3 command_palette*.spec.ts
+// suites pass unchanged.
 type Template = {
   id: string;
   name: string;
@@ -102,104 +121,66 @@ const templates: Template[] = [
   },
 ];
 
-const PILLARS = [
-  {
-    icon: BadgeCheck,
-    title: "Provable",
-    body: "Click any claim and see the exact source passage it came from. Frontier tools hallucinate 3–13% of their citations — every POLARIS claim is span-anchored to a primary source.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Canadian-hosted",
-    body: "Built for Canadian-hosted deployment. Public sources are fetched via logged Canadian egress, and every brief is integrity-hashed and auditable.",
-  },
-  {
-    icon: Network,
-    title: "Snowball",
-    body: "Each run grows a connected knowledge graph of claims and sources you can explore, follow up on, and build the next question from.",
-  },
-] as const;
-
-export default function HomePage() {
+export default async function HomePage() {
+  const brief = await loadHomeBrief();
   return (
-    <div className="flex min-h-screen flex-col">
-      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
-        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-12 px-6 py-10 sm:py-12">
-          {/* Hero — one primary action, compact so the proof artifact enters the
-              first viewport (I-p2-044 #835, Codex visual direction: proof leads). */}
-          <section className="flex flex-col items-center gap-4 text-center">
-            {/* I-p2-028 (#767): Braille maple-leaf signature (decorative). */}
-            <MapleLeafSignatureLazy />
-            {/* I-p2-044 (#835): honest wording — "Canadian-hosted", not the
-                present-tense "Sovereign" overclaim (LLM inference is routed via
-                OpenRouter-US, disclosed at /transparency). */}
-            <span className="text-muted-foreground border-border bg-card inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
-              ⬡ Canadian-hosted deep research
-            </span>
-            <h1 className="text-foreground max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-              Deep research you can check, line by line.
-            </h1>
-            <p className="text-muted-foreground max-w-2xl text-base text-pretty sm:text-lg">
-              Every sentence is tied to a primary source with a provenance token
-              and checked by an independent two-family evidence pipeline. Ask a
-              question — get a brief where you can click any claim and read the
-              exact passage behind it.
-            </p>
-            <form
-              action="/intake"
-              method="get"
-              data-testid="home-hero-search"
-              className="mt-1 flex w-full max-w-2xl items-center gap-2"
-            >
-              <Input
-                name="q"
-                type="search"
-                aria-label="Research question"
-                placeholder="Ask a research question…"
-                className="h-12 flex-1 text-base"
-              />
-              <Button type="submit" className="h-12 px-7">
-                Verify
-              </Button>
-            </form>
-          </section>
+    <div className="relative flex min-h-screen flex-col">
+      <HomePaletteShell templates={templates} signInHref="/sign-in">
+        <main
+          data-testid="home-hero"
+          className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center gap-5 px-6 py-8 text-center sm:gap-6 sm:py-12"
+        >
+          {/* Decorative Braille maple-leaf signature (I-p2-028 #767) */}
+          <MapleLeafSignatureLazy />
 
-          {/* Proof IS the hero — a REAL verified claim + its real source span, the
-              central front-door artifact (not a card below the fold). */}
-          <ProofShowcase />
-
-          {/* Differentiator pillars — crafted cards (was plain text columns) */}
-          <section
-            aria-label="Why POLARIS"
-            className="grid gap-4 sm:grid-cols-3"
+          {/* Eyebrow — brand-red, small caps */}
+          <span
+            data-testid="home-eyebrow"
+            className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
           >
-            {PILLARS.map((pillar) => (
-              <div
-                key={pillar.title}
-                className="group/pillar bg-card ring-foreground/10 shadow-card ease-standard hover:shadow-card-hover flex flex-col gap-2 rounded-xl p-5 ring-1 transition-shadow duration-150"
-              >
-                <pillar.icon
-                  aria-hidden
-                  className="text-primary h-5 w-5 shrink-0"
-                />
-                <h2 className="text-foreground text-sm font-semibold">
-                  {pillar.title}
-                </h2>
-                <p className="text-muted-foreground text-sm leading-relaxed">
-                  {pillar.body}
-                </p>
-              </div>
-            ))}
-          </section>
+            POLARIS · Canadian-hosted clinical research
+          </span>
 
-          {/* Real recent verified briefs */}
-          <RecentRunsStrip />
+          {/* H1 — display weight, balanced wrap. Codex visual iter-3 P1:
+              tightened from text-6xl→text-5xl on md+ to bring the primary
+              CTA into the 900px desktop viewport. */}
+          <h1
+            data-testid="home-h1"
+            className="text-foreground max-w-3xl text-4xl leading-[1.05] font-bold tracking-tight text-balance sm:text-5xl"
+          >
+            Every sentence proves itself.
+          </h1>
+
+          {/* Subtitle — honest sovereignty wording. Codex visual iter-3
+              P1: trimmed to one sentence to recover above-fold real estate
+              for the primary CTA. (The proof card + footer carry the
+              "signed bundle / audit offline / OpenRouter US disclosure"
+              detail, so the subtitle doesn't need to.) */}
+          <p
+            data-testid="home-subtitle"
+            className="text-muted-foreground max-w-2xl text-base leading-relaxed text-pretty sm:text-lg"
+          >
+            POLARIS is a Canadian-hosted clinical research system, built toward
+            sovereign Canadian deployment. Every claim is verified against its
+            cited source by an independent model family — no verifier, no claim.
+          </p>
+
+          {/* Proof-as-CTA card — the HERO climax */}
+          <ProofAsCta brief={brief} />
+
+          {/* Primary CTA — one button only */}
+          <Link
+            href="/intake"
+            data-testid="home-primary-cta"
+            className="bg-primary text-primary-foreground ring-primary/40 hover:bg-primary/90 focus-visible:ring-ring/70 ease-standard inline-flex h-12 items-center justify-center gap-2 rounded-lg px-7 text-base font-semibold ring-1 transition-colors duration-150 focus-visible:ring-2 focus-visible:outline-none"
+          >
+            Try a verified brief
+            <ArrowRight aria-hidden className="h-4 w-4" />
+          </Link>
         </main>
 
-        {/* I-p2-038 (#821): shared SiteFooter — replaces the thin inline home
-            footer so home + every AppShell route render one identical footer. */}
         <SiteFooter />
-      </HomeKeyboardShell>
+      </HomePaletteShell>
     </div>
   );
 }

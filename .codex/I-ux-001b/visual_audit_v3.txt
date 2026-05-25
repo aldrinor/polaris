@@ -1,0 +1,25 @@
+## Per iter-2 finding — resolved at A-level?
+- summoned proof (shared `①` marker) → **RESOLVED-A**
+- source-as-climax (reordered beats) → **RESOLVED-A**
+- label density / declarative copy → **RESOLVED-A**
+- typography craft → **RESOLVED-B**
+- absent emotional moment → **PARTIAL**
+
+## NEW issues (v3 introduced)
+- The right rail now has better hierarchy, but the bottom content is starting to feel vertically squeezed. Signature/limits are partly pushed below the fold, so the proof climax works, but the full audit story is not fully visible at 900px.
+- The `①` marker helps, but it still reads more like an annotation ID than a “live summoned proof” interaction. It pairs the sentence and panel; it does not yet dramatize the click.
+- The source span card is improved, but it is visually quiet. For the claimed climax, the quoted evidence could have more editorial weight: larger type, stronger left rule, clearer matched-number emphasis, or a “matched passage” treatment.
+
+## What still keeps this from A+
+- Add a stronger active-state bridge: a thin green connector line, rail-side glow, or animated trace from selected sentence to `①` in the panel. The shared marker is good; the spatial relationship still needs one more cue to become instant.
+- Raise typographic contrast. The page is competent and serious, but Linear/Stripe/Vercel-level craft needs more deliberate scale rhythm: tighter metadata, more confident proof-span type, and less same-weight body text in the rail.
+- Make the emotional moment visible in the static frame. The selected sentence should feel “activated,” not merely highlighted. Consider a pressed/selected state, subtle proof-loading residue, or a micro-status like `proved against source span` adjacent to the active sentence.
+- Mobile is now likely the biggest coverage gap. Desktop still has polish work, but the core desktop structure is A-level. The Stage 4 bottom-sheet variant will decide whether the concept survives real product usage.
+
+## Verdict
+- grade: **A**
+- top-3 fixes for iter 4:
+  1. Add an unmistakable sentence-to-proof bridge beyond the shared `①`.
+  2. Make the source span visually heavier as the proof climax.
+  3. Design and test the mobile bottom-sheet interaction.
+- one-line: **Not yet frontier-beating in front of PM Carney’s office, but now credible enough that the remaining gap is product theater and typographic precision, not concept clarity.**

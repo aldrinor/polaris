@@ -1,0 +1,24 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Challenged-sentence label is still too subtle or not discernible at normal viewing scale in t=120+ frames. Treat as readable only after tightening contrast/size/position."
+  - "t=400 still has a visible empty source-card slot above the evidence-strength block, so the spatial-temporal reorder is only partially successful."
+  - "t=700 limits/signed-bundle disclosure is readable, but it sits very close to the bottom annotation bar; add clearance before mobile/full rollout."
+p3:
+  - "Evidence ladder labels remain small/low-contrast, as already carried forward."
+  - "t=0 rest-state claim text still reads slightly more active than surrounding muted copy, but the P1 active styling issue is fixed."
+convergence_call: accept_remaining
+ready_to_scale_to_all_scenes: with_caveats
+specific_check_responses:
+  rest_state_at_t0: PASS
+  beat6_disclosure_at_t700: PASS
+  spatial_reorder_accepted: "FAIL_with_detail - t=400 still shows evidence strength below a large reserved blank area where the source card later appears."
+  challenged_label_readability: needs_tightening
+  source_as_climax_preserved: PASS
+  iter1_to_iter2_regression:
+    - "No P1 regression observed."
+    - "Bottom disclosure clearance at t=700 is tight and should be watched during mobile scaling."
+```

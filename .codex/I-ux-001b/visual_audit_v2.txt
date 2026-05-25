@@ -1,0 +1,33 @@
+## Per iter-1 finding — resolved?
+1. underlines → **RESOLVED** — v2 is dramatically quieter. The hairline row rules preserve clickability without turning the article into a hyperlink field.
+2. two-judgment structural separation → **RESOLVED** — yes/no faithfulness now reads as a checklist verdict; evidence strength reads as an ordinal ladder. A clinical reviewer should understand these are different judgments.
+3. challenged-sentence treatment → **RESOLVED** — green border + pale verified field now reads “selected and supported,” not “error/challenge failed.”
+4. proof-as-hero-vs-sidebar → **PARTIAL** — the right rail is much better, but still behaves like an inspector panel. The proof is adjacent to the sentence, not summoned from it. A visual connector or shared active state is still needed.
+5. typography craft → **PARTIAL** — closer to Stripe/Linear in restraint and hierarchy, but still slightly bureaucratic in the right rail: too many small caps labels, explanatory microcopy, and boxed submodules.
+6. empty-space discipline → **RESOLVED** — v2 uses the left canvas better. The selected sentence has enough presence without overfilling the page.
+7. absent emotional moment → **PARTIAL** — the editorial hint helps, but the visceral moment is still not there. “Click any sentence” is stated, not demonstrated. The screen needs to show the system actively binding claim → source span → verdict.
+
+## NEW findings (v2 introduced) — P0/P1/P2/P3
+**P1 — The source proof is still too far down.**  
+The eye lands on VERIFIED and the evidence ladder, but the actual source span sits below the fold pressure line of the sidebar. For the product moment, the source span should be closer to the challenged sentence and visually coupled to it.
+
+**P1 — The active sentence needs a stronger claim-to-proof bridge.**  
+Add a subtle connector: same green left rule continuing into the right rail, a shared numbered marker, or a horizontal alignment cue. Right now the proof feels selected, but not physically summoned.
+
+**P2 — The provenance strip is improved but still reads like metadata.**  
+The two-band version is clearer, but it is low-emotion system accounting. Consider making the top summary more declarative: `18 claims checked · 16 verified · 2 limited · signed bundle`.
+
+**P2 — The right rail has too many editorial labels.**  
+“CHALLENGED SENTENCE,” “FAITHFULNESS,” “EVIDENCE STRENGTH,” “SOURCE,” “SOURCE SPAN” creates an audit form feeling. Keep the structure, but reduce label density.
+
+**P3 — The ladder’s inactive states may be too pale.**  
+The HIGH state is clear, but VERY LOW / LOW / MOD are close to disabled controls. Clinical reviewers should read them as a scale, not unavailable buttons.
+
+## Verdict
+- grade: **B+**
+- top-3 fixes for iter 3:
+  1. Add a visible sentence-to-sidebar connector so the proof feels summoned by the active claim.
+  2. Move the source span higher and make it the climax of the proof, not the appendix.
+  3. Reduce right-rail label density and make the verdict language more declarative.
+
+- one-line: **Not yet frontier-beating in front of PM Carney’s office, but v2 is now credible; v3 needs the summoned-proof moment to move from polished audit UI to memorable product hero.**

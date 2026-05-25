@@ -1,5 +1,10 @@
-// I-cd-031 (#621): demo journey end-to-end — home → template → ask
-// (intake) → run-step (dashboard) → inspector → claim-source.
+// I-cd-031 (#621): demo journey end-to-end — home → primary CTA → intake →
+// dashboard → inspector → claim-source.
+//
+// I-ux-001c sub-PR 2 (#882): home selectors retargeted from the previous
+// one-CTA hero (search bar `home-hero-search` + Verify button) to the v6
+// marketing-auth hero whose single click target is `home-primary-cta` →
+// /intake.
 //
 // Verifies each step's landing page renders + links forward to the next
 // step. The "run" step itself is hardware-bound (real pipeline-A), so the
@@ -15,18 +20,12 @@ import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
 test("demo journey: home → intake → dashboard → inspector (canonical fixture)", async ({
   page,
 }) => {
-  // Step 1: home renders the one-CTA hero (I-p2-013 replaced the template
-  // grid); the hero search funnels to /intake.
+  // Step 1: home renders the v6 marketing-auth hero (I-ux-001c sub-PR 2);
+  // the single primary CTA funnels to /intake.
   await page.goto("/");
-  await expect(page.getByTestId("home-hero-search")).toBeVisible();
-  await page
-    .getByTestId("home-hero-search")
-    .getByRole("searchbox")
-    .fill("What did the SELECT trial show on cardiovascular outcomes?");
-  await page
-    .getByTestId("home-hero-search")
-    .getByRole("button", { name: "Verify" })
-    .click();
+  await expect(page.getByTestId("home-h1")).toBeVisible();
+  await expect(page.getByTestId("proof-as-cta")).toBeVisible();
+  await page.getByTestId("home-primary-cta").click();
 
   // Step 2: lands on /intake with the intake form.
   await expect(page).toHaveURL(/\/intake/);
@@ -59,14 +58,17 @@ test("demo journey: home → intake → dashboard → inspector (canonical fixtu
 // `if (label === "Upload")` guard that silently skipped Home/Intake/
 // Dashboard/etc — so a broken nav with most labels missing would still
 // pass. This version unconditionally asserts every primary-nav label.
-test("demo journey nav-parity: header + primary nav identical across journey routes", async ({
+//
+// I-ux-001c sub-PR 2 (#882): home is chromeless (AppShellGate excludes `/`),
+// so the nav-parity assertion now starts at /intake — home has its own
+// marketing chrome (the v6 hero) and is not part of the authed nav set.
+test("demo journey nav-parity: header + primary nav identical across authed routes", async ({
   page,
 }) => {
   // I-p2-039 (#825): the demo journey is the AUTHENTICATED reviewer flow, so seed
   // a session and assert the full authed nav (incl. Compare) on each route.
   await setupAuthedNav(page);
   for (const path of [
-    "/",
     "/intake",
     "/dashboard",
     "/inspector/v1-canonical-success",

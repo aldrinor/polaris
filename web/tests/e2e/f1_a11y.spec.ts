@@ -5,10 +5,13 @@ import { expect, test } from "@playwright/test";
  * I-f1-005 — F1 axe-core WCAG-AA compliance.
  *
  * Acceptance: zero serious/critical violations across the home + intake.
- * (I-p2-013 #752 folded the closed-home axe check here after the
- * template-grid spec was removed when the home became a one-CTA hero.)
+ * (I-ux-001c sub-PR 2 #882 retargeted the home selectors: the previous one-CTA
+ * hero with a search bar was replaced by the v6 marketing-auth hero whose
+ * single primary CTA is `home-primary-cta` — the proof-as-CTA card is the
+ * hero climax. command_palette focus-restore target `header-sign-in-link`
+ * is preserved via HomePaletteShell.)
  * Specifically:
- *  - `/` closed (the one-CTA hero home).
+ *  - `/` closed (the v6 marketing-auth hero).
  *  - `/` with the command palette OPEN (Ctrl+K), backdrop + popup visible.
  *  - `/intake?template=clinical`.
  */
@@ -20,10 +23,14 @@ function critical_or_serious(v: { impact?: string | null }) {
 }
 
 test.describe("F1 axe-core WCAG-AA — I-f1-005", () => {
-  test("/ closed (one-CTA hero) is WCAG-AA clean", async ({ page }) => {
+  test("/ closed (v6 marketing-auth hero) is WCAG-AA clean", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1024, height: 768 });
     await page.goto("/", { waitUntil: "networkidle" });
-    await expect(page.getByTestId("home-hero-search")).toBeVisible();
+    await expect(page.getByTestId("home-h1")).toBeVisible();
+    await expect(page.getByTestId("home-primary-cta")).toBeVisible();
+    await expect(page.getByTestId("proof-as-cta")).toBeVisible();
 
     const results = await new AxeBuilder({ page })
       .withTags(WCAG_TAGS)

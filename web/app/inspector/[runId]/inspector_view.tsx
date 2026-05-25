@@ -20,22 +20,20 @@ import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
 
 interface InspectorViewProps {
   bundle: LoadedBundle;
-  signaturePresent: boolean;
 }
 
-export function InspectorView({
-  bundle,
-  signaturePresent,
-}: InspectorViewProps) {
+export function InspectorView({ bundle }: InspectorViewProps) {
   return (
     <main
       className="mx-auto flex max-w-6xl flex-col gap-6 p-6"
       data-testid="inspector-view"
       data-run-id={bundle.runId}
     >
+      {/* I-ux-001a: signature state lives on the LoadedBundle (tri-valued),
+          not as a separate prop — single source of truth. */}
       <InspectorProofHeader
         bundle={bundle}
-        signaturePresent={signaturePresent}
+        signatureState={bundle.signatureState}
       />
       <Tabs defaultValue="proof">
         {/* I-p2-043 (#833): the 8-tab rail overflowed the 375w viewport (Codex visual
@@ -58,9 +56,17 @@ export function InspectorView({
             was built but wired into NO route; this surfaces it as the default
             inspector tab. */}
         <TabsContent value="proof" tabId="proof">
+          {/* I-ux-001c (#878) sub-PR 1: ProofReplay v6 needs the full trust
+              context (signatureState/manifest/verifiedReport) to render the
+              6-beat hero with tri-state signature + bundle ID. The existing
+              call site only passed sections+evidencePool. */}
           <ProofReplay
             sections={bundle.verifiedReport.sections}
             evidencePool={bundle.evidencePool}
+            verifiedReport={bundle.verifiedReport}
+            manifest={bundle.manifest}
+            signatureState={bundle.signatureState}
+            signatureKeyFingerprint={bundle.signatureKeyFingerprint}
           />
         </TabsContent>
         <TabsContent value="report" tabId="report">

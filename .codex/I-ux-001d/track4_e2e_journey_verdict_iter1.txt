@@ -1,0 +1,21 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Intake and source_review both expose a very similar source-set approval gate. This is understandable, but the Proceed action on intake should read more like 'Review source set' or 'Continue to source review' to avoid the feeling of approving the corpus twice."
+  - "Runs page shows strong process proof, but the in-progress state has no visible next-step affordance to the Inspector. Acceptable for demo if the completed state reveals 'Open verified brief'."
+  - "Inspector, Compare, and Graph prove claims well, but cross-page exits are mostly implicit. Add small route affordances like Compare, Graph, Back to brief, or View signed bundle where relevant."
+p3:
+  - "Clinical acronyms such as HbA1c, CI, GRADE, T1/T2/T7 are mostly fine for the domain, but a PM-office reviewer may benefit from hover/tooltips or compact expansions."
+  - "The graph page is strong visually, but its trust legend is less explicit than the run/inspector pages. It should distinguish verified claim, source, contradiction, declined/refused, and missing evidence if those states exist in the graph."
+convergence_call: accept_remaining
+track_4_ready_to_signoff: yes
+specific_check_responses:
+  journey_coherence: PASS
+  proof_as_hero_through_line: PASS
+  trust_gates_visible_per_step: PASS
+  pm_office_angle: PASS
+  frontier_comparison: "POLARIS beats the compared products on the proof axis as shown: it combines pre-run corpus approval, per-sentence verification, exact source-span replay, independent-family checking, contradiction surfacing, and signed offline bundles. Current public positioning for ChatGPT Deep Research, Gemini Deep Research, Perplexity Spaces, Elicit, Consensus, Scite, OpenEvidence, and FutureHouse emphasizes cited reports, source links, research databases, citation context, or medically grounded answers, but not this full claim-level audit chain plus signed proof bundle. Remaining leak: the signed bundle and verifier method need to be inspectable, not just labeled. Sources checked: OpenAI Deep Research https://help.openai.com/en/articles/10500283-deep-research-in-chatgpt, Gemini Deep Research https://blog.google/products-and-platforms/products/gemini/google-gemini-deep-research/, Perplexity Spaces https://www.perplexity.ai/help-center/en/articles/10352961-what-are-spaces, Elicit https://elicit.com/, Consensus https://help.consensus.app/en/articles/10055108-consensus-research-database, Scite https://scite.ai/, OpenEvidence https://www.openevidence.com/announcements/openevidence-and-veeva-announce-open-vista-partnership, FutureHouse https://www.futurehouse.org/research-announcements/launching-futurehouse-platform-ai-agents"
+```

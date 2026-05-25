@@ -1,0 +1,197 @@
+Reading prompt from stdin...
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e5dca-5322-7840-8db7-5287bbacfa87
+--------
+user
+# Codex 16-dimension visual audit — I-ux-001c sub-PR 2 (Home v6)
+
+## §0 cap directive (CLAUDE.md §8.3.1, verbatim)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## What you're reviewing (3 attached PNGs)
+
+The deployed, locally-rendered v6 marketing-auth home hero (sub-PR 2 of
+I-ux-001c, PR #883). Page is live at `/` and reads from the canonical
+signed-bundle fixture. Captured via Playwright against `next dev`:
+
+- `home_desktop_1440.png` — 1440×900 full-page
+- `home_tablet_768.png`  — 768×1024 full-page
+- `home_mobile_390.png`  — 390×844 full-page
+
+(A palette-open shot was attempted but the Ctrl+K binding didn't fire
+in headless context — out-of-scope for this visual audit. The 3
+no-palette shots are the marketing surface itself, which is the surface
+this audit is about.)
+
+## The standard you're judging against (top-tier visual bar)
+
+This is the FRONT DOOR — PM Mark Carney sees this within the first 3
+seconds of opening the demo. The bar is "S-tier visually-verified,
+frontier-BEATING" per the operator's standing I-ux-001 directive.
+Comparison set: Perplexity Pro, ChatGPT Deep Research home, Anthropic
+claude.ai marketing pages, Linear marketing, Stripe Press, Apple
+newsroom hero patterns.
+
+## 16-dimension visual audit checklist
+
+For each dimension, return PASS / PARTIAL / FAIL with a one-line
+verdict.
+
+1. **Visual hierarchy** — eyebrow → H1 → subtitle → proof-as-CTA → primary CTA.
+   Is the eye drawn through that order without backtracking?
+2. **Typographic system** — display H1 weight, leading, tracking. Are
+   the body/sub/eyebrow tiers genuinely distinct or muddy?
+3. **Whitespace rhythm** — vertical spacing between blocks. Is it
+   confident or anxious (gaps too small/big)?
+4. **Color discipline** — brand-red (#c8102e) appears ONLY at the
+   primary CTA + eyebrow + footer link + "See the full proof" arrow.
+   Verified-green appears on the matched-stamp + numerics.
+   Anything else?
+5. **Numeric verification visceral** — are the bolded-green numerics
+   inside the claim sentence ACTUALLY proving verification at a
+   glance? Or are they reading as decoration?
+6. **Proof-as-CTA framing** — is the card legibly the HERO climax (not
+   "a card below the fold")? Card elevation (`shadow-card`), rounded
+   corners, ring? Does it earn its real estate?
+7. **One-CTA discipline** — exactly one primary action. Is "Try a
+   verified brief →" sufficiently dominant?
+8. **Honest signature pill** — the small "⬡ signed bundle" pill (or
+   "⊟ signature attached" / "⊠ not signed" depending on tri-state).
+   Reads as a real cryptographic affordance, not a marketing badge?
+9. **Source pill** — "T1 source" top-right of the card. Reads as
+   evidence tier, not visual noise?
+10. **Honest sovereignty wording** — subtitle says "Canadian-hosted...
+    built toward sovereign Canadian deployment" — present-tense
+    "sovereign" overclaim absent? Footer disclosure says "LLM inference
+    is currently routed via OpenRouter (US), disclosed at /transparency"
+    — honest?
+11. **Footer information density** — does the footer feel substantive
+    (brand mark + provenance + disclosure + navigation) without
+    cluttering?
+12. **Mobile fidelity** (390×844) — does the H1 still feel display-
+    weight? Does the proof-as-CTA card render the full claim without
+    awkward truncation? Is the primary CTA still thumb-target sized?
+13. **Tablet fidelity** (768×1024) — intermediate width: are
+    proportions confident or stretched/compressed?
+14. **Trust signals integrated** — Canadian-hosted mark + signed-bundle
+    pill + transparency footer link — do they cohere into a single
+    trust story, or read as 3 disconnected stickers?
+15. **Frontier comparison** — open Perplexity / ChatGPT DR / Linear in
+    your mind. Where does this beat them visually? Where does this
+    fall short visually?
+16. **Carney first-3-seconds** — if PM Carney opens this with no
+    context, does the proof-as-hero actually communicate the
+    differentiator (per-sentence provability), or does he need a
+    paragraph of explanation?
+
+## Output schema (BIND)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+p3: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+dimension_verdicts:
+  visual_hierarchy: PASS | PARTIAL | FAIL — <one-line>
+  typographic_system: PASS | PARTIAL | FAIL — <one-line>
+  whitespace_rhythm: PASS | PARTIAL | FAIL — <one-line>
+  color_discipline: PASS | PARTIAL | FAIL — <one-line>
+  numeric_verification_visceral: PASS | PARTIAL | FAIL — <one-line>
+  proof_as_cta_framing: PASS | PARTIAL | FAIL — <one-line>
+  one_cta_discipline: PASS | PARTIAL | FAIL — <one-line>
+  honest_signature_pill: PASS | PARTIAL | FAIL — <one-line>
+  source_pill: PASS | PARTIAL | FAIL — <one-line>
+  honest_sovereignty_wording: PASS | PARTIAL | FAIL — <one-line>
+  footer_density: PASS | PARTIAL | FAIL — <one-line>
+  mobile_fidelity: PASS | PARTIAL | FAIL — <one-line>
+  tablet_fidelity: PASS | PARTIAL | FAIL — <one-line>
+  trust_signals_integrated: PASS | PARTIAL | FAIL — <one-line>
+  frontier_comparison: PASS | PARTIAL | FAIL — <where it beats and where it falls short>
+  carney_first_3_seconds: PASS | PARTIAL | FAIL — <does proof-as-hero communicate the differentiator unaided>
+```
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Mobile proof card header is slightly cramped: the eyebrow wraps while the T1 pill competes for the same row, weakening the card’s first read."
+  - "The source excerpt feels more academic than visceral; it supports trust, but the proof mechanism could land faster if the matched-source relationship were visually tighter."
+p3:
+  - "Mobile matched-stamp pill wraps to two lines, which is acceptable but less polished than the desktop/tablet treatment."
+  - "Desktop footer is honest and well-spaced, but slightly quiet relative to the trust burden of the page."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+dimension_verdicts:
+  visual_hierarchy: "PASS — The eye moves cleanly from eyebrow to H1 to subtitle to proof card to primary CTA."
+  typographic_system: "PASS — H1, subtitle, eyebrow, claim, and metadata tiers are clearly differentiated."
+  whitespace_rhythm: "PASS — Spacing is calm and confident across desktop/tablet/mobile."
+  color_discipline: "PASS — Red and green are restrained and semantically consistent."
+  numeric_verification_visceral: "PASS — The green numerics read as the proof payload, not decoration."
+  proof_as_cta_framing: "PASS — The card is clearly the hero climax and earns its central placement."
+  one_cta_discipline: "PASS — The red 'Try a verified brief' CTA is the only dominant action."
+  honest_signature_pill: "PASS — The signed-bundle pill reads like a verification artifact, not generic marketing."
+  source_pill: "PASS — The T1 pill is legible as an evidence-tier marker without distracting."
+  honest_sovereignty_wording: "PASS — The page avoids present-tense sovereignty overclaim and includes the US routing disclosure."
+  footer_density: "PASS — Footer has provenance, navigation, and disclosure without feeling cluttered."
+  mobile_fidelity: "PARTIAL — Strong overall, but the card header and matched pill get cramped at 390px."
+  tablet_fidelity: "PASS — Tablet proportions are confident and the hero remains premium."
+  trust_signals_integrated: "PASS — Canadian hosting, source tier, signed bundle, and transparency disclosure cohere."
+  frontier_comparison: "PARTIAL — Beats many peers on concrete proof density and honesty; falls short of Apple/Linear-level polish in micro-layout refinement on mobile."
+  carney_first_3_seconds: "PASS — The differentiator is understandable unaided: claims are verified against cited source spans."
+```
+tokens used
+15,497
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Mobile proof card header is slightly cramped: the eyebrow wraps while the T1 pill competes for the same row, weakening the card’s first read."
+  - "The source excerpt feels more academic than visceral; it supports trust, but the proof mechanism could land faster if the matched-source relationship were visually tighter."
+p3:
+  - "Mobile matched-stamp pill wraps to two lines, which is acceptable but less polished than the desktop/tablet treatment."
+  - "Desktop footer is honest and well-spaced, but slightly quiet relative to the trust burden of the page."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+dimension_verdicts:
+  visual_hierarchy: "PASS — The eye moves cleanly from eyebrow to H1 to subtitle to proof card to primary CTA."
+  typographic_system: "PASS — H1, subtitle, eyebrow, claim, and metadata tiers are clearly differentiated."
+  whitespace_rhythm: "PASS — Spacing is calm and confident across desktop/tablet/mobile."
+  color_discipline: "PASS — Red and green are restrained and semantically consistent."
+  numeric_verification_visceral: "PASS — The green numerics read as the proof payload, not decoration."
+  proof_as_cta_framing: "PASS — The card is clearly the hero climax and earns its central placement."
+  one_cta_discipline: "PASS — The red 'Try a verified brief' CTA is the only dominant action."
+  honest_signature_pill: "PASS — The signed-bundle pill reads like a verification artifact, not generic marketing."
+  source_pill: "PASS — The T1 pill is legible as an evidence-tier marker without distracting."
+  honest_sovereignty_wording: "PASS — The page avoids present-tense sovereignty overclaim and includes the US routing disclosure."
+  footer_density: "PASS — Footer has provenance, navigation, and disclosure without feeling cluttered."
+  mobile_fidelity: "PARTIAL — Strong overall, but the card header and matched pill get cramped at 390px."
+  tablet_fidelity: "PASS — Tablet proportions are confident and the hero remains premium."
+  trust_signals_integrated: "PASS — Canadian hosting, source tier, signed bundle, and transparency disclosure cohere."
+  frontier_comparison: "PARTIAL — Beats many peers on concrete proof density and honesty; falls short of Apple/Linear-level polish in micro-layout refinement on mobile."
+  carney_first_3_seconds: "PASS — The differentiator is understandable unaided: claims are verified against cited source spans."
+```

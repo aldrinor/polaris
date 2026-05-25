@@ -1,0 +1,27 @@
+## Per-criterion (iter-3 resolution)
+- 1 [unsigned-bundle honesty]: RESOLVED — v4 names today’s truth directly: success bundle has no `manifest.yaml.asc`, loader only detects presence, fixture `.asc` is placeholder, and any “signed/offline-verifiable” UI is gated on real GPG verification. Evidence: [docs/stier_experience_plan.md](C:/POLARIS/docs/stier_experience_plan.md:137), [web/lib/inspector_bundle_loader.ts](C:/POLARIS/web/lib/inspector_bundle_loader.ts:145), [tests/fixtures/signed_bundle/README.md](C:/POLARIS/tests/fixtures/signed_bundle/README.md:15).
+- 2 [abstention/SoF launch gate]: RESOLVED — §5 now requires efficacy + harms SoF coverage, source/body adequacy, lowest-critical-outcome certainty mapping, and refuse-not-badge behavior. This aligns with GRADE/SoF outcome-level certainty and “lowest critical outcome” handling. Sources: [Cochrane Ch.14](https://www.cochrane.org/authors/handbooks-and-manuals/handbook/current/chapter-14), [CDC ACIP GRADE Ch.10](https://www.cdc.gov/acip-grade-handbook/hcp/chapter-10-overall-certainty-of-evidence/index.html).
+- 3 [verifier release gate]: RESOLVED — §7 makes trust conditional on a held-out gold set, human-adjudicated accuracy/agreement threshold, calibration examples, and disagreement escalation to PARTIAL with both reads surfaced. Evidence: [docs/stier_experience_plan.md](C:/POLARIS/docs/stier_experience_plan.md:82).
+- 4 [intended-use non-uses]: RESOLVED — §6 now explicitly excludes individual-patient recommendations and urgent/time-sensitive decisions, matching FDA/Health Canada non-device CDS logic around independent review, non-replacement of judgment, and non-time-critical use. Sources: [FDA CDS navigator](https://www.fda.gov/medical-devices/digital-health-center-excellence/step-6-software-function-intended-provide-clinical-decision-support), [Health Canada SaMD guidance](https://www.canada.ca/en/health-canada/services/drugs-health-products/medical-devices/application-information/guidance-documents/software-medical-device-guidance-document.html).
+- 5 [new weakness]: RESOLVED WITH P2 CAUTION — no new P0/P1. Implementation must not preserve the current `signaturePresent -> Signed bundle` UI pattern for uploaded/placeholder `.asc` files; v4’s guard concept covers this, but execution should make signature state tri-valued.
+- 6 [overall]: RESOLVED — as a plan, v4 is now one coherent artifact: per-sentence faithfulness, separate evidence-strength, honest abstention, signed/offline receipt gated on real cryptographic proof, and sovereignty language bounded to hosting/data with OpenRouter-US disclosure. PM Carney context checked against the official PM site: [pm.gc.ca](https://www.pm.gc.ca/en?lang=en).
+
+## Findings
+### P0
+None.
+
+### P1
+None.
+
+### P2 / P3
+- P2 — Signature state should be modeled as `missing | present_unverified | gpg_verified`, not boolean `signaturePresent`. Current code can still display “Signed bundle” from mere `.asc` presence: [web/components/inspector/bundle_header.tsx](C:/POLARIS/web/components/inspector/bundle_header.tsx:76), while the client loader explicitly says GPG verification is out of scope: [web/lib/inspector_bundle_client_loader.ts](C:/POLARIS/web/lib/inspector_bundle_client_loader.ts:19). v4’s CI guard is enough for plan approval, but this is the exact place implementation could regress.
+- P3 — Put the verifier and SoF threshold config paths into the implementation tickets. The plan correctly requires config-backed thresholds; naming the files will reduce drift.
+
+## New-since-v3
+No blocking new issue. v4 removed the fake-working signed-bundle premise and converted the two prior “named but not gated” P1s into real launch gates.
+
+## Verdict
+verdict: APPROVE  
+convergence_call: accept_remaining
+
+verdict: APPROVE

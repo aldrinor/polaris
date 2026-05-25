@@ -1,0 +1,53 @@
+## What works (briefly — 3-5 lines)
+The core story is legible: sentence → judgment → evidence → source → signature.  
+The real numeric claim gives the demo credibility; it does not feel like placeholder SaaS copy.  
+The right panel has enough deterministic-verification language to signal “machine-checkable,” not just “AI summary.”  
+The slate-blue `HIGH` badge is a good start toward separating evidence strength from faithfulness.
+
+## What does NOT work
+
+### Two-judgment separation
+Not strong enough. The green `VERIFIED` chip and blue `HIGH` badge are visibly different, but they still live in the same stacked proof-card rhythm, with similar label hierarchy and similar compact badge treatment. In a clinical context, this can blur into “green/blue = good.”
+
+Fix: make faithfulness and evidence strength structurally different. Faithfulness should read like a binary audit result; evidence strength should read like a graded evidence assessment. Different layout, icon grammar, and maybe a two-column “Judgment 1 / Judgment 2” comparison would help.
+
+### Proof-as-hero feel
+This still reads as a sidebar, not the hero moment. The right panel is tidy, but it does not dominate the experience or produce the “I can challenge any sentence” reveal. Linear and Vercel are better at making the product interaction itself feel like the centerpiece; here the proof panel feels appended to a document.
+
+Fix: make the challenged sentence and proof panel visually interlock. The panel should feel summoned by the sentence, not merely docked beside it. Add a visible connection, focused dimming, stepped reveal state, or anchored callout geometry.
+
+### Typography craft
+Competent, but not S-tier. The title is heavy and readable, yet the body measure and underline styling make the left side feel closer to a default Tailwind document than a crafted research interface. The proof panel labels are too uniformly small/uppercase, creating bureaucratic rhythm instead of premium hierarchy.
+
+Stripe-level craft usually has sharper contrast between editorial text, metadata, and product state. Here too many elements share similar size, spacing, and density.
+
+### Sentence affordance
+This is the biggest visual miss. The underlines are too loud and hyperlink-like. They make the brief feel noisy, provisional, and slightly web-article-ish instead of like a confident clinical evidence document.
+
+Storyboard intent says hairline tint at alpha 0.35; this screenshot violates that. Use a subtle bottom highlight, faint sentence wash, or segmented hover affordance. Current underline treatment steals attention from the challenged sentence.
+
+### Challenged-sentence treatment
+The red 2px border is clear, but the indentation makes the sentence feel mechanically quoted rather than actively selected. The selection state breaks the prose rhythm too much.
+
+The red line also carries “error” or “danger” semantics. If the sentence is being challenged, not disproven, consider a more precise selection marker: red only as a transient challenge accent, paired with a calm selected-sentence background or anchor rail.
+
+### Empty space discipline
+The left column has too much inert whitespace after the third bullet, while the right panel is dense and vertically busy. The composition becomes “empty document + crowded inspector.” That weakens the hero.
+
+The top provenance strip is also underpowered for the space it occupies. It is valuable data, but visually reads like a gray placeholder bar.
+
+### Anything else / missing
+Missing: a real “challenge” action. The screenshot shows the result of challenge, but not the visceral act. A frontier demo needs the reviewer to understand: click any sentence, POLARIS proves or limits it.
+
+Missing: stronger source trust affordance. The SourceCard is useful, but it does not yet feel like a premium citation object. Perplexity does better at source surfacing; OpenEvidence does better at clinical confidence posture. This needs both: fast source recognition plus rigorous medical-grade constraint.
+
+Missing: failure/limits drama. The collapsed “What this does NOT prove” is correct, but too quiet. In clinical AI, the limits are part of the trust story. Make that disclosure feel like principled restraint, not footer residue.
+
+## Verdict
+- grade: B
+- top-3 highest-leverage fixes for iter 2:
+  1. Replace heavy underlines with true hairline/tinted sentence affordances.
+  2. Redesign the right panel so faithfulness and evidence strength are unmistakably separate judgments.
+  3. Make proof feel summoned from the challenged sentence, not parked in a sidebar.
+
+- absent: yes. The prototype omits the emotional product moment: “I clicked one sentence and watched the system prove exactly what is and is not supported.” Without that, it is a polished evidence sidebar, not a frontier-beating hero.
