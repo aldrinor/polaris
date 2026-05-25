@@ -90,3 +90,22 @@ specific_check_responses:
   start_run_cta_preserved: PASS | FAIL_with_detail
   file_plan_surgical: PASS | FAIL_with_detail
 ```
+
+---
+
+## Iter-4 amendment (post-Codex iter-3 P1)
+
+### P1 fix: fold v6 cases into existing dashboard_g1_g8.spec.ts (which IS in CI)
+
+Codex iter-3 surfaced that `.github/workflows/web_ci.yml` line 185 runs `dashboard_g1_g8.spec.ts` but NOT a standalone `dashboard_v6.spec.ts`. Per LAW II "no fake working", the new v6 tests must actually execute in CI.
+
+**Iter-4 file plan correction:**
+- ~~NEW `web/tests/e2e/dashboard_v6.spec.ts`~~ — REPLACED
+- UPDATE `web/tests/e2e/dashboard_g1_g8.spec.ts` — add 2 new `test()` cases at the end:
+  1. v6 chrome: eyebrow + H1 + subtitle render with locked copy
+  2. v6 chrome: Start-new-research link still navigates to `/intake`
+  Mock `**/api/v6/runs**` in a `test.beforeEach` scoped to the new tests (or top-level if dashboard_g1_g8 doesn't already mock).
+
+This guarantees the v6 cases run in CI without touching the workflow yaml.
+
+The standalone-test pattern used in sub-PRs 2-5 (home_proof_as_cta, intake_v6, source_review_v6, plan_v6) is filed as a follow-up issue for separate CI wiring fix.
