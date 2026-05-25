@@ -59,7 +59,7 @@
    - `web/p2shots/I-ux-001d/motion/hero_first_reveal_*.png` — the APPROVED grammar precedent (18 stills)
    - Figma file `Is7pehpxPdn3ZOOgCsyUjs` page "I-ux-001d motion" — scene 1 frames (node IDs 23:* desktop full, 24:* mobile full, 25:* reduced)
 4. **TRACK 1 scale execution** — build remaining 7 scenes per convention timestamps:
-   - **Scene 2 `hero_claim_switch`**: claim N → claim N+1, <120ms perceived. Full t=0/40/120 + reduced t=0/60/120 × {desktop + mobile} = 12 frames
+   - **Scene 2 `hero_claim_switch`**: claim N → claim N+1, <120ms perceived. Full t=0/40/120 + reduced t=0/60/120 × {desktop + mobile} = 12 frames. **DESKTOP FULL-MOTION 3 FRAMES BUILT** at node IDs 26:2 (t=0), 26:100 (t=40), 26:198 (t=120) on motion page row y=3700. PNGs at `web/p2shots/I-ux-001d/motion/hero_claim_switch_*_desktop_t*.png`. NEXT: build mobile full-motion 3 + desktop reduced 3 + mobile reduced 3 = 9 more frames for scene 2, then mega-audit checkpoint, then scenes 3-8.
    - **Scene 3 `hero_sentence_hover`**: rest → hover. Full t=0/60/120 × {desktop + mobile} = 6 frames (no reduced per convention table row 3)
    - **Scene 4 `hero_sentence_focus`**: rest → focus-visible. Full t=0/80/160 + reduced t=0/160 × {desktop + mobile} = 10 frames
    - **Scene 5 `hero_mobile_sheet_open`**: full t=0/100/220 + reduced t=0/120 × mobile only = 5 frames
