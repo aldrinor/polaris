@@ -25,7 +25,10 @@ const FAKE_INTAKE_OK = {
 
 test.describe("I-ux-001c · Plan Review v6 chrome", () => {
   test.beforeEach(async ({ page }) => {
-    await page.route("**/api/v6/intake**", async (route) => {
+    // Mock URL corrected per Codex diff iter-1 P1: runIntake calls
+    // /api/v6/api/intake (BACKEND_URL='/api/v6' + '/api/intake'),
+    // not /api/v6/intake. The `**/api/intake**` glob matches both.
+    await page.route("**/api/intake**", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
