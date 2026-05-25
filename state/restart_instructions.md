@@ -34,8 +34,8 @@
 | I-ux-001a — Prereq 0: signed-bundle moat | #873 | OPERATOR MERGE QUEUE (codex-required PASS) | `web/lib/gpg_verify_bundle.ts`, tri-state SignatureBadge, gpgv-isolated keyring verifier, CI guard, Dockerfile gnupg install |
 | I-ux-001a — Real demo signed bundle | #875 | OPERATOR MERGE QUEUE | `scripts/build_canonical_demo_bundle.py` signs by default; ships `polaris_demo_pubkey.asc` + `state/polaris_gpg_keyid.txt` |
 | I-ux-001b — Figma hero prototype (Stage 2 + Stage 4) | #877 | OPERATOR MERGE QUEUE | 5 Codex visual-audit rounds B → B+ → A → A/A → A/A-+GREENLIGHT; v6 applied A+ unlock (unified Sealed evidence block + "matched 6 of 6 numbers" stamp + sentence-case ladder) |
-| **I-ux-001d — Extend prototype: motion + all-pages BEFORE code** | **#879** | **IN PROGRESS — iter 1 returned Codex hybrid sequencing direction; iter 2 next** | sequencing direction locked: hero motion grammar → per-family templates (read/edit/monitor/spatial/marketing) → 22-frame specialization → e2e click-through; annotated-still vehicle at t=0/120/250/400/600/700ms |
-| I-ux-001c — Hero implementation | #878 | QUEUED AFTER #879 | Next.js + Tailwind v4 build of the prototyped hero |
+I-ux-001d — Extend prototype: motion + all-pages BEFORE code | #879 | IN PROGRESS — sequencing plan APPROVED Codex iter-3 (accept_remaining, 0 P0/P1); TRACK 1 next | 12 pages × 2 viewports = 24 frames; 8 motion scenes + reduced-motion variants; demo nav = 4 items (5 routes cut); /transparency = dedicated HTML page; per-frame v6 checklist (12 items)
+| I-ux-001c — Hero implementation | #878 | QUEUED AFTERI-ux-001d — Extend prototype: motion + all-pages BEFORE code | #879 | IN PROGRESS — sequencing plan APPROVED Codex iter-3 (accept_remaining, 0 P0/P1); TRACK 1 next | 12 pages × 2 viewports = 24 frames; 8 motion scenes + reduced-motion variants; demo nav = 4 items (5 routes cut); /transparency = dedicated HTML page; per-frame v6 checklist (12 items)
 
 ## NEXT CONCRETE ACTION (resume from cold here)
 

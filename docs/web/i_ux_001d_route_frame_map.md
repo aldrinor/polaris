@@ -1,6 +1,6 @@
 # I-ux-001d — Route ↔ Figma frame map
 
-Ground-truth inventory for the 22 frames the I-ux-001d prototype audit ships before I-ux-001c hero implementation begins. Resolves Codex iter-1 remaining blocker "Publish an exact 11-page route/frame map, including how Transparency is represented" (`.codex/I-ux-001d/sequencing_verdict_iter1.txt`).
+Ground-truth inventory for the **24 frames** (12 pages × desktop + mobile) the I-ux-001d prototype audit ships before I-ux-001c hero implementation begins. Locked at Codex sequencing-plan iter-3 APPROVE (`accept_remaining`, zero P0/P1, 4 P2 cleanups applied below).
 
 ## Live route reconciliation
 
@@ -77,12 +77,12 @@ Per Codex direction "treat families as CONTRACTS, not cloned pages":
 
 Shell-level contracts apply ACROSS all families: app shell + footer + sovereignty proof + signed-bundle pill + signature badge state + per-page nav + reduced-motion compliance.
 
-## Critical-path lock (Codex iter-1 D5)
+## Critical-path lock (Codex iter-1 D5; Source Review promoted; Transparency added at iter-2 P1-002)
 
 **A+ bar (8 pages):** Home → Intake → Source Review → Plan review → Run progress → Inspector → Compare → Knowledge graph
-**A bar (3 pages):** Audit, Sign-in, Dashboard
+**A bar (4 pages):** Audit, Sign-in, Dashboard, Transparency
 
-Inspector v6 is already at A+ (Codex iter-5 GREENLIGHT precedent). The remaining 7 critical-path pages must hit the same bar before I-ux-001c implementation begins.
+Inspector v6 is already at A+ (Codex iter-5 GREENLIGHT precedent). The remaining 7 critical-path pages + 4 supporting pages must hit their respective bars before I-ux-001c implementation begins.
 
 ## Naming alignment
 
@@ -90,7 +90,7 @@ Page hero frame filenames in `web/p2shots/I-ux-001d/`:
 - Desktop: `page_<n>_<route_slug>_desktop_v<N>.png` (1440×900)
 - Mobile: `page_<n>_<route_slug>_mobile_v<N>.png` (390×844)
 
-Where `<n>` is the 1-11 ordering above and `<route_slug>` is the route stem without leading slash, with `/` replaced by `_` and `[runId]` stripped. Example: `page_06_inspector_desktop_v1.png`, `page_05_runs_mobile_v1.png`, `page_08_runs_graph_desktop_v1.png`.
+Where `<n>` is the 1-12 ordering above and `<route_slug>` is the route stem without leading slash, with `/` replaced by `_` and `[runId]` stripped. Example: `page_06_inspector_desktop_v1.png`, `page_05_runs_mobile_v1.png`, `page_08_runs_graph_desktop_v1.png`, `page_12_transparency_desktop_v1.png`.
 
 ## Salvageable behavior from incumbents (Codex iter-1 D6)
 
@@ -122,7 +122,9 @@ Every frame produced in #879 — desktop and mobile — must satisfy this checkl
 - [ ] **NO old route-card visual habits** — no generic "card with icon + title + caption" hero unless the proof-language hierarchy demands it
 - [ ] **App shell + footer + sovereignty disclosure** wired through (per Transparency page #12 + ambient layer)
 - [ ] **Brand red `#c8102e`** used only for brand mark + intentional brand moments (never for verdict/evidence semantics — those use the design-tokens-v2 magenta-red at hue 320 specifically to NOT collide with brand)
-- [ ] **Six microstates** (rest / hover / focus-visible / active / disabled / loading / error / empty) specified for primary interactive surfaces on the page
+- [ ] **Interactive / state coverage** specified for primary interactive surfaces on the page: rest / hover / focus-visible / active / disabled, plus loading / error / empty data states (Codex iter-3 P3: this is two-axis coverage, not "six microstates")
+- [ ] **Semantic-icon restraint** (Codex iter-3 P2): no decorative icons beside text-bearing chips, pills, or buttons; icons only appear when they are part of the component grammar (e.g., the shield in SignatureBadge, the chevron in `<details>`, the ✓ in the matched-numbers stamp). No icon-for-decoration on labels, headings, or body copy.
+- [ ] **Zero internal jargon / trust-copy banlist** (Codex iter-3 P2; plan §15): no "BPEI", no "ambiguity_detector", no internal abort-code names, no model slugs in the UI surface, no "RAG", no "embedding", no engineering jargon. Trust copy is plain-English and physician-readable. Banned tokens MUST NOT appear in any frame: "BPEI", "RAG", "embedding", "ambiguity_detector", any `abort_*` code, any `pipeline_verdict` raw value, any model slug containing `:` or `_v[0-9]`.
 - [ ] **Mobile pattern** matches the family contract (read-mode bottom-sheet / edit-mode sheet-on-input / monitor-mode top-status / spatial pinch-zoom / marketing single-column)
 
 ## Budget posture acknowledgment (Codex iter-2 P2)
