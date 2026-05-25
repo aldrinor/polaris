@@ -46,6 +46,18 @@ test.describe("I-ux-001c · Home proof-as-CTA hero", () => {
     await expect(claim).toBeVisible();
     const text = (await claim.textContent()) ?? "";
     expect(text.length).toBeGreaterThan(20);
+    // Codex diff iter-2 P1: the loader's verified-gate is
+    // matched === total. The visible stamp MUST reflect that — if
+    // numerics are present, the matched count must equal the total.
+    const stampText =
+      (await page.getByTestId("proof-matched-stamp").textContent()) ?? "";
+    const m = stampText.match(/matched\s+(\d+)\s+of\s+(\d+)/i);
+    if (m) {
+      // Numeric claim: matched === total per the verified-gate.
+      expect(m[1]).toEqual(m[2]);
+    }
+    // (If m is null the claim is pure-prose — verifier_pass with zero
+    // numerics — and the stamp reads "verifier passed against …".)
   });
 
   test("numerics in the claim are bolded green via proof-numeric spans", async ({

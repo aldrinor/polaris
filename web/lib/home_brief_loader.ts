@@ -134,18 +134,30 @@ export async function loadHomeBrief(): Promise<HomeBrief> {
       for (const token of tokens) {
         const span = resolveSpan(token, bundle.evidencePool);
         const spanText = span?.quote;
-        // Selection criterion (Codex diff iter-1 P2-001 design note):
-        // we feature the FIRST verifier_pass sentence whose primary token
-        // resolves to a real >40-char span. We deliberately DO NOT also
-        // gate on `matchedNumerics === totalNumerics` here — a verifier
-        // PASS combined with a real resolvable span is already the §-1.1
-        // honest minimum, and stricter gating would silently exclude
-        // valid PARTIAL claims where the verifier's content-word overlap
-        // carried the proof. The UI tells the truth either way: the
-        // matched-numbers stamp shows the actual fraction
-        // (`matched <N> of <M>`), and a true mismatch surfaces visibly
-        // in the count instead of being hidden by selection.
+        // Verified-gate selection (Codex diff iter-2 P1 elevation, real
+        // §-1.1 clinical-safety concern): the Home hero renders the
+        // featured claim under a "VERIFIED CLAIM" label with
+        // verified-green styling and NO PARTIAL variant. If we picked a
+        // sentence whose verifier_pass=true rested on content-word
+        // overlap but with mismatched numerics, the user would read
+        // "✓ matched 2 of 5 numbers" under VERIFIED CLAIM — the lethal
+        // pattern in clinical context. The Inspector has a tri-state
+        // (verified / partial / unsupported) per-sentence verdict to
+        // honestly render partial; the Home does not. So the Home gate
+        // is STRICTER than the Inspector's: a claim is hero-eligible
+        // iff (a) verifier_pass AND (b) the span is real (>40 chars
+        // resolved) AND (c) EITHER pure-prose (totalNumerics === 0)
+        // OR every numeric in the sentence appears in the span
+        // (matchedNumerics === totalNumerics). Failing this, we
+        // continue searching; if no eligible sentence exists, the
+        // loader returns bundle_loaded: false (honest-fail).
         if (spanText && spanText.trim().length > 40) {
+          const candidateNumerics = extractNumerics(s.sentence_text);
+          const candidateMatched = countMatchesIn(candidateNumerics, spanText);
+          const numericGatePassed =
+            candidateNumerics.length === 0 ||
+            candidateMatched === candidateNumerics.length;
+          if (!numericGatePassed) continue;
           const sourceId = span.sourceId ?? "";
           const journal =
             (lookupPoolField(bundle.evidencePool, sourceId, "venue") as
@@ -157,9 +169,8 @@ export async function loadHomeBrief(): Promise<HomeBrief> {
             "year",
           );
           const year = typeof yearRaw === "number" ? yearRaw : null;
-          const numerics = extractNumerics(s.sentence_text);
-          const totalNumerics = numerics.length;
-          const matchedNumerics = countMatchesIn(numerics, spanText);
+          const totalNumerics = candidateNumerics.length;
+          const matchedNumerics = candidateMatched;
           return {
             bundle_loaded: true,
             run_id: DEMO_RUN_ID,
