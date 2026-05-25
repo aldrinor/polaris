@@ -501,31 +501,9 @@ function ProofPanel({
   signatureState,
   reducedMotion,
 }: ProofPanelProps) {
-  // Codex diff iter-1 P1-003 fix: ACTUAL staged reveal. `revealedBeat` state
-  // advances 0 → 1 → 2 → … → 6 on claim selection via a setTimeout chain.
-  // prefers-reduced-motion jumps straight to 6 (all beats visible at once,
-  // no per-beat stagger).
-  const [revealedBeat, setRevealedBeat] = useState(0);
-
-  useEffect(() => {
-    if (!claim) {
-      setRevealedBeat(0);
-      return;
-    }
-    if (reducedMotion) {
-      setRevealedBeat(6);
-      return;
-    }
-    // Reset and schedule the 6-beat ramp
-    setRevealedBeat(0);
-    const timers = BEAT_SCHEDULE.map((b) =>
-      window.setTimeout(() => setRevealedBeat(b.beat), b.t),
-    );
-    return () => {
-      for (const t of timers) window.clearTimeout(t);
-    };
-  }, [claim, reducedMotion]);
-
+  // Empty state is structurally distinct (no claim selected). Bail early so
+  // the staged-reveal hook below only runs when a claim is actually being
+  // shown.
   if (!claim) {
     return (
       <div
@@ -537,6 +515,51 @@ function ProofPanel({
       </div>
     );
   }
+  // The inner component receives a stable claim and runs the staged reveal
+  // hook. Keyed on (claim_id + reducedMotion) so React fully resets state
+  // on claim-change — avoids setRevealedBeat-in-effect (eslint
+  // react-hooks/set-state-in-effect).
+  return (
+    <StagedProofPanel
+      key={`${claim.claim_id}-${reducedMotion ? "rm" : "full"}`}
+      claim={claim}
+      manifest={manifest}
+      signatureState={signatureState}
+      reducedMotion={reducedMotion}
+    />
+  );
+}
+
+interface StagedProofPanelProps {
+  claim: ProofReplayClaim;
+  manifest: BundleManifest;
+  signatureState: SignatureState;
+  reducedMotion: boolean;
+}
+
+function StagedProofPanel({
+  claim,
+  manifest,
+  signatureState,
+  reducedMotion,
+}: StagedProofPanelProps) {
+  // Codex diff iter-1 P1-003 fix: ACTUAL staged reveal. The initial value
+  // is set via the lazy initializer (so it's correct at first render
+  // without any setState in an effect); subsequent advances come from the
+  // setTimeout chain.
+  const [revealedBeat, setRevealedBeat] = useState<number>(() =>
+    reducedMotion ? 6 : 0,
+  );
+
+  useEffect(() => {
+    if (reducedMotion) return;
+    const timers = BEAT_SCHEDULE.map((b) =>
+      window.setTimeout(() => setRevealedBeat(b.beat), b.t),
+    );
+    return () => {
+      for (const t of timers) window.clearTimeout(t);
+    };
+  }, [reducedMotion]);
 
   return (
     <div
