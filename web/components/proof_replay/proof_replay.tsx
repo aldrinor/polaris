@@ -132,7 +132,13 @@ function ChallengedLabel({ visible }: { visible: boolean }) {
   );
 }
 
-function ClaimEcho({ claim, visible }: { claim: ProofReplayClaim; visible: boolean }) {
+function ClaimEcho({
+  claim,
+  visible,
+}: {
+  claim: ProofReplayClaim;
+  visible: boolean;
+}) {
   return (
     <div
       data-testid="claim-echo"
@@ -147,7 +153,7 @@ function ClaimEcho({ claim, visible }: { claim: ProofReplayClaim; visible: boole
       >
         1
       </span>
-      <p className="text-foreground text-sm italic leading-relaxed">
+      <p className="text-foreground text-sm leading-relaxed italic">
         “{claim.sentence_text}”
       </p>
     </div>
@@ -194,7 +200,10 @@ function FaithfulnessBlock({
       f.content_words_overlap >= 2,
     ]);
   }
-  checks.push(["Evidence span sits inside the source bounds.", f.span_in_bounds]);
+  checks.push([
+    "Evidence span sits inside the source bounds.",
+    f.span_in_bounds,
+  ]);
 
   return (
     <div
@@ -490,12 +499,12 @@ interface ProofPanelProps {
 // Beat schedule per design_tokens_v2 §5 + i_ux_001d_motion_still_convention.md
 // row 1 timestamps. Each beat ramps to opacity 1 at its scheduled t (ms).
 const BEAT_SCHEDULE = [
-  { beat: 1, t: 0 },     // claim echo + challenged label (immediate)
-  { beat: 2, t: 130 },   // faithfulness
-  { beat: 3, t: 280 },   // evidence strength
-  { beat: 4, t: 430 },   // source (climax)
-  { beat: 5, t: 580 },   // signature
-  { beat: 6, t: 680 },   // disclosure
+  { beat: 1, t: 0 }, // claim echo + challenged label (immediate)
+  { beat: 2, t: 130 }, // faithfulness
+  { beat: 3, t: 280 }, // evidence strength
+  { beat: 4, t: 430 }, // source (climax)
+  { beat: 5, t: 580 }, // signature
+  { beat: 6, t: 680 }, // disclosure
 ] as const;
 
 function ProofPanel({

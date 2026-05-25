@@ -143,7 +143,10 @@ test.describe("I-ux-001c · Inspector Proof Replay v6 hero", () => {
     await expect(sigBlock).toBeVisible();
     // The canonical fixture is signed by the demo key → gpg_verified state
     const badge = sigBlock.getByTestId("signature-badge");
-    await expect(badge).toHaveAttribute("data-state", /gpg_verified|present_unverified|missing/);
+    await expect(badge).toHaveAttribute(
+      "data-state",
+      /gpg_verified|present_unverified|missing/,
+    );
   });
 
   test("sealed evidence block: matched-numbers stamp shows when numerics match", async ({

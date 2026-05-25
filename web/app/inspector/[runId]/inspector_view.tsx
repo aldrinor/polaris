@@ -31,7 +31,10 @@ export function InspectorView({ bundle }: InspectorViewProps) {
     >
       {/* I-ux-001a: signature state lives on the LoadedBundle (tri-valued),
           not as a separate prop — single source of truth. */}
-      <InspectorProofHeader bundle={bundle} signatureState={bundle.signatureState} />
+      <InspectorProofHeader
+        bundle={bundle}
+        signatureState={bundle.signatureState}
+      />
       <Tabs defaultValue="proof">
         {/* I-p2-043 (#833): the 8-tab rail overflowed the 375w viewport (Codex visual
             iter-2 P1). Contain it in a horizontal-scroll lane — desktop hugs content,

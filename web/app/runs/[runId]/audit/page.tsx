@@ -142,8 +142,14 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 }
 
 function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
-  const { manifest, metadata, verifiedReport, signatureState, signatureKeyFingerprint, runId } =
-    bundle;
+  const {
+    manifest,
+    metadata,
+    verifiedReport,
+    signatureState,
+    signatureKeyFingerprint,
+    runId,
+  } = bundle;
   const gateLedger = buildGateLedger(verifiedReport);
   const files: FileEntry[] = manifest.files;
   const totalBytes = files.reduce((sum, f) => sum + f.size_bytes, 0);
@@ -282,8 +288,8 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
             with{" "}
             <code className="font-mono text-[11px]">
               gpg --verify manifest.yaml.asc manifest.yaml
-            </code>
-            {" "}after importing the published trust-root pubkey.
+            </code>{" "}
+            after importing the published trust-root pubkey.
           </p>
         </div>
         <div className="border-border shadow-card hidden overflow-x-auto rounded-xl border sm:block">
@@ -369,7 +375,9 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
           <code className="font-mono text-[11px]">gpg --verify</code> + per-file
           SHA-256 re-hashing) is produced by the demo signing key (Ed25519,
           fingerprint pinned in{" "}
-          <code className="font-mono text-[11px]">state/polaris_gpg_keyid.txt</code>
+          <code className="font-mono text-[11px]">
+            state/polaris_gpg_keyid.txt
+          </code>
           ); see the Receipt view for the offline-verify flow.
         </p>
         <div className="flex flex-wrap gap-2">

@@ -97,7 +97,9 @@ function tierToCertainty(
  * negatives, percentages). Used to compute matched_numbers vs cited span. */
 function extractNumerics(text: string): string[] {
   // Includes Unicode minus (−), ASCII minus (-), and percentage tokens.
-  const matches = text.match(/[−-]?\d+(?:\.\d+)?(?:%|\s*percentage\s+points?)?/g);
+  const matches = text.match(
+    /[−-]?\d+(?:\.\d+)?(?:%|\s*percentage\s+points?)?/g,
+  );
   return matches ? matches : [];
 }
 
@@ -162,9 +164,7 @@ export function adaptToClaim(
   // rendered, but only the first drives the source-card display.
   const primaryToken =
     sentence.provenance_tokens && sentence.provenance_tokens[0];
-  const span = primaryToken
-    ? resolveSpan(primaryToken, evidencePool)
-    : null;
+  const span = primaryToken ? resolveSpan(primaryToken, evidencePool) : null;
 
   const tier =
     (span && span.source && (span.source.tier as string | null)) || null;
@@ -190,7 +190,8 @@ export function adaptToClaim(
 
   // Source metadata — best-effort lookup against the evidence pool.
   const sourceId = (span && span.sourceId) || "";
-  const journal = (lookupPoolField(evidencePool, sourceId, "venue") as string) || null;
+  const journal =
+    (lookupPoolField(evidencePool, sourceId, "venue") as string) || null;
   const yearRaw = lookupPoolField(evidencePool, sourceId, "year");
   const year = typeof yearRaw === "number" ? yearRaw : null;
   const authorsRaw = lookupPoolField(evidencePool, sourceId, "authors");
@@ -200,7 +201,8 @@ export function adaptToClaim(
       : Array.isArray(authorsRaw) && authorsRaw.length > 0
         ? `${authorsRaw[0]}${authorsRaw.length > 1 ? " et al." : ""}`
         : null;
-  const doi = (lookupPoolField(evidencePool, sourceId, "doi") as string) || null;
+  const doi =
+    (lookupPoolField(evidencePool, sourceId, "doi") as string) || null;
   const studyType =
     (lookupPoolField(evidencePool, sourceId, "study_type") as string) || null;
   const nRaw = lookupPoolField(evidencePool, sourceId, "n_participants");
@@ -228,11 +230,12 @@ export function adaptToClaim(
       // === 0 ≠ totalNumerics === 0). Correct logic: if the bundle says
       // verifier_pass, the claim is "verified" UNLESS it has numerics that
       // didn't match. Pure-prose verified claims (no numbers) → verified.
-      verdict: sentence.verifier_pass === true
-        ? totalNumerics === 0 || matchedNumerics === totalNumerics
-          ? "verified"
-          : "partial"
-        : "unsupported",
+      verdict:
+        sentence.verifier_pass === true
+          ? totalNumerics === 0 || matchedNumerics === totalNumerics
+            ? "verified"
+            : "partial"
+          : "unsupported",
       matched_numbers: { matched: matchedNumerics, total: totalNumerics },
       content_words_overlap: contentWordsOverlap,
       // Codex diff iter-3 P1: require span.quote !== null. ResolveSpan
@@ -257,7 +260,9 @@ export function adaptToClaim(
       authors,
       doi,
       tier,
-      matched_numbers_in_span: sentenceNumerics.filter((n) => spanText.includes(n)),
+      matched_numbers_in_span: sentenceNumerics.filter((n) =>
+        spanText.includes(n),
+      ),
     },
   };
 }
@@ -274,16 +279,7 @@ export function flattenToClaimList(
   sections.forEach((section, si) => {
     const sentences = section.verified_sentences || [];
     sentences.forEach((sentence, sj) => {
-      out.push(
-        adaptToClaim(
-          sentence,
-          section,
-          si,
-          sj,
-          evidencePool,
-          report,
-        ),
-      );
+      out.push(adaptToClaim(sentence, section, si, sj, evidencePool, report));
     });
   });
   return out;

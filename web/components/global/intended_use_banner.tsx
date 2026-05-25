@@ -50,7 +50,7 @@ export function IntendedUseBanner({
       className={[
         // Amber band; opacity boosted on mobile per Codex iter-3 P1
         "bg-amber-200/40 sm:bg-amber-200/30",
-        "border-amber-800/20 border-y",
+        "border-y border-amber-800/20",
         "px-4 py-2 sm:px-6 sm:py-1.5",
         "text-amber-900",
         "text-[10px] font-medium tracking-[0.02em] sm:text-[10px]",

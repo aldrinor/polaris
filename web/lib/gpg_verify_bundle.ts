@@ -89,7 +89,10 @@ export async function verifyBundleSignature(
       cp.stdout.on("data", (d: Buffer) => chunks.push(d));
       cp.on("error", () => resolve({ ok: false })); // gpg missing → downgrade
       cp.on("close", (code: number | null) =>
-        resolve({ ok: code === 0, bin: code === 0 ? Buffer.concat(chunks) : undefined }),
+        resolve({
+          ok: code === 0,
+          bin: code === 0 ? Buffer.concat(chunks) : undefined,
+        }),
       );
       cp.stdin.on("error", () => resolve({ ok: false }));
       cp.stdin.write(armored);
@@ -101,10 +104,18 @@ export async function verifyBundleSignature(
     // MSYS gpgv mangles absolute Windows paths in --keyring (prepends ~/.gnupg/
     // to anything with a colon). Workaround: cwd=tmpDir + relative keyring.
     // execFile's promisified form rejects on spawn error → caught below.
-    const { stdout, stderr } = await execFileAsync("gpgv", [
-      "--keyring", "./trust.gpg", "--status-fd", "1",
-      path.resolve(ascPath), path.resolve(manifestPath),
-    ], { cwd: tmpDir });
+    const { stdout, stderr } = await execFileAsync(
+      "gpgv",
+      [
+        "--keyring",
+        "./trust.gpg",
+        "--status-fd",
+        "1",
+        path.resolve(ascPath),
+        path.resolve(manifestPath),
+      ],
+      { cwd: tmpDir },
+    );
     const m = (stdout + stderr).match(/VALIDSIG\s+([0-9A-F]{40})\b/i);
     const fp = m ? m[1].toUpperCase() : null;
     if (!fp) return { state: "present_unverified" };
@@ -113,6 +124,7 @@ export async function verifyBundleSignature(
   } catch {
     return { state: "present_unverified" };
   } finally {
-    if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    if (tmpDir)
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 }
