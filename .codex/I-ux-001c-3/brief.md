@@ -57,10 +57,11 @@ The current `/intake` (4 components, ~650 LOC) has the right backend coupling bu
 
 NEW
 1. `web/app/intake/components/auto_domain_chip.tsx` (~80 LOC) — client component; receives question text + emits the detected domain chip. Heuristic: keyword-anchored mapping (e.g. "RCT/trial/dose/contraindication/efficacy" → clinical; "policy/regulation/HTA/NICE/CADTH" → policy; etc). Returns `null` when no domain crosses confidence threshold (LAW II).
+2. `web/components/ui/textarea.tsx` (~25 LOC) — shadcn-style `Textarea` component (the shadcn standard textarea wrapper around the native `<textarea>` with the project's design tokens). This file does NOT currently exist in `web/components/ui/`; sub-PR 3 adds it as a one-time foundation. Mirror the structure of `web/components/ui/input.tsx`.
 
 REBUILD
-2. `web/app/intake/page.tsx` — v6 layout: brand-red eyebrow + display H1 + tightened subtitle + PdfDropBanner + IntakeForm. DROP the STEPS grid.
-3. `web/app/intake/components/intake_form.tsx` (~230 LOC current) — keep ALL backend logic verbatim (scope decision / disambiguation / ambiguity modal / ErrorState / scope_decision_view link to `/source_review`). Replace `Input` with shadcn `Textarea` (multi-line, larger); rotate `SAMPLE_QUESTIONS` as placeholder. Mount the new `AutoDomainChip` below the textarea, gated on `question.length > 0`. Bigger primary CTA button. Keep `intake-question-input` testid on the textarea.
+3. `web/app/intake/page.tsx` — v6 layout: brand-red eyebrow + display H1 + tightened subtitle + PdfDropBanner + IntakeForm. DROP the STEPS grid.
+4. `web/app/intake/components/intake_form.tsx` (~230 LOC current) — keep ALL backend logic verbatim (scope decision / disambiguation / ambiguity modal / ErrorState / scope_decision_view link to `/source_review`). Replace `Input` with the new `Textarea` (multi-line; **preserve `maxLength={2000}`** — `f2_walkthrough.spec.ts` asserts this cap); rotate `SAMPLE_QUESTIONS` as placeholder. Mount the new `AutoDomainChip` below the textarea, gated on `question.length > 0`. Bigger primary CTA button. Keep `intake-question-input` testid on the textarea.
 
 DROPPED from iter-1/iter-2
 - ~~`source_set_health.tsx`~~ — LAW II violation (would render synthetic tier pills); authoritative source-set lives at `/source_review` already.
@@ -70,8 +71,10 @@ EDIT
 4. None to globals.css (existing tokens suffice).
 
 TESTS
-5. NEW `web/tests/e2e/intake_v6.spec.ts` — 4 cases: page eyebrow + H1 + subtitle render with v6 copy, textarea visible + accepts multi-line text, auto-domain chip appears after typing a clinical keyword + disappears for an off-domain question, sample-question rotation cycles.
-6. NO CHANGES needed to: `intake.spec.ts`, `intake_disambiguation.spec.ts`, `intake_disambiguation_negative.spec.ts`, `intake_edge.spec.ts`, `intake_g1_g8.spec.ts` — they all use `intake-question-input` testid + behavior assertions; the scope-decision-view render-in-place behavior and the source-review handoff are PRESERVED. If `intake_g1_g8.spec.ts` checks the STEPS grid presence specifically, that single assertion is updated (will verify on read).
+6. NEW `web/tests/e2e/intake_v6.spec.ts` — 4 cases: page eyebrow + H1 + subtitle render with v6 copy, textarea visible + accepts multi-line text, auto-domain chip appears after typing a clinical keyword + disappears for an off-domain question, sample-question rotation cycles.
+7. UPDATE `web/tests/e2e/intake.spec.ts` — eyebrow text assertion swap from "Clinical scope discovery" → "ASK · POLARIS CLINICAL RESEARCH". All other assertions (scope-decision-view render-in-place, source_review link, etc.) preserved.
+8. UPDATE `web/tests/e2e/intake_g1_g8.spec.ts` — only if it carries a STEPS-grid presence assertion; verify on read at implementation time. Other assertions preserved.
+9. NO CHANGES to: `intake_disambiguation.spec.ts`, `intake_disambiguation_negative.spec.ts`, `intake_edge.spec.ts`, `f2_walkthrough.spec.ts` — they all use `intake-question-input` testid + behavior assertions; scope-decision-view render-in-place, source-review handoff, and `maxLength={2000}` are PRESERVED.
 
 ## Files I have ALSO checked and they're clean
 
@@ -90,7 +93,7 @@ TESTS
 - `appshell_chrome_decision_clear`: PASS / FAIL — the spec is unambiguous that `/intake` stays inside AppShell (not chromeless like `/`)
 - `existing_test_compat_specified`: PASS / FAIL — the spec preserves `intake-page` and `intake-question-input` testids and lists which existing tests are KEPT vs UPDATED vs ADDED
 - `file_list_surgical`: PASS / FAIL — the listed files are the minimum needed to deliver v6 intake; no "while we're at it" scope creep
-- `cta_target_correct`: PASS / FAIL — `Plan this research →` deep-linking to `/plan?q=<encoded>` matches the I-p2-022 #761 plan-review surface and the existing `plan` route
+- `cta_target_correct`: PASS / FAIL — intake CTA continues to `/source_review?q=<encoded>` (preserving the working `intake → source_review → plan` flow; `/plan` belongs downstream after source review)
 
 ## Output schema (BIND)
 
