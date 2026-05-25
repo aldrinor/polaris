@@ -34,12 +34,35 @@
 | I-ux-001a — Prereq 0: signed-bundle moat | #873 | OPERATOR MERGE QUEUE (codex-required PASS) | `web/lib/gpg_verify_bundle.ts`, tri-state SignatureBadge, gpgv-isolated keyring verifier, CI guard, Dockerfile gnupg install |
 | I-ux-001a — Real demo signed bundle | #875 | OPERATOR MERGE QUEUE | `scripts/build_canonical_demo_bundle.py` signs by default; ships `polaris_demo_pubkey.asc` + `state/polaris_gpg_keyid.txt` |
 | I-ux-001b — Figma hero prototype (Stage 2 + Stage 4) | #877 | OPERATOR MERGE QUEUE | 5 Codex visual-audit rounds B → B+ → A → A/A → A/A-+GREENLIGHT; v6 applied A+ unlock (unified Sealed evidence block + "matched 6 of 6 numbers" stamp + sentence-case ladder) |
-| **I-ux-001d — Extend prototype: motion + all-pages BEFORE code** | **#879** | **IN PROGRESS — TRACK 1 + TRACK 2 LOCKED (both Codex APPROVE, accept_remaining, 0 P0/P1); TRACK 3 24-frame specialization next** | TRACK 1: 73 motion stills × 8 scenes APPROVED iter-3 mega-audit. TRACK 2: 5 family-template contact-sheets (read-mode + edit-mode + monitor-mode + spatial + marketing-auth) APPROVED iter-3, all P1/P2/P3 PASS. Demo nav 4 items + 5 routes cut + /transparency dedicated page + per-frame v6 checklist applied. Next: TRACK 3 specialize 5 family templates into 12 specific page heros × {desktop + mobile} = 24 frames (8 critical-path A+, 4 supporting A) → mega-audit → TRACK 4 e2e click-through → TRACK 5 per-page if flagged → sign-off → I-ux-001c |
+| **I-ux-001d — Extend prototype: motion + all-pages BEFORE code** | **#879** | **✅ COMPLETE — all 5 tracks APPROVED + signed off. Hand to I-ux-001c #878.** | TRACK 1 (73 motion stills × 8 scenes) APPROVED iter-3 mega-audit. TRACK 2 (5 family-template contact-sheets) APPROVED iter-3. TRACK 3 (12 desktop page specializations) APPROVED iter-4. TRACK 4 (e2e journey on 8 critical-path) APPROVED iter-1 with Codex frontier-comparison: 'POLARIS BEATS the compared products on the proof axis.' Mobile critical-path (5 new + 3 from TRACK 1/2 = 8 critical-path mobile) APPROVED iter-3. Total: ~95 frames across motion + family templates + page specializations + mobile. NEXT WORK: I-ux-001c (#878) Next.js + Tailwind v4 code implementation per the locked design spec. |
 | I-ux-001c — Hero implementation | #878 | QUEUED AFTER #879 | Next.js + Tailwind v4 build of the prototyped hero |
 
 ## NEXT CONCRETE ACTION (resume from cold here)
 
-**I-ux-001d TRACK 1 SCALE — 7 remaining motion scenes.** Sub-track A (`hero_first_reveal` desktop full-motion) APPROVED Codex iter-2 (`accept_remaining`, `ready_to_scale_with_caveats`). Motion grammar LOCKED. Scale the same opacity-reveal + annotation pattern across all 8 scenes × {full-motion + reduced-motion variants} × {desktop + mobile}.
+**I-ux-001d is COMPLETE. Pivot to I-ux-001c #878 — Next.js + Tailwind v4 code implementation of the locked design spec.**
+
+The full design system + 12-page hero specifications + motion grammar + intended-use disclosure + tri-state signature + per-frame v6 checklist are all locked across `web/p2shots/I-ux-001d/{motion,family_templates,page_specializations}/` and the Figma file `Is7pehpxPdn3ZOOgCsyUjs`. I-ux-001c reads from these as the spec source.
+
+### I-ux-001c step-by-step from cold boot
+
+1. Boot ritual (§3.1 step 0 canonical pin + CHARTER+PLAN SHA + halt-marker check).
+2. `git checkout polaris && git pull` (ensure #877 #879 merged by operator).
+3. `git checkout -b bot/I-ux-001c-hero-implementation` (#878).
+4. **Files to ground in:**
+   - `docs/web/proof_replay_storyboard.md` + `docs/web/components_catalogue.md` + `docs/web/design_tokens_v2.md` (the design source-of-truth, all v6 locked)
+   - `docs/web/i_ux_001d_route_frame_map.md` (12-page inventory + per-frame v6 checklist)
+   - `docs/web/i_ux_001d_motion_still_convention.md` (8-scene motion timing spec)
+   - `web/p2shots/I-ux-001d/page_specializations/page_*.png` (visual references for each of 12 pages × {desktop, mobile})
+   - `web/p2shots/I-ux-001d/motion/hero_*.png` (motion reference for the 8 scenes)
+   - `.codex/I-ux-001d/track4_e2e_journey_verdict_iter1.txt` (P2/P3 code-time carry-forward list)
+5. **Carry-forward code-time fixes** (Codex TRACK 4 + mobile audits):
+   - P2 intake "Proceed" → "Continue to source review" (avoid double-corpus-approval feel)
+   - P2 runs in-progress reveal "Open verified brief" affordance when complete
+   - P2 cross-page exit affordances (Compare / Graph / Back to brief / View signed bundle)
+   - P3 clinical acronym hover tooltips for PM-office reviewers
+   - P3 KG trust legend (verified / source / contradiction / declined / refused / missing)
+6. Build sub-PRs (one per family-page-group is the natural cadence): Inspector hero → Home → Intake/Source-Review/Plan → Run-progress → Compare → Knowledge-graph → supporting pages.
+7. Codex brief gate → diff → Codex diff gate → operator-merge → live verify on polarisresearch.ca → next sub-PR. Sub-track A (`hero_first_reveal` desktop full-motion) APPROVED Codex iter-2 (`accept_remaining`, `ready_to_scale_with_caveats`). Motion grammar LOCKED. Scale the same opacity-reveal + annotation pattern across all 8 scenes × {full-motion + reduced-motion variants} × {desktop + mobile}.
 
 ### Scene 1 APPROVED Codex iter-3 — carry-forward caveats for remaining 7 scenes (not blocking)
 
