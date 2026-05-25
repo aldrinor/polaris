@@ -86,6 +86,27 @@ def matches_manifest_route(declared_route: str, manifest_routes: list[str]) -> b
     return False
 
 
+def discover_all_app_routes(repo_root: Path) -> list[str]:
+    """Enumerate every web/app/<segments>/page.tsx in the repo.
+
+    Returns the derived route list (Next.js convention). Used to require
+    a conservative full-route sweep when the PR touches non-page UI
+    surface (web/components/** or layout/template/loading/error/
+    not-found.tsx) — those changes affect undetermined pages, so the
+    only mechanically-enforceable contract is "audit every page".
+    """
+    routes: set[str] = set()
+    app_dir = repo_root / "web" / "app"
+    if not app_dir.exists():
+        return []
+    for page in app_dir.rglob("page.tsx"):
+        rel = page.relative_to(repo_root).as_posix()
+        r = changed_page_route(rel)
+        if r is not None:
+            routes.add(r)
+    return sorted(routes)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--manifest", required=True, help="path to manifest.json")
@@ -93,6 +114,11 @@ def main() -> int:
         "--changed-files",
         required=False,
         help="path to file with changed paths (one per line); defaults to stdin",
+    )
+    p.add_argument(
+        "--repo-root",
+        default=".",
+        help="repo root for discovering all page.tsx routes (default: cwd)",
     )
     args = p.parse_args()
 
@@ -121,7 +147,7 @@ def main() -> int:
     changed = [c.strip() for c in changed if c.strip()]
 
     uncovered: list[tuple[str, str]] = []
-    advisory: list[str] = []
+    broad_changes: list[str] = []
     page_changes: list[tuple[str, str]] = []
 
     for path in changed:
@@ -133,7 +159,7 @@ def main() -> int:
             if not matches_manifest_route(route, manifest_routes):
                 uncovered.append((path, route))
         elif path.startswith("web/components/"):
-            advisory.append(path)
+            broad_changes.append(path)
         elif path.startswith("web/app/") and (
             path.endswith("layout.tsx")
             or path.endswith("template.tsx")
@@ -141,7 +167,7 @@ def main() -> int:
             or path.endswith("error.tsx")
             or path.endswith("not-found.tsx")
         ):
-            advisory.append(path)
+            broad_changes.append(path)
 
     print(f"Manifest routes: {len(manifest_routes)}")
     for r in manifest_routes:
@@ -150,10 +176,27 @@ def main() -> int:
     for path, route in page_changes:
         covered = "OK" if (path, route) not in uncovered else "MISS"
         print(f"  [{covered}] {path} -> {route}")
-    if advisory:
-        print(f"Advisory (operator-declared coverage): {len(advisory)}")
-        for a in advisory:
-            print(f"  {a}")
+
+    # Codex iter-4 P1 fix: broad changes (components, layouts,
+    # templates, loading/error/not-found) require a CONSERVATIVE
+    # full-route sweep. The manifest must cover every page.tsx route
+    # discovered in the repo. This closes the bypass where a
+    # `web/components/proof_replay/proof_replay.tsx` change could be
+    # audited against an unrelated route like `/intake`.
+    full_sweep_missing: list[str] = []
+    if broad_changes:
+        print(f"Broad UI changes (component / layout / template / loading / error / not-found): {len(broad_changes)}")
+        for c in broad_changes:
+            print(f"  {c}")
+        repo_root = Path(args.repo_root).resolve()
+        all_routes = discover_all_app_routes(repo_root)
+        print(f"All page.tsx routes discovered in repo: {len(all_routes)}")
+        for r in all_routes:
+            covered_in_manifest = matches_manifest_route(r, manifest_routes)
+            marker = "OK" if covered_in_manifest else "MISS"
+            print(f"  [{marker}] {r}")
+            if not covered_in_manifest:
+                full_sweep_missing.append(r)
 
     if uncovered:
         print("ERROR: route coverage missing — these page changes are not in the manifest:")
@@ -161,7 +204,22 @@ def main() -> int:
             print(f"  {path} -> {route}")
         return 1
 
-    print("OK: every changed page.tsx route is covered by the manifest")
+    if full_sweep_missing:
+        print(
+            "ERROR: broad UI changes (components / layouts / etc) require a"
+            " FULL-ROUTE SWEEP. These page.tsx routes exist in the repo but"
+            " are NOT in the manifest:"
+        )
+        for r in full_sweep_missing:
+            print(f"  {r}")
+        print(
+            "Re-run scripts/visual_review_gate.py with --routes covering"
+            " every discovered route, OR scope the PR to a single page so"
+            " per-page coverage applies."
+        )
+        return 1
+
+    print("OK: every changed page.tsx route is covered; broad changes (if any) have full-route sweep")
     return 0
 
 

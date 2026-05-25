@@ -140,17 +140,31 @@ P1 with a specific split plan; otherwise treat as cap-exempt per §3.0
      content SHA256 matches the manifest entry's `sha256` field,
      (c) the manifest has ≥1 entry. A manifest-hash match with missing
      or drifted screenshot files is rejected.
-   - **Route coverage** (P1-iter3 fix): `scripts/verify_route_coverage.py`
-     verifies that every `web/app/<segments>/page.tsx` change in the PR
-     maps to a route present in the manifest (Next.js convention
+   - **Route coverage** (P1-iter3 + P1-iter4 fix):
+     `scripts/verify_route_coverage.py` verifies that every
+     `web/app/<segments>/page.tsx` change in the PR maps to a route
+     present in the manifest (Next.js convention
      `web/app/foo/page.tsx` → `/foo`; dynamic segments `[runId]`
      match any concrete value; Next.js group `(group)` segments are
-     dropped). `web/components/**` and `layout/template/loading/error/
-     not-found.tsx` changes are ADVISORY (they affect undetermined
-     pages; per-file route mapping requires a build-time import graph
-     and is operator-declared in the brief). A PR that changes
-     `web/app/inspector/page.tsx` but audits only `/intake` is
-     rejected.
+     dropped). **Broad UI changes** (`web/components/**` OR
+     `web/app/**/{layout,template,loading,error,not-found}.tsx`)
+     trigger a CONSERVATIVE FULL-ROUTE SWEEP (P1-iter4 fix): the
+     gate enumerates every `web/app/**/page.tsx` in the repo and
+     requires each derived route to be in the manifest. This closes
+     the bypass where a shared component change could be audited
+     against an unrelated route while the actually-affected pages go
+     un-rendered. A PR scoped to a single page avoids the full sweep
+     by changing only that page's `page.tsx`.
+
+   **Operator-side action (P1-iter4 fix #2; OUT OF SCOPE for this PR):**
+   making `codex-visual-required` an enforced merge check requires
+   adding the context to `aldrinor/POLARIS` branch protection on
+   `polaris` (and `main`) — this is admin-scope GitHub UI/API
+   work that Claude does not have authority for per CHARTER §"Out
+   of Scope". The PR ships the workflow and helper scripts;
+   operator action is required to wire the workflow into
+   `required_status_checks` to convert from "advisory" to "AAB
+   in effect." A follow-up Issue tracks this admin step.
 8. **Interaction-dimension observability (P1-iter1 + P1-iter2 fix).**
    Script captures THREE screenshots per route×viewport (static,
    focused, hovered) so rubric dim 13 (motion-affordance), dim 14
