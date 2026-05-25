@@ -223,8 +223,13 @@ export function adaptToClaim(
         )
       : [],
     faithfulness: {
+      // Codex diff iter-2 P2: verifier_pass=true non-numeric claims were
+      // mis-classified as "partial" (no numbers to match → matchedNumerics
+      // === 0 ≠ totalNumerics === 0). Correct logic: if the bundle says
+      // verifier_pass, the claim is "verified" UNLESS it has numerics that
+      // didn't match. Pure-prose verified claims (no numbers) → verified.
       verdict: sentence.verifier_pass === true
-        ? totalNumerics > 0 && matchedNumerics === totalNumerics
+        ? totalNumerics === 0 || matchedNumerics === totalNumerics
           ? "verified"
           : "partial"
         : "unsupported",

@@ -187,7 +187,11 @@ export function InspectorProofHeader({
               {humanizeVerdict(report.pipeline_verdict)}
             </span>
             <span className="text-muted-foreground">
-              The pipeline ran honestly and signed the abort. See the Report
+              {/* Codex diff iter-2 P1-006 fix: signature-neutral copy.
+                  The SignatureBadge below carries the actual trust state
+                  (gpg_verified / present_unverified / missing); the abort
+                  header MUST NOT assert signing. */}
+              The pipeline ran honestly and emitted a verdict. See the Report
               tab for the full per-section state.
             </span>
           </div>
