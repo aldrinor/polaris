@@ -178,13 +178,16 @@ function FaithfulnessBlock({
         : "text-contradiction-foreground";
   // Codex diff iter-1 P1-001 fix: omit the content-word-overlap row when the
   // bundle did not carry the metric (content_words_overlap === null).
-  const checks: Array<[string, boolean]> = [
-    [
+  // Codex diff iter-3 P2: omit the "X of Y numbers" row when the claim has
+  // zero numerics. Showing "0 of 0" as data-pass=false misleads on
+  // pure-prose claims that have no numerical assertions to check.
+  const checks: Array<[string, boolean]> = [];
+  if (f.matched_numbers.total > 0) {
+    checks.push([
       `Every number in the claim appears in the cited span (${f.matched_numbers.matched} of ${f.matched_numbers.total}).`,
-      f.matched_numbers.total > 0 &&
-        f.matched_numbers.matched === f.matched_numbers.total,
-    ],
-  ];
+      f.matched_numbers.matched === f.matched_numbers.total,
+    ]);
+  }
   if (f.content_words_overlap !== null) {
     checks.push([
       `Claim and span share ${f.content_words_overlap} content words (threshold ≥ 2).`,

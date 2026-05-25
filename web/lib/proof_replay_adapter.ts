@@ -235,7 +235,14 @@ export function adaptToClaim(
         : "unsupported",
       matched_numbers: { matched: matchedNumerics, total: totalNumerics },
       content_words_overlap: contentWordsOverlap,
-      span_in_bounds: span !== null && span.source !== null,
+      // Codex diff iter-3 P1: require span.quote !== null. ResolveSpan
+      // returns quote: null when the source is missing full_text or when
+      // the offsets are out-of-bounds — both of which mean the exact span
+      // is NOT actually inside the source's bounds even though a source
+      // object exists. Honest-fail: the check fails if we can't render the
+      // exact passage.
+      span_in_bounds:
+        span !== null && span.source !== null && span.quote !== null,
     },
     evidence_strength: {
       level: tierToCertainty(tier),
