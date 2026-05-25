@@ -13,10 +13,20 @@ Motion conveyance to Codex = **annotated still sequence** (not interactive proto
 ```
 
 Where:
-- `<scene>` ∈ {`hero_first_reveal`, `hero_claim_switch`, `hero_sentence_hover`, `hero_sentence_focus`, `hero_mobile_sheet_open`, `hero_mobile_sheet_close`, `hero_reduced_motion`, `hero_failure_no_verified`, `hero_failure_refuse`}
+- `<scene>` ∈ exactly 8 primary scenes (per Codex iter-2 P3 — reduced-motion is a per-scene variant, NOT a separate scene):
+  - `hero_first_reveal` (6-beat hero choreography)
+  - `hero_claim_switch` (claim N → claim N+1)
+  - `hero_sentence_hover`
+  - `hero_sentence_focus`
+  - `hero_mobile_sheet_open`
+  - `hero_mobile_sheet_close`
+  - `hero_failure_no_verified` (abort state reveal)
+  - `hero_failure_refuse` (clinical-safety refuse state)
 - `<state>` ∈ {`pre`, `start`, `mid`, `near_end`, `end`, `final_static`, `interrupted`} — semantic label keyed to t=
 - `<viewport>` ∈ {`desktop`, `mobile`}
 - `<ms>` ∈ explicit timestamp in milliseconds from start of the transition (see timestamp set below)
+
+**Reduced-motion variant** is a per-scene attribute, not a scene. Each of the 8 scenes ships with two file sets: full-motion + reduced-motion (e.g., `hero_first_reveal_pre_desktop_t0.png` + `hero_first_reveal_pre_desktop_t0_reduced.png`). The `_reduced` filename suffix encodes the variant.
 
 Files land in `web/p2shots/I-ux-001d/motion/`.
 
@@ -30,25 +40,25 @@ Examples:
 - `hero_claim_switch_start_desktop_t0.png`
 - `hero_claim_switch_mid_desktop_t40.png`
 - `hero_claim_switch_end_desktop_t120.png`
-- `hero_reduced_motion_pre_desktop_t0.png`
-- `hero_reduced_motion_mid_desktop_t120.png`
-- `hero_reduced_motion_end_desktop_t200.png`
+- `hero_first_reveal_pre_desktop_t0_reduced.png`  (reduced-motion variant of the first-reveal start)
+- `hero_first_reveal_mid_desktop_t120_reduced.png`
+- `hero_first_reveal_end_desktop_t200_reduced.png`
 - `hero_mobile_sheet_open_pre_mobile_t0.png`
 - `hero_mobile_sheet_open_mid_mobile_t100.png`
 - `hero_mobile_sheet_open_end_mobile_t220.png`
 
-## Timestamp set (per Codex iter-1 D4 lock)
+## Timestamp set (per Codex iter-1 D4 lock; 8 scenes — reduced-motion is per-scene variant per iter-2 P3)
 
-| Scene | Timestamps (ms) | Reduced-motion equivalent |
-|---|---|---|
-| **hero_first_reveal** (rest → challenged → faithfulness → certainty → source span → signature → disclosure; 6 beats) | 0, 120, 250, 400, 600, 700 | 0, 120, 200 (opacity-only crossfade) |
-| **hero_claim_switch** (claim N → claim N+1; <120ms perceived per plan §14) | 0, 40, 120 | 0, 60, 120 (opacity crossfade) |
-| **hero_sentence_hover** (rest → hover) | 0, 60, 120 | NONE (no hover transition) |
-| **hero_sentence_focus** (rest → focus-visible) | 0, 80, 160 | 0, 160 (instant ring) |
-| **hero_mobile_sheet_open** | 0, 100, 220 | 0, 120 (instant pop) |
-| **hero_mobile_sheet_close** | 0, 100, 180 | 0, 120 (instant collapse) |
-| **hero_failure_no_verified** (abort state reveal) | 0, 200, 400 | 0, 200 |
-| **hero_failure_refuse** (clinical-safety refuse state) | 0, 200, 400 | 0, 200 |
+| # | Scene | Full-motion timestamps (ms) | Reduced-motion variant timestamps (ms) |
+|---|---|---|---|
+| 1 | **hero_first_reveal** (rest → challenged → faithfulness → certainty → source span → signature → disclosure; 6 beats) | 0, 120, 250, 400, 600, 700 | 0, 120, 200 (opacity-only crossfade) |
+| 2 | **hero_claim_switch** (claim N → claim N+1; <120ms perceived per plan §14) | 0, 40, 120 | 0, 60, 120 (opacity crossfade) |
+| 3 | **hero_sentence_hover** (rest → hover) | 0, 60, 120 | NONE (no hover transition; document the omission as the reduced-motion contract) |
+| 4 | **hero_sentence_focus** (rest → focus-visible) | 0, 80, 160 | 0, 160 (instant ring) |
+| 5 | **hero_mobile_sheet_open** | 0, 100, 220 | 0, 120 (instant pop) |
+| 6 | **hero_mobile_sheet_close** | 0, 100, 180 | 0, 120 (instant collapse) |
+| 7 | **hero_failure_no_verified** (abort state reveal) | 0, 200, 400 | 0, 200 |
+| 8 | **hero_failure_refuse** (clinical-safety refuse state) | 0, 200, 400 | 0, 200 |
 
 Timing rationale (frontier-bar + clinical-safety):
 - 6-beat reveal at ~700ms total — within Vercel design-guideline 400-800ms range for hero choreography; below threshold where "lively" becomes "slow" (Linear / Stripe land in 500-700ms for hero reveals).
