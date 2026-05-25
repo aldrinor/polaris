@@ -34,33 +34,39 @@
 | I-ux-001a — Prereq 0: signed-bundle moat | #873 | OPERATOR MERGE QUEUE (codex-required PASS) | `web/lib/gpg_verify_bundle.ts`, tri-state SignatureBadge, gpgv-isolated keyring verifier, CI guard, Dockerfile gnupg install |
 | I-ux-001a — Real demo signed bundle | #875 | OPERATOR MERGE QUEUE | `scripts/build_canonical_demo_bundle.py` signs by default; ships `polaris_demo_pubkey.asc` + `state/polaris_gpg_keyid.txt` |
 | I-ux-001b — Figma hero prototype (Stage 2 + Stage 4) | #877 | OPERATOR MERGE QUEUE | 5 Codex visual-audit rounds B → B+ → A → A/A → A/A-+GREENLIGHT; v6 applied A+ unlock (unified Sealed evidence block + "matched 6 of 6 numbers" stamp + sentence-case ladder) |
-| **I-ux-001d — Extend prototype: motion + all-pages BEFORE code** | **#879** | **IN PROGRESS — sequencing plan APPROVED Codex iter-3 (accept_remaining, 0 P0/P1); TRACK 1 hero-motion stills next** | 12 pages × 2 viewports = 24 frames; 8 motion scenes + per-scene reduced-motion variants; demo nav = 4 items (5 routes cut from primary nav, kept as deep-link); /transparency = dedicated HTML page (NEW route #12) + /.well-known/transparency.json for machines; per-frame v6 checklist (12 items incl. semantic-icon restraint + zero-jargon banlist) |
+| **I-ux-001d — Extend prototype: motion + all-pages BEFORE code** | **#879** | **IN PROGRESS — TRACK 1 sub-track A APPROVED Codex iter-2 (accept_remaining, ready_to_scale_with_caveats); TRACK 1 scale-up to 7 remaining scenes next** | sequencing plan APPROVED iter-3; sub-track A `hero_first_reveal` desktop 6 frames APPROVED iter-2 — motion grammar LOCKED. 12 pages × 2 viewports = 24 frames target; 8 motion scenes + per-scene reduced-motion; demo nav = 4 items (5 routes cut); /transparency = dedicated HTML page (NEW route #12); per-frame v6 checklist (12 items) |
 | I-ux-001c — Hero implementation | #878 | QUEUED AFTER #879 | Next.js + Tailwind v4 build of the prototyped hero |
 
 ## NEXT CONCRETE ACTION (resume from cold here)
 
-**I-ux-001d TRACK 1 — hero motion stills.** Sequencing plan APPROVED Codex iter-3, `accept_remaining`. Begin Figma motion choreography on the existing v6 hero frames.
+**I-ux-001d TRACK 1 SCALE — 7 remaining motion scenes.** Sub-track A (`hero_first_reveal` desktop full-motion) APPROVED Codex iter-2 (`accept_remaining`, `ready_to_scale_with_caveats`). Motion grammar LOCKED. Scale the same opacity-reveal + annotation pattern across all 8 scenes × {full-motion + reduced-motion variants} × {desktop + mobile}.
+
+### Sub-track A APPROVED iter-2 — caveats to address during scale-up (not blocking)
+
+- **P2** challenged-sentence label needs tightening (contrast/size/position) — currently slate-on-cream 10px Inter Medium with 4% tracking; bump to 11px + higher-contrast slate or add a 2px green accent dot
+- **P2** t=400 has visible empty source-card slot above Evidence strength — the spatial-temporal reorder is "partially successful"; need to either collapse layout when source hidden OR use absolute-positioned reveals
+- **P2** t=700 Limits disclosure sits close to the 24px bottom annotation bar — add 16-24px clearance before mobile/full rollout
+- **P3** Evidence ladder labels small/low-contrast (carried forward from iter-1 P3)
+- **P3** t=0 claim text still slightly more active than surrounding muted copy — minor
 
 ### Step-by-step from cold boot
 
 1. Boot ritual (§3.1 step 0 canonical pin + CHARTER+PLAN SHA + halt-marker check).
 2. `git checkout bot/I-ux-001d-extend-prototype-audit && git pull`.
 3. **Files to ground in:**
-   - `docs/web/i_ux_001d_motion_still_convention.md` — 8 scenes + per-scene reduced-motion; timestamp table
-   - `docs/web/i_ux_001d_route_frame_map.md` — 12 pages × 2 viewports; per-frame v6 checklist; nav-cut + transparency split
-   - `docs/web/proof_replay_storyboard.md` — 6-beat hero choreography spec
-   - `web/p2shots/I-ux-001b/hero_stage{2,4}_v6_*.png` — the precedent stills (t=final_static; existing Figma frame `1:2` desktop + `14:2` mobile in file `Is7pehpxPdn3ZOOgCsyUjs`)
-   - `.codex/I-ux-001d/sequencing_verdict_iter{1,2,3}.txt` — full direction history
-4. **Figma execution** (use_figma):
-   a. Open file `Is7pehpxPdn3ZOOgCsyUjs`, locate page "I-ux-001b hero v6" with frames `1:2` (desktop) and `14:2` (mobile).
-   b. Duplicate to new page "I-ux-001d motion" — 8 scene-rows × {full-motion + reduced-motion variants} × {desktop + mobile}.
-   c. For each scene, build the timestamp-keyed frames per `i_ux_001d_motion_still_convention.md` table. Use opacity + transform deltas only (Smart Animate is non-destructive on copy-on-write).
-   d. Add 16px on-frame annotation overlay per the convention: `<scene> · t=<ms> · <state> · <viewport> · reduced-motion: <yes|no>`.
-   e. Export each PNG to `web/p2shots/I-ux-001d/motion/<filename per convention>`.
-5. **First sub-track (smoke test):** `hero_first_reveal` desktop full-motion only (6 frames: t=0, 120, 250, 400, 600, 700). Confirm the still sequence READS as motion to Codex before scaling to all 8 scenes.
-6. **Codex hero-motion audit** via `codex exec -i <each motion still>` with brief `.codex/I-ux-001d/motion_audit_brief_iter1.md` (use the §0 cap directive verbatim). Audit asks: does the motion grammar match the 6-beat choreography spec? Does it honor reduced-motion (WCAG 2.2 2.3.3)? Does it ever obscure the two-judgment separation or source-span attribution?
-7. On Codex APPROVE → TRACK 2 (family-template contact-sheet).
-8. Track-by-track until all 5 tracks APPROVED, then sign-off.
+   - `docs/web/i_ux_001d_motion_still_convention.md` — 8 scenes table + reduced-motion contract
+   - `.codex/I-ux-001d/motion_audit_verdict_iter2.txt` — sub-track A APPROVE + caveats list
+   - `web/p2shots/I-ux-001d/motion/hero_first_reveal_*.png` — the APPROVED grammar precedent (6 desktop full-motion frames)
+   - Figma file `Is7pehpxPdn3ZOOgCsyUjs` page "I-ux-001d motion" — existing 6 frames (node IDs 23:2 ... 23:492)
+4. **TRACK 1 scale execution** (use_figma, apply the iter-2 caveat fixes during scaling):
+   a. **Mobile full-motion** for `hero_first_reveal` (6 frames at t=0/120/250/400/600/700 × 390×844). Source = `14:2` mobile hero. Same opacity-reveal pattern, mobile bottom-sheet layout per Stage 4 of storyboard.
+   b. **Reduced-motion variants** for `hero_first_reveal` (desktop + mobile) at t=0/120/200 only (opacity-only crossfade per convention table row 1).
+   c. **Remaining 7 scenes** (`hero_claim_switch`, `hero_sentence_hover`, `hero_sentence_focus`, `hero_mobile_sheet_open`, `hero_mobile_sheet_close`, `hero_failure_no_verified`, `hero_failure_refuse`) at their convention-table timestamps × {full + reduced where applicable} × {desktop + mobile where applicable}.
+   d. Apply the iter-2 caveat fixes inline: tighten challenged-sentence label, collapse layout to avoid t=400 hole pattern in any future "intermediate reveal" frames, add bottom-disclosure clearance.
+5. **Codex hero-motion mega-audit** via `codex exec -i` on the FULL scene-grid (one audit covering all scenes, NOT per-scene — per iter-3 D3 cadence lock). Brief: `.codex/I-ux-001d/motion_audit_brief_track1_scale.md`. Verdict: APPROVE iff motion grammar holds across all scenes + reduced-motion variants are coherent.
+6. On TRACK 1 APPROVE → TRACK 2 (family-template contact-sheet: read-mode / edit-mode / monitor-mode / spatial / marketing-auth × 1 desktop each = 5 frames; per Codex iter-3 D3).
+7. Then TRACK 3 (24-frame mega-audit), TRACK 4 (e2e click-through), TRACK 5 (per-page critical-path if flagged).
+8. Sign-off → hand to I-ux-001c (#878).
 
 ### Operator standing directive (2026-05-24) — REMAINS BINDING
 
