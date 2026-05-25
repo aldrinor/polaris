@@ -6,7 +6,7 @@
 "Pls really execute them, then show me the full plan, how you are going
 forward on the UI design harness engineering."
 
-**Inputs (all in `outputs/ui_harness_research/`):**
+**Inputs (all in `docs/ui_harness_research/`):**
 
 - `playwright_mcp_source_deep_dive.md` (371 lines, file:line citations)
 - `browser_agent_frameworks_deep_dive.md` (207 lines, Browser-Use + Stagehand + Skyvern)
@@ -379,13 +379,13 @@ If any of these is unwanted, operator interrupts. Otherwise I execute.
 
 ## Section 7 — Files added by this plan
 
-- `outputs/ui_harness_research/playwright_mcp_source_deep_dive.md` ✓
-- `outputs/ui_harness_research/browser_agent_frameworks_deep_dive.md` ✓
-- `outputs/ui_harness_research/coding_agent_review_patterns.md` ✓
-- `outputs/ui_harness_research/academic_papers_full_text.md` ✓
-- `outputs/ui_harness_research/visual_regression_tools_deep_dive.md` ✓
-- `outputs/ui_harness_research/failure_cases_compendium.md` ✓
-- `outputs/ui_harness_research/vendor_docs_first_party.md` ✓
+- `docs/ui_harness_research/playwright_mcp_source_deep_dive.md` ✓
+- `docs/ui_harness_research/browser_agent_frameworks_deep_dive.md` ✓
+- `docs/ui_harness_research/coding_agent_review_patterns.md` ✓
+- `docs/ui_harness_research/academic_papers_full_text.md` ✓
+- `docs/ui_harness_research/visual_regression_tools_deep_dive.md` ✓
+- `docs/ui_harness_research/failure_cases_compendium.md` ✓
+- `docs/ui_harness_research/vendor_docs_first_party.md` ✓
 - `docs/ui_harness_master_plan_2026_05_25.md` (this file) ✓
 
 To be added (workstream A-1):
