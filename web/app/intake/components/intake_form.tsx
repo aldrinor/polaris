@@ -7,7 +7,7 @@ import { useState } from "react";
 import { ErrorState } from "@/components/states/state_kit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   IntakeBadRequestError,
   runDisambiguation,
@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 
 import { AmbiguityModal } from "./ambiguity_modal";
+import { AutoDomainChip } from "./auto_domain_chip";
 import { DisambiguationModal } from "./disambiguation_modal";
 import { ScopeDecisionView } from "./scope_decision_view";
 
@@ -106,6 +107,10 @@ export function IntakeForm() {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* I-ux-001c sub-PR 3 (#884): v6 intake card — Textarea + AutoDomainChip
+          + larger CTA. ALL backend logic (scope decision / disambiguation /
+          ambiguity modal / ErrorState / scope_decision_view → /source_review
+          handoff) is preserved verbatim. Only presentation changes here. */}
       <Card>
         <CardHeader>
           <CardTitle className="text-xl">
@@ -124,7 +129,7 @@ export function IntakeForm() {
             >
               Your question
             </label>
-            <Input
+            <Textarea
               id="intake-question"
               data-testid="intake-question-input"
               placeholder="e.g. Does aspirin reduce headaches in adults?"
@@ -133,8 +138,11 @@ export function IntakeForm() {
               maxLength={2000}
               disabled={state.kind === "loading"}
               autoComplete="off"
-              className="h-12 text-base"
+              rows={3}
+              className="min-h-24 text-base sm:text-base"
             />
+            {/* AutoDomainChip — heuristic, null-safe (LAW II) */}
+            <AutoDomainChip question={question} />
             <p className="text-muted-foreground text-xs">
               POLARIS only researches clinical evidence questions (efficacy,
               safety, diagnosis, prognosis). Other domains will be marked out of
@@ -147,6 +155,7 @@ export function IntakeForm() {
                 variant="default"
                 disabled={state.kind === "loading"}
                 data-testid="intake-submit"
+                className="h-11 px-5 text-base"
               >
                 {state.kind === "loading" ? "Checking…" : "Check scope"}
               </Button>

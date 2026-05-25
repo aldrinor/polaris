@@ -19,7 +19,7 @@ test.describe("Slice 001 — /intake", () => {
   test("renders title, form, and sample suggestions", async ({ page }) => {
     await expect(page.getByTestId("intake-page")).toBeVisible();
     await expect(
-      page.getByText(/Clinical scope discovery/i).first(),
+      page.getByText(/ASK.*POLARIS CLINICAL RESEARCH/i).first(),
     ).toBeVisible();
     await expect(page.getByTestId("intake-question-input")).toBeVisible();
     await expect(page.getByTestId("intake-submit")).toBeVisible();
