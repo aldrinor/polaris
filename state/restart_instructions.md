@@ -34,23 +34,33 @@
 | I-ux-001a — Prereq 0: signed-bundle moat | #873 | OPERATOR MERGE QUEUE (codex-required PASS) | `web/lib/gpg_verify_bundle.ts`, tri-state SignatureBadge, gpgv-isolated keyring verifier, CI guard, Dockerfile gnupg install |
 | I-ux-001a — Real demo signed bundle | #875 | OPERATOR MERGE QUEUE | `scripts/build_canonical_demo_bundle.py` signs by default; ships `polaris_demo_pubkey.asc` + `state/polaris_gpg_keyid.txt` |
 | I-ux-001b — Figma hero prototype (Stage 2 + Stage 4) | #877 | OPERATOR MERGE QUEUE | 5 Codex visual-audit rounds B → B+ → A → A/A → A/A-+GREENLIGHT; v6 applied A+ unlock (unified Sealed evidence block + "matched 6 of 6 numbers" stamp + sentence-case ladder) |
-I-ux-001d — Extend prototype: motion + all-pages BEFORE code | #879 | IN PROGRESS — sequencing plan APPROVED Codex iter-3 (accept_remaining, 0 P0/P1); TRACK 1 next | 12 pages × 2 viewports = 24 frames; 8 motion scenes + reduced-motion variants; demo nav = 4 items (5 routes cut); /transparency = dedicated HTML page; per-frame v6 checklist (12 items)
-| I-ux-001c — Hero implementation | #878 | QUEUED AFTERI-ux-001d — Extend prototype: motion + all-pages BEFORE code | #879 | IN PROGRESS — sequencing plan APPROVED Codex iter-3 (accept_remaining, 0 P0/P1); TRACK 1 next | 12 pages × 2 viewports = 24 frames; 8 motion scenes + reduced-motion variants; demo nav = 4 items (5 routes cut); /transparency = dedicated HTML page; per-frame v6 checklist (12 items)
+| **I-ux-001d — Extend prototype: motion + all-pages BEFORE code** | **#879** | **IN PROGRESS — sequencing plan APPROVED Codex iter-3 (accept_remaining, 0 P0/P1); TRACK 1 hero-motion stills next** | 12 pages × 2 viewports = 24 frames; 8 motion scenes + per-scene reduced-motion variants; demo nav = 4 items (5 routes cut from primary nav, kept as deep-link); /transparency = dedicated HTML page (NEW route #12) + /.well-known/transparency.json for machines; per-frame v6 checklist (12 items incl. semantic-icon restraint + zero-jargon banlist) |
+| I-ux-001c — Hero implementation | #878 | QUEUED AFTER #879 | Next.js + Tailwind v4 build of the prototyped hero |
 
 ## NEXT CONCRETE ACTION (resume from cold here)
 
-**I-ux-001d iter 2** — revise issue body + ship route/frame map + naming convention, then re-brief Codex for sequencing-plan APPROVE.
+**I-ux-001d TRACK 1 — hero motion stills.** Sequencing plan APPROVED Codex iter-3, `accept_remaining`. Begin Figma motion choreography on the existing v6 hero frames.
 
 ### Step-by-step from cold boot
 
 1. Boot ritual (§3.1 step 0 canonical pin + CHARTER+PLAN SHA + halt-marker check).
-2. `git checkout bot/I-ux-001d-extend-prototype-audit && git pull` (current branch).
-3. **Files to ground in:** `.codex/I-ux-001d/sequencing_brief_iter1.md`, `.codex/I-ux-001d/sequencing_verdict_iter1.txt` (Codex hybrid direction), `.codex/I-ux-001/PLAN_APPROVED.md`, `docs/stier_experience_plan.md`, `web/p2shots/I-ux-001b/hero_stage{2,4}_v6_*.png`.
-4. Write: `docs/web/i_ux_001d_route_frame_map.md` (11 pages × desktop+mobile = 22 frames; verify `/transparency` IS NOT a route — it's integrated into shell footer; verify Source Review IS a critical-path page per Codex direction).
-5. Write: `docs/web/i_ux_001d_motion_still_convention.md` (naming convention `<stage>_<state>_<viewport>_t<ms>.png`; timestamp sets per Codex direction).
-6. Update GH#879 body with the Codex-directed hybrid sequence.
-7. Brief Codex iter 2 = "here's the revised plan + inventory + naming; ready for sequencing-plan APPROVE."
-8. On APPROVE, begin TRACK 1 (motion on existing hero) per the still convention.
+2. `git checkout bot/I-ux-001d-extend-prototype-audit && git pull`.
+3. **Files to ground in:**
+   - `docs/web/i_ux_001d_motion_still_convention.md` — 8 scenes + per-scene reduced-motion; timestamp table
+   - `docs/web/i_ux_001d_route_frame_map.md` — 12 pages × 2 viewports; per-frame v6 checklist; nav-cut + transparency split
+   - `docs/web/proof_replay_storyboard.md` — 6-beat hero choreography spec
+   - `web/p2shots/I-ux-001b/hero_stage{2,4}_v6_*.png` — the precedent stills (t=final_static; existing Figma frame `1:2` desktop + `14:2` mobile in file `Is7pehpxPdn3ZOOgCsyUjs`)
+   - `.codex/I-ux-001d/sequencing_verdict_iter{1,2,3}.txt` — full direction history
+4. **Figma execution** (use_figma):
+   a. Open file `Is7pehpxPdn3ZOOgCsyUjs`, locate page "I-ux-001b hero v6" with frames `1:2` (desktop) and `14:2` (mobile).
+   b. Duplicate to new page "I-ux-001d motion" — 8 scene-rows × {full-motion + reduced-motion variants} × {desktop + mobile}.
+   c. For each scene, build the timestamp-keyed frames per `i_ux_001d_motion_still_convention.md` table. Use opacity + transform deltas only (Smart Animate is non-destructive on copy-on-write).
+   d. Add 16px on-frame annotation overlay per the convention: `<scene> · t=<ms> · <state> · <viewport> · reduced-motion: <yes|no>`.
+   e. Export each PNG to `web/p2shots/I-ux-001d/motion/<filename per convention>`.
+5. **First sub-track (smoke test):** `hero_first_reveal` desktop full-motion only (6 frames: t=0, 120, 250, 400, 600, 700). Confirm the still sequence READS as motion to Codex before scaling to all 8 scenes.
+6. **Codex hero-motion audit** via `codex exec -i <each motion still>` with brief `.codex/I-ux-001d/motion_audit_brief_iter1.md` (use the §0 cap directive verbatim). Audit asks: does the motion grammar match the 6-beat choreography spec? Does it honor reduced-motion (WCAG 2.2 2.3.3)? Does it ever obscure the two-judgment separation or source-span attribution?
+7. On Codex APPROVE → TRACK 2 (family-template contact-sheet).
+8. Track-by-track until all 5 tracks APPROVED, then sign-off.
 
 ### Operator standing directive (2026-05-24) — REMAINS BINDING
 
