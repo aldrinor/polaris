@@ -1,0 +1,40 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - page: 12
+    route: /transparency
+    issue: "Hero H1 collides with the supporting paragraph; the paragraph begins under the final H1 line. The disclosure card text is also clipped at the bottom of the card/viewport."
+    why_it_matters: "This is a direct readability/layout failure on a supporting disclosure page, and it weakens the trust/transparency promise."
+p2:
+  - page: 10
+    route: /sign-in
+    issue: "Institution list is presented as prose inside a proof-style bordered block. It reads less like an auth action surface and more like marketing copy."
+    fix: "Make it feel like a sign-in chooser: institution rows, compact buttons, or a select/search affordance."
+  - page: 08
+    route: /runs/[runId]/graph
+    issue: "Graph specialization is clear, but the visual density is low for desktop. It risks feeling like a static concept diagram rather than an explorable knowledge graph."
+    fix: "Add a few secondary edges/nodes or a subtle selected-path trail while keeping the current focal clarity."
+  - page: 09
+    route: /runs/[runId]/audit
+    issue: "Audit is too visually close to Inspector. The manifest disclosure changes the heading area, but the page still reads as another proof replay."
+    fix: "Promote export/audit-specific controls or manifest fields so it has a stronger audit/export identity."
+p3:
+  - "Bottom diagnostic/footer strips are consistent, but visually heavy across all frames. Acceptable for prototype audit, but should be quieter in production captures."
+  - "Several pages rely on the same green outlined evidence/rationale block. The grammar works, but future iterations should reserve that treatment for trust gates and verified evidence only."
+
+convergence_call: continue
+track_3_ready_to_signoff: no
+
+specific_check_responses:
+  specialization_sufficiency: PASS
+  family_contract_leakage: PASS
+  per_frame_v6_checklist: FAIL_with_detail
+  critical_path_aplus: PASS
+  supporting_a_bar: FAIL_with_detail
+  cross_page_narrative_coherence: PASS
+  pages_flagged_for_track5_per_page: [12, 10, 8, 9]
+```
+
+Main blocker is page 12. Fix the transparency layout overlap/clipping, then this is close to Track 3 signoff. The A+ critical path reads coherently and the demo journey makes sense: ask, approve sources, approve plan, monitor, inspect proof, compare, explore graph.
