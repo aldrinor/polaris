@@ -1,0 +1,175 @@
+name: codex-visual-required
+# Per CLAUDE.md §3.0 (6th artifact for UI PRs) + .codex/visual_audit_rubric.md
+# +docs/ui_harness_research_2026_05_25.md (AAB pattern adoption).
+#
+# This workflow makes the visual-review gate a REQUIRED check on PRs that
+# touch user-visible UI surface (web/app/**, web/components/**). The
+# writer agent cannot bypass via prompts; bypassing requires editing this
+# workflow which is gated by CODEOWNERS (Out of Scope for Claude per
+# CHARTER §"Out of Scope").
+#
+# Authoritative parse rule mirrors codex-required.yml (PRD2-P1-001):
+# the LAST `verdict: APPROVE|REQUEST_CHANGES` line in the artifact file
+# wins. The convention matches `.codex/<id>/codex_brief_verdict.txt` and
+# `.codex/<id>/codex_diff_audit.txt`.
+#
+# Why two CI gates (codex-required + codex-visual-required) instead of one:
+# - codex-required parses code-diff Codex APPROVE only; the reviewer
+#   never saw the rendered page. That mode shipped 8 sub-PRs without
+#   visual audit (the harness-drift incident; see docs/ui_harness_research_2026_05_25.md
+#   §6). This gate adds the missing visual layer.
+# - Two gates means visual-audit drift cannot quietly disable code-diff
+#   audit (or vice versa). Both must pass independently.
+
+on:
+  pull_request:
+    branches: [polaris, main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  codex-visual-required:
+    runs-on: ubuntu-latest
+    env:
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: detect_ui_surface_changed
+        id: ui_surface
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # The visual gate runs ONLY when the PR touches user-visible
+        # surface. Non-UI PRs (docs, infra, src/polaris_v6 backend that
+        # doesn't render) skip cleanly. The path list MUST stay narrow —
+        # widening it without changing the audit set creates noise.
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")"
+          ui_surface="false"
+          # UI surfaces that mandate visual audit:
+          #   web/app/**           — Next.js routes
+          #   web/components/**    — shared visual components
+          # NOT included (changes here do NOT require a visual gate):
+          #   web/lib/**           — non-visual helpers
+          #   web/tests/**         — test scaffolds
+          #   web/middleware.ts    — routing logic
+          if echo "$changed" | grep -E '^(web/app/|web/components/)' >/dev/null; then
+            ui_surface="true"
+          fi
+          echo "ui_surface=$ui_surface" >> "$GITHUB_OUTPUT"
+          echo "Detected UI surface change: $ui_surface"
+          echo "Changed files:"
+          echo "$changed" | sed 's/^/  /'
+
+      - name: extract_and_validate_issue_id
+        id: issue
+        if: steps.ui_surface.outputs.ui_surface == 'true'
+        # Mirrors codex-required.yml's allowlist verbatim. Same canonical
+        # bot/I-<area>-NNN schema + infra-branch allowlist. Keeping the
+        # two gates' branch-name parsing identical means there is one
+        # source of truth for "which PR is gated".
+        run: |
+          set -euo pipefail
+          if [[ "$HEAD_REF" =~ ^bot/(I-[a-z0-9]{2,8}-[0-9]{3}(-followup|[a-z])?)(-[a-z0-9_-]+)?$ ]]; then
+            issue_id="${BASH_REMATCH[1]}"
+            printf 'issue_id=%s\n' "$issue_id" >> "$GITHUB_OUTPUT"
+            printf 'skip=false\n' >> "$GITHUB_OUTPUT"
+            echo "Validated bot-PR head ref: $HEAD_REF -> issue_id=$issue_id"
+          elif [[ "$HEAD_REF" =~ ^bot/(pr-(a|a2|a3|b|b2|c|d|e|f)|cleanup-pr-(1|2|3a|3b|3c|4|5|6|7|8))(-[a-z0-9_-]+)?$ ]]; then
+            echo "Infrastructure bot branch '$HEAD_REF'; skipping codex-visual-required gate"
+            printf 'issue_id=\n' >> "$GITHUB_OUTPUT"
+            printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+          elif [[ "$HEAD_REF" == bot/* ]]; then
+            echo "ERROR: head ref '$HEAD_REF' starts with bot/ but doesn't match canonical schema"
+            exit 1
+          else
+            echo "Non-bot PR; skipping codex-visual-required gate"
+            printf 'issue_id=\n' >> "$GITHUB_OUTPUT"
+            printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: verify_visual_artifact
+        if: steps.ui_surface.outputs.ui_surface == 'true' && steps.issue.outputs.skip != 'true'
+        env:
+          ISSUE_ID: ${{ steps.issue.outputs.issue_id }}
+        # Single artifact: `.codex/<issue_id>/codex_visual_audit.txt`.
+        # The artifact is produced by `scripts/visual_review_gate.py`
+        # locally OR (Phase 2) by a self-hosted runner with mounted
+        # `~/.codex/auth.json`. Until self-hosted runner ships, this
+        # gate VERIFIES the artifact Claude committed; the user reads
+        # `git log` morning per Plan §7.B B1 as after-the-fact surface
+        # (same model as codex-required.yml today).
+        run: |
+          set -euo pipefail
+          VISUAL=".codex/${ISSUE_ID}/codex_visual_audit.txt"
+          if [ ! -f "$VISUAL" ]; then
+            echo "ERROR: missing $VISUAL"
+            echo ""
+            echo "This PR touches user-visible UI surface (web/app/** or"
+            echo "web/components/**). The codex-visual-required gate"
+            echo "requires a Codex-reviewed screenshot audit per"
+            echo ".codex/visual_audit_rubric.md."
+            echo ""
+            echo "Generate the artifact locally:"
+            echo "  1. Build production bundle: cd web && npm run build"
+            echo "  2. Start production server: cd web && npm run start"
+            echo "  3. Run gate:"
+            echo "       python scripts/visual_review_gate.py \\"
+            echo "         --issue-id $ISSUE_ID \\"
+            echo "         --routes <comma-separated routes touched by this PR>"
+            echo "  4. The gate writes .codex/$ISSUE_ID/codex_visual_audit.txt"
+            echo "  5. Commit + push."
+            exit 1
+          fi
+
+          # Parse FINAL `verdict:` line — same convention as codex-required.yml.
+          final="$(grep -E '^verdict:[[:space:]]+(APPROVE|REQUEST_CHANGES)$' "$VISUAL" | tail -1 || true)"
+          if [ -z "$final" ]; then
+            echo "ERROR: $VISUAL contains no final verdict line"
+            exit 1
+          fi
+          if [ "$final" != "verdict: APPROVE" ]; then
+            echo "ERROR: $VISUAL final verdict is NOT APPROVE: $final"
+            echo ""
+            echo "The visual audit reported FAIL on one or more routes."
+            echo "Either: (a) fix the visual issues and re-run the gate, OR"
+            echo "        (b) iterate to iter 5 and force-APPROVE per CLAUDE.md §8.3.1"
+            echo "            (writes .codex/<issue_id>/codex_visual_audit_iter5_force_approve.txt)."
+            exit 1
+          fi
+
+          # Cross-bind to the rubric: the audit must reference the
+          # rubric SHA that exists in this PR's working tree. Drift
+          # between audit-time rubric and PR-time rubric = ambiguous
+          # standard. The audit declares `rubric_sha256: <64-hex>`
+          # in each per-route block; we verify at least one block
+          # declares the current rubric SHA.
+          rubric_sha_actual="$(sha256sum .codex/visual_audit_rubric.md | awk '{print $1}')"
+          if ! grep -E "^rubric_sha256:[[:space:]]+${rubric_sha_actual}$" "$VISUAL" >/dev/null; then
+            echo "ERROR: rubric_sha256 mismatch — $VISUAL was audited against a"
+            echo "       different rubric than the one in this PR's working tree."
+            echo "       Working tree rubric sha256: $rubric_sha_actual"
+            echo "       Re-run scripts/visual_review_gate.py with the current rubric."
+            exit 1
+          fi
+
+          echo "OK: $VISUAL final verdict APPROVE; rubric SHA matches working tree"
+
+      - name: skip_summary
+        if: steps.ui_surface.outputs.ui_surface != 'true' || steps.issue.outputs.skip == 'true'
+        env:
+          UI_SURFACE: ${{ steps.ui_surface.outputs.ui_surface }}
+          HEAD_REF_FOR_LOG: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if [ "$UI_SURFACE" != "true" ]; then
+            echo "codex-visual-required: skipped (no web/app/** or web/components/** changes)"
+          else
+            echo "codex-visual-required: skipped (non-bot or infra-branch '$HEAD_REF_FOR_LOG')"
+          fi
