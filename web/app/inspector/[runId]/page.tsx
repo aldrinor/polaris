@@ -10,6 +10,7 @@
 // for runId "v1-canonical" and "v1-canonical-success".
 
 import { BundlePendingCta } from "@/components/inspector/bundle_pending_cta";
+import { IntendedUseBanner } from "@/components/global/intended_use_banner";
 import { loadBundle } from "@/lib/inspector_bundle_loader";
 import { filesByContentType } from "@/lib/signed_bundle";
 
@@ -24,12 +25,28 @@ export default async function InspectorPage({ params }: InspectorPageProps) {
   const bundle = await loadBundle(runId);
 
   if (bundle === null) {
-    return <BundlePendingCta runId={runId} />;
+    return (
+      <>
+        {/* I-ux-001c (#878) sub-PR 1: intended-use posture appears even on
+            pending state — the page IS clinical context regardless of whether
+            a bundle loaded. */}
+        <IntendedUseBanner />
+        <BundlePendingCta runId={runId} />
+      </>
+    );
   }
 
   // I-ux-001a: signature state lives on the LoadedBundle (tri-valued); the
   // server loader runs `gpg --verify` in an isolated keyring against the
   // shipped trust root + asserts the pinned canonical fingerprint.
   void filesByContentType; // re-exported helper available to consumers
-  return <InspectorView bundle={bundle} />;
+  return (
+    <>
+      {/* I-ux-001c (#878) sub-PR 1: amber INTENDED USE band above the chrome
+          per I-ux-001d TRACK 2 Codex iter-1 P1 fix and plan §6 intended-use
+          posture. */}
+      <IntendedUseBanner />
+      <InspectorView bundle={bundle} />
+    </>
+  );
 }
