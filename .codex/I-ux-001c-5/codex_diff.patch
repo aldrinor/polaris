@@ -56,10 +56,10 @@ index e19c88b2..d38db971 100644
  
 diff --git a/web/tests/e2e/plan_v6.spec.ts b/web/tests/e2e/plan_v6.spec.ts
 new file mode 100644
-index 00000000..c0f2c762
+index 00000000..cf5691ce
 --- /dev/null
 +++ b/web/tests/e2e/plan_v6.spec.ts
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,60 @@
 +// I-ux-001c sub-PR 5 (GH #889): e2e Playwright for the v6 /plan chrome
 +// rebuild.
 +//
@@ -87,7 +87,10 @@ index 00000000..c0f2c762
 +
 +test.describe("I-ux-001c · Plan Review v6 chrome", () => {
 +  test.beforeEach(async ({ page }) => {
-+    await page.route("**/api/v6/intake**", async (route) => {
++    // Mock URL corrected per Codex diff iter-1 P1: runIntake calls
++    // /api/v6/api/intake (BACKEND_URL='/api/v6' + '/api/intake'),
++    // not /api/v6/intake. The `**/api/intake**` glob matches both.
++    await page.route("**/api/intake**", async (route) => {
 +      await route.fulfill({
 +        status: 200,
 +        contentType: "application/json",
@@ -118,4 +121,4 @@ index 00000000..c0f2c762
 +  });
 +});
 
-# canonical-diff-sha256: b5d5b0d72eb06e1be9a6ae82a6477219306a7975cf976ccc0583cce7e5cf3a48
+# canonical-diff-sha256: a2dbbfe05e0eaf3ebc0feef3cbf0b354dfe9625ca2eb2df4a42f048154ad96cf
