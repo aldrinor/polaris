@@ -1,0 +1,17 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "page-12 /transparency: H1/intro spacing is improved, but the intro paragraph's final URL/RFC line still collides with the top border of the Model & Data Summary card at 1440x900. This continues the transparency layout blocker."
+p2:
+  - "page-10 /sign-in: reads as an auth chooser now, but the institution picker appears vertically clipped; the ICES row is partially hidden and the fifth row is not visible in the captured viewport. Add height, internal scroll, or lower/footer-safe spacing."
+p3: []
+convergence_call: continue
+track_3_ready_to_signoff: no
+specific_check_responses:
+  p1_transparency_layout: "FAIL_with_detail: H1/paragraph collision is fixed, but paragraph-to-card collision remains."
+  p2_signin_chooser: PASS
+  p2_kg_density: PASS
+  p2_audit_identity: PASS
+```
