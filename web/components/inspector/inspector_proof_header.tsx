@@ -8,13 +8,14 @@
 import {
   BundleHeader,
   SignatureBadge,
+  type SignatureState,
 } from "@/components/inspector/bundle_header";
 import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
 import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
 
 interface InspectorProofHeaderProps {
   bundle: LoadedBundle;
-  signaturePresent: boolean;
+  signatureState: SignatureState;
 }
 
 const VERDICT_LABELS: Record<string, string> = {
@@ -36,7 +37,7 @@ function humanizeVerdict(verdict: string): string {
 
 export function InspectorProofHeader({
   bundle,
-  signaturePresent,
+  signatureState,
 }: InspectorProofHeaderProps) {
   const report = bundle.verifiedReport;
   const sectionCount = report.sections?.length ?? 0;
@@ -97,7 +98,7 @@ export function InspectorProofHeader({
               manifest={bundle.manifest}
               verifiedReport={report}
             />
-            <SignatureBadge present={signaturePresent} />
+            <SignatureBadge state={signatureState} />
           </div>
           <BundleHeader manifest={bundle.manifest} />
         </div>

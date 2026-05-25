@@ -1,0 +1,14 @@
+verdict: REQUEST_CHANGES  
+novel_p0: []  
+continuing_p0: []  
+p1: [
+  "page-10 /sign-in: institution list still clips. At 1440x900 only 3 full rows plus part of the 4th are visible; the 5th row and CTA are not visible, likely obscured below the footer/viewport boundary."
+]  
+p2: []  
+p3: []  
+convergence_call: continue  
+track_3_ready_to_signoff: no  
+
+specific_check_responses:
+  p1_transparency_layout: PASS
+  p2_signin_rows: FAIL_with_detail - all 5 institution rows do not fit; row 4 is partially clipped and row 5 is not visible in the provided screenshot.

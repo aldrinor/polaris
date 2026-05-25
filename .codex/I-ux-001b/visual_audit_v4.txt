@@ -1,0 +1,35 @@
+## Desktop v4 — per iter-3 fix resolved?
+- bridge beyond ① → RESOLVED-A
+- source span as climax → RESOLVED-A
+- typography craft → RESOLVED-A
+- absent emotional moment → PARTIAL
+
+## Mobile v4 — assessment
+- summoned proof on mobile → RESOLVED-A
+- source-as-climax on mobile → RESOLVED-A
+- overall mobile bar → A
+
+## NEW issues v4 introduced
+The tiny “proved against the source span” line helps, but it reads like a footnote, not a product moment. It proves the concept; it does not yet create the “oh, the system just did the work” feeling.
+
+Mobile is strong, but the bottom sheet is slightly too dense at the top: claim echo, Verified, source intro, source card, source span, ladder all arrive fast. It is credible, but less luxurious than Linear/Stripe-level pacing.
+
+The evidence ladder still feels like UI plumbing. “MOD” especially feels abbreviated and internal. This weakens the otherwise polished proof panel.
+
+## What still keeps this from A+
+Desktop still lacks a theatrical verification transition: the selected sentence, right-side claim echo, and source span are logically connected, but not emotionally fused. The product should feel like it summoned the proof, not merely displayed the proof.
+
+Typography is now good enough to ship, but not exquisite. The right rail has several small-text systems competing: checklist, source intro, metadata card, excerpt, ladder note, signed bundle. It is organized, but not yet inevitable.
+
+Mobile clears the concept bar. The bottom sheet works. The remaining gap is refinement: more hierarchy, slightly more breathing room, and fewer competing proof widgets above the fold.
+
+## Verdict
+- desktop grade: A
+- mobile grade: A
+- top-3 fixes for iter 5:
+  1. Turn the bridge into a stronger active state: selected sentence should visually “cast” to the source span, through a connector, glow, motion trail, or synchronized highlight.
+  2. Make the source span the unquestioned climax by reducing nearby small-text noise and giving the excerpt more spatial authority.
+  3. Rename or restyle the ladder labels so they feel product-grade, not rubric-internal. Avoid “MOD.”
+
+- one-line: frontier-beating in front of PM Carney’s office NOW?  
+Almost, but not quite. It is credible and polished; it is not yet unforgettable.

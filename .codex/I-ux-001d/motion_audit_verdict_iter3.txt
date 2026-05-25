@@ -1,0 +1,22 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Spatial reorder caveat: mobile final frames still place the source card above the evidence-strength ladder. If the intended final layout is ladder-above-source, the y-swap did not take effect. The temporal narrative still works because the ladder appears before the source."
+p3:
+  - "Reduced-motion mobile frames appear to omit the bottom-sheet grab handle that is visible in full-motion mobile frames."
+  - "Mobile evidence ladder is readable, but less explicitly labeled than desktop; acceptable at this size."
+convergence_call: accept_remaining
+ready_to_scale_to_7_remaining_scenes: with_caveats
+specific_check_responses:
+  mobile_subtrack_b_parity: PASS
+  spatial_reorder_mobile: FAIL_with_detail
+  reduced_motion_convention_valid: PASS
+  cross_frame_consistency: PASS
+  t700_disclosure_clearance_mobile: PASS
+  challenged_label_readability_v2: PASS
+```
+
+Mobile hits the same bar as desktop overall: the selected claim, faithfulness judgment, source climax, evidence ladder, signed bundle, and limits disclosure all read clearly in the 390px sheet. Reduced motion is also valid as an opacity-only equivalent; it preserves the information without recreating the full choreography.

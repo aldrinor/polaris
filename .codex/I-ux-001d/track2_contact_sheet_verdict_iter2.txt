@@ -1,0 +1,21 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Read-mode clinical results frame still lacks visible intended-use / non-CDS language. The fix appears on edit, monitor, spatial, and marketing-auth frames, but not family_template_0_read_mode_desktop.png."
+  - "Edit-mode refusal fix is not legible as a POLARIS abstention. I do not see a visible 'Refuse to answer' control; the magenta-outlined pill reads 'DETECTED · DOMAIN · SOURCE', which does not communicate refusal."
+p2: []
+p3: []
+convergence_call: continue
+track_2_ready_to_signoff: no
+specific_check_responses:
+  p1_intended_use_fix: "FAIL_with_detail - Passes on 4 rebuilt frames, fails on read-mode clinical frame."
+  p1_refuse_not_cancel_fix: "FAIL_with_detail - Cancel is gone, but the replacement refusal action is not visible/readable."
+  p1_abort_token_humanization_fix: PASS
+  p2_tri_state_signature: PASS
+  p2_sse_event_stream: PASS
+  p2_spatial_controls: PASS
+  p2_source_set_chips: PASS
+  p3_callout_de_emphasis: PASS
+```

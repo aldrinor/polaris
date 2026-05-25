@@ -1,0 +1,30 @@
+```yaml
+verdict: REQUEST_CHANGES
+d1_sequencing_order: other-with-rationale
+d2_family_strategy: hybrid-spec
+d3_audit_cadence: hybrid-spec
+d4_motion_conveyance: annotated_still_sequence
+d5_acceptance_bar: beta_aplus_critical_a_supporting
+d6_incumbent_treatment: incumbent_informed
+
+rationale_summary:
+  - "D1: Use a hybrid sequence: first lock the hero motion grammar from the approved Stage 2/Stage 4 frames, then build per-family static hero templates, then specialize all 22 page frames, then wire an e2e Figma click-through with annotated motion stills for critical transitions. Pure A delays page coverage too long; pure B risks motion-driven rework; C explodes audit count; D undershoots the operator's 'lively + e2e before code' directive. This matches current frontier patterns: motion must clarify cause/effect and honor reduced motion per Vercel guidelines (https://vercel.com/design/guidelines), while ChatGPT/Gemini DR-style products expose plan, progress, sources, and report review as first-class states (https://help.openai.com/en/articles/10500283-deep-research-in-chatgpt, https://blog.google/products-and-platforms/products/gemini/tips-how-to-use-deep-research/)."
+  - "D2: Build family templates, then specialize. The proposed families are right in shape, but treat them as contracts, not cloned pages: read-mode proof surfaces, edit-mode decision gates, monitor-mode system state, spatial graph, and marketing/auth. This preserves Stripe/Linear-style system consistency while allowing clinical-safety specifics like signed-bundle state, source adequacy, and per-claim provenance to stay explicit."
+  - "D3: Do not run 60 per-page audits. Use: 1 hero-motion audit; 1 family-template contact-sheet audit; 1 all-22-frame mega contact-sheet audit; then per-page audits only for the A+ critical path and any page flagged by the mega audit. This keeps §-1.1 rigor where clinical decisions happen while respecting the June 5-9, 2026 demo window."
+  - "D4: Annotated still sequence is the correct Codex vehicle. Use t=0/120/250/400/600/700ms for first reveal, 0/40/120ms for claim switch, mobile sheet states, hover/focus/active, and reduced-motion final states. Keep the interactive Figma URL as operator evidence, but Codex should review timestamped stills."
+  - "D5: Use beta, but promote Source Review into the A+ critical path because it is the pre-run source adequacy/safety gate. Critical path: Home → Intake → Source Review → Plan review → Run progress → Report/Inspector → Compare → Knowledge graph. Supporting pages can be A, but trust semantics still have hard zero-P0/P1 gates."
+  - "D6: Use incumbent-informed, not incumbent-led. The current pages contain salvageable mechanics: real bundle loading, tri-valued signature state, route semantics, error/loading states, run progress, source tiers, and graph interactions. But visually they predate the v6 proof-artifact language, so rebuild the Figma direction greenfield and preserve only verified behavior/data contracts."
+
+risks:
+  - "Annotated stills can miss actual motion feel; mitigate with Figma prototype URL plus code-time Playwright timing traces."
+  - "Hybrid audits can miss page-specific craft regressions; mitigate with full 22-frame contact sheet and automatic escalation of flagged pages to per-page audit."
+  - "Using incumbents too heavily will preserve B/C visual hierarchy; salvage behavior only."
+  - "Local checkout did not contain `docs/stier_experience_plan.md` or `web/app/transparency/page.tsx`; reconcile the authoritative page inventory before frame production."
+
+remaining_blockers_for_execution:
+  - "Revise #879 to the hybrid sequence above before any Figma production sprint."
+  - "Publish an exact 11-page route/frame map, including how Transparency is represented."
+  - "Define the annotated-still export naming convention and timestamp set before the first Codex motion audit."
+
+convergence_call: continue
+```

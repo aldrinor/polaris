@@ -1,0 +1,3486 @@
+From 4797d3bacc3d3e40b65716cedfae023b64070f04 Mon Sep 17 00:00:00 2001
+From: msn <msn@polaris.dev>
+Date: Sun, 24 May 2026 09:10:27 -0700
+Subject: [PATCH 1/7] I-ux-001a (#874): bind codex_diff.patch to canonical PR
+ diff sha for CI gate
+
+---
+ .codex/I-ux-001a/codex_diff.patch | 1885 +++++++++++++++++++++++++++++
+ 1 file changed, 1885 insertions(+)
+ create mode 100644 .codex/I-ux-001a/codex_diff.patch
+
+diff --git a/.codex/I-ux-001a/codex_diff.patch b/.codex/I-ux-001a/codex_diff.patch
+new file mode 100644
+index 00000000..ad85c856
+--- /dev/null
++++ b/.codex/I-ux-001a/codex_diff.patch
+@@ -0,0 +1,1885 @@
++From e1592ca828935f0d0ced383136a559222dbdd472 Mon Sep 17 00:00:00 2001
++From: msn <msn@polaris.dev>
++Date: Sun, 24 May 2026 02:03:09 -0700
++Subject: [PATCH 1/4] =?UTF-8?q?I-ux-001a=20(#874):=20Prereq=200=20?=
++ =?UTF-8?q?=E2=80=94=20real=20signed=20demo=20bundle=20+=20tri-valued=20si?=
++ =?UTF-8?q?gnature=20state=20+=20GPG=20verify=20guard?=
++MIME-Version: 1.0
++Content-Type: text/plain; charset=UTF-8
++Content-Transfer-Encoding: 8bit
++
++LAW-II "no fake working" gate. Codex iter-3 P0 + iter-4 P2 on the I-ux-001 plan:
++the demo bundle was unsigned and the UI could render "Signed bundle" from any
++.asc presence (placeholder or otherwise). Fixed:
++
++- Sign the real-data demo bundle (web/public/canonical_bundles/v1_canonical_success/)
++  with the CANONICAL Carney-demo signing key (Ed25519 FB221F...01CC, the one
++  pinned in state/polaris_gpg_keyid.txt and shipped at
++  docs/carney_handover/polaris_demo_pubkey.asc). End-to-end verified: a reviewer
++  importing only the shipped pubkey gets exit 0 + "Good signature."
++- Replace the placeholder test-fixture .asc with a real signature too.
++
++- LoadedBundle.signaturePresent (boolean) -> signatureState (tri-valued:
++  missing | present_unverified | gpg_verified). Server loader (web/lib/
++  gpg_verify_bundle.ts) runs gpg --verify in an ISOLATED keyring (--no-default-
++  keyring --keyring) so the host's default keyring cannot satisfy the check,
++  AND asserts the signing-key fingerprint matches the pinned canonical key.
++  Client loader returns at most present_unverified (no GPG in the browser).
++
++- SignatureBadge (bundle_header.tsx) accepts the tri-valued state. Only
++  gpg_verified shows the green "Signed bundle"; present_unverified shows
++  "Signature attached -- verify offline"; missing shows "Not signed -- trust
++  not established." Audit page rendering aligned.
++
++- build_canonical_demo_bundle.py now signs by default with the canonical key,
++  reading $POLARIS_GPG_HOMEDIR (~/.gnupg-polaris) + $POLARIS_GPG_KEY_ID (or
++  state/polaris_gpg_keyid.txt). Fails LOUDLY if the key is unavailable; never
++  silently falls back to the default keyring. --unsigned opt-out preserved.
++
++- New CI guard scripts/check_signed_bundles.py: enforces that every "must-be-
++  signed" bundle in the repo GPG-verifies against the shipped trust root +
++  signing-key fingerprint matches the pinned canonical key. Wired into
++  .github/workflows/web_ci.yml as required job check_signed_bundles. Prevents
++  the iter-3 P0 regression.
++
++- pytest tests/scripts/test_check_signed_bundles.py covers all three states
++  (signed-OK / missing .asc / placeholder .asc). 3/3 PASS locally.
++
++Smoke evidence: outputs/audits/I-ux-001a/gpg_verify_demo_bundle.txt
++Codex brief APPROVE iter 2 (zero P0, zero P1): .codex/I-ux-001a/codex_brief_verdict_iter2.txt
++
++Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
++---
++ .github/workflows/web_ci.yml                  |  22 ++++
++ scripts/check_signed_bundles.py               | 123 ++++++++++++++++++
++ .../v1_canonical/manifest.yaml.asc            |   9 +-
++ tests/scripts/test_check_signed_bundles.py    |  78 +++++++++++
++ web/app/inspector/[runId]/inspector_view.tsx  |  13 +-
++ web/app/inspector/[runId]/page.tsx            |  10 +-
++ web/app/inspector/offline/page.tsx            |  10 +-
++ web/app/runs/[runId]/audit/page.tsx           |  30 +++--
++ web/components/inspector/bundle_header.tsx    |  29 ++++-
++ .../inspector/inspector_proof_header.tsx      |   7 +-
++ web/lib/gpg_verify_bundle.ts                  |  99 ++++++++++++++
++ web/lib/inspector_bundle_client_loader.ts     |  12 +-
++ web/lib/inspector_bundle_loader.ts            |  44 ++++---
++ .../v1_canonical_success/manifest.yaml.asc    |   7 +
++ 14 files changed, 434 insertions(+), 59 deletions(-)
++ create mode 100644 scripts/check_signed_bundles.py
++ create mode 100644 tests/scripts/test_check_signed_bundles.py
++ create mode 100644 web/lib/gpg_verify_bundle.ts
++ create mode 100644 web/public/canonical_bundles/v1_canonical_success/manifest.yaml.asc
++
++diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
++index ff448c24..b19525cb 100644
++--- a/.github/workflows/web_ci.yml
+++++ b/.github/workflows/web_ci.yml
++@@ -274,6 +274,28 @@ jobs:
++         # Verify the v6 backend's pinned set also resolves cleanly.
++         run: pip install --dry-run -r requirements-v6.txt
++ 
+++  check_signed_bundles:
+++    # I-ux-001a (#874) — LAW-II guard. Every bundle the UI may label
+++    # "Signed bundle" MUST GPG-verify against the shipped trust-root pubkey
+++    # in an isolated keyring AND have a signing-key fingerprint matching the
+++    # pinned canonical key. Prevents the iter-3 P0 regression: a missing or
+++    # placeholder `.asc` silently rendering as "signed" in the inspector.
+++    name: check_signed_bundles (Prereq 0 honesty guard)
+++    runs-on: ubuntu-latest
+++    needs: lint_format_typecheck_build
+++    steps:
+++      - name: checkout
+++        uses: actions/checkout@v4
+++      - name: setup_python
+++        uses: actions/setup-python@v5
+++        with:
+++          python-version: "3.13"
+++      - name: run_guard
+++        # gpg is preinstalled on ubuntu-latest. Script imports the shipped
+++        # pubkey into an isolated keyring (--no-default-keyring --keyring)
+++        # and verifies; exits non-zero on any failure.
+++        run: python scripts/check_signed_bundles.py
+++
++   pytest_v6_backend:
++     name: pytest tests/v6/ (Phase 0 backend coverage)
++     runs-on: ubuntu-latest
++diff --git a/scripts/check_signed_bundles.py b/scripts/check_signed_bundles.py
++new file mode 100644
++index 00000000..4013ee74
++--- /dev/null
+++++ b/scripts/check_signed_bundles.py
++@@ -0,0 +1,123 @@
+++#!/usr/bin/env python3
+++"""POLARIS CI guard: enforce that every "must-be-signed" bundle in the repo
+++has a `manifest.yaml.asc` that GPG-verifies against the SHIPPED trust-root
+++pubkey (`docs/carney_handover/polaris_demo_pubkey.asc`) AND whose signing
+++key fingerprint matches the pinned canonical key (`state/polaris_gpg_keyid.txt`).
+++
+++I-ux-001a (GH#874) — LAW-II "no fake working" gate. Codex iter-3 P0 on the
+++I-ux-001 plan: the demo bundle was unsigned but the UI could render "Signed
+++bundle" from any `.asc` presence. This script blocks the regression: a CI
+++failure here means a bundle the UI labels "signed" wouldn't actually verify
+++in a reviewer's hands.
+++
+++Verification runs in an ISOLATED temporary GNUPGHOME (Codex brief iter-2 P2)
+++so the host's default keyring cannot accidentally satisfy the check.
+++
+++Exit codes:
+++  0 — every checked bundle verifies + fingerprint matches
+++  1 — one or more failures (each printed with reason)
+++  2 — environment setup failure (gpg missing, trust root missing, etc.)
+++"""
+++from __future__ import annotations
+++
+++import re
+++import shutil
+++import subprocess
+++import sys
+++import tempfile
+++from pathlib import Path
+++
+++REPO_ROOT = Path(__file__).resolve().parents[1]
+++TRUST_ROOT_PUBKEY = REPO_ROOT / "docs/carney_handover/polaris_demo_pubkey.asc"
+++PINNED_FP_FILE = REPO_ROOT / "state/polaris_gpg_keyid.txt"
+++
+++# Bundles the UI may label "signed" — every one MUST GPG-verify.
+++MUST_BE_SIGNED = [
+++    REPO_ROOT / "web/public/canonical_bundles/v1_canonical_success",
+++    REPO_ROOT / "tests/fixtures/signed_bundle/v1_canonical",
+++]
+++
+++
+++def _read_pinned_fp() -> str | None:
+++    if not PINNED_FP_FILE.is_file():
+++        return None
+++    fp = PINNED_FP_FILE.read_text(encoding="utf-8").strip().upper().replace(" ", "")
+++    return fp if re.fullmatch(r"[0-9A-F]{40}", fp) else None
+++
+++
+++def _verify_one(bundle_dir: Path, pinned_fp: str) -> tuple[bool, str]:
+++    """Return (ok, message). Verifies against the trust root in an ISOLATED
+++    keyring (the host's default keyring cannot satisfy this check)."""
+++    manifest = bundle_dir / "manifest.yaml"
+++    asc = bundle_dir / "manifest.yaml.asc"
+++    if not manifest.is_file():
+++        return False, f"manifest.yaml missing"
+++    if not asc.is_file() or asc.stat().st_size == 0:
+++        return False, f"manifest.yaml.asc missing or empty"
+++
+++    # Build an isolated keybox from the trust root, then verify against it
+++    # with --no-default-keyring. We do NOT use --homedir: a fresh GNUPGHOME
+++    # tries to spawn gpg-agent, which fails on some platforms (Windows MSYS)
+++    # even for verify-only paths. --keyring sidesteps the agent entirely.
+++    tmpdir = Path(tempfile.mkdtemp(prefix="polaris-ci-gpg-"))
+++    keyring = tmpdir / "trust.kbx"
+++    try:
+++        imp = subprocess.run(
+++            ["gpg", "--no-default-keyring", "--keyring", str(keyring),
+++             "--batch", "--quiet", "--import", str(TRUST_ROOT_PUBKEY)],
+++            capture_output=True, text=True,
+++        )
+++        if imp.returncode != 0:
+++            return False, f"gpg --import trust root failed: {imp.stderr.strip().splitlines()[-1] if imp.stderr.strip() else 'no detail'}"
+++        v = subprocess.run(
+++            ["gpg", "--no-default-keyring", "--keyring", str(keyring),
+++             "--batch", "--status-fd", "1",
+++             "--verify", str(asc), str(manifest)],
+++            capture_output=True, text=True,
+++        )
+++        if v.returncode != 0:
+++            return False, f"gpg --verify FAILED: {v.stderr.strip().splitlines()[-1] if v.stderr.strip() else 'no detail'}"
+++        m = re.search(r"VALIDSIG\s+([0-9A-F]{40})\b", v.stdout + v.stderr, re.I)
+++        if not m:
+++            return False, "could not parse signing-key fingerprint from gpg status"
+++        actual_fp = m.group(1).upper()
+++        if actual_fp != pinned_fp:
+++            return False, f"fingerprint mismatch: signed by {actual_fp[:16]}..., expected pinned {pinned_fp[:16]}..."
+++        return True, f"OK -- verified by pinned key {actual_fp[:16]}..."
+++    finally:
+++        shutil.rmtree(tmpdir, ignore_errors=True)
+++
+++
+++def main() -> int:
+++    if not shutil.which("gpg"):
+++        print("FAIL: gpg binary not on PATH", file=sys.stderr)
+++        return 2
+++    if not TRUST_ROOT_PUBKEY.is_file():
+++        print(f"FAIL: trust root pubkey missing at {TRUST_ROOT_PUBKEY}", file=sys.stderr)
+++        return 2
+++    pinned_fp = _read_pinned_fp()
+++    if not pinned_fp:
+++        print(f"FAIL: pinned fingerprint missing/invalid at {PINNED_FP_FILE}", file=sys.stderr)
+++        return 2
+++
+++    failures: list[tuple[Path, str]] = []
+++    for bundle in MUST_BE_SIGNED:
+++        if not bundle.is_dir():
+++            failures.append((bundle, "bundle directory missing"))
+++            print(f"FAIL  {bundle}: bundle directory missing")
+++            continue
+++        ok, msg = _verify_one(bundle, pinned_fp)
+++        marker = "OK   " if ok else "FAIL "
+++        print(f"{marker} {bundle.relative_to(REPO_ROOT)}: {msg}")
+++        if not ok:
+++            failures.append((bundle, msg))
+++
+++    if failures:
+++        print(f"\n{len(failures)} bundle(s) failed signature verification.", file=sys.stderr)
+++        return 1
+++    print(f"\nAll {len(MUST_BE_SIGNED)} bundle(s) signature-verified against pinned key {pinned_fp[:16]}…")
+++    return 0
+++
+++
+++if __name__ == "__main__":
+++    raise SystemExit(main())
++diff --git a/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc b/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
++index 91f1c62f..a9fd7ef2 100644
++--- a/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+++++ b/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
++@@ -1,6 +1,7 @@
++ -----BEGIN PGP SIGNATURE-----
++-# I-cd-012 canonical fixture placeholder.
++-# Conformance check enforces presence + non-empty ONLY; cryptographic
++-# verification belongs to operator-side tooling (gpg --verify).
++-# Real bundles ship a real armored signature here.
+++
+++iHUEABYKAB0WIQT7Ih+o7Rhfjj929+b28xzt/0kMAgUCahK9nQAKCRD28xzt/0kM
+++ArfYAP9LpBP7RvY7Huth+m4vEsWJFMPlI42fxmxFjMqMGJBcJwD/VbV2fysWpqu/
+++wBwM151IMx51rypxqjSgNJlUA7c0SwA=
+++=LUwT
++ -----END PGP SIGNATURE-----
++diff --git a/tests/scripts/test_check_signed_bundles.py b/tests/scripts/test_check_signed_bundles.py
++new file mode 100644
++index 00000000..71213886
++--- /dev/null
+++++ b/tests/scripts/test_check_signed_bundles.py
++@@ -0,0 +1,78 @@
+++"""Tests for scripts/check_signed_bundles.py — the I-ux-001a CI honesty guard.
+++
+++Covers all three signature states (gpg_verified / present_unverified-as-missing
+++/ missing) end-to-end against the SHIPPED trust-root pubkey, in the same
+++isolated-keyring mode the production guard uses.
+++"""
+++from __future__ import annotations
+++
+++import shutil
+++import subprocess
+++from pathlib import Path
+++
+++import pytest
+++
+++REPO_ROOT = Path(__file__).resolve().parents[2]
+++SCRIPT = REPO_ROOT / "scripts" / "check_signed_bundles.py"
+++
+++GPG_AVAILABLE = shutil.which("gpg") is not None
+++pytestmark = pytest.mark.skipif(
+++    not GPG_AVAILABLE, reason="gpg binary not available in test env",
+++)
+++
+++
+++def _run_guard() -> tuple[int, str]:
+++    r = subprocess.run(
+++        ["python", str(SCRIPT)], capture_output=True, text=True,
+++        cwd=str(REPO_ROOT),
+++    )
+++    return r.returncode, r.stdout + r.stderr
+++
+++
+++def test_guard_passes_with_signed_bundles_in_place():
+++    """Happy path — both must-be-signed bundles ship with valid signatures."""
+++    rc, out = _run_guard()
+++    assert rc == 0, f"guard failed unexpectedly: {out}"
+++    assert "All " in out and "signature-verified" in out
+++
+++
+++def test_guard_fails_when_asc_missing(tmp_path):
+++    """If the .asc disappears, the guard must FAIL non-zero (the demo bundle
+++    can never silently lose its seal)."""
+++    target = REPO_ROOT / "web/public/canonical_bundles/v1_canonical_success/manifest.yaml.asc"
+++    if not target.is_file():
+++        pytest.skip("repo state: target bundle currently has no .asc")
+++    backup = tmp_path / "manifest.yaml.asc"
+++    shutil.copy2(target, backup)
+++    try:
+++        target.unlink()
+++        rc, out = _run_guard()
+++        assert rc != 0, "guard should have failed without a signature"
+++        assert "manifest.yaml.asc missing" in out or "missing or empty" in out
+++    finally:
+++        shutil.copy2(backup, target)
+++    # Sanity: positive path restored.
+++    rc, _ = _run_guard()
+++    assert rc == 0
+++
+++
+++def test_guard_fails_on_wrong_signature(tmp_path):
+++    """If the .asc doesn't actually GPG-verify against the trust root (e.g. a
+++    placeholder or a sig from a different key), the guard must FAIL."""
+++    target = REPO_ROOT / "web/public/canonical_bundles/v1_canonical_success/manifest.yaml.asc"
+++    if not target.is_file():
+++        pytest.skip("repo state: target bundle currently has no .asc")
+++    backup = tmp_path / "manifest.yaml.asc"
+++    shutil.copy2(target, backup)
+++    try:
+++        target.write_text(
+++            "-----BEGIN PGP SIGNATURE-----\n"
+++            "# placeholder, not a real signature\n"
+++            "-----END PGP SIGNATURE-----\n",
+++            encoding="utf-8",
+++        )
+++        rc, out = _run_guard()
+++        assert rc != 0, "guard should have failed on an invalid signature"
+++        assert "FAIL" in out
+++    finally:
+++        shutil.copy2(backup, target)
++diff --git a/web/app/inspector/[runId]/inspector_view.tsx b/web/app/inspector/[runId]/inspector_view.tsx
++index a6bc4dc5..55dcb5c3 100644
++--- a/web/app/inspector/[runId]/inspector_view.tsx
+++++ b/web/app/inspector/[runId]/inspector_view.tsx
++@@ -20,23 +20,18 @@ import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
++ 
++ interface InspectorViewProps {
++   bundle: LoadedBundle;
++-  signaturePresent: boolean;
++ }
++ 
++-export function InspectorView({
++-  bundle,
++-  signaturePresent,
++-}: InspectorViewProps) {
+++export function InspectorView({ bundle }: InspectorViewProps) {
++   return (
++     <main
++       className="mx-auto flex max-w-6xl flex-col gap-6 p-6"
++       data-testid="inspector-view"
++       data-run-id={bundle.runId}
++     >
++-      <InspectorProofHeader
++-        bundle={bundle}
++-        signaturePresent={signaturePresent}
++-      />
+++      {/* I-ux-001a: signature state lives on the LoadedBundle (tri-valued),
+++          not as a separate prop — single source of truth. */}
+++      <InspectorProofHeader bundle={bundle} signatureState={bundle.signatureState} />
++       <Tabs defaultValue="proof">
++         {/* I-p2-043 (#833): the 8-tab rail overflowed the 375w viewport (Codex visual
++             iter-2 P1). Contain it in a horizontal-scroll lane — desktop hugs content,
++diff --git a/web/app/inspector/[runId]/page.tsx b/web/app/inspector/[runId]/page.tsx
++index fb18fd52..cb946842 100644
++--- a/web/app/inspector/[runId]/page.tsx
+++++ b/web/app/inspector/[runId]/page.tsx
++@@ -27,11 +27,9 @@ export default async function InspectorPage({ params }: InspectorPageProps) {
++     return <BundlePendingCta runId={runId} />;
++   }
++ 
++-  // Signature presence is derived from disk in the loader (Codex diff
++-  // iter-1 P2 — the page no longer hardcodes true). Cryptographic
++-  // verification belongs to operator-side `gpg --verify` tooling.
+++  // I-ux-001a: signature state lives on the LoadedBundle (tri-valued); the
+++  // server loader runs `gpg --verify` in an isolated keyring against the
+++  // shipped trust root + asserts the pinned canonical fingerprint.
++   void filesByContentType; // re-exported helper available to consumers
++-  return (
++-    <InspectorView bundle={bundle} signaturePresent={bundle.signaturePresent} />
++-  );
+++  return <InspectorView bundle={bundle} />;
++ }
++diff --git a/web/app/inspector/offline/page.tsx b/web/app/inspector/offline/page.tsx
++index 1c184eff..90160646 100644
++--- a/web/app/inspector/offline/page.tsx
+++++ b/web/app/inspector/offline/page.tsx
++@@ -52,12 +52,10 @@ export default function InspectorOfflinePage() {
++   }
++ 
++   if (bundle) {
++-    return (
++-      <InspectorView
++-        bundle={bundle}
++-        signaturePresent={bundle.signaturePresent}
++-      />
++-    );
+++    // I-ux-001a: signatureState (tri-valued) flows on the bundle itself; the
+++    // client loader can never return gpg_verified — browser-loaded bundles
+++    // surface "present_unverified" with a "verify offline" affordance.
+++    return <InspectorView bundle={bundle} />;
++   }
++ 
++   return (
++diff --git a/web/app/runs/[runId]/audit/page.tsx b/web/app/runs/[runId]/audit/page.tsx
++index ccfd648b..436c1842 100644
++--- a/web/app/runs/[runId]/audit/page.tsx
+++++ b/web/app/runs/[runId]/audit/page.tsx
++@@ -140,7 +140,7 @@ function MetaRow({ label, value }: { label: string; value: string }) {
++ }
++ 
++ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
++-  const { manifest, metadata, verifiedReport, signaturePresent, runId } =
+++  const { manifest, metadata, verifiedReport, signatureState, signatureKeyFingerprint, runId } =
++     bundle;
++   const gateLedger = buildGateLedger(verifiedReport);
++   const files: FileEntry[] = manifest.files;
++@@ -154,23 +154,33 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
++           <h2 className="text-foreground text-sm font-semibold">
++             Integrity &amp; provenance
++           </h2>
++-          {/* HONEST signature status — never claims a seal that isn't on disk.
++-              I-p2-020 Codex iter-3 P1: `signaturePresent` is only an .asc
++-              PRESENCE check (loader), not a cryptographic verify — say
++-              "present" + point to operator-side gpg --verify, never "signed". */}
++-          {signaturePresent ? (
+++          {/* I-ux-001a honest tri-valued signature status. Only gpg_verified
+++              may claim "Signed bundle." present_unverified states the file is
+++              attached but not yet cryptographically verified in this view;
+++              missing says trust is not established. The CI guard
+++              (scripts/check_signed_bundles.py) prevents the gpg_verified path
+++              from regressing — if the demo bundle ever ships without a
+++              valid signature, CI fails. */}
+++          {signatureState === "gpg_verified" ? (
++             <span
++               className="border-verified bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
++-              title="A detached signature file (manifest.yaml.asc) is present. Confirm validity offline with `gpg --verify manifest.yaml.asc` against the published signing key — presence here is not a cryptographic verification."
+++              title={`Cryptographically verified against the published trust-root pubkey (signing key ${signatureKeyFingerprint ?? "—"}).`}
++             >
++-              ⬡ Detached signature present · verify with gpg
+++              ⬡ Signed bundle · GPG verified
+++            </span>
+++          ) : signatureState === "present_unverified" ? (
+++            <span
+++              className="border-contradiction/40 bg-contradiction/10 text-contradiction-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+++              title="A signature is attached but not verified in this view. Verify offline: gpg --verify manifest.yaml.asc manifest.yaml (after importing the published trust-root pubkey)."
+++            >
+++              ⬡ Signature attached · verify offline with gpg
++             </span>
++           ) : (
++             <span
++               className="border-border text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
++-              title="The bundle ships with a SHA-256 integrity manifest now; the detached GPG signature is added once the sovereign Canadian signer is live."
+++              title="No signature file is present. Trust has not been established for this bundle."
++             >
++-              ◌ Integrity manifest present · GPG signature pending
+++              ◌ Not signed · trust not established
++             </span>
++           )}
++         </div>
++diff --git a/web/components/inspector/bundle_header.tsx b/web/components/inspector/bundle_header.tsx
++index 6627455b..070974af 100644
++--- a/web/components/inspector/bundle_header.tsx
+++++ b/web/components/inspector/bundle_header.tsx
++@@ -73,27 +73,48 @@ export function BundleHeader({ manifest }: BundleHeaderProps) {
++   );
++ }
++ 
++-export function SignatureBadge({ present }: { present: boolean }) {
++-  if (present) {
+++// I-ux-001a tri-valued signature state. Only `gpg_verified` may render the
+++// green "Signed bundle" pill. `present_unverified` is the honest in-browser /
+++// not-yet-verified state and points the reviewer at the offline verify
+++// command. `missing` is amber-on-amber: trust is not established.
+++export type SignatureState = "missing" | "present_unverified" | "gpg_verified";
+++
+++export function SignatureBadge({ state }: { state: SignatureState }) {
+++  if (state === "gpg_verified") {
++     return (
++       <span
++         className="border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
++         data-testid="signature-badge"
++-        data-state="present"
+++        data-state="gpg_verified"
+++        title="Cryptographically verified against the published trust-root pubkey"
++       >
++         <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
++         Signed bundle
++       </span>
++     );
++   }
+++  if (state === "present_unverified") {
+++    return (
+++      <span
+++        className="border-contradiction/40 bg-contradiction/10 text-contradiction-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+++        data-testid="signature-badge"
+++        data-state="present_unverified"
+++        title="A signature is attached but not verified in this view. Run `gpg --verify manifest.yaml.asc manifest.yaml` after importing the published trust-root pubkey."
+++      >
+++        <ShieldAlert aria-hidden className="h-3.5 w-3.5" />
+++        Signature attached — verify offline
+++      </span>
+++    );
+++  }
++   return (
++     <span
++       className="border-contradiction/40 bg-contradiction/15 text-contradiction-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
++       data-testid="signature-badge"
++       data-state="missing"
+++      title="No signature file. Trust has not been established for this bundle."
++     >
++       <ShieldAlert aria-hidden className="h-3.5 w-3.5" />
++-      Signature missing
+++      Not signed — trust not established
++     </span>
++   );
++ }
++diff --git a/web/components/inspector/inspector_proof_header.tsx b/web/components/inspector/inspector_proof_header.tsx
++index 51096882..015aa76d 100644
++--- a/web/components/inspector/inspector_proof_header.tsx
+++++ b/web/components/inspector/inspector_proof_header.tsx
++@@ -8,13 +8,14 @@
++ import {
++   BundleHeader,
++   SignatureBadge,
+++  type SignatureState,
++ } from "@/components/inspector/bundle_header";
++ import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
++ import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
++ 
++ interface InspectorProofHeaderProps {
++   bundle: LoadedBundle;
++-  signaturePresent: boolean;
+++  signatureState: SignatureState;
++ }
++ 
++ const VERDICT_LABELS: Record<string, string> = {
++@@ -36,7 +37,7 @@ function humanizeVerdict(verdict: string): string {
++ 
++ export function InspectorProofHeader({
++   bundle,
++-  signaturePresent,
+++  signatureState,
++ }: InspectorProofHeaderProps) {
++   const report = bundle.verifiedReport;
++   const sectionCount = report.sections?.length ?? 0;
++@@ -97,7 +98,7 @@ export function InspectorProofHeader({
++               manifest={bundle.manifest}
++               verifiedReport={report}
++             />
++-            <SignatureBadge present={signaturePresent} />
+++            <SignatureBadge state={signatureState} />
++           </div>
++           <BundleHeader manifest={bundle.manifest} />
++         </div>
++diff --git a/web/lib/gpg_verify_bundle.ts b/web/lib/gpg_verify_bundle.ts
++new file mode 100644
++index 00000000..dcef2ad9
++--- /dev/null
+++++ b/web/lib/gpg_verify_bundle.ts
++@@ -0,0 +1,99 @@
+++// I-ux-001a (GH#874) — server-side GPG verification of audit-bundle signatures.
+++//
+++// LAW-II "no fake working" gate. Previously the loader marked
+++// signaturePresent=true on any non-empty manifest.yaml.asc, so a placeholder
+++// `.asc` would render as "Signed bundle." This module replaces that with a
+++// real `gpg --verify` against the SHIPPED trust-root pubkey
+++// (docs/carney_handover/polaris_demo_pubkey.asc) in an ISOLATED temporary
+++// GNUPGHOME (so the host's default keyring cannot satisfy verification), and
+++// asserts the signing-key fingerprint matches the pinned canonical key
+++// (state/polaris_gpg_keyid.txt).
+++//
+++// Returns `gpg_verified` only on full pass; `present_unverified` if the file
+++// exists but verification fails for any reason; `missing` otherwise.
+++
+++import { execFile } from "node:child_process";
+++import { promises as fs } from "node:fs";
+++import os from "node:os";
+++import path from "node:path";
+++import { promisify } from "node:util";
+++
+++const execFileAsync = promisify(execFile);
+++
+++// repo-root-relative paths to the trust-root + pinned fingerprint, resolved
+++// from CWD at request time (Next.js server CWD is the repo root).
+++const TRUST_ROOT_PUBKEY = "docs/carney_handover/polaris_demo_pubkey.asc";
+++const PINNED_FP_FILE = "state/polaris_gpg_keyid.txt";
+++
+++export interface SignatureVerifyResult {
+++  state: "missing" | "present_unverified" | "gpg_verified";
+++  /** Hex fingerprint of the signing key when state=gpg_verified. */
+++  fingerprint?: string;
+++}
+++
+++async function _readPinnedFingerprint(): Promise<string | null> {
+++  try {
+++    const raw = await fs.readFile(PINNED_FP_FILE, "utf-8");
+++    const fp = raw.trim().toUpperCase().replace(/\s+/g, "");
+++    return /^[0-9A-F]{40}$/.test(fp) ? fp : null;
+++  } catch {
+++    return null;
+++  }
+++}
+++
+++export async function verifyBundleSignature(
+++  bundleDir: string,
+++): Promise<SignatureVerifyResult> {
+++  const ascPath = path.join(bundleDir, "manifest.yaml.asc");
+++  const manifestPath = path.join(bundleDir, "manifest.yaml");
+++
+++  // 1. presence + non-empty
+++  try {
+++    const stat = await fs.stat(ascPath);
+++    if (!stat.isFile() || stat.size === 0) return { state: "missing" };
+++  } catch {
+++    return { state: "missing" };
+++  }
+++
+++  // 2. resolve the pinned canonical fingerprint + the shipped trust root.
+++  //    Without either we can never claim gpg_verified — degrade honestly.
+++  const pinnedFp = await _readPinnedFingerprint();
+++  if (!pinnedFp) return { state: "present_unverified" };
+++
+++  let trustRoot: string;
+++  try {
+++    await fs.access(TRUST_ROOT_PUBKEY);
+++    trustRoot = TRUST_ROOT_PUBKEY;
+++  } catch {
+++    return { state: "present_unverified" };
+++  }
+++
+++  // 3. Verify against the trust root in an ISOLATED KEYRING (Codex brief
+++  //    iter-2 P2). We use --no-default-keyring + --keyring (not --homedir):
+++  //    a fresh GNUPGHOME tries to spawn gpg-agent, which is brittle for a
+++  //    verify-only path. --keyring sidesteps the agent entirely.
+++  let tmpDir: string | null = null;
+++  try {
+++    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "polaris-gpg-"));
+++    const keyring = path.join(tmpDir, "trust.kbx");
+++    await execFileAsync("gpg", [
+++      "--no-default-keyring", "--keyring", keyring,
+++      "--batch", "--quiet", "--import", trustRoot,
+++    ]);
+++    // status-fd=1 routes machine-readable VALIDSIG to stdout; we check both.
+++    const { stdout, stderr } = await execFileAsync("gpg", [
+++      "--no-default-keyring", "--keyring", keyring,
+++      "--batch", "--status-fd", "1",
+++      "--verify", ascPath, manifestPath,
+++    ]);
+++    const m = (stdout + stderr).match(/VALIDSIG\s+([0-9A-F]{40})\b/i);
+++    const fp = m ? m[1].toUpperCase() : null;
+++    if (!fp) return { state: "present_unverified" };
+++    if (fp !== pinnedFp) return { state: "present_unverified" };
+++    return { state: "gpg_verified", fingerprint: fp };
+++  } catch {
+++    return { state: "present_unverified" };
+++  } finally {
+++    if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+++  }
+++}
++diff --git a/web/lib/inspector_bundle_client_loader.ts b/web/lib/inspector_bundle_client_loader.ts
++index 648741fd..9cc604e3 100644
++--- a/web/lib/inspector_bundle_client_loader.ts
+++++ b/web/lib/inspector_bundle_client_loader.ts
++@@ -316,8 +316,16 @@ export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
++     }
++   }
++ 
+++  // Tri-valued signature state per I-ux-001a. CLIENT loader can NEVER return
+++  // gpg_verified — the browser has no gpg(1) + no trust root. At best the
+++  // `.asc` is present in the uploaded tarball; full crypto verification is
+++  // the offline CLI path (signed bundle → `gpg --verify` against the
+++  // shipped pubkey at docs/carney_handover/polaris_demo_pubkey.asc).
++   const signatureFile = _findFile(files, "manifest.yaml.asc");
++-  const signaturePresent = !!signatureFile && signatureFile.bytes.length > 0;
+++  const signatureState: "missing" | "present_unverified" | "gpg_verified" =
+++    signatureFile && signatureFile.bytes.length > 0
+++      ? "present_unverified"
+++      : "missing";
++ 
++   // runId for offline mode: derive from filename (BundleMetadata doesn't
++   // carry run_id; it's a session-level field outside the v1.0 freeze).
++@@ -334,6 +342,6 @@ export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
++     metadata,
++     reasoningTrace,
++     sources,
++-    signaturePresent,
+++    signatureState,
++   };
++ }
++diff --git a/web/lib/inspector_bundle_loader.ts b/web/lib/inspector_bundle_loader.ts
++index e1da9077..9c448523 100644
++--- a/web/lib/inspector_bundle_loader.ts
+++++ b/web/lib/inspector_bundle_loader.ts
++@@ -37,9 +37,25 @@ export interface LoadedBundle {
++   metadata: BundleMetadata;
++   reasoningTrace: ReasoningTraceRecord[];
++   sources: Record<string, string>;
++-  /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
++-   * Derived during load — NOT a manifest field. Codex diff iter-1 P2. */
++-  signaturePresent: boolean;
+++  /** Honest tri-valued signature state per I-ux-001a (Codex iter-4 P2 on the
+++   * I-ux-001 plan: boolean `signaturePresent` could render "Signed bundle"
+++   * from any non-empty `.asc`, including the historical placeholder fixture).
+++   *   - "missing"             — no manifest.yaml.asc on disk
+++   *   - "present_unverified"  — file present, but it does NOT GPG-verify
+++   *                              against the shipped trust-root pubkey
+++   *                              (docs/carney_handover/polaris_demo_pubkey.asc),
+++   *                              or fingerprint doesn't match the pinned key.
+++   *                              Client loader always returns at most this
+++   *                              state (no GPG in the browser).
+++   *   - "gpg_verified"        — file present AND `gpg --verify` PASS against
+++   *                              the trust root in an isolated keyring AND
+++   *                              the signing-key fingerprint matches the
+++   *                              pinned canonical key. The ONLY state the UI
+++   *                              may label "Signed bundle." */
+++  signatureState: "missing" | "present_unverified" | "gpg_verified";
+++  /** Hex fingerprint of the signing key when signatureState=gpg_verified;
+++   * undefined otherwise. Surfaced for the receipt view. */
+++  signatureKeyFingerprint?: string;
++ }
++ 
++ export interface VerifiedReportShape {
++@@ -138,17 +154,14 @@ export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
++       );
++     }
++ 
++-    // Signature presence check (Codex diff iter-1 P2): mirror the conformance
++-    // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
++-    // bundle. The UI surfaces this boolean transparently; cryptographic
++-    // verification belongs to operator-side `gpg --verify` tooling.
++-    let signaturePresent = false;
++-    try {
++-      const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
++-      signaturePresent = stat.isFile() && stat.size > 0;
++-    } catch {
++-      signaturePresent = false;
++-    }
+++    // Signature state (tri-valued per I-ux-001a). The boolean check this
+++    // replaces could call a non-empty placeholder `.asc` "signed". This now
+++    // requires an actual `gpg --verify` PASS against the shipped trust root
+++    // in an isolated keyring (so the host's default keyring cannot satisfy
+++    // the check) AND a fingerprint match to the pinned canonical key
+++    // (state/polaris_gpg_keyid.txt).
+++    const { verifyBundleSignature } = await import("./gpg_verify_bundle");
+++    const sig = await verifyBundleSignature(dir);
++ 
++     return {
++       runId,
++@@ -159,7 +172,8 @@ export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
++       metadata,
++       reasoningTrace,
++       sources,
++-      signaturePresent,
+++      signatureState: sig.state,
+++      signatureKeyFingerprint: sig.fingerprint,
++     };
++   } catch (err) {
++     // Graceful: a missing/unreadable/malformed bundle renders the pending
++diff --git a/web/public/canonical_bundles/v1_canonical_success/manifest.yaml.asc b/web/public/canonical_bundles/v1_canonical_success/manifest.yaml.asc
++new file mode 100644
++index 00000000..6debb527
++--- /dev/null
+++++ b/web/public/canonical_bundles/v1_canonical_success/manifest.yaml.asc
++@@ -0,0 +1,7 @@
+++-----BEGIN PGP SIGNATURE-----
+++
+++iHUEABYKAB0WIQT7Ih+o7Rhfjj929+b28xzt/0kMAgUCahK7LQAKCRD28xzt/0kM
+++Ar4rAQCJQjpBcH1XBG6UR1cL8Um8G9uZpwGRtxz7dWRScDvp/QEAiNB3P0LnW+/f
+++2Ew20DIRhMd+ZXWU9rXF7CRg+BZsMAU=
+++=rlFB
+++-----END PGP SIGNATURE-----
++-- 
++2.49.0.windows.1
++
++
++From 82fd95aa1436d08e57c47714d3980c56c73d8da7 Mon Sep 17 00:00:00 2001
++From: msn <msn@polaris.dev>
++Date: Sun, 24 May 2026 02:26:57 -0700
++Subject: [PATCH 2/4] =?UTF-8?q?I-ux-001a=20(#874):=20fix=20Codex=20diff=20?=
++ =?UTF-8?q?iter-1=20=E2=80=94=20P0=20wired=20=5Fsign=5Fmanifest=5For=5Ffai?=
++ =?UTF-8?q?l,=20P1=20CWD/keyboxd,=20P1=20CI=20guard=20path,=20P2=20stale?=
++ =?UTF-8?q?=20copy?=
++MIME-Version: 1.0
++Content-Type: text/plain; charset=UTF-8
++Content-Transfer-Encoding: 8bit
++
++Codex iter 1 caught five real findings; all fixed:
++
++P0 — build script's `_sign_manifest_or_fail` was defined but never called from
++main() (and argparse/os/subprocess imports were missing). The script would
++silently regress the demo bundle to unsigned. Wired into main() + added the
++missing imports.
++
++P1 — server loader CWD: under Next.js process.cwd() is `web/`, not the repo
++root, so `docs/...` and `state/...` weren't found and every signed bundle
++degraded to present_unverified before GPG ever ran. Added `_findRepoRoot()`
++that resolves via $POLARIS_REPO_ROOT or walks up looking for the pinned-fp
++sentinel; both the trust-root and the pin file are now anchored to it.
++
++P1 — isolation defeated by host `use-keyboxd`. The smoke evidence literally
++showed "Specified keyrings are ignored due to option \"use-keyboxd\"" leaking
++in. Switched both the server loader and the CI guard to `gpgv` against a
++freshly-dearmored binary keyring built ONLY from the shipped trust root. gpgv
++is the dedicated verify-only tool: no agent spawn, no keyboxd, no host
++gpg.conf -- the only key it can trust is the one we pinned.
++
++P1 — CI guard path: web_ci.yml's default `working-directory: web` made
++`python scripts/check_signed_bundles.py` resolve to web/scripts/... which
++doesn't exist. Overrode `defaults.run.working-directory: .` on the
++check_signed_bundles job.
++
++P2 — workflow `paths:` filter didn't include the guard inputs (script, tests,
++fixture, trust-root pubkey, pinned fingerprint), so future regressions could
++bypass CI. Added all five.
++
++P2 — audit/page.tsx still said "pending sovereign signing" / "signer not yet
++live" — conflicted with the new gpg_verified state. Updated copy to point at
++the offline-verify command + the pinned-FP file.
++
++P3 — fixture README + client-loader doc comment updated to describe real
++signature + tri-valued state.
++
++Local proof (Windows MSYS):
++- python scripts/check_signed_bundles.py: rc=0 ("All 2 bundle(s) signature-verified")
++- pytest tests/scripts/test_check_signed_bundles.py: 3/3 PASS
++- npx tsc --noEmit: clean
++- End-to-end reviewer path: gpgv + shipped pubkey only -> "Good signature" on
++  both required bundles
++
++Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
++---
++ .github/workflows/web_ci.yml                  | 37 ++++++--
++ scripts/build_canonical_demo_bundle.py        | 94 ++++++++++++++++++-
++ scripts/check_signed_bundles.py               | 58 +++++++-----
++ tests/fixtures/signed_bundle/README.md        | 23 +++--
++ .../v1_canonical/manifest.yaml.asc            |  8 +-
++ web/app/runs/[runId]/audit/page.tsx           | 14 ++-
++ web/lib/gpg_verify_bundle.ts                  | 78 +++++++++++----
++ web/lib/inspector_bundle_client_loader.ts     |  4 +-
++ .../v1_canonical_success/manifest.yaml.asc    |  8 +-
++ 9 files changed, 257 insertions(+), 67 deletions(-)
++
++diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
++index b19525cb..5b43a529 100644
++--- a/.github/workflows/web_ci.yml
+++++ b/.github/workflows/web_ci.yml
++@@ -8,6 +8,15 @@ on:
++       - "tests/v6/**"
++       - "requirements*.txt"
++       - ".github/workflows/web_ci.yml"
+++      # I-ux-001a: signed-bundle honesty guard inputs MUST trigger the workflow
+++      # — Codex iter-1 P2: without these, regressions to the guard script, the
+++      # signed bundle artifacts, the trust-root pubkey, or the pinned
+++      # fingerprint can avoid CI entirely.
+++      - "scripts/check_signed_bundles.py"
+++      - "tests/scripts/test_check_signed_bundles.py"
+++      - "tests/fixtures/signed_bundle/**"
+++      - "docs/carney_handover/polaris_demo_pubkey.asc"
+++      - "state/polaris_gpg_keyid.txt"
++   pull_request:
++     paths:
++       - "web/**"
++@@ -15,6 +24,15 @@ on:
++       - "tests/v6/**"
++       - "requirements*.txt"
++       - ".github/workflows/web_ci.yml"
+++      # I-ux-001a: signed-bundle honesty guard inputs MUST trigger the workflow
+++      # — Codex iter-1 P2: without these, regressions to the guard script, the
+++      # signed bundle artifacts, the trust-root pubkey, or the pinned
+++      # fingerprint can avoid CI entirely.
+++      - "scripts/check_signed_bundles.py"
+++      - "tests/scripts/test_check_signed_bundles.py"
+++      - "tests/fixtures/signed_bundle/**"
+++      - "docs/carney_handover/polaris_demo_pubkey.asc"
+++      - "state/polaris_gpg_keyid.txt"
++ 
++ defaults:
++   run:
++@@ -276,13 +294,19 @@ jobs:
++ 
++   check_signed_bundles:
++     # I-ux-001a (#874) — LAW-II guard. Every bundle the UI may label
++-    # "Signed bundle" MUST GPG-verify against the shipped trust-root pubkey
++-    # in an isolated keyring AND have a signing-key fingerprint matching the
++-    # pinned canonical key. Prevents the iter-3 P0 regression: a missing or
++-    # placeholder `.asc` silently rendering as "signed" in the inspector.
+++    # "Signed bundle" MUST GPG-verify in an isolated GNUPGHOME against the
+++    # shipped trust-root pubkey AND have a signing-key fingerprint matching
+++    # the pinned canonical key. Prevents the iter-3 P0 regression: a missing
+++    # or placeholder `.asc` silently rendering as "signed" in the inspector.
++     name: check_signed_bundles (Prereq 0 honesty guard)
++     runs-on: ubuntu-latest
++     needs: lint_format_typecheck_build
+++    # Codex diff iter-1 P1: the workflow-default `working-directory: web`
+++    # would make `python scripts/check_signed_bundles.py` resolve to
+++    # `web/scripts/...` which doesn't exist. Override per-job to repo root.
+++    defaults:
+++      run:
+++        working-directory: .
++     steps:
++       - name: checkout
++         uses: actions/checkout@v4
++@@ -292,8 +316,9 @@ jobs:
++           python-version: "3.13"
++       - name: run_guard
++         # gpg is preinstalled on ubuntu-latest. Script imports the shipped
++-        # pubkey into an isolated keyring (--no-default-keyring --keyring)
++-        # and verifies; exits non-zero on any failure.
+++        # pubkey into a fully-isolated GNUPGHOME (with no-use-keyboxd so
+++        # host config can't leak in) and verifies; exits non-zero on any
+++        # failure.
++         run: python scripts/check_signed_bundles.py
++ 
++   pytest_v6_backend:
++diff --git a/scripts/build_canonical_demo_bundle.py b/scripts/build_canonical_demo_bundle.py
++index b2abad13..c3b015d3 100644
++--- a/scripts/build_canonical_demo_bundle.py
+++++ b/scripts/build_canonical_demo_bundle.py
++@@ -17,9 +17,12 @@ is written, so the inspector honestly renders signaturePresent=false.
++ 
++ from __future__ import annotations
++ 
+++import argparse
++ import hashlib
++ import json
+++import os
++ import re
+++import subprocess
++ import sys
++ from pathlib import Path
++ 
++@@ -302,11 +305,100 @@ def main() -> int:
++     ]
++     write(OUT / "manifest.yaml", "\n".join(manifest_lines) + "\n")
++ 
+++    # --- I-ux-001a (Codex iter-1 P0): sign by default with CANONICAL key ----
+++    args = _parse_args()
+++    if args.unsigned:
+++        print(
+++            f"OK: {total_kept} verified sentences across {len(sections)} sections, "
+++            f"{len(sources)} real sources. {total_dropped_gate} dropped at §-1.1 gate. "
+++            f"--unsigned: no signature written."
+++        )
+++        return 0
+++
+++    sig_rc = _sign_manifest_or_fail(OUT / "manifest.yaml")
+++    if sig_rc != 0:
+++        return sig_rc
++     print(
++         f"OK: {total_kept} verified sentences across {len(sections)} sections, "
++         f"{len(sources)} real sources. {total_dropped_gate} dropped at §-1.1 gate. "
++-        f"No signature (option b)."
+++        f"Signed with canonical key."
+++    )
+++    return 0
+++
+++
+++def _parse_args() -> argparse.Namespace:
+++    p = argparse.ArgumentParser(description="Build the canonical demo bundle.")
+++    p.add_argument(
+++        "--unsigned",
+++        action="store_true",
+++        help="Skip signing (prior 'option b' workflow). LAW-II: the inspector "
+++             "will then render the honest 'Not signed' state.",
+++    )
+++    return p.parse_args()
+++
+++
+++def _sign_manifest_or_fail(manifest_path: Path) -> int:
+++    """Detach-sign `manifest_path` with the canonical Carney-demo key.
+++
+++    Reads:
+++      $POLARIS_GPG_HOMEDIR (default ~/.gnupg-polaris) — the dedicated keyring
+++        bootstrapped by scripts/bootstrap_gpg_demo_key.sh
+++        (docs/carney_secret_inventory.md #1).
+++      $POLARIS_GPG_KEY_ID  (default state/polaris_gpg_keyid.txt) — pinned
+++        fingerprint of the canonical signing key.
+++
+++    Fails loudly if either is unavailable. Never falls back silently (which
+++    would risk signing with a different default-keyring key that does NOT
+++    match the shipped trust-root pubkey).
+++    """
+++    home = os.environ.get("POLARIS_GPG_HOMEDIR") or str(
+++        Path.home() / ".gnupg-polaris"
+++    )
+++    fp = os.environ.get("POLARIS_GPG_KEY_ID")
+++    if not fp:
+++        pin = Path("state/polaris_gpg_keyid.txt")
+++        if not pin.is_file():
+++            print(
+++                "[sign] FAIL: no $POLARIS_GPG_KEY_ID and "
+++                "state/polaris_gpg_keyid.txt missing. "
+++                "Run scripts/bootstrap_gpg_demo_key.sh first, or pass --unsigned.",
+++                file=sys.stderr,
+++            )
+++            return 2
+++        fp = pin.read_text(encoding="utf-8").strip()
+++    if not Path(home).is_dir():
+++        print(
+++            f"[sign] FAIL: GNUPGHOME {home} does not exist. "
+++            f"Run scripts/bootstrap_gpg_demo_key.sh first, or pass --unsigned.",
+++            file=sys.stderr,
+++        )
+++        return 2
+++
+++    asc = manifest_path.with_suffix(manifest_path.suffix + ".asc")
+++    if asc.exists():
+++        asc.unlink()
+++    env = {**os.environ, "GNUPGHOME": home}
+++    cmd = [
+++        "gpg", "--batch", "--yes", "--local-user", fp,
+++        "--armor", "--detach-sign", "--output", str(asc), str(manifest_path),
+++    ]
+++    r = subprocess.run(cmd, env=env, capture_output=True, text=True)
+++    if r.returncode != 0:
+++        print(
+++            f"[sign] FAIL: gpg detach-sign exit {r.returncode}: "
+++            f"{r.stderr.strip()}",
+++            file=sys.stderr,
+++        )
+++        return 3
+++
+++    vr = subprocess.run(
+++        ["gpg", "--batch", "--verify", str(asc), str(manifest_path)],
+++        env=env, capture_output=True, text=True,
++     )
+++    if vr.returncode != 0:
+++        print(f"[sign] FAIL: self-verify after sign: {vr.stderr.strip()}", file=sys.stderr)
+++        return 4
+++    print(f"[sign] OK: {asc.name} ({asc.stat().st_size} bytes) signed with {fp}")
++     return 0
++ 
++ 
++diff --git a/scripts/check_signed_bundles.py b/scripts/check_signed_bundles.py
++index 4013ee74..0bd5ddbd 100644
++--- a/scripts/check_signed_bundles.py
+++++ b/scripts/check_signed_bundles.py
++@@ -20,6 +20,7 @@ Exit codes:
++ """
++ from __future__ import annotations
++ 
+++import os
++ import re
++ import shutil
++ import subprocess
++@@ -46,8 +47,19 @@ def _read_pinned_fp() -> str | None:
++ 
++ 
++ def _verify_one(bundle_dir: Path, pinned_fp: str) -> tuple[bool, str]:
++-    """Return (ok, message). Verifies against the trust root in an ISOLATED
++-    keyring (the host's default keyring cannot satisfy this check)."""
+++    """Return (ok, message). Verifies with `gpgv` against a freshly-dearmored
+++    binary keyring built ONLY from the shipped trust root.
+++
+++    Why gpgv (Codex iter-1 P1 on the diff + cross-platform):
+++    - gpgv is the dedicated verify-only tool: it does NOT spawn gpg-agent
+++      (so it works in restricted/CI environments AND Windows MSYS where a
+++      fresh GNUPGHOME can't start an agent).
+++    - It takes an explicit --keyring file; it never reads ~/.gnupg or any
+++      host config (no keyboxd, no gpg.conf), so the prior `use-keyboxd`
+++      leak Codex flagged cannot happen.
+++    - The keyring is built fresh from the shipped trust-root pubkey each
+++      run, so the only key gpgv can trust is the one we pinned.
+++    """
++     manifest = bundle_dir / "manifest.yaml"
++     asc = bundle_dir / "manifest.yaml.asc"
++     if not manifest.is_file():
++@@ -55,31 +67,32 @@ def _verify_one(bundle_dir: Path, pinned_fp: str) -> tuple[bool, str]:
++     if not asc.is_file() or asc.stat().st_size == 0:
++         return False, f"manifest.yaml.asc missing or empty"
++ 
++-    # Build an isolated keybox from the trust root, then verify against it
++-    # with --no-default-keyring. We do NOT use --homedir: a fresh GNUPGHOME
++-    # tries to spawn gpg-agent, which fails on some platforms (Windows MSYS)
++-    # even for verify-only paths. --keyring sidesteps the agent entirely.
++-    tmpdir = Path(tempfile.mkdtemp(prefix="polaris-ci-gpg-"))
++-    keyring = tmpdir / "trust.kbx"
+++    tmpdir = Path(tempfile.mkdtemp(prefix="polaris-ci-gpgv-"))
+++    keyring = tmpdir / "trust.gpg"
++     try:
++-        imp = subprocess.run(
++-            ["gpg", "--no-default-keyring", "--keyring", str(keyring),
++-             "--batch", "--quiet", "--import", str(TRUST_ROOT_PUBKEY)],
++-            capture_output=True, text=True,
++-        )
++-        if imp.returncode != 0:
++-            return False, f"gpg --import trust root failed: {imp.stderr.strip().splitlines()[-1] if imp.stderr.strip() else 'no detail'}"
+++        # Dearmor the shipped pubkey into a binary keyring gpgv can read.
+++        with open(TRUST_ROOT_PUBKEY, "rb") as src, open(keyring, "wb") as dst:
+++            de = subprocess.run(
+++                ["gpg", "--no-options", "--batch", "--dearmor"],
+++                stdin=src, stdout=dst, stderr=subprocess.PIPE, text=False,
+++            )
+++            if de.returncode != 0:
+++                return False, f"gpg --dearmor trust root failed: {de.stderr.decode('utf-8','replace').strip()}"
+++
+++        # MSYS gpgv mangles absolute Windows paths in --keyring (it prepends
+++        # ~/.gnupg/ to anything containing a colon). Workaround: run from the
+++        # tmpdir and pass a relative keyring filename. Absolute paths for the
+++        # signature + manifest go through fine (different code path).
++         v = subprocess.run(
++-            ["gpg", "--no-default-keyring", "--keyring", str(keyring),
++-             "--batch", "--status-fd", "1",
++-             "--verify", str(asc), str(manifest)],
++-            capture_output=True, text=True,
+++            ["gpgv", "--keyring", "./trust.gpg", "--status-fd", "1",
+++             str(asc.resolve()), str(manifest.resolve())],
+++            cwd=str(tmpdir), capture_output=True, text=True,
++         )
++         if v.returncode != 0:
++-            return False, f"gpg --verify FAILED: {v.stderr.strip().splitlines()[-1] if v.stderr.strip() else 'no detail'}"
+++            return False, f"gpgv --verify FAILED: {v.stderr.strip().splitlines()[-1] if v.stderr.strip() else 'no detail'}"
++         m = re.search(r"VALIDSIG\s+([0-9A-F]{40})\b", v.stdout + v.stderr, re.I)
++         if not m:
++-            return False, "could not parse signing-key fingerprint from gpg status"
+++            return False, "could not parse signing-key fingerprint from gpgv status"
++         actual_fp = m.group(1).upper()
++         if actual_fp != pinned_fp:
++             return False, f"fingerprint mismatch: signed by {actual_fp[:16]}..., expected pinned {pinned_fp[:16]}..."
++@@ -92,6 +105,9 @@ def main() -> int:
++     if not shutil.which("gpg"):
++         print("FAIL: gpg binary not on PATH", file=sys.stderr)
++         return 2
+++    if not shutil.which("gpgv"):
+++        print("FAIL: gpgv binary not on PATH", file=sys.stderr)
+++        return 2
++     if not TRUST_ROOT_PUBKEY.is_file():
++         print(f"FAIL: trust root pubkey missing at {TRUST_ROOT_PUBKEY}", file=sys.stderr)
++         return 2
++diff --git a/tests/fixtures/signed_bundle/README.md b/tests/fixtures/signed_bundle/README.md
++index 96a9d611..4e18a552 100644
++--- a/tests/fixtures/signed_bundle/README.md
+++++ b/tests/fixtures/signed_bundle/README.md
++@@ -12,7 +12,7 @@ Schema version **v1.0** per `src/polaris_graph/audit_bundle/bundle_schema.py:BUN
++ | File | Content type | Purpose |
++ |---|---|---|
++ | `manifest.yaml` | (the manifest itself) | Top-level `BundleManifest` referencing every other file with SHA256 anchors |
++-| `manifest.yaml.asc` | (the signature) | GPG armored signature **placeholder** — presence-only test fixture, not a real key signature. See note below. |
+++| `manifest.yaml.asc` | (the signature) | REAL GPG armored signature over `manifest.yaml`, made with the canonical Carney-demo Ed25519 key (FB221F...01CC) per I-ux-001a. `gpg --verify` against `docs/carney_handover/polaris_demo_pubkey.asc` passes. The CI guard (`scripts/check_signed_bundles.py`) enforces this. |
++ | `scope_decision.json` | `scope_decision` | One `ScopeDecision` (slice 001 output) |
++ | `evidence_pool.json` | `evidence_pool` | One `EvidencePool` (slice 002 output) with one Source |
++ | `verified_report.json` | `verified_report` | One `VerifiedReport` (slice 003 output) — minimal sections |
++@@ -36,11 +36,22 @@ The script:
++ 5. Constructs `BundleManifest` referencing the files.
++ 6. Writes `manifest.yaml` using `yaml.safe_dump(..., sort_keys=True)`.
++ 
++-The placeholder `manifest.yaml.asc` is a fixed GPG-armored stub authored
++-once and reused. Real signatures require an operator key; conformance
++-checks presence + non-empty only (cryptographic verification belongs to
++-operator/reviewer-side tooling, NOT the I-B-08 emitter's pre-sign
++-conformance check).
+++The `manifest.yaml.asc` is a REAL detached GPG signature (Ed25519, key
+++`FB221FA8ED185F8E3F76F7E6F6F31CEDFF490C02`) over `manifest.yaml`,
+++produced via:
+++
+++```
+++GNUPGHOME=~/.gnupg-polaris gpg --batch --yes \
+++  --local-user FB221FA8ED185F8E3F76F7E6F6F31CEDFF490C02 \
+++  --armor --detach-sign --output manifest.yaml.asc manifest.yaml
+++```
+++
+++It verifies end-to-end against the shipped trust-root pubkey at
+++`docs/carney_handover/polaris_demo_pubkey.asc`. The signing key is
+++bootstrapped by `scripts/bootstrap_gpg_demo_key.sh` (I-carney-005) into
+++`GNUPGHOME=~/.gnupg-polaris` (separate from the default keyring per
+++`docs/carney_secret_inventory.md` #1). Every regeneration of this fixture
+++must re-sign and pass `python scripts/check_signed_bundles.py`.
++ 
++ ## When to bump
++ 
++diff --git a/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc b/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
++index a9fd7ef2..b0c8b208 100644
++--- a/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
+++++ b/tests/fixtures/signed_bundle/v1_canonical/manifest.yaml.asc
++@@ -1,7 +1,7 @@
++ -----BEGIN PGP SIGNATURE-----
++ 
++-iHUEABYKAB0WIQT7Ih+o7Rhfjj929+b28xzt/0kMAgUCahK9nQAKCRD28xzt/0kM
++-ArfYAP9LpBP7RvY7Huth+m4vEsWJFMPlI42fxmxFjMqMGJBcJwD/VbV2fysWpqu/
++-wBwM151IMx51rypxqjSgNJlUA7c0SwA=
++-=LUwT
+++iHUEABYKAB0WIQT7Ih+o7Rhfjj929+b28xzt/0kMAgUCahLD/QAKCRD28xzt/0kM
+++Aj+yAP0ZDFViPDulYX6Z8kmwMTJ3Higw1xNwauwtfsW0Dm6ecAEA4qfW19V7AsFq
+++m3ctszbS5pWG8eVC7rgDuqey2TFvZw4=
+++=c44d
++ -----END PGP SIGNATURE-----
++diff --git a/web/app/runs/[runId]/audit/page.tsx b/web/app/runs/[runId]/audit/page.tsx
++index 436c1842..d67b2f01 100644
++--- a/web/app/runs/[runId]/audit/page.tsx
+++++ b/web/app/runs/[runId]/audit/page.tsx
++@@ -276,8 +276,12 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
++                 — only the byte-preserving signed package does. */}
++             Every file the signed package contains, with the SHA-256 recorded in
++             its manifest. Each file&apos;s content is fixed by its hash; the
++-            detached GPG signature (pending sovereign signing) seals the
++-            manifest itself.
+++            detached GPG signature seals the manifest itself — verify offline
+++            with{" "}
+++            <code className="font-mono text-[11px]">
+++              gpg --verify manifest.yaml.asc manifest.yaml
+++            </code>
+++            {" "}after importing the published trust-root pubkey.
++           </p>
++         </div>
++         <div className="border-border shadow-card hidden overflow-x-auto rounded-xl border sm:block">
++@@ -361,8 +365,10 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
++           reasoning trace. The byte-preserving signed package (a{" "}
++           <code className="font-mono text-[11px]">.tar.gz</code> for{" "}
++           <code className="font-mono text-[11px]">gpg --verify</code> + per-file
++-          SHA-256 re-hashing) is produced by the sovereign Canadian signer,
++-          which is not yet live.
+++          SHA-256 re-hashing) is produced by the demo signing key (Ed25519,
+++          fingerprint pinned in{" "}
+++          <code className="font-mono text-[11px]">state/polaris_gpg_keyid.txt</code>
+++          ); see the Receipt view for the offline-verify flow.
++         </p>
++         <div className="flex flex-wrap gap-2">
++           <Button
++diff --git a/web/lib/gpg_verify_bundle.ts b/web/lib/gpg_verify_bundle.ts
++index dcef2ad9..3d38c83f 100644
++--- a/web/lib/gpg_verify_bundle.ts
+++++ b/web/lib/gpg_verify_bundle.ts
++@@ -14,16 +14,38 @@
++ 
++ import { execFile } from "node:child_process";
++ import { promises as fs } from "node:fs";
+++import { existsSync } from "node:fs";
++ import os from "node:os";
++ import path from "node:path";
++ import { promisify } from "node:util";
++ 
++ const execFileAsync = promisify(execFile);
++ 
++-// repo-root-relative paths to the trust-root + pinned fingerprint, resolved
++-// from CWD at request time (Next.js server CWD is the repo root).
++-const TRUST_ROOT_PUBKEY = "docs/carney_handover/polaris_demo_pubkey.asc";
++-const PINNED_FP_FILE = "state/polaris_gpg_keyid.txt";
+++// I-ux-001a Codex iter-1 P1: Next.js server CWD is `web/`, NOT the repo root.
+++// Anchor the trust-root + pin paths to the discovered repo root so the verifier
+++// reliably finds them. Order of resolution:
+++//   1. $POLARIS_REPO_ROOT (explicit override; CI/Docker can set this)
+++//   2. walk up from this module's directory until a sentinel file appears
+++//   3. process.cwd() as last resort (works if launched from repo root)
+++function _findRepoRoot(): string {
+++  const fromEnv = process.env.POLARIS_REPO_ROOT;
+++  if (fromEnv && existsSync(path.join(fromEnv, "state/polaris_gpg_keyid.txt"))) {
+++    return fromEnv;
+++  }
+++  // __dirname is unavailable in ESM but Next.js compiles to CJS at runtime;
+++  // fall back to walking up from process.cwd() which under Next is `web/`.
+++  let cur = process.cwd();
+++  for (let i = 0; i < 6; i++) {
+++    if (existsSync(path.join(cur, "state/polaris_gpg_keyid.txt"))) return cur;
+++    const parent = path.dirname(cur);
+++    if (parent === cur) break;
+++    cur = parent;
+++  }
+++  return process.cwd();
+++}
+++const REPO_ROOT = _findRepoRoot();
+++const TRUST_ROOT_PUBKEY = path.join(REPO_ROOT, "docs/carney_handover/polaris_demo_pubkey.asc");
+++const PINNED_FP_FILE = path.join(REPO_ROOT, "state/polaris_gpg_keyid.txt");
++ 
++ export interface SignatureVerifyResult {
++   state: "missing" | "present_unverified" | "gpg_verified";
++@@ -68,24 +90,40 @@ export async function verifyBundleSignature(
++     return { state: "present_unverified" };
++   }
++ 
++-  // 3. Verify against the trust root in an ISOLATED KEYRING (Codex brief
++-  //    iter-2 P2). We use --no-default-keyring + --keyring (not --homedir):
++-  //    a fresh GNUPGHOME tries to spawn gpg-agent, which is brittle for a
++-  //    verify-only path. --keyring sidesteps the agent entirely.
+++  // 3. Verify with `gpgv` against a freshly-dearmored binary keyring built
+++  //    ONLY from the shipped trust root (Codex iter-1 P1 on the diff).
+++  //    gpgv is the dedicated verify-only tool: no gpg-agent spawn, no
+++  //    keyboxd, no host gpg.conf. The keyring is built fresh each request
+++  //    so the only key gpgv can trust is the one we pin.
++   let tmpDir: string | null = null;
++   try {
++-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "polaris-gpg-"));
++-    const keyring = path.join(tmpDir, "trust.kbx");
++-    await execFileAsync("gpg", [
++-      "--no-default-keyring", "--keyring", keyring,
++-      "--batch", "--quiet", "--import", trustRoot,
++-    ]);
++-    // status-fd=1 routes machine-readable VALIDSIG to stdout; we check both.
++-    const { stdout, stderr } = await execFileAsync("gpg", [
++-      "--no-default-keyring", "--keyring", keyring,
++-      "--batch", "--status-fd", "1",
++-      "--verify", ascPath, manifestPath,
++-    ]);
+++    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "polaris-gpgv-"));
+++    const keyringPath = path.join(tmpDir, "trust.gpg");
+++    // Dearmor the .asc pubkey into a binary keyring.
+++    const armored = await fs.readFile(trustRoot);
+++    const de = await new Promise<{ ok: boolean; bin?: Buffer; err: string }>((resolve) => {
+++      const cp = require("node:child_process").spawn("gpg", ["--no-options", "--batch", "--dearmor"]);
+++      const chunks: Buffer[] = [];
+++      const errChunks: Buffer[] = [];
+++      cp.stdout.on("data", (d: Buffer) => chunks.push(d));
+++      cp.stderr.on("data", (d: Buffer) => errChunks.push(d));
+++      cp.on("close", (code: number) => resolve({
+++        ok: code === 0,
+++        bin: code === 0 ? Buffer.concat(chunks) : undefined,
+++        err: Buffer.concat(errChunks).toString("utf-8"),
+++      }));
+++      cp.stdin.write(armored);
+++      cp.stdin.end();
+++    });
+++    if (!de.ok || !de.bin) return { state: "present_unverified" };
+++    await fs.writeFile(keyringPath, de.bin);
+++
+++    // MSYS gpgv mangles absolute Windows paths in --keyring (prepends ~/.gnupg/
+++    // to anything with a colon). Workaround: cwd=tmpDir + relative keyring.
+++    const { stdout, stderr } = await execFileAsync("gpgv", [
+++      "--keyring", "./trust.gpg", "--status-fd", "1",
+++      path.resolve(ascPath), path.resolve(manifestPath),
+++    ], { cwd: tmpDir });
++     const m = (stdout + stderr).match(/VALIDSIG\s+([0-9A-F]{40})\b/i);
++     const fp = m ? m[1].toUpperCase() : null;
++     if (!fp) return { state: "present_unverified" };
++diff --git a/web/lib/inspector_bundle_client_loader.ts b/web/lib/inspector_bundle_client_loader.ts
++index 9cc604e3..fb9ff3f3 100644
++--- a/web/lib/inspector_bundle_client_loader.ts
+++++ b/web/lib/inspector_bundle_client_loader.ts
++@@ -16,7 +16,9 @@
++  *   - each declared file is present in the tar
++  *   - SHA-256 of each file matches manifest hash (browser crypto.subtle)
++  *   - byte size matches manifest size
++- *   - signaturePresent: derived from manifest.yaml.asc existence + non-empty
+++ *   - signatureState: tri-valued (I-ux-001a) — "missing" if no .asc, else
+++ *     "present_unverified" (the client/browser never returns "gpg_verified";
+++ *     full crypto verify is the offline CLI path)
++  *
++  * GPG cryptographic verify is out of scope (requires CLI / pgp.js + key
++  * trust UX, both browser-impractical for Carney handover).
++diff --git a/web/public/canonical_bundles/v1_canonical_success/manifest.yaml.asc b/web/public/canonical_bundles/v1_canonical_success/manifest.yaml.asc
++index 6debb527..553c2a1a 100644
++--- a/web/public/canonical_bundles/v1_canonical_success/manifest.yaml.asc
+++++ b/web/public/canonical_bundles/v1_canonical_success/manifest.yaml.asc
++@@ -1,7 +1,7 @@
++ -----BEGIN PGP SIGNATURE-----
++ 
++-iHUEABYKAB0WIQT7Ih+o7Rhfjj929+b28xzt/0kMAgUCahK7LQAKCRD28xzt/0kM
++-Ar4rAQCJQjpBcH1XBG6UR1cL8Um8G9uZpwGRtxz7dWRScDvp/QEAiNB3P0LnW+/f
++-2Ew20DIRhMd+ZXWU9rXF7CRg+BZsMAU=
++-=rlFB
+++iHUEABYKAB0WIQT7Ih+o7Rhfjj929+b28xzt/0kMAgUCahLD/QAKCRD28xzt/0kM
+++Ao7UAQDZXCnomKZq+uLWsgwUuh37n+6LMOtBpy1uQX+OYF08+AD+PgGSgQJ1+PMr
+++l4TBuQuFgM6he+Vkv2+ZsIjtpEBxsw4=
+++=N/no
++ -----END PGP SIGNATURE-----
++-- 
++2.49.0.windows.1
++
++
++From 7c31cdbd2cfdd81088e584cc0fc3ef98318397d5 Mon Sep 17 00:00:00 2001
++From: msn <msn@polaris.dev>
++Date: Sun, 24 May 2026 02:37:18 -0700
++Subject: [PATCH 3/4] =?UTF-8?q?I-ux-001a=20(#874):=20fix=20Codex=20diff=20?=
++ =?UTF-8?q?iter-2=20=E2=80=94=20bake=20trust=20root=20+=20install=20gnupg?=
++ =?UTF-8?q?=20in=20prod=20(P1)=20+=20P3=20stale=20comments?=
++MIME-Version: 1.0
++Content-Type: text/plain; charset=UTF-8
++Content-Transfer-Encoding: 8bit
++
++Codex iter-2 P1: production Docker (web/Dockerfile) ran node:20-alpine with no
++gpg/gpgv binaries and no trust files; the new server verifier would silently
++degrade every signed bundle to `present_unverified` in deployed production
++(the inspector would never render the green "Signed bundle" pill).
++
++Two-part fix:
++- Bake the trust-root pubkey (TRUST_ROOT_ARMORED) + pinned fingerprint
++  (PINNED_FP) as constants in web/lib/gpg_verify_bundle.ts. Both are PUBLIC
++  by design (docs/carney_secret_inventory.md #1: "Public key may stay
++  published"). This eliminates the iter-1 P1 CWD lookup AND the production
++  docker file-copy problem in one move. Rotation now requires updating two
++  constants + a redeploy.
++- Install gnupg in the runner stage of web/Dockerfile (`apk add --no-cache
++  gnupg` — provides both gpg and gpgv on Alpine) so the server verifier path
++  actually has the binaries it needs.
++- Added an `error` listener on the spawn("gpg", ...) call so a missing gpg
++  is a controlled downgrade to present_unverified, never an unhandled
++  process throw.
++
++P3 stale comments cleaned: scripts/build_canonical_demo_bundle.py docstring
++no longer says "Signature: NONE"; web/app/runs/[runId]/audit/page.tsx header
++now describes the tri-valued state + CI guard instead of "pending sovereign
++signing"; .github/workflows/web_ci.yml comments describe the gpgv flow
++instead of the older GNUPGHOME/no-use-keyboxd approach.
++
++Local proof (Windows MSYS):
++- python scripts/check_signed_bundles.py: rc=0
++- pytest tests/scripts/test_check_signed_bundles.py: 3/3 PASS
++- npx tsc --noEmit: clean (rc=0)
++- End-to-end reviewer path: gpgv + shipped pubkey only -> "Good signature"
++  on both required bundles
++
++Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
++---
++ .github/workflows/web_ci.yml        |  18 +++--
++ web/Dockerfile                      |   8 ++
++ web/app/runs/[runId]/audit/page.tsx |  12 +--
++ web/lib/gpg_verify_bundle.ts        | 112 ++++++++++++----------------
++ 4 files changed, 71 insertions(+), 79 deletions(-)
++
++diff --git a/.github/workflows/web_ci.yml b/.github/workflows/web_ci.yml
++index 5b43a529..c6f5237e 100644
++--- a/.github/workflows/web_ci.yml
+++++ b/.github/workflows/web_ci.yml
++@@ -294,10 +294,11 @@ jobs:
++ 
++   check_signed_bundles:
++     # I-ux-001a (#874) — LAW-II guard. Every bundle the UI may label
++-    # "Signed bundle" MUST GPG-verify in an isolated GNUPGHOME against the
++-    # shipped trust-root pubkey AND have a signing-key fingerprint matching
++-    # the pinned canonical key. Prevents the iter-3 P0 regression: a missing
++-    # or placeholder `.asc` silently rendering as "signed" in the inspector.
+++    # "Signed bundle" MUST verify (via `gpgv` against a freshly-dearmored
+++    # binary keyring built only from the shipped trust root) AND have a
+++    # signing-key fingerprint matching the pinned canonical key. Prevents
+++    # the iter-3 P0 regression: a missing or placeholder `.asc` silently
+++    # rendering as "signed" in the inspector.
++     name: check_signed_bundles (Prereq 0 honesty guard)
++     runs-on: ubuntu-latest
++     needs: lint_format_typecheck_build
++@@ -315,10 +316,11 @@ jobs:
++         with:
++           python-version: "3.13"
++       - name: run_guard
++-        # gpg is preinstalled on ubuntu-latest. Script imports the shipped
++-        # pubkey into a fully-isolated GNUPGHOME (with no-use-keyboxd so
++-        # host config can't leak in) and verifies; exits non-zero on any
++-        # failure.
+++        # gpg + gpgv are preinstalled on ubuntu-latest. The guard dearmors
+++        # the shipped pubkey into a fresh binary keyring per bundle and
+++        # invokes `gpgv` (which does NOT read host config / keyboxd / agent),
+++        # asserting the signing-key fingerprint matches the pinned canonical
+++        # key. Exits non-zero on any failure.
++         run: python scripts/check_signed_bundles.py
++ 
++   pytest_v6_backend:
++diff --git a/web/Dockerfile b/web/Dockerfile
++index a8c15889..27d55970 100644
++--- a/web/Dockerfile
+++++ b/web/Dockerfile
++@@ -44,6 +44,14 @@ ENV PORT=3000
++ # resolves to IPv6 ::1, but the healthcheck + Caddy reach it on IPv4. Force
++ # 0.0.0.0 so 127.0.0.1 (healthcheck) and webui:3000 (Caddy) both connect.
++ ENV HOSTNAME=0.0.0.0
+++# I-ux-001a Codex iter-2 P1: the server-side GPG verifier
+++# (web/lib/gpg_verify_bundle.ts) shells out to gpg + gpgv to verify the
+++# audit-bundle signature against a BAKED-IN trust root (the pubkey is public
+++# per docs/carney_secret_inventory.md #1). Install gnupg (gpg + gpgv on
+++# Alpine) so the verifier path works in production — without it every signed
+++# bundle silently degrades to `present_unverified` and the inspector never
+++# renders the green "Signed bundle" pill.
+++RUN apk add --no-cache gnupg
++ # Standalone output: contains a minimal server.js + only the deps needed
++ # to run it. Requires output: 'standalone' in next.config.ts (P1-004).
++ COPY --from=builder /app/.next/standalone ./
++diff --git a/web/app/runs/[runId]/audit/page.tsx b/web/app/runs/[runId]/audit/page.tsx
++index d67b2f01..02cc5b34 100644
++--- a/web/app/runs/[runId]/audit/page.tsx
+++++ b/web/app/runs/[runId]/audit/page.tsx
++@@ -8,11 +8,13 @@
++ // /api/inspector_bundle/[runId] route use); no client JS needed (download is a
++ // plain <a download> to that route).
++ //
++-// Honesty (LAW II): the canonical bundle ships WITHOUT manifest.yaml.asc (the
++-// GPG seal was deliberately deferred — operator "skip the seal, build the real
++-// proof"). So `signaturePresent` is false and the page says exactly that:
++-// integrity manifest present, GPG signature pending sovereign signing. It never
++-// claims a signature that isn't on disk.
+++// Honesty (LAW II): per I-ux-001a the canonical bundle ships WITH a real
+++// detached GPG signature (Ed25519, key FB221F...01CC) over manifest.yaml.
+++// The loader exposes a tri-valued signatureState (missing | present_unverified
+++// | gpg_verified); the page renders the honest state per Codex iter-3 P0 on
+++// the I-ux-001 plan. Only gpg_verified claims "Signed bundle"; the CI guard
+++// (scripts/check_signed_bundles.py) prevents the unsigned-but-labelled-signed
+++// regression.
++ //
++ // The richer per-gate audit log (corpus adequacy / approval / evaluator
++ // rule-checks from AuditIrRun via GET /api/inspector/runs/{id}) is a documented
++diff --git a/web/lib/gpg_verify_bundle.ts b/web/lib/gpg_verify_bundle.ts
++index 3d38c83f..fdeb55fe 100644
++--- a/web/lib/gpg_verify_bundle.ts
+++++ b/web/lib/gpg_verify_bundle.ts
++@@ -14,38 +14,32 @@
++ 
++ import { execFile } from "node:child_process";
++ import { promises as fs } from "node:fs";
++-import { existsSync } from "node:fs";
++ import os from "node:os";
++ import path from "node:path";
++ import { promisify } from "node:util";
++ 
++ const execFileAsync = promisify(execFile);
++ 
++-// I-ux-001a Codex iter-1 P1: Next.js server CWD is `web/`, NOT the repo root.
++-// Anchor the trust-root + pin paths to the discovered repo root so the verifier
++-// reliably finds them. Order of resolution:
++-//   1. $POLARIS_REPO_ROOT (explicit override; CI/Docker can set this)
++-//   2. walk up from this module's directory until a sentinel file appears
++-//   3. process.cwd() as last resort (works if launched from repo root)
++-function _findRepoRoot(): string {
++-  const fromEnv = process.env.POLARIS_REPO_ROOT;
++-  if (fromEnv && existsSync(path.join(fromEnv, "state/polaris_gpg_keyid.txt"))) {
++-    return fromEnv;
++-  }
++-  // __dirname is unavailable in ESM but Next.js compiles to CJS at runtime;
++-  // fall back to walking up from process.cwd() which under Next is `web/`.
++-  let cur = process.cwd();
++-  for (let i = 0; i < 6; i++) {
++-    if (existsSync(path.join(cur, "state/polaris_gpg_keyid.txt"))) return cur;
++-    const parent = path.dirname(cur);
++-    if (parent === cur) break;
++-    cur = parent;
++-  }
++-  return process.cwd();
++-}
++-const REPO_ROOT = _findRepoRoot();
++-const TRUST_ROOT_PUBKEY = path.join(REPO_ROOT, "docs/carney_handover/polaris_demo_pubkey.asc");
++-const PINNED_FP_FILE = path.join(REPO_ROOT, "state/polaris_gpg_keyid.txt");
+++// I-ux-001a Codex iter-2 P1: bake the trust root + pinned fingerprint as
+++// constants instead of reading from disk. Two wins: (1) the prior CWD walk-up
+++// from Next.js cwd=web/ is gone (Codex iter-1 P1 root cause), (2) the
+++// production Docker (web/Dockerfile, build context=./web) no longer needs to
+++// ship docs/ or state/ files outside its context. These values are PUBLIC by
+++// design per `docs/carney_secret_inventory.md` #1 ("Public key may stay
+++// published"); the pinned fingerprint is in `state/polaris_gpg_keyid.txt`.
+++// Rotation of the trust root requires updating these constants + a redeploy.
+++const PINNED_FP = "FB221FA8ED185F8E3F76F7E6F6F31CEDFF490C02";
+++const TRUST_ROOT_ARMORED = `-----BEGIN PGP PUBLIC KEY BLOCK-----
+++
+++mDMEagVkwhYJKwYBBAHaRw8BAQdAO2QA4JrOV+y8gsmMF3vHX3cK/AXXU4Km6iIo
+++o4q3GLG0PFBPTEFSSVMgQ2FybmV5IERlbW8gKENhcm5leSBkZW1vIGJ1bmRsZSBz
+++aWduaW5nKSA8c2lnbmluZ0Bwb2xhcmlzLmxvY2FsPoiZBBMWCgBBFiEE+yIfqO0Y
+++X44/dvfm9vMc7f9JDAIFAmoFZMICGwMFCQHhM4AFCwkIBwICIgIGFQoJCAsCBBYC
+++AwECHgcCF4AACgkQ9vMc7f9JDAJ3rwD/Ujpoz/Z6QzdDDqgGzHCAa9pIDpvBuTNk
+++hREUW3S7eKgBAOdzj/k8mPoWUqEqBkC/K8olvAqlKGDIxcRInR6XGVAD
+++=mAgx
+++-----END PGP PUBLIC KEY BLOCK-----
+++`;
++ 
++ export interface SignatureVerifyResult {
++   state: "missing" | "present_unverified" | "gpg_verified";
++@@ -53,16 +47,6 @@ export interface SignatureVerifyResult {
++   fingerprint?: string;
++ }
++ 
++-async function _readPinnedFingerprint(): Promise<string | null> {
++-  try {
++-    const raw = await fs.readFile(PINNED_FP_FILE, "utf-8");
++-    const fp = raw.trim().toUpperCase().replace(/\s+/g, "");
++-    return /^[0-9A-F]{40}$/.test(fp) ? fp : null;
++-  } catch {
++-    return null;
++-  }
++-}
++-
++ export async function verifyBundleSignature(
++   bundleDir: string,
++ ): Promise<SignatureVerifyResult> {
++@@ -77,41 +61,36 @@ export async function verifyBundleSignature(
++     return { state: "missing" };
++   }
++ 
++-  // 2. resolve the pinned canonical fingerprint + the shipped trust root.
++-  //    Without either we can never claim gpg_verified — degrade honestly.
++-  const pinnedFp = await _readPinnedFingerprint();
++-  if (!pinnedFp) return { state: "present_unverified" };
++-
++-  let trustRoot: string;
++-  try {
++-    await fs.access(TRUST_ROOT_PUBKEY);
++-    trustRoot = TRUST_ROOT_PUBKEY;
++-  } catch {
++-    return { state: "present_unverified" };
++-  }
++-
++-  // 3. Verify with `gpgv` against a freshly-dearmored binary keyring built
++-  //    ONLY from the shipped trust root (Codex iter-1 P1 on the diff).
++-  //    gpgv is the dedicated verify-only tool: no gpg-agent spawn, no
++-  //    keyboxd, no host gpg.conf. The keyring is built fresh each request
++-  //    so the only key gpgv can trust is the one we pin.
+++  // 2. Verify with `gpgv` against a freshly-dearmored binary keyring built
+++  //    ONLY from the baked-in trust root. gpgv is the dedicated verify-only
+++  //    tool: no gpg-agent spawn, no keyboxd, no host gpg.conf. The keyring
+++  //    is built fresh each request so the only key gpgv can trust is the
+++  //    one we pin. Production Docker installs gnupg (apk) so gpg+gpgv are
+++  //    available; if not, the spawn promise rejects → present_unverified
+++  //    (Codex iter-2 P1: controlled downgrade, no thrown process error).
++   let tmpDir: string | null = null;
++   try {
++     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "polaris-gpgv-"));
++     const keyringPath = path.join(tmpDir, "trust.gpg");
++-    // Dearmor the .asc pubkey into a binary keyring.
++-    const armored = await fs.readFile(trustRoot);
++-    const de = await new Promise<{ ok: boolean; bin?: Buffer; err: string }>((resolve) => {
++-      const cp = require("node:child_process").spawn("gpg", ["--no-options", "--batch", "--dearmor"]);
+++    const armored = Buffer.from(TRUST_ROOT_ARMORED, "utf-8");
+++    // Dearmor: write the armored pubkey to stdin, capture binary stdout.
+++    // Promise wrapped manually to catch spawn errors (ENOENT etc) as a
+++    // controlled downgrade rather than an unhandled process throw.
+++    const de = await new Promise<{ ok: boolean; bin?: Buffer }>((resolve) => {
+++      const { spawn } = require("node:child_process") as typeof import("node:child_process");
+++      let cp;
+++      try {
+++        cp = spawn("gpg", ["--no-options", "--batch", "--dearmor"]);
+++      } catch {
+++        return resolve({ ok: false });
+++      }
++       const chunks: Buffer[] = [];
++-      const errChunks: Buffer[] = [];
++       cp.stdout.on("data", (d: Buffer) => chunks.push(d));
++-      cp.stderr.on("data", (d: Buffer) => errChunks.push(d));
++-      cp.on("close", (code: number) => resolve({
++-        ok: code === 0,
++-        bin: code === 0 ? Buffer.concat(chunks) : undefined,
++-        err: Buffer.concat(errChunks).toString("utf-8"),
++-      }));
+++      cp.on("error", () => resolve({ ok: false })); // gpg missing → downgrade
+++      cp.on("close", (code: number | null) =>
+++        resolve({ ok: code === 0, bin: code === 0 ? Buffer.concat(chunks) : undefined }),
+++      );
+++      cp.stdin.on("error", () => resolve({ ok: false }));
++       cp.stdin.write(armored);
++       cp.stdin.end();
++     });
++@@ -120,6 +99,7 @@ export async function verifyBundleSignature(
++ 
++     // MSYS gpgv mangles absolute Windows paths in --keyring (prepends ~/.gnupg/
++     // to anything with a colon). Workaround: cwd=tmpDir + relative keyring.
+++    // execFile's promisified form rejects on spawn error → caught below.
++     const { stdout, stderr } = await execFileAsync("gpgv", [
++       "--keyring", "./trust.gpg", "--status-fd", "1",
++       path.resolve(ascPath), path.resolve(manifestPath),
++@@ -127,7 +107,7 @@ export async function verifyBundleSignature(
++     const m = (stdout + stderr).match(/VALIDSIG\s+([0-9A-F]{40})\b/i);
++     const fp = m ? m[1].toUpperCase() : null;
++     if (!fp) return { state: "present_unverified" };
++-    if (fp !== pinnedFp) return { state: "present_unverified" };
+++    if (fp !== PINNED_FP) return { state: "present_unverified" };
++     return { state: "gpg_verified", fingerprint: fp };
++   } catch {
++     return { state: "present_unverified" };
++-- 
++2.49.0.windows.1
++
++
++From 685f8d606982af6dc4a2f694e9ae912eb1863208 Mon Sep 17 00:00:00 2001
++From: msn <msn@polaris.dev>
++Date: Sun, 24 May 2026 02:47:38 -0700
++Subject: [PATCH 4/4] =?UTF-8?q?I-ux-001a=20(#874):=20fix=20Codex=20diff=20?=
++ =?UTF-8?q?iter-3=20P1=20=E2=80=94=20TRUST=5FROOT=5FBASE64=20+=20matches-s?=
++ =?UTF-8?q?ource=20test?=
++MIME-Version: 1.0
++Content-Type: text/plain; charset=UTF-8
++Content-Transfer-Encoding: 8bit
++
++iter-3 P1: my prior hand-transcribed TRUST_ROOT_ARMORED const had 4 byte
++differences vs the shipped docs/carney_handover/polaris_demo_pubkey.asc ->
++wrong fingerprint (2C2D...82C1 vs pinned FB22...0C02) -> production verifier
++would always fail.
++
++Fix: replace TRUST_ROOT_ARMORED with TRUST_ROOT_BASE64 = base64-encoded raw
++bytes of the actual source file (no multi-line ASCII to mis-copy). Decoded at
++runtime via Buffer.from(.., "base64") and fed to gpg --dearmor exactly as the
++shipped pubkey would be.
++
++Defense in depth: tests/scripts/test_trust_root_consts.py asserts:
++1. base64-decoded TRUST_ROOT_BASE64 bytes == shipped pubkey file bytes (exact)
++2. PINNED_FP == state/polaris_gpg_keyid.txt
++3. gpg --show-keys on the decoded bytes parses to PINNED_FP
++3/3 PASS. This class of mismatch can no longer slip through silently.
++
++Also: cleaned the remaining iter-3 P3 stale comments in
++scripts/build_canonical_demo_bundle.py (docstring + the "NO .asc" line).
++
++Final local proof:
++- pytest tests/scripts/: 69 PASSED (incl. 3 new trust-root-consts)
++- python scripts/check_signed_bundles.py: rc=0
++- npx tsc --noEmit: clean
++
++Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
++---
++ scripts/build_canonical_demo_bundle.py  | 11 ++-
++ tests/scripts/test_trust_root_consts.py | 90 +++++++++++++++++++++++++
++ web/lib/gpg_verify_bundle.ts            | 39 ++++++-----
++ 3 files changed, 117 insertions(+), 23 deletions(-)
++ create mode 100644 tests/scripts/test_trust_root_consts.py
++
++diff --git a/scripts/build_canonical_demo_bundle.py b/scripts/build_canonical_demo_bundle.py
++index c3b015d3..45c94dbd 100644
++--- a/scripts/build_canonical_demo_bundle.py
+++++ b/scripts/build_canonical_demo_bundle.py
++@@ -11,8 +11,13 @@ into the v1.0 signed-bundle format the inspector loads.
++ the cited span (strict_verify-style numeric-fidelity re-check). Spans that fail
++ are dropped — we never ship a claim whose source span doesn't support it.
++ 
++-Signature: NONE (operator chose "skip the seal" — option b). No manifest.yaml.asc
++-is written, so the inspector honestly renders signaturePresent=false.
+++Signature (I-ux-001a, #874): signed by DEFAULT with the canonical Carney-demo
+++Ed25519 key (fingerprint FB221FA8ED185F8E3F76F7E6F6F31CEDFF490C02, bootstrapped
+++by scripts/bootstrap_gpg_demo_key.sh into GNUPGHOME=~/.gnupg-polaris). The
+++emitted manifest.yaml.asc verifies end-to-end against the shipped trust root at
+++docs/carney_handover/polaris_demo_pubkey.asc, and the loader renders
+++signatureState="gpg_verified". Pass --unsigned to skip signing (the prior
+++"option b" workflow); the loader then renders the honest "Not signed" state.
++ """
++ 
++ from __future__ import annotations
++@@ -260,7 +265,7 @@ def main() -> int:
++     for src in sources:
++         write(OUT / "sources" / f"{src['source_id']}.txt", src["full_text"])
++ 
++-    # --- manifest (sha256 + sizes; NO .asc → signature honestly absent) ---
+++    # --- manifest (sha256 + sizes; .asc is added by _sign_manifest_or_fail below) ---
++     file_entries = [
++         ("scope_decision", "scope_decision.json"),
++         ("evidence_pool", "evidence_pool.json"),
++diff --git a/tests/scripts/test_trust_root_consts.py b/tests/scripts/test_trust_root_consts.py
++new file mode 100644
++index 00000000..8fcd9ea4
++--- /dev/null
+++++ b/tests/scripts/test_trust_root_consts.py
++@@ -0,0 +1,90 @@
+++"""I-ux-001a — defense-in-depth test for the baked TRUST_ROOT_BASE64 + PINNED_FP
+++constants in web/lib/gpg_verify_bundle.ts.
+++
+++Codex diff iter-3 P1: my first attempt baked a hand-transcribed armored pubkey
+++into the TS const; 4-byte transcription errors produced a different fingerprint
+++than the pinned one, so production would have always degraded to
+++present_unverified. This test prevents that class of mismatch from ever
+++recurring silently:
+++
+++  1. Decode TRUST_ROOT_BASE64 — bytes must match the shipped
+++     docs/carney_handover/polaris_demo_pubkey.asc EXACTLY.
+++  2. PINNED_FP must match state/polaris_gpg_keyid.txt exactly.
+++  3. Dearmor the decoded bytes through gpg --show-keys and assert the parsed
+++     primary-key fingerprint equals PINNED_FP.
+++"""
+++from __future__ import annotations
+++
+++import base64
+++import re
+++import shutil
+++import subprocess
+++from pathlib import Path
+++
+++import pytest
+++
+++REPO_ROOT = Path(__file__).resolve().parents[2]
+++TS_FILE = REPO_ROOT / "web" / "lib" / "gpg_verify_bundle.ts"
+++TRUST_ROOT_FILE = REPO_ROOT / "docs" / "carney_handover" / "polaris_demo_pubkey.asc"
+++PIN_FILE = REPO_ROOT / "state" / "polaris_gpg_keyid.txt"
+++
+++GPG_AVAILABLE = shutil.which("gpg") is not None
+++
+++
+++def _extract_baked_consts() -> tuple[str, str]:
+++    text = TS_FILE.read_text(encoding="utf-8")
+++    fp_m = re.search(r'const PINNED_FP\s*=\s*"([0-9A-F]{40})"', text)
+++    b64_m = re.search(r'const TRUST_ROOT_BASE64\s*=\s*\n?\s*"([A-Za-z0-9+/=]+)"', text)
+++    assert fp_m, "PINNED_FP constant not found in gpg_verify_bundle.ts"
+++    assert b64_m, "TRUST_ROOT_BASE64 constant not found in gpg_verify_bundle.ts"
+++    return fp_m.group(1), b64_m.group(1)
+++
+++
+++def test_baked_trust_root_matches_shipped_file():
+++    """Decoded TRUST_ROOT_BASE64 must equal the shipped pubkey file bytes."""
+++    _, b64 = _extract_baked_consts()
+++    decoded = base64.b64decode(b64)
+++    shipped = TRUST_ROOT_FILE.read_bytes()
+++    assert decoded == shipped, (
+++        f"TRUST_ROOT_BASE64 ({len(decoded)} bytes) does not match the shipped "
+++        f"{TRUST_ROOT_FILE} ({len(shipped)} bytes). Regenerate the const via: "
+++        f"`base64 -w0 < docs/carney_handover/polaris_demo_pubkey.asc`."
+++    )
+++
+++
+++def test_baked_pinned_fp_matches_pin_file():
+++    """PINNED_FP must equal the fingerprint in state/polaris_gpg_keyid.txt."""
+++    fp, _ = _extract_baked_consts()
+++    pinned = PIN_FILE.read_text(encoding="utf-8").strip().upper().replace(" ", "")
+++    assert fp == pinned, (
+++        f"PINNED_FP in gpg_verify_bundle.ts ({fp}) does not match "
+++        f"state/polaris_gpg_keyid.txt ({pinned})."
+++    )
+++
+++
+++@pytest.mark.skipif(not GPG_AVAILABLE, reason="gpg binary not available")
+++def test_baked_trust_root_dearmored_has_pinned_fingerprint():
+++    """End-to-end: dearmored TRUST_ROOT_BASE64 must yield a key whose primary
+++    fingerprint equals PINNED_FP. Catches the transcription-error class even
+++    if test 1 somehow accepts bytes that aren't a valid OpenPGP packet."""
+++    fp, b64 = _extract_baked_consts()
+++    decoded = base64.b64decode(b64)
+++    p = subprocess.run(
+++        ["gpg", "--no-options", "--batch", "--show-keys", "--with-fingerprint",
+++         "--with-colons"],
+++        input=decoded, capture_output=True,
+++    )
+++    assert p.returncode == 0, (
+++        f"gpg --show-keys failed on decoded TRUST_ROOT_BASE64: "
+++        f"{p.stderr.decode('utf-8','replace').strip()}"
+++    )
+++    fps = []
+++    for line in p.stdout.decode("utf-8", "replace").splitlines():
+++        if line.startswith("fpr:"):
+++            parts = line.split(":")
+++            if len(parts) >= 10 and parts[9]:
+++                fps.append(parts[9])
+++    assert fps, "no fingerprint parsed from gpg --show-keys output"
+++    assert fps[0] == fp, (
+++        f"dearmored trust root primary fingerprint ({fps[0]}) != PINNED_FP ({fp})"
+++    )
++diff --git a/web/lib/gpg_verify_bundle.ts b/web/lib/gpg_verify_bundle.ts
++index fdeb55fe..647db6e5 100644
++--- a/web/lib/gpg_verify_bundle.ts
+++++ b/web/lib/gpg_verify_bundle.ts
++@@ -20,26 +20,25 @@ import { promisify } from "node:util";
++ 
++ const execFileAsync = promisify(execFile);
++ 
++-// I-ux-001a Codex iter-2 P1: bake the trust root + pinned fingerprint as
++-// constants instead of reading from disk. Two wins: (1) the prior CWD walk-up
++-// from Next.js cwd=web/ is gone (Codex iter-1 P1 root cause), (2) the
++-// production Docker (web/Dockerfile, build context=./web) no longer needs to
++-// ship docs/ or state/ files outside its context. These values are PUBLIC by
++-// design per `docs/carney_secret_inventory.md` #1 ("Public key may stay
++-// published"); the pinned fingerprint is in `state/polaris_gpg_keyid.txt`.
++-// Rotation of the trust root requires updating these constants + a redeploy.
+++// I-ux-001a: bake the trust root + pinned fingerprint as constants instead of
+++// reading from disk. Two wins: (1) the prior CWD walk-up from Next.js cwd=web/
+++// is gone (Codex iter-1 P1 root cause), (2) the production Docker (build
+++// context=./web) no longer needs to ship docs/ or state/ files outside its
+++// context. Both values are PUBLIC by design per docs/carney_secret_inventory.md
+++// #1 ("Public key may stay published"). Rotation = update both constants and
+++// the corresponding source files + redeploy.
+++//
+++// IMPORTANT (Codex iter-3 P1): TRUST_ROOT_ARMORED is BASE64-encoded so we never
+++// transcribe multi-line ASCII-armored text by hand again. The earlier hand-
+++// copied version had a 4-byte transcription error → wrong fingerprint → prod
+++// would always degrade to present_unverified. The bytes below are
+++// `base64(file_contents(docs/carney_handover/polaris_demo_pubkey.asc))`.
+++// `tests/scripts/test_trust_root_consts.py` asserts both constants exactly
+++// match the shipped source files + that the dearmored bytes produce the
+++// pinned fingerprint, so this regression cannot recur silently.
++ const PINNED_FP = "FB221FA8ED185F8E3F76F7E6F6F31CEDFF490C02";
++-const TRUST_ROOT_ARMORED = `-----BEGIN PGP PUBLIC KEY BLOCK-----
++-
++-mDMEagVkwhYJKwYBBAHaRw8BAQdAO2QA4JrOV+y8gsmMF3vHX3cK/AXXU4Km6iIo
++-o4q3GLG0PFBPTEFSSVMgQ2FybmV5IERlbW8gKENhcm5leSBkZW1vIGJ1bmRsZSBz
++-aWduaW5nKSA8c2lnbmluZ0Bwb2xhcmlzLmxvY2FsPoiZBBMWCgBBFiEE+yIfqO0Y
++-X44/dvfm9vMc7f9JDAIFAmoFZMICGwMFCQHhM4AFCwkIBwICIgIGFQoJCAsCBBYC
++-AwECHgcCF4AACgkQ9vMc7f9JDAJ3rwD/Ujpoz/Z6QzdDDqgGzHCAa9pIDpvBuTNk
++-hREUW3S7eKgBAOdzj/k8mPoWUqEqBkC/K8olvAqlKGDIxcRInR6XGVAD
++-=mAgx
++------END PGP PUBLIC KEY BLOCK-----
++-`;
+++const TRUST_ROOT_BASE64 =
+++  "LS0tLS1CRUdJTiBQR1AgUFVCTElDIEtFWSBCTE9DSy0tLS0tDQoNCm1ETUVhZ1Zrd2hZSkt3WUJCQUhhUnc4QkFRZEFPMlFBNEpyT1YreThnc21NRjN2SFgzY0svQVhYVTRLbTZpSW8NClpRT2dWM2EwU0ZCUFRFRlNTVk1nUTJGeWJtVjVJRVJsYlc4Z0tFTmhjbTVsZVNCa1pXMXZJR0oxYm1Sc1pTQnoNCmFXZHVhVzVuS1NBOGMybG5ibWx1WjBCd2IyeGhjbWx6TG14dlkyRnNQb2laQkJNV0NnQkJGaUVFK3lJZnFPMFkNClg0NC9kdmZtOXZNYzdmOUpEQUlGQW1vRlpNSUNHd01GQ1FIaE00QUZDd2tJQndJQ0lnSUdGUW9KQ0FzQ0JCWUMNCkF3RUNIZ2NDRjRBQUNna1E5dk1jN2Y5SkRBS0dyd0VBbnF3Rm5HeFdkTW4rUzJycHptbkdRTU10KzFrZGFMM0cNCmhSRVVXM1M3ZUtnQkFPZHpqL2s4bVBvV1VxRXFCa0MvSzhvbHZBcWxLR0RJeGNSSW5SNlhHVkFEDQo9bUFneA0KLS0tLS1FTkQgUEdQIFBVQkxJQyBLRVkgQkxPQ0stLS0tLQ0K";
++ 
++ export interface SignatureVerifyResult {
++   state: "missing" | "present_unverified" | "gpg_verified";
++@@ -72,7 +71,7 @@ export async function verifyBundleSignature(
++   try {
++     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "polaris-gpgv-"));
++     const keyringPath = path.join(tmpDir, "trust.gpg");
++-    const armored = Buffer.from(TRUST_ROOT_ARMORED, "utf-8");
+++    const armored = Buffer.from(TRUST_ROOT_BASE64, "base64");
++     // Dearmor: write the armored pubkey to stdin, capture binary stdout.
++     // Promise wrapped manually to catch spawn errors (ENOENT etc) as a
++     // controlled downgrade rather than an unhandled process throw.
++-- 
++2.49.0.windows.1
++
++# canonical-diff-sha256: e1c958dc78a3cfaf80637a5ceec82b85bc3e41a07d25cb33be431e95e3f86ded
+-- 
+2.49.0.windows.1
+
+
+From 54497cab432395f24b8c7136eca629d4895654b1 Mon Sep 17 00:00:00 2001
+From: msn <msn@polaris.dev>
+Date: Sun, 24 May 2026 02:56:56 -0700
+Subject: [PATCH 2/7] =?UTF-8?q?I-ux-001b=20(#876):=20design=20tokens=20v2?=
+ =?UTF-8?q?=20spec=20=E2=80=94=20type=20/=20two-judgment=20color=20/=20mot?=
+ =?UTF-8?q?ion=20/=20six=20microstates?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The foundation doc for the §14 step-1 work of the Codex-APPROVED I-ux-001
+plan. Locks the concrete craft bar that iter-1 / iter-2 of the plan review
+flagged as "not specific enough for Linear/Stripe-tier":
+
+- Type scale: Geist, 8-step scale, measure 62-72ch for brief prose, tabular
+  numerals on every count display.
+- Color = meaning only, with TWO INDEPENDENT semantic palettes (the
+  two-judgment separation from plan §0/§4):
+  - Faithfulness: verified (green) / partial (amber) / unsupported (red).
+  - Evidence-strength: ordinal slate-blue (high → very-low).
+  - Distinct families so the eye never conflates "supported by source"
+    with "evidence is strong" (the lethal clinical confusion).
+- Brand red `#c8102e` operator-LOCKED, action+identity only.
+- 8px space rhythm; comfortable vs compact density modes per-surface.
+- Motion: 3 durations (120/200/320ms), one easing (`ease-standard`),
+  honest (state-communication, not decoration), prefers-reduced-motion
+  honored everywhere.
+- Six microstates (default/hover/focus/active/disabled/loading) mandatory
+  on every interactive element.
+- Crisp SVG maple-leaf spec (replaces "low-fidelity dot-cloud").
+- Trust copy table (de-jargons "two-family invariant", "POOL ID",
+  "Signature missing"); single source of truth in web/lib/trust_copy.ts.
+
+Spec only — no code yet. Subsequent per-page Issues consume the tokens
+incrementally; the audit + visual review on each page is the validation.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+---
+ docs/web/design_tokens_v2.md | 257 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 257 insertions(+)
+ create mode 100644 docs/web/design_tokens_v2.md
+
+diff --git a/docs/web/design_tokens_v2.md b/docs/web/design_tokens_v2.md
+new file mode 100644
+index 00000000..593bfebd
+--- /dev/null
++++ b/docs/web/design_tokens_v2.md
+@@ -0,0 +1,257 @@
++# POLARIS Design Tokens v2 (I-ux-001b / #876)
++
++**Status:** SPEC — Codex review pending. Implements §12 of the Codex-APPROVED I-ux-001 experience plan. Supersedes the ad-hoc tokens that today live as a mix of Tailwind v4 `@theme` and inline Tailwind classes.
++
++**Two principles drive every decision below:**
++1. **Restraint does the hierarchy work.** Typography + space + a single meaning accent — never color or chrome for decoration (Linear/Stripe craft bar).
++2. **Two judgments, two visual languages.** Faithfulness (sentence ↔ source span) and evidence strength (decision-safety) are independent claims; their tokens MUST never share a swatch, weight, or shape. Confusing them is the lethal failure mode in clinical context (plan §0 + §4).
++
++---
++
++## 1. Type
++
++Single family, optical alignment per breakpoint. The current site is already Geist; keeping it.
++
++```
++Display       48 / 56   weight 700   tracking -0.02em   measure 28ch    use sparingly: home headline only
++H1            32 / 40   weight 700   tracking -0.015em  measure 32ch    one per route
++H2            24 / 32   weight 600   tracking -0.01em   measure 40ch    section headings
++H3            20 / 28   weight 600   tracking -0.005em  measure 48ch    sub-section
++Body-lg       18 / 28   weight 400   measure 62-72ch                    brief prose (the report; default reading width)
++Body          16 / 24   weight 400   measure 62-72ch                    everything else
++Caption       14 / 20   weight 400                                       metadata, secondary lines
++Mono          13 / 20   weight 500   font ui-monospace, ...              hashes, IDs, span text in proof panel
++```
++
++- `body-lg` is the brief reading text. 62–72ch measure is enforced via container width, not on the paragraph itself (avoids orphan single-column edges).
++- `font-feature-settings: "ss01", "ss03", "cv11"` on Geist for tabular numerals + alternate `a` (Linear-aligned). `tabular-nums` on every count display (verdict header, SoF tables).
++
++**Tailwind v4 token (CSS `@theme` block in `web/app/globals.css`):**
++```css
++@theme {
++  --font-display: var(--font-geist);
++  --font-mono: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo, monospace;
++
++  --text-display: 3rem;        --text-display--line-height: 3.5rem;
++  --text-h1: 2rem;             --text-h1--line-height: 2.5rem;
++  --text-h2: 1.5rem;           --text-h2--line-height: 2rem;
++  --text-h3: 1.25rem;          --text-h3--line-height: 1.75rem;
++  --text-body-lg: 1.125rem;    --text-body-lg--line-height: 1.75rem;
++  --text-body: 1rem;           --text-body--line-height: 1.5rem;
++  --text-caption: 0.875rem;    --text-caption--line-height: 1.25rem;
++  --text-mono: 0.8125rem;      --text-mono--line-height: 1.25rem;
++}
++```
++
++---
++
++## 2. Color — meaning only
++
++Near-monochrome ground; ONE brand accent (red, OPERATOR-LOCKED `#c8102e`); two independent semantic palettes for the two judgments. No decorative color.
++
++### 2.1 Ground (light theme is the default; dark mode is out of scope for v2)
++```
++--background        oklch(0.99 0.005 95)    near-white, slight warm cast (warm-editorial)
++--foreground        oklch(0.21 0.01 95)     near-black for text — 17.5:1 vs background (well above AA)
++--muted             oklch(0.95 0.005 95)    surfaces (cards, table rows)
++--muted-foreground  oklch(0.50 0.01 95)     secondary text — 6.0:1 vs background (AA pass)
++--border            oklch(0.91 0.005 95)    hairlines, dividers
++--card              oklch(1.00 0 0)         elevated surfaces
++```
++
++### 2.2 Brand (action + identity only — never decoration)
++```
++--primary           #c8102e (LOCKED)        primary CTA, sovereignty/identity beats
++--primary-fg        oklch(0.99 0.005 95)    text on primary
++--primary-hover     oklch from #c8102e * 0.92 lightness
++--ring              color-mix(in oklch, #c8102e 70%, transparent)  focus ring
++```
++
++### 2.3 Faithfulness palette (judgment #1: "is the sentence faithful to its source?")
++Used by: verdict chips, sentence-level tints in the brief, proof-panel beat-2.
++```
++--verified            oklch(0.62 0.16 145)   green — claim ↔ span verified
++--verified-bg         color-mix(in oklch, var(--verified) 10%, transparent)
++--verified-border     color-mix(in oklch, var(--verified) 30%, transparent)
++
++--partial             oklch(0.74 0.16 60)    amber — partial support
++--partial-bg          color-mix(in oklch, var(--partial) 10%, transparent)
++--partial-border      color-mix(in oklch, var(--partial) 40%, transparent)
++
++--unsupported         oklch(0.58 0.22 25)    desaturated red (DISTINCT from brand red) — span doesn't support
++--unsupported-bg      color-mix(in oklch, var(--unsupported) 10%, transparent)
++--unsupported-border  color-mix(in oklch, var(--unsupported) 40%, transparent)
++```
++
++### 2.4 Evidence-strength palette (judgment #2: "is the evidence strong enough to act on?")
++Used by: certainty badges, SoF certainty column, proof-panel beat-3, dual-provenance strip "evidence-strength mix" pills. **Deliberately ordinal (saturation-step), not a hue chosen to match faithfulness** — so the user never visually conflates "supported" with "strong."
++```
++--certainty-high       oklch(0.42 0.10 245)  deep slate-blue (calm authority)
++--certainty-moderate   oklch(0.56 0.09 245)  mid slate-blue
++--certainty-low        oklch(0.70 0.06 245)  light slate-blue
++--certainty-very-low   oklch(0.85 0.03 245)  pale slate-blue
++--certainty-fg         oklch(0.99 0.005 95)  white text on certainty-high/moderate; foreground on the lighter two
++```
++
++> **Why slate-blue, not green/amber/red:** evidence strength is independent of faithfulness. If both used the same family, a "VERIFIED + low" claim and a "PARTIAL + high" claim would visually blur. The contrast across families makes the two reads orthogonal at a glance.
++
++### 2.5 Special states (orthogonal to both)
++```
++--contradiction     same as --partial          contradictions panel
++--refusal           oklch(0.55 0.02 95)        neutral grey — refusal is dignified, not alarming
++--refusal-bg        oklch(0.93 0.005 95)
++--destructive       same as --unsupported      destructive actions, "Not signed" alarm
++```
++
++### 2.6 Contrast — WCAG 2.2 AA per surface
++- All body text against `--background`: ≥7.0:1 (AAA where possible).
++- Caption text against `--muted`: ≥4.5:1 (AA).
++- Chip text on its own tinted background (`*-bg`): ≥4.5:1 (AA) — verified with axe in CI.
++- Focus rings: ≥3:1 against the adjacent fill (UI-component contrast).
++
++---
++
++## 3. Space + density
++
++8-pixel base rhythm. Two density modes; each component declares which it uses.
++
++```
++--space-0   0
++--space-1   4px
++--space-2   8px
++--space-3   12px
++--space-4   16px
++--space-5   24px
++--space-6   32px
++--space-7   48px
++--space-8   64px
++```
++
++**Comfortable** (reading surfaces — brief, intake, plan, run-progress): default. Generous padding (`space-4`/`space-5`), measure capped, line-height 1.55–1.6.
++**Compact** (data surfaces — evidence pool table, SoF table, dashboard, audit hash chain): tighter padding (`space-2`/`space-3`), monospace numerals, no oversized type. Declared per surface via `data-density="compact"` attribute on the root container.
++
++---
++
++## 4. Radii, elevation, hairlines
++
++```
++--radius-sm   4px
++--radius     8px
++--radius-lg  12px
++--radius-xl  16px      hero cards, proof panel
++--radius-full 9999px   chips
++
++--shadow-card        0 1px 2px oklch(0 0 0 / 0.04), 0 0 0 1px oklch(0 0 0 / 0.04)
++--shadow-card-hover  0 4px 12px oklch(0 0 0 / 0.08), 0 0 0 1px oklch(0 0 0 / 0.06)
++--shadow-popover     0 8px 24px oklch(0 0 0 / 0.12), 0 0 0 1px oklch(0 0 0 / 0.06)
++
++--hairline     1px solid var(--border)
++--hairline-strong  1px solid color-mix(in oklch, var(--border) 60%, var(--foreground))
++```
++
++Designed shadows only (no defaults). `<hr>` is replaced with `<div className="border-t border-border" />` at 1px or a 0.5px low-alpha variant for nested rules.
++
++---
++
++## 5. Motion tokens
++
++Three durations, one easing. Every animation declares **why** it moves (state communication, Vercel guideline) — never decoration.
++
++```
++--motion-fast    120ms     micro-interactions: hover/focus tint, chip settle, pill swap
++--motion-base    200ms     state reveals: badge appear, source card settle, proof beat advance
++--motion-slow    320ms     view transitions: panel slide-in, tab cross-fade, page transition
++
++--ease-standard  cubic-bezier(0.2, 0, 0, 1)    Material/Linear-aligned standard ease
++--ease-emphasized cubic-bezier(0.2, 0, 0, 1)   same — we only use one curve for consistency
++```
++
++**`prefers-reduced-motion` is honored everywhere via CSS `@media (prefers-reduced-motion: reduce)`**: animations collapse to instant state swap (duration=0, no transform). Implemented as a Tailwind utility `motion-reduce:animate-none` plus token-aware components that bypass JS-orchestrated sequences when the query matches.
++
++**Motion that is honest:**
++- A revealing animation signals "this is the result of your action" (proof beat advance, source settle).
++- A counter-up on the verdict header signals "this brief just loaded; here are its counts." (≤320ms; stops on second view via `prefers-reduced-motion` OR sessionStorage flag.)
++- A skeleton fade signals "real content is replacing this skeleton" (not a decorative shimmer).
++
++**Motion that is FORBIDDEN:**
++- Decorative parallax, drift, "live" backgrounds.
++- Animations that exceed `--motion-slow` (320ms) without an active loading reason.
++- Anything that triggers more than once on the same view without a state change.
++
++---
++
++## 6. The Six Microstates (every interactive element)
++
++Declared per component in §components_catalogue.md. The states + when each is the only acceptable visual:
++
++| State | Trigger | Visual contract |
++|---|---|---|
++| **default** | resting | base tokens; calm |
++| **hover** | pointer in (`:hover`) | tint shift (≤8% saturation) at `--motion-fast`; no layout shift |
++| **focus** | keyboard `:focus-visible` | `--ring` 2px outset + `--ring-offset` 2px against background; *always visible* |
++| **active** | pressed (`:active`) | tint shift +12%, micro-scale 0.97 at `--motion-fast` |
++| **disabled** | `aria-disabled` / `disabled` | opacity 0.55, cursor not-allowed, no hover/active reaction |
++| **loading** | in-flight | stable skeleton (no layout shift), `aria-busy="true"`, accessible "loading <thing>" label |
++
++All six are mandatory and tested via Playwright traces (per the I-ux-001 plan §15 acceptance "interaction acceptance tests").
++
++---
++
++## 7. The Maple Leaf — production spec
++
++The sovereignty mark. Operator flagged the current "low-fidelity dot-cloud" — replaced with a crisp SVG.
++
++```
++asset:    web/components/marks/maple_leaf.svg   (single inline-able SVG, viewBox=0 0 24 24)
++fill:     currentColor (tinted by container)
++sizes:    sm 14×14, md 18×18 (default), lg 24×24, hero 48×48
++contrast: ≥3:1 vs surrounding fill
++placement: sovereignty/identity beats only — site header lockup, transparency page hero, signed-receipt seal, sign-in left panel. Never as a decorative repeating motif.
++```
++
++Stroke variant for the proof-replay signature affordance (beat 5): outlined ring + leaf, 1px stroke at `--motion-base`-fade-in when `signatureState === "gpg_verified"`.
++
++---
++
++## 8. Trust copy (de-jargon, plan §12)
++
++Authoritative substitutions — implemented as content constants under `web/lib/trust_copy.ts` so no string drifts.
++
++```ts
++// web/lib/trust_copy.ts — single source of truth for user-facing trust language
++export const TRUST_COPY = {
++  twoFamily: {
++    badge: "Independent-family check",  // was: "two-family invariant"
++    tooltip: "Verified by a different model family than the writer.",
++  },
++  signature: {
++    verified: "Signed bundle",                      // gpg_verified
++    attached: "Signature attached — verify offline", // present_unverified
++    missing: "Not signed — trust not established",   // missing  (was: "Signature missing")
++  },
++  evidenceSet: "Evidence set",            // was: "POOL ID"
++  scopeRefusal: "Out of scope — won't answer",
++  inadequateCorpus: "Evidence cannot support a safe answer for this question",
++  // verbiage that gets templated into proof beats, intended-use banner, etc.
++} as const;
++```
++
++No internal strings (`refusal-bait`, `PICO axis`, `scope` without explanation, `POOL ID`, `two-family invariant`) appear in user-visible copy. Enforced by an axe content-rule rule or a simple Playwright assertion that asserts the rendered text doesn't contain the banlist.
++
++---
++
++## 9. Implementation order (no code in this Issue — spec only)
++
++The migration to v2:
++1. **This Issue** (`I-ux-001b`): all tokens + components + storyboards specified in docs only.
++2. **Subsequent Issues** (per-page rebuilds): each page consumes v2 tokens incrementally. The audit + visual review on each page is the validation. Tokens become real CSS variables in a single small PR when the first page-rebuild Issue lands.
++
++---
++
++## Acceptance for I-ux-001b (this doc + the catalogue + the storyboards together)
++
++- Codex APPROVE on a single brief covering all three foundation docs.
++- Each token has a stated use + a stated reason (this doc).
++- Each component has a spec (next doc: `components_catalogue.md`) covering all six microstates + responsive behavior + a11y.
++- Hero motion storyboard (next doc: `proof_replay_storyboard.md`) is frame-level: what moves, when, why, reduced-motion equivalent.
++- (When Figma OAuth is live) the hero prototype + key frames are exported to `web/p2shots/I-ux-001b/` and Codex visual-audits via `codex exec -i`.
+-- 
+2.49.0.windows.1
+
+
+From fc1464ff0f1bd586b3def8b2472026c8bb0d7081 Mon Sep 17 00:00:00 2001
+From: msn <msn@polaris.dev>
+Date: Sun, 24 May 2026 02:58:58 -0700
+Subject: [PATCH 3/7] =?UTF-8?q?I-ux-001b=20(#876):=20proof-replay=20hero?=
+ =?UTF-8?q?=20motion=20storyboard=20=E2=80=94=20frame-level=206-beat=20rev?=
+ =?UTF-8?q?eal=20spec?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Implements §4 of the Codex-APPROVED I-ux-001 plan + §12 of the tokens v2:
+"motion communicates state, never decorates" (Vercel guideline) +
+two-judgment separation kept visually orthogonal at every beat.
+
+Specifies:
+- Stage 0 resting state: hairline underline (faithfulness) + leading margin
+  certainty dot (evidence strength) — two affordances, two color families,
+  never adjacent.
+- Stage 1 focus/hover peek (alpha bump only, no panel).
+- Stage 2 the 6-beat reveal (claim → faithfulness → evidence strength
+  → source span → signature → "what this does NOT prove" disclosure),
+  with per-beat durations + easings + token references. Total
+  time-to-first-proof < 400ms.
+- Stage 3 in-place claim switching (J/K, < 120ms perceived).
+- Stage 4 mobile bottom-sheet (75vh, swipe + drag).
+- Stage 5 reduced-motion equivalent (instant state swap; sequencing
+  INTENT preserved as visual hierarchy).
+- Stage 6 failure-state choreography per plan §6:
+  missing/present_unverified signature, UNSUPPORTED claim, inadequacy
+  refusal — all honest.
+- Stage 7 Home teaser: compact inline 6-beat for a real claim, plays
+  on click without sign-in. The 30-second "I've never seen research I
+  could check like this" moment.
+- Stage 8 plan-§15 interaction-acceptance Playwright trace tests.
+
+Pre-built ASCII frames at each stage so a reader can see the layout
+before any pixels exist. Spec only — no code. Implementation is
+subsequent per-page Issues.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+---
+ docs/web/proof_replay_storyboard.md | 232 ++++++++++++++++++++++++++++
+ 1 file changed, 232 insertions(+)
+ create mode 100644 docs/web/proof_replay_storyboard.md
+
+diff --git a/docs/web/proof_replay_storyboard.md b/docs/web/proof_replay_storyboard.md
+new file mode 100644
+index 00000000..77117c39
+--- /dev/null
++++ b/docs/web/proof_replay_storyboard.md
+@@ -0,0 +1,232 @@
++# Proof Replay — Hero Motion Storyboard (I-ux-001b / #876)
++
++**Status:** SPEC — Codex review pending. Implements §4 of the Codex-APPROVED I-ux-001 plan: the "challenge any sentence" chain-of-custody reveal. The single make-or-break interaction.
++
++**Hard rules (plan §4 + §12 + Vercel motion guidance):**
++- Motion **communicates state**, never decorates. Every frame answers: *what changed, why does this animation make that clearer?*
++- **Time-to-first-proof < 400ms** from challenge → beat-1 visible. Span highlight < 150ms. Claim-to-claim switch < 120ms.
++- `prefers-reduced-motion: reduce` → instant state swap, no animation, no scroll-jump (controlled re-render only).
++- Keyboard-first: `J`/`K` navigate sentences, `Enter` challenges, `Esc` closes the panel, `Tab` walks the beats inside it.
++- Mobile-real: hover-to-reveal does NOT exist. Tap to challenge → bottom-sheet at 75vh.
++- The **two judgments stay visually orthogonal** at every beat (token §2.3 vs §2.4).
++
++---
++
++## Stage 0 — Resting state (the brief)
++
++Calm clinical document. No animation. Each sentence carries TWO subtle, separately-coloured affordances:
++- A **hairline underline tint** at the sentence's faithfulness color (`--verified` / `--partial` / `--unsupported`, alpha 0.35). Underline-offset 4px so it never confuses with a hyperlink.
++- A **certainty dot** (4px circle) in the leading margin, color from the certainty scale (`--certainty-{high|moderate|low|very-low}`). Margin position not inline; never adjacent to the underline.
++
++```
++default
++┌──────────────────────────────────────────────────────────────────┐
++│ ● Tirzepatide 15 mg once weekly reduced HbA1c by 2.4% vs baseline │  ←  ● = high certainty (slate-blue)
++│ ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾   │  ←  underline = verified (green tint)
++│   at 40 weeks in the SURPASS-2 trial.                              │
++└──────────────────────────────────────────────────────────────────┘
++```
++
++No chips inline; no hover until the user moves focus to a sentence. The brief reads as prose first.
++
++---
++
++## Stage 1 — Focus / hover a sentence (peek, not commit)
++
++`:focus-visible` OR `:hover` on a sentence:
++- **Underline tint:** alpha 0.35 → 0.7 over `--motion-fast` (120ms). Subtle "this is a leaf, and there's more to see."
++- **Certainty dot:** 4px → 6px diameter, no color change. Same duration.
++- **Cursor:** changes to `default` with a faint trailing `?` glyph (CSS `cursor: help`).
++- **No panel opens.** This is the "peek" — confirms the affordance, doesn't commit the user.
++
++`prefers-reduced-motion`: same end-states, applied instantly.
++
++---
++
++## Stage 2 — Challenge (click / tap / Enter): the 6-beat reveal
++
++Trigger: pointer click on a sentence, tap on mobile, or `Enter` when the sentence has keyboard focus. Beats are sequenced with explicit waits — never simultaneous (that would read as a generic transition, not a sequence). Each beat MUST land with the previous beat still visible (cumulative, not replacing).
++
++### Beat 0 (preamble — 0ms): commit the selection
++- The challenged sentence gains a 2px left border of its faithfulness color, expanded from 0 → 2px over `--motion-fast`. No layout shift (the border is inset).
++- The proof panel container slides in from the right (desktop) or bottom (mobile):
++  - desktop: `transform: translateX(110%) → 0` over `--motion-base` (200ms), `ease-standard`. Width 480px (24% of a 1920 viewport).
++  - mobile: `transform: translateY(100%) → 0` over `--motion-base`. Height 75vh, top sheet has a drag handle.
++- Panel container is empty for one tick (~16ms) — beat-1 fills in instantly so there's no flash of empty box.
++
++### Beat 1 (0 → 100ms): **Claim**
++Beat-1 surfaces in the panel as: an H3 "Challenged sentence" label + the sentence text (the same text the user clicked, monospaced-quoted for unambiguity — no rewording).
++- Text fades in via `opacity: 0 → 1` over `--motion-fast` (120ms). No vertical translate.
++- The H3 label uses the **faithfulness color** for its leading icon (a small "?" badge), pre-staging beat-2.
++
++**Why this beat:** the user must confirm "yes, that's the sentence I challenged" before the verdict lands. Removes the "wait, which sentence?" hiccup.
++
++```
++desktop panel (480w):
++┌────────────────────────────────────────────┐
++│  Challenged sentence    [?]                 │
++│  ────────────────────────                   │
++│  "Tirzepatide 15 mg once weekly reduced     │
++│   HbA1c by 2.4% vs baseline at 40 weeks in  │
++│   the SURPASS-2 trial."                     │
++│                                              │
++│  [ Beats 2-6 will appear below ... ]        │
++└────────────────────────────────────────────┘
++```
++
++### Beat 2 (100 → 250ms): **Faithfulness verdict**
++A `<FaithfulnessChip>` (token §2.3 palette) settles into place under the claim with:
++- The chip translates `transform: translateY(8px) → 0` while opacity `0 → 1` over `--motion-base`. Single-axis — no scale, no rotate.
++- A second-line caption appears at `+50ms` (offset from chip): *"Checked by an independent model family (not the writer)."* + the specific deterministic checks ("numeric match: 2/2 · content-word overlap: 7 words · span bounds: in range") in mono.
++- A small "i" affordance opens a tooltip with the `TRUST_COPY.twoFamily.tooltip` line.
++- The H3 "?" icon from beat-1 morphs into the verdict color (CSS `color` transition over `--motion-fast`).
++
++```
++│  [✓ VERIFIED]   independent-family check               │
++│  numeric match: 2/2 · content-word overlap: 7 · span ok│
++```
++
++### Beat 3 (250 → 400ms): **Evidence strength**
++A `<CertaintyBadge>` (token §2.4 slate-blue palette) appears below the verdict with EXPLICIT relabeling so it's never confused with beat-2:
++- Header line: **"How strong is the evidence?"** in caption.
++- Badge: pill with the certainty level (`HIGH | MODERATE | LOW | VERY LOW`) in slate-blue.
++- One-line *dominant downgrade reason* + the underlying study type (`RCT · Phase 3 · n=1879`) in caption + mono.
++- A "→ Summary of Findings" link routes to the SoF view for this outcome.
++- Same translateY+fade choreography as beat-2 but offset (it's a separate read, not a continuation).
++
++```
++│  How strong is the evidence?                            │
++│  [HIGH]   ↓ downgrade: none · RCT · Phase 3 · n=1879   │
++│           → Summary of Findings                          │
++```
++
++### Beat 4 (400 → 600ms): **Source span**
++This is the moment the proof becomes tangible.
++- Below the certainty section, a `<SourceCard>` slides up showing the source's header: journal · year · DOI · tier · *why this source was selected*.
++- Simultaneously (this is the only acceptable simultaneity in the sequence), the **inline source preview** below the card scrolls to the cited span and the phrase-grouped highlight animates in:
++  - Highlight progresses left-to-right via a CSS gradient mask (`mask-image: linear-gradient(90deg, black 0% → 100%)`) over `--motion-base` — reads as "this is the exact span."
++  - Phrase-grouped: contiguous matched words share one highlight rectangle (`background: var(--verified-bg)` for verified claims; `var(--partial-bg)` for partial); non-matched separators have NO background.
++  - NO "pink word tiles" — the iter-1 plan finding. Continuous reading bands only.
++
++```
++│  Source                                                 │
++│  ────                                                   │
++│  N Engl J Med · 2021 · doi:10.1056/NEJMoa2107519 · T1  │
++│  → Why this source: T1 head-to-head RCT, primary endpoint match
++│  ──────────────────────────────────────                 │
++│  The reduction in HbA1c from baseline was ▒▒▒▒▒▒▒▒▒▒▒▒  │
++│  ▒▒2.46 ± 0.07 percentage points▒▒ with tirzepatide 15 │
++│  mg compared with ...                                   │
++└────────────────────────────────────────────────────────┘
++```
++
++### Beat 5 (600 → 700ms): **Signature (the receipt)**
++A `<SignaturePill>` appears at the panel's footer.
++- ONLY renders the green "⬡ Signed bundle" affordance when `signatureState === "gpg_verified"` (per I-ux-001a). Otherwise the amber "Signature attached — verify offline" OR grey "Not signed — trust not established."
++- One-line meaning: **"Sealed in bundle bundle_real_tirzepatide_0001 · POLARIS Carney Demo key."**
++- One affordance: **"→ Receipt view"** opens the Receipt panel (offline-verify flow).
++- Maple-leaf mark (stroke variant, §7 of tokens) fades in beside the verdict — visible sovereignty/identity beat.
++
++```
++│  ⬡ Signed bundle · POLARIS Carney Demo key             │
++│  Sealed in bundle_real_tirzepatide_0001                 │
++│  → Verify this offline (Receipt)                        │
++```
++
++### Beat 6 (always available, never the focus): **"What this does NOT prove"**
++A collapsed disclosure at the very bottom of the panel, always present. Title: *"What this does NOT prove."* When expanded:
++- "Faithfulness ≠ source correctness" — we checked the sentence against its source; we did not validate that the source is right.
++- "Independent-family check ≠ clinical validation" — it's an independence/consistency signal with measured reliability X (gold-set %), not regulatory validation.
++- "Absence of contradiction in this brief ≠ completeness" — we surface contradictions found in our retrieved set, not the entire literature.
++- "Evidence strength rating ≠ a formal GRADE appraisal" — it's a decision-support read; a formal appraisal is the reviewer's job.
++
++No animation when the panel opens — the disclosure is intentionally quiet. Reduced-motion treats it identically.
++
++---
++
++## Stage 3 — Switching claims inside the proof panel
++
++User presses `J` / `K` (or taps the next sentence) without closing the panel:
++- The panel **does not slide-out** — it transitions IN PLACE.
++- Beat-1 (claim text) cross-fades to the new sentence over `--motion-fast`.
++- Beats 2-3 (verdict + certainty) flip to the new values via opacity+translateY-8px-to-0 in `--motion-fast`, sequenced 0ms/40ms (compressed vs the first reveal — the panel is already open, the user expects speed).
++- Beat-4 (source) cross-fades the card; the source-text preview scrolls to the new span at `--motion-base`. The previous span-highlight animates OUT (mask gradient right-to-left, 100ms) WHILE the new one animates IN — the two are spatially adjacent so the eye follows continuously.
++- Beat-5 (signature) may stay the same (same bundle) — no animation; the pill quietly does nothing.
++
++Performance target: claim-to-claim < 120ms perceived.
++
++---
++
++## Stage 4 — Mobile (bottom-sheet) variant
++
++- Trigger: tap the sentence (no hover state on touch).
++- Sheet slides up from below at 75vh, drag handle at top.
++- Beats stack vertically; the source preview is below the source-card and gets a fixed 40vh region of its own.
++- Swipe-left / swipe-right inside the sheet = next/previous claim (J/K analogue).
++- Pinch-to-zoom is NOT intercepted (source text must remain zoomable for accessibility).
++- Sheet dismiss: swipe-down on handle OR tap the dimmed page area above.
++
++---
++
++## Stage 5 — Reduced motion equivalent
++
++`@media (prefers-reduced-motion: reduce)` collapses every above animation to instant state swap. The sequencing INTENT is preserved as VISUAL HIERARCHY (top-to-bottom in the panel):
++
++- Beat 0: panel appears instantly with all six beats laid out.
++- The user reads top-to-bottom; the layout itself is the storyboard.
++- Cursor-help indicator is the only "hover" feedback (CSS cursor change requires no transition).
++
++**Tested with `npm run test:e2e -- --grep proof_replay_reduced_motion`** as part of the I-ux-001 plan §15 acceptance.
++
++---
++
++## Stage 6 — Failure-state choreography
++
++Cases the storyboard handles HONESTLY (plan §6 + §11):
++
++| State | Beat 2 reads | Beat 4 reads |
++|---|---|---|
++| `signatureState=missing` on the bundle | (unchanged) faithfulness verdict | beat 5 → **"Not signed — trust not established."** in grey; no green pill |
++| `signatureState=present_unverified` | (unchanged) | beat 5 → **"Signature attached — verify offline."** in amber + the `gpg --verify` command in mono |
++| `verdict=UNSUPPORTED` | red chip + reason ("numeric token 2.4% not in span") | beat 3 not shown (no evidence strength when the claim is unsupported by source); beat 4 still shows the source span so the reviewer sees the gap |
++| `inadequacy refusal` (bundle-level, plan §5) | the whole brief renders the *refusal screen* (plan §6 failure-state design), not individual sentence chips — Proof Replay is not the surface for "we won't answer." |
++
++---
++
++## Stage 7 — The Home teaser (compact 6-beat inline)
++
++Per plan §4 Home teaser: the same 6-beat reveal runs **inline on the home page** for a single real claim from the existing real signed bundle. Compressed timing (total 500ms) + a more emphatic visual signature so it reads as a 30-second product demo.
++
++```
++HOME — proof-as-hero
++┌──────────────────────────────────────────────────────────────┐
++│                                                                │
++│  Deep research you can check, line by line.                   │
++│                                                                │
++│  ┌──────────────────────────────────────────────────────────┐ │
++│  │ ● "Tirzepatide 15 mg once weekly reduced HbA1c by 2.4%   │ │
++│  │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾  │ │
++│  │   vs baseline at 40 weeks in the SURPASS-2 trial."        │ │
++│  │                                                            │ │
++│  │       [→ Challenge this sentence]                          │ │
++│  └──────────────────────────────────────────────────────────┘ │
++│                                                                │
++│           [ → Ask a question of your own ]                     │
++└──────────────────────────────────────────────────────────────┘
++```
++
++On click, the same 6-beat reveal plays — the user sees the differentiator before they sign in.
++
++---
++
++## Interaction acceptance tests (plan §15)
++
++Playwright traces (NOT just screenshots) verify:
++1. **time-to-first-proof < 400ms** — from click to beat-2 verdict visible.
++2. **claim-to-claim < 120ms** — `J`/`K` round-trip.
++3. **full keyboard path** — Tab/Enter/Esc/J/K cycle without mouse.
++4. **mobile tap path** — bottom-sheet appears, swipe-left advances, dismiss works.
++5. **reduced-motion path** — instant state swap, no animation, full content visible.
++6. **all six microstates** rendered on the FaithfulnessChip + CertaintyBadge + SourceCard + SignaturePill.
++
++Per the plan §15 acceptance: traces are committed under `web/tests/e2e/proof_replay/` when the hero ships; this storyboard is the spec they verify against.
+-- 
+2.49.0.windows.1
+
+
+From f99bdb77c33bbe89e668ef81df45c7fffe4708be Mon Sep 17 00:00:00 2001
+From: msn <msn@polaris.dev>
+Date: Sun, 24 May 2026 03:09:43 -0700
+Subject: [PATCH 4/7] I-ux-001b (#876): fix Codex iter-1 P1s (color collision,
+ timing math, real claim, microstate spec) + components catalogue
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Codex iter-1 caught 4 P1 + 1 P2 + 1 P3 on the foundation docs. All fixed:
+
+P1: --unsupported (oklch 0.58 0.22 25) was nearly indistinguishable from
+brand red #c8102e (oklch 0.53 0.21 22) -- clinical user could confuse
+"unsupported claim alarm" with "primary CTA". Re-picked --unsupported to
+hue 320 (magenta-red), 60+ degrees from brand. Added a binding hue-band
+rule: brand 0-40, unsupported 300-340, no token may sit in either band.
+
+P1: storyboard total reads 700ms, conflicting with the stated <400ms
+target. Clarified that <400ms is "time-to-first-proof" (Beat 2 visible at
+250ms), NOT total reveal. Total 700ms is fine because the user reads as
+beats paint; the answer lands first.
+
+P1: home teaser used fabricated claim text. Replaced with the actual
+first verified sentence from web/public/canonical_bundles/v1_canonical_success/
+verified_report.json — the real claim the home page will render. Same
+fix in Stage 0 illustration.
+
+P1: six microstates were "deferred to components_catalogue.md" which
+didn't exist. Wrote the catalogue with the minimum Codex required:
+ClaimSentence, ProofPanel, FaithfulnessChip, CertaintyBadge, SourceCard,
+SignaturePill, WhatThisDoesNotProve, IntendedUseBanner, plus a shared
+interactive baseline (six microstates × concrete CSS contract) every
+component inherits. The wiring table at the end maps each storyboard
+surface to its components, so no element is "assumed" anymore.
+
+P2: added --verified-fg / --partial-fg / --unsupported-fg foreground
+tokens so chip text on the tint backgrounds passes WCAG-AA without
+implementations having to derive their own.
+
+P3: Stage 6 failure-state table column header said "Beat 4 reads" while
+rows described Beat 5; relabeled per-row.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+---
+ docs/web/components_catalogue.md    | 286 ++++++++++++++++++++++++++++
+ docs/web/design_tokens_v2.md        |  36 ++--
+ docs/web/proof_replay_storyboard.md |  68 ++++---
+ 3 files changed, 349 insertions(+), 41 deletions(-)
+ create mode 100644 docs/web/components_catalogue.md
+
+diff --git a/docs/web/components_catalogue.md b/docs/web/components_catalogue.md
+new file mode 100644
+index 00000000..862a16cf
+--- /dev/null
++++ b/docs/web/components_catalogue.md
+@@ -0,0 +1,286 @@
++# Components Catalogue (I-ux-001b / #876)
++
++**Status:** SPEC — Codex review pending. Implements the foundation catalogue Codex iter-1 P1 flagged as strictly required before any implementation Issue can start.
++
++Scope (Codex iter-1 §13): the minimum components subsequent implementation Issues need — the hero stack + the shared interactive primitives. Each entry: purpose · props · all six microstates × concrete CSS contract · responsive behavior · a11y. Tokens referenced are from `docs/web/design_tokens_v2.md`.
++
++---
++
++## 0. Shared interactive contract (every clickable/focusable element)
++
++Six microstates × the CSS contract that satisfies them. Components below inherit this baseline unless they explicitly override.
++
++```css
++/* default */
++.btn, [role="button"], a {
++  transition: background-color var(--motion-fast) var(--ease-standard),
++              border-color var(--motion-fast) var(--ease-standard),
++              transform var(--motion-fast) var(--ease-standard),
++              color var(--motion-fast) var(--ease-standard);
++}
++
++/* hover: tint shift ≤8% saturation, no layout shift */
++.btn:hover { background: color-mix(in oklch, var(--btn-bg) 92%, var(--foreground) 8%); }
++
++/* focus-visible: always-visible 2px ring + 2px offset against background */
++.btn:focus-visible {
++  outline: none;
++  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
++}
++
++/* active: tint +12%, micro-scale 0.97 */
++.btn:active { transform: scale(0.97); background: color-mix(in oklch, var(--btn-bg) 88%, var(--foreground) 12%); }
++
++/* disabled: opacity 0.55, cursor not-allowed, no hover/active */
++.btn[aria-disabled="true"], .btn:disabled {
++  opacity: 0.55; cursor: not-allowed; pointer-events: none;
++}
++
++/* loading: stable skeleton + aria-busy */
++.btn[aria-busy="true"] {
++  position: relative;
++  color: transparent !important;
++  pointer-events: none;
++}
++.btn[aria-busy="true"]::after {
++  content: ""; position: absolute; inset: 0; margin: auto;
++  width: 1em; height: 1em; border-radius: 50%;
++  border: 2px solid currentColor; border-right-color: transparent;
++  animation: spin 0.8s linear infinite;
++}
++@media (prefers-reduced-motion: reduce) {
++  .btn { transition: none; }
++  .btn[aria-busy="true"]::after { animation: none; }
++}
++```
++
++Every component below references this baseline; departures are documented inline.
++
++---
++
++## 1. `<ClaimSentence>` — the affordance every sentence in a brief carries
++
++Purpose: render a sentence with the two-judgment affordances (faithfulness underline, certainty dot) and make it the interaction target for "challenge."
++
++```ts
++interface ClaimSentenceProps {
++  id: string;                                          // for keyboard nav focus targets
++  text: string;
++  faithfulness: "verified" | "partial" | "unsupported";
++  certainty: "high" | "moderate" | "low" | "very-low";
++  onChallenge: (id: string) => void;                   // click / Enter / tap
++}
++```
++
++**Visual** (Stage 0 of `proof_replay_storyboard.md`):
++- Inline element rendered as `<span>` (NOT a button — semantically a paragraph word; keyboard focusability is added via `tabindex="0"` so the sentence reads naturally in screen readers).
++- Underline: `box-shadow: inset 0 -0.18em 0 0 color-mix(in oklch, var(--<faithfulness>) 35%, transparent)` (avoids `text-decoration` which can't carry a tint without `text-decoration-color` only on modern engines).
++- Leading-margin certainty dot: `::before { content: ""; … background: var(--certainty-<level>); width: 4px; height: 4px; border-radius: 50%; margin-right: 6px; }` — rendered in the left margin via negative `margin-left` of the paragraph so it doesn't disrupt the prose measure.
++
++**Microstates:**
++- **default** as above.
++- **hover** (`:hover` only — mobile uses tap): underline tint alpha 35% → 70% over `--motion-fast`; certainty dot 4px → 6px (no color change); cursor `help`.
++- **focus** (`:focus-visible`): same as hover PLUS the `--ring` 2px outline + 2px offset.
++- **active** (`:active`): tint alpha 70% → 85%; brief scale on the dot (4 → 6 → 4) is too noisy → just the alpha bump.
++- **disabled**: rare for a sentence; if present (locked report), set `aria-disabled="true"`, opacity 0.55, no hover.
++- **loading**: rare; only when the per-sentence verdict is still being computed → render the sentence with a faint pulse on the underline (`@keyframes pulse-underline` 1.2s, reduced-motion → solid 50% alpha).
++
++**A11y:**
++- `role="button"` with `aria-label="Challenge: <truncated text>"` (sentence text in label is truncated to first 80 chars for screen-reader brevity).
++- `aria-keyshortcuts="Enter Space"` so AT announces the interaction.
++- The certainty dot has `aria-hidden="true"` (decorative); its semantic content is mirrored in the chip the proof panel surfaces.
++
++---
++
++## 2. `<ProofPanel>` — the docked surface for the 6-beat reveal
++
++Purpose: docked right rail on desktop / bottom sheet on mobile (Stages 2–4 of the storyboard).
++
++```ts
++interface ProofPanelProps {
++  open: boolean;
++  claim?: ClaimSentenceProps;       // the sentence being challenged
++  evidenceSpan?: SourceCardProps;
++  signatureState: SignatureState;
++  onClose: () => void;
++  onPrev: () => void;               // J
++  onNext: () => void;               // K
++}
++```
++
++**Visual:**
++- Desktop: fixed right `top: 0; right: 0; bottom: 0; width: 480px;` over a 50% scrim on the brief. Slide-in `transform: translateX(110%) → 0` over `--motion-base` `ease-standard`.
++- Mobile: fixed bottom `left: 0; right: 0; bottom: 0; height: 75vh;` with a drag handle. Slide-in `transform: translateY(100%) → 0`.
++- Inside: scrollable vertical layout of beats 1→6 (component children).
++
++**Microstates:**
++- **default open** = visible per visual.
++- **default closed** = `transform: translate(110% | 100%)` + `pointer-events: none` + `aria-hidden="true"`.
++- **hover** N/A (panel is a surface, not an interactive element itself).
++- **focus** — focus *trap* engaged when open (`focus-trap-react` or manual); on open, focus moves to a "Challenged sentence" header element (`tabindex="-1"`); on close, focus returns to the originating `<ClaimSentence>`.
++- **active** N/A.
++- **disabled** N/A.
++- **loading** — when waiting for the verdict payload, render the layout skeleton (claim block + 5 placeholder bars) with `aria-busy="true"`.
++
++**Keyboard contract:**
++- `Esc` → `onClose()`.
++- `J` / `↓` → `onNext()`; `K` / `↑` → `onPrev()`. (Compatible with Vim users + standard arrow expectations; both bindings active.)
++- `Tab` walks: claim header → faithfulness chip detail-trigger → certainty badge → source-card "Open source" → signature pill → "what this does NOT prove" disclosure.
++- Inside the bottom-sheet on mobile: swipe-down on the handle → `onClose()`; swipe-left → `onNext()`; swipe-right → `onPrev()` (`touchstart`/`touchmove`/`touchend`; not gestures wrapper to keep deps light).
++
++**A11y:**
++- `role="dialog"` + `aria-modal="true"` + `aria-labelledby="proof-panel-claim-header"`.
++- Focus trap engaged on open.
++- Backdrop click → `onClose` (configurable; per the operator's UX preference can be set to ignore to prevent accidental dismiss during exploration).
++
++---
++
++## 3. `<FaithfulnessChip>` — Beat-2 verdict badge
++
++Purpose: at-a-glance "is the sentence faithful to its source?" One of three states.
++
++```ts
++interface FaithfulnessChipProps {
++  state: "verified" | "partial" | "unsupported";
++  family?: string;                  // e.g. "Gemma-4-31B" (the independent-family evaluator name)
++  reason?: string;                  // shown on hover/expand for partial/unsupported
++}
++```
++
++**Visual:**
++- Pill: `padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em;`
++- States:
++  - **verified**: `background: var(--verified-bg); color: var(--verified-fg); border: 1px solid var(--verified-border);` icon `<Check>`.
++  - **partial**: same pattern using `--partial-*` tokens, icon `<MinusCircle>`.
++  - **unsupported**: same pattern using `--unsupported-*` tokens (magenta-red per tokens §2.3), icon `<XCircle>`.
++- Label text: `VERIFIED · PARTIAL · UNSUPPORTED`.
++
++**Microstates:** baseline (§0) — except this chip is NOT clickable by default; it becomes interactive (cursor: help, focus ring) only if `reason` is provided, in which case it opens a popover with `reason` text.
++
++**A11y:**
++- `role="status"` (non-interactive read) OR `role="button"` when interactive.
++- `aria-label="Faithfulness: VERIFIED"` (state spelled out).
++
++---
++
++## 4. `<CertaintyBadge>` — Beat-3 evidence-strength badge
++
++Purpose: at-a-glance "how strong is the underlying evidence?" Ordinal. **Visually orthogonal to FaithfulnessChip** (token §2.4 slate-blue, not green/amber/red).
++
++```ts
++interface CertaintyBadgeProps {
++  level: "high" | "moderate" | "low" | "very-low";
++  studyType: string;                 // "RCT · Phase 3 · n=1879"
++  dominantDowngrade?: string;        // "imprecision: wide CI" — null for HIGH
++  href?: string;                     // → Summary of Findings for this outcome
++}
++```
++
++**Visual:**
++- Pill: same dimensions as FaithfulnessChip (visual rhyme) but **different shape detail**: square corners on the leading edge (`border-radius: 4px 9999px 9999px 4px`). Squareness signals "different category of read" without needing a different color family.
++- Color per level: solid `--certainty-<level>` background, `--certainty-fg` text. No tint+border; this is a solid pill (vs the FaithfulnessChip tint+border) — the visual treatment itself signals "different read."
++- Beneath: caption row `<studyType>` + (if present) `<dominantDowngrade>` + `<a href=>→ Summary of Findings</a>` (the link inherits the shared baseline §0).
++
++**Microstates:** baseline. Interactive only via the SoF link, not the pill itself.
++
++**A11y:** `role="status"`, `aria-label="Evidence strength: HIGH · RCT · Phase 3 · n=1879"`.
++
++---
++
++## 5. `<SourceCard>` — Beat-4 source identity
++
++```ts
++interface SourceCardProps {
++  journal: string; year: number; doi?: string; tier: "T1" | "T2" | "T3";
++  whySelected: string;               // "T1 head-to-head RCT, primary endpoint match"
++  // The actual span text is rendered by a sibling <SourceSpanPreview>, not here
++}
++```
++
++**Visual:**
++- Compact card: `padding: 12px; border: var(--hairline); border-radius: var(--radius); background: var(--card);`
++- Header row: `<journal>` bold + ` · <year> · <doi> · <tier-pill>`.
++- Body: `<small>Why this source: <whySelected></small>` in `--muted-foreground` text-caption.
++- Tier pill: `T1` solid `var(--certainty-high)` bg; `T2` solid `var(--certainty-moderate)`; `T3` solid `var(--certainty-low)` — reuse the certainty palette so "tier" reads as "evidence-strength input" (which it semantically is).
++
++**Microstates:** baseline (entire card is clickable to "open the source" — a link inherits §0).
++
++---
++
++## 6. `<SignaturePill>` — Beat-5 receipt
++
++```ts
++interface SignaturePillProps {
++  state: "missing" | "present_unverified" | "gpg_verified";
++  bundleId?: string;
++  keyName?: string;                   // "POLARIS Carney Demo key"
++  onOpenReceipt: () => void;
++}
++```
++
++**Visual:**
++- **gpg_verified**: green tint pill (token `--verified-bg`/`--verified-fg`) + `<MapleLeaf>` mark (stroke variant, tokens §7) + label `"Signed bundle · {keyName}"`. Sub-line: `"Sealed in {bundleId}"` in mono + ` · → Verify offline (Receipt)` link.
++- **present_unverified**: amber tint (`--partial-bg`/`--partial-fg`) + `<ShieldAlert>` icon + label `"Signature attached — verify offline"`. Sub-line: the `gpg --verify` command in mono + ` · → Receipt`.
++- **missing**: grey-on-grey (`--muted`/`--muted-foreground`) + `<ShieldAlert>` icon + label `"Not signed — trust not established"`. No Receipt link.
++
++**Microstates:** baseline. The `→ Receipt` link inherits §0.
++
++**A11y:**
++- `role="status"` with the state spelled out: `aria-label="Signature: signed and GPG-verified"` etc.
++
++---
++
++## 7. `<WhatThisDoesNotProve>` — Beat-6 honesty disclosure
++
++Purpose: always-present collapsed disclosure with the LAW-II limits of the verification.
++
++```ts
++interface WhatThisDoesNotProveProps {
++  /** Optional override list of bullet points; default = the 4 standard limits. */
++  bullets?: string[];
++}
++```
++
++**Visual:**
++- `<details>` element. Summary: `"What this does NOT prove"` in `--muted-foreground`, small caps, leading `<Info>` icon.
++- On open: bullet list with the four default limits (tokens §8 + the proof-replay storyboard Beat 6 copy).
++
++**Microstates:** baseline; the `<summary>` inherits §0 focus contract via `summary { outline: none; }` override + focus-visible ring.
++
++**A11y:** `<details>` is natively accessible; AT announces "expand/collapse." Don't add `aria-expanded` manually — the browser does it.
++
++---
++
++## 8. `<IntendedUseBanner>` — the "non-device CDS" banner
++
++Purpose: standing visible per plan §6 — appears on the brief, the receipt, and `/transparency`. Compact, calm, not alarming.
++
++```ts
++interface IntendedUseBannerProps {
++  variant?: "inline" | "footer";    // inline = beneath the brief title; footer = at audit/transparency
++}
++```
++
++**Visual:** muted card, `--muted` background, `--hairline` border, body text states the intended user / use / non-use / non-reliance. No animation.
++
++---
++
++## 9. Shared `<Button>` / `<Link>` baseline
++
++Defined elsewhere in the codebase today (base-ui shadcn). The §0 contract above is added as a Tailwind-v4 layer override; existing button sizes (default/sm/lg/xs/icon) remain. New requirement: the `aria-busy` loading variant (§0) is added.
++
++---
++
++## 10. Wiring catalogue
++
++For implementation Issues to consume:
++
++| Storyboard surface | Components used |
++|---|---|
++| Stage 0 brief reading | `<ClaimSentence>` (n×, one per sentence) |
++| Stage 2 the 6 beats | `<ProofPanel>` containing `<FaithfulnessChip>`, `<CertaintyBadge>`, `<SourceCard>` + `<SourceSpanPreview>` (existing), `<SignaturePill>`, `<WhatThisDoesNotProve>` |
++| Stage 4 mobile bottom-sheet | same as Stage 2 with the panel in bottom-sheet variant |
++| Home teaser (Stage 7) | inline `<ProofPanel>` variant + `<ClaimSentence>` |
++| Brief level | `<IntendedUseBanner>` |
++
++That covers every interactive element the storyboard exercises. No component is "assumed" anymore (Codex iter-1 §4 P1 close).
+diff --git a/docs/web/design_tokens_v2.md b/docs/web/design_tokens_v2.md
+index 593bfebd..1f6a3772 100644
+--- a/docs/web/design_tokens_v2.md
++++ b/docs/web/design_tokens_v2.md
+@@ -70,19 +70,29 @@ Near-monochrome ground; ONE brand accent (red, OPERATOR-LOCKED `#c8102e`); two i
+ ### 2.3 Faithfulness palette (judgment #1: "is the sentence faithful to its source?")
+ Used by: verdict chips, sentence-level tints in the brief, proof-panel beat-2.
+ ```
+---verified            oklch(0.62 0.16 145)   green — claim ↔ span verified
+---verified-bg         color-mix(in oklch, var(--verified) 10%, transparent)
+---verified-border     color-mix(in oklch, var(--verified) 30%, transparent)
+-
+---partial             oklch(0.74 0.16 60)    amber — partial support
+---partial-bg          color-mix(in oklch, var(--partial) 10%, transparent)
+---partial-border      color-mix(in oklch, var(--partial) 40%, transparent)
+-
+---unsupported         oklch(0.58 0.22 25)    desaturated red (DISTINCT from brand red) — span doesn't support
+---unsupported-bg      color-mix(in oklch, var(--unsupported) 10%, transparent)
+---unsupported-border  color-mix(in oklch, var(--unsupported) 40%, transparent)
++--verified            oklch(0.55 0.16 145)   green — claim ↔ span verified
++--verified-bg         color-mix(in oklch, var(--verified) 12%, transparent)
++--verified-border     color-mix(in oklch, var(--verified) 35%, transparent)
++--verified-fg         oklch(0.32 0.12 145)   readable chip foreground on --verified-bg (≥4.5:1 AA)
++
++--partial             oklch(0.70 0.16 75)    deep amber — partial support
++--partial-bg          color-mix(in oklch, var(--partial) 14%, transparent)
++--partial-border      color-mix(in oklch, var(--partial) 45%, transparent)
++--partial-fg          oklch(0.36 0.14 65)    readable chip foreground on --partial-bg (≥4.5:1 AA)
++
++--unsupported         oklch(0.52 0.20 320)   magenta-red — span does NOT support claim.
++                                              DELIBERATELY chosen for chromatic distance from brand
++                                              red (#c8102e ≈ oklch(0.53 0.21 22)). At hue 320° vs
++                                              brand hue 22°, the eye cannot confuse "unsupported"
++                                              with the primary CTA — clinical-safety-critical
++                                              (Codex iter-1 P1 on this doc).
++--unsupported-bg      color-mix(in oklch, var(--unsupported) 14%, transparent)
++--unsupported-border  color-mix(in oklch, var(--unsupported) 45%, transparent)
++--unsupported-fg      oklch(0.32 0.14 320)   readable chip foreground on --unsupported-bg (≥4.5:1 AA)
+ ```
+ 
++**Hue separation rule (binding):** the brand red occupies hue band 0°–40° (action+identity); the unsupported alarm occupies hue band 300°–340° (magenta-red). No other token may sit in either band. A perceptual color-distance test (deltaE-OKLCH) MUST be in CI before any new red/pink/magenta token lands.
++
+ ### 2.4 Evidence-strength palette (judgment #2: "is the evidence strong enough to act on?")
+ Used by: certainty badges, SoF certainty column, proof-panel beat-3, dual-provenance strip "evidence-strength mix" pills. **Deliberately ordinal (saturation-step), not a hue chosen to match faithfulness** — so the user never visually conflates "supported" with "strong."
+ ```
+@@ -182,7 +192,7 @@ Three durations, one easing. Every animation declares **why** it moves (state co
+ 
+ ## 6. The Six Microstates (every interactive element)
+ 
+-Declared per component in §components_catalogue.md. The states + when each is the only acceptable visual:
++Each component declares its concrete CSS contract per-state in `components_catalogue.md`. The states + when each is the only acceptable visual:
+ 
+ | State | Trigger | Visual contract |
+ |---|---|---|
+@@ -193,7 +203,7 @@ Declared per component in §components_catalogue.md. The states + when each is t
+ | **disabled** | `aria-disabled` / `disabled` | opacity 0.55, cursor not-allowed, no hover/active reaction |
+ | **loading** | in-flight | stable skeleton (no layout shift), `aria-busy="true"`, accessible "loading <thing>" label |
+ 
+-All six are mandatory and tested via Playwright traces (per the I-ux-001 plan §15 acceptance "interaction acceptance tests").
++All six are mandatory and tested via Playwright traces (per the I-ux-001 plan §15 acceptance "interaction acceptance tests"). The catalogue (`components_catalogue.md`) gives concrete CSS for each component × state.
+ 
+ ---
+ 
+diff --git a/docs/web/proof_replay_storyboard.md b/docs/web/proof_replay_storyboard.md
+index 77117c39..c8b3df28 100644
+--- a/docs/web/proof_replay_storyboard.md
++++ b/docs/web/proof_replay_storyboard.md
+@@ -4,7 +4,11 @@
+ 
+ **Hard rules (plan §4 + §12 + Vercel motion guidance):**
+ - Motion **communicates state**, never decorates. Every frame answers: *what changed, why does this animation make that clearer?*
+-- **Time-to-first-proof < 400ms** from challenge → beat-1 visible. Span highlight < 150ms. Claim-to-claim switch < 120ms.
++- **Timing targets (Codex iter-1 P1 clarification — the < 400ms is "time-to-first-proof", NOT the total reveal):**
++  - **time-to-first-proof < 400ms**: from challenge click → **Beat 2 verdict visible** (the user has the answer in <400ms; remaining beats are progressive disclosure the user can read as they paint).
++  - **span highlight in Beat 4 ≤ 150ms** once that beat is reached.
++  - **claim-to-claim switch < 120ms** perceived (Stage 3).
++  - The full 6-beat cumulative paint completes by ~700ms — but the user has already seen the verdict at 250ms; beats 3-6 enrich without blocking comprehension.
+ - `prefers-reduced-motion: reduce` → instant state swap, no animation, no scroll-jump (controlled re-render only).
+ - Keyboard-first: `J`/`K` navigate sentences, `Enter` challenges, `Esc` closes the panel, `Tab` walks the beats inside it.
+ - Mobile-real: hover-to-reveal does NOT exist. Tap to challenge → bottom-sheet at 75vh.
+@@ -19,12 +23,15 @@ Calm clinical document. No animation. Each sentence carries TWO subtle, separate
+ - A **certainty dot** (4px circle) in the leading margin, color from the certainty scale (`--certainty-{high|moderate|low|very-low}`). Margin position not inline; never adjacent to the underline.
+ 
+ ```
+-default
+-┌──────────────────────────────────────────────────────────────────┐
+-│ ● Tirzepatide 15 mg once weekly reduced HbA1c by 2.4% vs baseline │  ←  ● = high certainty (slate-blue)
+-│ ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾   │  ←  underline = verified (green tint)
+-│   at 40 weeks in the SURPASS-2 trial.                              │
+-└──────────────────────────────────────────────────────────────────┘
++default (illustrated with a REAL verified sentence from the shipped bundle:
++        web/public/canonical_bundles/v1_canonical_success/verified_report.json
++        section "Efficacy", first verified sentence)
++┌──────────────────────────────────────────────────────────────────────────────┐
++│ ● The estimated treatment differences were −0.15 percentage points (95% CI   │  ←  ● = high certainty (slate-blue)
++│ ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾  │  ←  underline = verified (green tint)
++│   −0.28 to −0.03), −0.39 percentage points (95% CI −0.51 to −0.26), and      │
++│   −0.45 percentage points (95% CI −0.57 to −0.32), all favoring tirzepatide. │
++└──────────────────────────────────────────────────────────────────────────────┘
+ ```
+ 
+ No chips inline; no hover until the user moves focus to a sentence. The brief reads as prose first.
+@@ -182,14 +189,14 @@ Performance target: claim-to-claim < 120ms perceived.
+ 
+ ## Stage 6 — Failure-state choreography
+ 
+-Cases the storyboard handles HONESTLY (plan §6 + §11):
++Cases the storyboard handles HONESTLY (plan §6 + §11). Column headings name the beat each row's content describes (Codex iter-1 P3 fix — the prior header was mislabeled):
+ 
+-| State | Beat 2 reads | Beat 4 reads |
++| State | Affected beat | Reads as |
+ |---|---|---|
+-| `signatureState=missing` on the bundle | (unchanged) faithfulness verdict | beat 5 → **"Not signed — trust not established."** in grey; no green pill |
+-| `signatureState=present_unverified` | (unchanged) | beat 5 → **"Signature attached — verify offline."** in amber + the `gpg --verify` command in mono |
+-| `verdict=UNSUPPORTED` | red chip + reason ("numeric token 2.4% not in span") | beat 3 not shown (no evidence strength when the claim is unsupported by source); beat 4 still shows the source span so the reviewer sees the gap |
+-| `inadequacy refusal` (bundle-level, plan §5) | the whole brief renders the *refusal screen* (plan §6 failure-state design), not individual sentence chips — Proof Replay is not the surface for "we won't answer." |
++| `signatureState=missing` on the bundle | Beat 5 (Signature) | **"Not signed — trust not established."** in grey; no green pill |
++| `signatureState=present_unverified` | Beat 5 (Signature) | **"Signature attached — verify offline."** in amber + the `gpg --verify` command in mono |
++| `verdict=UNSUPPORTED` | Beat 2 (Faithfulness) | red chip + the failing-check reason (e.g. "numeric token 2.4% not in span"). Beat 3 is omitted (no evidence-strength read when the claim isn't supported by its source); Beat 4 still shows the source span so the reviewer can see the gap. |
++| `inadequacy refusal` (bundle-level, plan §5) | whole brief | renders the *refusal screen* (plan §6 failure-state design), not individual sentence chips — Proof Replay is not the surface for "we won't answer." |
+ 
+ ---
+ 
+@@ -198,21 +205,26 @@ Cases the storyboard handles HONESTLY (plan §6 + §11):
+ Per plan §4 Home teaser: the same 6-beat reveal runs **inline on the home page** for a single real claim from the existing real signed bundle. Compressed timing (total 500ms) + a more emphatic visual signature so it reads as a 30-second product demo.
+ 
+ ```
+-HOME — proof-as-hero
+-┌──────────────────────────────────────────────────────────────┐
+-│                                                                │
+-│  Deep research you can check, line by line.                   │
+-│                                                                │
+-│  ┌──────────────────────────────────────────────────────────┐ │
+-│  │ ● "Tirzepatide 15 mg once weekly reduced HbA1c by 2.4%   │ │
+-│  │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾  │ │
+-│  │   vs baseline at 40 weeks in the SURPASS-2 trial."        │ │
+-│  │                                                            │ │
+-│  │       [→ Challenge this sentence]                          │ │
+-│  └──────────────────────────────────────────────────────────┘ │
+-│                                                                │
+-│           [ → Ask a question of your own ]                     │
+-└──────────────────────────────────────────────────────────────┘
++HOME — proof-as-hero (illustrated with the REAL first verified sentence from
++the shipped bundle web/public/canonical_bundles/v1_canonical_success — Codex
++iter-1 P1 fix: the prior mock used fabricated text, the spec now uses the
++actual claim the home page will render):
++┌──────────────────────────────────────────────────────────────────────────────┐
++│                                                                                │
++│  Deep research you can check, line by line.                                   │
++│                                                                                │
++│  ┌──────────────────────────────────────────────────────────────────────────┐ │
++│  │ ● "The estimated treatment differences were −0.15 percentage points (95% │ │
++│  │   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ │ │
++│  │   CI −0.28 to −0.03), −0.39 percentage points (95% CI −0.51 to −0.26),   │ │
++│  │   and −0.45 percentage points (95% CI −0.57 to −0.32), all favoring      │ │
++│  │   tirzepatide."                                                            │ │
++│  │                                                                            │ │
++│  │       [→ Challenge this sentence]                                          │ │
++│  └──────────────────────────────────────────────────────────────────────────┘ │
++│                                                                                │
++│           [ → Ask a question of your own ]                                     │
++└──────────────────────────────────────────────────────────────────────────────┘
+ ```
+ 
+ On click, the same 6-beat reveal plays — the user sees the differentiator before they sign in.
+-- 
+2.49.0.windows.1
+
+
+From 08e7b464b95061b7f794088d3a5bb35435fd759f Mon Sep 17 00:00:00 2001
+From: msn <msn@polaris.dev>
+Date: Sun, 24 May 2026 03:16:40 -0700
+Subject: [PATCH 5/7] I-ux-001b (#876): fix Codex iter-2 P1s (catalogue
+ scope+spinner, certainty fg per level) + P2s (Beat 4 timing,
+ SourceSpanPreview spec)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+P1 #1 [catalogue baseline scoped only to .btn, spinner invisible]:
+- Rewrote the shared interactive contract to target `.interactive` +
+  every relevant tag/role selector (button, [role=button], a[href],
+  summary, .btn, .link, .chip[role=button], sentence affordances).
+- Fixed loading: hide label via `visibility: hidden` on children (not
+  `color: transparent`), so the spinner border using --foreground stays
+  visible; reduced-motion shows a non-spinning indicator dot.
+- Encoded the focus-visible offset directly in the box-shadow stack so
+  the undefined --ring-offset token from iter-1 P3 is no longer named.
+
+P1 #2 [certainty-fg only worked for dark levels]:
+- Replaced single --certainty-fg with per-level foreground tokens
+  (--certainty-{high,moderate,low,very-low}-fg). Dark backgrounds use
+  near-white (≥4.7:1 AA), light backgrounds use near-black (≥6.3:1 AAA).
+- Added a binding "foreground-by-level rule" so CertaintyBadge reads
+  --certainty-<level>-fg directly, never the (now intentionally absent)
+  --certainty-fg.
+
+P2 [Beat 4 highlight 200ms vs ≤150ms target]:
+- Storyboard Beat 4 now specifies --motion-fast (120ms) for the mask
+  reveal, meeting the ≤150ms spec.
+
+P2 [SourceSpanPreview referenced but never specified]:
+- Added §5a SourceSpanPreview entry to the catalogue: props, phrase-
+  grouped highlight (not pink tiles), mask-reveal at --motion-fast,
+  auto-scroll, reduced-motion handling, a11y (region role + mark labels
+  + 400% zoom support).
+- Wired into §10 mapping with the §5a reference.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+---
+ docs/web/components_catalogue.md    | 172 +++++++++++++++++++++-------
+ docs/web/design_tokens_v2.md        |  17 ++-
+ docs/web/proof_replay_storyboard.md |   2 +-
+ 3 files changed, 143 insertions(+), 48 deletions(-)
+
+diff --git a/docs/web/components_catalogue.md b/docs/web/components_catalogue.md
+index 862a16cf..8dc2f9ab 100644
+--- a/docs/web/components_catalogue.md
++++ b/docs/web/components_catalogue.md
+@@ -8,49 +8,97 @@ Scope (Codex iter-1 §13): the minimum components subsequent implementation Issu
+ 
+ ## 0. Shared interactive contract (every clickable/focusable element)
+ 
+-Six microstates × the CSS contract that satisfies them. Components below inherit this baseline unless they explicitly override.
++Six microstates × the CSS contract that satisfies them. Selector group `.interactive` is applied as a Tailwind v4 layer; every component-level class composes from it (Codex iter-2 P1: not just `.btn` — links, `[role="button"]`, sentence affordances all consume the contract).
+ 
+ ```css
+-/* default */
+-.btn, [role="button"], a {
+-  transition: background-color var(--motion-fast) var(--ease-standard),
+-              border-color var(--motion-fast) var(--ease-standard),
+-              transform var(--motion-fast) var(--ease-standard),
+-              color var(--motion-fast) var(--ease-standard);
+-}
+-
+-/* hover: tint shift ≤8% saturation, no layout shift */
+-.btn:hover { background: color-mix(in oklch, var(--btn-bg) 92%, var(--foreground) 8%); }
+-
+-/* focus-visible: always-visible 2px ring + 2px offset against background */
+-.btn:focus-visible {
+-  outline: none;
+-  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
+-}
+-
+-/* active: tint +12%, micro-scale 0.97 */
+-.btn:active { transform: scale(0.97); background: color-mix(in oklch, var(--btn-bg) 88%, var(--foreground) 12%); }
+-
+-/* disabled: opacity 0.55, cursor not-allowed, no hover/active */
+-.btn[aria-disabled="true"], .btn:disabled {
+-  opacity: 0.55; cursor: not-allowed; pointer-events: none;
+-}
+-
+-/* loading: stable skeleton + aria-busy */
+-.btn[aria-busy="true"] {
+-  position: relative;
+-  color: transparent !important;
+-  pointer-events: none;
+-}
+-.btn[aria-busy="true"]::after {
+-  content: ""; position: absolute; inset: 0; margin: auto;
+-  width: 1em; height: 1em; border-radius: 50%;
+-  border: 2px solid currentColor; border-right-color: transparent;
+-  animation: spin 0.8s linear infinite;
+-}
+-@media (prefers-reduced-motion: reduce) {
+-  .btn { transition: none; }
+-  .btn[aria-busy="true"]::after { animation: none; }
++@layer components {
++  /* Selector group: every clickable/focusable element opts in via `.interactive`
++     or via the role/tag selectors below — implementations may rely on either. */
++  .interactive,
++  button, [role="button"], a[href], summary,
++  .btn, .link, .chip[role="button"], [tabindex="0"][data-claim] {
++    transition:
++      background-color var(--motion-fast) var(--ease-standard),
++      border-color var(--motion-fast) var(--ease-standard),
++      transform var(--motion-fast) var(--ease-standard),
++      color var(--motion-fast) var(--ease-standard),
++      box-shadow var(--motion-fast) var(--ease-standard);
++  }
++
++  /* hover: tint shift ≤8%, no layout shift */
++  .interactive:hover,
++  button:not(:disabled):hover, [role="button"]:not([aria-disabled="true"]):hover,
++  a[href]:hover, .btn:hover, .link:hover {
++    background-color: color-mix(in oklch, currentColor 6%, transparent);
++  }
++
++  /* focus-visible: always-visible 2px ring + 2px offset against background.
++     Codex iter-2 P3: avoids any reference to a non-existent --ring-offset
++     token by encoding the offset directly in the box-shadow stack. */
++  .interactive:focus-visible,
++  button:focus-visible, [role="button"]:focus-visible,
++  a[href]:focus-visible, summary:focus-visible, .btn:focus-visible, .link:focus-visible {
++    outline: none;
++    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
++  }
++
++  /* active: tint +12%, micro-scale 0.97 */
++  .interactive:active,
++  button:not(:disabled):active, [role="button"]:not([aria-disabled="true"]):active,
++  a[href]:active, .btn:active, .link:active {
++    transform: scale(0.97);
++    background-color: color-mix(in oklch, currentColor 10%, transparent);
++  }
++
++  /* disabled: opacity 0.55, cursor not-allowed, no hover/active reaction */
++  .interactive[aria-disabled="true"],
++  button:disabled, [role="button"][aria-disabled="true"],
++  a[aria-disabled="true"], .btn[aria-disabled="true"], .btn:disabled, .link[aria-disabled="true"] {
++    opacity: 0.55;
++    cursor: not-allowed;
++    pointer-events: none;
++  }
++
++  /* loading: stable skeleton + aria-busy + VISIBLE spinner.
++     Codex iter-2 P1: the prior contract set `color: transparent` while the
++     spinner used `currentColor`, making the spinner invisible. Fix: hide the
++     text via a span wrapper, NOT color, and color the spinner from an
++     explicit token (--foreground or its on-surface inverse). */
++  .interactive[aria-busy="true"],
++  button[aria-busy="true"], [role="button"][aria-busy="true"],
++  .btn[aria-busy="true"], .link[aria-busy="true"] {
++    position: relative;
++    pointer-events: none;
++  }
++  .interactive[aria-busy="true"] > *,
++  .btn[aria-busy="true"] > *, .link[aria-busy="true"] > * {
++    visibility: hidden; /* hide label without losing layout/width */
++  }
++  .interactive[aria-busy="true"]::after,
++  .btn[aria-busy="true"]::after, .link[aria-busy="true"]::after {
++    content: "";
++    position: absolute; inset: 0; margin: auto;
++    width: 1em; height: 1em; border-radius: 50%;
++    /* explicit, NOT currentColor — currentColor was inheriting the
++       text color which we previously zeroed. */
++    border: 2px solid var(--foreground);
++    border-right-color: transparent;
++    animation: polaris-spin 0.8s linear infinite;
++  }
++  @keyframes polaris-spin { to { transform: rotate(360deg); } }
++
++  @media (prefers-reduced-motion: reduce) {
++    .interactive, button, [role="button"], a[href], summary, .btn, .link {
++      transition: none;
++    }
++    .interactive:active, button:active, .btn:active, .link:active { transform: none; }
++    .interactive[aria-busy="true"]::after,
++    .btn[aria-busy="true"]::after, .link[aria-busy="true"]::after {
++      animation: none;
++      /* still show a non-spinning indicator so loading remains visible */
++      border-right-color: var(--foreground);
++    }
++  }
+ }
+ ```
+ 
+@@ -207,6 +255,46 @@ interface SourceCardProps {
+ 
+ ---
+ 
++## 5a. `<SourceSpanPreview>` — the in-context source-text window (Beat 4 sibling)
++
++Purpose: render the source text with the matched span(s) highlighted continuously (phrase-grouped, NOT pink word tiles). Companion to `<SourceCard>`.
++
++```ts
++interface SourceSpanPreviewProps {
++  /** The full source text (already fetched by the loader). */
++  text: string;
++  /** Span ranges to highlight, half-open intervals in chars (start inclusive, end exclusive). */
++  spans: { start: number; end: number; faithfulness: "verified" | "partial" }[];
++  /** Tint family: takes its color from the FaithfulnessChip's state. */
++  tint: "verified" | "partial";
++  /** Scroll the first span into view on mount/update. Default true. */
++  autoScroll?: boolean;
++}
++```
++
++**Visual:**
++- `<pre>` wrapper with `white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--text-mono);` — fixed-width so highlights align cleanly with the source text.
++- Each contiguous range from `spans` is rendered as a single `<mark>` with `background: var(--<tint>-bg); color: var(--foreground); border-radius: 2px; padding: 0 2px;` — phrase-grouped (one rect per range; non-matched text has NO background).
++- A leading `<MapleLeaf>` mark NOT shown here (that's for the SignaturePill); the source preview is calm and editorial.
++- Container has `max-height: 60vh; overflow: auto;` on desktop, `40vh` on the mobile bottom-sheet variant.
++
++**Reveal animation (Beat 4 within the proof panel):**
++- Highlight in: `mask-image: linear-gradient(90deg, black 0%, black 0%, transparent 0%) → linear-gradient(90deg, black 0%, black 100%, transparent 100%)` over `--motion-fast` (120ms — Codex iter-2 P2 fix), `ease-standard`. Reads as left-to-right reveal.
++- Auto-scroll: smooth scroll to bring the first highlight to ~30% of the visible area, over `--motion-base` (200ms).
++- Reduced-motion: instant, no scroll-animation (`scrollTo({ behavior: "instant" })`).
++
++**Microstates** (baseline §0 applies only to the optional "Open full source" link rendered above the preview).
++- The `<mark>` highlights are NOT interactive themselves.
++
++**Responsive:** mobile bottom-sheet caps height per above; pinch-to-zoom is honored (no `touch-action: none`).
++
++**A11y:**
++- `<pre>` has `role="region"` + `aria-label="Source span containing the cited evidence"`.
++- Each `<mark>` is announced by AT as "marked text" natively; supplement with `aria-label="Matched evidence span"` on the first mark in the range.
++- Source text size respects browser font-size + supports up to 400% zoom without horizontal scroll on desktop.
++
++---
++
+ ## 6. `<SignaturePill>` — Beat-5 receipt
+ 
+ ```ts
+@@ -278,7 +366,7 @@ For implementation Issues to consume:
+ | Storyboard surface | Components used |
+ |---|---|
+ | Stage 0 brief reading | `<ClaimSentence>` (n×, one per sentence) |
+-| Stage 2 the 6 beats | `<ProofPanel>` containing `<FaithfulnessChip>`, `<CertaintyBadge>`, `<SourceCard>` + `<SourceSpanPreview>` (existing), `<SignaturePill>`, `<WhatThisDoesNotProve>` |
++| Stage 2 the 6 beats | `<ProofPanel>` containing `<FaithfulnessChip>`, `<CertaintyBadge>`, `<SourceCard>` + `<SourceSpanPreview>` (§5a), `<SignaturePill>`, `<WhatThisDoesNotProve>` |
+ | Stage 4 mobile bottom-sheet | same as Stage 2 with the panel in bottom-sheet variant |
+ | Home teaser (Stage 7) | inline `<ProofPanel>` variant + `<ClaimSentence>` |
+ | Brief level | `<IntendedUseBanner>` |
+diff --git a/docs/web/design_tokens_v2.md b/docs/web/design_tokens_v2.md
+index 1f6a3772..ec38669b 100644
+--- a/docs/web/design_tokens_v2.md
++++ b/docs/web/design_tokens_v2.md
+@@ -96,12 +96,19 @@ Used by: verdict chips, sentence-level tints in the brief, proof-panel beat-2.
+ ### 2.4 Evidence-strength palette (judgment #2: "is the evidence strong enough to act on?")
+ Used by: certainty badges, SoF certainty column, proof-panel beat-3, dual-provenance strip "evidence-strength mix" pills. **Deliberately ordinal (saturation-step), not a hue chosen to match faithfulness** — so the user never visually conflates "supported" with "strong."
+ ```
+---certainty-high       oklch(0.42 0.10 245)  deep slate-blue (calm authority)
+---certainty-moderate   oklch(0.56 0.09 245)  mid slate-blue
+---certainty-low        oklch(0.70 0.06 245)  light slate-blue
+---certainty-very-low   oklch(0.85 0.03 245)  pale slate-blue
+---certainty-fg         oklch(0.99 0.005 95)  white text on certainty-high/moderate; foreground on the lighter two
++--certainty-high          oklch(0.42 0.10 245)   deep slate-blue (calm authority)
++--certainty-high-fg       oklch(0.99 0.005 95)   near-white on the dark levels (≥7:1 AAA)
++--certainty-moderate      oklch(0.56 0.09 245)
++--certainty-moderate-fg   oklch(0.99 0.005 95)   still near-white at this level (≥4.7:1 AA)
++--certainty-low           oklch(0.70 0.06 245)   light slate-blue
++--certainty-low-fg        oklch(0.21 0.01 95)    near-black foreground (≥6.3:1 AAA)
++                                                 — Codex iter-2 P1: near-white on --certainty-low is only ~2.6:1,
++                                                 fails AA. Per-level foreground tokens fix this rather than
++                                                 leaving the implementation to guess.
++--certainty-very-low      oklch(0.85 0.03 245)   pale slate-blue
++--certainty-very-low-fg   oklch(0.21 0.01 95)    near-black foreground (≥10:1 AAA)
+ ```
++**Foreground-by-level rule (binding):** dark backgrounds (`-high`, `-moderate`) use the near-white `*-fg`; light backgrounds (`-low`, `-very-low`) use the near-black `*-fg`. The component (§4 CertaintyBadge in `components_catalogue.md`) reads `var(--certainty-<level>-fg)` directly — never `var(--certainty-fg)` (which is intentionally NOT defined).
+ 
+ > **Why slate-blue, not green/amber/red:** evidence strength is independent of faithfulness. If both used the same family, a "VERIFIED + low" claim and a "PARTIAL + high" claim would visually blur. The contrast across families makes the two reads orthogonal at a glance.
+ 
+diff --git a/docs/web/proof_replay_storyboard.md b/docs/web/proof_replay_storyboard.md
+index c8b3df28..5362007c 100644
+--- a/docs/web/proof_replay_storyboard.md
++++ b/docs/web/proof_replay_storyboard.md
+@@ -111,7 +111,7 @@ A `<CertaintyBadge>` (token §2.4 slate-blue palette) appears below the verdict
+ This is the moment the proof becomes tangible.
+ - Below the certainty section, a `<SourceCard>` slides up showing the source's header: journal · year · DOI · tier · *why this source was selected*.
+ - Simultaneously (this is the only acceptable simultaneity in the sequence), the **inline source preview** below the card scrolls to the cited span and the phrase-grouped highlight animates in:
+-  - Highlight progresses left-to-right via a CSS gradient mask (`mask-image: linear-gradient(90deg, black 0% → 100%)`) over `--motion-base` — reads as "this is the exact span."
++  - Highlight progresses left-to-right via a CSS gradient mask (`mask-image: linear-gradient(90deg, black 0% → 100%)`) over `--motion-fast` (120ms — meets the ≤150ms target stated in the hard rules; Codex iter-2 P2 fix — the prior `--motion-base` (200ms) violated the spec). Reads as "this is the exact span."
+   - Phrase-grouped: contiguous matched words share one highlight rectangle (`background: var(--verified-bg)` for verified claims; `var(--partial-bg)` for partial); non-matched separators have NO background.
+   - NO "pink word tiles" — the iter-1 plan finding. Continuous reading bands only.
+ 
+-- 
+2.49.0.windows.1
+
+
+From 8666ed3b1db36179d52a81c009c1636f5445a758 Mon Sep 17 00:00:00 2001
+From: msn <msn@polaris.dev>
+Date: Sun, 24 May 2026 03:20:54 -0700
+Subject: [PATCH 6/7] =?UTF-8?q?I-ux-001b=20(#876):=20fix=20Codex=20iter-3?=
+ =?UTF-8?q?=20P1+P2=20=E2=80=94=20loading=20on=20all=20selectors,=20certai?=
+ =?UTF-8?q?nty=20fg=20per=20level,=20SourceSpanPreview=20unsupported,=20--?=
+ =?UTF-8?q?ring-offset=20removed?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+P1 #1 [loading rules only target .btn/.link/.interactive — bare button or
+[role=button] get pointer-events:none with NO spinner]: expanded the
+loading child-hide AND ::after spinner selectors to include button,
+[role="button"], a[aria-busy], summary[aria-busy]. Same for the
+reduced-motion override. Every selector in the baseline group now gets
+the full loading contract.
+
+P1 #2 [CertaintyBadge spec text still said --certainty-fg AND moderate
+contrast was 4.48:1 (under AA 4.5:1)]: catalogue text now reads
+`var(--certainty-<level>-fg)`. Tokens bumped --certainty-moderate
+lightness 0.56 -> 0.50 to recover WCAG AA on the near-white foreground
+(now ≥4.6:1).
+
+P2 [SourceSpanPreview prop union missed `unsupported` even though
+storyboard Stage 6 requires showing the span for UNSUPPORTED claims]:
+extended `spans[].faithfulness` and `tint` to include "unsupported", with
+the documented behavior (leading XCircle outside the mark, "this is
+what they cited — and it doesn't contain the claim" semantic).
+
+P3 [--ring-offset still referenced in tokens doc but undefined]: added
+explicit note that focus-visible spacing is encoded in the box-shadow
+stack; no --ring-offset token exists.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+---
+ docs/web/components_catalogue.md | 30 ++++++++++++++++++++----------
+ docs/web/design_tokens_v2.md     |  8 ++++++--
+ 2 files changed, 26 insertions(+), 12 deletions(-)
+
+diff --git a/docs/web/components_catalogue.md b/docs/web/components_catalogue.md
+index 8dc2f9ab..f6d497db 100644
+--- a/docs/web/components_catalogue.md
++++ b/docs/web/components_catalogue.md
+@@ -60,21 +60,25 @@ Six microstates × the CSS contract that satisfies them. Selector group `.intera
+   }
+ 
+   /* loading: stable skeleton + aria-busy + VISIBLE spinner.
+-     Codex iter-2 P1: the prior contract set `color: transparent` while the
+-     spinner used `currentColor`, making the spinner invisible. Fix: hide the
+-     text via a span wrapper, NOT color, and color the spinner from an
+-     explicit token (--foreground or its on-surface inverse). */
++     Codex iter-2 P1 / iter-3 P1: every selector in the baseline group gets
++     ALL THREE rules (position+pointer-events, child-hide, spinner ::after),
++     not just .btn/.link/.interactive. */
+   .interactive[aria-busy="true"],
+   button[aria-busy="true"], [role="button"][aria-busy="true"],
++  a[aria-busy="true"], summary[aria-busy="true"],
+   .btn[aria-busy="true"], .link[aria-busy="true"] {
+     position: relative;
+     pointer-events: none;
+   }
+   .interactive[aria-busy="true"] > *,
++  button[aria-busy="true"] > *, [role="button"][aria-busy="true"] > *,
++  a[aria-busy="true"] > *, summary[aria-busy="true"] > *,
+   .btn[aria-busy="true"] > *, .link[aria-busy="true"] > * {
+     visibility: hidden; /* hide label without losing layout/width */
+   }
+   .interactive[aria-busy="true"]::after,
++  button[aria-busy="true"]::after, [role="button"][aria-busy="true"]::after,
++  a[aria-busy="true"]::after, summary[aria-busy="true"]::after,
+   .btn[aria-busy="true"]::after, .link[aria-busy="true"]::after {
+     content: "";
+     position: absolute; inset: 0; margin: auto;
+@@ -91,8 +95,11 @@ Six microstates × the CSS contract that satisfies them. Selector group `.intera
+     .interactive, button, [role="button"], a[href], summary, .btn, .link {
+       transition: none;
+     }
+-    .interactive:active, button:active, .btn:active, .link:active { transform: none; }
++    .interactive:active, button:active, [role="button"]:active,
++    .btn:active, .link:active { transform: none; }
+     .interactive[aria-busy="true"]::after,
++    button[aria-busy="true"]::after, [role="button"][aria-busy="true"]::after,
++    a[aria-busy="true"]::after, summary[aria-busy="true"]::after,
+     .btn[aria-busy="true"]::after, .link[aria-busy="true"]::after {
+       animation: none;
+       /* still show a non-spinning indicator so loading remains visible */
+@@ -226,7 +233,7 @@ interface CertaintyBadgeProps {
+ 
+ **Visual:**
+ - Pill: same dimensions as FaithfulnessChip (visual rhyme) but **different shape detail**: square corners on the leading edge (`border-radius: 4px 9999px 9999px 4px`). Squareness signals "different category of read" without needing a different color family.
+-- Color per level: solid `--certainty-<level>` background, `--certainty-fg` text. No tint+border; this is a solid pill (vs the FaithfulnessChip tint+border) — the visual treatment itself signals "different read."
++- Color per level: solid `--certainty-<level>` background, paired with the matching per-level foreground token `var(--certainty-<level>-fg)` (Codex iter-3 P1: the single `--certainty-fg` token is intentionally NOT defined — components must read the per-level pair). No tint+border; this is a solid pill (vs the FaithfulnessChip tint+border) — the visual treatment itself signals "different read."
+ - Beneath: caption row `<studyType>` + (if present) `<dominantDowngrade>` + `<a href=>→ Summary of Findings</a>` (the link inherits the shared baseline §0).
+ 
+ **Microstates:** baseline. Interactive only via the SoF link, not the pill itself.
+@@ -264,9 +271,12 @@ interface SourceSpanPreviewProps {
+   /** The full source text (already fetched by the loader). */
+   text: string;
+   /** Span ranges to highlight, half-open intervals in chars (start inclusive, end exclusive). */
+-  spans: { start: number; end: number; faithfulness: "verified" | "partial" }[];
+-  /** Tint family: takes its color from the FaithfulnessChip's state. */
+-  tint: "verified" | "partial";
++  spans: { start: number; end: number; faithfulness: "verified" | "partial" | "unsupported" }[];
++  /** Tint family: takes its color from the FaithfulnessChip's state. Codex
++   * iter-3 P2: `unsupported` is REQUIRED — Stage 6 of the storyboard
++   * (verdict=UNSUPPORTED) still shows the source span so the reviewer can
++   * see the gap. */
++  tint: "verified" | "partial" | "unsupported";
+   /** Scroll the first span into view on mount/update. Default true. */
+   autoScroll?: boolean;
+ }
+@@ -274,7 +284,7 @@ interface SourceSpanPreviewProps {
+ 
+ **Visual:**
+ - `<pre>` wrapper with `white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--text-mono);` — fixed-width so highlights align cleanly with the source text.
+-- Each contiguous range from `spans` is rendered as a single `<mark>` with `background: var(--<tint>-bg); color: var(--foreground); border-radius: 2px; padding: 0 2px;` — phrase-grouped (one rect per range; non-matched text has NO background).
++- Each contiguous range from `spans` is rendered as a single `<mark>` with `background: var(--<tint>-bg); color: var(--foreground); border-radius: 2px; padding: 0 2px;` — phrase-grouped (one rect per range; non-matched text has NO background). For `tint="unsupported"` the highlight signals *"this is what the writer cited — and it does NOT contain the claim"* and pairs with a leading `<XCircle>` icon outside the `<mark>` (so the source text remains selectable without decoration).
+ - A leading `<MapleLeaf>` mark NOT shown here (that's for the SignaturePill); the source preview is calm and editorial.
+ - Container has `max-height: 60vh; overflow: auto;` on desktop, `40vh` on the mobile bottom-sheet variant.
+ 
+diff --git a/docs/web/design_tokens_v2.md b/docs/web/design_tokens_v2.md
+index ec38669b..b21aeb63 100644
+--- a/docs/web/design_tokens_v2.md
++++ b/docs/web/design_tokens_v2.md
+@@ -67,6 +67,8 @@ Near-monochrome ground; ONE brand accent (red, OPERATOR-LOCKED `#c8102e`); two i
+ --ring              color-mix(in oklch, #c8102e 70%, transparent)  focus ring
+ ```
+ 
++> Focus-visible spacing is implemented in the component contract (`components_catalogue.md` §0) via the box-shadow stack `0 0 0 2px var(--background), 0 0 0 4px var(--ring)`. No separate `--ring-offset` token is defined — the offset is encoded in the shadow itself (Codex iter-2 P3 / iter-3 P3 fix: previous drafts named an undefined `--ring-offset`, removed).
++
+ ### 2.3 Faithfulness palette (judgment #1: "is the sentence faithful to its source?")
+ Used by: verdict chips, sentence-level tints in the brief, proof-panel beat-2.
+ ```
+@@ -98,8 +100,10 @@ Used by: certainty badges, SoF certainty column, proof-panel beat-3, dual-proven
+ ```
+ --certainty-high          oklch(0.42 0.10 245)   deep slate-blue (calm authority)
+ --certainty-high-fg       oklch(0.99 0.005 95)   near-white on the dark levels (≥7:1 AAA)
+---certainty-moderate      oklch(0.56 0.09 245)
+---certainty-moderate-fg   oklch(0.99 0.005 95)   still near-white at this level (≥4.7:1 AA)
++--certainty-moderate      oklch(0.50 0.10 245)   bumped 0.06 → 0.50 lightness so the near-white fg
++                                                  passes WCAG AA. (Codex iter-3 P1: at lightness 0.56
++                                                  the contrast was ~4.48:1 — JUST under AA 4.5:1.)
++--certainty-moderate-fg   oklch(0.99 0.005 95)   near-white (≥4.6:1 AA verified)
+ --certainty-low           oklch(0.70 0.06 245)   light slate-blue
+ --certainty-low-fg        oklch(0.21 0.01 95)    near-black foreground (≥6.3:1 AAA)
+                                                  — Codex iter-2 P1: near-white on --certainty-low is only ~2.6:1,
+-- 
+2.49.0.windows.1
+
+
+From 5777002e33932a4eaa33e783bd0f9cbf556e3b36 Mon Sep 17 00:00:00 2001
+From: msn <msn@polaris.dev>
+Date: Sun, 24 May 2026 03:24:27 -0700
+Subject: [PATCH 7/7] =?UTF-8?q?I-ux-001b=20(#876):=20clean=20Codex=20iter-?=
+ =?UTF-8?q?4=20P3=20=E2=80=94=20last=20--ring-offset=20mention=20removed?=
+ =?UTF-8?q?=20(microstate=20table)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ docs/web/design_tokens_v2.md | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/docs/web/design_tokens_v2.md b/docs/web/design_tokens_v2.md
+index b21aeb63..e350159c 100644
+--- a/docs/web/design_tokens_v2.md
++++ b/docs/web/design_tokens_v2.md
+@@ -209,7 +209,7 @@ Each component declares its concrete CSS contract per-state in `components_catal
+ |---|---|---|
+ | **default** | resting | base tokens; calm |
+ | **hover** | pointer in (`:hover`) | tint shift (≤8% saturation) at `--motion-fast`; no layout shift |
+-| **focus** | keyboard `:focus-visible` | `--ring` 2px outset + `--ring-offset` 2px against background; *always visible* |
++| **focus** | keyboard `:focus-visible` | `--ring` 2px outset, with the offset encoded directly in the box-shadow stack (see `components_catalogue.md` §0); *always visible* |
+ | **active** | pressed (`:active`) | tint shift +12%, micro-scale 0.97 at `--motion-fast` |
+ | **disabled** | `aria-disabled` / `disabled` | opacity 0.55, cursor not-allowed, no hover/active reaction |
+ | **loading** | in-flight | stable skeleton (no layout shift), `aria-busy="true"`, accessible "loading <thing>" label |
+-- 
+2.49.0.windows.1
+
+# canonical-diff-sha256: dd349e4a780be108ec0fb796321e2f4d2e2c2070923fd8d7f1acbc79c48d11f5

@@ -8,11 +8,13 @@
 // /api/inspector_bundle/[runId] route use); no client JS needed (download is a
 // plain <a download> to that route).
 //
-// Honesty (LAW II): the canonical bundle ships WITHOUT manifest.yaml.asc (the
-// GPG seal was deliberately deferred — operator "skip the seal, build the real
-// proof"). So `signaturePresent` is false and the page says exactly that:
-// integrity manifest present, GPG signature pending sovereign signing. It never
-// claims a signature that isn't on disk.
+// Honesty (LAW II): per I-ux-001a the canonical bundle ships WITH a real
+// detached GPG signature (Ed25519, key FB221F...01CC) over manifest.yaml.
+// The loader exposes a tri-valued signatureState (missing | present_unverified
+// | gpg_verified); the page renders the honest state per Codex iter-3 P0 on
+// the I-ux-001 plan. Only gpg_verified claims "Signed bundle"; the CI guard
+// (scripts/check_signed_bundles.py) prevents the unsigned-but-labelled-signed
+// regression.
 //
 // The richer per-gate audit log (corpus adequacy / approval / evaluator
 // rule-checks from AuditIrRun via GET /api/inspector/runs/{id}) is a documented
@@ -140,7 +142,7 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 }
 
 function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
-  const { manifest, metadata, verifiedReport, signaturePresent, runId } =
+  const { manifest, metadata, verifiedReport, signatureState, signatureKeyFingerprint, runId } =
     bundle;
   const gateLedger = buildGateLedger(verifiedReport);
   const files: FileEntry[] = manifest.files;
@@ -154,23 +156,33 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
           <h2 className="text-foreground text-sm font-semibold">
             Integrity &amp; provenance
           </h2>
-          {/* HONEST signature status — never claims a seal that isn't on disk.
-              I-p2-020 Codex iter-3 P1: `signaturePresent` is only an .asc
-              PRESENCE check (loader), not a cryptographic verify — say
-              "present" + point to operator-side gpg --verify, never "signed". */}
-          {signaturePresent ? (
+          {/* I-ux-001a honest tri-valued signature status. Only gpg_verified
+              may claim "Signed bundle." present_unverified states the file is
+              attached but not yet cryptographically verified in this view;
+              missing says trust is not established. The CI guard
+              (scripts/check_signed_bundles.py) prevents the gpg_verified path
+              from regressing — if the demo bundle ever ships without a
+              valid signature, CI fails. */}
+          {signatureState === "gpg_verified" ? (
             <span
               className="border-verified bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
-              title="A detached signature file (manifest.yaml.asc) is present. Confirm validity offline with `gpg --verify manifest.yaml.asc` against the published signing key — presence here is not a cryptographic verification."
+              title={`Cryptographically verified against the published trust-root pubkey (signing key ${signatureKeyFingerprint ?? "—"}).`}
             >
-              ⬡ Detached signature present · verify with gpg
+              ⬡ Signed bundle · GPG verified
+            </span>
+          ) : signatureState === "present_unverified" ? (
+            <span
+              className="border-contradiction/40 bg-contradiction/10 text-contradiction-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+              title="A signature is attached but not verified in this view. Verify offline: gpg --verify manifest.yaml.asc manifest.yaml (after importing the published trust-root pubkey)."
+            >
+              ⬡ Signature attached · verify offline with gpg
             </span>
           ) : (
             <span
               className="border-border text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
-              title="The bundle ships with a SHA-256 integrity manifest now; the detached GPG signature is added once the sovereign Canadian signer is live."
+              title="No signature file is present. Trust has not been established for this bundle."
             >
-              ◌ Integrity manifest present · GPG signature pending
+              ◌ Not signed · trust not established
             </span>
           )}
         </div>
@@ -266,8 +278,12 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
                 — only the byte-preserving signed package does. */}
             Every file the signed package contains, with the SHA-256 recorded in
             its manifest. Each file&apos;s content is fixed by its hash; the
-            detached GPG signature (pending sovereign signing) seals the
-            manifest itself.
+            detached GPG signature seals the manifest itself — verify offline
+            with{" "}
+            <code className="font-mono text-[11px]">
+              gpg --verify manifest.yaml.asc manifest.yaml
+            </code>
+            {" "}after importing the published trust-root pubkey.
           </p>
         </div>
         <div className="border-border shadow-card hidden overflow-x-auto rounded-xl border sm:block">
@@ -351,8 +367,10 @@ function AuditExportBody({ bundle }: { bundle: LoadedBundle }) {
           reasoning trace. The byte-preserving signed package (a{" "}
           <code className="font-mono text-[11px]">.tar.gz</code> for{" "}
           <code className="font-mono text-[11px]">gpg --verify</code> + per-file
-          SHA-256 re-hashing) is produced by the sovereign Canadian signer,
-          which is not yet live.
+          SHA-256 re-hashing) is produced by the demo signing key (Ed25519,
+          fingerprint pinned in{" "}
+          <code className="font-mono text-[11px]">state/polaris_gpg_keyid.txt</code>
+          ); see the Receipt view for the offline-verify flow.
         </p>
         <div className="flex flex-wrap gap-2">
           <Button
