@@ -219,19 +219,40 @@ function PlanContent() {
       data-testid="plan-page"
       className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-10"
     >
-      <div className="flex flex-col gap-1">
-        <Link
-          href="/intake"
-          className="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1 text-xs"
+      {/* I-ux-001c sub-PR 5 (#889): v6 marketing-auth chrome. Brand-red
+          eyebrow + display H1 + tightened subtitle. Edit-question link
+          moved to the eyebrow row. Rest of the page (vetted-question
+          card, plan steps, Start-run flow, error/concurrent/blocked
+          states) preserved verbatim per brief iter-1 APPROVE. */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <span
+            data-testid="plan-eyebrow"
+            className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
+          >
+            PLAN · POLARIS CLINICAL RESEARCH
+          </span>
+          <Link
+            data-testid="plan-edit-question-link"
+            href="/intake"
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
+          >
+            <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
+            Edit question
+          </Link>
+        </div>
+        <h1
+          data-testid="plan-h1"
+          className="text-foreground text-3xl leading-[1.1] font-bold tracking-tight text-balance sm:text-4xl"
         >
-          <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
-          Edit question
-        </Link>
-        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
-          Review the plan
+          Confirm the plan before the run.
         </h1>
-        <p className="text-muted-foreground text-sm">
-          Confirm what POLARIS will research before the run starts.
+        <p
+          data-testid="plan-subtitle"
+          className="text-muted-foreground max-w-2xl text-sm leading-relaxed sm:text-base"
+        >
+          Re-checked end-to-end — POLARIS will only start the run when the
+          question, scope, and template are all clear.
         </p>
       </div>
 
