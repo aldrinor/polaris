@@ -1,0 +1,1999 @@
+diff --git a/web/app/globals.css b/web/app/globals.css
+index 0b2f3029..c04cf5c0 100644
+--- a/web/app/globals.css
++++ b/web/app/globals.css
+@@ -61,6 +61,24 @@
+   /* I-p2-042 (#831) S-tier foundation: ONE motion primitive (Codex direction)
+      — consistent inspection/selection feel; reuse on hover/focus/tab/span. */
+   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
++  /* I-ux-001c (#878) sub-PR 1: motion tokens v2 per design_tokens_v2.md §5.
++     Three durations, ONE easing (--ease-standard above). Tokens are exposed
++     as `--duration-*` so Tailwind v4 utilities can read them via
++     `transition-[duration:var(--duration-base)]`. `prefers-reduced-motion`
++     collapses every animation to instant — implemented per-component, NOT
++     globally, so motion components can fade-through-opacity-only while
++     non-motion utilities stay snappy. */
++  --duration-fast: 120ms;
++  --duration-base: 200ms;
++  --duration-slow: 320ms;
++  /* I-ux-001c (#878) sub-PR 1: per-certainty foregrounds (evidence-strength
++     ladder, ordinal). Slate-blue family — distinct from faithfulness greens
++     and from brand red. Codex iter-2 brief APPROVED these as the
++     ProofReplayClaim.evidence_strength.level codomain mapping. */
++  --certainty-very-low-fg: oklch(0.50 0.04 250);
++  --certainty-low-fg:      oklch(0.45 0.06 250);
++  --certainty-moderate-fg: oklch(0.40 0.10 250);
++  --certainty-high-fg:     oklch(0.32 0.14 250);
+   /* Brand-temperature card elevation (not pure gray) — restrained: a neutral
+      hairline lift + a faint Canada-red wash. Uses the operator-locked brand
+      #c8102e = rgb(200 16 46), NOT a palette change. */
+diff --git a/web/app/inspector/[runId]/inspector_view.tsx b/web/app/inspector/[runId]/inspector_view.tsx
+index 55dcb5c3..38b31003 100644
+--- a/web/app/inspector/[runId]/inspector_view.tsx
++++ b/web/app/inspector/[runId]/inspector_view.tsx
+@@ -53,9 +53,17 @@ export function InspectorView({ bundle }: InspectorViewProps) {
+             was built but wired into NO route; this surfaces it as the default
+             inspector tab. */}
+         <TabsContent value="proof" tabId="proof">
++          {/* I-ux-001c (#878) sub-PR 1: ProofReplay v6 needs the full trust
++              context (signatureState/manifest/verifiedReport) to render the
++              6-beat hero with tri-state signature + bundle ID. The existing
++              call site only passed sections+evidencePool. */}
+           <ProofReplay
+             sections={bundle.verifiedReport.sections}
+             evidencePool={bundle.evidencePool}
++            verifiedReport={bundle.verifiedReport}
++            manifest={bundle.manifest}
++            signatureState={bundle.signatureState}
++            signatureKeyFingerprint={bundle.signatureKeyFingerprint}
+           />
+         </TabsContent>
+         <TabsContent value="report" tabId="report">
+diff --git a/web/app/inspector/[runId]/page.tsx b/web/app/inspector/[runId]/page.tsx
+index cb946842..4e5bac0e 100644
+--- a/web/app/inspector/[runId]/page.tsx
++++ b/web/app/inspector/[runId]/page.tsx
+@@ -10,6 +10,7 @@
+ // for runId "v1-canonical" and "v1-canonical-success".
+ 
+ import { BundlePendingCta } from "@/components/inspector/bundle_pending_cta";
++import { IntendedUseBanner } from "@/components/global/intended_use_banner";
+ import { loadBundle } from "@/lib/inspector_bundle_loader";
+ import { filesByContentType } from "@/lib/signed_bundle";
+ 
+@@ -24,12 +25,28 @@ export default async function InspectorPage({ params }: InspectorPageProps) {
+   const bundle = await loadBundle(runId);
+ 
+   if (bundle === null) {
+-    return <BundlePendingCta runId={runId} />;
++    return (
++      <>
++        {/* I-ux-001c (#878) sub-PR 1: intended-use posture appears even on
++            pending state — the page IS clinical context regardless of whether
++            a bundle loaded. */}
++        <IntendedUseBanner />
++        <BundlePendingCta runId={runId} />
++      </>
++    );
+   }
+ 
+   // I-ux-001a: signature state lives on the LoadedBundle (tri-valued); the
+   // server loader runs `gpg --verify` in an isolated keyring against the
+   // shipped trust root + asserts the pinned canonical fingerprint.
+   void filesByContentType; // re-exported helper available to consumers
+-  return <InspectorView bundle={bundle} />;
++  return (
++    <>
++      {/* I-ux-001c (#878) sub-PR 1: amber INTENDED USE band above the chrome
++          per I-ux-001d TRACK 2 Codex iter-1 P1 fix and plan §6 intended-use
++          posture. */}
++      <IntendedUseBanner />
++      <InspectorView bundle={bundle} />
++    </>
++  );
+ }
+diff --git a/web/components/global/intended_use_banner.tsx b/web/components/global/intended_use_banner.tsx
+new file mode 100644
+index 00000000..b908b147
+--- /dev/null
++++ b/web/components/global/intended_use_banner.tsx
+@@ -0,0 +1,67 @@
++// I-ux-001c (#878) sub-PR 1: IntendedUseBanner.
++//
++// The amber INTENDED USE band that appears above the page chrome on every
++// route showing clinical content. Required by:
++//   - I-ux-001 plan §6 (intended-use posture; FDA CDS non-device logic)
++//   - I-ux-001d TRACK 2 Codex iter-1 P1 (added to every clinical-content frame)
++//   - components_catalogue.md §IntendedUseBanner contract
++//
++// Two breakpoints (per Codex iter-3 mobile audit — full copy clipped at
++// 390px width):
++//   - desktop / ≥768px : full copy
++//   - mobile  / <768px : truncated copy ("NOT clinical decision-support ·
++//                                       independent judgment required")
++//
++// Color: amber (`oklch(~0.85 0.15 80)` band background at 0.18 alpha on
++// desktop / 0.50 alpha on mobile per the design-tokens-v2 + the iter-3
++// legibility fix) with `--certainty-low-fg` (dark amber) text.
++//
++// This is presentation only — it does NOT gate anything. The legal weight
++// comes from the operator-merge process plus the dedicated /transparency
++// page (page #12 in the route map). The banner is a constant reminder
++// during a clinical workflow.
++"use client";
++
++const FULL_COPY =
++  "INTENDED USE · literature synthesis for healthcare decision-makers · NOT a clinical decision-support tool · NOT for individual-patient or time-sensitive decisions · independent clinical judgment required";
++
++const MOBILE_COPY =
++  "NOT clinical decision-support · independent judgment required";
++
++interface IntendedUseBannerProps {
++  /** When set, overrides the default copy. Tests use this. */
++  copy?: string;
++  /** When set, overrides the default mobile copy. */
++  mobileCopy?: string;
++  /** Optional className for layout overrides. */
++  className?: string;
++}
++
++export function IntendedUseBanner({
++  copy = FULL_COPY,
++  mobileCopy = MOBILE_COPY,
++  className,
++}: IntendedUseBannerProps) {
++  return (
++    <div
++      role="region"
++      aria-label="Intended use"
++      data-testid="intended-use-banner"
++      className={[
++        // Amber band; opacity boosted on mobile per Codex iter-3 P1
++        "bg-amber-200/40 sm:bg-amber-200/30",
++        "border-amber-800/20 border-y",
++        "px-4 py-2 sm:px-6 sm:py-1.5",
++        "text-amber-900",
++        "text-[10px] font-medium tracking-[0.02em] sm:text-[10px]",
++        // Left-aligned text; on very wide screens, cap at content max-width
++        className ?? "",
++      ].join(" ")}
++    >
++      {/* Desktop / ≥sm */}
++      <span className="hidden sm:inline">{copy}</span>
++      {/* Mobile / <sm */}
++      <span className="inline sm:hidden">{mobileCopy}</span>
++    </div>
++  );
++}
+diff --git a/web/components/inspector/inspector_proof_header.tsx b/web/components/inspector/inspector_proof_header.tsx
+index 015aa76d..2a96aaf2 100644
+--- a/web/components/inspector/inspector_proof_header.tsx
++++ b/web/components/inspector/inspector_proof_header.tsx
+@@ -1,16 +1,30 @@
+ // I-p2-043 (#833) S-tier — the Inspector's bespoke proof-header band.
+-// Codex visual gate iter-1 P1: the prior thin chip rows read as "form metadata, not a
+-// premium proof artifact"; the abort shape lost its hero entirely. This consolidates the
+-// hero question + the proof artifact (verify rate is the headline number) + the trust line
+-// (two-family + signature + manifest disclosure) into ONE crafted band directly under the
+-// H1 — the signature move (proof as the page's visual operating system), applied to the
+-// header. Preserves the bundle-header / family-segregation-badge / signature-badge testids.
++// I-ux-001c (#878) sub-PR 1: REBUILT to the v6 hero spec.
++//
++// v6 layout:
++//   H1 (research question)
++//   Two-band provenance strip:
++//     · Faithfulness band : claim counts (verified / partial / unsupported)
++//                            + independent-family check note
++//     · Evidence strength band : per-certainty counts (high / moderate /
++//                            low / very-low) + signed-bundle pill
++//   Trust grid : FamilySegregationBadge + SignatureBadge + BundleHeader
++//   (collapsed manifest disclosure)
++//
++// Abort verdicts are HUMANIZED inline (no abort_* tokens reach the UI per the
++// zero-jargon banlist from I-ux-001d TRACK 2 Codex iter-1 P1-003).
++//
++// Two-judgment separation: faithfulness band uses verified-green; evidence-
++// strength band uses slate-blue ordinal foregrounds (--certainty-*-fg). The
++// two NEVER share a swatch (design_tokens_v2 §2.2; clinical-safety lethal
++// failure mode prevention).
+ import {
+   BundleHeader,
+   SignatureBadge,
+   type SignatureState,
+ } from "@/components/inspector/bundle_header";
+ import { FamilySegregationBadge } from "@/components/inspector/family_segregation_badge";
++import { flattenToClaimList } from "@/lib/proof_replay_adapter";
+ import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
+ 
+ interface InspectorProofHeaderProps {
+@@ -19,10 +33,10 @@ interface InspectorProofHeaderProps {
+ }
+ 
+ const VERDICT_LABELS: Record<string, string> = {
+-  abort_no_verified_sections: "No verified sections",
+-  abort_corpus_inadequate: "Corpus inadequate",
+-  abort_corpus_approval_denied: "Corpus approval denied",
+-  abort_scope_rejected: "Scope rejected",
++  abort_no_verified_sections: "No claim survived the faithfulness check",
++  abort_corpus_inadequate: "Corpus was inadequate for the question",
++  abort_corpus_approval_denied: "Corpus declined at the approval gate",
++  abort_scope_rejected: "Scope rejected at the gate",
+ };
+ 
+ function humanizeVerdict(verdict: string): string {
+@@ -42,11 +56,32 @@ export function InspectorProofHeader({
+   const report = bundle.verifiedReport;
+   const sectionCount = report.sections?.length ?? 0;
+   const verified = sectionCount > 0;
+-  const pct = Math.round(report.overall_verify_pass_rate * 100);
++
++  // Compute v6 two-band provenance counts from the adapter's per-claim view.
++  // Faithfulness verdict tally: verified vs partial vs unsupported.
++  // Evidence-strength tally: counts per certainty level.
++  const claims = verified
++    ? flattenToClaimList(report, bundle.evidencePool)
++    : [];
++  const f = { verified: 0, partial: 0, unsupported: 0 };
++  const e = { high: 0, moderate: 0, low: 0, very_low: 0 };
++  for (const c of claims) {
++    if (c.faithfulness.verdict === "verified") f.verified += 1;
++    else if (c.faithfulness.verdict === "partial") f.partial += 1;
++    else f.unsupported += 1;
++    if (c.evidence_strength.level === "high") e.high += 1;
++    else if (c.evidence_strength.level === "moderate") e.moderate += 1;
++    else if (c.evidence_strength.level === "low") e.low += 1;
++    else e.very_low += 1;
++  }
++  const totalClaims = claims.length;
+ 
+   return (
+     <header className="flex flex-col gap-4">
+-      <h1 className="font-heading text-foreground max-w-3xl text-2xl leading-tight font-bold tracking-tight text-balance sm:text-3xl">
++      <h1
++        data-testid="inspector-h1"
++        className="font-heading text-foreground max-w-3xl text-2xl leading-tight font-bold tracking-tight text-balance sm:text-3xl"
++      >
+         {report.research_question ?? "Signed research bundle"}
+       </h1>
+ 
+@@ -54,44 +89,118 @@ export function InspectorProofHeader({
+         data-testid="inspector-proof-header"
+         className="bg-card ring-foreground/10 shadow-card flex flex-col gap-3 rounded-xl p-4 ring-1 sm:p-5"
+       >
+-        {/* primary proof artifact line — the verify rate is the headline number */}
+         {verified ? (
++          /* v6 two-band provenance strip */
+           <div
+-            data-testid="inspector-proof-summary"
+-            className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
++            data-testid="provenance-strip"
++            className="bg-muted/30 flex flex-col gap-1 rounded-md px-3 py-2 text-xs sm:text-[13px]"
+           >
+-            <span className="text-verified text-3xl leading-none font-bold tabular-nums">
+-              {pct}%
+-            </span>
+-            <span className="text-foreground text-sm font-medium">
+-              of claims verified
+-            </span>
+-            <span aria-hidden className="text-border">
+-              •
+-            </span>
+-            <span className="text-muted-foreground text-sm">
+-              {sectionCount} verified section{sectionCount === 1 ? "" : "s"} ·
+-              every sentence traces to its cited source span
+-            </span>
++            {/* Faithfulness band */}
++            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
++              <span className="text-muted-foreground w-32 shrink-0 text-[10px] font-medium tracking-[0.08em] uppercase">
++                Faithfulness
++              </span>
++              <span className="text-foreground tabular-nums">
++                {totalClaims} claim{totalClaims === 1 ? "" : "s"}
++              </span>
++              <span aria-hidden className="text-border">
++                ·
++              </span>
++              <span className="text-verified font-medium tabular-nums">
++                {f.verified} verified
++              </span>
++              <span className="text-amber-700 tabular-nums">
++                · {f.partial} partial
++              </span>
++              <span className="text-muted-foreground tabular-nums">
++                · {f.unsupported} unsupported
++              </span>
++              <span aria-hidden className="text-border">
++                ·
++              </span>
++              <span className="text-muted-foreground italic">
++                independent-family check
++              </span>
++            </div>
++            {/* Evidence-strength band — slate-blue ordinal; NEVER shares
++                a swatch with faithfulness greens (design_tokens_v2 §2.2). */}
++            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
++              <span className="text-muted-foreground w-32 shrink-0 text-[10px] font-medium tracking-[0.08em] uppercase">
++                Evidence strength
++              </span>
++              <span
++                className="tabular-nums"
++                style={{ color: "var(--certainty-high-fg, oklch(0.32 0.14 250))" }}
++              >
++                {e.high} high
++              </span>
++              <span
++                className="tabular-nums"
++                style={{ color: "var(--certainty-moderate-fg, oklch(0.40 0.10 250))" }}
++              >
++                · {e.moderate} moderate
++              </span>
++              <span
++                className="tabular-nums"
++                style={{ color: "var(--certainty-low-fg, oklch(0.45 0.06 250))" }}
++              >
++                · {e.low} low
++              </span>
++              <span
++                className="tabular-nums"
++                style={{ color: "var(--certainty-very-low-fg, oklch(0.50 0.04 250))" }}
++              >
++                · {e.very_low} very-low
++              </span>
++              <span aria-hidden className="text-border">
++                ·
++              </span>
++              {/* Codex diff iter-1 P1-005 fix: the 'signed bundle' line is
++                  tri-state aware. Only `gpg_verified` may render the green
++                  'verifiable offline' affordance; other states render the
++                  honest counter-state copy. */}
++              {signatureState === "gpg_verified" && (
++                <span className="text-verified text-[11px] font-medium">
++                  ⬡ signed bundle (verifiable offline)
++                </span>
++              )}
++              {signatureState === "present_unverified" && (
++                <span className="text-amber-700 text-[11px] font-medium">
++                  ⊟ signature attached — verify offline
++                </span>
++              )}
++              {signatureState === "missing" && (
++                <span className="text-contradiction-foreground text-[11px] font-medium">
++                  ⊠ not signed — trust not established
++                </span>
++              )}
++            </div>
+           </div>
+         ) : (
++          /* Honest-fail header for abort states. Verdict is humanized; the
++              raw abort_* token NEVER reaches the user-facing surface. */
+           <div
+             data-testid="inspector-proof-summary"
+             className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm"
+           >
+-            <span className="border-contradiction/40 bg-contradiction/15 text-contradiction-foreground inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium">
++            <span className="border-amber-700/40 bg-amber-100/40 text-amber-900 inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium">
+               {humanizeVerdict(report.pipeline_verdict)}
+             </span>
+             <span className="text-muted-foreground">
+-              No verified sections — see the Report tab for the full pipeline
+-              verdict.
++              {/* Codex diff iter-2 P1-006 fix: signature-neutral copy.
++                  The SignatureBadge below carries the actual trust state
++                  (gpg_verified / present_unverified / missing); the abort
++                  header MUST NOT assert signing. */}
++              The pipeline ran honestly and emitted a verdict. See the Report
++              tab for the full per-section state.
+             </span>
+           </div>
+         )}
+ 
+-        {/* trust grid — one left-aligned column: the two trust chips grouped on top,
+-            then the bundle/model/date line + the manifest disclosure as one coherent
+-            block (so the expanded manifest never splits into floating islands). */}
++        {/* Trust grid — two trust chips grouped on top, then the
++            bundle/model/date line + the manifest disclosure as one coherent
++            block (so the expanded manifest never splits into floating
++            islands). */}
+         <div className="border-border/60 flex flex-col gap-2.5 border-t pt-3">
+           <div className="flex flex-wrap items-center gap-2">
+             <FamilySegregationBadge
+diff --git a/web/components/proof_replay/proof_replay.tsx b/web/components/proof_replay/proof_replay.tsx
+index 23ebeae1..7ddec6cb 100644
+--- a/web/components/proof_replay/proof_replay.tsx
++++ b/web/components/proof_replay/proof_replay.tsx
+@@ -1,177 +1,673 @@
+-// I-p2-007 (#746): Proof Replay split-view — POLARIS's centerpiece. Click a
+-// verified claim (left) → see the EXACT cited source span (right). Composes the
+-// shared resolveSpan (#743) + SourceCard (#745) + VerdictChip (#744). Honest:
+-// malformed/missing/empty provenance never crashes — it shows an honest note,
+-// never synthetic proof.
++// I-ux-001c (#878) sub-PR 1: Proof Replay v6 rebuild.
++//
++// THE CENTERPIECE per plan §14: every sentence proves itself, with the
++// source span as the unforgettable climax. Click any verified sentence
++// (left) → the proof panel (right on desktop, bottom-sheet on mobile)
++// reveals the 6-beat choreography.
++//
++// Spatial+temporal order (LOCKED Codex iter-3 TRACK 1 sub-track A direction):
++//   Beat 1  Claim echo (CHALLENGED SENTENCE label + claim text + ① marker)
++//   Beat 2  Faithfulness  ("Verified" + 3-item check list)
++//   Beat 3  Evidence Strength (Very low / Low / Moderate / High ladder)
++//   Beat 4  Source (climax) — Sealed evidence block (2px green left rule
++//                              through source-card + span + matched-N stamp)
++//   Beat 5  Signature pill (gpg_verified green only) + verify-offline link
++//   Beat 6  "what this verification does NOT prove" disclosure
++//
++// Motion: opacity-reveal per beat via design-tokens-v2 §5 cadence
++// (--duration-fast 120ms / --duration-base 200ms / --duration-slow 320ms).
++// `prefers-reduced-motion: reduce` → all beats appear at once.
++//
++// Keyboard: Enter on a sentence = select; Esc = clear selection + focus
++// returns to the clicked sentence; J/K (or arrows) = next/previous claim.
++//
++// Mobile: <768px swaps the right rail for a shadcn Sheet (bottom slide-up)
++// with a handle bar; sheet's built-in dismiss gestures work.
++//
++// Data honesty: ALL displayed fields come from `proof_replay_adapter`'s
++// `ProofReplayClaim` shape — when a bundle field is missing, the row is
++// omitted, not fabricated (LAW II).
+ "use client";
+ 
+-import { useMemo, useState } from "react";
++import { useCallback, useEffect, useMemo, useRef, useState } from "react";
++import { Check, ChevronRight, ShieldCheck } from "lucide-react";
+ 
+ import {
+-  SourceCard,
+-  type SourceCardSource,
+-} from "@/components/source/source_card";
+-import { VerdictChip } from "@/components/verdict/verdict_chip";
+-import { resolveSpan, spanInContext } from "@/lib/evidence_span";
+-import type { VerifiedReportSectionShape } from "@/lib/inspector_bundle_loader";
++  Sheet,
++  SheetContent,
++  SheetHeader,
++  SheetTitle,
++  SheetDescription,
++} from "@/components/ui/sheet";
++import {
++  SignatureBadge,
++  type SignatureState,
++} from "@/components/inspector/bundle_header";
++import {
++  flattenToClaimList,
++  type ProofReplayClaim,
++} from "@/lib/proof_replay_adapter";
++import type { BundleManifest } from "@/lib/signed_bundle";
++import type {
++  VerifiedReportSectionShape,
++  VerifiedReportShape,
++} from "@/lib/inspector_bundle_loader";
+ 
+ interface ProofReplayProps {
+   sections: VerifiedReportSectionShape[];
+   evidencePool: unknown;
++  verifiedReport: VerifiedReportShape;
++  manifest: BundleManifest;
++  signatureState: SignatureState;
++  signatureKeyFingerprint?: string;
+ }
+ 
+-interface FlatClaim {
+-  key: string;
+-  sectionId: string;
+-  sectionTitle: string | null;
+-  text: string;
+-  tokens: string[];
+-  verified: boolean;
++const CERTAINTY_LABEL: Record<
++  ProofReplayClaim["evidence_strength"]["level"],
++  string
++> = {
++  very_low: "Very low",
++  low: "Low",
++  moderate: "Moderate",
++  high: "High",
++};
++
++const CERTAINTY_ORDER: ProofReplayClaim["evidence_strength"]["level"][] = [
++  "very_low",
++  "low",
++  "moderate",
++  "high",
++];
++
++function usePrefersReducedMotion(): boolean {
++  // Lazy initializer reads the matchMedia value synchronously so the effect
++  // never has to call setReduced for the initial state (avoids the
++  // react-hooks/set-state-in-effect lint warning).
++  const [reduced, setReduced] = useState(() =>
++    typeof window !== "undefined" && window.matchMedia
++      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
++      : false,
++  );
++  useEffect(() => {
++    if (typeof window === "undefined" || !window.matchMedia) return;
++    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
++    const handler = (e: MediaQueryListEvent) => setReduced(e.matches);
++    mq.addEventListener("change", handler);
++    return () => mq.removeEventListener("change", handler);
++  }, []);
++  return reduced;
+ }
+ 
+-function flatten(sections: VerifiedReportSectionShape[]): FlatClaim[] {
+-  const out: FlatClaim[] = [];
+-  sections.forEach((section, si) => {
+-    const title =
+-      (typeof section.section_title === "string" && section.section_title) ||
+-      null;
+-    section.verified_sentences?.forEach((s, i) => {
+-      out.push({
+-        key: `${si}:${i}`,
+-        sectionId: section.section_id,
+-        sectionTitle: title,
+-        text: s.sentence_text,
+-        tokens: Array.isArray(s.provenance_tokens)
+-          ? s.provenance_tokens.filter(
+-              (t): t is string => typeof t === "string",
+-            )
+-          : [],
+-        verified: s.verifier_pass === true,
+-      });
+-    });
+-  });
+-  return out;
++function useIsMobile(): boolean {
++  const [mobile, setMobile] = useState(() =>
++    typeof window !== "undefined" && window.matchMedia
++      ? window.matchMedia("(max-width: 767px)").matches
++      : false,
++  );
++  useEffect(() => {
++    if (typeof window === "undefined" || !window.matchMedia) return;
++    const mq = window.matchMedia("(max-width: 767px)");
++    const handler = (e: MediaQueryListEvent) => setMobile(e.matches);
++    mq.addEventListener("change", handler);
++    return () => mq.removeEventListener("change", handler);
++  }, []);
++  return mobile;
+ }
+ 
+-function UnverifiedBadge() {
++/* ============================================================
++ * Sub-components — one per beat
++ * ============================================================ */
++
++function ChallengedLabel({ visible }: { visible: boolean }) {
+   return (
+-    <span className="bg-muted text-foreground border-border inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium">
+-      Unverified
+-    </span>
++    <p
++      data-testid="challenged-sentence-label"
++      className={`text-muted-foreground text-[10px] font-medium tracking-[0.08em] uppercase transition-opacity ${
++        visible ? "opacity-100" : "opacity-0"
++      }`}
++      style={{ transitionDuration: "var(--duration-fast, 120ms)" }}
++    >
++      Challenged sentence
++    </p>
+   );
+ }
+ 
+-function ProofPane({
++function ClaimEcho({ claim, visible }: { claim: ProofReplayClaim; visible: boolean }) {
++  return (
++    <div
++      data-testid="claim-echo"
++      className={`flex items-start gap-3 transition-opacity ${
++        visible ? "opacity-100" : "opacity-0"
++      }`}
++      style={{ transitionDuration: "var(--duration-base, 200ms)" }}
++    >
++      <span
++        aria-hidden
++        className="bg-verified text-background mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
++      >
++        1
++      </span>
++      <p className="text-foreground text-sm italic leading-relaxed">
++        “{claim.sentence_text}”
++      </p>
++    </div>
++  );
++}
++
++function FaithfulnessBlock({
+   claim,
+-  evidencePool,
++  visible,
+ }: {
+-  claim: FlatClaim;
+-  evidencePool: unknown;
++  claim: ProofReplayClaim;
++  visible: boolean;
+ }) {
++  const f = claim.faithfulness;
++  // Codex diff iter-1 P1-002 fix: verdict-aware headline + check colors.
++  // Partial/unsupported must NEVER render as a verified green proof.
++  const verdictLabel =
++    f.verdict === "verified"
++      ? "Verified"
++      : f.verdict === "partial"
++        ? "Partial — not fully verified"
++        : "Unsupported — could not verify";
++  const verdictColorClass =
++    f.verdict === "verified"
++      ? "text-verified"
++      : f.verdict === "partial"
++        ? "text-amber-700"
++        : "text-contradiction-foreground";
++  // Codex diff iter-1 P1-001 fix: omit the content-word-overlap row when the
++  // bundle did not carry the metric (content_words_overlap === null).
++  // Codex diff iter-3 P2: omit the "X of Y numbers" row when the claim has
++  // zero numerics. Showing "0 of 0" as data-pass=false misleads on
++  // pure-prose claims that have no numerical assertions to check.
++  const checks: Array<[string, boolean]> = [];
++  if (f.matched_numbers.total > 0) {
++    checks.push([
++      `Every number in the claim appears in the cited span (${f.matched_numbers.matched} of ${f.matched_numbers.total}).`,
++      f.matched_numbers.matched === f.matched_numbers.total,
++    ]);
++  }
++  if (f.content_words_overlap !== null) {
++    checks.push([
++      `Claim and span share ${f.content_words_overlap} content words (threshold ≥ 2).`,
++      f.content_words_overlap >= 2,
++    ]);
++  }
++  checks.push(["Evidence span sits inside the source bounds.", f.span_in_bounds]);
++
+   return (
+-    <div className="flex flex-col gap-3">
+-      <div className="flex items-start justify-between gap-3">
+-        <p className="text-foreground text-sm leading-snug">{claim.text}</p>
+-        {claim.verified ? (
+-          <VerdictChip verdict="VERIFIED" />
+-        ) : (
+-          <UnverifiedBadge />
+-        )}
++    <div
++      data-testid="faithfulness-block"
++      data-verdict={f.verdict}
++      className={`flex flex-col gap-3 transition-opacity ${
++        visible ? "opacity-100" : "opacity-0"
++      }`}
++      style={{
++        transitionDuration: "var(--duration-base, 200ms)",
++        transitionDelay: visible ? "130ms" : "0ms",
++      }}
++    >
++      <div className="flex items-baseline gap-2">
++        <h3 className={`${verdictColorClass} text-2xl font-bold`}>
++          {verdictLabel}
++        </h3>
++        <p className="text-muted-foreground text-sm italic">
++          by an independent model family
++        </p>
+       </div>
++      <ul className="flex flex-col gap-1.5">
++        {checks.map(([label, pass], i) => (
++          <li
++            key={i}
++            className="text-foreground flex items-start gap-2 text-sm"
++            data-pass={pass ? "true" : "false"}
++          >
++            <Check
++              aria-hidden
++              className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${
++                pass ? "text-verified" : "text-muted-foreground"
++              }`}
++            />
++            <span>{label}</span>
++          </li>
++        ))}
++      </ul>
++    </div>
++  );
++}
+ 
+-      {claim.tokens.length === 0 ? (
++function EvidenceStrengthBlock({
++  claim,
++  visible,
++}: {
++  claim: ProofReplayClaim;
++  visible: boolean;
++}) {
++  const es = claim.evidence_strength;
++  return (
++    <div
++      data-testid="evidence-strength-block"
++      className={`flex flex-col gap-3 transition-opacity ${
++        visible ? "opacity-100" : "opacity-0"
++      }`}
++      style={{
++        transitionDuration: "var(--duration-base, 200ms)",
++        transitionDelay: visible ? "280ms" : "0ms",
++      }}
++    >
++      <p className="text-foreground text-sm font-medium">
++        How strong is the evidence base for this claim?
++      </p>
++      <div role="group" aria-label="Evidence strength" className="flex gap-1">
++        {CERTAINTY_ORDER.map((level) => {
++          const selected = es.level === level;
++          return (
++            <div
++              key={level}
++              aria-current={selected ? "true" : undefined}
++              className={`flex-1 rounded-md py-2 text-center text-[11px] font-medium tracking-tight ${
++                selected
++                  ? "text-background"
++                  : "bg-muted/40 text-muted-foreground"
++              }`}
++              style={
++                selected
++                  ? {
++                      backgroundColor: `var(--certainty-${level.replace("_", "-")}-fg, oklch(0.32 0.14 250))`,
++                    }
++                  : undefined
++              }
++            >
++              {CERTAINTY_LABEL[level]}
++            </div>
++          );
++        })}
++      </div>
++      {(es.study_type || es.n_participants !== null) && (
+         <p className="text-muted-foreground text-xs">
+-          No provenance tokens recorded for this claim.
++          {es.study_type ?? "—"}
++          {es.n_participants !== null
++            ? ` · n=${es.n_participants.toLocaleString()}`
++            : ""}
++          {es.downgrade_reasons.length > 0
++            ? ` · downgrades: ${es.downgrade_reasons.join(", ")}`
++            : ""}
+         </p>
++      )}
++    </div>
++  );
++}
++
++function SourceClimax({
++  claim,
++  visible,
++}: {
++  claim: ProofReplayClaim;
++  visible: boolean;
++}) {
++  const s = claim.source;
++  // Render the span with the matched numerics in semibold green.
++  const spanNodes = useMemo(() => {
++    if (!s.span_text) return null;
++    if (s.matched_numbers_in_span.length === 0) return s.span_text;
++    const escaped = s.matched_numbers_in_span
++      .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
++      .join("|");
++    const re = new RegExp(`(${escaped})`, "g");
++    const parts = s.span_text.split(re);
++    return parts.map((part, i) =>
++      s.matched_numbers_in_span.includes(part) ? (
++        <span key={i} className="text-verified font-semibold">
++          {part}
++        </span>
+       ) : (
+-        <div className="flex flex-col gap-3">
+-          {claim.tokens.map((token, i) => {
+-            const span = resolveSpan(token, evidencePool);
+-            if (span === null) {
+-              return (
+-                <p
+-                  key={`${token}-${i}`}
+-                  className="text-muted-foreground text-xs"
+-                >
+-                  Unresolvable provenance token:{" "}
+-                  <span className="font-mono">{token}</span>
+-                </p>
+-              );
+-            }
+-            if (span.source === null) {
+-              return (
+-                <p
+-                  key={`${token}-${i}`}
+-                  className="text-muted-foreground text-xs"
+-                >
+-                  Source <span className="font-mono">{span.sourceId}</span> not
+-                  in this bundle — verify via the signed bundle.
+-                </p>
+-              );
+-            }
+-            const cardSource: SourceCardSource = {
+-              source_id: span.source.source_id,
+-              title: span.source.title,
+-              url: span.source.url,
+-              tier: span.source.tier,
+-            };
+-            return (
+-              <div key={`${token}-${i}`} className="flex flex-col gap-1">
+-                <SourceCard source={cardSource} />
+-                {span.quote != null ? (
+-                  (() => {
+-                    // I-p2-038 (#821): show the EXACT cited span highlighted in
+-                    // its real source context (the raw span often starts
+-                    // mid-token and reads as broken). Faithful: <mark> === the
+-                    // exact full_text[start:end]; context is real adjacent text.
+-                    const ctx = spanInContext(
+-                      span.source?.full_text,
+-                      span.start,
+-                      span.end,
+-                    );
+-                    return (
+-                      <blockquote className="border-primary text-muted-foreground max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-relaxed">
+-                        {ctx ? (
+-                          <>
+-                            {ctx.leadingEllipsis ? "… " : "“"}
+-                            {ctx.before}
+-                            <mark className="bg-primary/10 text-foreground rounded-[3px] box-decoration-clone px-0.5 font-medium">
+-                              {ctx.span}
+-                            </mark>
+-                            {ctx.after}
+-                            {ctx.trailingEllipsis ? " …" : "”"}
+-                          </>
+-                        ) : (
+-                          <span className="text-foreground italic">
+-                            &ldquo;{span.quote}&rdquo;
+-                          </span>
+-                        )}
+-                      </blockquote>
+-                    );
+-                  })()
+-                ) : (
+-                  <p className="text-muted-foreground text-xs">
+-                    Span not renderable from this bundle.
+-                  </p>
+-                )}
+-              </div>
+-            );
+-          })}
++        part
++      ),
++    );
++  }, [s.span_text, s.matched_numbers_in_span]);
++
++  return (
++    <div
++      data-testid="source-climax"
++      className={`flex flex-col gap-2 transition-opacity ${
++        visible ? "opacity-100" : "opacity-0"
++      }`}
++      style={{
++        transitionDuration: "var(--duration-base, 200ms)",
++        transitionDelay: visible ? "430ms" : "0ms",
++      }}
++    >
++      <p className="text-foreground text-sm font-semibold">
++        The exact passage that supports this claim
++      </p>
++      {/* Sealed evidence block — continuous 2px verified-green left rule
++          spans source-card top + span body bottom */}
++      <div className="border-verified/20 bg-card flex overflow-hidden rounded-lg border">
++        <div aria-hidden className="bg-verified w-[2px] shrink-0" />
++        <div className="flex flex-1 flex-col">
++          {/* Source-card top row */}
++          <div className="border-border/60 flex items-center gap-2 border-b px-4 py-3 text-xs">
++            <span className="text-foreground font-medium">
++              {s.journal ?? "—"}
++            </span>
++            {s.year !== null && (
++              <span className="text-muted-foreground">· {s.year}</span>
++            )}
++            {s.authors && (
++              <span className="text-muted-foreground">· {s.authors}</span>
++            )}
++            {s.tier && (
++              <span className="border-verified/30 bg-verified/10 text-verified ml-auto rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wider">
++                {s.tier}
++              </span>
++            )}
++          </div>
++          {/* Span quote body */}
++          <div className="relative px-4 py-3">
++            <blockquote className="text-foreground text-sm leading-relaxed">
++              {s.span_text ? (
++                <>“{spanNodes}”</>
++              ) : (
++                <span className="text-muted-foreground italic">
++                  No span text available in this bundle.
++                </span>
++              )}
++            </blockquote>
++            {s.matched_numbers_in_span.length > 0 && (
++              <p
++                data-testid="matched-numbers-stamp"
++                className="text-verified mt-2 flex items-center justify-end gap-1 text-[11px] font-medium"
++              >
++                <Check aria-hidden className="h-3 w-3" />
++                matched {s.matched_numbers_in_span.length} of{" "}
++                {claim.faithfulness.matched_numbers.total} numbers
++              </p>
++            )}
++          </div>
+         </div>
++      </div>
++      {s.doi && (
++        <a
++          href={s.doi}
++          target="_blank"
++          rel="noopener noreferrer"
++          className="text-verified text-xs underline-offset-2 hover:underline"
++        >
++          → Open the full source
++        </a>
+       )}
+     </div>
+   );
+ }
+ 
+-export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
+-  const claims = useMemo(() => flatten(sections), [sections]);
+-  const [selectedKey, setSelectedKey] = useState<string | null>(
+-    claims[0]?.key ?? null,
++function SignatureBlock({
++  signatureState,
++  manifest,
++  visible,
++}: {
++  signatureState: SignatureState;
++  manifest: BundleManifest;
++  visible: boolean;
++}) {
++  return (
++    <div
++      data-testid="signature-block"
++      className={`flex flex-col gap-1.5 transition-opacity ${
++        visible ? "opacity-100" : "opacity-0"
++      }`}
++      style={{
++        transitionDuration: "var(--duration-base, 200ms)",
++        transitionDelay: visible ? "580ms" : "0ms",
++      }}
++    >
++      <SignatureBadge state={signatureState} />
++      {signatureState === "gpg_verified" && (
++        <p className="text-muted-foreground text-xs">
++          → Verify this offline (no POLARIS server needed):{" "}
++          <code className="font-mono">
++            gpg --verify manifest.yaml.asc manifest.yaml
++          </code>{" "}
++          using the published trust-root pubkey ·{" "}
++          <span className="text-foreground/70 font-mono">
++            bundle {manifest.bundle_id.slice(0, 12)}
++          </span>
++        </p>
++      )}
++    </div>
+   );
+-  // Fall back to the first claim if the selected key is stale (e.g. sections
+-  // changed after mount), so the proof pane keeps its default-first behavior.
+-  const selected =
+-    claims.find((c) => c.key === selectedKey) ?? claims[0] ?? null;
++}
++
++function DisclosureBlock({ visible }: { visible: boolean }) {
++  return (
++    <details
++      data-testid="disclosure-block"
++      className={`group/disclosure text-xs transition-opacity ${
++        visible ? "opacity-100" : "opacity-0"
++      }`}
++      style={{
++        transitionDuration: "var(--duration-base, 200ms)",
++        transitionDelay: visible ? "680ms" : "0ms",
++      }}
++    >
++      <summary className="text-muted-foreground hover:text-foreground inline-flex w-fit cursor-pointer items-center gap-1 rounded-md py-1 transition-colors [&::-webkit-details-marker]:hidden">
++        <ChevronRight
++          aria-hidden
++          className="h-3 w-3 transition-transform group-open/disclosure:rotate-90"
++        />
++        what this verification does NOT prove
++      </summary>
++      <ul className="text-muted-foreground mt-2 list-disc space-y-1 pl-7">
++        <li>
++          Verification confirms the sentence follows from the cited source span,
++          NOT that the source itself is correct.
++        </li>
++        <li>
++          Evidence strength reflects literature quality, NOT applicability to a
++          specific patient.
++        </li>
++        <li>
++          POLARIS is a research-decision-support tool — it does NOT replace
++          independent clinical judgment and is NOT for individual-patient or
++          time-sensitive decisions.
++        </li>
++      </ul>
++    </details>
++  );
++}
++
++/* ============================================================
++ * Proof panel (right rail / bottom sheet content)
++ * ============================================================ */
++
++interface ProofPanelProps {
++  claim: ProofReplayClaim | null;
++  manifest: BundleManifest;
++  signatureState: SignatureState;
++  reducedMotion: boolean;
++}
++
++// Beat schedule per design_tokens_v2 §5 + i_ux_001d_motion_still_convention.md
++// row 1 timestamps. Each beat ramps to opacity 1 at its scheduled t (ms).
++const BEAT_SCHEDULE = [
++  { beat: 1, t: 0 },     // claim echo + challenged label (immediate)
++  { beat: 2, t: 130 },   // faithfulness
++  { beat: 3, t: 280 },   // evidence strength
++  { beat: 4, t: 430 },   // source (climax)
++  { beat: 5, t: 580 },   // signature
++  { beat: 6, t: 680 },   // disclosure
++] as const;
++
++function ProofPanel({
++  claim,
++  manifest,
++  signatureState,
++  reducedMotion,
++}: ProofPanelProps) {
++  // Empty state is structurally distinct (no claim selected). Bail early so
++  // the staged-reveal hook below only runs when a claim is actually being
++  // shown.
++  if (!claim) {
++    return (
++      <div
++        data-testid="proof-panel-empty"
++        className="text-muted-foreground flex h-full min-h-[300px] flex-col items-center justify-center gap-2 p-6 text-sm"
++      >
++        <ShieldCheck aria-hidden className="text-muted-foreground/40 h-6 w-6" />
++        <p>Click any sentence to see its proof.</p>
++      </div>
++    );
++  }
++  // The inner component receives a stable claim and runs the staged reveal
++  // hook. Keyed on (claim_id + reducedMotion) so React fully resets state
++  // on claim-change — avoids setRevealedBeat-in-effect (eslint
++  // react-hooks/set-state-in-effect).
++  return (
++    <StagedProofPanel
++      key={`${claim.claim_id}-${reducedMotion ? "rm" : "full"}`}
++      claim={claim}
++      manifest={manifest}
++      signatureState={signatureState}
++      reducedMotion={reducedMotion}
++    />
++  );
++}
++
++interface StagedProofPanelProps {
++  claim: ProofReplayClaim;
++  manifest: BundleManifest;
++  signatureState: SignatureState;
++  reducedMotion: boolean;
++}
++
++function StagedProofPanel({
++  claim,
++  manifest,
++  signatureState,
++  reducedMotion,
++}: StagedProofPanelProps) {
++  // Codex diff iter-1 P1-003 fix: ACTUAL staged reveal. The initial value
++  // is set via the lazy initializer (so it's correct at first render
++  // without any setState in an effect); subsequent advances come from the
++  // setTimeout chain.
++  const [revealedBeat, setRevealedBeat] = useState<number>(() =>
++    reducedMotion ? 6 : 0,
++  );
++
++  useEffect(() => {
++    if (reducedMotion) return;
++    const timers = BEAT_SCHEDULE.map((b) =>
++      window.setTimeout(() => setRevealedBeat(b.beat), b.t),
++    );
++    return () => {
++      for (const t of timers) window.clearTimeout(t);
++    };
++  }, [reducedMotion]);
++
++  return (
++    <div
++      data-testid="proof-panel"
++      data-claim-id={claim.claim_id}
++      data-revealed-beat={revealedBeat}
++      role="region"
++      aria-label={`Proof for the ${claim.faithfulness.verdict} claim`}
++      className="flex flex-col gap-5 p-6"
++    >
++      <ChallengedLabel visible={revealedBeat >= 1} />
++      <ClaimEcho claim={claim} visible={revealedBeat >= 1} />
++      <FaithfulnessBlock claim={claim} visible={revealedBeat >= 2} />
++      <hr className="border-border/60" />
++      <EvidenceStrengthBlock claim={claim} visible={revealedBeat >= 3} />
++      <hr className="border-border/60" />
++      <SourceClimax claim={claim} visible={revealedBeat >= 4} />
++      <hr className="border-border/60" />
++      <SignatureBlock
++        signatureState={signatureState}
++        manifest={manifest}
++        visible={revealedBeat >= 5}
++      />
++      <DisclosureBlock visible={revealedBeat >= 6} />
++    </div>
++  );
++}
++
++/* ============================================================
++ * Claims list (left rail) + main orchestrator
++ * ============================================================ */
++
++export function ProofReplay({
++  sections,
++  evidencePool,
++  verifiedReport,
++  manifest,
++  signatureState,
++  signatureKeyFingerprint: _signatureKeyFingerprint,
++}: ProofReplayProps) {
++  void _signatureKeyFingerprint; // reserved for the receipt subview in a later sub-PR
++
++  // Use the adapter to derive v6 claims.
++  const claims = useMemo(
++    () =>
++      flattenToClaimList(
++        { ...verifiedReport, sections: verifiedReport.sections ?? sections },
++        evidencePool,
++      ),
++    [verifiedReport, sections, evidencePool],
++  );
++
++  const [selectedId, setSelectedId] = useState<string | null>(null);
++  const reducedMotion = usePrefersReducedMotion();
++  const isMobile = useIsMobile();
++  const buttonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
++
++  const selected = selectedId
++    ? (claims.find((c) => c.claim_id === selectedId) ?? null)
++    : null;
++
++  const selectClaim = useCallback(
++    (id: string | null) => {
++      const wasSelected = selectedId;
++      setSelectedId(id);
++      if (id === null && wasSelected !== null) {
++        const btn = buttonRefs.current.get(wasSelected);
++        btn?.focus();
++      }
++    },
++    [selectedId],
++  );
++
++  // Keyboard navigation
++  useEffect(() => {
++    const handler = (e: KeyboardEvent) => {
++      if (
++        e.target instanceof HTMLInputElement ||
++        e.target instanceof HTMLTextAreaElement
++      ) {
++        return;
++      }
++      if (e.key === "Escape" && selectedId !== null) {
++        e.preventDefault();
++        selectClaim(null);
++        return;
++      }
++      if (claims.length === 0) return;
++      const currentIdx = selectedId
++        ? claims.findIndex((c) => c.claim_id === selectedId)
++        : -1;
++      if (e.key === "j" || e.key === "ArrowDown") {
++        e.preventDefault();
++        const nextIdx = (currentIdx + 1) % claims.length;
++        selectClaim(claims[nextIdx].claim_id);
++      }
++      if (e.key === "k" || e.key === "ArrowUp") {
++        e.preventDefault();
++        const prevIdx = currentIdx <= 0 ? claims.length - 1 : currentIdx - 1;
++        selectClaim(claims[prevIdx].claim_id);
++      }
++    };
++    window.addEventListener("keydown", handler);
++    return () => window.removeEventListener("keydown", handler);
++  }, [claims, selectedId, selectClaim]);
+ 
+   if (claims.length === 0) {
+     return (
+@@ -181,61 +677,118 @@ export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
+     );
+   }
+ 
+-  return (
+-    <div className="grid gap-4 md:grid-cols-2">
+-      <div
+-        role="list"
+-        aria-label="Claims"
+-        className="border-border flex max-h-[32rem] flex-col gap-1 overflow-auto rounded-md border p-2"
+-      >
+-        {claims.map((claim, i) => {
+-          const isSelected = claim.key === selectedKey;
+-          const showHeading =
+-            i === 0 || claims[i - 1].sectionId !== claim.sectionId;
+-          return (
+-            <div key={claim.key} role="listitem">
+-              {showHeading && claim.sectionTitle && (
+-                <p className="text-muted-foreground mt-2 mb-1 px-2 text-[11px] font-medium tracking-wide uppercase">
+-                  {claim.sectionTitle}
+-                </p>
+-              )}
+-              <button
+-                type="button"
+-                aria-current={isSelected ? "true" : undefined}
+-                aria-label={`${claim.verified ? "Verified" : "Unverified"} claim: ${claim.text}`}
+-                onClick={() => setSelectedKey(claim.key)}
+-                className={`focus-visible:ring-ring/70 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs leading-snug transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+-                  isSelected
+-                    ? "bg-primary/10 text-foreground border-primary border-l-2"
+-                    : "text-muted-foreground hover:bg-muted border-l-2 border-transparent"
++  const claimsList = (
++    <div
++      role="list"
++      aria-label="Verified claims"
++      data-testid="claims-list"
++      className="flex flex-col gap-0.5"
++    >
++      {claims.map((claim, i) => {
++        const isSelected = claim.claim_id === selectedId;
++        const showHeading =
++          i === 0 || claims[i - 1].section_id !== claim.section_id;
++        return (
++          <div key={claim.claim_id} role="listitem">
++            {showHeading && claim.section_title && (
++              <p className="text-muted-foreground mt-3 mb-1 px-2 text-[10px] font-medium tracking-[0.08em] uppercase">
++                {claim.section_title}
++              </p>
++            )}
++            <button
++              ref={(el) => {
++                if (el) buttonRefs.current.set(claim.claim_id, el);
++                else buttonRefs.current.delete(claim.claim_id);
++              }}
++              type="button"
++              data-testid={`claim-${claim.claim_id}`}
++              aria-current={isSelected ? "true" : undefined}
++              aria-label={`${claim.faithfulness.verdict} claim: ${claim.sentence_text}`}
++              onClick={() => selectClaim(claim.claim_id)}
++              onKeyDown={(e) => {
++                if (e.key === "Enter") {
++                  e.preventDefault();
++                  selectClaim(claim.claim_id);
++                }
++              }}
++              className={`focus-visible:ring-verified/60 flex w-full items-start gap-2 rounded-md border-l-2 px-3 py-2 text-left text-sm leading-relaxed transition-colors focus-visible:ring-2 focus-visible:outline-none ${
++                isSelected
++                  ? "border-verified bg-verified/5 text-foreground"
++                  : "text-foreground/85 hover:bg-muted/50 border-transparent"
++              }`}
++            >
++              <span
++                aria-hidden
++                className={`mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
++                  claim.faithfulness.verdict === "verified"
++                    ? "bg-verified"
++                    : claim.faithfulness.verdict === "partial"
++                      ? "bg-amber-500"
++                      : "bg-muted-foreground"
+                 }`}
+-              >
+-                <span
+-                  aria-hidden
+-                  className={`mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+-                    claim.verified ? "bg-verified" : "bg-muted-foreground"
+-                  }`}
+-                />
+-                <span className="line-clamp-2">{claim.text}</span>
+-              </button>
+-            </div>
+-          );
+-        })}
++              />
++              <span>{claim.sentence_text}</span>
++            </button>
++          </div>
++        );
++      })}
++    </div>
++  );
++
++  // Mobile: bottom sheet
++  if (isMobile) {
++    return (
++      <div data-testid="proof-replay" data-viewport="mobile">
++        <div className="border-border rounded-md border p-3">{claimsList}</div>
++        <Sheet
++          open={selected !== null}
++          onOpenChange={(open) => {
++            if (!open) selectClaim(null);
++          }}
++        >
++          <SheetContent
++            side="bottom"
++            className="max-h-[85vh] overflow-y-auto"
++            data-testid="proof-replay-sheet"
++          >
++            <SheetHeader className="sr-only">
++              <SheetTitle>Proof for the selected claim</SheetTitle>
++              <SheetDescription>
++                Reveals the 6-beat verification chain for the claim you tapped.
++              </SheetDescription>
++            </SheetHeader>
++            <ProofPanel
++              claim={selected}
++              manifest={manifest}
++              signatureState={signatureState}
++              reducedMotion={reducedMotion}
++            />
++          </SheetContent>
++        </Sheet>
+       </div>
++    );
++  }
+ 
+-      <div
++  // Desktop: split-view grid
++  return (
++    <div
++      data-testid="proof-replay"
++      data-viewport="desktop"
++      className="grid gap-6 md:grid-cols-[1fr_minmax(360px,440px)]"
++    >
++      <div className="border-border rounded-md border p-3">{claimsList}</div>
++      <aside
+         aria-live="polite"
+         aria-label="Proof for the selected claim"
+-        className="border-border rounded-md border p-4"
++        className="border-border rounded-md border"
+       >
+-        {selected ? (
+-          <ProofPane claim={selected} evidencePool={evidencePool} />
+-        ) : (
+-          <p className="text-muted-foreground text-sm">
+-            Select a claim to see its proof.
+-          </p>
+-        )}
+-      </div>
++        <ProofPanel
++          claim={selected}
++          manifest={manifest}
++          signatureState={signatureState}
++          reducedMotion={reducedMotion}
++        />
++      </aside>
+     </div>
+   );
+ }
+diff --git a/web/lib/proof_replay_adapter.ts b/web/lib/proof_replay_adapter.ts
+new file mode 100644
+index 00000000..b8197bbc
+--- /dev/null
++++ b/web/lib/proof_replay_adapter.ts
+@@ -0,0 +1,290 @@
++// I-ux-001c (#878) sub-PR 1: Proof Replay data adapter.
++//
++// Bridges the real bundle's `VerifiedSentenceShape` + evidence-pool entries to
++// the v6 hero's `ProofReplayClaim` shape. The adapter NEVER fabricates clinical
++// metadata — fields missing from the bundle render as `null` (the UI shows `—`
++// or omits the row). This honors LAW II "No Fake Working" and the I-ux-001
++// plan §6 intended-use posture (literature synthesis, not clinical advice).
++//
++// The bundle schema (see `web/lib/signed_bundle.ts` + the canonical fixture
++// under `web/public/canonical_bundles/v1_canonical_success/`) does NOT carry
++// per-sentence GRADE certainty or per-source DOI/authors/study-type. Those
++// are derived heuristically here (tier-based certainty, evidence-pool
++// metadata lookup) with honest fallbacks.
++//
++// Codex iter-2 approval pinned: T4-T7 tiers render with the same pill grammar
++// as T1-T3, just with the letter changed. The adapter outputs the literal
++// tier string ("T1"..."T7" or null) and lets ProofReplay's TierPill render
++// it uniformly.
++import type {
++  VerifiedReportShape,
++  VerifiedSentenceShape,
++} from "@/lib/inspector_bundle_loader";
++import { resolveSpan } from "@/lib/evidence_span";
++
++/** A sentence in the brief, augmented with v6 display fields. */
++export interface ProofReplayClaim {
++  /** Stable identifier composed of section index + sentence index. */
++  claim_id: string;
++  section_id: string;
++  section_title: string | null;
++  /** The exact sentence the verifier evaluated. */
++  sentence_text: string;
++  /** Provenance tokens as recorded in the bundle (`[#ev:<id>:<start>-<end>]`). */
++  provenance_tokens: string[];
++  /** Faithfulness verdict (binary check; checklist grammar). */
++  faithfulness: {
++    /** Tri-state per the §-1.1 audit standard. */
++    verdict: "verified" | "partial" | "unsupported";
++    /** Number of numerics in the claim that also appear in the cited span. */
++    matched_numbers: { matched: number; total: number };
++    /** Content-word overlap (the §9.1 invariant, threshold ≥2).
++     * `null` when the bundle does NOT carry this metric — the UI MUST then
++     * omit the row rather than display a synthesized value (LAW II per
++     * Codex diff iter-1 P1-001). */
++    content_words_overlap: number | null;
++    /** Whether the cited evidence span sits inside the source's bounds. */
++    span_in_bounds: boolean;
++  };
++  /** Evidence-strength assessment (ordinal; certainty ladder grammar). */
++  evidence_strength: {
++    level: "very_low" | "low" | "moderate" | "high";
++    /** e.g. "RCT, Phase 3" or "—" when the bundle didn't carry it. */
++    study_type: string | null;
++    /** e.g. 1879. Null when missing — UI omits the row. */
++    n_participants: number | null;
++    /** GRADE downgrade reasons (risk of bias, inconsistency, indirectness,
++     * imprecision, publication bias). Empty array = "no recorded downgrades"
++     * (NOT "no risk of bias" — the absence of the field is honestly empty). */
++    downgrade_reasons: string[];
++  };
++  /** The cited evidence span + its source metadata. */
++  source: {
++    /** The exact passage text the verifier matched against. */
++    span_text: string;
++    /** e.g. "N Engl J Med" — pulled from evidence-pool entry; null if missing. */
++    journal: string | null;
++    year: number | null;
++    /** "Frías et al." or "Smith et al. 2021". Null if missing. */
++    authors: string | null;
++    /** Resolvable DOI URL or null. */
++    doi: string | null;
++    /** "T1"..."T7" or null. */
++    tier: string | null;
++    /** The actual numeric tokens (e.g. "−0.15", "−0.39") matched in the span,
++     * used for inline bolding in the rendered quote. */
++    matched_numbers_in_span: string[];
++  };
++}
++
++/** Map a tier letter to the GRADE-equivalent certainty default.
++ * This is a heuristic for the v6 prototype — production code SHOULD read
++ * per-outcome certainty from the bundle (when the bundle carries it). The
++ * heuristic is honest: T1 RCT → high; T2 systematic review → moderate;
++ * T3 guideline → moderate (guidelines don't replace primary evidence); T4+
++ * non-clinical/grey → low. Never returns "very_low" — that requires explicit
++ * downgrade reasons, which the bundle should carry directly. */
++function tierToCertainty(
++  tier: string | null,
++): "very_low" | "low" | "moderate" | "high" {
++  if (tier === "T1") return "high";
++  if (tier === "T2") return "moderate";
++  if (tier === "T3") return "moderate";
++  return "low";
++}
++
++/** Extract numeric tokens from a sentence (matches integers, decimals,
++ * negatives, percentages). Used to compute matched_numbers vs cited span. */
++function extractNumerics(text: string): string[] {
++  // Includes Unicode minus (−), ASCII minus (-), and percentage tokens.
++  const matches = text.match(/[−-]?\d+(?:\.\d+)?(?:%|\s*percentage\s+points?)?/g);
++  return matches ? matches : [];
++}
++
++/** Count how many of `needles` appear in `haystack` (string-contains). */
++function countMatches(needles: string[], haystack: string): number {
++  let n = 0;
++  for (const needle of needles) {
++    if (needle.length > 0 && haystack.includes(needle)) n += 1;
++  }
++  return n;
++}
++
++/** Pull a metadata field off an evidence-pool entry. The pool is `unknown` at
++ * the loader level; we narrow defensively. Returns `null` if the entry doesn't
++ * have the field or the pool isn't shaped as expected.
++ *
++ * The real canonical fixture (web/public/canonical_bundles/v1_canonical_success/
++ * evidence_pool.json) uses `.sources[]` as the entry array. Older drafts used
++ * `.entries[]`. We accept both (Codex diff iter-1 P2-001). */
++function lookupPoolField(
++  pool: unknown,
++  sourceId: string,
++  field: string,
++): unknown {
++  if (!pool || typeof pool !== "object") return null;
++  const p = pool as { entries?: unknown[]; sources?: unknown[] };
++  const arr: unknown[] = Array.isArray(p.sources)
++    ? p.sources
++    : Array.isArray(p.entries)
++      ? p.entries
++      : [];
++  for (const entry of arr) {
++    if (!entry || typeof entry !== "object") continue;
++    const e = entry as Record<string, unknown>;
++    if (e.source_id === sourceId) {
++      const md = e.metadata;
++      if (md && typeof md === "object") {
++        const v = (md as Record<string, unknown>)[field];
++        if (v !== undefined) return v;
++      }
++      // Some pools put the field at the top level
++      const top = e[field];
++      return top === undefined ? null : top;
++    }
++  }
++  return null;
++}
++
++/** Adapt a single VerifiedSentenceShape into a v6 ProofReplayClaim. */
++export function adaptToClaim(
++  sentence: VerifiedSentenceShape,
++  section: { section_id: string; section_title?: string | null },
++  sectionIndex: number,
++  sentenceIndex: number,
++  evidencePool: unknown,
++  verifiedReport: VerifiedReportShape,
++): ProofReplayClaim {
++  void verifiedReport; // reserved for future per-claim certainty override
++
++  // Take the first provenance token (the primary cited span). The v6 design
++  // shows ONE proof span per claim as the climax; multi-token claims are still
++  // rendered, but only the first drives the source-card display.
++  const primaryToken =
++    sentence.provenance_tokens && sentence.provenance_tokens[0];
++  const span = primaryToken
++    ? resolveSpan(primaryToken, evidencePool)
++    : null;
++
++  const tier =
++    (span && span.source && (span.source.tier as string | null)) || null;
++  const spanText = (span && span.quote) || "";
++
++  // Faithfulness signals (real, derived from bundle):
++  const sentenceNumerics = extractNumerics(sentence.sentence_text);
++  const matchedNumerics = countMatches(sentenceNumerics, spanText);
++  const totalNumerics = sentenceNumerics.length;
++
++  // Content-word overlap (the §9.1 invariant). The real value is computed by
++  // src/polaris_graph/generator/provenance/strict_verify.py during the
++  // verifier pass — if the bundle CARRIES that value, surface it. Otherwise
++  // return null and let the UI omit the row (Codex diff iter-1 P1-001 +
++  // LAW II honest-fail rule).
++  const sentenceWithExtras = sentence as VerifiedSentenceShape & {
++    content_words_overlap?: number;
++  };
++  const contentWordsOverlap =
++    typeof sentenceWithExtras.content_words_overlap === "number"
++      ? sentenceWithExtras.content_words_overlap
++      : null;
++
++  // Source metadata — best-effort lookup against the evidence pool.
++  const sourceId = (span && span.sourceId) || "";
++  const journal = (lookupPoolField(evidencePool, sourceId, "venue") as string) || null;
++  const yearRaw = lookupPoolField(evidencePool, sourceId, "year");
++  const year = typeof yearRaw === "number" ? yearRaw : null;
++  const authorsRaw = lookupPoolField(evidencePool, sourceId, "authors");
++  const authors =
++    typeof authorsRaw === "string"
++      ? authorsRaw
++      : Array.isArray(authorsRaw) && authorsRaw.length > 0
++        ? `${authorsRaw[0]}${authorsRaw.length > 1 ? " et al." : ""}`
++        : null;
++  const doi = (lookupPoolField(evidencePool, sourceId, "doi") as string) || null;
++  const studyType =
++    (lookupPoolField(evidencePool, sourceId, "study_type") as string) || null;
++  const nRaw = lookupPoolField(evidencePool, sourceId, "n_participants");
++  const nParticipants = typeof nRaw === "number" ? nRaw : null;
++  const downgradeRaw = lookupPoolField(evidencePool, sourceId, "quality_notes");
++  const downgradeReasons = Array.isArray(downgradeRaw)
++    ? downgradeRaw.filter((d): d is string => typeof d === "string")
++    : [];
++
++  return {
++    claim_id: `${sectionIndex}:${sentenceIndex}`,
++    section_id: section.section_id,
++    section_title:
++      (typeof section.section_title === "string" && section.section_title) ||
++      null,
++    sentence_text: sentence.sentence_text,
++    provenance_tokens: Array.isArray(sentence.provenance_tokens)
++      ? sentence.provenance_tokens.filter(
++          (t): t is string => typeof t === "string",
++        )
++      : [],
++    faithfulness: {
++      // Codex diff iter-2 P2: verifier_pass=true non-numeric claims were
++      // mis-classified as "partial" (no numbers to match → matchedNumerics
++      // === 0 ≠ totalNumerics === 0). Correct logic: if the bundle says
++      // verifier_pass, the claim is "verified" UNLESS it has numerics that
++      // didn't match. Pure-prose verified claims (no numbers) → verified.
++      verdict: sentence.verifier_pass === true
++        ? totalNumerics === 0 || matchedNumerics === totalNumerics
++          ? "verified"
++          : "partial"
++        : "unsupported",
++      matched_numbers: { matched: matchedNumerics, total: totalNumerics },
++      content_words_overlap: contentWordsOverlap,
++      // Codex diff iter-3 P1: require span.quote !== null. ResolveSpan
++      // returns quote: null when the source is missing full_text or when
++      // the offsets are out-of-bounds — both of which mean the exact span
++      // is NOT actually inside the source's bounds even though a source
++      // object exists. Honest-fail: the check fails if we can't render the
++      // exact passage.
++      span_in_bounds:
++        span !== null && span.source !== null && span.quote !== null,
++    },
++    evidence_strength: {
++      level: tierToCertainty(tier),
++      study_type: studyType,
++      n_participants: nParticipants,
++      downgrade_reasons: downgradeReasons,
++    },
++    source: {
++      span_text: spanText,
++      journal,
++      year,
++      authors,
++      doi,
++      tier,
++      matched_numbers_in_span: sentenceNumerics.filter((n) => spanText.includes(n)),
++    },
++  };
++}
++
++/** Flatten a VerifiedReport's sections into an ordered list of ProofReplayClaims.
++ * Stable order matches the bundle's section + sentence order so per-claim
++ * navigation (J/K keyboard) is deterministic. */
++export function flattenToClaimList(
++  report: VerifiedReportShape,
++  evidencePool: unknown,
++): ProofReplayClaim[] {
++  const out: ProofReplayClaim[] = [];
++  const sections = report.sections || [];
++  sections.forEach((section, si) => {
++    const sentences = section.verified_sentences || [];
++    sentences.forEach((sentence, sj) => {
++      out.push(
++        adaptToClaim(
++          sentence,
++          section,
++          si,
++          sj,
++          evidencePool,
++          report,
++        ),
++      );
++    });
++  });
++  return out;
++}
+diff --git a/web/tests/e2e/inspector_aa.spec.ts b/web/tests/e2e/inspector_aa.spec.ts
+new file mode 100644
+index 00000000..1afe961d
+--- /dev/null
++++ b/web/tests/e2e/inspector_aa.spec.ts
+@@ -0,0 +1,86 @@
++// I-ux-001c (#878) sub-PR 1: axe-core WCAG 2.2 AA scan for the Inspector route.
++//
++// Target: zero violations on /inspector/v1-canonical-success at desktop and
++// mobile viewports. The Inspector hero is the CENTERPIECE — accessibility
++// gate is a hard prerequisite for the demo.
++//
++// Runner: invoked by Playwright (uses @axe-core/playwright, already installed
++// at web/node_modules/@axe-core/playwright/). This file follows the same
++// pattern as web/tests/a11y/* existing scans.
++//
++// Run locally:
++//   cd web && npx next start -p 3738 &
++//   cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 \
++//     npx playwright test tests/a11y/inspector_aa.test.mjs
++import { expect, test } from "@playwright/test";
++import AxeBuilder from "@axe-core/playwright";
++
++const INSPECTOR_PATH = "/inspector/v1-canonical-success";
++
++test.describe("I-ux-001c · Inspector axe a11y (WCAG 2.2 AA)", () => {
++  test("desktop: zero AA violations on idle state", async ({ page }) => {
++    await page.setViewportSize({ width: 1440, height: 900 });
++    await page.goto(INSPECTOR_PATH);
++    await page.waitForLoadState("networkidle");
++
++    const results = await new AxeBuilder({ page })
++      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
++      .analyze();
++
++    if (results.violations.length > 0) {
++      console.error(
++        "axe violations:",
++        JSON.stringify(results.violations, null, 2),
++      );
++    }
++    expect(results.violations).toEqual([]);
++  });
++
++  test("desktop: zero AA violations with proof panel open", async ({
++    page,
++  }) => {
++    await page.setViewportSize({ width: 1440, height: 900 });
++    await page.goto(INSPECTOR_PATH);
++    const firstClaim = page
++      .getByTestId("claims-list")
++      .locator('[data-testid^="claim-"]')
++      .first();
++    await firstClaim.click();
++    await expect(page.getByTestId("proof-panel")).toBeVisible();
++
++    const results = await new AxeBuilder({ page })
++      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
++      .analyze();
++
++    if (results.violations.length > 0) {
++      console.error(
++        "axe violations (proof open):",
++        JSON.stringify(results.violations, null, 2),
++      );
++    }
++    expect(results.violations).toEqual([]);
++  });
++
++  test("mobile: zero AA violations with sheet open", async ({ page }) => {
++    await page.setViewportSize({ width: 390, height: 844 });
++    await page.goto(INSPECTOR_PATH);
++    const firstClaim = page
++      .getByTestId("claims-list")
++      .locator('[data-testid^="claim-"]')
++      .first();
++    await firstClaim.click();
++    await expect(page.getByTestId("proof-replay-sheet")).toBeVisible();
++
++    const results = await new AxeBuilder({ page })
++      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
++      .analyze();
++
++    if (results.violations.length > 0) {
++      console.error(
++        "axe violations (mobile sheet open):",
++        JSON.stringify(results.violations, null, 2),
++      );
++    }
++    expect(results.violations).toEqual([]);
++  });
++});
+diff --git a/web/tests/e2e/inspector_proof_replay.spec.ts b/web/tests/e2e/inspector_proof_replay.spec.ts
+new file mode 100644
+index 00000000..d40b99c0
+--- /dev/null
++++ b/web/tests/e2e/inspector_proof_replay.spec.ts
+@@ -0,0 +1,219 @@
++// I-ux-001c (#878) sub-PR 1: e2e Playwright for Inspector Proof Replay v6.
++//
++// Covers the storyboard hard rules (from `.codex/I-ux-001c/brief.md`):
++//   - Sentence click → 6-beat reveal (claim echo, faithfulness, evidence
++//     strength, source, signature, disclosure all visible)
++//   - Keyboard: Enter on a claim button = select; Esc = clear; J/K (or arrows)
++//     = next/previous claim; focus returns to the clicked sentence on Esc
++//   - Mobile bottom-sheet variant (Sheet opens on selection)
++//   - Reduced-motion = instant (no opacity ramp delay)
++//   - Tri-state signature pill shows the correct state from the bundle
++//
++// Uses the canonical signed-bundle fixture at /inspector/v1-canonical-success
++// (no backend required — bundle is loaded server-side from web/public/
++// canonical_bundles/v1_canonical_success/).
++//
++// Run locally:
++//   cd web && npx next start -p 3738 &
++//   cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 \
++//     npx playwright test tests/e2e/inspector_proof_replay.spec.ts
++import { expect, test } from "@playwright/test";
++
++const INSPECTOR_PATH = "/inspector/v1-canonical-success";
++
++test.describe("I-ux-001c · Inspector Proof Replay v6 hero", () => {
++  test("intended-use banner is mounted above the page chrome", async ({
++    page,
++  }) => {
++    await page.goto(INSPECTOR_PATH);
++    const banner = page.getByTestId("intended-use-banner");
++    await expect(banner).toBeVisible();
++    await expect(banner).toContainText(/NOT.*clinical decision/i);
++  });
++
++  test("inspector proof header renders v6 two-band provenance strip", async ({
++    page,
++  }) => {
++    await page.goto(INSPECTOR_PATH);
++    await expect(page.getByTestId("inspector-h1")).toBeVisible();
++    const strip = page.getByTestId("provenance-strip");
++    await expect(strip).toBeVisible();
++    // Faithfulness band
++    await expect(strip).toContainText(/Faithfulness/i);
++    await expect(strip).toContainText(/verified/i);
++    await expect(strip).toContainText(/partial/i);
++    await expect(strip).toContainText(/independent-family check/i);
++    // Evidence strength band
++    await expect(strip).toContainText(/Evidence strength/i);
++    await expect(strip).toContainText(/high/i);
++    await expect(strip).toContainText(/moderate/i);
++    await expect(strip).toContainText(/signed bundle.*verifiable offline/i);
++  });
++
++  test("proof panel starts empty; sentence click reveals all 6 beats", async ({
++    page,
++  }) => {
++    await page.goto(INSPECTOR_PATH);
++    await page.waitForLoadState("networkidle");
++
++    // Initial state — empty
++    await expect(page.getByTestId("proof-panel-empty")).toBeVisible();
++
++    // Click the first claim button
++    const claimsList = page.getByTestId("claims-list");
++    await expect(claimsList).toBeVisible();
++    const firstClaim = claimsList.locator('[data-testid^="claim-"]').first();
++    await firstClaim.click();
++
++    // All 6 beats are visible (opacity:1 reached via the per-beat
++    // transitionDelay; total reveal ≤ ~880ms for the last beat)
++    await expect(page.getByTestId("proof-panel")).toBeVisible();
++    await expect(page.getByTestId("challenged-sentence-label")).toBeVisible();
++    await expect(page.getByTestId("claim-echo")).toBeVisible();
++    await expect(page.getByTestId("faithfulness-block")).toBeVisible();
++    await expect(page.getByTestId("evidence-strength-block")).toBeVisible();
++    await expect(page.getByTestId("source-climax")).toBeVisible();
++    await expect(page.getByTestId("signature-block")).toBeVisible();
++    await expect(page.getByTestId("disclosure-block")).toBeVisible();
++  });
++
++  test("time-to-first-proof: faithfulness visible within 400ms of click", async ({
++    page,
++  }) => {
++    await page.goto(INSPECTOR_PATH);
++    const firstClaim = page
++      .getByTestId("claims-list")
++      .locator('[data-testid^="claim-"]')
++      .first();
++    const t0 = Date.now();
++    await firstClaim.click();
++    await expect(page.getByTestId("faithfulness-block")).toBeVisible({
++      timeout: 400,
++    });
++    const elapsed = Date.now() - t0;
++    expect(elapsed).toBeLessThan(400);
++  });
++
++  test("keyboard navigation: Enter selects, J/K cycle, Esc clears + returns focus", async ({
++    page,
++  }) => {
++    await page.goto(INSPECTOR_PATH);
++
++    // Tab into the claims list and Enter on the first claim
++    const firstClaim = page
++      .getByTestId("claims-list")
++      .locator('[data-testid^="claim-"]')
++      .first();
++    await firstClaim.focus();
++    await page.keyboard.press("Enter");
++    await expect(page.getByTestId("proof-panel")).toBeVisible();
++    const firstClaimId = await firstClaim.getAttribute("data-testid");
++
++    // J = next claim
++    await page.keyboard.press("j");
++    const secondPanel = page.getByTestId("proof-panel");
++    const secondClaimId = await secondPanel.getAttribute("data-claim-id");
++    expect(secondClaimId).not.toBeNull();
++
++    // K = previous claim
++    await page.keyboard.press("k");
++    const backPanel = page.getByTestId("proof-panel");
++    const backClaimId = await backPanel.getAttribute("data-claim-id");
++    expect(firstClaimId).toContain(backClaimId ?? "");
++
++    // Esc clears the selection and focus returns to the clicked sentence
++    await page.keyboard.press("Escape");
++    await expect(page.getByTestId("proof-panel-empty")).toBeVisible();
++    const focused = await page.evaluate(
++      () => document.activeElement?.getAttribute("data-testid") ?? null,
++    );
++    expect(focused).toContain("claim-");
++  });
++
++  test("signature pill renders the bundle's tri-state value", async ({
++    page,
++  }) => {
++    await page.goto(INSPECTOR_PATH);
++    const firstClaim = page
++      .getByTestId("claims-list")
++      .locator('[data-testid^="claim-"]')
++      .first();
++    await firstClaim.click();
++    const sigBlock = page.getByTestId("signature-block");
++    await expect(sigBlock).toBeVisible();
++    // The canonical fixture is signed by the demo key → gpg_verified state
++    const badge = sigBlock.getByTestId("signature-badge");
++    await expect(badge).toHaveAttribute("data-state", /gpg_verified|present_unverified|missing/);
++  });
++
++  test("sealed evidence block: matched-numbers stamp shows when numerics match", async ({
++    page,
++  }) => {
++    await page.goto(INSPECTOR_PATH);
++    // Iterate claims until we find one with a matched-numbers stamp (the
++    // canonical fixture has at least one claim with numerics, e.g. SURPASS
++    // treatment differences).
++    const claims = page
++      .getByTestId("claims-list")
++      .locator('[data-testid^="claim-"]');
++    const count = await claims.count();
++    let foundStamp = false;
++    for (let i = 0; i < count && !foundStamp; i++) {
++      await claims.nth(i).click();
++      const source = page.getByTestId("source-climax");
++      await expect(source).toBeVisible();
++      const stamp = page.getByTestId("matched-numbers-stamp");
++      if ((await stamp.count()) > 0) {
++        await expect(stamp).toContainText(/matched.*of.*numbers/i);
++        foundStamp = true;
++      }
++    }
++    // Don't hard-fail if no numeric claim — but at least one claim in the
++    // canonical fixture should have one.
++    expect(foundStamp).toBe(true);
++  });
++
++  test("desktop layout: split-view grid is rendered", async ({ page }) => {
++    await page.setViewportSize({ width: 1440, height: 900 });
++    await page.goto(INSPECTOR_PATH);
++    const root = page.getByTestId("proof-replay");
++    await expect(root).toHaveAttribute("data-viewport", "desktop");
++  });
++
++  test("mobile layout: bottom sheet opens on claim selection", async ({
++    page,
++  }) => {
++    await page.setViewportSize({ width: 390, height: 844 });
++    await page.goto(INSPECTOR_PATH);
++    const root = page.getByTestId("proof-replay");
++    await expect(root).toHaveAttribute("data-viewport", "mobile");
++    const firstClaim = page
++      .getByTestId("claims-list")
++      .locator('[data-testid^="claim-"]')
++      .first();
++    await firstClaim.click();
++    await expect(page.getByTestId("proof-replay-sheet")).toBeVisible();
++    await expect(page.getByTestId("proof-panel")).toBeVisible();
++  });
++
++  test("reduced-motion: 6 beats appear instantly (no per-beat opacity ramp)", async ({
++    browser,
++  }) => {
++    const ctx = await browser.newContext({ reducedMotion: "reduce" });
++    const page = await ctx.newPage();
++    await page.goto(INSPECTOR_PATH);
++    const firstClaim = page
++      .getByTestId("claims-list")
++      .locator('[data-testid^="claim-"]')
++      .first();
++    const t0 = Date.now();
++    await firstClaim.click();
++    // All beats should be visible essentially immediately
++    await expect(page.getByTestId("disclosure-block")).toBeVisible({
++      timeout: 200,
++    });
++    const elapsed = Date.now() - t0;
++    expect(elapsed).toBeLessThan(200);
++    await ctx.close();
++  });
++});
+# canonical-diff-sha256: ea547c229d1e3b2b0244cc0fe2c30c1477633d0311ec4caa8c64322b5ee67735

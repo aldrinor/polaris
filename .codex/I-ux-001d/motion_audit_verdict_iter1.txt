@@ -1,0 +1,32 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "t=0 rest state is materially wrong: the challenged sentence already has active green border/background styling. This breaks Beat 0 -> Beat 1 cause/effect, so fix before scaling."
+  - "Beat 6 is missing in the final state. I see the signature pill and verify-offline link, but not the collapsed 'What this verification does NOT prove' disclosure required by the storyboard and clinical-safety contract."
+
+p2:
+  - "Spatial/temporal mismatch creates a visible proof-panel hole at t=400 and then inserts the source above an already-visible evidence ladder at t=600. The source still reads as the proof object, but the insertion weakens the choreography."
+  - "Beat 1 claim echo is readable, but lacks the explicit 'Challenged sentence' label from the storyboard. Add the label if this is meant to be the canonical motion grammar."
+  - "final_static t=700 appears to be missing the mandatory bottom timing annotation bar/top timing mark used by the still convention."
+
+p3:
+  - "Evidence ladder inactive labels are small and low-contrast, especially 'Very low'. Not a blocker for this smoke test, but worth tightening before mobile/reduced-motion scale-up."
+
+convergence_call: continue
+
+remaining_blockers_for_scale_up:
+  - "Fix true rest styling at t=0 so the selected border/background/marker only appears after click."
+  - "Add the Beat 6 collapsed limits disclosure to final_static."
+  - "Resolve panel order before batch export: avoid content appearing above already-revealed content."
+
+specific_check_responses:
+  challenged_sentence_at_rest_severity: P1
+  spatial_vs_temporal_order: "other_with_rationale: keep Source as the temporal climax, but make spatial order match the reveal order: claim echo -> faithfulness -> evidence strength -> source span -> signature -> limits disclosure. Do not swap Source to t=400 unless you are willing to demote it as the climax."
+  reveal_order_tweaks:
+    - "Do not collapse Faithfulness + Certainty. Sequential beats are doing useful work and keep the two judgments distinct."
+    - "Keep total reveal around 700ms. Verdict visible by 250ms satisfies time-to-first-proof; 500ms would feel rushed for this clinical proof chain, and 900ms would feel sluggish."
+```
+
+Source checked: Vercel Web Interface Guidelines, especially animation guidance on reduced motion, transform/opacity, and motion clarifying cause/effect: https://vercel.com/design/guidelines

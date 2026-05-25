@@ -73,16 +73,36 @@ export function BundleHeader({ manifest }: BundleHeaderProps) {
   );
 }
 
-export function SignatureBadge({ present }: { present: boolean }) {
-  if (present) {
+// I-ux-001a tri-valued signature state. Only `gpg_verified` may render the
+// green "Signed bundle" pill. `present_unverified` is the honest in-browser /
+// not-yet-verified state and points the reviewer at the offline verify
+// command. `missing` is amber-on-amber: trust is not established.
+export type SignatureState = "missing" | "present_unverified" | "gpg_verified";
+
+export function SignatureBadge({ state }: { state: SignatureState }) {
+  if (state === "gpg_verified") {
     return (
       <span
         className="border-verified/30 bg-verified/10 text-verified inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
         data-testid="signature-badge"
-        data-state="present"
+        data-state="gpg_verified"
+        title="Cryptographically verified against the published trust-root pubkey"
       >
         <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
         Signed bundle
+      </span>
+    );
+  }
+  if (state === "present_unverified") {
+    return (
+      <span
+        className="border-contradiction/40 bg-contradiction/10 text-contradiction-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+        data-testid="signature-badge"
+        data-state="present_unverified"
+        title="A signature is attached but not verified in this view. Run `gpg --verify manifest.yaml.asc manifest.yaml` after importing the published trust-root pubkey."
+      >
+        <ShieldAlert aria-hidden className="h-3.5 w-3.5" />
+        Signature attached — verify offline
       </span>
     );
   }
@@ -91,9 +111,10 @@ export function SignatureBadge({ present }: { present: boolean }) {
       className="border-contradiction/40 bg-contradiction/15 text-contradiction-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium"
       data-testid="signature-badge"
       data-state="missing"
+      title="No signature file. Trust has not been established for this bundle."
     >
       <ShieldAlert aria-hidden className="h-3.5 w-3.5" />
-      Signature missing
+      Not signed — trust not established
     </span>
   );
 }

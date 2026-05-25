@@ -1,0 +1,30 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+
+p1:
+  - "Intended-use / non-use language is missing on frames that present clinical content. Read-mode, Edit-mode, Monitor-mode, and Marketing-auth all show clinical claims or clinical workflow copy, but none visibly states the research-decision-support scope or non-use limits. This fails the v6 checklist and is a clinical-safety/regulatory posture blocker before Track 3."
+  - "Edit-mode substitutes Cancel for a real refusal/abstention outcome. The family contract requires proceed / refuse / amend, and the checklist requires a first-class abstention state. The template shows Proceed / Amend plan / Cancel, which models user cancellation rather than 'POLARIS cannot answer safely.'"
+  - "Monitor-mode exposes raw internal abort codes in the visible family callout: abort_corpus_inadequate, abort_no_verified_sections, abort_corpus_approval_denied. The zero-jargon banlist explicitly forbids abort_* UI tokens. If these red callouts are audit-only annotations, Track 3 must remove them from product frames; as submitted, the frame fails."
+
+p2:
+  - "Tri-state signature grammar is under-demonstrated. All five frames show the green signed success state, but the contact sheet does not show present-unverified or missing states, despite tri-state signature being a shell-level contract."
+  - "Monitor-mode does not yet visually prove the live SSE stream contract. It has a good status checklist and tier counters, but no event stream shape, timestamps, source decisions, rejection reasons, or partial/abstain rendering."
+  - "Spatial family callout names BFS expand and PNG/JSON export, but the frame does not show controls for expand/export. The graph and focused-node panel are clear; the action surface is not."
+  - "Edit-mode mentions source-set adequacy but does not expose the source-set control itself. Amend plan implies editability, but the family grammar would be stronger with a visible compact control preview."
+
+p3:
+  - "The family-template red annotation lines are useful for audit, but they visually compete with the actual UI and introduce implementation terms such as SSE and BFS. Keep them out of production Track 3 frames or move them to surrounding documentation."
+  - "Canadian-hosted chip and signed-bundle footer are consistent, but the contact sheet should clarify whether the small status dot is semantic or decorative under the icon-restraint rule."
+
+convergence_call: continue
+track_2_ready_to_signoff: no
+
+specific_check_responses:
+  family_contract_clarity_per_template: "FAIL_with_detail: Read-mode is clear; Marketing-auth is clear; Edit-mode lacks true refusal/abstention; Monitor-mode lacks a visible live-stream grammar; Spatial lacks visible expand/export controls."
+  cross_family_visual_system_consistency: "PASS: shared shell, footer, Canadian-hosted chip, restrained typography, and green proof language hold across the five templates."
+  per_frame_v6_checklist_coverage: "FAIL_with_detail: intended-use/non-use is missing on clinical-content frames; monitor-mode includes banned abort_* tokens; tri-state signature states are not demonstrated."
+  family_completeness: "gaps_listed: add refusal/abstention to Edit-mode; add live event stream and humanized abort/partial states to Monitor-mode; add expand/export controls to Spatial; document tri-state signature states across the shell."
+  cross_family_hierarchy_visual_consistency: "PASS: the families are visually related without becoming clones, and the sibling derivation strategy is credible once the P1 contract gaps are fixed."
+```

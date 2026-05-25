@@ -1,0 +1,31 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "P1-001 route inventory gap: the 11-page/22-frame map excludes live app-nav prod routes still present in `web/lib/nav.ts` and `docs/web/route_map.md`: `/upload`, `/benchmark`, `/contracts`, `/pin_replay`, `/memory`. If #879 means 'all pages before code', the current inventory is not complete. Either explicitly cut/hide these from the demo/app nav and document that cut, or add them to the frame/audit scope."
+  - "P1-002 transparency contract conflict: `docs/stier_experience_plan.md` requires intended-use/trust material on `/transparency`, and the footer links to `/transparency`; but the new route map rejects a human page while `next.config.ts` rewrites `/transparency` to FastAPI JSON. Footer microcopy + a proof panel do not satisfy the human regulatory disclosure surface as-is. Pick one: dedicated human `/transparency` page, or a named shell disclosure panel with links retargeted away from JSON."
+
+p2:
+  - "Budget is tight enough that #879 cannot absorb scope ambiguity. The 11-page version is plausible only with strict critical-path discipline and #871 running in parallel; the full nav-route version is not plausible before June 5."
+  - "Source Review should remain standalone for now, but visually behave as step 2 of Intake/preflight."
+  - "Incumbent-informed remains right, but every frame needs an explicit v6 proof-language checklist to prevent old-page habits leaking back in."
+
+p3:
+  - "Motion convention minor cleanup: doc says 8 scenes but enumerates `hero_reduced_motion` as a separate scene, making 9. Clarify reduced-motion as variants, not a ninth primary scene."
+
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Resolve the prod-route inventory: cut/hide `/upload`, `/benchmark`, `/contracts`, `/pin_replay`, `/memory` for the demo, or include them in #879."
+  - "Resolve the transparency surface: human page or audited shell disclosure component; footer-only is not enough."
+
+specific_check_responses:
+  budget_realism:
+    - "Not safely achievable as-is. From May 25 to the June 5, 2026 demo-window start is about 11 calendar days. 22 frames + motion + audits + I-ux-001c + #871 + TLS + rehearsal is only plausible if the frame inventory is frozen and implementation overlaps immediately after hero/family contracts. It is not plausible if omitted nav routes are still in scope."
+  source_review_vs_intake_consolidation:
+    - "Keep standalone route. It is a safety/adequacy gate, not just form friction. Design it as the same edit-mode preflight family as Intake."
+  transparency_shell_vs_page:
+    - "Shell-only can work only if it is a real disclosure panel/component with intended-use, non-use, model path, data residency, verifier limits, and receipt links. Current footer/link/JSON setup does not satisfy the plan."
+  incumbent_leak_risk:
+    - "Real risk, but manageable. Add a per-frame checklist: sealed evidence block where relevant, two-judgment separation, tri-state signature pill, intended-use/refusal language, no old route-card visual habits."
+```

@@ -1,0 +1,28 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Spec conflict: the brief orders Evidence Strength before Source, but the referenced v6 desktop/mobile screenshots show Source before Evidence Strength. Since acceptance says to match those screenshots, implementation cannot satisfy both. Resolve the authoritative vertical order before coding."
+  - "ProofReplay cannot render the required tri-state signature pill under the declared file scope. inspector_view.tsx currently passes only sections and evidencePool into ProofReplay, while signatureState/manifest/bundle id live on LoadedBundle. The brief's 'inspector_view correct; no changes needed' claim is false unless the scope allows minimal prop threading."
+  - "The real bundle data contract does not contain the v6 evidence-strength fields the brief requires: certainty level, dominant downgrade reason, study type, per-claim matched N-of-N numbers, journal/year/DOI/authors. Without an explicit adapter/fallback rule, implementation will either hard-code demo facts or invent clinical proof metadata."
+p2:
+  - "Smoke commands need correction. From web/, the new Playwright file path should be tests/e2e/inspector_proof_replay.spec.ts, not web/tests/e2e/..., and the repo's axe harness is node tests/a11y/wcag_axe_scan.mjs with BASE set, not pnpm exec axe web/app/inspector."
+  - "Package-manager smoke step should prefer npm ci/npm run because web has package-lock.json and no pnpm-lock.yaml; pnpm install risks lockfile churn."
+  - "Acceptance should explicitly test the storyboard hard rules: time-to-first-proof <400ms, claim-to-claim <120ms, Enter/Esc/J/K keyboard path, focus return/trap, mobile swipe/dismiss, and reduced-motion instant state."
+  - "Token names in the brief drift from design_tokens_v2.md: docs define --motion-fast/base/slow plus easing tokens, while the brief asks for --motion-fast-out-slow-in as a duration. Align token names and include Tailwind --color-* mappings if utilities will consume them."
+  - "Real evidence_pool tiers include T4, while the catalogue SourceCard contract only names T1/T2/T3. The implementation brief should require graceful T4+ rendering."
+p3:
+  - "intended_use_strip.tsx is fine, but docs name the primitive IntendedUseBanner. Consider exporting/naming consistently to avoid later family-page drift."
+  - "Clarify whether the Inspector-specific cross-page exit affordance from Track 4 is intentionally deferred or belongs in this Inspector sub-PR."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Choose one authoritative proof-panel order and update either the brief or the screenshots."
+  - "Add minimal InspectorView/ProofReplay prop-scope for signatureState and manifest/bundle receipt data."
+  - "Define the real-data adapter or fixture/schema additions for evidence strength, source identity, downgrade copy, and matched-number counts."
+specific_check_responses:
+  scope_cap_appropriate: FAIL_with_detail
+  acceptance_criteria_complete: FAIL_with_detail
+  smoke_test_plan_realistic: FAIL_with_detail
+  files_also_checked_credible: FAIL_with_detail
+```

@@ -1,0 +1,23 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+p3:
+  - "Scene 2 mid-frame has a brief double-emphasis read: the incoming claim tints while the outgoing verified card is still visibly active. Acceptable at 40ms, but if this is used in a slowed demo, reduce old-claim salience sooner."
+  - "Scene 7 no-verified failure copy is strong but dense on the right rail; keep an eye on line clipping in the third explanatory bullet."
+convergence_call: accept_remaining
+track_1_ready_to_signoff: yes
+specific_check_responses:
+  cross_scene_grammar_consistency: PASS
+  failure_designs_aplus: PASS
+  mobile_sheet_motion_readable_in_stills: PASS
+  hover_focus_micro_states_appropriate: PASS
+  claim_switch_120ms_feel: PASS
+  iter3_carryforward_addressed: PASS
+```
+
+The set is coherent enough to sign off. The success, micro-state, mobile, and failure scenes all share the same restrained proof-system language: green verification, quiet neutrals, compact badges, source-card framing, and the bottom annotation bar.
+
+The failure states hold up. `no_verified` reads as an honest evidence failure, while `refuse` reads as an intended-use boundary; the badge color split is clear without making either state look like a generic app error. Mobile sheet open/close reads as vertical motion from the stills, and the handle remains stable. Hover is appropriately quiet; focus is appropriately explicit.

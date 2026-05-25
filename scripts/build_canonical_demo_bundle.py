@@ -11,15 +11,23 @@ into the v1.0 signed-bundle format the inspector loads.
 the cited span (strict_verify-style numeric-fidelity re-check). Spans that fail
 are dropped — we never ship a claim whose source span doesn't support it.
 
-Signature: NONE (operator chose "skip the seal" — option b). No manifest.yaml.asc
-is written, so the inspector honestly renders signaturePresent=false.
+Signature (I-ux-001a, #874): signed by DEFAULT with the canonical Carney-demo
+Ed25519 key (fingerprint FB221FA8ED185F8E3F76F7E6F6F31CEDFF490C02, bootstrapped
+by scripts/bootstrap_gpg_demo_key.sh into GNUPGHOME=~/.gnupg-polaris). The
+emitted manifest.yaml.asc verifies end-to-end against the shipped trust root at
+docs/carney_handover/polaris_demo_pubkey.asc, and the loader renders
+signatureState="gpg_verified". Pass --unsigned to skip signing (the prior
+"option b" workflow); the loader then renders the honest "Not signed" state.
 """
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -257,7 +265,7 @@ def main() -> int:
     for src in sources:
         write(OUT / "sources" / f"{src['source_id']}.txt", src["full_text"])
 
-    # --- manifest (sha256 + sizes; NO .asc → signature honestly absent) ---
+    # --- manifest (sha256 + sizes; .asc is added by _sign_manifest_or_fail below) ---
     file_entries = [
         ("scope_decision", "scope_decision.json"),
         ("evidence_pool", "evidence_pool.json"),
@@ -302,11 +310,100 @@ def main() -> int:
     ]
     write(OUT / "manifest.yaml", "\n".join(manifest_lines) + "\n")
 
+    # --- I-ux-001a (Codex iter-1 P0): sign by default with CANONICAL key ----
+    args = _parse_args()
+    if args.unsigned:
+        print(
+            f"OK: {total_kept} verified sentences across {len(sections)} sections, "
+            f"{len(sources)} real sources. {total_dropped_gate} dropped at §-1.1 gate. "
+            f"--unsigned: no signature written."
+        )
+        return 0
+
+    sig_rc = _sign_manifest_or_fail(OUT / "manifest.yaml")
+    if sig_rc != 0:
+        return sig_rc
     print(
         f"OK: {total_kept} verified sentences across {len(sections)} sections, "
         f"{len(sources)} real sources. {total_dropped_gate} dropped at §-1.1 gate. "
-        f"No signature (option b)."
+        f"Signed with canonical key."
     )
+    return 0
+
+
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Build the canonical demo bundle.")
+    p.add_argument(
+        "--unsigned",
+        action="store_true",
+        help="Skip signing (prior 'option b' workflow). LAW-II: the inspector "
+             "will then render the honest 'Not signed' state.",
+    )
+    return p.parse_args()
+
+
+def _sign_manifest_or_fail(manifest_path: Path) -> int:
+    """Detach-sign `manifest_path` with the canonical Carney-demo key.
+
+    Reads:
+      $POLARIS_GPG_HOMEDIR (default ~/.gnupg-polaris) — the dedicated keyring
+        bootstrapped by scripts/bootstrap_gpg_demo_key.sh
+        (docs/carney_secret_inventory.md #1).
+      $POLARIS_GPG_KEY_ID  (default state/polaris_gpg_keyid.txt) — pinned
+        fingerprint of the canonical signing key.
+
+    Fails loudly if either is unavailable. Never falls back silently (which
+    would risk signing with a different default-keyring key that does NOT
+    match the shipped trust-root pubkey).
+    """
+    home = os.environ.get("POLARIS_GPG_HOMEDIR") or str(
+        Path.home() / ".gnupg-polaris"
+    )
+    fp = os.environ.get("POLARIS_GPG_KEY_ID")
+    if not fp:
+        pin = Path("state/polaris_gpg_keyid.txt")
+        if not pin.is_file():
+            print(
+                "[sign] FAIL: no $POLARIS_GPG_KEY_ID and "
+                "state/polaris_gpg_keyid.txt missing. "
+                "Run scripts/bootstrap_gpg_demo_key.sh first, or pass --unsigned.",
+                file=sys.stderr,
+            )
+            return 2
+        fp = pin.read_text(encoding="utf-8").strip()
+    if not Path(home).is_dir():
+        print(
+            f"[sign] FAIL: GNUPGHOME {home} does not exist. "
+            f"Run scripts/bootstrap_gpg_demo_key.sh first, or pass --unsigned.",
+            file=sys.stderr,
+        )
+        return 2
+
+    asc = manifest_path.with_suffix(manifest_path.suffix + ".asc")
+    if asc.exists():
+        asc.unlink()
+    env = {**os.environ, "GNUPGHOME": home}
+    cmd = [
+        "gpg", "--batch", "--yes", "--local-user", fp,
+        "--armor", "--detach-sign", "--output", str(asc), str(manifest_path),
+    ]
+    r = subprocess.run(cmd, env=env, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(
+            f"[sign] FAIL: gpg detach-sign exit {r.returncode}: "
+            f"{r.stderr.strip()}",
+            file=sys.stderr,
+        )
+        return 3
+
+    vr = subprocess.run(
+        ["gpg", "--batch", "--verify", str(asc), str(manifest_path)],
+        env=env, capture_output=True, text=True,
+    )
+    if vr.returncode != 0:
+        print(f"[sign] FAIL: self-verify after sign: {vr.stderr.strip()}", file=sys.stderr)
+        return 4
+    print(f"[sign] OK: {asc.name} ({asc.stat().st_size} bytes) signed with {fp}")
     return 0
 
 

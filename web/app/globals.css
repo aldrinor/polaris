@@ -61,6 +61,24 @@
   /* I-p2-042 (#831) S-tier foundation: ONE motion primitive (Codex direction)
      — consistent inspection/selection feel; reuse on hover/focus/tab/span. */
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* I-ux-001c (#878) sub-PR 1: motion tokens v2 per design_tokens_v2.md §5.
+     Three durations, ONE easing (--ease-standard above). Tokens are exposed
+     as `--duration-*` so Tailwind v4 utilities can read them via
+     `transition-[duration:var(--duration-base)]`. `prefers-reduced-motion`
+     collapses every animation to instant — implemented per-component, NOT
+     globally, so motion components can fade-through-opacity-only while
+     non-motion utilities stay snappy. */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+  /* I-ux-001c (#878) sub-PR 1: per-certainty foregrounds (evidence-strength
+     ladder, ordinal). Slate-blue family — distinct from faithfulness greens
+     and from brand red. Codex iter-2 brief APPROVED these as the
+     ProofReplayClaim.evidence_strength.level codomain mapping. */
+  --certainty-very-low-fg: oklch(0.5 0.04 250);
+  --certainty-low-fg: oklch(0.45 0.06 250);
+  --certainty-moderate-fg: oklch(0.4 0.1 250);
+  --certainty-high-fg: oklch(0.32 0.14 250);
   /* Brand-temperature card elevation (not pure gray) — restrained: a neutral
      hairline lift + a faint Canada-red wash. Uses the operator-locked brand
      #c8102e = rgb(200 16 46), NOT a palette change. */
