@@ -103,14 +103,22 @@ export function ProofAsCta({ brief }: ProofAsCtaProps) {
       data-state="loaded"
       className="bg-card ring-foreground/10 shadow-card hover:shadow-card-hover ease-standard mx-auto w-full max-w-3xl rounded-2xl px-6 py-6 ring-1 transition-shadow duration-150 sm:px-8 sm:py-8"
     >
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-5">
         <div className="flex items-center justify-between gap-3">
           <span className="text-muted-foreground text-[10px] font-medium tracking-[0.14em] uppercase">
             Verified Claim · Live Example
           </span>
+          {/* Codex visual iter-1 source_pill PARTIAL: reframed as
+              "Primary evidence · T<n>" with verified-green tint and a
+              bullet glyph (·) so it reads as an evidence-tier control,
+              not stray metadata. Restrained tint — no full pill green. */}
           {brief.source.tier ? (
-            <span className="text-muted-foreground border-border rounded-full border px-2 py-0.5 font-mono text-[10px]">
-              {brief.source.tier} source
+            <span
+              data-testid="proof-source-pill"
+              className="border-verified/30 text-verified bg-verified/5 inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-medium whitespace-nowrap tracking-[0.04em] uppercase"
+            >
+              <span aria-hidden>◆</span>
+              {brief.source.tier} · Primary evidence
             </span>
           ) : null}
         </div>
@@ -123,59 +131,78 @@ export function ProofAsCta({ brief }: ProofAsCtaProps) {
           {highlightNumerics(claim)}
         </p>
 
-        {/* Footer band — matched-numbers stamp + sig pill (tri-state) */}
-        <div className="border-border/60 flex flex-wrap items-center gap-x-3 gap-y-2 border-t pt-3 text-xs sm:text-[13px]">
+        {/* Trust strip — two-row layout that gives both the verification
+            stamp AND the signature pill enough weight to read as serious
+            affordances (Codex visual iter-1 honest_signature_pill PARTIAL
+            + mobile_fidelity PARTIAL: the previous single-row inline
+            layout broke awkwardly on 390px and the signature signal lost
+            affordance). Now each signal owns its own row on mobile and
+            shares a row on tablet+ with explicit weight + border. */}
+        <div className="border-border/60 flex flex-col gap-2 border-t pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2">
+          {/* Matched-numbers stamp — promoted to verified-tinted pill */}
           {total > 0 ? (
             <span
               data-testid="proof-matched-stamp"
-              className="text-verified tabular-nums"
+              className="border-verified/30 text-verified bg-verified/5 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium tabular-nums sm:text-[13px]"
             >
-              ✓ matched {matched} of {total} number{total === 1 ? "" : "s"}{" "}
+              <span aria-hidden className="text-verified">✓</span>
+              Matched {matched} of {total} number{total === 1 ? "" : "s"}{" "}
               {sourceTail(journal, year)}
             </span>
           ) : (
             <span
               data-testid="proof-matched-stamp"
-              className="text-verified"
+              className="border-verified/30 text-verified bg-verified/5 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium sm:text-[13px]"
             >
-              ✓ verifier passed {sourceTail(journal, year)}
+              <span aria-hidden className="text-verified">✓</span>
+              Verifier passed {sourceTail(journal, year)}
             </span>
           )}
 
-          {/* Tri-state signature pill — only gpg_verified renders the green
-              "Signed bundle" affordance. (Codex iter-1 P1-005 carry-forward
-              from sub-PR 1: never overclaim a signature.) */}
+          {/* Tri-state signature pill — promoted from inline microcopy to
+              its own pill with explicit border + slightly larger glyph.
+              Only gpg_verified renders the green "Signed bundle"
+              affordance (sub-PR-1 Codex iter-1 P1-005 carry-forward:
+              never overclaim a signature). */}
           {brief.signature_state === "gpg_verified" && (
             <span
               data-testid="proof-sig-pill"
               data-state="gpg_verified"
-              className="text-verified inline-flex items-center text-[11px] font-medium"
+              className="border-verified/30 text-verified bg-verified/5 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium sm:text-[13px]"
+              title="Bundle cryptographically signed; signature verified offline against the pinned trust root."
             >
-              · ⬡ signed bundle
+              <span aria-hidden className="text-verified text-[14px] leading-none">
+                ⬡
+              </span>
+              Signed bundle · verifiable offline
             </span>
           )}
           {brief.signature_state === "present_unverified" && (
             <span
               data-testid="proof-sig-pill"
               data-state="present_unverified"
-              className="text-amber-700 inline-flex items-center text-[11px] font-medium"
+              className="border-amber-700/40 text-amber-800 bg-amber-50 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium sm:text-[13px]"
+              title="Signature attached but not GPG-verified in this browser context; re-verify offline."
             >
-              · ⊟ signature attached — verify offline
+              <span aria-hidden className="text-[14px] leading-none">⊟</span>
+              Signature attached · verify offline
             </span>
           )}
           {brief.signature_state === "missing" && (
             <span
               data-testid="proof-sig-pill"
               data-state="missing"
-              className="text-contradiction-foreground inline-flex items-center text-[11px] font-medium"
+              className="border-contradiction-foreground/30 text-contradiction-foreground bg-contradiction/10 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium sm:text-[13px]"
+              title="No signature on disk — trust not cryptographically established."
             >
-              · ⊠ not signed
+              <span aria-hidden className="text-[14px] leading-none">⊠</span>
+              Not signed · trust not established
             </span>
           )}
         </div>
 
         {/* Link to the full proof — anchored to this card */}
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-end pt-1">
           <Link
             href={`/inspector/${brief.run_id}`}
             data-testid="proof-as-cta-link"
