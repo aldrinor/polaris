@@ -1,0 +1,24 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Smoke plan is still not copy-paste executable: web package script is `typecheck` not `type-check`; Playwright defaults to `SCREENSHOT_BASE_URL`/port 3738 while the smoke starts Next on 3000; axe script is `web/tests/a11y/wcag_axe_scan.mjs`, uses `BASE`, and does not accept `--base/--route`."
+  - "The new `web/tests/a11y/inspector_aa.test.mjs` is not wired by current config unless a runner/script is added; Playwright only scans `web/tests/e2e`."
+  - "Reduced-motion acceptance says instant/no opacity ramp, but `docs/web/i_ux_001d_motion_still_convention.md` still describes reduced-motion opacity crossfade timestamps. Align that doc or visual audit instructions may conflict."
+  - "T4-T7 coverage is mostly resolved in the adapter spec, but the catalogue/current `SourceCard` contract still says T1-T3 and current rendering collapses non-T1/T2 styling. Either update the contract/code or keep ProofReplay’s tier pill independent and test T4-T7 there."
+p3:
+  - "Use `manifest.bundle_created_at_utc`, not `created_at`, if displaying created time."
+  - "The 200-280 LOC estimate is likely low once focus trap, mobile gestures, reduced-motion, and e2e coverage are included; split if the PR cap matters."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+specific_check_responses:
+  p1_spatial_order_resolved: PASS
+  p1_prop_threading_resolved: PASS
+  p1_adapter_data_contract_resolved: PASS
+  p2_smoke_commands_corrected: "FAIL_with_detail: command names, Playwright baseURL, and axe path/CLI still do not match the repo."
+  p2_storyboard_hard_rules_in_acceptance: PASS
+  p2_motion_token_names_aligned: PASS
+  p2_tier_rendering_covers_T4_through_T7: "FAIL_with_detail: adapter type covers T1-T7, but SourceCard/catalogue contract and explicit rendering path still need alignment or local ProofReplay tests."
+```

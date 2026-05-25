@@ -166,7 +166,7 @@ index 00000000..b908b147
 +  );
 +}
 diff --git a/web/components/inspector/inspector_proof_header.tsx b/web/components/inspector/inspector_proof_header.tsx
-index 015aa76d..f44c1ef9 100644
+index 015aa76d..2a96aaf2 100644
 --- a/web/components/inspector/inspector_proof_header.tsx
 +++ b/web/components/inspector/inspector_proof_header.tsx
 @@ -1,16 +1,30 @@
@@ -256,7 +256,7 @@ index 015aa76d..f44c1ef9 100644
          {report.research_question ?? "Signed research bundle"}
        </h1>
  
-@@ -54,44 +89,114 @@ export function InspectorProofHeader({
+@@ -54,44 +89,118 @@ export function InspectorProofHeader({
          data-testid="inspector-proof-header"
          className="bg-card ring-foreground/10 shadow-card flex flex-col gap-3 rounded-xl p-4 ring-1 sm:p-5"
        >
@@ -377,7 +377,11 @@ index 015aa76d..f44c1ef9 100644
              <span className="text-muted-foreground">
 -              No verified sections — see the Report tab for the full pipeline
 -              verdict.
-+              The pipeline ran honestly and signed the abort. See the Report
++              {/* Codex diff iter-2 P1-006 fix: signature-neutral copy.
++                  The SignatureBadge below carries the actual trust state
++                  (gpg_verified / present_unverified / missing); the abort
++                  header MUST NOT assert signing. */}
++              The pipeline ran honestly and emitted a verdict. See the Report
 +              tab for the full per-section state.
              </span>
            </div>
@@ -394,10 +398,10 @@ index 015aa76d..f44c1ef9 100644
            <div className="flex flex-wrap items-center gap-2">
              <FamilySegregationBadge
 diff --git a/web/components/proof_replay/proof_replay.tsx b/web/components/proof_replay/proof_replay.tsx
-index 23ebeae1..fbc3b575 100644
+index 23ebeae1..7ddec6cb 100644
 --- a/web/components/proof_replay/proof_replay.tsx
 +++ b/web/components/proof_replay/proof_replay.tsx
-@@ -1,177 +1,670 @@
+@@ -1,177 +1,673 @@
 -// I-p2-007 (#746): Proof Replay split-view — POLARIS's centerpiece. Click a
 -// verified claim (left) → see the EXACT cited source span (right). Composes the
 -// shared resolveSpan (#743) + SourceCard (#745) + VerdictChip (#744). Honest:
@@ -627,13 +631,16 @@ index 23ebeae1..fbc3b575 100644
 +        : "text-contradiction-foreground";
 +  // Codex diff iter-1 P1-001 fix: omit the content-word-overlap row when the
 +  // bundle did not carry the metric (content_words_overlap === null).
-+  const checks: Array<[string, boolean]> = [
-+    [
++  // Codex diff iter-3 P2: omit the "X of Y numbers" row when the claim has
++  // zero numerics. Showing "0 of 0" as data-pass=false misleads on
++  // pure-prose claims that have no numerical assertions to check.
++  const checks: Array<[string, boolean]> = [];
++  if (f.matched_numbers.total > 0) {
++    checks.push([
 +      `Every number in the claim appears in the cited span (${f.matched_numbers.matched} of ${f.matched_numbers.total}).`,
-+      f.matched_numbers.total > 0 &&
-+        f.matched_numbers.matched === f.matched_numbers.total,
-+    ],
-+  ];
++      f.matched_numbers.matched === f.matched_numbers.total,
++    ]);
++  }
 +  if (f.content_words_overlap !== null) {
 +    checks.push([
 +      `Claim and span share ${f.content_words_overlap} content words (threshold ≥ 2).`,
@@ -925,11 +932,15 @@ index 23ebeae1..fbc3b575 100644
 +        >
 +          → Open the full source
 +        </a>
-+      )}
-+    </div>
-+  );
-+}
-+
+       )}
+     </div>
+   );
+ }
+ 
+-export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
+-  const claims = useMemo(() => flatten(sections), [sections]);
+-  const [selectedKey, setSelectedKey] = useState<string | null>(
+-    claims[0]?.key ?? null,
 +function SignatureBlock({
 +  signatureState,
 +  manifest,
@@ -962,15 +973,15 @@ index 23ebeae1..fbc3b575 100644
 +            bundle {manifest.bundle_id.slice(0, 12)}
 +          </span>
 +        </p>
-       )}
-     </div>
++      )}
++    </div>
    );
- }
- 
--export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
--  const claims = useMemo(() => flatten(sections), [sections]);
--  const [selectedKey, setSelectedKey] = useState<string | null>(
--    claims[0]?.key ?? null,
+-  // Fall back to the first claim if the selected key is stale (e.g. sections
+-  // changed after mount), so the proof pane keeps its default-first behavior.
+-  const selected =
+-    claims.find((c) => c.key === selectedKey) ?? claims[0] ?? null;
++}
++
 +function DisclosureBlock({ visible }: { visible: boolean }) {
 +  return (
 +    <details
@@ -1006,11 +1017,7 @@ index 23ebeae1..fbc3b575 100644
 +        </li>
 +      </ul>
 +    </details>
-   );
--  // Fall back to the first claim if the selected key is stale (e.g. sections
--  // changed after mount), so the proof pane keeps its default-first behavior.
--  const selected =
--    claims.find((c) => c.key === selectedKey) ?? claims[0] ?? null;
++  );
 +}
 +
 +/* ============================================================
@@ -1208,7 +1215,7 @@ index 23ebeae1..fbc3b575 100644
  
    if (claims.length === 0) {
      return (
-@@ -181,61 +674,118 @@ export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
+@@ -181,61 +677,118 @@ export function ProofReplay({ sections, evidencePool }: ProofReplayProps) {
      );
    }
  
@@ -1378,10 +1385,10 @@ index 23ebeae1..fbc3b575 100644
  }
 diff --git a/web/lib/proof_replay_adapter.ts b/web/lib/proof_replay_adapter.ts
 new file mode 100644
-index 00000000..7037060d
+index 00000000..b8197bbc
 --- /dev/null
 +++ b/web/lib/proof_replay_adapter.ts
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,290 @@
 +// I-ux-001c (#878) sub-PR 1: Proof Replay data adapter.
 +//
 +// Bridges the real bundle's `VerifiedSentenceShape` + evidence-pool entries to
@@ -1607,14 +1614,26 @@ index 00000000..7037060d
 +        )
 +      : [],
 +    faithfulness: {
++      // Codex diff iter-2 P2: verifier_pass=true non-numeric claims were
++      // mis-classified as "partial" (no numbers to match → matchedNumerics
++      // === 0 ≠ totalNumerics === 0). Correct logic: if the bundle says
++      // verifier_pass, the claim is "verified" UNLESS it has numerics that
++      // didn't match. Pure-prose verified claims (no numbers) → verified.
 +      verdict: sentence.verifier_pass === true
-+        ? totalNumerics > 0 && matchedNumerics === totalNumerics
++        ? totalNumerics === 0 || matchedNumerics === totalNumerics
 +          ? "verified"
 +          : "partial"
 +        : "unsupported",
 +      matched_numbers: { matched: matchedNumerics, total: totalNumerics },
 +      content_words_overlap: contentWordsOverlap,
-+      span_in_bounds: span !== null && span.source !== null,
++      // Codex diff iter-3 P1: require span.quote !== null. ResolveSpan
++      // returns quote: null when the source is missing full_text or when
++      // the offsets are out-of-bounds — both of which mean the exact span
++      // is NOT actually inside the source's bounds even though a source
++      // object exists. Honest-fail: the check fails if we can't render the
++      // exact passage.
++      span_in_bounds:
++        span !== null && span.source !== null && span.quote !== null,
 +    },
 +    evidence_strength: {
 +      level: tierToCertainty(tier),
@@ -1977,4 +1996,4 @@ index 00000000..d40b99c0
 +    await ctx.close();
 +  });
 +});
-# canonical-diff-sha256: a6324b1deed3cc8a47c219e920d6b66a65ae13464b9e8ddb15bded1f50674dd1
+# canonical-diff-sha256: ea547c229d1e3b2b0244cc0fe2c30c1477633d0311ec4caa8c64322b5ee67735
