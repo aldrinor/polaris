@@ -1,0 +1,121 @@
+diff --git a/web/app/plan/page.tsx b/web/app/plan/page.tsx
+index e19c88b2..d38db971 100644
+--- a/web/app/plan/page.tsx
++++ b/web/app/plan/page.tsx
+@@ -219,19 +219,40 @@ function PlanContent() {
+       data-testid="plan-page"
+       className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-10"
+     >
+-      <div className="flex flex-col gap-1">
+-        <Link
+-          href="/intake"
+-          className="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1 text-xs"
++      {/* I-ux-001c sub-PR 5 (#889): v6 marketing-auth chrome. Brand-red
++          eyebrow + display H1 + tightened subtitle. Edit-question link
++          moved to the eyebrow row. Rest of the page (vetted-question
++          card, plan steps, Start-run flow, error/concurrent/blocked
++          states) preserved verbatim per brief iter-1 APPROVE. */}
++      <div className="flex flex-col gap-3">
++        <div className="flex items-center justify-between gap-3">
++          <span
++            data-testid="plan-eyebrow"
++            className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
++          >
++            PLAN · POLARIS CLINICAL RESEARCH
++          </span>
++          <Link
++            data-testid="plan-edit-question-link"
++            href="/intake"
++            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
++          >
++            <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
++            Edit question
++          </Link>
++        </div>
++        <h1
++          data-testid="plan-h1"
++          className="text-foreground text-3xl leading-[1.1] font-bold tracking-tight text-balance sm:text-4xl"
+         >
+-          <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
+-          Edit question
+-        </Link>
+-        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+-          Review the plan
++          Confirm the plan before the run.
+         </h1>
+-        <p className="text-muted-foreground text-sm">
+-          Confirm what POLARIS will research before the run starts.
++        <p
++          data-testid="plan-subtitle"
++          className="text-muted-foreground max-w-2xl text-sm leading-relaxed sm:text-base"
++        >
++          Re-checked end-to-end — POLARIS will only start the run when the
++          question, scope, and template are all clear.
+         </p>
+       </div>
+ 
+diff --git a/web/tests/e2e/plan_v6.spec.ts b/web/tests/e2e/plan_v6.spec.ts
+new file mode 100644
+index 00000000..c0f2c762
+--- /dev/null
++++ b/web/tests/e2e/plan_v6.spec.ts
+@@ -0,0 +1,57 @@
++// I-ux-001c sub-PR 5 (GH #889): e2e Playwright for the v6 /plan chrome
++// rebuild.
++//
++// Asserts the spec from `.codex/I-ux-001c-5/brief.md` iter-1 APPROVE:
++//   - Brand-red eyebrow + display H1 + tightened subtitle render
++//   - Edit-question link sits in the eyebrow row and still navigates to
++//     /intake (preserves back-link behavior)
++//
++// Mocks the runIntake endpoint so the auth-gated re-check on mount
++// doesn't race with header-link assertions.
++import { expect, test } from "@playwright/test";
++
++const PLAN_PATH =
++  "/plan?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F&template=clinical";
++
++// Minimal valid runIntake response so the page's gate doesn't error.
++const FAKE_INTAKE_OK = {
++  decision: {
++    status: "in_scope",
++    scope_class: "clinical_efficacy",
++    needs_disambiguation: false,
++    candidate_snippets: [],
++  },
++};
++
++test.describe("I-ux-001c · Plan Review v6 chrome", () => {
++  test.beforeEach(async ({ page }) => {
++    await page.route("**/api/v6/intake**", async (route) => {
++      await route.fulfill({
++        status: 200,
++        contentType: "application/json",
++        body: JSON.stringify(FAKE_INTAKE_OK),
++      });
++    });
++  });
++
++  test("eyebrow + H1 + subtitle render with v6 copy", async ({ page }) => {
++    await page.goto(PLAN_PATH, { waitUntil: "domcontentloaded" });
++    await expect(page.getByTestId("plan-page")).toBeVisible();
++    await expect(page.getByTestId("plan-eyebrow")).toContainText(
++      /PLAN.*POLARIS CLINICAL RESEARCH/i,
++    );
++    await expect(page.getByTestId("plan-h1")).toContainText(
++      "Confirm the plan before the run",
++    );
++    await expect(page.getByTestId("plan-subtitle")).toContainText(
++      /Re-checked end-to-end.*question, scope, and template are all clear/i,
++    );
++  });
++
++  test("Edit-question link still navigates to /intake", async ({ page }) => {
++    await page.goto(PLAN_PATH, { waitUntil: "domcontentloaded" });
++    const link = page.getByTestId("plan-edit-question-link");
++    await expect(link).toBeVisible();
++    await expect(link).toHaveAttribute("href", "/intake");
++  });
++});
+
+# canonical-diff-sha256: b5d5b0d72eb06e1be9a6ae82a6477219306a7975cf976ccc0583cce7e5cf3a48
