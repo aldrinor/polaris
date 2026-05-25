@@ -48,7 +48,13 @@ REBUILD
    - Rest of the page (login form, TRUST_POINTS, ?next= validation, error/loading states) PRESERVED VERBATIM
 
 UPDATE
-2. `web/tests/e2e/sign_in.spec.ts` — add v6 chrome cases (eyebrow + H1 + subtitle render) at the end. If sign_in.spec.ts is NOT in web_ci.yml, ALSO update web_ci.yml to enumerate it (following sub-PR 8 pattern).
+2. `web/tests/e2e/sign_in.spec.ts` — add v6 chrome cases (eyebrow + H1 + subtitle render) at the end.
+3. `.github/workflows/web_ci.yml` — sign_in.spec.ts is NOT currently in CI. ADD BOTH (per Codex iter-1 P1):
+   (a) NEW run_e2e_sign_in step enumerating tests/e2e/sign_in.spec.ts
+   (b) auth-fixture env on the existing `start_fastapi_backend` block:
+       - POLARIS_JWT_SECRET: "test_jwt_secret_for_ci_only_must_not_be_used_in_production"
+       - POLARIS_STATIC_ACCOUNTS_PATH: "${{ github.workspace }}/tests/fixtures/auth/test_static_accounts.yaml"
+   Without these envs the FastAPI backend startup fails loud, so the new step would crash before reaching sign-in assertions.
 
 ## Files I have ALSO checked
 
