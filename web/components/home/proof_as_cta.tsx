@@ -115,10 +115,7 @@ function highlightSpanNumerics(
   return parts.map((part, i) => {
     if (i % 2 === 1) {
       return (
-        <span
-          key={i}
-          className="text-verified font-semibold tabular-nums"
-        >
+        <span key={i} className="text-verified font-semibold tabular-nums">
           {part}
         </span>
       );
@@ -192,7 +189,7 @@ export function ProofAsCta({ brief }: ProofAsCtaProps) {
           {brief.source.tier ? (
             <span
               data-testid="proof-source-pill"
-              className="border-verified/30 text-verified bg-verified/5 inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-medium whitespace-nowrap tracking-[0.04em] uppercase"
+              className="border-verified/30 text-verified bg-verified/5 inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-medium tracking-[0.04em] whitespace-nowrap uppercase"
             >
               <span aria-hidden>◆</span>
               {brief.source.tier} · Primary evidence
@@ -230,14 +227,16 @@ export function ProofAsCta({ brief }: ProofAsCtaProps) {
                     ? ` — ${brief.source.year}`
                     : ""}
             </figcaption>
-            <blockquote className="text-foreground/80 text-sm leading-relaxed font-serif italic">
+            <blockquote className="text-foreground/80 font-serif text-sm leading-relaxed italic">
               &ldquo;
               {highlightSpanNumerics(
                 formatExcerpt(normalizeForDisplay(brief.span_quote)),
                 brief.matched_numerics > 0
                   ? // Pull the actual matched numerics from the claim regex
                     Array.from(
-                      claim.matchAll(/[−-]?\d+(?:\.\d+)?(?:%|\s*percentage\s+points?)?/g),
+                      claim.matchAll(
+                        /[−-]?\d+(?:\.\d+)?(?:%|\s*percentage\s+points?)?/g,
+                      ),
                     )
                       .map((m) => m[0])
                       .filter((n) => brief.span_quote!.includes(n))
@@ -262,7 +261,9 @@ export function ProofAsCta({ brief }: ProofAsCtaProps) {
               data-testid="proof-matched-stamp"
               className="border-verified/30 text-verified bg-verified/5 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium tabular-nums sm:text-[13px]"
             >
-              <span aria-hidden className="text-verified">✓</span>
+              <span aria-hidden className="text-verified">
+                ✓
+              </span>
               Matched {matched} of {total} number{total === 1 ? "" : "s"}{" "}
               {sourceTail(journal, year)}
             </span>
@@ -271,7 +272,9 @@ export function ProofAsCta({ brief }: ProofAsCtaProps) {
               data-testid="proof-matched-stamp"
               className="border-verified/30 text-verified bg-verified/5 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium sm:text-[13px]"
             >
-              <span aria-hidden className="text-verified">✓</span>
+              <span aria-hidden className="text-verified">
+                ✓
+              </span>
               Verifier passed {sourceTail(journal, year)}
             </span>
           )}
@@ -288,7 +291,10 @@ export function ProofAsCta({ brief }: ProofAsCtaProps) {
               className="border-verified/30 text-verified bg-verified/5 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium sm:text-[13px]"
               title="Bundle cryptographically signed; signature verified offline against the pinned trust root."
             >
-              <span aria-hidden className="text-verified text-[14px] leading-none">
+              <span
+                aria-hidden
+                className="text-verified text-[14px] leading-none"
+              >
                 ⬡
               </span>
               Signed bundle · verifiable offline
@@ -298,10 +304,12 @@ export function ProofAsCta({ brief }: ProofAsCtaProps) {
             <span
               data-testid="proof-sig-pill"
               data-state="present_unverified"
-              className="border-amber-700/40 text-amber-800 bg-amber-50 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium sm:text-[13px]"
+              className="inline-flex w-fit items-center gap-1.5 rounded-full border border-amber-700/40 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 sm:text-[13px]"
               title="Signature attached but not GPG-verified in this browser context; re-verify offline."
             >
-              <span aria-hidden className="text-[14px] leading-none">⊟</span>
+              <span aria-hidden className="text-[14px] leading-none">
+                ⊟
+              </span>
               Signature attached · verify offline
             </span>
           )}
@@ -312,7 +320,9 @@ export function ProofAsCta({ brief }: ProofAsCtaProps) {
               className="border-contradiction-foreground/30 text-contradiction-foreground bg-contradiction/10 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium sm:text-[13px]"
               title="No signature on disk — trust not cryptographically established."
             >
-              <span aria-hidden className="text-[14px] leading-none">⊠</span>
+              <span aria-hidden className="text-[14px] leading-none">
+                ⊠
+              </span>
               Not signed · trust not established
             </span>
           )}

@@ -116,7 +116,10 @@ test.describe("I-ux-001c · Home proof-as-CTA hero", () => {
     await page.goto(HOME_PATH);
     const link = page.getByTestId("proof-as-cta-link");
     await expect(link).toBeVisible();
-    await expect(link).toHaveAttribute("href", /inspector\/v1-canonical-success/);
+    await expect(link).toHaveAttribute(
+      "href",
+      /inspector\/v1-canonical-success/,
+    );
   });
 
   test("sign-in link preserved (command palette focus-restore target)", async ({

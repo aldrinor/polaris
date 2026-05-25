@@ -130,25 +130,33 @@ export function InspectorProofHeader({
               </span>
               <span
                 className="tabular-nums"
-                style={{ color: "var(--certainty-high-fg, oklch(0.32 0.14 250))" }}
+                style={{
+                  color: "var(--certainty-high-fg, oklch(0.32 0.14 250))",
+                }}
               >
                 {e.high} high
               </span>
               <span
                 className="tabular-nums"
-                style={{ color: "var(--certainty-moderate-fg, oklch(0.40 0.10 250))" }}
+                style={{
+                  color: "var(--certainty-moderate-fg, oklch(0.40 0.10 250))",
+                }}
               >
                 · {e.moderate} moderate
               </span>
               <span
                 className="tabular-nums"
-                style={{ color: "var(--certainty-low-fg, oklch(0.45 0.06 250))" }}
+                style={{
+                  color: "var(--certainty-low-fg, oklch(0.45 0.06 250))",
+                }}
               >
                 · {e.low} low
               </span>
               <span
                 className="tabular-nums"
-                style={{ color: "var(--certainty-very-low-fg, oklch(0.50 0.04 250))" }}
+                style={{
+                  color: "var(--certainty-very-low-fg, oklch(0.50 0.04 250))",
+                }}
               >
                 · {e.very_low} very-low
               </span>
@@ -165,7 +173,7 @@ export function InspectorProofHeader({
                 </span>
               )}
               {signatureState === "present_unverified" && (
-                <span className="text-amber-700 text-[11px] font-medium">
+                <span className="text-[11px] font-medium text-amber-700">
                   ⊟ signature attached — verify offline
                 </span>
               )}
@@ -183,7 +191,7 @@ export function InspectorProofHeader({
             data-testid="inspector-proof-summary"
             className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm"
           >
-            <span className="border-amber-700/40 bg-amber-100/40 text-amber-900 inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium">
+            <span className="inline-flex items-center rounded-full border border-amber-700/40 bg-amber-100/40 px-2.5 py-0.5 text-xs font-medium text-amber-900">
               {humanizeVerdict(report.pipeline_verdict)}
             </span>
             <span className="text-muted-foreground">

@@ -92,7 +92,9 @@ function lookupPoolField(
 }
 
 function extractNumerics(text: string): string[] {
-  const matches = text.match(/[−-]?\d+(?:\.\d+)?(?:%|\s*percentage\s+points?)?/g);
+  const matches = text.match(
+    /[−-]?\d+(?:\.\d+)?(?:%|\s*percentage\s+points?)?/g,
+  );
   return matches ? matches : [];
 }
 
@@ -174,8 +176,7 @@ export async function loadHomeBrief(): Promise<HomeBrief> {
           return {
             bundle_loaded: true,
             run_id: DEMO_RUN_ID,
-            research_question:
-              bundle.verifiedReport?.research_question ?? null,
+            research_question: bundle.verifiedReport?.research_question ?? null,
             claim: s.sentence_text,
             span_quote: spanText,
             source: {
