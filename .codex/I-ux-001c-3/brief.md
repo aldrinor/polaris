@@ -1,5 +1,13 @@
 # I-ux-001c sub-PR 3 — Intake v6 (GH #884)
 
+## Phase: BRIEF REVIEW (not diff review)
+
+**You are reviewing the SPEC for an upcoming code diff, not the diff itself.** The repo on this branch (`bot/I-ux-001c-sub-pr-3-intake`) currently equals `polaris` HEAD — no implementation has happened yet. Per CLAUDE.md §3.0 the 5-artifact triple is: **brief → brief APPROVE → diff → diff APPROVE → audit**. This is step 2 (brief APPROVE).
+
+Your job at this phase: confirm the SPEC below is correct, complete, and won't violate any invariants when implemented. If the spec is sound, return `verdict: APPROVE`. The CODE doesn't exist yet — that's expected.
+
+After your APPROVE here, I will implement the diff, then submit it for a separate diff review (different brief, different specific_check_responses).
+
 ## §0 cap directive (CLAUDE.md §8.3.1, verbatim)
 
 ```
@@ -62,14 +70,14 @@ TESTS
 - `web/app/plan/page.tsx` (the deep-link target) — unchanged
 - All 5 existing intake test files — listed above; either KEPT or NOT TOUCHED
 
-## Specific Codex check requests (`specific_check_responses`)
+## Brief-review check requests (`specific_check_responses` — about the SPEC, not the diff)
 
-- `backend_logic_preserved`: PASS / FAIL — `runIntake` + `runDisambiguation` + ambiguity modal + scope decision view logic in IntakeForm is preserved verbatim; only presentation changes
-- `honest_fail_auto_domain`: PASS / FAIL — `auto_domain_chip.tsx` returns `null` when no domain crosses the confidence threshold (does not show a fabricated "custom" fallback)
-- `honest_fail_source_set`: PASS / FAIL — `source_set_health.tsx` returns `null` when domain is `null` (does not show fabricated tier pills)
-- `existing_testids_preserved`: PASS / FAIL — `intake-page` + `intake-question-input` testids preserved; the 4 intake.* test files that depend on these pass unchanged
-- `appshell_intake_chrome_preserved`: PASS / FAIL — `/intake` continues to render inside AppShell (NOT chromeless like the v6 home)
-- `playwright_assertions_real`: PASS / FAIL — the new `intake_v6.spec.ts` asserts on real DOM shape and behavior, not just testid presence
+- `scope_complete`: PASS / FAIL — the spec covers the v6 visual/behavioral evolution + all preserved testids + all backend invariants without leaving gaps that would force a scope-expansion mid-implementation
+- `honest_fail_rules_specified`: PASS / FAIL — the spec explicitly requires `null` return for auto_domain_chip and source_set_health under honest-fail conditions (LAW II compliant)
+- `appshell_chrome_decision_clear`: PASS / FAIL — the spec is unambiguous that `/intake` stays inside AppShell (not chromeless like `/`)
+- `existing_test_compat_specified`: PASS / FAIL — the spec preserves `intake-page` and `intake-question-input` testids and lists which existing tests are KEPT vs UPDATED vs ADDED
+- `file_list_surgical`: PASS / FAIL — the listed files are the minimum needed to deliver v6 intake; no "while we're at it" scope creep
+- `cta_target_correct`: PASS / FAIL — `Plan this research →` deep-linking to `/plan?q=<encoded>` matches the I-p2-022 #761 plan-review surface and the existing `plan` route
 
 ## Output schema (BIND)
 
@@ -82,10 +90,10 @@ p2: [...]
 convergence_call: continue | accept_remaining
 remaining_blockers_for_execution: [...]
 specific_check_responses:
-  backend_logic_preserved: PASS | FAIL_with_detail
-  honest_fail_auto_domain: PASS | FAIL_with_detail
-  honest_fail_source_set: PASS | FAIL_with_detail
-  existing_testids_preserved: PASS | FAIL_with_detail
-  appshell_intake_chrome_preserved: PASS | FAIL_with_detail
-  playwright_assertions_real: PASS | FAIL_with_detail
+  scope_complete: PASS | FAIL_with_detail
+  honest_fail_rules_specified: PASS | FAIL_with_detail
+  appshell_chrome_decision_clear: PASS | FAIL_with_detail
+  existing_test_compat_specified: PASS | FAIL_with_detail
+  file_list_surgical: PASS | FAIL_with_detail
+  cta_target_correct: PASS | FAIL_with_detail
 ```
