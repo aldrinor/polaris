@@ -97,3 +97,28 @@ specific_check_responses:
   appshell_chrome_preserved: PASS | FAIL_with_detail
   file_plan_surgical: PASS | FAIL_with_detail
 ```
+
+---
+
+## Iter-2 amendments (post-Codex iter-1)
+
+### P1 fix: T1 brand-red is an authorized semantic exemption
+
+Codex iter-1 caught a real spec conflict. The fix:
+
+**Brand-red `#c8102e` lock has TWO authorized usage paths** (clarified):
+1. Brand identity (eyebrow + Continue CTA) — sub-PR 4's new visual surface
+2. Evidence-role semantic (TIER_DOT["T1"] → bg-tier-1 → --tier-1 = #c8102e) — operator design lock 2026-05-21 per I-p2-003 #742 ("Operator design lock: + evidence-role tokens (tiers + proof). Red-only is RUBRIC banned; brand-red as ONE evidence role tier is operator-locked.")
+
+T1 dot stays brand red as the high-est-evidence-tier semantic. Sub-PR 4 PRESERVES TIER_DOT verbatim. No conflict.
+
+### P2 fix: e2e test mocks /api/v6/templates
+
+The new `web/tests/e2e/source_review_v6.spec.ts` MUST mock `**/api/v6/templates` via `page.route()` to avoid the auth-gated fetch racing with header-link assertions. Pattern: returns a minimal valid TemplateContent for the clinical template, matching the existing `web/tests/e2e/axe_smoke.spec.ts` mock if present (or following the standard Playwright route-mocking idiom).
+
+### P2 fix: exact subtitle copy locked
+
+Subtitle (locked verbatim):
+> "What POLARIS will check for this question — and the per-tier evidence bar the corpus must clear before any claim is written."
+
+(Tightened from the current "What POLARIS will search for this question — and the per-tier adequacy bar the corpus must clear before a single claim is written." — same meaning, more direct.)
