@@ -162,21 +162,41 @@ function FaithfulnessBlock({
   visible: boolean;
 }) {
   const f = claim.faithfulness;
+  // Codex diff iter-1 P1-002 fix: verdict-aware headline + check colors.
+  // Partial/unsupported must NEVER render as a verified green proof.
+  const verdictLabel =
+    f.verdict === "verified"
+      ? "Verified"
+      : f.verdict === "partial"
+        ? "Partial — not fully verified"
+        : "Unsupported — could not verify";
+  const verdictColorClass =
+    f.verdict === "verified"
+      ? "text-verified"
+      : f.verdict === "partial"
+        ? "text-amber-700"
+        : "text-contradiction-foreground";
+  // Codex diff iter-1 P1-001 fix: omit the content-word-overlap row when the
+  // bundle did not carry the metric (content_words_overlap === null).
   const checks: Array<[string, boolean]> = [
     [
       `Every number in the claim appears in the cited span (${f.matched_numbers.matched} of ${f.matched_numbers.total}).`,
       f.matched_numbers.total > 0 &&
         f.matched_numbers.matched === f.matched_numbers.total,
     ],
-    [
+  ];
+  if (f.content_words_overlap !== null) {
+    checks.push([
       `Claim and span share ${f.content_words_overlap} content words (threshold ≥ 2).`,
       f.content_words_overlap >= 2,
-    ],
-    ["Evidence span sits inside the source bounds.", f.span_in_bounds],
-  ];
+    ]);
+  }
+  checks.push(["Evidence span sits inside the source bounds.", f.span_in_bounds]);
+
   return (
     <div
       data-testid="faithfulness-block"
+      data-verdict={f.verdict}
       className={`flex flex-col gap-3 transition-opacity ${
         visible ? "opacity-100" : "opacity-0"
       }`}
@@ -186,7 +206,9 @@ function FaithfulnessBlock({
       }}
     >
       <div className="flex items-baseline gap-2">
-        <h3 className="text-verified text-2xl font-bold">Verified</h3>
+        <h3 className={`${verdictColorClass} text-2xl font-bold`}>
+          {verdictLabel}
+        </h3>
         <p className="text-muted-foreground text-sm italic">
           by an independent model family
         </p>
@@ -459,9 +481,51 @@ interface ProofPanelProps {
   claim: ProofReplayClaim | null;
   manifest: BundleManifest;
   signatureState: SignatureState;
+  reducedMotion: boolean;
 }
 
-function ProofPanel({ claim, manifest, signatureState }: ProofPanelProps) {
+// Beat schedule per design_tokens_v2 §5 + i_ux_001d_motion_still_convention.md
+// row 1 timestamps. Each beat ramps to opacity 1 at its scheduled t (ms).
+const BEAT_SCHEDULE = [
+  { beat: 1, t: 0 },     // claim echo + challenged label (immediate)
+  { beat: 2, t: 130 },   // faithfulness
+  { beat: 3, t: 280 },   // evidence strength
+  { beat: 4, t: 430 },   // source (climax)
+  { beat: 5, t: 580 },   // signature
+  { beat: 6, t: 680 },   // disclosure
+] as const;
+
+function ProofPanel({
+  claim,
+  manifest,
+  signatureState,
+  reducedMotion,
+}: ProofPanelProps) {
+  // Codex diff iter-1 P1-003 fix: ACTUAL staged reveal. `revealedBeat` state
+  // advances 0 → 1 → 2 → … → 6 on claim selection via a setTimeout chain.
+  // prefers-reduced-motion jumps straight to 6 (all beats visible at once,
+  // no per-beat stagger).
+  const [revealedBeat, setRevealedBeat] = useState(0);
+
+  useEffect(() => {
+    if (!claim) {
+      setRevealedBeat(0);
+      return;
+    }
+    if (reducedMotion) {
+      setRevealedBeat(6);
+      return;
+    }
+    // Reset and schedule the 6-beat ramp
+    setRevealedBeat(0);
+    const timers = BEAT_SCHEDULE.map((b) =>
+      window.setTimeout(() => setRevealedBeat(b.beat), b.t),
+    );
+    return () => {
+      for (const t of timers) window.clearTimeout(t);
+    };
+  }, [claim, reducedMotion]);
+
   if (!claim) {
     return (
       <div
@@ -474,31 +538,29 @@ function ProofPanel({ claim, manifest, signatureState }: ProofPanelProps) {
     );
   }
 
-  // When a claim is selected, all 6 beats become visible at once — the
-  // per-block transitionDelay creates the staggered reveal in time.
-  // prefers-reduced-motion is handled at the global @theme level (durations
-  // collapse to 0); each block also responds to the visible bool which
-  // remains true once a claim is selected.
   return (
     <div
       data-testid="proof-panel"
       data-claim-id={claim.claim_id}
+      data-revealed-beat={revealedBeat}
+      role="region"
+      aria-label={`Proof for the ${claim.faithfulness.verdict} claim`}
       className="flex flex-col gap-5 p-6"
     >
-      <ChallengedLabel visible />
-      <ClaimEcho claim={claim} visible />
-      <FaithfulnessBlock claim={claim} visible />
+      <ChallengedLabel visible={revealedBeat >= 1} />
+      <ClaimEcho claim={claim} visible={revealedBeat >= 1} />
+      <FaithfulnessBlock claim={claim} visible={revealedBeat >= 2} />
       <hr className="border-border/60" />
-      <EvidenceStrengthBlock claim={claim} visible />
+      <EvidenceStrengthBlock claim={claim} visible={revealedBeat >= 3} />
       <hr className="border-border/60" />
-      <SourceClimax claim={claim} visible />
+      <SourceClimax claim={claim} visible={revealedBeat >= 4} />
       <hr className="border-border/60" />
       <SignatureBlock
         signatureState={signatureState}
         manifest={manifest}
-        visible
+        visible={revealedBeat >= 5}
       />
-      <DisclosureBlock visible />
+      <DisclosureBlock visible={revealedBeat >= 6} />
     </div>
   );
 }
@@ -529,7 +591,6 @@ export function ProofReplay({
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const reducedMotion = usePrefersReducedMotion();
-  void reducedMotion; // motion is CSS-driven; collapse via @media in globals.css
   const isMobile = useIsMobile();
   const buttonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
@@ -698,6 +759,7 @@ export function ProofReplay({
           claim={selected}
           manifest={manifest}
           signatureState={signatureState}
+          reducedMotion={reducedMotion}
         />
       </aside>
     </div>

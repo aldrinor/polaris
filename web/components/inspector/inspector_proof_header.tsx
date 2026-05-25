@@ -155,9 +155,25 @@ export function InspectorProofHeader({
               <span aria-hidden className="text-border">
                 ·
               </span>
-              <span className="text-verified text-[11px] font-medium">
-                ⬡ signed bundle (verifiable offline)
-              </span>
+              {/* Codex diff iter-1 P1-005 fix: the 'signed bundle' line is
+                  tri-state aware. Only `gpg_verified` may render the green
+                  'verifiable offline' affordance; other states render the
+                  honest counter-state copy. */}
+              {signatureState === "gpg_verified" && (
+                <span className="text-verified text-[11px] font-medium">
+                  ⬡ signed bundle (verifiable offline)
+                </span>
+              )}
+              {signatureState === "present_unverified" && (
+                <span className="text-amber-700 text-[11px] font-medium">
+                  ⊟ signature attached — verify offline
+                </span>
+              )}
+              {signatureState === "missing" && (
+                <span className="text-contradiction-foreground text-[11px] font-medium">
+                  ⊠ not signed — trust not established
+                </span>
+              )}
             </div>
           </div>
         ) : (

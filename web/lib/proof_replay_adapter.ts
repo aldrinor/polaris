@@ -38,8 +38,11 @@ export interface ProofReplayClaim {
     verdict: "verified" | "partial" | "unsupported";
     /** Number of numerics in the claim that also appear in the cited span. */
     matched_numbers: { matched: number; total: number };
-    /** Content-word overlap (the §9.1 invariant, threshold ≥2). */
-    content_words_overlap: number;
+    /** Content-word overlap (the §9.1 invariant, threshold ≥2).
+     * `null` when the bundle does NOT carry this metric — the UI MUST then
+     * omit the row rather than display a synthesized value (LAW II per
+     * Codex diff iter-1 P1-001). */
+    content_words_overlap: number | null;
     /** Whether the cited evidence span sits inside the source's bounds. */
     span_in_bounds: boolean;
   };
@@ -109,23 +112,31 @@ function countMatches(needles: string[], haystack: string): number {
 
 /** Pull a metadata field off an evidence-pool entry. The pool is `unknown` at
  * the loader level; we narrow defensively. Returns `null` if the entry doesn't
- * have the field or the pool isn't shaped as expected. */
+ * have the field or the pool isn't shaped as expected.
+ *
+ * The real canonical fixture (web/public/canonical_bundles/v1_canonical_success/
+ * evidence_pool.json) uses `.sources[]` as the entry array. Older drafts used
+ * `.entries[]`. We accept both (Codex diff iter-1 P2-001). */
 function lookupPoolField(
   pool: unknown,
   sourceId: string,
   field: string,
 ): unknown {
   if (!pool || typeof pool !== "object") return null;
-  const entries = (pool as { entries?: unknown[] }).entries;
-  if (!Array.isArray(entries)) return null;
-  for (const entry of entries) {
+  const p = pool as { entries?: unknown[]; sources?: unknown[] };
+  const arr: unknown[] = Array.isArray(p.sources)
+    ? p.sources
+    : Array.isArray(p.entries)
+      ? p.entries
+      : [];
+  for (const entry of arr) {
     if (!entry || typeof entry !== "object") continue;
     const e = entry as Record<string, unknown>;
     if (e.source_id === sourceId) {
       const md = e.metadata;
       if (md && typeof md === "object") {
         const v = (md as Record<string, unknown>)[field];
-        return v === undefined ? null : v;
+        if (v !== undefined) return v;
       }
       // Some pools put the field at the top level
       const top = e[field];
@@ -164,13 +175,18 @@ export function adaptToClaim(
   const matchedNumerics = countMatches(sentenceNumerics, spanText);
   const totalNumerics = sentenceNumerics.length;
 
-  // Content-word overlap (the §9.1 invariant). Real implementation lives in
-  // src/polaris_graph/generator/provenance/strict_verify.py; we surface the
-  // bundle's verifier_pass + a coarse heuristic here for display only.
+  // Content-word overlap (the §9.1 invariant). The real value is computed by
+  // src/polaris_graph/generator/provenance/strict_verify.py during the
+  // verifier pass — if the bundle CARRIES that value, surface it. Otherwise
+  // return null and let the UI omit the row (Codex diff iter-1 P1-001 +
+  // LAW II honest-fail rule).
+  const sentenceWithExtras = sentence as VerifiedSentenceShape & {
+    content_words_overlap?: number;
+  };
   const contentWordsOverlap =
-    sentence.verifier_pass === true && totalNumerics > 0
-      ? Math.max(2, matchedNumerics)
-      : 0;
+    typeof sentenceWithExtras.content_words_overlap === "number"
+      ? sentenceWithExtras.content_words_overlap
+      : null;
 
   // Source metadata — best-effort lookup against the evidence pool.
   const sourceId = (span && span.sourceId) || "";
