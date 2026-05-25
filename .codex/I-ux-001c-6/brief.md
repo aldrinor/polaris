@@ -24,7 +24,7 @@ v6 changes (header region only, lines ~100-119 of current page.tsx):
 
 - Brand-red eyebrow ("RUNS · POLARIS CLINICAL RESEARCH") added above the H1
 - Display H1 ("Your recent runs.") replacing the small "Runs"
-- Tightened subtitle locked verbatim: "Open one to replay the proof, claim by claim — every brief carries its own signed bundle."
+- Tightened subtitle locked verbatim: "Open one to replay the proof, claim by claim — every brief carries its own audit bundle." (Codex iter-4 P1 fix: 'signed bundle' overclaims when GPG signature path is still pending per existing audit/export copy; 'audit bundle' is honest-precise.)
 - Start-new-research button kept in same row position (right side) — preserves the existing CTA
 
 PRESERVED contracts:
