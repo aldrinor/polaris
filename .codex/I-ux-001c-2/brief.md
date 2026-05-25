@@ -92,7 +92,15 @@ Add per-certainty `--certainty-{level}-bg` tokens paired with the existing `-fg`
 9. **UPDATE `web/tests/e2e/demo_walkthrough.spec.ts`** — new Home selectors
 10. **EDIT `web/app/globals.css`** — add `--certainty-*-bg` tokens + Tailwind `@theme` mappings
 
-If HomeKeyboardShell uniquely owns the command palette (will verify before deleting), the palette moves to AppShell as part of this PR. Otherwise, just delete HomeKeyboardShell + its usage in `web/app/page.tsx`.
+**Repo check (Codex iter-3 grounding)**: HomeKeyboardShell uniquely owns the palette. AppShellGate marks `/` chromeless. **No AppShell-move is happening**: HomePaletteShell is the locked answer.
+
+**HomePaletteShell rendering contract** (so `command_palette*.spec.ts` keeps passing unchanged):
+- Mounts `<CommandPalette>` exactly as `HomeKeyboardShell` does
+- Binds `Ctrl+K` / `Meta+K` toggle handler
+- Renders a focusable `<Link data-testid="header-sign-in-link" href="/sign-in">Sign in</Link>` element that the palette focus-restoration logic targets on close
+- Wraps the v6 hero `children` prop (server-side prefetched proof-as-CTA + page chrome)
+
+Three `command_palette*.spec.ts` files (verified via `ls`): `command_palette.spec.ts`, `command_palette_adversarial.spec.ts`, `command_palette_suggest.spec.ts` (correcting the iter-2 "5 files" miscount).
 
 ## Locked v6 copy
 
@@ -109,7 +117,16 @@ bundle anyone can audit offline. No verifier, no claim.
 
 PROOF-AS-CTA CARD label: VERIFIED CLAIM · LIVE EXAMPLE
 PROOF-AS-CTA CARD body: <real claim text from canonical bundle, numerics bolded green>
-PROOF-AS-CTA CARD footer: ✓ matched <N> of <total> numbers against <journal year> source span. <signature pill conditional on signatureState>
+PROOF-AS-CTA CARD footer (null-safe template):
+  ✓ matched <N> of <total> numbers
+  [if journal && year]   against <journal> <year> source span
+  [if journal && !year]  against <journal> source span
+  [if !journal && year]  against the <year> source span
+  [if !journal && !year] against the cited source span
+  <signature pill conditional on signatureState>
+PROOF-AS-CTA CARD fallback (when home_brief_loader.bundle_loaded === false):
+  "Verified clinical brief loading — see /inspector/v1-canonical-success"
+  (NO numeric stamp, NO signature pill — honest "still loading" copy)
 
 PRIMARY CTA: Try a verified brief →   (links to /intake)
 ```
