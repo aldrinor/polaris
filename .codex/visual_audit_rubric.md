@@ -113,6 +113,7 @@ verdict: APPROVE | REQUEST_CHANGES
 rubric_version: v1
 rubric_sha256: <64-hex; the gate enforces it matches working-tree SHA>
 viewport: { width: 1440, height: 900 }  # or 768x1024, 390x844
+state: static  # one of static | focused | hovered — the harness captures all three
 route: /inspector/[runId]
 screenshot_sha256: <64-hex>
 scores:

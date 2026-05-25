@@ -11,8 +11,13 @@ Contract:
   YAML per `.codex/visual_audit_rubric.md`. Final `verdict: APPROVE` line
   is what the codex-visual-required CI gate parses (last-match wins, per
   the PR-D iter-2 hardening pattern already used by codex-required.yml).
+- State: persisted per-Issue at `.codex/<issue_id>/visual_iter_state.json`
+  so the iter counter survives across writer edits. Force-APPROVE fires
+  ONLY when state.iter == 5 — `--max-iter` is informational, never an
+  early-force lever (P0-iter1 fix: bind force-APPROVE to absolute iter 5
+  not to user-supplied flag).
 - Halt: returns non-zero exit code if any route fails the 14/16 threshold
-  AND iter < 5; force-APPROVE at iter 5 per CLAUDE.md §8.3.1.
+  AND iter < 5; force-APPROVE at exact iter 5 per CLAUDE.md §8.3.1.
 
 Why this lives OUTSIDE the writer agent's reasoning loop:
 - The script's loop condition is the YAML pass_count, not the writer's
@@ -22,14 +27,14 @@ Why this lives OUTSIDE the writer agent's reasoning loop:
   branch deterministically. The writer cannot bypass by editing prompts.
 - Combined with codex-required.yml's `canonical-diff-sha256` binding,
   the visual gate cannot be approved on a different page than the one
-  in the PR.
+  in the PR. The audit declares `pr_head_sha` + `screenshots_manifest_sha256`
+  which CI cross-binds.
 
 Usage:
     python scripts/visual_review_gate.py \\
         --issue-id I-ux-002 \\
         --routes /inspector/test-run-001,/intake,/plan,/dashboard \\
-        --base-url http://127.0.0.1:3000 \\
-        --max-iter 5
+        --base-url http://127.0.0.1:3000
 
 Environment:
     NEXT_PROD_BASE_URL  — defaults to http://127.0.0.1:3000; the script
@@ -71,12 +76,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_VIEWPORTS = "1440x900,768x1024,390x844"
 DEFAULT_BASE_URL = "http://127.0.0.1:3000"
 PASS_THRESHOLD = 14  # of 16 per .codex/visual_audit_rubric.md
-HARD_ITER_CAP = 5  # CLAUDE.md §8.3.1
+HARD_ITER_CAP = 5  # CLAUDE.md §8.3.1 — ABSOLUTE; not user-tunable below.
 RUBRIC_PATH = PROJECT_ROOT / ".codex" / "visual_audit_rubric.md"
 
-# Final verdict regex matches the codex-required.yml convention:
-# the LAST line of the form `verdict: APPROVE|REQUEST_CHANGES` is
-# authoritative (PRD2-P1-001 hardening).
+# Per-PR audit artifact carries cross-binding declarations so the CI
+# gate can verify the audit was performed against this PR's actual
+# rendered evidence (not a stale prior audit). The gate cross-checks:
+#   - rubric_sha256: matches working-tree .codex/visual_audit_rubric.md
+#   - pr_head_sha: matches GITHUB_SHA / current HEAD
+#   - screenshots_manifest_sha256: matches sha256 of the screenshot inventory
+# (P0-iter1 fix.)
+
 FINAL_VERDICT_RE = re.compile(
     r"^verdict:\s+(APPROVE|REQUEST_CHANGES)\s*$", re.MULTILINE
 )
@@ -94,14 +104,14 @@ SCREENSHOT_SHA_RE = re.compile(
 class ScreenshotJob:
     route: str
     viewport: tuple[int, int]
+    state: str  # "static", "focused", or "hovered"
     output_path: Path
 
     @property
     def label(self) -> str:
         w, h = self.viewport
-        # Stable slug; safe on Windows + Linux.
         safe_route = re.sub(r"[^a-zA-Z0-9]+", "_", self.route).strip("_") or "root"
-        return f"{safe_route}_{w}x{h}"
+        return f"{safe_route}_{w}x{h}_{self.state}"
 
 
 @dataclass
@@ -152,6 +162,10 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def sha256_bytes(blob: bytes) -> str:
+    return hashlib.sha256(blob).hexdigest()
+
+
 def codex_bin() -> str:
     return os.getenv("CODEX_BIN", "codex")
 
@@ -170,8 +184,67 @@ def viewport_list() -> list[tuple[int, int]]:
     return out
 
 
+def current_pr_head_sha() -> str:
+    """Pick the SHA the audit binds to.
+
+    Priority:
+      1. $GITHUB_SHA (set by CI; correct for the PR head being audited)
+      2. `git rev-parse HEAD` (local writer path)
+
+    Bound into the audit file as `pr_head_sha:`; the CI gate verifies
+    it matches the actual PR head SHA. Stale audits from a prior commit
+    are rejected.
+    """
+    sha = os.getenv("GITHUB_SHA")
+    if sha:
+        return sha.strip()
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=PROJECT_ROOT,
+            text=True,
+        ).strip()
+        return out
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"unable to resolve PR head SHA: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Persisted iter state — survives writer edits between invocations.
+# (P0-iter1 fix: 5-iter cap is absolute; force-APPROVE only at iter 5.)
+# ---------------------------------------------------------------------------
+def iter_state_path(issue_id: str) -> Path:
+    return PROJECT_ROOT / ".codex" / issue_id / "visual_iter_state.json"
+
+
+def load_iter_state(issue_id: str) -> dict[str, Any]:
+    p = iter_state_path(issue_id)
+    if not p.exists():
+        return {"iter": 0, "last_verdict": None, "history": []}
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def save_iter_state(issue_id: str, state: dict[str, Any]) -> None:
+    p = iter_state_path(issue_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def reset_iter_state(issue_id: str) -> None:
+    p = iter_state_path(issue_id)
+    if p.exists():
+        p.unlink()
+
+
 # ---------------------------------------------------------------------------
 # Screenshot pass (Playwright async)
+# Captures THREE states per route+viewport so the rubric's interaction
+# dimensions (13 motion, 14 keyboard/focus, partially 16 liveliness) are
+# observable from the harness inputs:
+#   - static   : page as-loaded, animations disabled
+#   - focused  : first interactive given keyboard focus (Tab)
+#   - hovered  : first interactive given mouse hover
+# (P1-iter1 fix: rubric dim 13/14/16 evidence path.)
 # ---------------------------------------------------------------------------
 async def capture_screenshots(
     routes: list[str],
@@ -199,11 +272,6 @@ async def capture_screenshots(
         try:
             for route in routes:
                 for vw in viewports:
-                    job = ScreenshotJob(
-                        route=route,
-                        viewport=vw,
-                        output_path=outdir / f"{ScreenshotJob(route, vw, Path()).label}.png",
-                    )
                     context = await browser.new_context(
                         viewport={"width": vw[0], "height": vw[1]},
                         device_scale_factor=2,
@@ -215,18 +283,89 @@ async def capture_screenshots(
                         await page.goto(url, wait_until="networkidle", timeout=30_000)
                     except Exception as exc:
                         print(f"  WARN: navigation failed: {exc}", flush=True)
-                    # Force layout settle for any motion / shimmer.
                     await page.wait_for_timeout(500)
+
+                    # static
+                    static_job = ScreenshotJob(
+                        route=route,
+                        viewport=vw,
+                        state="static",
+                        output_path=outdir / "",
+                    )
+                    static_job.output_path = outdir / f"{static_job.label}.png"
                     await page.screenshot(
-                        path=str(job.output_path),
+                        path=str(static_job.output_path),
                         full_page=True,
                         animations="disabled",
                     )
-                    jobs.append(job)
+                    jobs.append(static_job)
+
+                    # focused — Tab to first interactive, screenshot focus ring
+                    try:
+                        await page.keyboard.press("Tab")
+                        await page.wait_for_timeout(150)
+                    except Exception as exc:
+                        print(f"  WARN: focus pass failed: {exc}", flush=True)
+                    focused_job = ScreenshotJob(
+                        route=route,
+                        viewport=vw,
+                        state="focused",
+                        output_path=outdir / "",
+                    )
+                    focused_job.output_path = outdir / f"{focused_job.label}.png"
+                    await page.screenshot(
+                        path=str(focused_job.output_path),
+                        full_page=False,  # viewport only — focus ring is in viewport
+                    )
+                    jobs.append(focused_job)
+
+                    # hovered — hover first link/button if present, screenshot
+                    try:
+                        candidate = page.locator("a, button").first
+                        if await candidate.count() > 0:
+                            await candidate.hover(timeout=2_000)
+                            await page.wait_for_timeout(150)
+                    except Exception as exc:
+                        print(f"  WARN: hover pass failed: {exc}", flush=True)
+                    hovered_job = ScreenshotJob(
+                        route=route,
+                        viewport=vw,
+                        state="hovered",
+                        output_path=outdir / "",
+                    )
+                    hovered_job.output_path = outdir / f"{hovered_job.label}.png"
+                    await page.screenshot(
+                        path=str(hovered_job.output_path),
+                        full_page=False,
+                    )
+                    jobs.append(hovered_job)
+
                     await context.close()
         finally:
             await browser.close()
     return jobs
+
+
+def build_screenshots_manifest(jobs: list[ScreenshotJob]) -> str:
+    """Deterministic JSON inventory of captured screenshots.
+
+    Lists each screenshot with its content SHA256. The audit declares
+    a single `screenshots_manifest_sha256:` line; the CI gate verifies
+    that hash matches the screenshots directory currently in the PR.
+    (P0-iter1 fix: bind audit to actual rendered evidence.)
+    """
+    entries = []
+    for job in sorted(jobs, key=lambda j: j.label):
+        entries.append(
+            {
+                "label": job.label,
+                "route": job.route,
+                "viewport": list(job.viewport),
+                "state": job.state,
+                "sha256": sha256_file(job.output_path),
+            }
+        )
+    return json.dumps(entries, indent=2, sort_keys=True)
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +388,7 @@ locked 16-dimension visual rubric.
 
 ROUTE        : {route}
 VIEWPORT     : {viewport_w}x{viewport_h}
+STATE        : {state}   # static / focused / hovered
 SCREENSHOT   : attached via -i flag
 RUBRIC PATH  : .codex/visual_audit_rubric.md
 RUBRIC SHA   : {rubric_sha}
@@ -263,29 +403,34 @@ INSTRUCTIONS
 
 1. Score each of the 16 dimensions PASS / PARTIAL / FAIL with ONE
    sentence of evidence quoting the pixel region or visible token.
-2. Count PASS scores into `pass_count` (0..16). Threshold = 14.
-3. Emit ONLY the YAML block specified in the rubric — no surrounding
+2. For "focused" screenshots, weight dim 14 (keyboard+focus) primary
+   evidence. For "hovered" screenshots, weight dim 13 (motion). For
+   "static" screenshots, weight dims 1–12.
+3. Count PASS scores into `pass_count` (0..16). Threshold = 14.
+4. Emit ONLY the YAML block specified in the rubric — no surrounding
    prose. The harness parses the LAST `verdict:` line as authoritative.
-4. `rubric_sha256` MUST equal `{rubric_sha}` (the gate enforces this).
-5. `screenshot_sha256` MUST equal `{screenshot_sha}` (the gate enforces this).
-6. PARTIAL counts as NOT PASS for `pass_count`.
+5. `rubric_sha256` MUST equal `{rubric_sha}` (the gate enforces this).
+6. `screenshot_sha256` MUST equal `{screenshot_sha}` (the gate enforces this).
+7. PARTIAL counts as NOT PASS for `pass_count`.
 
 Begin YAML now:
 """)
 
 
-def run_codex_audit(job: ScreenshotJob, iter_n: int, rubric_sha: str, rubric_body: str) -> CodexVerdict:
+def run_codex_audit(
+    job: ScreenshotJob, iter_n: int, rubric_sha: str, rubric_body: str
+) -> CodexVerdict:
     screenshot_sha = sha256_file(job.output_path)
     prompt = PROMPT_TEMPLATE.format(
         iter_n=iter_n,
         route=job.route,
         viewport_w=job.viewport[0],
         viewport_h=job.viewport[1],
+        state=job.state,
         rubric_sha=rubric_sha,
         rubric_body=rubric_body,
         screenshot_sha=screenshot_sha,
     )
-    # Mirror existing brief-review env: unset OPENAI_API_KEY to force OAuth.
     env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
     cmd = [
         codex_bin(),
@@ -302,22 +447,24 @@ def run_codex_audit(job: ScreenshotJob, iter_n: int, rubric_sha: str, rubric_bod
         text=True,
         capture_output=True,
         env=env,
-        timeout=540,  # 9 min cap per §8.4 single-codex-at-a-time
+        timeout=540,
         check=False,
     )
     if proc.returncode != 0:
         print(f"  codex stderr: {proc.stderr[:500]}", flush=True)
-    raw = proc.stdout
-    return CodexVerdict.parse(raw)
+    return CodexVerdict.parse(proc.stdout)
 
 
 # ---------------------------------------------------------------------------
-# Main loop
+# Audit artifact emission
 # ---------------------------------------------------------------------------
 def emit_verdict_file(
     issue_id: str,
     iter_n: int,
     iter_result: IterResult,
+    rubric_sha: str,
+    pr_head_sha: str,
+    screenshots_manifest_sha: str,
     force_approved: bool,
 ) -> Path:
     target = PROJECT_ROOT / ".codex" / issue_id / "codex_visual_audit.txt"
@@ -326,7 +473,12 @@ def emit_verdict_file(
     lines: list[str] = []
     lines.append(f"# POLARIS visual gate — issue {issue_id}, iter {iter_n}")
     lines.append(f"# rubric: .codex/visual_audit_rubric.md")
-    lines.append(f"# threshold: {PASS_THRESHOLD}/16 per route+viewport")
+    lines.append(f"# threshold: {PASS_THRESHOLD}/16 per route+viewport+state")
+    lines.append("")
+    # Audit-to-PR cross-binding declarations — CI gate verifies each.
+    lines.append(f"rubric_sha256: {rubric_sha}")
+    lines.append(f"pr_head_sha: {pr_head_sha}")
+    lines.append(f"screenshots_manifest_sha256: {screenshots_manifest_sha}")
     lines.append("")
     for label, v in iter_result.per_job.items():
         lines.append(f"## {label}")
@@ -349,6 +501,9 @@ def emit_verdict_file(
     return target
 
 
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--issue-id", required=True, help="GitHub issue id, e.g. I-ux-002")
@@ -363,12 +518,6 @@ def parse_args() -> argparse.Namespace:
         help="Where `next start` is listening",
     )
     p.add_argument(
-        "--max-iter",
-        type=int,
-        default=HARD_ITER_CAP,
-        help="Iteration cap (default 5 per CLAUDE.md §8.3.1)",
-    )
-    p.add_argument(
         "--screenshots-dir",
         default=str(PROJECT_ROOT / "outputs" / "visual_review_gate"),
         help="Where screenshots are written",
@@ -378,11 +527,20 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip Codex calls; emit screenshots only (smoke test mode)",
     )
+    p.add_argument(
+        "--reset-state",
+        action="store_true",
+        help="Reset .codex/<id>/visual_iter_state.json (use only when starting a new Issue)",
+    )
     return p.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+
+    if args.reset_state:
+        reset_iter_state(args.issue_id)
+        print(f"reset visual_iter_state.json for {args.issue_id}")
 
     if not RUBRIC_PATH.exists():
         print(f"ERROR: rubric not found at {RUBRIC_PATH}", file=sys.stderr)
@@ -399,7 +557,25 @@ def main() -> int:
     viewports = viewport_list()
     print(f"viewports: {viewports}", flush=True)
 
-    screenshots_root = Path(args.screenshots_dir) / args.issue_id
+    # Persisted state — the absolute 5-iter cap lives here. (P0 fix.)
+    state = load_iter_state(args.issue_id)
+    state["iter"] = state.get("iter", 0) + 1
+    iter_n = state["iter"]
+    if iter_n > HARD_ITER_CAP:
+        # Already force-approved on a prior call; the audit file should
+        # exist. Re-running is a no-op.
+        print(
+            f"iter {iter_n} > HARD_ITER_CAP={HARD_ITER_CAP}; "
+            f"force-APPROVE has already fired. Use --reset-state to start over.",
+            flush=True,
+        )
+        return 0
+    print(f"\n=== iter {iter_n}/{HARD_ITER_CAP} (persisted) ===", flush=True)
+
+    pr_head_sha = current_pr_head_sha()
+    print(f"pr_head_sha: {pr_head_sha}", flush=True)
+
+    screenshots_root = Path(args.screenshots_dir) / args.issue_id / f"iter_{iter_n}"
     if screenshots_root.exists():
         shutil.rmtree(screenshots_root)
     screenshots_root.mkdir(parents=True, exist_ok=True)
@@ -412,113 +588,162 @@ def main() -> int:
         )
         return 2
 
-    final_force_approved = False
-    final_iter_result: IterResult | None = None
+    jobs = asyncio.run(
+        capture_screenshots(routes, args.base_url, viewports, screenshots_root)
+    )
 
-    for iter_n in range(1, args.max_iter + 1):
-        iter_dir = screenshots_root / f"iter_{iter_n}"
-        iter_dir.mkdir(parents=True, exist_ok=True)
+    manifest_text = build_screenshots_manifest(jobs)
+    manifest_path = screenshots_root / "manifest.json"
+    manifest_path.write_text(manifest_text, encoding="utf-8")
+    screenshots_manifest_sha = sha256_text(manifest_text)
+    print(f"screenshots_manifest_sha256: {screenshots_manifest_sha}", flush=True)
 
-        print(f"\n=== iter {iter_n}/{args.max_iter} ===", flush=True)
-        jobs = asyncio.run(
-            capture_screenshots(routes, args.base_url, viewports, iter_dir)
-        )
-
-        if args.no_codex:
-            print(
-                f"--no-codex set; captured {len(jobs)} screenshots. Exiting iter loop.",
-                flush=True,
-            )
-            return 0
-
-        per_job: dict[str, CodexVerdict] = {}
-        for job in jobs:
-            verdict = run_codex_audit(job, iter_n, rubric_sha, rubric_body)
-            per_job[job.label] = verdict
-
-            # Cross-check rubric_sha + screenshot_sha — reviewer drift defense.
-            if verdict.rubric_sha256_declared and verdict.rubric_sha256_declared != rubric_sha:
-                print(
-                    f"  WARN: rubric_sha drift on {job.label}: "
-                    f"declared={verdict.rubric_sha256_declared} actual={rubric_sha}",
-                    flush=True,
-                )
-            actual_screenshot_sha = sha256_file(job.output_path)
-            if (
-                verdict.screenshot_sha256_declared
-                and verdict.screenshot_sha256_declared != actual_screenshot_sha
-            ):
-                print(
-                    f"  WARN: screenshot_sha drift on {job.label}",
-                    flush=True,
-                )
-
-            print(
-                f"  {job.label}: verdict={verdict.verdict} pass_count={verdict.pass_count}",
-                flush=True,
-            )
-
-        pass_counts = [v.pass_count for v in per_job.values() if v.pass_count is not None]
-        min_pc = min(pass_counts) if pass_counts else None
-        all_approve = all(v.is_approve() and (v.pass_count or 0) >= PASS_THRESHOLD for v in per_job.values())
-
-        iter_result = IterResult(
-            iter_n=iter_n,
-            per_job=per_job,
-            all_approve=all_approve,
-            min_pass_count=min_pc,
-        )
-        final_iter_result = iter_result
-
-        if all_approve:
-            emit_verdict_file(args.issue_id, iter_n, iter_result, force_approved=False)
-            print(f"\nAll routes APPROVE at iter {iter_n}. min_pass_count={min_pc}.")
-            return 0
-
-        if iter_n == args.max_iter:
-            # §8.3.1 force-approve: emit APPROVE artifact AND annotation file.
-            final_force_approved = True
-            emit_verdict_file(args.issue_id, iter_n, iter_result, force_approved=True)
-            annot = PROJECT_ROOT / ".codex" / args.issue_id / "codex_visual_audit_iter5_force_approve.txt"
-            annot.parent.mkdir(parents=True, exist_ok=True)
-            annot.write_text(
-                json.dumps(
-                    {
-                        "issue_id": args.issue_id,
-                        "force_approved_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                        "cap_iter": args.max_iter,
-                        "min_pass_count_at_cap": min_pc,
-                        "rubric_sha256": rubric_sha,
-                        "residual_jobs": [
-                            label
-                            for label, v in per_job.items()
-                            if not (v.is_approve() and (v.pass_count or 0) >= PASS_THRESHOLD)
-                        ],
-                        "directive": "CLAUDE.md §8.3.1 force-APPROVE at iter-5 cap",
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-            print(
-                f"\nForce-APPROVE at iter {iter_n}. min_pass_count={min_pc}. "
-                f"Annotation: {annot}",
-                flush=True,
-            )
-            return 0
-
-        emit_verdict_file(args.issue_id, iter_n, iter_result, force_approved=False)
+    if args.no_codex:
         print(
-            f"\niter {iter_n} REQUEST_CHANGES. min_pass_count={min_pc}. "
-            f"Writer must address findings; re-run loop.",
+            f"--no-codex set; captured {len(jobs)} screenshots. Exiting.",
             flush=True,
         )
-        # Hand control back so writer can edit code; CI calls this script
-        # again on the next push. Locally, this exit triggers the writer.
-        return 1
+        save_iter_state(args.issue_id, state)
+        return 0
 
-    # unreachable; kept for type-checker happiness
-    return 0
+    per_job: dict[str, CodexVerdict] = {}
+    for job in jobs:
+        verdict = run_codex_audit(job, iter_n, rubric_sha, rubric_body)
+        per_job[job.label] = verdict
+
+        # Cross-check rubric_sha + screenshot_sha — fail closed on drift.
+        # (P2-iter1 fix.)
+        if verdict.rubric_sha256_declared and verdict.rubric_sha256_declared != rubric_sha:
+            print(
+                f"  ERROR: rubric_sha drift on {job.label}: "
+                f"declared={verdict.rubric_sha256_declared} actual={rubric_sha}",
+                flush=True,
+            )
+            save_iter_state(args.issue_id, state)
+            return 3
+        actual_screenshot_sha = sha256_file(job.output_path)
+        if (
+            verdict.screenshot_sha256_declared
+            and verdict.screenshot_sha256_declared != actual_screenshot_sha
+        ):
+            print(
+                f"  ERROR: screenshot_sha drift on {job.label}",
+                flush=True,
+            )
+            save_iter_state(args.issue_id, state)
+            return 3
+
+        print(
+            f"  {job.label}: verdict={verdict.verdict} pass_count={verdict.pass_count}",
+            flush=True,
+        )
+
+    pass_counts = [v.pass_count for v in per_job.values() if v.pass_count is not None]
+    min_pc = min(pass_counts) if pass_counts else None
+    all_approve = all(
+        v.is_approve() and (v.pass_count or 0) >= PASS_THRESHOLD
+        for v in per_job.values()
+    )
+
+    iter_result = IterResult(
+        iter_n=iter_n,
+        per_job=per_job,
+        all_approve=all_approve,
+        min_pass_count=min_pc,
+    )
+
+    # Persist state with this iter's outcome before deciding final action.
+    state["last_verdict"] = "APPROVE" if all_approve else "REQUEST_CHANGES"
+    state["history"].append(
+        {
+            "iter": iter_n,
+            "min_pass_count": min_pc,
+            "verdict": state["last_verdict"],
+            "pr_head_sha": pr_head_sha,
+            "rubric_sha256": rubric_sha,
+            "screenshots_manifest_sha256": screenshots_manifest_sha,
+        }
+    )
+    save_iter_state(args.issue_id, state)
+
+    if all_approve:
+        emit_verdict_file(
+            args.issue_id,
+            iter_n,
+            iter_result,
+            rubric_sha,
+            pr_head_sha,
+            screenshots_manifest_sha,
+            force_approved=False,
+        )
+        print(f"\nAll routes APPROVE at iter {iter_n}. min_pass_count={min_pc}.")
+        return 0
+
+    if iter_n == HARD_ITER_CAP:
+        # Absolute iter-5 force-APPROVE per §8.3.1.
+        emit_verdict_file(
+            args.issue_id,
+            iter_n,
+            iter_result,
+            rubric_sha,
+            pr_head_sha,
+            screenshots_manifest_sha,
+            force_approved=True,
+        )
+        annot = (
+            PROJECT_ROOT
+            / ".codex"
+            / args.issue_id
+            / "codex_visual_audit_iter5_force_approve.txt"
+        )
+        annot.parent.mkdir(parents=True, exist_ok=True)
+        annot.write_text(
+            json.dumps(
+                {
+                    "issue_id": args.issue_id,
+                    "force_approved_utc": time.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                    ),
+                    "cap_iter": HARD_ITER_CAP,
+                    "min_pass_count_at_cap": min_pc,
+                    "rubric_sha256": rubric_sha,
+                    "pr_head_sha": pr_head_sha,
+                    "screenshots_manifest_sha256": screenshots_manifest_sha,
+                    "residual_jobs": [
+                        label
+                        for label, v in per_job.items()
+                        if not (
+                            v.is_approve() and (v.pass_count or 0) >= PASS_THRESHOLD
+                        )
+                    ],
+                    "directive": "CLAUDE.md §8.3.1 force-APPROVE at iter-5 cap",
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        print(
+            f"\nForce-APPROVE at iter {iter_n}. min_pass_count={min_pc}. "
+            f"Annotation: {annot}",
+            flush=True,
+        )
+        return 0
+
+    emit_verdict_file(
+        args.issue_id,
+        iter_n,
+        iter_result,
+        rubric_sha,
+        pr_head_sha,
+        screenshots_manifest_sha,
+        force_approved=False,
+    )
+    print(
+        f"\niter {iter_n}/{HARD_ITER_CAP} REQUEST_CHANGES. min_pass_count={min_pc}. "
+        f"Writer must address findings; re-run script to advance to iter {iter_n + 1}.",
+        flush=True,
+    )
+    return 1
 
 
 if __name__ == "__main__":
