@@ -50,6 +50,83 @@ function highlightNumerics(text: string): React.ReactNode[] {
   });
 }
 
+/** Display-layer typography normalization: tighten whitespace before
+ * punctuation that occasionally leaks through from LLM output (e.g.
+ * "tirzepatide ." → "tirzepatide."). This is typography cleanup, NOT
+ * data modification — the bundle data is preserved; only the rendered
+ * surface is normalized. (Codex visual iter-2 P2-001 fix: the front-door
+ * proof sentence shouldn't carry a visible spacing typo.) */
+function normalizeForDisplay(text: string): string {
+  return text.replace(/\s+([.,;:])/g, "$1");
+}
+
+/** Format a cited-span excerpt for the home card:
+ *   1. If the span starts mid-word (resolveSpan slices at byte offsets,
+ *      not word boundaries), advance to the next word boundary and add
+ *      a leading ellipsis so the reader sees "… and −2.30 …" not
+ *      "nts, and −2.30 …". (Codex visual iter-3 carryover after the
+ *      mid-word "nts," leading-text artifact.)
+ *   2. If the trimmed span exceeds `max` chars, truncate at the last
+ *      space ≥ 60% of max and add a trailing ellipsis.
+ * The bundle data itself is preserved; only the rendered excerpt is
+ * normalized for legibility. */
+function formatExcerpt(text: string, max = 280): string {
+  let formatted = text;
+  let leadingEllipsis = false;
+  // Heuristic for "starts mid-word": no leading whitespace, AND the
+  // first token doesn't begin with an uppercase letter or quote — the
+  // canonical span splices usually slice mid-word into a continuation
+  // fragment. The simplest robust rule: if the first character is a
+  // lowercase letter AND there's a word boundary further in, advance.
+  const firstChar = formatted.charAt(0);
+  if (firstChar && /[a-z]/.test(firstChar)) {
+    const nextWordStart = formatted.search(/\s+\S/);
+    if (nextWordStart > 0 && nextWordStart < 40) {
+      formatted = formatted.slice(nextWordStart).trimStart();
+      leadingEllipsis = true;
+    }
+  }
+  if (formatted.length > max) {
+    const cut = formatted.slice(0, max);
+    const lastSpace = cut.lastIndexOf(" ");
+    const head = lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut;
+    formatted = `${head.trimEnd()}…`;
+  }
+  return leadingEllipsis ? `… ${formatted}` : formatted;
+}
+
+/** Highlight the matched numerics inside the cited span excerpt as
+ * well, so the eye instantly sees WHICH numbers in the source were
+ * matched. Same green treatment as the claim, lighter weight so the
+ * source-quote retains its body-prose feel. */
+function highlightSpanNumerics(
+  spanText: string,
+  matchedNumbers: string[] | null,
+): React.ReactNode[] {
+  if (!matchedNumbers || matchedNumbers.length === 0) {
+    return [<span key={0}>{spanText}</span>];
+  }
+  // Build a regex matching any of the matched numbers (escape for regex)
+  const escaped = matchedNumbers
+    .map((n) => n.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"))
+    .join("|");
+  const regex = new RegExp(`(${escaped})`, "g");
+  const parts = spanText.split(regex);
+  return parts.map((part, i) => {
+    if (i % 2 === 1) {
+      return (
+        <span
+          key={i}
+          className="text-verified font-semibold tabular-nums"
+        >
+          {part}
+        </span>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
 /** Render the null-safe "against <journal> <year> source span" tail. */
 function sourceTail(journal: string | null, year: number | null): string {
   if (journal && year) return `against ${journal} ${year} source span`;
@@ -128,8 +205,48 @@ export function ProofAsCta({ brief }: ProofAsCtaProps) {
           data-testid="proof-claim"
           className="text-foreground text-lg leading-relaxed font-medium text-pretty break-words sm:text-xl"
         >
-          {highlightNumerics(claim)}
+          {highlightNumerics(normalizeForDisplay(claim))}
         </p>
+
+        {/* Sealed source-span excerpt — embodies the numeric-source
+            linkage Codex visual iter-2 flagged as "asserted not
+            demonstrated". A small verified-green left rule + the
+            actual cited passage with the SAME numerics highlighted
+            green = the eye sees the proof connection at a glance,
+            not just the count. Only renders when the loader returned
+            a span quote (which the verified-gate already guarantees). */}
+        {brief.span_quote ? (
+          <figure
+            data-testid="proof-source-excerpt"
+            className="border-verified/40 bg-verified/[0.03] flex flex-col gap-1.5 rounded-r-md border-l-2 px-4 py-3"
+          >
+            <figcaption className="text-muted-foreground text-[10px] font-medium tracking-[0.10em] uppercase">
+              From the cited source span
+              {brief.source.journal && brief.source.year
+                ? ` — ${brief.source.journal} ${brief.source.year}`
+                : brief.source.journal
+                  ? ` — ${brief.source.journal}`
+                  : brief.source.year
+                    ? ` — ${brief.source.year}`
+                    : ""}
+            </figcaption>
+            <blockquote className="text-foreground/80 text-sm leading-relaxed font-serif italic">
+              &ldquo;
+              {highlightSpanNumerics(
+                formatExcerpt(normalizeForDisplay(brief.span_quote)),
+                brief.matched_numerics > 0
+                  ? // Pull the actual matched numerics from the claim regex
+                    Array.from(
+                      claim.matchAll(/[−-]?\d+(?:\.\d+)?(?:%|\s*percentage\s+points?)?/g),
+                    )
+                      .map((m) => m[0])
+                      .filter((n) => brief.span_quote!.includes(n))
+                  : null,
+              )}
+              &rdquo;
+            </blockquote>
+          </figure>
+        ) : null}
 
         {/* Trust strip — two-row layout that gives both the verification
             stamp AND the signature pill enough weight to read as serious
