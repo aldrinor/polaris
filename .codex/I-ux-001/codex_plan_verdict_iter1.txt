@@ -1,0 +1,61 @@
+## Per-criterion forced enumeration
+- Criterion 1 [product direction]: AGREE with brief-first, claim-anchored follow-up, graph, and bounded agentic rigor. Do not pivot to general chat. But the plan must make the signed per-sentence receipt the visible product, because OpenAI/Gemini already do editable plans, progress, citations, and follow-up. ([help.openai.com](https://help.openai.com/en/articles/10500283-deep-research?pubDate=20250425&utm_source=openai)) ([blog.google](https://blog.google/products-and-platforms/products/gemini/google-gemini-deep-research/?utm_source=openai))
+- Criterion 2 [end-to-end journey]: Coherent on paper, not yet one experience. It still reads like 8 routes, not one premium verified-brief workspace.
+- Criterion 3 [hero - Proof Replay]: Direction is right, spec is not strong enough. Hover-to-highlight is useful, but not unforgettable. The wow must be a guided “challenge any sentence” proof replay with chain-of-custody and signature meaning.
+- Criterion 4 [visual & motion system]: Good foundation, under-specified for Linear/Stripe/Vercel-tier craft. Needs concrete component specs, density modes, responsive layouts, and exact state behavior. Vercel’s own interface guidance stresses no dead ends, all states, stable skeletons, and redundant status cues. ([vercel.com](https://vercel.com/design/guidelines?utm_source=openai))
+- Criterion 5 [liveliness]: Still too hand-wavy. Durations are not a motion system. The plan needs storyboards for proof reveal, run progress, source settling, count changes, empty states, and reduced-motion equivalents.
+- Criterion 6 [per-page targets]: Several C to S jumps are unrealistic without naming rebuilds. Intake, report/inspector, graph, and export need structural redesign, not polish.
+- Criterion 7 [differentiation]: Partly holds, but overclaims. Elicit links claims/extractions to exact quotes, Scite shows citation context, Consensus has meters/tables/graphs. POLARIS’s defensible uniqueness is signed, independently evaluated, per-sentence, offline-verifiable proof. ([elicit.com](https://elicit.com/solutions/literature-review?utm_source=openai)) ([scite.ai](https://scite.ai/?utm_source=openai)) ([help.consensus.app](https://help.consensus.app/en/articles/11954907-consensus-product-changelog?utm_source=openai))
+- Criterion 8 [sequence + #871]: Do not block hero UI on #871. Ship the hero against the existing real signed bundle first; fix #871 in parallel. #871 is a hard prerequisite for the live Carney demo, not for designing the proof experience.
+- Criterion 9 [missing entirely]: Missing clinical evidence-quality UX, source policy controls, offline verifier flow, mobile proof replay, performance budgets, privacy trust surface, and scenario-based acceptance tests.
+
+## Findings (Severity-Stratified)
+### P0
+- Differentiation is overclaimed. “Claim tied to exact source” is no longer unique: Elicit says every extraction is supported by source quotes/figures and reports have sentence-level citations; Scite classifies and exposes exact citation context; Consensus has meter, claim/evidence table, citation graph, and full-text access. The signed, independently evaluated bundle must be the primary visible magic. ([elicit.com](https://elicit.com/solutions/literature-review?utm_source=openai)) ([scite.ai](https://scite.ai/?utm_source=openai)) ([help.consensus.app](https://help.consensus.app/en/articles/11954907-consensus-product-changelog?utm_source=openai))
+- The plan lacks a clinical evidence-quality layer. A senior clinical/policy reviewer needs certainty, applicability, harms, population fit, evidence hierarchy, guideline/RCT distinction, and conflict handling. Span support alone can verify a sentence while still leaving the decision unsafe.
+- The hero spec would likely produce “nice citation UI,” not frontier-beating proof. Competitors already show plans, sources, progress, visual reports, and reasoning traces; POLARIS needs a distinct replay: sentence challenged, evaluator verdict shown, source span resolved, signature verified. ([blog.google](https://blog.google/products/gemini/tips-how-to-use-deep-research/?utm_source=openai)) ([futurehouse.org](https://www.futurehouse.org/research-announcements/launching-futurehouse-platform-ai-agents?_bhlid=b2b50af9254da4cf97bbad70959795fa728b14f6&utm_source=openai))
+- The journey is route-centric instead of artifact-centric. The S-tier product should feel like one verified brief workspace with report, evidence, graph, follow-up, and receipt in one mental model. Current plan still risks separate Home, Intake, Run, Inspector, Graph, Export tools.
+- #871 is real demo risk. If the live flagship clinical question aborts with `corpus_inadequate`, the experience fails regardless of visual quality. But sequencing it before hero UI is wrong; use the existing real signed bundle for hero build while #871 runs as a parallel reliability blocker.
+
+### P1
+- Claim-anchored follow-up is right, but underspecified. It needs explicit UI: “ask about this sentence,” “challenge this source,” “compare against guideline,” all preserving provenance.
+- Intake remains weak. Replacing empty space with a teaser is not enough; it needs live scope interpretation, evidence availability, source policy, and plain-language clinical framing before the user commits.
+- Plan review lacks control over source strategy: primary studies vs guidelines, date ranges, Canadian relevance, endpoints, exclusions, and minimum adequacy threshold.
+- Run progress needs real evidence decisions, not theatrical steps: searched sources, rejected sources, tier counts, adequacy gate, evaluator pass/fail, and recovery path.
+- Verdict header counts are too shallow. Add adequacy, independent-family result, signature state, unsupported reason count, source tier mix, timestamp, and model/version identity.
+- Knowledge graph is underdefined. “Snowball” needs a job: contradiction map, treatment/effect timeline, source lineage, guideline links, and follow-up paths.
+- Export/audit is not yet a user experience. Define “verify offline” as a guided flow, not a manifest dump.
+- Mobile and tablet proof replay are missing. This recipient may open it on an iPad or phone; hover cannot be the core interaction.
+- Motion needs choreography. Define exactly what moves, why, and when. Vercel’s status guidance is a good model: motion should communicate state, not decorate it. ([vercel.com](https://vercel.com/geist/status-dot?utm_source=openai))
+- Current screenshot copy still exposes internal language: “two-family invariant,” “Signature missing,” “POOL ID.” The plan says de-jargon but does not rewrite the trust language.
+- The inspector is still developer-tool dense. Hashes and IDs should be progressive disclosure behind a human-readable trust summary.
+- The competitor matrix omits what competitors do better: OpenEvidence has physician trust and point-of-care adoption; Gemini has visual reports; Perplexity has spaces/tasks; Manus/Genspark own visible autonomy. ([openevidence.com](https://www.openevidence.com/announcements/openevidence-the-fastest-growing-application-for-physicians-in-history-announces-dollar210-million-round-at-dollar35-billion-valuation?utm_source=openai)) ([blog.google](https://blog.google/products/gemini/visual-reports/?utm_source=openai)) ([perplexity.ai](https://www.perplexity.ai/help-center/en/articles/10352961-what-are-spaces/?utm_source=openai)) ([manus.im](https://manus.im/docs?utm_source=openai))
+- Sequence is too code-first. Add Figma/motion prototypes for the hero before implementation.
+- No performance budget. Proof reveal must feel instant; source scrolling, span highlighting, and claim switching need latency targets.
+- Acceptance relies too much on screenshots. Add Playwright interaction traces or videos for motion, keyboard, mobile, and reduced-motion states.
+
+### P2 / P3
+- The maple-leaf mark needs a production spec: vector or high-resolution bitmap, size rules, contrast, and when it appears.
+- The Home feature trio is generic. Replace with concrete proof metrics and the signed-receipt story.
+- The current source highlight is fragmented and hard to read. Use sentence/phrase grouping with margin annotation, not pink word tiles.
+- The source card should show journal, year, DOI, tier, and why this source was selected.
+- “Canadian-hosted” needs an accessible tooltip or disclosure link that cleanly distinguishes hosting/data from US-routed LLM inference.
+- “All six microstates everywhere” should be componentized; otherwise it becomes inconsistent page-by-page labor.
+- Footer disclosure is currently low-signal. Trust material belongs in the proof surface and transparency page, not only the footer.
+- Add keyboard-first proof navigation. Raycast’s bar for power-user speed is command/shortcut driven, and this reviewer persona will value fast inspection. ([manual.raycast.com](https://manual.raycast.com/keyboard-shortcuts?utm_source=openai))
+
+## Missing-Entirely
+- GRADE-like certainty/applicability summary for clinical claims.
+- Source policy controls and transparent inclusion/exclusion criteria.
+- Offline verifier UX with a human-readable receipt.
+- Mobile proof replay design.
+- A flagship demo script tailored to PM/policy use, not only clinical curiosity.
+- Failure-state design for inadequate corpus, partial evidence, contradictory sources, and unsigned bundles.
+- Interaction acceptance tests: time-to-first-proof, time-to-verify-one-claim, keyboard path, reduced-motion path.
+- A real competitor counter-positioning table that says what each competitor does better and how POLARIS answers it.
+
+## Verdict
+verdict: REQUEST_CHANGES  
+convergence_call: continue
+
+The direction is close, but not approvable at the requested bar. The plan can produce a clean, credible product; it does not yet guarantee a frontier-beating, unforgettable research experience. The next revision should rebuild around one flagship artifact: a verified brief workspace where the signed per-sentence proof receipt is immediately understandable, interactive, clinical-grade, and demonstrably different from every cited competitor.

@@ -5,7 +5,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python C:/POLARIS/.claude/hooks/stop_hook_v3.py"
+            "command": "python C:/POLARIS/.claude/hooks/stier_stop_hook.py"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python C:/POLARIS/.claude/hooks/stier_session_start.py"
           }
         ]
       }

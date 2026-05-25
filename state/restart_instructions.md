@@ -1,4 +1,21 @@
-# Restart Instructions — issue-driven workflow (post 2026-05-05 restart)
+# Restart Instructions — ACTIVE: I-ux-001 S-tier experience initiative (2026-05-24)
+
+## ⚡ CURRENT WORKSTREAM (resume point as of 2026-05-25)
+
+**I-ux-001 — S-tier experience plan + execution (GitHub #872).** Operator directive 2026-05-24, operator ASLEEP, **FULL AUTHORIZATION**. Autonomous, multi-session.
+
+**Read first on resume:**
+1. `docs/stier_experience_directive_2026_05_24.md` — the full directive + operating model + research synthesis.
+2. `.claude/hooks/stier_directive.txt` — the TL;DR (also auto-injected by the SessionStart hook after compaction).
+3. Memory `feedback_codex_decides_all_stier_uncapped_2026_05_24.md`.
+4. `docs/stier_experience_plan.md` v4 (Codex APPROVE'd) + `.codex/I-ux-001/PLAN_APPROVED.md`.
+
+**Operating model (binding):** Codex decides ALL — never ask the operator. NO iteration cap on the plan review. Don't checkpoint/report/pause. On context-fill: update THIS file, auto-compact, continue. One codex at a time (§8.4). Route everything to Codex CLI (`env -u OPENAI_API_KEY codex exec`, visual via `-i`); NEVER the Opus advisor() tool.
+
+**Anti-drift machinery (LIVE, verified 2026-05-24):**
+- SessionStart hook `.claude/hooks/stier_session_start.py` → re-injects directive on startup/resume/compact.
+- Stop hook `.claude/hooks/stier_stop_hook.py` → blocks premature stop while #872 OPEN; gates on objective GitHub state; escape valves = `state/stier_halt_*.md` / gh-failure / issue-closed / 60-block stuck-cap.
+- Both wired in `.claude/settings.json` (single committed source).
 
 ## Boot ritual (mandatory per CLAUDE.md §10)
 
@@ -6,26 +23,38 @@
 2. Read `polaris-controls/CHARTER.md` and `PLAN.md` (admin-only sister repo nested at `C:\POLARIS\polaris-controls\`).
 3. Verify BOTH SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP per §3.1 step 0.
 4. Read `state/active_issue.json`.
-5. Read `docs/stier_experience_directive_2026_05_24.md` — the operator's S-tier directive (Codex decides everything, no checkpoints, frontier-BEATING bar).
-6. Re-load CHARTER `I-ux-001` umbrella issue **#872** for the current S-tier workstream.
+5. Read `docs/stier_experience_directive_2026_05_24.md` — the operator's S-tier directive.
+6. Re-load CHARTER `I-ux-001` umbrella issue **#872** + sub-issues #873/#875/#877/#878/#879.
 
-## CURRENT WORKSTREAM (resume point as of 2026-05-24)
-
-**I-ux-001 — S-tier experience initiative** (GH#872 umbrella) — execute all pages at frontier-BEATING bar.
-
-### Status as of this handover
+## Status as of this handover (2026-05-25)
 
 | Sub-issue | GH# | State | What landed |
 |---|---|---|---|
-| I-ux-001 plan | umbrella #872 | APPROVED (Codex uncapped iter 5 v4) | `docs/stier_experience_plan.md` |
-| I-ux-001a — Prereq 0: signed-bundle moat | #873 | OPERATOR MERGE QUEUE (codex-required PASS) | `web/lib/gpg_verify_bundle.ts`, tri-state SignatureBadge, gpgv-isolated keyring verifier, CI guard `scripts/check_signed_bundles.py`, Dockerfile gnupg install |
+| I-ux-001 plan | umbrella #872 | APPROVED (Codex uncapped iter 4 v4, zero P0/P1) | `docs/stier_experience_plan.md` + `.codex/I-ux-001/PLAN_APPROVED.md` |
+| I-ux-001a — Prereq 0: signed-bundle moat | #873 | OPERATOR MERGE QUEUE (codex-required PASS) | `web/lib/gpg_verify_bundle.ts`, tri-state SignatureBadge, gpgv-isolated keyring verifier, CI guard, Dockerfile gnupg install |
 | I-ux-001a — Real demo signed bundle | #875 | OPERATOR MERGE QUEUE | `scripts/build_canonical_demo_bundle.py` signs by default; ships `polaris_demo_pubkey.asc` + `state/polaris_gpg_keyid.txt` |
-| I-ux-001b — Figma hero prototype | #877 | OPERATOR MERGE QUEUE | 5 Codex visual-audit rounds B → B+ → A → A/A → A/A-+GREENLIGHT; v6 applied A+ unlock spec (unified Sealed evidence block + "matched 6 of 6 numbers" stamp + sentence-case ladder); Figma file `Is7pehpxPdn3ZOOgCsyUjs`; screenshots `web/p2shots/I-ux-001b/hero_stage{2,4}_v{1..6}_*.png` |
-| I-ux-001c — Hero implementation | #878 | **NEXT WORK** | Next.js + Tailwind v4 build of the prototyped hero |
+| I-ux-001b — Figma hero prototype (Stage 2 + Stage 4) | #877 | OPERATOR MERGE QUEUE | 5 Codex visual-audit rounds B → B+ → A → A/A → A/A-+GREENLIGHT; v6 applied A+ unlock (unified Sealed evidence block + "matched 6 of 6 numbers" stamp + sentence-case ladder) |
+| **I-ux-001d — Extend prototype: motion + all-pages BEFORE code** | **#879** | **IN PROGRESS — iter 1 returned Codex hybrid sequencing direction; iter 2 next** | sequencing direction locked: hero motion grammar → per-family templates (read/edit/monitor/spatial/marketing) → 22-frame specialization → e2e click-through; annotated-still vehicle at t=0/120/250/400/600/700ms |
+| I-ux-001c — Hero implementation | #878 | QUEUED AFTER #879 | Next.js + Tailwind v4 build of the prototyped hero |
+
+## NEXT CONCRETE ACTION (resume from cold here)
+
+**I-ux-001d iter 2** — revise issue body + ship route/frame map + naming convention, then re-brief Codex for sequencing-plan APPROVE.
+
+### Step-by-step from cold boot
+
+1. Boot ritual (§3.1 step 0 canonical pin + CHARTER+PLAN SHA + halt-marker check).
+2. `git checkout bot/I-ux-001d-extend-prototype-audit && git pull` (current branch).
+3. **Files to ground in:** `.codex/I-ux-001d/sequencing_brief_iter1.md`, `.codex/I-ux-001d/sequencing_verdict_iter1.txt` (Codex hybrid direction), `.codex/I-ux-001/PLAN_APPROVED.md`, `docs/stier_experience_plan.md`, `web/p2shots/I-ux-001b/hero_stage{2,4}_v6_*.png`.
+4. Write: `docs/web/i_ux_001d_route_frame_map.md` (11 pages × desktop+mobile = 22 frames; verify `/transparency` IS NOT a route — it's integrated into shell footer; verify Source Review IS a critical-path page per Codex direction).
+5. Write: `docs/web/i_ux_001d_motion_still_convention.md` (naming convention `<stage>_<state>_<viewport>_t<ms>.png`; timestamp sets per Codex direction).
+6. Update GH#879 body with the Codex-directed hybrid sequence.
+7. Brief Codex iter 2 = "here's the revised plan + inventory + naming; ready for sequencing-plan APPROVE."
+8. On APPROVE, begin TRACK 1 (motion on existing hero) per the still convention.
 
 ### Operator standing directive (2026-05-24) — REMAINS BINDING
 
-Anchored in `docs/stier_experience_directive_2026_05_24.md` + memory `feedback_codex_decides_all_stier_uncapped_2026_05_24.md` + `.claude/hooks/stier_session_start.py` + `.claude/hooks/stier_stop_hook.py`:
+Anchored in `docs/stier_experience_directive_2026_05_24.md` + memory `feedback_codex_decides_all_stier_uncapped_2026_05_24.md` + the hook pair:
 
 - **Codex decides EVERYTHING.** NEVER ask operator. NEVER use Opus advisor() tool.
 - **NO ITERATION CAP** on the I-ux-001 plan review (per-Issue diff/brief gates keep §8.3.1 5-cap).
@@ -34,44 +63,10 @@ Anchored in `docs/stier_experience_directive_2026_05_24.md` + memory `feedback_c
 - **LAW II — Real Data Only, No Silent Fallbacks, Fail Loudly.**
 - **`gh pr merge --admin` REVOKED.** Operator handles morning merge.
 - **Brand red `#c8102e` LOCKED.**
-- **Honest sovereignty wording only** (LLM via OpenRouter-US disclosed at /transparency).
+- **Honest sovereignty wording only** (LLM via OpenRouter-US disclosed at /transparency footer integration).
 - **Per-sentence provability + signed two-family bundle = core differentiator** — do not dilute.
 - **Demo reviewer credential is a REAL SECRET** — use without echoing/committing.
 - **When context nears full:** update `state/restart_instructions.md` (this file) → auto-compact → continue.
-
-## NEXT CONCRETE ACTION
-
-**Open `I-ux-001c — Hero implementation` (GH#878)** — Next.js + Tailwind v4 build of the Codex-greenlit proof-replay prototype.
-
-### Step-by-step from cold boot
-
-1. Boot ritual (§3.1 step 0 canonical pin + CHARTER+PLAN SHA).
-2. `git checkout polaris && git pull` (ensure #873/#875/#877 merged by operator overnight; if not, work proceeds on a branch off `bot/I-ux-001b-foundation`).
-3. `git checkout -b bot/I-ux-001c-hero-implementation`.
-4. **GitHub Issue already exists: #878.** Read it.
-5. **Comprehensive grep adjacent files** (§-1.2 step 2):
-   - `web/components/inspector/inspector_proof_header.tsx` (current hero band — needs upgrade)
-   - `web/components/inspector/bundle_header.tsx` (SignatureBadge tri-state — already correct)
-   - `web/components/inspector/family_segregation_badge.tsx`
-   - `web/lib/inspector_bundle_loader.ts` (now returns `signatureState`)
-   - `web/app/inspector/[runId]/page.tsx` (current consumer)
-   - `web/app/runs/[runId]/page.tsx` (target location for Proof Replay tab)
-   - `web/components/proof_replay/*` (any existing proof-replay components from P2-seq-07 #746)
-   - `web/components/citation_chip*` (P2-seq-04 #743), `verdict_chip*` (#744), `evidence_card*` (#745)
-   - `docs/web/proof_replay_storyboard.md` — 6-beat reveal, mobile bottom-sheet, reduced-motion equivalent
-   - `docs/web/components_catalogue.md` — ClaimSentence, ProofPanel, FaithfulnessChip (checklist grammar), CertaintyBadge (ordinal ladder), unified SourceCard+SourceSpanPreview Sealed evidence block, SignaturePill, WhatThisDoesNotProve, IntendedUseBanner
-   - `docs/web/design_tokens_v2.md` — type, two-judgment color (faithfulness green/amber/magenta-red vs brand red; evidence-strength slate-blue ordinal), motion tokens
-6. **Smoke test offline:** verify the existing real signed bundle at `web/public/canonical_bundles/v1_canonical_success/` loads with `signatureState=gpg_verified` (depends on #875).
-7. **Write brief `.codex/I-ux-001c/brief.md`** — start with §8.3.1 cap directive verbatim. Reference v6 screenshots + storyboard + catalogue + tokens. Acceptance: built page matches prototype at the same A+ bar via Codex `codex exec -i live_render.png` visual audit; Time-to-first-proof <400ms; claim-to-claim switch <120ms perceived; six microstates + reduced-motion; WCAG 2.2 AA (axe 0); verified LIVE on polarisresearch.ca.
-8. Codex brief gate → diff → Codex diff gate → live visual audit → operator merge queue.
-
-### Reference artifacts
-
-- **v6 desktop screenshot:** `web/p2shots/I-ux-001b/hero_stage2_v6_desktop.png` (164805 bytes)
-- **v6 mobile screenshot:** `web/p2shots/I-ux-001b/hero_stage4_v6_mobile.png` (46649 bytes)
-- **Codex iter-5 verdict (greenlight):** `.codex/I-ux-001b/visual_audit_v5.txt`
-- **Figma file:** `Is7pehpxPdn3ZOOgCsyUjs` (desktop node 1:2, mobile node 14:2)
-- **Real signed bundle:** `web/public/canonical_bundles/v1_canonical_success/` (signed by `FB221F...01CC`, GPG-verifiable offline via `scripts/check_signed_bundles.py`)
 
 ## Workflow rules (binding)
 
@@ -79,7 +74,7 @@ Per CLAUDE.md §3.0 + plan §7.A LOCKED A2 + §7.B LOCKED B1:
 
 - **Claude:** writes code (briefs + diffs + claude_audit).
 - **Codex:** reviews. Two APPROVE gates per Issue (brief + diff). 5-iter cap per §8.3.1 (NOT the umbrella plan — that's uncapped per I-ux-001 directive).
-- **User:** spec owner + after-the-fact merge gate. Reads `git log` in morning (B1 pure auto-merge). CI required check `polaris/codex-required` enforces.
+- **User:** spec owner + after-the-fact merge gate. Reads `git log` in morning. CI required check `polaris/codex-required` enforces.
 
 **Per-Issue 5-artifact triple** (CI rejects PR without these):
 - `.codex/<issue_id>/brief.md`
