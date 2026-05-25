@@ -114,6 +114,15 @@ class ScreenshotJob:
         return f"{safe_route}_{w}x{h}_{self.state}"
 
 
+class CodexOutputError(RuntimeError):
+    """Raised when Codex returns malformed or incomplete YAML.
+
+    Codex diff-iter-1 P1 fix: invalid Codex output must NOT silently
+    advance the iter counter and reach iter-5 force-APPROVE. Hard error
+    instead. The harness fails closed; the writer must re-run.
+    """
+
+
 @dataclass
 class CodexVerdict:
     raw: str
@@ -123,16 +132,45 @@ class CodexVerdict:
     screenshot_sha256_declared: str | None = None
 
     @classmethod
-    def parse(cls, raw: str) -> "CodexVerdict":
+    def parse(cls, raw: str, label: str = "<unknown>") -> "CodexVerdict":
+        """Strict parser. Raises CodexOutputError on any missing field
+        or out-of-range value. Iter-state save sites MUST catch and
+        treat as hard harness failure, not as REQUEST_CHANGES.
+        """
         v = cls(raw=raw)
         m = FINAL_VERDICT_RE.findall(raw)
         v.verdict = m[-1] if m else None
+        if v.verdict not in ("APPROVE", "REQUEST_CHANGES"):
+            raise CodexOutputError(
+                f"{label}: missing or invalid `verdict:` line "
+                f"(got {v.verdict!r}); Codex returned malformed output"
+            )
+
         m = PASS_COUNT_RE.findall(raw)
         v.pass_count = int(m[-1]) if m else None
+        if v.pass_count is None:
+            raise CodexOutputError(
+                f"{label}: missing `pass_count:` line"
+            )
+        if not (0 <= v.pass_count <= 16):
+            raise CodexOutputError(
+                f"{label}: pass_count={v.pass_count} out of range 0..16"
+            )
+
         m = RUBRIC_SHA_RE.findall(raw)
         v.rubric_sha256_declared = m[-1] if m else None
+        if not v.rubric_sha256_declared:
+            raise CodexOutputError(
+                f"{label}: missing `rubric_sha256:` declaration"
+            )
+
         m = SCREENSHOT_SHA_RE.findall(raw)
         v.screenshot_sha256_declared = m[-1] if m else None
+        if not v.screenshot_sha256_declared:
+            raise CodexOutputError(
+                f"{label}: missing `screenshot_sha256:` declaration"
+            )
+
         return v
 
     def is_approve(self) -> bool:
@@ -184,29 +222,32 @@ def viewport_list() -> list[tuple[int, int]]:
     return out
 
 
-def current_pr_head_sha() -> str:
-    """Pick the SHA the audit binds to.
+def ui_surface_tree_sha() -> str:
+    """Compute a stable hash of the UI surface tracked by the gate.
 
-    Priority:
-      1. $GITHUB_SHA (set by CI; correct for the PR head being audited)
-      2. `git rev-parse HEAD` (local writer path)
+    Codex diff-iter-1 P0 fix: the previous design recorded
+    `pr_head_sha = git rev-parse HEAD` in the audit. But the audit
+    file must then be COMMITTED, which changes HEAD, and the CI gate
+    compared declared `pr_head_sha` to `github.event.pull_request.head.sha`
+    — an impossible fixed point.
 
-    Bound into the audit file as `pr_head_sha:`; the CI gate verifies
-    it matches the actual PR head SHA. Stale audits from a prior commit
-    are rejected.
+    The fix: bind the audit to the UI surface CONTENT (web/app/** +
+    web/components/**), not the commit identity. This hash is invariant
+    across the audit-commit step because the audit-commit does not touch
+    those paths.
+
+    Implementation is delegated to `scripts/compute_ui_surface_sha.py`
+    so the script and the CI workflow share one source of truth for
+    the algorithm.
     """
-    sha = os.getenv("GITHUB_SHA")
-    if sha:
-        return sha.strip()
+    # Local import to avoid cycle at module load if compute_ui_surface_sha
+    # is itself being introspected.
+    sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
     try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            cwd=PROJECT_ROOT,
-            text=True,
-        ).strip()
-        return out
-    except subprocess.CalledProcessError as exc:
-        raise SystemExit(f"unable to resolve PR head SHA: {exc}")
+        import compute_ui_surface_sha  # type: ignore
+        return compute_ui_surface_sha.compute(PROJECT_ROOT)
+    finally:
+        sys.path.pop(0)
 
 
 # ---------------------------------------------------------------------------
@@ -452,7 +493,10 @@ def run_codex_audit(
     )
     if proc.returncode != 0:
         print(f"  codex stderr: {proc.stderr[:500]}", flush=True)
-    return CodexVerdict.parse(proc.stdout)
+    # Strict parse — raises CodexOutputError on malformed output. The
+    # caller does NOT catch + treat as REQUEST_CHANGES; it propagates
+    # to main() which exits without advancing iter state.
+    return CodexVerdict.parse(proc.stdout, label=job.label)
 
 
 # ---------------------------------------------------------------------------
@@ -463,7 +507,7 @@ def emit_verdict_file(
     iter_n: int,
     iter_result: IterResult,
     rubric_sha: str,
-    pr_head_sha: str,
+    ui_surface_tree_sha256: str,
     screenshots_manifest_sha: str,
     force_approved: bool,
 ) -> Path:
@@ -477,7 +521,7 @@ def emit_verdict_file(
     lines.append("")
     # Audit-to-PR cross-binding declarations — CI gate verifies each.
     lines.append(f"rubric_sha256: {rubric_sha}")
-    lines.append(f"pr_head_sha: {pr_head_sha}")
+    lines.append(f"ui_surface_tree_sha256: {ui_surface_tree_sha256}")
     lines.append(f"screenshots_manifest_sha256: {screenshots_manifest_sha}")
     lines.append("")
     for label, v in iter_result.per_job.items():
@@ -558,9 +602,13 @@ def main() -> int:
     print(f"viewports: {viewports}", flush=True)
 
     # Persisted state — the absolute 5-iter cap lives here. (P0 fix.)
+    # Iter counter is INCREMENTED-AND-SAVED only AFTER a successful
+    # Codex iteration (P1 from diff iter-1): malformed Codex output
+    # MUST NOT advance the iter counter, otherwise repeated garbage
+    # responses reach iter-5 force-APPROVE without a single valid
+    # review.
     state = load_iter_state(args.issue_id)
-    state["iter"] = state.get("iter", 0) + 1
-    iter_n = state["iter"]
+    iter_n = state.get("iter", 0) + 1  # tentative — saved only on success
     if iter_n > HARD_ITER_CAP:
         # Already force-approved on a prior call; the audit file should
         # exist. Re-running is a no-op.
@@ -570,10 +618,10 @@ def main() -> int:
             flush=True,
         )
         return 0
-    print(f"\n=== iter {iter_n}/{HARD_ITER_CAP} (persisted) ===", flush=True)
+    print(f"\n=== iter {iter_n}/{HARD_ITER_CAP} (tentative; saved on success) ===", flush=True)
 
-    pr_head_sha = current_pr_head_sha()
-    print(f"pr_head_sha: {pr_head_sha}", flush=True)
+    ui_surface_tree_sha256 = ui_surface_tree_sha()
+    print(f"ui_surface_tree_sha256: {ui_surface_tree_sha256}", flush=True)
 
     screenshots_root = Path(args.screenshots_dir) / args.issue_id / f"iter_{iter_n}"
     if screenshots_root.exists():
@@ -603,40 +651,54 @@ def main() -> int:
             f"--no-codex set; captured {len(jobs)} screenshots. Exiting.",
             flush=True,
         )
-        save_iter_state(args.issue_id, state)
+        # Don't advance iter state — no codex review happened.
         return 0
 
     per_job: dict[str, CodexVerdict] = {}
-    for job in jobs:
-        verdict = run_codex_audit(job, iter_n, rubric_sha, rubric_body)
-        per_job[job.label] = verdict
+    try:
+        for job in jobs:
+            # Strict parse: raises CodexOutputError on malformed YAML.
+            verdict = run_codex_audit(job, iter_n, rubric_sha, rubric_body)
+            per_job[job.label] = verdict
 
-        # Cross-check rubric_sha + screenshot_sha — fail closed on drift.
-        # (P2-iter1 fix.)
-        if verdict.rubric_sha256_declared and verdict.rubric_sha256_declared != rubric_sha:
+            # Cross-check rubric_sha + screenshot_sha — fail closed on drift.
+            # (P2-iter1 fix.) Strict parser already enforced presence;
+            # we now enforce VALUE match.
+            if verdict.rubric_sha256_declared != rubric_sha:
+                print(
+                    f"  ERROR: rubric_sha drift on {job.label}: "
+                    f"declared={verdict.rubric_sha256_declared} actual={rubric_sha}",
+                    flush=True,
+                )
+                # Don't advance iter state on hard drift.
+                return 3
+            actual_screenshot_sha = sha256_file(job.output_path)
+            if verdict.screenshot_sha256_declared != actual_screenshot_sha:
+                print(
+                    f"  ERROR: screenshot_sha drift on {job.label}: "
+                    f"declared={verdict.screenshot_sha256_declared} actual={actual_screenshot_sha}",
+                    flush=True,
+                )
+                return 3
+
             print(
-                f"  ERROR: rubric_sha drift on {job.label}: "
-                f"declared={verdict.rubric_sha256_declared} actual={rubric_sha}",
+                f"  {job.label}: verdict={verdict.verdict} pass_count={verdict.pass_count}",
                 flush=True,
             )
-            save_iter_state(args.issue_id, state)
-            return 3
-        actual_screenshot_sha = sha256_file(job.output_path)
-        if (
-            verdict.screenshot_sha256_declared
-            and verdict.screenshot_sha256_declared != actual_screenshot_sha
-        ):
-            print(
-                f"  ERROR: screenshot_sha drift on {job.label}",
-                flush=True,
-            )
-            save_iter_state(args.issue_id, state)
-            return 3
-
+    except CodexOutputError as exc:
+        # P1-diff-iter1 fix: malformed Codex output is a HARD harness
+        # failure. The iter counter does NOT advance. Writer re-runs
+        # the script, which will retry the same iter (not the next).
+        print(f"ERROR: Codex returned malformed output — {exc}", file=sys.stderr)
         print(
-            f"  {job.label}: verdict={verdict.verdict} pass_count={verdict.pass_count}",
-            flush=True,
+            f"Iter state NOT advanced; current iter remains {state.get('iter', 0)}.",
+            file=sys.stderr,
         )
+        return 4
+
+    # All jobs parsed successfully — NOW it is safe to advance iter
+    # state. (P1-diff-iter1 fix.)
+    state["iter"] = iter_n
 
     pass_counts = [v.pass_count for v in per_job.values() if v.pass_count is not None]
     min_pc = min(pass_counts) if pass_counts else None
@@ -659,7 +721,7 @@ def main() -> int:
             "iter": iter_n,
             "min_pass_count": min_pc,
             "verdict": state["last_verdict"],
-            "pr_head_sha": pr_head_sha,
+            "ui_surface_tree_sha256": ui_surface_tree_sha256,
             "rubric_sha256": rubric_sha,
             "screenshots_manifest_sha256": screenshots_manifest_sha,
         }
@@ -672,7 +734,7 @@ def main() -> int:
             iter_n,
             iter_result,
             rubric_sha,
-            pr_head_sha,
+            ui_surface_tree_sha256,
             screenshots_manifest_sha,
             force_approved=False,
         )
@@ -686,7 +748,7 @@ def main() -> int:
             iter_n,
             iter_result,
             rubric_sha,
-            pr_head_sha,
+            ui_surface_tree_sha256,
             screenshots_manifest_sha,
             force_approved=True,
         )
@@ -707,7 +769,7 @@ def main() -> int:
                     "cap_iter": HARD_ITER_CAP,
                     "min_pass_count_at_cap": min_pc,
                     "rubric_sha256": rubric_sha,
-                    "pr_head_sha": pr_head_sha,
+                    "ui_surface_tree_sha256": ui_surface_tree_sha256,
                     "screenshots_manifest_sha256": screenshots_manifest_sha,
                     "residual_jobs": [
                         label
@@ -734,7 +796,7 @@ def main() -> int:
         iter_n,
         iter_result,
         rubric_sha,
-        pr_head_sha,
+        ui_surface_tree_sha256,
         screenshots_manifest_sha,
         force_approved=False,
     )

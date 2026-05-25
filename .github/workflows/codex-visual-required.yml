@@ -12,13 +12,20 @@ name: codex-visual-required
 # the LAST `verdict: APPROVE|REQUEST_CHANGES` line in the artifact file
 # wins.
 #
-# Cross-binding strategy (P0-iter1 fix): the gate verifies the audit
-# was performed against THIS PR's evidence by binding three SHAs:
-#   1. rubric_sha256       → matches .codex/visual_audit_rubric.md in working tree
-#   2. pr_head_sha         → matches github.event.pull_request.head.sha
+# Cross-binding strategy (P0-iter1 + P0-diff-iter1 fix): the gate
+# verifies the audit was performed against THIS PR's evidence by binding
+# three SHAs:
+#   1. rubric_sha256              → matches .codex/visual_audit_rubric.md in working tree
+#   2. ui_surface_tree_sha256     → matches deterministic hash of web/app/** + web/components/**
+#                                    (replaces pr_head_sha — that approach had a self-
+#                                    referential hash fixed-point: committing the audit
+#                                    changed HEAD, so the recorded HEAD could never match
+#                                    the actual PR HEAD)
 #   3. screenshots_manifest_sha256 → matches the manifest committed alongside the audit
 # Each must be present and match; a stale audit from a prior commit is
-# rejected.
+# rejected. The UI surface hash is stable across the audit-commit step
+# because committing audit artifacts under .codex/ + outputs/ does NOT
+# touch web/app/** or web/components/**.
 #
 # Issue-id derivation: per P1-iter1 fix, this gate runs on ALL PRs
 # touching UI surface, not just bot/<id> branches. For bot/<id>
@@ -200,16 +207,28 @@ jobs:
             fi
           done
 
-          # 3. Verify pr_head_sha matches THIS PR's head SHA.
-          # P0-iter1 fix #2: bind audit to current rendered evidence.
-          declared_head="$(grep -E '^pr_head_sha:[[:space:]]+[a-f0-9]{40}$' "$VISUAL" | awk '{print $2}' | tail -1 || true)"
-          if [ -z "$declared_head" ]; then
-            echo "ERROR: $VISUAL declares no pr_head_sha line"
+          # 3. Verify ui_surface_tree_sha256 matches the deterministic
+          # hash of web/app/** + web/components/** in this PR's working
+          # tree. (P0-iter1 fix replaced by P0-diff-iter1 fix.)
+          # The previous design recorded `pr_head_sha = git rev-parse HEAD`
+          # but the audit must then be committed, which changes HEAD —
+          # an impossible fixed point. The new binding is to the UI
+          # surface CONTENT which is invariant across the audit-commit.
+          declared_tree_sha="$(grep -E '^ui_surface_tree_sha256:[[:space:]]+[a-f0-9]{64}$' "$VISUAL" | awk '{print $2}' | tail -1 || true)"
+          if [ -z "$declared_tree_sha" ]; then
+            echo "ERROR: $VISUAL declares no ui_surface_tree_sha256 line"
             exit 1
           fi
-          if [ "$declared_head" != "$HEAD_SHA" ]; then
-            echo "ERROR: pr_head_sha mismatch — audit was against $declared_head, PR HEAD is $HEAD_SHA"
-            echo "Re-run scripts/visual_review_gate.py on current HEAD."
+          # Compute current ui_surface_tree_sha via scripts/compute_ui_surface_sha.py
+          # — same algorithm visual_review_gate.py uses (single source
+          # of truth; helper script avoids YAML literal-block-scalar
+          # collision with embedded Python).
+          actual_tree_sha="$(python3 scripts/compute_ui_surface_sha.py)"
+          if [ "$declared_tree_sha" != "$actual_tree_sha" ]; then
+            echo "ERROR: ui_surface_tree_sha256 mismatch"
+            echo "  declared (in audit): $declared_tree_sha"
+            echo "  actual (PR tree):    $actual_tree_sha"
+            echo "Re-run scripts/visual_review_gate.py — UI surface changed between audit and PR commit."
             exit 1
           fi
 
