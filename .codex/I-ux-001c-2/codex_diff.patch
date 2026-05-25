@@ -2639,10 +2639,10 @@ index 00000000..e7039d80
 +}
 diff --git a/web/lib/home_brief_loader.ts b/web/lib/home_brief_loader.ts
 new file mode 100644
-index 00000000..2ce8c37c
+index 00000000..2a83b05b
 --- /dev/null
 +++ b/web/lib/home_brief_loader.ts
-@@ -0,0 +1,186 @@
+@@ -0,0 +1,197 @@
 +// I-ux-001c (#878) sub-PR 2: server-side loader for the Home page's
 +// proof-as-CTA card.
 +//
@@ -2779,18 +2779,30 @@ index 00000000..2ce8c37c
 +      for (const token of tokens) {
 +        const span = resolveSpan(token, bundle.evidencePool);
 +        const spanText = span?.quote;
-+        // Selection criterion (Codex diff iter-1 P2-001 design note):
-+        // we feature the FIRST verifier_pass sentence whose primary token
-+        // resolves to a real >40-char span. We deliberately DO NOT also
-+        // gate on `matchedNumerics === totalNumerics` here — a verifier
-+        // PASS combined with a real resolvable span is already the §-1.1
-+        // honest minimum, and stricter gating would silently exclude
-+        // valid PARTIAL claims where the verifier's content-word overlap
-+        // carried the proof. The UI tells the truth either way: the
-+        // matched-numbers stamp shows the actual fraction
-+        // (`matched <N> of <M>`), and a true mismatch surfaces visibly
-+        // in the count instead of being hidden by selection.
++        // Verified-gate selection (Codex diff iter-2 P1 elevation, real
++        // §-1.1 clinical-safety concern): the Home hero renders the
++        // featured claim under a "VERIFIED CLAIM" label with
++        // verified-green styling and NO PARTIAL variant. If we picked a
++        // sentence whose verifier_pass=true rested on content-word
++        // overlap but with mismatched numerics, the user would read
++        // "✓ matched 2 of 5 numbers" under VERIFIED CLAIM — the lethal
++        // pattern in clinical context. The Inspector has a tri-state
++        // (verified / partial / unsupported) per-sentence verdict to
++        // honestly render partial; the Home does not. So the Home gate
++        // is STRICTER than the Inspector's: a claim is hero-eligible
++        // iff (a) verifier_pass AND (b) the span is real (>40 chars
++        // resolved) AND (c) EITHER pure-prose (totalNumerics === 0)
++        // OR every numeric in the sentence appears in the span
++        // (matchedNumerics === totalNumerics). Failing this, we
++        // continue searching; if no eligible sentence exists, the
++        // loader returns bundle_loaded: false (honest-fail).
 +        if (spanText && spanText.trim().length > 40) {
++          const candidateNumerics = extractNumerics(s.sentence_text);
++          const candidateMatched = countMatchesIn(candidateNumerics, spanText);
++          const numericGatePassed =
++            candidateNumerics.length === 0 ||
++            candidateMatched === candidateNumerics.length;
++          if (!numericGatePassed) continue;
 +          const sourceId = span.sourceId ?? "";
 +          const journal =
 +            (lookupPoolField(bundle.evidencePool, sourceId, "venue") as
@@ -2802,9 +2814,8 @@ index 00000000..2ce8c37c
 +            "year",
 +          );
 +          const year = typeof yearRaw === "number" ? yearRaw : null;
-+          const numerics = extractNumerics(s.sentence_text);
-+          const totalNumerics = numerics.length;
-+          const matchedNumerics = countMatchesIn(numerics, spanText);
++          const totalNumerics = candidateNumerics.length;
++          const matchedNumerics = candidateMatched;
 +          return {
 +            bundle_loaded: true,
 +            run_id: DEMO_RUN_ID,
@@ -4026,10 +4037,10 @@ index 80c7cae5..00000000
 -});
 diff --git a/web/tests/e2e/home_proof_as_cta.spec.ts b/web/tests/e2e/home_proof_as_cta.spec.ts
 new file mode 100644
-index 00000000..2486bff9
+index 00000000..ce3bf140
 --- /dev/null
 +++ b/web/tests/e2e/home_proof_as_cta.spec.ts
-@@ -0,0 +1,126 @@
+@@ -0,0 +1,138 @@
 +// I-ux-001c (#878) sub-PR 2: e2e Playwright for the Home page proof-as-CTA
 +// hero card.
 +//
@@ -4078,6 +4089,18 @@ index 00000000..2486bff9
 +    await expect(claim).toBeVisible();
 +    const text = (await claim.textContent()) ?? "";
 +    expect(text.length).toBeGreaterThan(20);
++    // Codex diff iter-2 P1: the loader's verified-gate is
++    // matched === total. The visible stamp MUST reflect that — if
++    // numerics are present, the matched count must equal the total.
++    const stampText =
++      (await page.getByTestId("proof-matched-stamp").textContent()) ?? "";
++    const m = stampText.match(/matched\s+(\d+)\s+of\s+(\d+)/i);
++    if (m) {
++      // Numeric claim: matched === total per the verified-gate.
++      expect(m[1]).toEqual(m[2]);
++    }
++    // (If m is null the claim is pure-prose — verifier_pass with zero
++    // numerics — and the stamp reads "verifier passed against …".)
 +  });
 +
 +  test("numerics in the claim are bolded green via proof-numeric spans", async ({
@@ -4474,4 +4497,4 @@ index 00000000..d40b99c0
 +  });
 +});
 
-# canonical-diff-sha256: 840b75afea506eaadb9a18f6730ce00a8a6deecdb5d4d3e1306e8899fd16c83a
+# canonical-diff-sha256: ce308635caa52d476b745c04ad8bcb6a14a1a2f060e1ce3433805cc6038e048f
