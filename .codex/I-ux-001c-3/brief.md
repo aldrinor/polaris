@@ -20,19 +20,30 @@ HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 - Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
 ```
 
-## Scope
+## Scope (iter-3: scope-shrunk per Codex iter-2 P1 findings)
 
-Rebuild the `/intake` page to the I-ux-001d v6 design lock. Sub-PR 3 of approximately 7 for I-ux-001c.
+Rebuild the `/intake` page to the I-ux-001d v6 design lock — **visual-only** evolution. Sub-PR 3 of approximately 7 for I-ux-001c.
 
-The current `/intake` (4 components, ~650 LOC) has the right backend coupling but pre-v6 styling: a search-bar input + sample-question chips + a "how it works" 3-step grid. v6 evolves this into a confident "just ask" intake surface with:
+**Codex iter-2 caught two real flaws in iter-1/iter-2 of this brief and they are now corrected:**
 
-- One large textarea hero (display-weight input, multi-line capable, rotating placeholder among the existing `SAMPLE_QUESTIONS`)
-- Auto-detected research domain affordance below the textarea (small chip showing which scope template the question maps to: clinical / policy / tech / ai_sovereignty / canada_us / due_diligence / workforce / custom)
-- Source-set health indicator (small set of pills showing which evidence tiers are reachable for the question: T1 RCTs / T2 systematic reviews / T3 guidelines / T4-T7 grey)
-- ONE primary CTA: "Plan this research →" → submits the scope check, then on success deep-links to `/plan?q=<encoded>` (per I-p2-022 #761 the scope/plan-review surface lives at `/plan`)
-- Drop the "how it works" 3-step grid — superseded by the v6 home's proof-as-CTA messaging
-- Preserve PdfDropBanner (real upload affordance)
-- Preserve ALL existing testids (`intake-page`, `intake-question-input`) so demo_journey/demo_walkthrough/intake_g1_g8/intake.spec/intake_edge/intake_disambiguation* all pass
+1. The current intake flow is `intake → source_review → plan` (I-p2-031 #770 shipped the authoritative source-review surface). My earlier spec shortcut `intake → /plan?q=...`, bypassing the source-review step. **Iter-3 PRESERVES the existing handoff: scope_decision_view's CTAs still link to `/source_review?q=...` (in-scope) or the existing disambiguation modal (ambiguous).**
+
+2. A separate `source_set_health.tsx` component on `/intake` would render synthetic tier-availability pills not backed by authoritative data — LAW II violation. **Iter-3 DROPS `source_set_health.tsx` entirely.** The authoritative source-set surface is `/source_review` (already shipped). Intake stays a "just ask" surface; the source-set check lives one step downstream where it has real data.
+
+3. Existing tests (`intake.spec.ts`, `intake_disambiguation_negative.spec.ts`) expect `scope-decision-view` to render in-place after submit. **Iter-3 PRESERVES this render-in-place behavior**; no redirect on success. Visual styling of the scope decision view stays the same in this PR (later sub-PRs can re-style it; sub-PR 3 is intake-only).
+
+The current `/intake` (4 components, ~650 LOC) has the right backend coupling but pre-v6 styling. v6 changes are:
+
+- Brand-red eyebrow ("ASK · POLARIS CLINICAL RESEARCH") replacing the muted "Clinical scope discovery"
+- Display-weight H1 ("Ask the research question.") replacing the smaller "Ask a clinical research question"
+- Tightened subtitle
+- One large textarea (multi-line) replacing the single-line Input, with rotating placeholder among existing `SAMPLE_QUESTIONS`
+- Auto-detected research domain chip below the textarea (heuristic on question text — keyword anchors; null when nothing crosses threshold per LAW II)
+- DROP the "how it works" 3-step grid — superseded by the v6 home's proof-as-CTA messaging
+- PRESERVE PdfDropBanner (real upload affordance, unchanged)
+- PRESERVE the scope-decision-view render-in-place behavior + the `intake → source_review` handoff via the scope_decision_view's "Continue to source review →" link
+- PRESERVE ALL existing testids (`intake-page`, `intake-question-input`, `scope-decision-view`) so all 5 intake.* tests + demo_journey + demo_walkthrough + intake_g1_g8 pass
+- PRESERVE AppShell chrome (intake is NOT chromeless — only `/` is)
 
 ## Operator-locked constraints (carried forward)
 
@@ -42,23 +53,25 @@ The current `/intake` (4 components, ~650 LOC) has the right backend coupling bu
 - AppShellGate behavior for `/intake` is PRESERVED — `/intake` is an authed route inside AppShell (not chromeless like `/`). All nav assertions in demo_journey + nav_parity stay valid.
 - No fabricated source-set-health data: if the page can't compute reachable tiers without hitting the backend, the source-set health indicator is OMITTED rather than synthesized. (LAW II honest-fail.) The auto-domain detection is heuristic on question text — that IS computable without backend.
 
-## File plan
+## File plan (iter-3 shrunk)
 
 NEW
-1. `web/app/intake/components/auto_domain_chip.tsx` (~80 LOC) — client component; receives question text + emits the detected domain chip. Heuristic: keyword-anchored mapping (e.g. "RCT/trial/dose/contraindication/efficacy" → clinical; "policy/regulation/HTA/NICE/CADTH" → policy; etc). Returns null when no domain crosses confidence threshold.
-2. `web/app/intake/components/source_set_health.tsx` (~70 LOC) — client component; receives detected domain + emits the tier-availability pills. Heuristic STATIC display showing which tiers POLARIS routinely reaches for THAT domain (e.g. clinical → T1 RCT / T2 SR / T3 guideline; policy → T2 SR / T3 guideline / T4 grey). HONEST FALLBACK: when domain === null, the component returns null (no fabricated pills).
+1. `web/app/intake/components/auto_domain_chip.tsx` (~80 LOC) — client component; receives question text + emits the detected domain chip. Heuristic: keyword-anchored mapping (e.g. "RCT/trial/dose/contraindication/efficacy" → clinical; "policy/regulation/HTA/NICE/CADTH" → policy; etc). Returns `null` when no domain crosses confidence threshold (LAW II).
 
 REBUILD
-3. `web/app/intake/page.tsx` — v6 layout: brand-red eyebrow + display H1 + larger subtitle + IntakeForm (re-styled v6) + auto-domain + source-set-health + PdfDropBanner. DROP the STEPS grid.
-4. `web/app/intake/components/intake_form.tsx` (~230 LOC current) — keep all backend logic (scope decision / disambiguation / ambiguity modal / ErrorState). Replace `Input` with `Textarea` (multi-line); rotate `SAMPLE_QUESTIONS` as placeholder. Bigger CTA button. Keep `intake-question-input` testid on the textarea.
+2. `web/app/intake/page.tsx` — v6 layout: brand-red eyebrow + display H1 + tightened subtitle + PdfDropBanner + IntakeForm. DROP the STEPS grid.
+3. `web/app/intake/components/intake_form.tsx` (~230 LOC current) — keep ALL backend logic verbatim (scope decision / disambiguation / ambiguity modal / ErrorState / scope_decision_view link to `/source_review`). Replace `Input` with shadcn `Textarea` (multi-line, larger); rotate `SAMPLE_QUESTIONS` as placeholder. Mount the new `AutoDomainChip` below the textarea, gated on `question.length > 0`. Bigger primary CTA button. Keep `intake-question-input` testid on the textarea.
+
+DROPPED from iter-1/iter-2
+- ~~`source_set_health.tsx`~~ — LAW II violation (would render synthetic tier pills); authoritative source-set lives at `/source_review` already.
+- ~~CTA direct-deeplink to `/plan?q=...`~~ — would bypass the working `intake → source_review → plan` flow.
 
 EDIT
-5. `web/app/globals.css` — no new tokens needed (PR 2's `--certainty-*` tokens already cover source-set tier visuals).
+4. None to globals.css (existing tokens suffice).
 
 TESTS
-6. NEW `web/tests/e2e/intake_v6.spec.ts` — 6 cases: page eyebrow + H1 + subtitle, textarea visible + accepts text, sample-question rotation, primary CTA submits, auto-domain chip appears after typing a clinical keyword, source-set health pills appear for detected domain.
-7. UPDATED `web/tests/e2e/intake_g1_g8.spec.ts` — selectors swapped from `Input` to `Textarea`; STEPS grid assertion removed.
-8. NO CHANGES needed to: `intake.spec.ts`, `intake_disambiguation.spec.ts`, `intake_disambiguation_negative.spec.ts`, `intake_edge.spec.ts` — these all use `intake-question-input` + behavior assertions (kept).
+5. NEW `web/tests/e2e/intake_v6.spec.ts` — 4 cases: page eyebrow + H1 + subtitle render with v6 copy, textarea visible + accepts multi-line text, auto-domain chip appears after typing a clinical keyword + disappears for an off-domain question, sample-question rotation cycles.
+6. NO CHANGES needed to: `intake.spec.ts`, `intake_disambiguation.spec.ts`, `intake_disambiguation_negative.spec.ts`, `intake_edge.spec.ts`, `intake_g1_g8.spec.ts` — they all use `intake-question-input` testid + behavior assertions; the scope-decision-view render-in-place behavior and the source-review handoff are PRESERVED. If `intake_g1_g8.spec.ts` checks the STEPS grid presence specifically, that single assertion is updated (will verify on read).
 
 ## Files I have ALSO checked and they're clean
 
