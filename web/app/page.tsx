@@ -128,7 +128,7 @@ export default async function HomePage() {
       <HomePaletteShell templates={templates} signInHref="/sign-in">
         <main
           data-testid="home-hero"
-          className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center gap-10 px-6 py-16 text-center sm:py-20"
+          className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center gap-5 px-6 py-8 text-center sm:gap-6 sm:py-12"
         >
           {/* Decorative Braille maple-leaf signature (I-p2-028 #767) */}
           <MapleLeafSignatureLazy />
@@ -141,24 +141,28 @@ export default async function HomePage() {
             POLARIS · Canadian-hosted clinical research
           </span>
 
-          {/* H1 — display weight, balanced wrap */}
+          {/* H1 — display weight, balanced wrap. Codex visual iter-3 P1:
+              tightened from text-6xl→text-5xl on md+ to bring the primary
+              CTA into the 900px desktop viewport. */}
           <h1
             data-testid="home-h1"
-            className="text-foreground max-w-3xl text-4xl leading-[1.05] font-bold tracking-tight text-balance sm:text-5xl md:text-6xl"
+            className="text-foreground max-w-3xl text-4xl leading-[1.05] font-bold tracking-tight text-balance sm:text-5xl"
           >
             Every sentence proves itself.
           </h1>
 
-          {/* Subtitle — honest sovereignty wording */}
+          {/* Subtitle — honest sovereignty wording. Codex visual iter-3
+              P1: trimmed to one sentence to recover above-fold real estate
+              for the primary CTA. (The proof card + footer carry the
+              "signed bundle / audit offline / OpenRouter US disclosure"
+              detail, so the subtitle doesn't need to.) */}
           <p
             data-testid="home-subtitle"
             className="text-muted-foreground max-w-2xl text-base leading-relaxed text-pretty sm:text-lg"
           >
             POLARIS is a Canadian-hosted clinical research system, built toward
-            sovereign Canadian deployment. Every sentence in every brief is
-            verified against its cited source by an independent model family,
-            then sealed into a signed bundle anyone can audit offline. No
-            verifier, no claim.
+            sovereign Canadian deployment. Every claim is verified against its
+            cited source by an independent model family — no verifier, no claim.
           </p>
 
           {/* Proof-as-CTA card — the HERO climax */}

@@ -178,9 +178,9 @@ export function ProofAsCta({ brief }: ProofAsCtaProps) {
       aria-label="A real verified claim"
       data-testid="proof-as-cta"
       data-state="loaded"
-      className="bg-card ring-foreground/10 shadow-card hover:shadow-card-hover ease-standard mx-auto w-full max-w-3xl rounded-2xl px-6 py-6 ring-1 transition-shadow duration-150 sm:px-8 sm:py-8"
+      className="bg-card ring-foreground/10 shadow-card hover:shadow-card-hover ease-standard mx-auto w-full max-w-3xl rounded-2xl px-5 py-5 ring-1 transition-shadow duration-150 sm:px-7 sm:py-6"
     >
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-3">
           <span className="text-muted-foreground text-[10px] font-medium tracking-[0.14em] uppercase">
             Verified Claim · Live Example
