@@ -735,6 +735,7 @@ export function ProofReplay({
               claim={selected}
               manifest={manifest}
               signatureState={signatureState}
+              reducedMotion={reducedMotion}
             />
           </SheetContent>
         </Sheet>
