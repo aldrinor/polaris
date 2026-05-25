@@ -157,11 +157,28 @@ export default function RunDetailPage({ params }: RunPageProps) {
         </Button>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <span className="text-muted-foreground text-xs tracking-widest uppercase">
+      {/* I-ux-001c sub-PR 7 (#894): v6 marketing-auth chrome. Brand-red
+          category eyebrow + brand-red run-id eyebrow + display H1 (the
+          dynamic question text). Rest of the page (action row, metadata,
+          ErrorState, FollowupPanel, RunProgress, SSE/cancel/bundle logic)
+          preserved verbatim per brief iter-1 APPROVE. */}
+      <div className="flex flex-col gap-3">
+        <span
+          data-testid="runs-runid-category-eyebrow"
+          className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
+        >
+          LIVE RUN · POLARIS CLINICAL RESEARCH
+        </span>
+        <span
+          data-testid="runs-runid-eyebrow"
+          className="text-primary text-xs font-medium tracking-widest uppercase"
+        >
           Run {runId}
         </span>
-        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+        <h1
+          data-testid="runs-runid-h1"
+          className="text-foreground text-3xl leading-[1.1] font-bold tracking-tight text-balance sm:text-4xl"
+        >
           {/* I-p2-016 (#755): don't show "Loading…" once an error has fired. */}
           {status?.question ?? (error ? "Couldn't load this run" : "Loading…")}
         </h1>
