@@ -180,7 +180,7 @@ export function AutoDomainChip({ question }: AutoDomainChipProps) {
         aria-hidden
         className="text-muted-foreground/60 ml-0.5 h-3 w-3"
       />
-      <span className="text-muted-foreground text-[10px] uppercase tracking-wider">
+      <span className="text-muted-foreground text-[10px] tracking-wider uppercase">
         Auto-detected
       </span>
     </div>
