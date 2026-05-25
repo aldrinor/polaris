@@ -113,3 +113,21 @@ specific_check_responses:
   file_list_surgical: PASS | FAIL_with_detail
   cta_target_correct: PASS | FAIL_with_detail
 ```
+
+---
+
+## Iter-4 amendment (post-build, in-session reality check)
+
+During implementation, AutoDomainChip mounted in intake_form.tsx but rendered as null in all browser contexts (Turbopack + React 19 + base-ui Card + "use client" parent). Even a static debug marker between Textarea and the help <p> failed to appear. classify() logic verified PASSING via standalone Node test (3 anchors hit for the clinical test question). Root cause: suspected SSR/hydration silent-bailout — needs deeper debugging session.
+
+**Sub-PR 3 reduced scope (visual-only ship):**
+- Brand-red eyebrow + display H1 + tightened subtitle (all WORKING)
+- Native styled `Textarea` + `Input` → `Textarea` swap (WORKING)
+- STEPS grid DROPPED from page.tsx (WORKING)
+- `maxLength={2000}` preserved (WORKING)
+- ALL backend logic preserved verbatim (WORKING)
+
+**Filed as follow-up:**
+- AutoDomainChip component file removed from this PR
+- intake_v6.spec.ts: chip-related test cases skipped (the empty describe block keeps the suite valid)
+- Follow-up issue: debug the Turbopack/React 19/base-ui hydration interaction; re-introduce the chip with a working integration path
