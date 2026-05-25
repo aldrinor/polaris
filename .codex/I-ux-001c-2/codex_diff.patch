@@ -2639,10 +2639,10 @@ index 00000000..e7039d80
 +}
 diff --git a/web/lib/home_brief_loader.ts b/web/lib/home_brief_loader.ts
 new file mode 100644
-index 00000000..f54f70d2
+index 00000000..2ce8c37c
 --- /dev/null
 +++ b/web/lib/home_brief_loader.ts
-@@ -0,0 +1,175 @@
+@@ -0,0 +1,186 @@
 +// I-ux-001c (#878) sub-PR 2: server-side loader for the Home page's
 +// proof-as-CTA card.
 +//
@@ -2779,6 +2779,17 @@ index 00000000..f54f70d2
 +      for (const token of tokens) {
 +        const span = resolveSpan(token, bundle.evidencePool);
 +        const spanText = span?.quote;
++        // Selection criterion (Codex diff iter-1 P2-001 design note):
++        // we feature the FIRST verifier_pass sentence whose primary token
++        // resolves to a real >40-char span. We deliberately DO NOT also
++        // gate on `matchedNumerics === totalNumerics` here — a verifier
++        // PASS combined with a real resolvable span is already the §-1.1
++        // honest minimum, and stricter gating would silently exclude
++        // valid PARTIAL claims where the verifier's content-word overlap
++        // carried the proof. The UI tells the truth either way: the
++        // matched-numbers stamp shows the actual fraction
++        // (`matched <N> of <M>`), and a true mismatch surfaces visibly
++        // in the count instead of being hidden by selection.
 +        if (spanText && spanText.trim().length > 40) {
 +          const sourceId = span.sourceId ?? "";
 +          const journal =
@@ -3839,10 +3850,10 @@ index c8333994..1ba1c8c3 100644
        .withTags(WCAG_TAGS)
 diff --git a/web/tests/e2e/home_aa.spec.ts b/web/tests/e2e/home_aa.spec.ts
 new file mode 100644
-index 00000000..8d54df79
+index 00000000..75240413
 --- /dev/null
 +++ b/web/tests/e2e/home_aa.spec.ts
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,66 @@
 +// I-ux-001c (#878) sub-PR 2: axe WCAG 2.2 AA scan for the v6 home hero.
 +//
 +// Asserts zero serious/critical axe violations on the marketing-auth hero
@@ -3874,8 +3885,16 @@ index 00000000..8d54df79
 +    const results = await new AxeBuilder({ page })
 +      .withTags(WCAG_TAGS)
 +      .analyze();
++    // Codex diff iter-1 P2-003: the brief calls for "axe WCAG 2.2 AA"
++    // strictness; previously this only filtered serious+critical. We now
++    // assert ZERO violations across all impacts (minor/moderate/serious/
++    // critical). The serious/critical breakdown is retained in the
++    // diagnostic message so a regression localizes immediately.
 +    const blockers = results.violations.filter(critical_or_serious);
-+    expect(blockers, JSON.stringify(blockers, null, 2)).toEqual([]);
++    expect(
++      results.violations,
++      `serious/critical: ${JSON.stringify(blockers, null, 2)}\n\nall: ${JSON.stringify(results.violations, null, 2)}`,
++    ).toEqual([]);
 +  });
 +
 +  test("mobile 390x844 — zero serious/critical axe violations", async ({
@@ -3889,8 +3908,16 @@ index 00000000..8d54df79
 +    const results = await new AxeBuilder({ page })
 +      .withTags(WCAG_TAGS)
 +      .analyze();
++    // Codex diff iter-1 P2-003: the brief calls for "axe WCAG 2.2 AA"
++    // strictness; previously this only filtered serious+critical. We now
++    // assert ZERO violations across all impacts (minor/moderate/serious/
++    // critical). The serious/critical breakdown is retained in the
++    // diagnostic message so a regression localizes immediately.
 +    const blockers = results.violations.filter(critical_or_serious);
-+    expect(blockers, JSON.stringify(blockers, null, 2)).toEqual([]);
++    expect(
++      results.violations,
++      `serious/critical: ${JSON.stringify(blockers, null, 2)}\n\nall: ${JSON.stringify(results.violations, null, 2)}`,
++    ).toEqual([]);
 +  });
 +});
 diff --git a/web/tests/e2e/home_g1_g8.spec.ts b/web/tests/e2e/home_g1_g8.spec.ts
@@ -3999,10 +4026,10 @@ index 80c7cae5..00000000
 -});
 diff --git a/web/tests/e2e/home_proof_as_cta.spec.ts b/web/tests/e2e/home_proof_as_cta.spec.ts
 new file mode 100644
-index 00000000..a674a6f3
+index 00000000..2486bff9
 --- /dev/null
 +++ b/web/tests/e2e/home_proof_as_cta.spec.ts
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,126 @@
 +// I-ux-001c (#878) sub-PR 2: e2e Playwright for the Home page proof-as-CTA
 +// hero card.
 +//
@@ -4067,16 +4094,20 @@ index 00000000..a674a6f3
 +    expect(count).toBeGreaterThan(0);
 +  });
 +
-+  test("matched-numbers stamp renders with verified-green styling + null-safe source tail", async ({
++  test("matched-numbers stamp renders the exact 'matched <N> of <M> numbers' shape", async ({
 +    page,
 +  }) => {
 +    await page.goto(HOME_PATH);
 +    const stamp = page.getByTestId("proof-matched-stamp");
 +    await expect(stamp).toBeVisible();
-+    // Either "matched N of M numbers against ..." OR "verifier passed against ..."
-+    // — both shapes are honest-fail compliant.
-+    await expect(stamp).toContainText(/matched|verifier passed/i);
-+    await expect(stamp).toContainText(/source span|cited source span/i);
++    // The canonical fixture's first verified claim has decimal numerics
++    // (e.g. the SURPASS HbA1c treatment differences), so the stamp MUST be
++    // the numeric shape "✓ matched <N> of <M> number(s) against ...".
++    // (Codex diff iter-1 P2-002: the previous `/matched|verifier passed/`
++    // regex was too loose — it would have passed even if the loader
++    // mis-classified a numeric claim and fell back to "verifier passed".)
++    await expect(stamp).toContainText(/matched\s+\d+\s+of\s+\d+\s+number/i);
++    await expect(stamp).toContainText(/source span/i);
 +  });
 +
 +  test("tri-state signature pill reflects the bundle's signature state", async ({
@@ -4443,4 +4474,4 @@ index 00000000..d40b99c0
 +  });
 +});
 
-# canonical-diff-sha256: d061c1e249d059e06591ceef5907f7a3d1ec219c07e8b30536d69a572d601376
+# canonical-diff-sha256: 840b75afea506eaadb9a18f6730ce00a8a6deecdb5d4d3e1306e8899fd16c83a
