@@ -29,8 +29,16 @@ test.describe("I-ux-001c · Home v6 axe WCAG 2.2 AA", () => {
     const results = await new AxeBuilder({ page })
       .withTags(WCAG_TAGS)
       .analyze();
+    // Codex diff iter-1 P2-003: the brief calls for "axe WCAG 2.2 AA"
+    // strictness; previously this only filtered serious+critical. We now
+    // assert ZERO violations across all impacts (minor/moderate/serious/
+    // critical). The serious/critical breakdown is retained in the
+    // diagnostic message so a regression localizes immediately.
     const blockers = results.violations.filter(critical_or_serious);
-    expect(blockers, JSON.stringify(blockers, null, 2)).toEqual([]);
+    expect(
+      results.violations,
+      `serious/critical: ${JSON.stringify(blockers, null, 2)}\n\nall: ${JSON.stringify(results.violations, null, 2)}`,
+    ).toEqual([]);
   });
 
   test("mobile 390x844 — zero serious/critical axe violations", async ({
@@ -44,7 +52,15 @@ test.describe("I-ux-001c · Home v6 axe WCAG 2.2 AA", () => {
     const results = await new AxeBuilder({ page })
       .withTags(WCAG_TAGS)
       .analyze();
+    // Codex diff iter-1 P2-003: the brief calls for "axe WCAG 2.2 AA"
+    // strictness; previously this only filtered serious+critical. We now
+    // assert ZERO violations across all impacts (minor/moderate/serious/
+    // critical). The serious/critical breakdown is retained in the
+    // diagnostic message so a regression localizes immediately.
     const blockers = results.violations.filter(critical_or_serious);
-    expect(blockers, JSON.stringify(blockers, null, 2)).toEqual([]);
+    expect(
+      results.violations,
+      `serious/critical: ${JSON.stringify(blockers, null, 2)}\n\nall: ${JSON.stringify(results.violations, null, 2)}`,
+    ).toEqual([]);
   });
 });

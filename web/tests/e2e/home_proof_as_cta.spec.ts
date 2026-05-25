@@ -62,16 +62,20 @@ test.describe("I-ux-001c · Home proof-as-CTA hero", () => {
     expect(count).toBeGreaterThan(0);
   });
 
-  test("matched-numbers stamp renders with verified-green styling + null-safe source tail", async ({
+  test("matched-numbers stamp renders the exact 'matched <N> of <M> numbers' shape", async ({
     page,
   }) => {
     await page.goto(HOME_PATH);
     const stamp = page.getByTestId("proof-matched-stamp");
     await expect(stamp).toBeVisible();
-    // Either "matched N of M numbers against ..." OR "verifier passed against ..."
-    // — both shapes are honest-fail compliant.
-    await expect(stamp).toContainText(/matched|verifier passed/i);
-    await expect(stamp).toContainText(/source span|cited source span/i);
+    // The canonical fixture's first verified claim has decimal numerics
+    // (e.g. the SURPASS HbA1c treatment differences), so the stamp MUST be
+    // the numeric shape "✓ matched <N> of <M> number(s) against ...".
+    // (Codex diff iter-1 P2-002: the previous `/matched|verifier passed/`
+    // regex was too loose — it would have passed even if the loader
+    // mis-classified a numeric claim and fell back to "verifier passed".)
+    await expect(stamp).toContainText(/matched\s+\d+\s+of\s+\d+\s+number/i);
+    await expect(stamp).toContainText(/source span/i);
   });
 
   test("tri-state signature pill reflects the bundle's signature state", async ({

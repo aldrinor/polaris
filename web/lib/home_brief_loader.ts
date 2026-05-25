@@ -134,6 +134,17 @@ export async function loadHomeBrief(): Promise<HomeBrief> {
       for (const token of tokens) {
         const span = resolveSpan(token, bundle.evidencePool);
         const spanText = span?.quote;
+        // Selection criterion (Codex diff iter-1 P2-001 design note):
+        // we feature the FIRST verifier_pass sentence whose primary token
+        // resolves to a real >40-char span. We deliberately DO NOT also
+        // gate on `matchedNumerics === totalNumerics` here — a verifier
+        // PASS combined with a real resolvable span is already the §-1.1
+        // honest minimum, and stricter gating would silently exclude
+        // valid PARTIAL claims where the verifier's content-word overlap
+        // carried the proof. The UI tells the truth either way: the
+        // matched-numbers stamp shows the actual fraction
+        // (`matched <N> of <M>`), and a true mismatch surfaces visibly
+        // in the count instead of being hidden by selection.
         if (spanText && spanText.trim().length > 40) {
           const sourceId = span.sourceId ?? "";
           const journal =
