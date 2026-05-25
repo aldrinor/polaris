@@ -191,6 +191,17 @@ jobs:
           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
         run: npx playwright test --project=chromium tests/e2e/runs_runid_g1_g8.spec.ts
 
+      # I-ux-001c sub-PR 4 (#888) + #892 CI-wiring fix: source_review v6
+      # chrome spec. Added in PR #888 but missed CI enumeration; this
+      # commit folds it into the workflow per LAW II "no fake working."
+      # Spec mocks /api/v6/templates internally; uses start_fastapi_backend
+      # defaults (no new env needed).
+      - name: run_e2e_source_review_v6
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/source_review_v6.spec.ts
+
       # I-cd-026 (#616): /upload route G1-G8 acceptance gates.
       - name: run_e2e_upload_g1_g8
         env:
