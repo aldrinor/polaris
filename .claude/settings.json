@@ -1,34 +1,4 @@
 {
   "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python C:/POLARIS/.claude/hooks/stop_hook_v3.py"
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python C:/POLARIS/.claude/hooks/precommit_codex_verdict.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/session_start_check.py\""
-          }
-        ]
-      }
-    ]
   }
 }

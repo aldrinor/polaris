@@ -127,16 +127,26 @@ jobs:
         # The audit is `.codex/<issue_id>/codex_visual_audit.txt`. The
         # gate parses LAST verdict line + verifies three SHA bindings:
         #   1. rubric_sha256 matches working-tree rubric
-        #   2. pr_head_sha matches $HEAD_SHA
+        #   2. ui_surface_tree_sha256 matches deterministic web/app + web/components hash
         #   3. screenshots_manifest_sha256 matches a committed
         #      manifest at outputs/visual_review_gate/<id>/iter_N/manifest.json
         # All three must match for verdict: APPROVE to count.
         run: |
           set -euo pipefail
 
+          # Compute the current UI surface tree SHA early — used by
+          # path_scan (issue_id-less audit discovery) AND by the later
+          # binding check. Single source of truth: scripts/compute_ui_surface_sha.py.
+          ui_surface_tree_sha_actual="$(python3 scripts/compute_ui_surface_sha.py)"
+          echo "ui_surface_tree_sha256 (current PR tree): $ui_surface_tree_sha_actual"
+
           if [ "$DERIVATION" = "path_scan" ]; then
-            # Non-bot UI PR — find the audit file whose pr_head_sha
-            # matches this PR's HEAD_SHA.
+            # Non-bot UI PR — find the audit file whose
+            # ui_surface_tree_sha256 matches this PR's UI surface hash.
+            # (Codex diff-iter-2 continuing-P0 fix: previously matched
+            # by `pr_head_sha: $HEAD_SHA`, but the script no longer
+            # emits pr_head_sha after the fixed-point fix. The script
+            # and workflow now share the SAME selector field.)
             mapfile -t candidates < <(find .codex -mindepth 2 -maxdepth 2 -name "codex_visual_audit.txt" | sort)
             if [ "${#candidates[@]}" -eq 0 ]; then
               echo "ERROR: PR touches UI surface but no .codex/<id>/codex_visual_audit.txt found"
@@ -145,19 +155,19 @@ jobs:
             fi
             VISUAL=""
             for c in "${candidates[@]}"; do
-              if grep -F "pr_head_sha: $HEAD_SHA" "$c" >/dev/null 2>&1; then
+              if grep -F "ui_surface_tree_sha256: $ui_surface_tree_sha_actual" "$c" >/dev/null 2>&1; then
                 VISUAL="$c"
                 ISSUE_ID="$(basename "$(dirname "$c")")"
-                echo "Matched audit by pr_head_sha: $VISUAL (issue_id=$ISSUE_ID)"
+                echo "Matched audit by ui_surface_tree_sha256: $VISUAL (issue_id=$ISSUE_ID)"
                 break
               fi
             done
             if [ -z "$VISUAL" ]; then
-              echo "ERROR: no audit file declares 'pr_head_sha: $HEAD_SHA'."
-              echo "Found candidates (none matched current PR HEAD):"
+              echo "ERROR: no audit file declares 'ui_surface_tree_sha256: $ui_surface_tree_sha_actual'."
+              echo "Found candidates (none matched current PR UI surface):"
               printf '  %s\n' "${candidates[@]}"
               echo ""
-              echo "Re-run scripts/visual_review_gate.py against the current HEAD."
+              echo "Re-run scripts/visual_review_gate.py against the current PR HEAD."
               exit 1
             fi
           else
