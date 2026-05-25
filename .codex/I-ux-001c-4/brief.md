@@ -122,3 +122,25 @@ Subtitle (locked verbatim):
 > "What POLARIS will check for this question — and the per-tier evidence bar the corpus must clear before any claim is written."
 
 (Tightened from the current "What POLARIS will search for this question — and the per-tier adequacy bar the corpus must clear before a single claim is written." — same meaning, more direct.)
+
+---
+
+## Iter-3 amendment (post-Codex iter-2)
+
+### P1 (final) fix: brand-red has THREE authorized usage paths, not two
+
+Codex iter-2 caught additional existing brand-red usages: the no-question fallback link in `source_review/page.tsx` uses `text-primary`, and the `ErrorState` retry button in `web/components/states/state_kit.tsx` uses `text-primary`. Both are correct uses per the operator's design lock — brand-red as the standard interactive-link color is a design-system convention, not a violation.
+
+**Brand-red `#c8102e` has THREE authorized usage paths** (final):
+1. **Brand identity** (eyebrow + Continue CTA + decorative brand marks)
+2. **Evidence-role semantic** (TIER_DOT["T1"] = bg-tier-1 = --tier-1 = #c8102e), operator-locked per I-p2-003 #742
+3. **Interactive affordance** (text-primary on links + retry/back actions), standard token usage across the design system
+
+Sub-PR 4 PRESERVES all three usage paths. The brief's "only at the new primary CTA + eyebrow" framing in §"Operator-locked constraints" is corrected here: brand-red is also retained on existing text-primary affordances. No semantic conflict.
+
+### Scope reconfirmation
+
+Sub-PR 4 surface area unchanged:
+- Header chrome rebuild (eyebrow + display H1 + tightened subtitle)
+- Edit-question link MOVED into eyebrow row (right side)
+- Everything else PRESERVED VERBATIM (TierCards, error state, loading state, retry button, no-question fallback link, Continue CTA — including their existing text-primary uses)
