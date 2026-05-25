@@ -225,23 +225,32 @@ jobs:
           fi
           # Find the matching manifest.json under outputs/visual_review_gate/<id>/iter_*/
           mapfile -t manifest_candidates < <(find "outputs/visual_review_gate/${ISSUE_ID}" -name "manifest.json" 2>/dev/null | sort -r || true)
-          manifest_matched="false"
+          matched_manifest=""
           for m in "${manifest_candidates[@]}"; do
             mhash="$(sha256sum "$m" | awk '{print $1}')"
             if [ "$mhash" = "$declared_manifest" ]; then
-              manifest_matched="true"
+              matched_manifest="$m"
               echo "Matched manifest: $m"
               break
             fi
           done
-          if [ "$manifest_matched" != "true" ]; then
+          if [ -z "$matched_manifest" ]; then
             echo "ERROR: screenshots_manifest_sha256 declared in audit ($declared_manifest)"
             echo "       does not match any manifest at outputs/visual_review_gate/${ISSUE_ID}/iter_*/manifest.json"
             echo "Commit the manifest produced by scripts/visual_review_gate.py alongside the audit."
             exit 1
           fi
 
-          echo "OK: $VISUAL APPROVE; rubric SHA + pr_head_sha + manifest SHA all match"
+          # 5. Walk the manifest: verify each screenshot file exists on
+          # disk AND its content SHA matches the manifest entry's sha256.
+          # Also verify the manifest is non-empty (Codex iter-2 P1 #2 fix).
+          # Helper script lives at scripts/verify_screenshot_manifest.py
+          # so the workflow YAML stays parseable (heredoc Python collides
+          # with YAML literal-block-scalar indentation).
+          screenshots_dir="$(dirname "$matched_manifest")"
+          python3 scripts/verify_screenshot_manifest.py "$matched_manifest" "$screenshots_dir"
+
+          echo "OK: $VISUAL APPROVE; rubric SHA + pr_head_sha + manifest + every screenshot file all match"
 
       - name: skip_summary
         if: steps.ui_surface.outputs.ui_surface != 'true' || steps.issue.outputs.derivation == 'skip_infra'

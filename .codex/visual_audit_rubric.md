@@ -83,11 +83,15 @@ evidence quoting the specific pixel region or token.
 
 ### Interaction and liveliness (4)
 
-13. **Motion at the right grain** — hover states, focus rings,
-    transitions are present on every interactive element (button, link,
-    chip, card) and resolve in 100–250 ms with easing (no
-    `transition: all 1s linear`); skeletons shimmer with subtle
-    animation (`feedback_ui_lively_to_100_2026_05_24`).
+13. **Motion-affordance visible at end state** — hover and focus
+    states produce a VISIBLE difference between the static screenshot
+    and the hovered/focused screenshot of the same route+viewport
+    (color shift, ring, scale, shadow — not invisible); skeletons
+    render as a branded loading affordance (e.g., red-accent shimmer
+    bar), not a default browser spinner or blank box. Timing/easing of
+    transitions is NOT screenshot-observable and is excluded from this
+    dimension; that concern is checked by `feedback_ui_lively_to_100_2026_05_24`
+    operator review, not by the gate.
 14. **Keyboard + focus** — visible focus ring on tab through all
     interactives at the audit viewport (not the browser default outline
     that disappears under brand red); skip-link present at top.
