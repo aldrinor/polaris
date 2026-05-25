@@ -53,9 +53,17 @@ export function InspectorView({ bundle }: InspectorViewProps) {
             was built but wired into NO route; this surfaces it as the default
             inspector tab. */}
         <TabsContent value="proof" tabId="proof">
+          {/* I-ux-001c (#878) sub-PR 1: ProofReplay v6 needs the full trust
+              context (signatureState/manifest/verifiedReport) to render the
+              6-beat hero with tri-state signature + bundle ID. The existing
+              call site only passed sections+evidencePool. */}
           <ProofReplay
             sections={bundle.verifiedReport.sections}
             evidencePool={bundle.evidencePool}
+            verifiedReport={bundle.verifiedReport}
+            manifest={bundle.manifest}
+            signatureState={bundle.signatureState}
+            signatureKeyFingerprint={bundle.signatureKeyFingerprint}
           />
         </TabsContent>
         <TabsContent value="report" tabId="report">
