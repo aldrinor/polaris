@@ -92,14 +92,29 @@ export default function ComparePage() {
       data-testid="compare-page"
       className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
     >
-      <div className="flex flex-col gap-2">
-        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
-          Compare two runs
+      {/* I-ux-001c sub-PR 8 (#896): v6 marketing-auth chrome. Brand-red
+          eyebrow + display H1 + tightened subtitle. Rest of the page
+          (run-picker, compareRuns flow, ReportComparison rendering)
+          preserved verbatim per brief iter-1 APPROVE. */}
+      <div className="flex flex-col gap-3">
+        <span
+          data-testid="compare-eyebrow"
+          className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
+        >
+          COMPARE · POLARIS CLINICAL RESEARCH
+        </span>
+        <h1
+          data-testid="compare-h1"
+          className="text-foreground text-3xl leading-[1.1] font-bold tracking-tight text-balance sm:text-4xl"
+        >
+          Compare two runs side-by-side.
         </h1>
-        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
-          Pick two completed runs to see shared vs unique evidence, frame
-          coverage overlap, and contradiction counts. This is run-vs-run — for
-          POLARIS-vs-external, use Benchmark.
+        <p
+          data-testid="compare-subtitle"
+          className="text-muted-foreground max-w-2xl text-sm leading-relaxed sm:text-base"
+        >
+          Shared evidence, unique sources, contradiction counts — see what
+          changes from one verified run to the next.
         </p>
       </div>
 
