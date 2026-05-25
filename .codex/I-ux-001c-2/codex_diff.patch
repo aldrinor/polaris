@@ -554,7 +554,7 @@ index 1c184eff..90160646 100644
  
    return (
 diff --git a/web/app/page.tsx b/web/app/page.tsx
-index ad50b0bb..da1966a1 100644
+index ad50b0bb..df3515e7 100644
 --- a/web/app/page.tsx
 +++ b/web/app/page.tsx
 @@ -1,13 +1,32 @@
@@ -596,7 +596,7 @@ index ad50b0bb..da1966a1 100644
  type Template = {
    id: string;
    name: string;
-@@ -102,104 +121,62 @@ const templates: Template[] = [
+@@ -102,104 +121,66 @@ const templates: Template[] = [
    },
  ];
  
@@ -667,7 +667,7 @@ index ad50b0bb..da1966a1 100644
 +      <HomePaletteShell templates={templates} signInHref="/sign-in">
 +        <main
 +          data-testid="home-hero"
-+          className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center gap-10 px-6 py-16 text-center sm:py-20"
++          className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center gap-5 px-6 py-8 text-center sm:gap-6 sm:py-12"
 +        >
 +          {/* Decorative Braille maple-leaf signature (I-p2-028 #767) */}
 +          <MapleLeafSignatureLazy />
@@ -683,10 +683,12 @@ index ad50b0bb..da1966a1 100644
 -          {/* Proof IS the hero — a REAL verified claim + its real source span, the
 -              central front-door artifact (not a card below the fold). */}
 -          <ProofShowcase />
-+          {/* H1 — display weight, balanced wrap */}
++          {/* H1 — display weight, balanced wrap. Codex visual iter-3 P1:
++              tightened from text-6xl→text-5xl on md+ to bring the primary
++              CTA into the 900px desktop viewport. */}
 +          <h1
 +            data-testid="home-h1"
-+            className="text-foreground max-w-3xl text-4xl leading-[1.05] font-bold tracking-tight text-balance sm:text-5xl md:text-6xl"
++            className="text-foreground max-w-3xl text-4xl leading-[1.05] font-bold tracking-tight text-balance sm:text-5xl"
 +          >
 +            Every sentence proves itself.
 +          </h1>
@@ -695,7 +697,11 @@ index ad50b0bb..da1966a1 100644
 -          <section
 -            aria-label="Why POLARIS"
 -            className="grid gap-4 sm:grid-cols-3"
-+          {/* Subtitle — honest sovereignty wording */}
++          {/* Subtitle — honest sovereignty wording. Codex visual iter-3
++              P1: trimmed to one sentence to recover above-fold real estate
++              for the primary CTA. (The proof card + footer carry the
++              "signed bundle / audit offline / OpenRouter US disclosure"
++              detail, so the subtitle doesn't need to.) */}
 +          <p
 +            data-testid="home-subtitle"
 +            className="text-muted-foreground max-w-2xl text-base leading-relaxed text-pretty sm:text-lg"
@@ -719,10 +725,8 @@ index ad50b0bb..da1966a1 100644
 -            ))}
 -          </section>
 +            POLARIS is a Canadian-hosted clinical research system, built toward
-+            sovereign Canadian deployment. Every sentence in every brief is
-+            verified against its cited source by an independent model family,
-+            then sealed into a signed bundle anyone can audit offline. No
-+            verifier, no claim.
++            sovereign Canadian deployment. Every claim is verified against its
++            cited source by an independent model family — no verifier, no claim.
 +          </p>
 +
 +          {/* Proof-as-CTA card — the HERO climax */}
@@ -1027,10 +1031,10 @@ index 00000000..3ef70951
 +}
 diff --git a/web/components/home/proof_as_cta.tsx b/web/components/home/proof_as_cta.tsx
 new file mode 100644
-index 00000000..44afd658
+index 00000000..edbdea6c
 --- /dev/null
 +++ b/web/components/home/proof_as_cta.tsx
-@@ -0,0 +1,191 @@
+@@ -0,0 +1,335 @@
 +// I-ux-001c (#878) sub-PR 2: Home page proof-as-CTA card — the HERO climax.
 +//
 +// v6 spec (locked in `.codex/I-ux-001c-2/brief.md` iter-4 APPROVE):
@@ -1074,6 +1078,83 @@ index 00000000..44afd658
 +          key={i}
 +          className="text-verified font-bold tabular-nums"
 +          data-testid="proof-numeric"
++        >
++          {part}
++        </span>
++      );
++    }
++    return <span key={i}>{part}</span>;
++  });
++}
++
++/** Display-layer typography normalization: tighten whitespace before
++ * punctuation that occasionally leaks through from LLM output (e.g.
++ * "tirzepatide ." → "tirzepatide."). This is typography cleanup, NOT
++ * data modification — the bundle data is preserved; only the rendered
++ * surface is normalized. (Codex visual iter-2 P2-001 fix: the front-door
++ * proof sentence shouldn't carry a visible spacing typo.) */
++function normalizeForDisplay(text: string): string {
++  return text.replace(/\s+([.,;:])/g, "$1");
++}
++
++/** Format a cited-span excerpt for the home card:
++ *   1. If the span starts mid-word (resolveSpan slices at byte offsets,
++ *      not word boundaries), advance to the next word boundary and add
++ *      a leading ellipsis so the reader sees "… and −2.30 …" not
++ *      "nts, and −2.30 …". (Codex visual iter-3 carryover after the
++ *      mid-word "nts," leading-text artifact.)
++ *   2. If the trimmed span exceeds `max` chars, truncate at the last
++ *      space ≥ 60% of max and add a trailing ellipsis.
++ * The bundle data itself is preserved; only the rendered excerpt is
++ * normalized for legibility. */
++function formatExcerpt(text: string, max = 280): string {
++  let formatted = text;
++  let leadingEllipsis = false;
++  // Heuristic for "starts mid-word": no leading whitespace, AND the
++  // first token doesn't begin with an uppercase letter or quote — the
++  // canonical span splices usually slice mid-word into a continuation
++  // fragment. The simplest robust rule: if the first character is a
++  // lowercase letter AND there's a word boundary further in, advance.
++  const firstChar = formatted.charAt(0);
++  if (firstChar && /[a-z]/.test(firstChar)) {
++    const nextWordStart = formatted.search(/\s+\S/);
++    if (nextWordStart > 0 && nextWordStart < 40) {
++      formatted = formatted.slice(nextWordStart).trimStart();
++      leadingEllipsis = true;
++    }
++  }
++  if (formatted.length > max) {
++    const cut = formatted.slice(0, max);
++    const lastSpace = cut.lastIndexOf(" ");
++    const head = lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut;
++    formatted = `${head.trimEnd()}…`;
++  }
++  return leadingEllipsis ? `… ${formatted}` : formatted;
++}
++
++/** Highlight the matched numerics inside the cited span excerpt as
++ * well, so the eye instantly sees WHICH numbers in the source were
++ * matched. Same green treatment as the claim, lighter weight so the
++ * source-quote retains its body-prose feel. */
++function highlightSpanNumerics(
++  spanText: string,
++  matchedNumbers: string[] | null,
++): React.ReactNode[] {
++  if (!matchedNumbers || matchedNumbers.length === 0) {
++    return [<span key={0}>{spanText}</span>];
++  }
++  // Build a regex matching any of the matched numbers (escape for regex)
++  const escaped = matchedNumbers
++    .map((n) => n.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"))
++    .join("|");
++  const regex = new RegExp(`(${escaped})`, "g");
++  const parts = spanText.split(regex);
++  return parts.map((part, i) => {
++    if (i % 2 === 1) {
++      return (
++        <span
++          key={i}
++          className="text-verified font-semibold tabular-nums"
 +        >
 +          {part}
 +        </span>
@@ -1134,16 +1215,24 @@ index 00000000..44afd658
 +      aria-label="A real verified claim"
 +      data-testid="proof-as-cta"
 +      data-state="loaded"
-+      className="bg-card ring-foreground/10 shadow-card hover:shadow-card-hover ease-standard mx-auto w-full max-w-3xl rounded-2xl px-6 py-6 ring-1 transition-shadow duration-150 sm:px-8 sm:py-8"
++      className="bg-card ring-foreground/10 shadow-card hover:shadow-card-hover ease-standard mx-auto w-full max-w-3xl rounded-2xl px-5 py-5 ring-1 transition-shadow duration-150 sm:px-7 sm:py-6"
 +    >
 +      <div className="flex flex-col gap-4">
 +        <div className="flex items-center justify-between gap-3">
 +          <span className="text-muted-foreground text-[10px] font-medium tracking-[0.14em] uppercase">
 +            Verified Claim · Live Example
 +          </span>
++          {/* Codex visual iter-1 source_pill PARTIAL: reframed as
++              "Primary evidence · T<n>" with verified-green tint and a
++              bullet glyph (·) so it reads as an evidence-tier control,
++              not stray metadata. Restrained tint — no full pill green. */}
 +          {brief.source.tier ? (
-+            <span className="text-muted-foreground border-border rounded-full border px-2 py-0.5 font-mono text-[10px]">
-+              {brief.source.tier} source
++            <span
++              data-testid="proof-source-pill"
++              className="border-verified/30 text-verified bg-verified/5 inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-medium whitespace-nowrap tracking-[0.04em] uppercase"
++            >
++              <span aria-hidden>◆</span>
++              {brief.source.tier} · Primary evidence
 +            </span>
 +          ) : null}
 +        </div>
@@ -1153,62 +1242,121 @@ index 00000000..44afd658
 +          data-testid="proof-claim"
 +          className="text-foreground text-lg leading-relaxed font-medium text-pretty break-words sm:text-xl"
 +        >
-+          {highlightNumerics(claim)}
++          {highlightNumerics(normalizeForDisplay(claim))}
 +        </p>
 +
-+        {/* Footer band — matched-numbers stamp + sig pill (tri-state) */}
-+        <div className="border-border/60 flex flex-wrap items-center gap-x-3 gap-y-2 border-t pt-3 text-xs sm:text-[13px]">
++        {/* Sealed source-span excerpt — embodies the numeric-source
++            linkage Codex visual iter-2 flagged as "asserted not
++            demonstrated". A small verified-green left rule + the
++            actual cited passage with the SAME numerics highlighted
++            green = the eye sees the proof connection at a glance,
++            not just the count. Only renders when the loader returned
++            a span quote (which the verified-gate already guarantees). */}
++        {brief.span_quote ? (
++          <figure
++            data-testid="proof-source-excerpt"
++            className="border-verified/40 bg-verified/[0.03] flex flex-col gap-1.5 rounded-r-md border-l-2 px-4 py-3"
++          >
++            <figcaption className="text-muted-foreground text-[10px] font-medium tracking-[0.10em] uppercase">
++              From the cited source span
++              {brief.source.journal && brief.source.year
++                ? ` — ${brief.source.journal} ${brief.source.year}`
++                : brief.source.journal
++                  ? ` — ${brief.source.journal}`
++                  : brief.source.year
++                    ? ` — ${brief.source.year}`
++                    : ""}
++            </figcaption>
++            <blockquote className="text-foreground/80 text-sm leading-relaxed font-serif italic">
++              &ldquo;
++              {highlightSpanNumerics(
++                formatExcerpt(normalizeForDisplay(brief.span_quote)),
++                brief.matched_numerics > 0
++                  ? // Pull the actual matched numerics from the claim regex
++                    Array.from(
++                      claim.matchAll(/[−-]?\d+(?:\.\d+)?(?:%|\s*percentage\s+points?)?/g),
++                    )
++                      .map((m) => m[0])
++                      .filter((n) => brief.span_quote!.includes(n))
++                  : null,
++              )}
++              &rdquo;
++            </blockquote>
++          </figure>
++        ) : null}
++
++        {/* Trust strip — two-row layout that gives both the verification
++            stamp AND the signature pill enough weight to read as serious
++            affordances (Codex visual iter-1 honest_signature_pill PARTIAL
++            + mobile_fidelity PARTIAL: the previous single-row inline
++            layout broke awkwardly on 390px and the signature signal lost
++            affordance). Now each signal owns its own row on mobile and
++            shares a row on tablet+ with explicit weight + border. */}
++        <div className="border-border/60 flex flex-col gap-2 border-t pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2">
++          {/* Matched-numbers stamp — promoted to verified-tinted pill */}
 +          {total > 0 ? (
 +            <span
 +              data-testid="proof-matched-stamp"
-+              className="text-verified tabular-nums"
++              className="border-verified/30 text-verified bg-verified/5 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium tabular-nums sm:text-[13px]"
 +            >
-+              ✓ matched {matched} of {total} number{total === 1 ? "" : "s"}{" "}
++              <span aria-hidden className="text-verified">✓</span>
++              Matched {matched} of {total} number{total === 1 ? "" : "s"}{" "}
 +              {sourceTail(journal, year)}
 +            </span>
 +          ) : (
 +            <span
 +              data-testid="proof-matched-stamp"
-+              className="text-verified"
++              className="border-verified/30 text-verified bg-verified/5 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium sm:text-[13px]"
 +            >
-+              ✓ verifier passed {sourceTail(journal, year)}
++              <span aria-hidden className="text-verified">✓</span>
++              Verifier passed {sourceTail(journal, year)}
 +            </span>
 +          )}
 +
-+          {/* Tri-state signature pill — only gpg_verified renders the green
-+              "Signed bundle" affordance. (Codex iter-1 P1-005 carry-forward
-+              from sub-PR 1: never overclaim a signature.) */}
++          {/* Tri-state signature pill — promoted from inline microcopy to
++              its own pill with explicit border + slightly larger glyph.
++              Only gpg_verified renders the green "Signed bundle"
++              affordance (sub-PR-1 Codex iter-1 P1-005 carry-forward:
++              never overclaim a signature). */}
 +          {brief.signature_state === "gpg_verified" && (
 +            <span
 +              data-testid="proof-sig-pill"
 +              data-state="gpg_verified"
-+              className="text-verified inline-flex items-center text-[11px] font-medium"
++              className="border-verified/30 text-verified bg-verified/5 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium sm:text-[13px]"
++              title="Bundle cryptographically signed; signature verified offline against the pinned trust root."
 +            >
-+              · ⬡ signed bundle
++              <span aria-hidden className="text-verified text-[14px] leading-none">
++                ⬡
++              </span>
++              Signed bundle · verifiable offline
 +            </span>
 +          )}
 +          {brief.signature_state === "present_unverified" && (
 +            <span
 +              data-testid="proof-sig-pill"
 +              data-state="present_unverified"
-+              className="text-amber-700 inline-flex items-center text-[11px] font-medium"
++              className="border-amber-700/40 text-amber-800 bg-amber-50 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium sm:text-[13px]"
++              title="Signature attached but not GPG-verified in this browser context; re-verify offline."
 +            >
-+              · ⊟ signature attached — verify offline
++              <span aria-hidden className="text-[14px] leading-none">⊟</span>
++              Signature attached · verify offline
 +            </span>
 +          )}
 +          {brief.signature_state === "missing" && (
 +            <span
 +              data-testid="proof-sig-pill"
 +              data-state="missing"
-+              className="text-contradiction-foreground inline-flex items-center text-[11px] font-medium"
++              className="border-contradiction-foreground/30 text-contradiction-foreground bg-contradiction/10 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium sm:text-[13px]"
++              title="No signature on disk — trust not cryptographically established."
 +            >
-+              · ⊠ not signed
++              <span aria-hidden className="text-[14px] leading-none">⊠</span>
++              Not signed · trust not established
 +            </span>
 +          )}
 +        </div>
 +
 +        {/* Link to the full proof — anchored to this card */}
-+        <div className="flex items-center justify-end">
++        <div className="flex items-center justify-end pt-1">
 +          <Link
 +            href={`/inspector/${brief.run_id}`}
 +            data-testid="proof-as-cta-link"
@@ -4497,4 +4645,4 @@ index 00000000..d40b99c0
 +  });
 +});
 
-# canonical-diff-sha256: ce308635caa52d476b745c04ad8bcb6a14a1a2f060e1ce3433805cc6038e048f
+# canonical-diff-sha256: dd9ab4513a8b4bb51b72dfde6343f2aa70a5a51d078d6b489a92f8d6330e5934
