@@ -40,22 +40,29 @@ Updated `home_brief_loader` return type:
 } | { bundle_loaded: false }  // honest fallback
 ```
 
-### P1-003 stale e2e test cleanup → SCOPE EXPANDED
+### P1-003 stale e2e test cleanup → SCOPE EXPANDED (iter-3 correction)
 
-Removing HomeKeyboardShell + ProofShowcase + RecentRunsStrip + templates grid breaks these existing tests. Sub-PR 2 MUST update/retire them in the same PR or the full e2e regresses:
+**Grounded repo check (Codex iter-2 P1-003 caught me)**: `HomeKeyboardShell` UNIQUELY owns the command palette (Ctrl+K binding + `CommandPalette` mount + `sign_in_link_ref` focus restoration). `AppShell` does NOT own the palette. `AppShellGate` marks `/` as chromeless, so moving the palette to AppShell would not even wrap Home anyway.
 
-- `web/tests/e2e/command_palette*.spec.ts` (5 files) — command palette is shell-level (not Home-specific); the HomeKeyboardShell wrapper instantiated it. Move palette to the AppShell or remove these tests. **Decision: keep the palette in AppShell** (the existing `web/components/app_shell.tsx` already has the global palette; the HomeKeyboardShell was redundant). Tests pass unchanged.
-- `web/tests/e2e/f1_a11y.spec.ts` — Home a11y; UPDATE to point at the new selectors (eyebrow, H1, proof-as-CTA card, primary CTA button).
-- `web/tests/e2e/home_g1_g8.spec.ts` — UPDATE/REPLACE: Home Phase-1 acceptance (G1-G8). The G-criteria need re-mapping to the v6 marketing-auth contract — DELETE this file and replace with `home_proof_as_cta.spec.ts` + `home_aa.spec.ts` (Codex iter-1 P1-003 fix).
-- `web/tests/e2e/demo_journey.spec.ts` — walks Home → /intake → /runs etc. The Home step now uses the new selectors. UPDATE the click target from "search-input" / template-card → primary-cta-button.
-- `web/tests/e2e/demo_walkthrough.spec.ts` — similar; UPDATE selectors.
+**Iter-3 surgery**: extract the palette-only behavior from `HomeKeyboardShell` into a new minimal `HomePaletteShell` that wraps the v6 hero. This preserves Ctrl+K + the 5 command_palette*.spec.ts tests while letting us discard the rest of HomeKeyboardShell (the search-input + templates grid + sign-in link).
 
-Sub-PR 2 must:
-1. UPDATE `web/tests/e2e/f1_a11y.spec.ts` (new selectors)
-2. DELETE `web/tests/e2e/home_g1_g8.spec.ts` (superseded by home_proof_as_cta + home_aa)
-3. UPDATE `web/tests/e2e/demo_journey.spec.ts` (new Home selectors)
-4. UPDATE `web/tests/e2e/demo_walkthrough.spec.ts` (new Home selectors)
-5. (KEEP `web/tests/e2e/command_palette*.spec.ts` unchanged — palette lives in AppShell, not HomeKeyboardShell — verify this is true; if HomeKeyboardShell uniquely owns palette, MOVE to AppShell in this PR)
+Updated file list:
+
+1. **REBUILD `web/app/page.tsx`** — v6 marketing-auth hero, wrapped in `<HomePaletteShell>`
+2. **NEW `web/components/home/home_palette_shell.tsx`** (~50 LOC, NEW) — minimal client wrapper that mounts `CommandPalette` + binds Ctrl+K + provides `sign_in_link_ref` for focus restoration. EXTRACTED from `HomeKeyboardShell` (just the keyboard/palette bits, not the search-input/templates/header markup).
+3. **NEW `web/components/home/proof_as_cta.tsx`** — verified-claim card (unchanged from earlier iter-2 brief)
+4. **NEW `web/lib/home_brief_loader.ts`** — server-side bundle reader (unchanged)
+5. **NEW `web/tests/e2e/home_proof_as_cta.spec.ts`** — Playwright e2e (unchanged)
+6. **NEW `web/tests/e2e/home_aa.spec.ts`** — axe WCAG 2.2 AA (unchanged)
+7. **DELETE `web/app/components/home_keyboard_shell.tsx`** — superseded by HomePaletteShell + the v6 hero
+8. **UPDATE `web/tests/e2e/f1_a11y.spec.ts`** — new Home selectors
+9. **DELETE `web/tests/e2e/home_g1_g8.spec.ts`** — superseded
+10. **UPDATE `web/tests/e2e/demo_journey.spec.ts`** — new Home selectors
+11. **UPDATE `web/tests/e2e/demo_walkthrough.spec.ts`** — new Home selectors
+12. **KEEP `web/tests/e2e/command_palette*.spec.ts` (5 files)** — palette behavior preserved via HomePaletteShell; tests should pass unchanged. SMOKE COMMAND now includes them.
+13. **EDIT `web/app/globals.css`** — add `--certainty-*-bg` tokens + Tailwind `@theme` mappings (unchanged)
+
+`AppShellGate` does NOT need to change — `/` stays chromeless; HomePaletteShell adds palette behavior without adding chrome.
 
 ### P2-001 loader VERIFIED gate → FIXED
 
@@ -113,7 +120,13 @@ PRIMARY CTA: Try a verified brief →   (links to /intake)
 cd web && npm ci && npm run dev
 # Browser: http://localhost:3000/
 cd web && npm run typecheck && npm run lint
-cd web && npm run test:e2e -- tests/e2e/home_proof_as_cta.spec.ts tests/e2e/home_aa.spec.ts tests/e2e/f1_a11y.spec.ts tests/e2e/demo_journey.spec.ts tests/e2e/demo_walkthrough.spec.ts
+cd web && npm run test:e2e -- \
+  tests/e2e/home_proof_as_cta.spec.ts \
+  tests/e2e/home_aa.spec.ts \
+  tests/e2e/f1_a11y.spec.ts \
+  tests/e2e/demo_journey.spec.ts \
+  tests/e2e/demo_walkthrough.spec.ts \
+  tests/e2e/command_palette*.spec.ts
 ```
 
 ## Acceptance
