@@ -250,7 +250,18 @@ jobs:
           screenshots_dir="$(dirname "$matched_manifest")"
           python3 scripts/verify_screenshot_manifest.py "$matched_manifest" "$screenshots_dir"
 
-          echo "OK: $VISUAL APPROVE; rubric SHA + pr_head_sha + manifest + every screenshot file all match"
+          # 6. Route-coverage check (Codex iter-3 P1 fix): verify every
+          # `web/app/<segments>/page.tsx` change in this PR maps to a
+          # route present in the manifest. `web/components/**` and
+          # layout/template/loading/error/not-found are advisory — they
+          # affect undetermined pages so operator declares coverage in
+          # the brief.
+          git diff --name-only "${BASE_SHA}...${HEAD_SHA}" > /tmp/changed_files.txt
+          python3 scripts/verify_route_coverage.py \
+            --manifest "$matched_manifest" \
+            --changed-files /tmp/changed_files.txt
+
+          echo "OK: $VISUAL APPROVE; rubric SHA + pr_head_sha + manifest + screenshots + route coverage all match"
 
       - name: skip_summary
         if: steps.ui_surface.outputs.ui_surface != 'true' || steps.issue.outputs.derivation == 'skip_infra'
