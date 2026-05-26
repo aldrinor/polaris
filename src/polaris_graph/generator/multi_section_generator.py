@@ -120,6 +120,19 @@ class SectionResult:
     # citation tokens. Without this, M-41c drops are INVISIBLE to the
     # operator (gone from kept[], gone from dropped[], gone from dedup[]).
     dropped_sentences_m41c_underframed: list[Any] = field(default_factory=list)
+    # I-gen-005 Step 3b commit 4 (Codex APPROVE_DESIGN iter-3): atom-
+    # validation transient fields. atom_catalog is the section-filtered
+    # dict[atom_id, ClaimAtom] injected into V4 Pro's system prompt
+    # (per Step 3a) — same numbering the post-hoc validator uses.
+    # atom_validation_result captures the per-sentence gap_records +
+    # rendered_text from the validator. Counts surface to manifest.
+    # atom_validation_mode reflects the active PG_ATOM_REFUSAL_MODE
+    # at validation time ("off" / "log_only" / "strict").
+    atom_catalog: dict[str, Any] = field(default_factory=dict)
+    atom_validation_result: Any = None  # SectionValidationResult | None
+    refusal_count: int = 0
+    soft_mismatch_count: int = 0
+    atom_validation_mode: str = "off"
 
 
 @dataclass
@@ -1577,6 +1590,10 @@ async def _run_section(
         # but failed the policy filter; without this field they would
         # be invisible in verification_details.json.
         dropped_sentences_m41c_underframed=list(report_dropped_m41c or []),
+        # Step 3b commit 4: thread atom_catalog onto SectionResult so
+        # the orchestrator's final-remap-hook validator uses the same
+        # numbering V4 Pro saw in the prompt.
+        atom_catalog=dict(section_atom_catalog),
     )
 
 
@@ -4341,6 +4358,67 @@ async def generate_multi_section_report(
                 sr.verified_text = next(remap_iter)
             except StopIteration:
                 break
+
+    # I-gen-005 Step 3b commit 4 (Codex APPROVE_DESIGN iter-3 + iter-2 P2.1):
+    # post-hoc atom validation hook. Runs AFTER final citation remap
+    # (verified_text now in its truly-final form for this section) and
+    # BEFORE analyst_synthesis consumes verified prose.
+    #
+    # PG_ATOM_REFUSAL_MODE env flag controls behavior:
+    #   off       — no validation, no gaps.json (default; pre-Step-3b)
+    #   log_only  — run validator, write gap_records on SectionResult,
+    #               do NOT replace verified_text
+    #   strict    — run validator, write gap_records AND replace
+    #               verified_text with rendered_text from validator
+    #               (refusal blocks inline) AND recompute total_words
+    _atom_mode = os.environ.get("PG_ATOM_REFUSAL_MODE", "off").lower().strip()
+    if _atom_mode in ("log_only", "strict"):
+        try:
+            from src.polaris_graph.generator.atom_refusal_validator import (
+                validate_section,
+            )
+            _refusal_replacements = 0
+            for sr in section_results:
+                if sr.dropped_due_to_failure or not sr.verified_text:
+                    continue
+                section_id = sr.title.lower().replace(" ", "_")
+                val_result = validate_section(
+                    sr.verified_text,
+                    section_id=section_id,
+                    section_title=sr.title,
+                    catalog=sr.atom_catalog,
+                )
+                sr.atom_validation_result = val_result
+                sr.refusal_count = val_result.refusal_count
+                sr.soft_mismatch_count = val_result.soft_mismatch_count
+                sr.atom_validation_mode = _atom_mode
+                if _atom_mode == "strict" and val_result.refusal_count > 0:
+                    sr.verified_text = val_result.rendered_text
+                    _refusal_replacements += val_result.refusal_count
+            # Codex iter-2 P2.3: recompute total_words after strict-mode
+            # replacement so report telemetry reflects post-validation
+            # state, not the pre-replacement count.
+            if _atom_mode == "strict" and _refusal_replacements > 0:
+                total_words = sum(
+                    len(sr.verified_text.split())
+                    for sr in section_results
+                    if not sr.dropped_due_to_failure and sr.verified_text
+                )
+            logger.info(
+                "[multi_section] I-gen-005 Step 3b atom validation: mode=%s "
+                "sections_validated=%d refusal_replacements=%d",
+                _atom_mode,
+                sum(1 for sr in section_results if sr.atom_validation_result),
+                _refusal_replacements,
+            )
+        except Exception as _validation_exc:
+            # Fail-soft per atom-first design: validator error must not
+            # crash the run. Log loud + continue with un-validated text.
+            logger.warning(
+                "[multi_section] I-gen-005 Step 3b atom validation failed "
+                "(non-fatal): %s — proceeding without validation",
+                _validation_exc,
+            )
 
     # R-1: Limitations synthesis — one extra LLM call with only the
     # pipeline telemetry as input. Falls back to deterministic text
