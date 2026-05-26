@@ -1057,3 +1057,11 @@ up 4 progressive P1 layers that the offline smoke would have hidden:
     force-APPROVE per §8.3.1 cap + §8.3.6 accept_remaining;
     no follow-up issues required (both residuals fixed in same commit).
   final state: 52/52 tests pass; ready for refusal/gap rendering integration
+
+[2026-05-26] I-gen-005 atom_refusal_validator diff review iter 4: APPROVE
+  tokens: 54961
+  zero p0/p1/p2; one p3 (stale comments — fixed)
+  approval_to_proceed_to_step_3: YES
+  iter4_cap_consideration: APPROVE_THIS (iter 5 not needed)
+  convergence_call: accept_remaining
+  trajectory: iter 1 P1+4P2+P3 → iter 2 novel P1+P2 → iter 3 continuing P1+novel P1 → iter 4 APPROVE

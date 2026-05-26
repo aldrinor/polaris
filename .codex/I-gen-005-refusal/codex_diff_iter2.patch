@@ -1,0 +1,278 @@
+diff --git a/src/polaris_graph/generator/atom_refusal_validator.py b/src/polaris_graph/generator/atom_refusal_validator.py
+index 93ca1959..774055d5 100644
+--- a/src/polaris_graph/generator/atom_refusal_validator.py
++++ b/src/polaris_graph/generator/atom_refusal_validator.py
+@@ -77,6 +77,9 @@ _ENDPOINT_VOCAB_RE = re.compile(
+     r"all[-\s]?cause\s+mortality|heart\s+failure|hf\s+hospitali[zs]ation|"
+     r"egfr|uacr|aki|creatinine|"
+     r"adverse\s+events?|aes?|serious\s+adverse|sae|discontinuation|"
++    # Iter-2 fix (Codex iter-1 P1): common safety endpoints by name
++    r"nausea|vomiting|diarrh(?:o)?ea|constipation|abdominal\s+pain|"
++    r"injection[-\s]?site\s+reaction|"
+     r"hypoglycemia|hypoglycaemia|pancreatitis|gallbladder|retinopathy|mtc|"
+     r"hazard\s+ratio|risk\s+ratio|odds\s+ratio|relative\s+risk|"
+     r"responder\s+rate|response\s+rate|incidence|"
+@@ -85,28 +88,48 @@ _ENDPOINT_VOCAB_RE = re.compile(
+     re.IGNORECASE,
+ )
+ 
++# Iter-2 fix (Codex iter-1 P2): inclusion/eligibility-range framing.
++# "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0"
++# is design/eligibility, not an outcome claim. This regex detects framing
++# that overrides Trigger A for eligibility-range numbers.
++_ELIGIBILITY_RANGE_RE = re.compile(
++    r"\b(?:inclusion\s+criter|exclusion\s+criter|eligibility|"
++    r"eligible\s+patients|eligible\s+adults|"
++    r"baseline\s+(?:hba1c|weight|bmi)|"
++    r"required\s+(?:hba1c|weight))\b",
++    re.IGNORECASE,
++)
++
+ # Qualitative comparative/outcome language requiring atom citation
+-# (Codex: "greater/lower/superior/noninferior/significant/reduced/increased
+-# plus endpoint/safety/comparator terms")
+-# Patterns:
+-#   - bare comparative verbs: reduced, increased, decreased, etc.
+-#   - comparative phrases: greater than, superior to, more effective, etc.
+-#   - "greater <noun> than": "greater HbA1c reduction than semaglutide"
++# (Codex iter-1 P1 expanded: catch "more common with X than Y", "higher
++# with X than Y", "greater reduction than", etc.)
+ _QUAL_COMPARATIVE_RE = re.compile(
+     r"\b("
+     r"greater(?:\s+\w+){0,4}\s+than|"
+     r"less(?:\s+\w+){0,4}\s+than|"
+     r"lower(?:\s+\w+){0,4}\s+than|"
+     r"higher(?:\s+\w+){0,4}\s+than|"
++    r"more(?:\s+\w+){0,4}\s+than|"     # "more common with X than Y"
++    r"fewer(?:\s+\w+){0,4}\s+than|"
+     r"superior(?:ity)?\s+to|non[-\s]?inferior(?:ity)?\s+to|"
+     r"statistically\s+significant|significantly\s+\w+|"
+     r"reduced|increased|decreased|elevated|improved|worsened|"
+-    r"more\s+effective|less\s+effective|"
++    r"more\s+(?:effective|common|frequent)|less\s+(?:effective|common|frequent)|"
+     r"compared\s+(?:to|with)|versus|vs\.?"
+     r")\b",
+     re.IGNORECASE,
+ )
+ 
++# Comparator/arm language that — combined with a comparative phrase —
++# signals a factual comparative claim even without a specific endpoint
++# vocab term. Catches "Tirzepatide showed greater reduction than
++# semaglutide" where "reduction" isn't an endpoint vocab term.
++_COMPARATIVE_ARM_RE = re.compile(
++    r"\b(?:than|versus|vs\.?|compared\s+(?:to|with))\s+"
++    r"(?:placebo|control|standard\s+care|usual\s+care|\w{3,})\b",
++    re.IGNORECASE,
++)
++
+ # Numbers to EXCLUDE from Trigger B when they appear with admin/design context
+ _ADMIN_NUMBER_RE = re.compile(
+     r"\b("
+@@ -204,8 +227,15 @@ def requires_atom_citation(sentence: str) -> tuple[bool, Optional[str]]:
+ 
+     numbers = _NUMBER_RE.findall(s)
+     has_endpoint = bool(_ENDPOINT_VOCAB_RE.search(s))
+-    has_outcome_number = bool(numbers) and has_endpoint
+     has_qual_comparative = bool(_QUAL_COMPARATIVE_RE.search(s))
++    has_comparator_arm = bool(_COMPARATIVE_ARM_RE.search(s))
++    has_outcome_number = bool(numbers) and has_endpoint
++
++    # Iter-2 fix (Codex iter-1 P2): eligibility-range override BEFORE
++    # Trigger A. "HbA1c between 7.0 and 10.0" in an inclusion-criteria
++    # context is design, not outcome.
++    if _ELIGIBILITY_RANGE_RE.search(s) and not has_qual_comparative:
++        return False, None
+ 
+     # Pure narrative categories — never require atom citation UNLESS
+     # there's also an outcome-number combo or qualitative comparative.
+@@ -217,8 +247,11 @@ def requires_atom_citation(sentence: str) -> tuple[bool, Optional[str]]:
+     if has_outcome_number:
+         return True, "trigger_A_number_plus_endpoint"
+ 
+-    # Qualitative comparative outcome language + endpoint (no number needed)
+-    if has_qual_comparative and has_endpoint:
++    # Qualitative comparative outcome language with an endpoint OR
++    # an explicit comparator arm (versus/than/compared to PLACEBO/DRUG).
++    # Catches "Tirzepatide showed greater reduction than semaglutide"
++    # (no endpoint vocab term but clearly a comparative claim).
++    if has_qual_comparative and (has_endpoint or has_comparator_arm):
+         return True, "trigger_qualitative_comparative"
+ 
+     # Trigger B: number alone, but check for admin/design exclusions
+@@ -354,14 +387,22 @@ def validate_sentence(
+     # All cited atoms valid — SOFT mismatch checks (logged_only)
+     soft_notes = []
+     detected_values = _NUMBER_RE.findall(sentence)
++    detected_value_set = set(detected_values)
+     for aid in cited_atoms:
+         atom = catalog[aid]
+-        # Value mismatch: cited atom's value should appear (modulo sign)
+-        # in the sentence. Sign-strip on both sides.
+-        atom_val_stripped = atom.value.lstrip("-−")
+-        if atom_val_stripped and atom_val_stripped not in sentence:
++        # Iter-2 fix (Codex iter-1 P2): tighten value matching to
++        # numeric-token boundaries. Old substring check matched
++        # "2.30" inside "12.30" (false negative on mismatch). New
++        # check uses the same _NUMBER_RE that extracted detected_values
++        # — equality on token strings (sign-normalized).
++        atom_val_normalized = atom.value.replace("−", "-")
++        atom_val_unsigned = atom_val_normalized.lstrip("-")
++        # Sentence contains atom's value iff atom_val (signed or unsigned)
++        # appears as an EXTRACTED number token in the sentence.
++        sentence_unsigned = {v.lstrip("-") for v in detected_value_set}
++        if atom_val_unsigned and atom_val_unsigned not in sentence_unsigned:
+             soft_notes.append(
+-                f"atom={aid} value={atom.value!r} not in sentence text"
++                f"atom={aid} value={atom.value!r} not in sentence numeric tokens"
+             )
+ 
+     if soft_notes:
+@@ -415,6 +456,10 @@ def _build_refusal_record(
+         timepoint=timepoint,
+     )
+ 
++    # Iter-2 fix (Codex iter-1 P2): preserve detected_values on refusal
++    # records for downstream audit.
++    detected_values = _NUMBER_RE.findall(sentence)
++
+     return GapRecord(
+         section_id=section_id,
+         section_title=section_title,
+@@ -428,6 +473,7 @@ def _build_refusal_record(
+         detected_endpoint=endpoint,
+         detected_entity=entity,
+         detected_timepoint=timepoint,
++        detected_values=detected_values,
+         notes=f"claim_trigger={claim_trigger}" if claim_trigger else None,
+     )
+ 
+diff --git a/tests/polaris_graph/test_atom_refusal_validator.py b/tests/polaris_graph/test_atom_refusal_validator.py
+index 90f0f955..3204e0bf 100644
+--- a/tests/polaris_graph/test_atom_refusal_validator.py
++++ b/tests/polaris_graph/test_atom_refusal_validator.py
+@@ -166,27 +166,27 @@ def test_trial_design_sentence_does_not_require_atom():
+ 
+ 
+ def test_eligibility_sentence_does_not_require_atom():
+-    """Codex narrative-allowed: eligibility/population framing."""
++    """Codex iter-1 P2 fix: eligibility-range framing overrides Trigger A.
++    'Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0'
++    is design/eligibility — NOT an outcome claim."""
+     requires, _ = requires_atom_citation(
+         "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0."
+     )
+-    # This DOES have outcome-like (HbA1c + numbers) — but the narrative
+-    # category match dominates only if no outcome-number combo exists.
+-    # In this case, "between 7.0 and 10.0" describes eligibility ranges,
+-    # not outcomes — but the detector sees number+endpoint and would
+-    # require atom. Acceptable conservative behavior.
+-    # Mark this as an edge case: claim detector errs strict on edges.
++    assert not requires, (
++        "Eligibility-range sentence should be allowed without atom citation "
++        "(iter-2 fix for Codex iter-1 P2)."
++    )
+ 
+ 
+ def test_hedge_sentence_does_not_require_atom():
+-    """Codex narrative-allowed: hedges/limitations without quantitative claim."""
++    """Codex narrative-allowed: hedges/limitations without quantitative claim.
++    '40 weeks' is admin-number; 'remain limited' is hedge."""
+     requires, _ = requires_atom_citation(
+         "Long-term safety data beyond 40 weeks remain limited."
+     )
+-    # "40 weeks" is admin-number — and "remain limited" is narrative hedge.
+-    # Acceptable if narrative category dominates.
+-    # If the detector returns True (because of "40 weeks"), that's
+-    # over-strict; let's allow either.
++    assert not requires, (
++        "Hedge sentence with admin-number should be allowed without atom."
++    )
+ 
+ 
+ # ============================================================================
+@@ -478,3 +478,85 @@ def test_split_sentences_decimal_aware():
+     assert len(parts) == 2
+     assert "-2.30" in parts[0]
+     assert "43%" in parts[1]
++
++
++# ============================================================================
++# ITER-2 REGRESSION TESTS (Codex iter-1 verdict)
++# ============================================================================
++
++
++def test_iter2_p1_qualitative_comparative_safety_requires_atom():
++    """Codex iter-1 P1 repro: 'Adverse events were more common with
++    tirzepatide than placebo.' must REQUIRE atom citation. Was returning
++    False because 'more common' wasn't in qual regex AND comparator-arm
++    signal didn't override missing endpoint."""
++    requires, trigger = requires_atom_citation(
++        "Adverse events were more common with tirzepatide than placebo."
++    )
++    assert requires, "Comparative safety claim must require atom citation"
++    assert trigger == "trigger_qualitative_comparative"
++
++
++def test_iter2_p1_qualitative_higher_with_drug_requires_atom():
++    """Codex iter-1 P1 repro: 'Nausea was higher with tirzepatide than
++    placebo.' must require atom. 'Nausea' wasn't in endpoint vocab + no
++    qual regex match."""
++    requires, trigger = requires_atom_citation(
++        "Nausea was higher with tirzepatide than placebo."
++    )
++    assert requires
++    assert trigger == "trigger_qualitative_comparative"
++
++
++def test_iter2_p1_qualitative_greater_reduction_than_requires_atom():
++    """Codex iter-1 P1 repro: 'Tirzepatide showed greater reduction than
++    semaglutide.' must require atom. No endpoint vocab term but clearly
++    a comparative claim via 'greater <noun> than <drug>'."""
++    requires, trigger = requires_atom_citation(
++        "Tirzepatide showed greater reduction than semaglutide."
++    )
++    assert requires
++    assert trigger == "trigger_qualitative_comparative"
++
++
++def test_iter2_p2_eligibility_range_allowed():
++    """Codex iter-1 P2: eligibility ranges should be allowed even with
++    endpoint+number combo."""
++    requires, _ = requires_atom_citation(
++        "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0."
++    )
++    assert not requires
++
++
++def test_iter2_p2_soft_value_word_boundary_match():
++    """Codex iter-1 P2 repro: atom_003 value=-2.30; sentence value=12.30.
++    Old substring check returned ALLOWED (false negative); new numeric-
++    token-boundary check correctly returns LOGGED_ONLY (SOFT_MISMATCH)."""
++    record = validate_sentence(
++        "Tirzepatide reduced HbA1c by 12.30 percentage points atom_003.",
++        sentence_index=0,
++        section_id="efficacy",
++        section_title="Efficacy",
++        catalog=_CATALOG,
++    )
++    assert record.action == RefusalAction.LOGGED_ONLY, (
++        f"12.30 in sentence != atom_003.value=-2.30; should be SOFT_MISMATCH "
++        f"(numeric-token boundary), not ALLOWED. Got {record.action}"
++    )
++    assert record.reason == RefusalReason.SOFT_MISMATCH
++
++
++def test_iter2_p2_refused_record_includes_detected_values():
++    """Codex iter-1 P2: refused records must populate detected_values
++    for downstream audit."""
++    record = validate_sentence(
++        "Tirzepatide reduced HbA1c by -2.30 percentage points at 40 weeks.",
++        sentence_index=0,
++        section_id="efficacy",
++        section_title="Efficacy",
++        catalog=_CATALOG,
++    )
++    assert record.action == RefusalAction.REFUSED
++    assert "-2.30" in record.detected_values, (
++        f"Refused record must preserve detected_values. Got: {record.detected_values}"
++    )

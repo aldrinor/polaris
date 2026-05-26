@@ -88,28 +88,20 @@ _ENDPOINT_VOCAB_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Iter-2 fix (Codex iter-1 P2): inclusion/eligibility-range framing.
-# "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0"
-# is design/eligibility, not an outcome claim. This regex detects framing
-# that overrides Trigger A for eligibility-range numbers.
-#
-# Iter-3 fix (Codex iter-2 novel-P1): tightened to only "inclusion/
-# exclusion criteria" frames; removed bare "baseline HbA1c" because real
-# outcome sentences may mention baseline characteristics + actual
-# reductions in the same breath ("Patients with baseline HbA1c of 8.6%
-# had HbA1c reductions of 2.3 percentage points" must NOT bypass Trigger A).
+# NOTE (iter-4 design decision): two prior iterations (iter-2, iter-3)
+# attempted an eligibility-range override via these two regex constants.
+# Codex iter-3 caught that pure-regex disambiguation between
+# "eligibility framing + endpoint+number" and "outcome claim + baseline
+# mention" is fundamentally fragile. Per CLAUDE.md §-1.1 clinical-safety
+# principle, the safer default is: any quantitative claim requires
+# atom citation. Constants retained for any future revisit but NO
+# LONGER WIRED into requires_atom_citation().
 _ELIGIBILITY_RANGE_RE = re.compile(
     r"\b(?:inclusion\s+criter\w*|exclusion\s+criter\w*|"
     r"eligibility\s+criter\w*|eligible\s+(?:if|when)\b|"
     r"required\s+(?:hba1c|weight|bmi)\s+(?:of|between)\b)",
     re.IGNORECASE,
 )
-
-# Iter-3 fix (Codex iter-2 novel-P1): outcome-verb-with-number pattern.
-# If a sentence contains "<outcome verb> <amount>" (reductions of N,
-# decreased by N, improved by N), the eligibility override MUST NOT fire
-# because there's a real quantitative outcome claim mixed with the
-# eligibility framing.
 _OUTCOME_VERB_WITH_NUMBER_RE = re.compile(
     r"\b(?:reduc(?:ed|tions?|ing)|"
     r"decreas(?:ed|es?|ing)|increas(?:ed|es?|ing)|"
