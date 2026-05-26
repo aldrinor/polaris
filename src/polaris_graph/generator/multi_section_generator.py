@@ -4381,6 +4381,23 @@ async def generate_multi_section_report(
             for sr in section_results:
                 if sr.dropped_due_to_failure or not sr.verified_text:
                     continue
+                # Step 3e fix (Codex PR #906 iter-5 P2): skip sections
+                # with empty atom_catalog. Contract-section path
+                # (PG_V30_PHASE2_ENABLED) and any other path that
+                # produces SectionResults without going through
+                # _call_section's atom-catalog build will have an
+                # empty dict. In strict mode, validating with empty
+                # catalog refuses EVERY claim sentence — false positive
+                # storm. Better to skip and let those sections ship
+                # un-validated until they atom-enable.
+                if not sr.atom_catalog:
+                    sr.atom_validation_mode = "skipped_empty_catalog"
+                    logger.info(
+                        "[multi_section] I-gen-005 Step 3e: skipping "
+                        "atom validation for section %r (empty catalog)",
+                        sr.title,
+                    )
+                    continue
                 section_id = sr.title.lower().replace(" ", "_")
                 val_result = validate_section(
                     sr.verified_text,
