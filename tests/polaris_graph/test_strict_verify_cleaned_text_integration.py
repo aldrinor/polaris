@@ -70,58 +70,63 @@ def test_verifier_cleaned_text_strips_all_three_token_classes():
     assert out4 == "Plain sentence with no tokens."
 
 
-def test_entailment_path_calls_verifier_cleaned_text_structurally():
-    """Codex Step 3b iter-3 P2: assert the entailment judge receives
-    CLEANED text, not raw atom_NNN-bearing sentence.
+def test_entailment_judge_receives_cleaned_text_runtime():
+    """Codex Step 3b iter-3 P2 + iter-2 follow-up: real runtime mock.
+    Capture every input to _get_judge().judge() and assert it has been
+    cleaned (no atom_NNN, no [#ev:...], no bare [ev_XXX]).
 
-    Mock-based runtime test is blocked by a pre-existing stale-import
-    chain in src/polaris_graph/clinical_generator/ (provenance.py +
-    evidence_pool.py both use bare 'polaris_graph.' instead of
-    'src.polaris_graph.'). Fixing the chain is out of scope for this PR.
-
-    Source-inspection alternative: assert that the function body of
-    `verify_sentence_provenance` invokes `_verifier_cleaned_text` and
-    that the entailment-block code passes the cleaned variable (not
-    `sentence`) to `_get_judge().judge(...)`.
+    Data-flow verified — not just variable-name pattern matching. Even
+    if a future PR renames the cleaned variable or moves the strip
+    elsewhere, this test passes iff the actual text reaching the judge
+    is clean.
     """
-    import inspect
-
-    src = inspect.getsource(verify_sentence_provenance)
-
-    # 1. The helper IS invoked at top of function
-    assert "_verifier_cleaned_text(sentence)" in src, (
-        "verify_sentence_provenance must invoke _verifier_cleaned_text "
-        "on the input sentence (Step 3b commit 1 contract)"
+    sentence = (
+        "Tirzepatide reduced HbA1c by -2.30 percentage points at 40 weeks "
+        "(atom_003) [#ev:ev_001:11-78]."
     )
 
-    # 2. The judge call site must use the cleaned name (sentence_clean),
-    #    NOT raw `sentence`. Search for the .judge( pattern; the first
-    #    arg must be sentence_clean (or sentence_for_numbers — the same
-    #    cleaned variable, depending on local naming).
-    judge_call_re = r"_get_judge\(\)\.judge\(\s*([a-zA-Z_][a-zA-Z0-9_]*)"
-    import re
-    matches = re.findall(judge_call_re, src)
-    assert matches, (
-        "Source must contain _get_judge().judge(...) call site; "
-        f"none found in verify_sentence_provenance"
+    captured: list[tuple[str, str]] = []
+
+    class _SpyJudge:
+        def judge(self, claim_text: str, span_text: str) -> tuple[str, str]:
+            captured.append((claim_text, span_text))
+            return ("SUPPORTED", "")
+
+    # Patch in the strict_verify module — provenance_generator does a
+    # lazy import of _get_judge / _entailment_mode / _record_judge_outcome
+    # from there, so this rebind propagates.
+    with patch(
+        "src.polaris_graph.clinical_generator.strict_verify._entailment_mode",
+        return_value="enforce",
+    ), patch(
+        "src.polaris_graph.clinical_generator.strict_verify._get_judge",
+        return_value=_SpyJudge(),
+    ), patch(
+        "src.polaris_graph.clinical_generator.strict_verify._record_judge_outcome",
+        return_value=None,
+    ):
+        verify_sentence_provenance(sentence, _FIXTURE_EVIDENCE)
+
+    assert len(captured) >= 1, (
+        f"Entailment judge should have been called under enforce mode; "
+        f"captured={captured}"
     )
-    for arg in matches:
-        assert arg in ("sentence_clean", "sentence_for_numbers"), (
-            f"Judge first arg must be the CLEANED variable name "
-            f"(sentence_clean or sentence_for_numbers), got {arg!r}. "
-            f"Passing raw `sentence` would let atom_NNN through."
+
+    for claim_text, _ in captured:
+        # Core property: atom_NNN absent from judge input
+        assert "atom_003" not in claim_text, (
+            f"Judge saw atom_003 in claim — cleaning bypassed. Got: {claim_text!r}"
         )
-
-    # 3. The cleaned-text variable must be ASSIGNED from
-    #    _verifier_cleaned_text (sentence_clean = _verifier_cleaned_text(...)
-    #    or sentence_for_numbers = _verifier_cleaned_text(...)).
-    assert (
-        "sentence_clean = _verifier_cleaned_text" in src
-        or "sentence_for_numbers = _verifier_cleaned_text" in src
-    ), (
-        "Cleaned variable must be assigned from _verifier_cleaned_text; "
-        "otherwise the judge call site is passing a different (uncleaned) value."
-    )
+        assert "atom_" not in claim_text, (
+            f"Judge saw atom_NNN token in claim. Got: {claim_text!r}"
+        )
+        # Internal provenance token absent
+        assert "#ev:" not in claim_text, (
+            f"Judge saw [#ev:...] in claim. Got: {claim_text!r}"
+        )
+        # Content preserved
+        assert "-2.30" in claim_text or "2.30" in claim_text
+        assert "HbA1c" in claim_text
 
 
 def test_findings_lines_word_count_excludes_atom_token():
