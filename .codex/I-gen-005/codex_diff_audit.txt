@@ -1,18 +1,8 @@
-# PR #906 — I-gen-005 Step 3b umbrella diff audit
-#
-# 4 main commits + 4 Codex-iter-fix follow-up commits.
-# Full trail at .codex/I-gen-005/brief.md + codex_brief_verdict.txt.
-#
-# Codex umbrella iter-5: APPROVE
-# approval_to_merge: YES
-# convergence_call: accept_remaining
-#
-# Default behavior unchanged: PG_ATOM_REFUSAL_MODE = "off" preserves
-# pre-PR-#906 behavior entirely. Tests 99/99 pass.
-#
-# P2 follow-up scope (not merge blockers):
-#   - write_gaps_sidecar() production caller in run_honest_sweep_r3.py
-#   - Strict-mode handling of contract-section results with empty
-#     atom_catalog (skip or atom-enable before strict rollout)
+# PR #907 — gaps.json sidecar writer in run_honest_sweep_r3.py
+# Closes PR #906 iter-5 P2 follow-up.
+# Codex iter-1: APPROVE
+#   default_off_zero_behavior_change: YES
+#   fail_soft_correct: YES
+#   novel_p0: [], novel_p1: [], p2: []
 
 verdict: APPROVE
