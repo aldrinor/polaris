@@ -1,0 +1,57 @@
+[
+  {
+    "section": "?",
+    "sentence": "The same meta‑analysis reported a pooled body‑weight reduction of −7.99 kg (95% CI −11.36 to −4.62), with absolute weight losses in individual trials ranging from 7.25 kg to 10.36 kg, and emphasized that greater proportions of patients achieved ≥5%, ≥10%, and ≥15% weight loss with tirzepatide, wheth",
+    "failure_reasons": [
+      "entailment_failed:ev_017:verdict=NEUTRAL:reason=The sentence introduces specific weight loss ranges and percentage thresholds no"
+    ],
+    "ev_id": "ev_017",
+    "span_bytes": "1600-2100",
+    "span_text": "up and 2,054 in the control group) fulfilled the pre-specified criteria and were included in the study. Tirzepatide treatment resulted in reducing HbA1c (WMD: -1.07%; 95% confidence intervals [CIs]: −1.44, −0.56), FSG (WMD, −21.50 mg/dl; 95% CI: −34.44, −8.56), body weight (WMD: −7.99 kg; 95% CI −11.36, −4.62), and blood pressure and ameliorated fasting lipid profiles, without increasing hypoglyce...",
+    "full_ev_chars": 11841
+  },
+  {
+    "section": "?",
+    "sentence": "The same review highlighted that more patients receiving tirzepatide attained HbA1c levels below 5.7% across baseline HbA1c strata and that weight loss reached up to 22% in an obesity trial out of the SURMOUNT program [#ev:ev_021:3900-4400].",
+    "failure_reasons": [
+      "entailment_failed:ev_021:verdict=NEUTRAL:reason=The span does not mention weight loss percentages or the SURMOUNT program."
+    ],
+    "ev_id": "ev_021",
+    "span_bytes": "3900-4400",
+    "span_text": "aglutide) [ 1, 9–12 ]. In the SURPASS trials, tirzepatide achieved HbA1c reductions up to 2.4%, exceeding those observed with semaglutide at the highest studied doses [ 5, 13 ]. A greater proportion of participants receiving tirzepatide achieved HbA1c levels below 5.7% across baseline HbA1c categories [2] . Long -term extension studies have reported sustained glycemic control with tirzepatide comp...",
+    "full_ev_chars": 6104
+  },
+  {
+    "section": "?",
+    "sentence": "Gastrointestinal events were the most frequent, occurring in 43.0% of all participants (808 of 1,879) [#ev:ev_000:7900-8400].",
+    "failure_reasons": [
+      "entailment_failed:ev_000:verdict=NEUTRAL:reason=The SPAN provides the percentage (43.0%) and count (808) for gastrointestinal ev"
+    ],
+    "ev_id": "ev_000",
+    "span_bytes": "7900-8400",
+    "span_text": "— | 31 (6.6) | — | 137 (7.3) | — | | Decreased appetite | 35 (7.4) | — | 34 (7.2) | — | 42 (8.9) | — | 25 (5.3) | — | 136 (7.2) | — | | Constipation | 32 (6.8) | — | 21 (4.5) | — | 21 (4.5) | — | 27 (5.8) | — | 101 (5.4) | — | | Abdominal pain | 14 (3.0) | — | 21 (4.5) | — | 24 (5.1) | — | 24 (5.1) | — | 83 (4.4) | — | | All gastrointestinal adverse events | 188 (40.0) | — | 216 (46.1) | — | 211 (...",
+    "full_ev_chars": 10286
+  },
+  {
+    "section": "?",
+    "sentence": "Serious adverse events affected 5.2% of patients, and adverse events leading to discontinuation of study drug occurred in 6.8%, with nausea, vomiting, and diarrhea being the most common individual reasons for discontinuation [#ev:ev_000:6000-6500].",
+    "failure_reasons": [
+      "entailment_failed:ev_000:verdict=NEUTRAL:reason=The span provides the percentages for adverse events and discontinuations but do"
+    ],
+    "ev_id": "ev_000",
+    "span_bytes": "6000-6500",
+    "span_text": " ≥1 serious adverse event | 33 (7.0) | — | 25 (5.3) | — | 27 (5.7) | — | 13 (2.8) | — | 98 (5.2) | — | | Death† | 4 (0.9) | — | 4 (0.9) | — | 4 (0.9) | — | 1 (0.2) | — | 13 (0.7) | — | | Adverse events leading to discontinuation of tirzepatide or semaglutide | 28 (6.0) | — | 40 (8.5) | — | 40 (8.5) | — | 19 (4.1) | — | 127 (6.8) | — | | Adverse events occurring in ≥0.2% of the overall population (...",
+    "full_ev_chars": 10286
+  },
+  {
+    "section": "?",
+    "sentence": "The incidence of hypoglycemia (blood glucose <54 mg/dL) was low across groups, ranging from 0.2% (tirzepatide 15 mg) to 0.6% (tirzepatide 5 mg) in the tirzepatide arms and 0.4% with semaglutide [#ev:ev_000:6300-6800].",
+    "failure_reasons": [
+      "entailment_failed:ev_000:verdict=NEUTRAL:reason=The span lists adverse events leading to discontinuation (nausea, vomiting, diar"
+    ],
+    "ev_id": "ev_000",
+    "span_bytes": "6300-6800",
+    "span_text": "| — | 19 (4.1) | — | 127 (6.8) | — | | Adverse events occurring in ≥0.2% of the overall population (i.e., 3 patients) and leading to discontinuation of tirzepatide or semaglutide | |||||||||| | Nausea | 6 (1.3) | — | 7 (1.5) | — | 4 (0.9) | — | 4 (0.9) | — | 21 (1.1) | — | | Vomiting | 1 (0.2) | — | 4 (0.9) | — | 4 (0.9) | — | 3 (0.6) | — | 12 (0.6) | — | | Diarrhea | 1 (0.2) | — | 3 (0.6) | — | 6...",
+    "full_ev_chars": 10286
+  }
+]

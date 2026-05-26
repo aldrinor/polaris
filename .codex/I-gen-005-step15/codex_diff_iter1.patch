@@ -1,0 +1,293 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 2f0d491d..15fd240e 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -2700,13 +2700,16 @@ async def run_one_query(
+             encoding="utf-8",
+         )
+ 
+-        # BUG-M-2 diagnostic: re-run strict_verify on the preserved
+-        # rewritten_draft per section to capture the dropped-sentence
+-        # detail (sentence, failure_reasons, soft_warnings). The raw
+-        # StrictVerificationReport's `dropped_sentences` list isn't on
+-        # SectionResult, but strict_verify is pure computation so we
+-        # can reconstruct it here without an LLM call.
+-        ev_pool = {ev["evidence_id"]: ev for ev in evidence_for_gen}
++        # I-gen-005 Step 1.5 (Codex smoke-review P1 finding): serialize
++        # the FINAL per-sentence accounting from SectionResult, not a
++        # bare re-run of strict_verify on sr.rewritten_draft. The prior
++        # re-run produced a STALE diagnostic log: sentences listed as
++        # "dropped" here were still appearing in report.md because
++        # downstream dedup/repair passes had accepted them, but the
++        # diagnostic re-run never saw the dedup state. Per Codex
++        # smoke-review verdict 2026-05-26 — "do not reconstruct final
++        # verification details by re-running bare strict_verify on
++        # rewritten drafts."
+         verif_details = {
+             "sections": [],
+             "totals": {
+@@ -2715,15 +2718,17 @@ async def run_one_query(
+             },
+         }
+         for sr in multi.sections:
+-            if not sr.rewritten_draft:
++            if not sr.rewritten_draft and not sr.kept_sentences_pre_resolve:
+                 continue
+-            rpt = strict_verify(sr.rewritten_draft, ev_pool)
++            kept_svs = sr.kept_sentences_pre_resolve or []
++            dropped_svs = sr.dropped_sentences_final or []
++            dedup_redundants = sr.dropped_sentences_dedup_redundant or []
+             verif_details["sections"].append({
+                 "title": sr.title,
+                 "dropped_due_to_failure": sr.dropped_due_to_failure,
+-                "total_in": rpt.total_in,
+-                "total_kept": rpt.total_kept,
+-                "total_dropped": rpt.total_dropped,
++                "total_in": len(kept_svs) + len(dropped_svs) + len(dedup_redundants),
++                "total_kept": len(kept_svs),
++                "total_dropped": len(dropped_svs) + len(dedup_redundants),
+                 "kept": [
+                     {
+                         "sentence": sv.sentence,
+@@ -2732,9 +2737,9 @@ async def run_one_query(
+                              "start": t.start, "end": t.end}
+                             for t in sv.tokens
+                         ],
+-                        "soft_warnings": sv.soft_warnings,
++                        "soft_warnings": getattr(sv, "soft_warnings", []),
+                     }
+-                    for sv in rpt.kept_sentences
++                    for sv in kept_svs
+                 ],
+                 "dropped": [
+                     {
+@@ -2746,10 +2751,16 @@ async def run_one_query(
+                             for t in sv.tokens
+                         ],
+                     }
+-                    for sv in rpt.dropped_sentences
++                    for sv in dropped_svs
+                 ],
++                # I-gen-005 Step 1.5: dedup redundants are a SEPARATE
++                # category. They are not strict_verify failures — they
++                # are LLM-consolidated near-duplicates removed for prose
++                # quality. Track separately so the operator can see WHY
++                # each missing sentence is missing.
++                "dropped_by_dedup_redundant": list(dedup_redundants),
+             })
+-        # Per-reason tally across all sections.
++        # Per-reason tally across all sections (strict_verify failures only).
+         reason_counts: dict[str, int] = {}
+         for s in verif_details["sections"]:
+             for d in s["dropped"]:
+@@ -2757,6 +2768,11 @@ async def run_one_query(
+                     key = r.split(":", 1)[0]  # collapse parameterized detail
+                     reason_counts[key] = reason_counts.get(key, 0) + 1
+         verif_details["drop_reason_counts"] = reason_counts
++        # I-gen-005 Step 1.5: also tally dedup-redundant drops separately.
++        verif_details["dedup_redundant_count"] = sum(
++            len(s.get("dropped_by_dedup_redundant", []))
++            for s in verif_details["sections"]
++        )
+         (run_dir / "verification_details.json").write_text(
+             json.dumps(verif_details, indent=2, sort_keys=True, default=str) + "\n",
+             encoding="utf-8",
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 83c00a71..40beb338 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -100,6 +100,19 @@ class SectionResult:
+     # which dereferences `.sentence` + `.tokens`. Per Codex iter-2 P1
+     # (the AttributeError fix).
+     kept_sentences_pre_resolve: list[Any] = field(default_factory=list)
++    # I-gen-005 Step 1.5 (Codex smoke-review P1 finding): per-section
++    # FINAL dropped sentences with full SentenceVerification objects
++    # (.sentence, .tokens, .failure_reasons). Tracked through both the
++    # initial strict_verify pass AND the post-dedup re-verify pass so
++    # `verification_details.json` reflects the FINAL emitted-report state
++    # rather than a stale diagnostic re-run on rewritten_draft. Per Codex
++    # smoke-review verdict 2026-05-26 — "verification_details.json is not
++    # a faithful final per-sentence report log."
++    dropped_sentences_final: list[Any] = field(default_factory=list)
++    # I-gen-005 Step 1.5: sentences dropped by fact_dedup as redundant
++    # (NOT strict-verify failures — these are LLM-consolidated). String
++    # only because the dedup pass produces strings, not SV objects.
++    dropped_sentences_dedup_redundant: list[str] = field(default_factory=list)
+ 
+ 
+ @dataclass
+@@ -842,6 +855,38 @@ async def _call_section(
+         title=section.title, focus=section.focus,
+     )
+ 
++    # I-gen-005 Pattern A (#904): for reasoning-first models (V4 Pro),
++    # append a per-evidence allow-list of NUMBERS, TRIAL NAMES, DRUG
++    # NAMES extracted from the actual evidence text. This addresses
++    # the residual `number_not_in_any_cited_span: 12` failure mode
++    # that the cold-temp + HARD-CONTRACT fix didn't touch — V4 Pro
++    # fabricates plausible-sounding clinical values; the allow-list
++    # makes the closed-world set explicit at prompt time. The block
++    # is gated to reasoning-first models because (a) non-reasoning-
++    # first models don't have this fab problem and (b) the block adds
++    # ~1-2K prompt tokens per call. Per
++    # docs/v4_pro_constrained_value_research_2026_05_25.md research.
++    from src.polaris_graph.llm.openrouter_client import (
++        _REASONING_FIRST_MODELS,
++    )
++    if model in _REASONING_FIRST_MODELS:
++        try:
++            from src.polaris_graph.generator.evidence_value_extractor import (
++                build_allow_lists, format_allow_list_for_prompt,
++            )
++            _allow_lists = build_allow_lists(evidence_subset)
++            if _allow_lists:
++                system = system + "\n\n" + format_allow_list_for_prompt(_allow_lists)
++        except Exception as _allow_exc:
++            # Fail-soft: if extraction errors, fall through to the
++            # generator without the constraint block (caller already
++            # has HARD CONTRACT + cold-temp lever). Log loudly.
++            logger.warning(
++                "[multi_section] I-gen-005 allow-list build failed for "
++                "section %r: %s — proceeding without allow-list",
++                section.title, _allow_exc,
++            )
++
+     # V32 M-71: inject section-local contradiction-hedging hints.
+     if contradictions:
+         from .contradiction_hedging import (
+@@ -877,14 +922,63 @@ async def _call_section(
+             )
+             system += synthesis_block
+ 
++    # I-gen-005 (#904): re-add the HARD OUTPUT CONTRACT for reasoning-first
++    # models, this time PAIRED with the other levers the original cb7feaa3
++    # strip lacked (Smoke #3 had the contract at default temperature; that
++    # combination failed). Combined retry fix:
++    #
++    #   1. HARD OUTPUT CONTRACT prompt (explicit anti-CoT prohibition;
++    #      stronger than the original — adds few-shot example of the
++    #      [#ev:ev_XXX:Y-Z] token format because V4 Pro's training
++    #      distribution may not include this POLARIS-specific shape).
++    #   2. Temperature = 0.1 on retry (deterministic; default is 0.3).
++    #      Smoke #3 used 0.3 — never tested cold temp.
++    #   3. `reasoning_enabled=False` is already set by generate() but for
++    #      _REASONING_FIRST_MODELS the model thinks anyway; the prompt +
++    #      cold-temp combination is the lever, not the API toggle.
++    #
++    # Non-reasoning-first models unchanged: keep the lightweight REGEN NOTE.
+     if tighter_retry:
+-        system += (
+-            "\n\nREGEN NOTE: the previous draft had multiple sentences "
+-            "without verifiable provenance. Every sentence MUST cite a "
+-            "specific [ev_XXX] and the claimed numbers must appear in "
+-            "that evidence's direct_quote. When in doubt, cite multiple "
+-            "sources or drop the claim."
++        from src.polaris_graph.llm.openrouter_client import (
++            _REASONING_FIRST_MODELS,
+         )
++        if model in _REASONING_FIRST_MODELS:
++            system += (
++                "\n\nHARD OUTPUT CONTRACT (reasoning-first model, RETRY):\n"
++                "Your previous draft was rejected because it contained "
++                "planning text, deliberation, or thinking-out-loud instead "
++                "of the final cited paragraph.\n"
++                "FORBIDDEN OPENERS (do not start any sentence with any of "
++                "these): 'Let me', 'First, I', 'Looking at', 'I need to', "
++                "'The evidence shows', 'Let us', 'We can', 'Sentence 1:', "
++                "'Sentence 2:', 'Step 1:', 'Step 2:'.\n"
++                "FORBIDDEN STRUCTURE: numbered lists of sentences, "
++                "meta-commentary about how you will write, restating the "
++                "task. Output ONLY the finished paragraph body.\n"
++                "EVERY sentence (no exception) ends with at least one "
++                "[ev_XXX] marker that exists in the evidence blocks above. "
++                "If a sentence cannot carry a real [ev_XXX] marker, do not "
++                "write that sentence.\n"
++                "Start your response with the first word of the paragraph. "
++                "End it with the last [ev_XXX] marker. Nothing before, "
++                "nothing after.\n"
++                "EXAMPLE of the required format (1 short paragraph, 2 sentences):\n"
++                "\"Tirzepatide 15 mg reduced HbA1c by an additional 0.45 "
++                "percentage points versus semaglutide 1 mg [ev_001]. The "
++                "treatment difference of 0.45 percentage points was "
++                "statistically significant (95% CI -0.57 to -0.32, P<0.001) "
++                "[ev_001].\"\n"
++                "Note how every sentence ends with [ev_XXX]. Do this for "
++                "your paragraph."
++            )
++        else:
++            system += (
++                "\n\nREGEN NOTE: the previous draft had multiple sentences "
++                "without verifiable provenance. Every sentence MUST cite a "
++                "specific [ev_XXX] and the claimed numbers must appear in "
++                "that evidence's direct_quote. When in doubt, cite multiple "
++                "sources or drop the claim."
++            )
+ 
+     prompt = (
+         f"Research question context: (see overall corpus)\n\n"
+@@ -903,11 +997,23 @@ async def _call_section(
+             attempt_n=2 if tighter_retry else 1,
+             regen_reason="tighter_retry" if tighter_retry else None,
+         )
++        # I-gen-005 (#904) part of combined fix: cold temperature on retry
++        # for reasoning-first models. The original I-gen-003 HARD CONTRACT
++        # was stripped in cb7feaa3 because Smoke #3 ran it at default
++        # temperature (0.3) and got zero verified-sentence lift in 12
++        # retries. Cold temp (0.1) was never tried in that test.
++        _retry_temp = temperature
++        if tighter_retry:
++            from src.polaris_graph.llm.openrouter_client import (
++                _REASONING_FIRST_MODELS,
++            )
++            if model in _REASONING_FIRST_MODELS:
++                _retry_temp = 0.1
+         response = await client.generate(
+             prompt=prompt,
+             system=system,
+             max_tokens=max_tokens,
+-            temperature=temperature,
++            temperature=_retry_temp,
+         )
+     except ReasoningFirstTruncationError as exc:
+         # I-gen-003: a reasoning-first model (DeepSeek V4 Pro) ran out
+@@ -1360,6 +1466,11 @@ async def _run_section(
+         # extracts .sentence for grouping; resolve_provenance_to_citations
+         # consumes the full SV objects. Per Codex iter-2 P1 review.
+         kept_sentences_pre_resolve=list(report.kept_sentences),
++        # I-gen-005 Step 1.5: persist the FINAL dropped SVs from
++        # strict_verify so run_honest_sweep_r3 can serialize them
++        # without re-running strict_verify on the rewritten_draft
++        # (which produces a stale-vs-final mismatch per Codex P1).
++        dropped_sentences_final=list(report.dropped_sentences),
+     )
+ 
+ 
+@@ -3748,6 +3859,13 @@ async def generate_multi_section_report(
+                     rewrites_re_verified_drop += (
+                         len(rewrite_candidates) - len(accepted_rewrite_svs)
+                     )
++                    # I-gen-005 Step 1.5: extend dropped_sentences_final
++                    # with rewrite candidates that FAILED re-verification
++                    # (these are real strict_verify failures, not just
++                    # consolidation removals).
++                    sr.dropped_sentences_final.extend(
++                        rewrite_report.dropped_sentences,
++                    )
+                 # Build final SV list in the ORDER given by new_sentence_strs:
+                 #   - if string matches an original, use its SV
+                 #   - if it matches an accepted rewrite SV, use that SV
+@@ -3769,6 +3887,14 @@ async def generate_multi_section_report(
+                 dropped_count = len(original_strs) - len(final_svs)
+                 if dropped_count > 0:
+                     sr.sentences_dropped += dropped_count
++                    # I-gen-005 Step 1.5: track the actual redundant
++                    # sentence strings dropped by fact_dedup (distinct
++                    # from strict_verify failures — these are LLM
++                    # consolidations, not fabrication catches).
++                    final_str_set = {sv.sentence for sv in final_svs}
++                    sr.dropped_sentences_dedup_redundant.extend(
++                        s for s in original_strs if s not in final_str_set
++                    )
+                 sr.kept_sentences_pre_resolve = list(final_svs)
+                 sr.sentences_verified = len(final_svs)
+                 if not final_svs:
