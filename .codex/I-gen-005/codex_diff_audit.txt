@@ -1,7 +1,6 @@
-# PR #909 — empty-catalog skip in validator hook
-# Codex iter-1: APPROVE
-#   skip_on_empty_catalog_correct: YES
-#   telemetry_distinction_correct: YES
-#   novel_p0/p1: [], p2: []
+# PR #910 — operator log_only smoke
+# Codex iter-2: APPROVE
+#   flag_alignment_correct: YES
+#   approval_to_merge: YES
 
 verdict: APPROVE
