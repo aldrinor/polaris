@@ -1,8 +1,10 @@
 """I-gen-005 atom-first architecture: extract STRUCTURED claim atoms
 from evidence direct_quotes.
 
-Per Codex strategy verdict 2026-05-26 (`codex_quality_strategy_verdict.txt`)
-recommended_path #2 + design verdict APPROVE_DESIGN 2026-05-26.
+Per Codex strategy verdict 2026-05-26
+(`codex_quality_strategy_verdict.txt`) recommended_path #2 + design
+verdict APPROVE_DESIGN + diff iter-1 REQUEST_CHANGES (4 P1s closed
+this iteration).
 
 Why this module exists:
     The current architecture lets V4 Pro write open prose, then catches
@@ -12,23 +14,38 @@ Why this module exists:
     cite atom_ids that map to fixed spans. V4 Pro becomes the
     rhetorical/synthesis layer, not the fact source.
 
-This is the long-run architecture in microcosm. The existing
-`evidence_value_extractor.py` extracts flat number/trial/drug tokens
-per evidence row; this module emits richer ClaimAtom records with
-endpoint/comparator/timepoint metadata, exact span offsets, and
-section relevance tags.
+Iter 2 (Codex iter-1 REQUEST_CHANGES) closes 4 P1 bugs:
+    P1.1 unit_extraction_corrupts_units (line 209)
+        Fix: special-case `%` without word boundary; word units need
+        leading boundary; restrict fallback unit-scan to immediate
+        post-value or comma-coordinate context only.
 
-Per Codex APPROVE_DESIGN:
-    - Pure-Python regex (Option D: regex now, LLM later)
-    - 13 fields per atom (9 from Codex's recommended_path + 4 additions
-      I proposed: value_signed, confidence, provenance_class,
-      source_paper_title)
-    - Numerical atom_id format ("atom_001", ...)
-    - Section-relevance filter for prompt injection
-    - Narrative sentences allowed WITH_LIMITS (non-claim transitions
-      only; factual claims MUST cite an atom)
+    P1.2 numeric_anchor_filter_emits_non_claim_values (line 438)
+        Fix: NumberRole classifier (OUTCOME / DOSE / TIMEPOINT /
+        SAMPLE_SIZE / CI_BOUND / CI_LEVEL) runs BEFORE atom creation.
+        Only OUTCOME numbers become atoms. Doses, timepoints, sample
+        sizes are stored as metadata fields on the OUTCOME atom they
+        modify, not as separate atoms.
 
-This module is INTENTIONALLY pure-Python regex — no LLM call. Fast,
+    P1.3 entity_comparator_binding_flips_arms (line 362)
+        Fix: arm-local entity binding. For each value, find the
+        nearest arm phrase ("with X", "X mg", "X group") within
+        ~50 chars to the right (where clinical text typically places
+        the arm label). Comparator from explicit "versus X" /
+        "compared to Y" syntax separately.
+
+    P1.4 literal_span_expansion_splits_decimals (line 483)
+        Fix: decimal-aware sentence boundary regex. A period followed
+        by a digit is part of a decimal (8.21), not a sentence end.
+        Use ``\\.(?=\\s|$|\\n|[A-Z])`` boundary.
+
+Also addresses Codex iter-1 P2s:
+    - primary_section field added; section_tags computed dynamically
+      from extracted comparator + dose + safety presence
+    - Endpoint vocabulary extended with renal, CV/HF, obesity,
+      metabolic, safety subgroup, and statistical-metadata terms
+
+Module remains INTENTIONALLY pure-Python regex — no LLM call. Fast,
 deterministic, reproducible. Atoms come from actual evidence text;
 nothing fabricated here.
 """
@@ -37,6 +54,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Optional
 
 
@@ -49,26 +67,28 @@ class ClaimAtom:
     """A single verifiable claim extracted from an evidence span.
 
     Frozen because atom_id resolution depends on stable identity through
-    the pipeline.
+    the pipeline. 14 fields (13 from Codex APPROVE_DESIGN + primary_section
+    added per Codex iter-1 diff review P2).
     """
 
-    # Identity + provenance (from Codex's recommended_path #2):
+    # Identity + provenance:
     atom_id: str            # "atom_001"
     evidence_id: str        # "ev_017"
     span_start: int         # offset in direct_quote where the atom is grounded
     span_end: int           # offset in direct_quote (exclusive)
     literal_text: str       # verbatim text from the span supporting this claim
 
-    # Semantic fields (Codex's recommended_path #2):
-    entity: str             # "tirzepatide" / "SURPASS-2" / "apixaban"
+    # Semantic fields:
+    entity: str             # "tirzepatide 15 mg" / "SURPASS-2" / "apixaban"
     endpoint: str           # "HbA1c" / "body weight" / "stroke"
-    comparator: str         # "placebo" / "semaglutide" / "" if none
-    timepoint: str          # "week 40" / "72 weeks" / "" if none
-    value: str              # "-2.30" / "82-86" / "1.93"
-    unit: str               # "percentage points" / "kg" / "%" / ""
+    comparator: str         # "semaglutide" / "placebo" / "" if none
+    timepoint: str          # "40 weeks" / "1.8 years" / "" if none
+    value: str              # "-2.30" / "0.69" / "82-86"
+    unit: str               # "percentage points" / "kg" / "%" / "RR" / ""
 
-    # Routing (Codex's recommended_path #2):
-    section_tags: tuple[str, ...]  # ("Efficacy", "Comparative")
+    # Routing:
+    primary_section: str            # Single best-fit section
+    section_tags: tuple[str, ...]   # All sections this atom can serve
     tier: str                       # "T1" / "T2" / ...
 
     # Codex APPROVE_DESIGN additions:
@@ -79,160 +99,241 @@ class ClaimAtom:
 
 
 # ---------------------------------------------------------------------------
-# Clinical vocabulary maps
+# NumberRole — what role does a numeric anchor play in clinical text?
+# Codex iter-1 P1 #2 fix: classify each number BEFORE atom creation so
+# timepoints / doses / sample-sizes / CI bounds don't pollute the catalog.
 # ---------------------------------------------------------------------------
 
-# Each endpoint maps to (a) its regex pattern (with optional aliases),
-# (b) the canonical name to emit in the atom, (c) the section tags
-# that endpoint belongs to. Section tags are LIST because some endpoints
-# belong to multiple sections (HbA1c reduction is Efficacy AND
-# Comparative when a comparator is present).
+class NumberRole(Enum):
+    OUTCOME = "outcome"          # Primary or secondary clinical endpoint value
+    DOSE = "dose"                # Drug dose (5 mg, 0.5 μg)
+    TIMEPOINT = "timepoint"      # Follow-up duration (40 weeks, 1.8 years)
+    SAMPLE_SIZE = "sample_size"  # Number of participants (N=1879)
+    CI_BOUND = "ci_bound"        # Confidence interval limits (0.58 to 0.95)
+    CI_LEVEL = "ci_level"        # CI confidence level (95% CI)
+    P_VALUE = "p_value"          # P-value (P<0.001)
+    UNKNOWN = "unknown"          # Couldn't classify
+
+
+# Classifiers — small per-role regex patterns evaluated against the
+# IMMEDIATE neighborhood of the number (±20 chars). Order matters: first
+# match wins. OUTCOME is the implicit default if no classifier hits.
+
+# Dose: number immediately followed by mg/μg/U/etc with a drug name nearby
+_DOSE_UNIT_RE = re.compile(
+    r"^\s?(mg|μg|mcg|g|IU|U)\b",
+    re.IGNORECASE,
+)
+
+# Timepoint: surrounded by "at/after/by/over" + "weeks/months/years/..."
+_TIMEPOINT_BEFORE_RE = re.compile(
+    r"\b(?:at|after|by|over|in|through|for|of)\s+\d+(?:\.\d+)?\s*"
+    r"(?:weeks?|months?|years?|days?|hours?|min(?:utes?)?)\b$",
+    re.IGNORECASE,
+)
+_TIMEPOINT_TRAILING_RE = re.compile(
+    r"^\s?(?:weeks?|months?|years?|days?|hours?|min(?:utes?)?)\b",
+    re.IGNORECASE,
+)
+
+# Sample size: number preceded by N=, n=, "enrolled", "randomized",
+# "patients with", "participants with", "trial of", etc.
+_SAMPLE_SIZE_LEFT_RE = re.compile(
+    r"(?:\b(?:[Nn]\s*=\s*|enrolled|randomi[sz]ed|"
+    r"included|recruited|trial\s+of|patients\s+with|"
+    r"participants\s+with|adults\s+with|subjects\s+with|"
+    r"a\s+total\s+of|cohort\s+of|study\s+of|population\s+of)\s*)$",
+    re.IGNORECASE,
+)
+# Sample size: number followed by "patients", "participants", "adults",
+# "subjects" (e.g., "1879 adults", "18,201 patients").
+_SAMPLE_SIZE_RIGHT_RE = re.compile(
+    r"^\s*"
+    r"(?:patients?|participants?|adults?|subjects?|"
+    r"individuals|persons|men|women)\b",
+    re.IGNORECASE,
+)
+
+# CI bound: number is inside parens with "CI" or "to" pattern nearby.
+# Codex flagged that "(95% CI, 0.58 to 0.95)" was emitting 0.58 and 0.95
+# as MACE values. They're CI bounds, not outcome values.
 #
-# Pattern uses non-capturing groups so finditer.group(0) returns the
-# matched canonical text.
-_ENDPOINT_VOCAB: list[tuple[re.Pattern, str, tuple[str, ...]]] = [
-    # Glycemic
+# Iter-2 fix: TWO left-side patterns needed:
+#   (a) "CI, " or "CI (" immediately before this value (catches the
+#       FIRST bound: 0.58 in "...CI, 0.58 to 0.95")
+#   (b) digit + "to" / "–" + space before this value (catches the
+#       SECOND bound: 0.95 in "0.58 to 0.95")
+_CI_FIRST_BOUND_RE = re.compile(
+    r"\bCI\s*[,;]?\s*[\(\[]?\s*[-−]?$",
+    re.IGNORECASE,
+)
+_CI_SECOND_BOUND_RE = re.compile(
+    r"[-−]?\d+(?:\.\d+)?\s*(?:to|[-–—])\s*[-−]?$",
+)
+_CI_PAREN_LEFT_RE = re.compile(r"[\(\[][-−]?\d+(?:\.\d+)?\s*(?:to|[-–—])\s*$")
+_CI_RIGHT_RE = re.compile(r"^\s*(?:to|[-–—])\s*[-−]?\d+(?:\.\d+)?", re.IGNORECASE)
+
+# CI level: number directly followed by "% CI" or "% confidence interval"
+_CI_LEVEL_RIGHT_RE = re.compile(
+    r"^\s?%?\s*(?:CI|confidence\s+interval)\b",
+    re.IGNORECASE,
+)
+
+# P-value: "P<", "P=", "P>", "p value", "P-value"
+_P_VALUE_LEFT_RE = re.compile(
+    r"\b[Pp]\s*[<>=]\s*$|\b[Pp][-\s]?(?:value)?\s*=?\s*$",
+)
+
+
+# ---------------------------------------------------------------------------
+# Endpoint vocabulary (expanded per Codex iter-1 P1 review)
+# Each tuple = (regex_pattern, canonical_name, primary_section, secondary_tags)
+# ---------------------------------------------------------------------------
+
+_ENDPOINT_VOCAB: list[tuple[re.Pattern, str, str, tuple[str, ...]]] = [
+    # ── Glycemic ──
     (re.compile(r"\b(?:HbA1c|HbA1C|glycated\s+hemoglobin|A1C)\b", re.IGNORECASE),
-     "HbA1c", ("Efficacy", "Comparative", "Dose Response")),
+     "HbA1c", "Efficacy", ("Efficacy",)),
     (re.compile(r"\b(?:FPG|fasting\s+plasma\s+glucose|fasting\s+serum\s+glucose|FSG)\b", re.IGNORECASE),
-     "fasting glucose", ("Efficacy", "Comparative")),
+     "fasting glucose", "Efficacy", ("Efficacy",)),
     (re.compile(r"\bnormoglycemi[ac]\b|\bHbA1c\s*<\s*5\.7", re.IGNORECASE),
-     "normoglycemia (HbA1c<5.7%)", ("Efficacy", "Comparative")),
+     "normoglycemia (HbA1c<5.7%)", "Efficacy", ("Efficacy",)),
 
-    # Weight
-    (re.compile(r"\b(?:body\s+weight|weight\s+loss|weight\s+reduction|BMI|kg\s+loss)\b", re.IGNORECASE),
-     "body weight", ("Efficacy", "Comparative", "Dose Response")),
+    # ── Weight / obesity / metabolic (Codex iter-1 vocab additions) ──
+    (re.compile(r"\b(?:body\s+weight|weight\s+loss|weight\s+reduction|kg\s+loss)\b", re.IGNORECASE),
+     "body weight", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\bBMI\b", re.IGNORECASE),
+     "BMI", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\bwaist\s+circumference\b", re.IGNORECASE),
+     "waist circumference", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\b(?:percent|%)\s+(?:body[-\s])?weight\s+(?:change|reduction|loss)", re.IGNORECASE),
+     "% body weight change", "Efficacy", ("Efficacy",)),
+    (re.compile(r"(?:≥|>=|\bat\s+least\s+)\s?(?:5|10|15|20)\s?%\s*(?:weight\s+loss|body[-\s]?weight)", re.IGNORECASE),
+     "weight-loss threshold (≥5/10/15/20%)", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\b(?:insulin\s+sensitivity|HOMA[-\s]?IR)\b", re.IGNORECASE),
+     "insulin sensitivity", "Mechanism", ("Mechanism", "Efficacy")),
+    (re.compile(r"\bC[-\s]?peptide\b", re.IGNORECASE),
+     "C-peptide", "Mechanism", ("Mechanism",)),
+    (re.compile(r"\bbeta[-\s]?cell\s+function\b", re.IGNORECASE),
+     "beta-cell function", "Mechanism", ("Mechanism",)),
 
-    # Cardiovascular
+    # ── Cardiovascular / heart failure (Codex iter-1 vocab additions) ──
     (re.compile(r"\bMACE\b|major\s+adverse\s+cardiovascular\s+events?", re.IGNORECASE),
-     "MACE", ("Efficacy", "Safety", "Comparative")),
-    (re.compile(r"\b(?:cardiovascular|CV)\s+death", re.IGNORECASE),
-     "cardiovascular death", ("Efficacy", "Safety")),
-    (re.compile(r"\bstroke\b|\bischemic\s+stroke\b", re.IGNORECASE),
-     "stroke", ("Efficacy", "Safety", "Comparative")),
-    (re.compile(r"\bmyocardial\s+infarction|\bMI\b", re.IGNORECASE),
-     "myocardial infarction", ("Efficacy", "Safety")),
+     "MACE", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:cardiovascular|CV)\s+(?:death|mortality)", re.IGNORECASE),
+     "cardiovascular mortality", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\ball[-\s]?cause\s+(?:death|mortality)", re.IGNORECASE),
+     "all-cause mortality", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:hospitalization\s+for\s+heart\s+failure|HF\s+hospitalization|HHF)\b", re.IGNORECASE),
+     "heart failure hospitalization", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:ischemic\s+)?stroke\b(?!\s+prevention)", re.IGNORECASE),
+     "stroke", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\bmyocardial\s+infarction|\bMI\b(?!\s+\d)", re.IGNORECASE),
+     "myocardial infarction", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\brevascularization\b", re.IGNORECASE),
+     "revascularization", "Efficacy", ("Efficacy",)),
 
-    # Blood pressure
+    # ── Blood pressure ──
     (re.compile(r"\bsystolic\s+blood\s+pressure|\bsystolic\s+BP\b|\bSBP\b", re.IGNORECASE),
-     "systolic BP", ("Efficacy", "Comparative")),
+     "systolic BP", "Efficacy", ("Efficacy",)),
     (re.compile(r"\bdiastolic\s+blood\s+pressure|\bdiastolic\s+BP\b|\bDBP\b", re.IGNORECASE),
-     "diastolic BP", ("Efficacy", "Comparative")),
-    (re.compile(r"\bblood\s+pressure\b(?!\s*(?:profile))", re.IGNORECASE),
-     "blood pressure", ("Efficacy", "Comparative")),
+     "diastolic BP", "Efficacy", ("Efficacy",)),
 
-    # Lipids
+    # ── Lipids ──
     (re.compile(r"\b(?:LDL[-\s]?C|low[-\s]density\s+lipoprotein)", re.IGNORECASE),
-     "LDL-C", ("Efficacy", "Comparative")),
+     "LDL-C", "Efficacy", ("Efficacy",)),
     (re.compile(r"\btriglycerides?\b", re.IGNORECASE),
-     "triglycerides", ("Efficacy", "Comparative")),
+     "triglycerides", "Efficacy", ("Efficacy",)),
     (re.compile(r"\b(?:HDL[-\s]?C|high[-\s]density\s+lipoprotein)", re.IGNORECASE),
-     "HDL-C", ("Efficacy", "Comparative")),
+     "HDL-C", "Efficacy", ("Efficacy",)),
 
-    # Safety
-    (re.compile(r"\b(?:adverse\s+events?|AE)\b", re.IGNORECASE),
-     "adverse events", ("Safety",)),
+    # ── Renal (Codex iter-1 vocab additions) ──
+    (re.compile(r"\beGFR\b|\bestimated\s+GFR\b|\bglomerular\s+filtration\s+rate\b", re.IGNORECASE),
+     "eGFR", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:UACR|urine\s+albumin[-\s]?creatinine|albuminuria)\b", re.IGNORECASE),
+     "UACR/albuminuria", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\bserum\s+creatinine\b|\bcreatinine\b", re.IGNORECASE),
+     "serum creatinine", "Safety", ("Safety",)),
+    (re.compile(r"\bkidney\s+composite\b|\brenal\s+composite\b", re.IGNORECASE),
+     "kidney composite", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\bCKD\s+progression\b|\bchronic\s+kidney\s+disease\b", re.IGNORECASE),
+     "CKD progression", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:AKI|acute\s+kidney\s+injury)\b", re.IGNORECASE),
+     "acute kidney injury", "Safety", ("Safety",)),
+
+    # ── Safety: AEs ──
     (re.compile(r"\bserious\s+adverse\s+events?|\bSAE\b", re.IGNORECASE),
-     "serious adverse events", ("Safety",)),
-    (re.compile(r"\b(?:discontinuation|discontinued)\b", re.IGNORECASE),
-     "discontinuation", ("Safety", "Dose Response")),
-    (re.compile(r"\bnausea\b", re.IGNORECASE), "nausea", ("Safety",)),
-    (re.compile(r"\bvomiting\b", re.IGNORECASE), "vomiting", ("Safety",)),
-    (re.compile(r"\bdiarr?h[oe]a\b", re.IGNORECASE), "diarrhea", ("Safety",)),
-    (re.compile(r"\babdominal\s+pain\b", re.IGNORECASE), "abdominal pain", ("Safety",)),
-    (re.compile(r"\b(?:gastrointestinal|GI)\s+(?:adverse|events?)", re.IGNORECASE),
-     "GI events", ("Safety",)),
+     "serious adverse events", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:treatment[-\s]emergent\s+)?adverse\s+events?\b|\bTEAE\b", re.IGNORECASE),
+     "adverse events", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:discontinuation|discontinued|treatment\s+withdrawal)\b", re.IGNORECASE),
+     "discontinuation", "Safety", ("Safety",)),
+    (re.compile(r"\bnausea\b", re.IGNORECASE), "nausea", "Safety", ("Safety",)),
+    (re.compile(r"\bvomiting\b", re.IGNORECASE), "vomiting", "Safety", ("Safety",)),
+    (re.compile(r"\bdiarr?h[oe]a\b", re.IGNORECASE), "diarrhea", "Safety", ("Safety",)),
+    (re.compile(r"\babdominal\s+pain\b", re.IGNORECASE), "abdominal pain", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:gastrointestinal|GI)\s+(?:adverse|events?)\b", re.IGNORECASE),
+     "GI events", "Safety", ("Safety",)),
     (re.compile(r"\bhypoglycem(?:ia|ic)\b", re.IGNORECASE),
-     "hypoglycemia", ("Safety", "Comparative")),
+     "hypoglycemia", "Safety", ("Safety",)),
     (re.compile(r"\bpancreatitis\b", re.IGNORECASE),
-     "pancreatitis", ("Safety",)),
+     "pancreatitis", "Safety", ("Safety",)),
     (re.compile(r"\b(?:intracranial\s+hemorrhage|ICH)\b", re.IGNORECASE),
-     "intracranial hemorrhage", ("Safety", "Comparative")),
-    (re.compile(r"\bGI\s+bleeding|gastrointestinal\s+bleeding", re.IGNORECASE),
-     "GI bleeding", ("Safety", "Comparative")),
+     "intracranial hemorrhage", "Safety", ("Safety",)),
+    (re.compile(r"\bGI\s+bleeding\b|\bgastrointestinal\s+bleeding\b", re.IGNORECASE),
+     "GI bleeding", "Safety", ("Safety",)),
     (re.compile(r"\bmajor\s+bleeding\b", re.IGNORECASE),
-     "major bleeding", ("Safety", "Comparative")),
-    (re.compile(r"\bC[-\s]?cell\b|\bthyroid\s+(?:carcinoma|cancer)\b", re.IGNORECASE),
-     "thyroid C-cell signal", ("Safety",)),
+     "major bleeding", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:C[-\s]?cell\s+(?:hyperplasia|cancer)|thyroid\s+(?:carcinoma|cancer)|MTC)\b", re.IGNORECASE),
+     "thyroid C-cell signal", "Safety", ("Safety",)),
+    (re.compile(r"\bretinopathy\b", re.IGNORECASE),
+     "retinopathy", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:gallbladder\s+disease|cholelithiasis|cholecystitis)\b", re.IGNORECASE),
+     "gallbladder disease", "Safety", ("Safety",)),
 
-    # Treatment differences (Efficacy + Comparative)
+    # ── Treatment differences (efficacy + comparative) ──
     (re.compile(r"\bestimated\s+treatment\s+difference|\bETD\b", re.IGNORECASE),
-     "estimated treatment difference", ("Efficacy", "Comparative")),
+     "estimated treatment difference", "Comparative", ("Efficacy", "Comparative")),
     (re.compile(r"\btreatment\s+difference\b", re.IGNORECASE),
-     "treatment difference", ("Efficacy", "Comparative")),
+     "treatment difference", "Comparative", ("Efficacy", "Comparative")),
 
-    # Mechanism
+    # ── Mechanism ──
     (re.compile(r"\bhalf[-\s]?life\b", re.IGNORECASE),
-     "half-life", ("Mechanism",)),
+     "half-life", "Mechanism", ("Mechanism",)),
     (re.compile(r"\bbioavailability\b", re.IGNORECASE),
-     "bioavailability", ("Mechanism",)),
+     "bioavailability", "Mechanism", ("Mechanism",)),
     (re.compile(r"\b(?:Tmax|tmax|T_max)\b"),
-     "Tmax", ("Mechanism",)),
+     "Tmax", "Mechanism", ("Mechanism",)),
     (re.compile(r"\bM[-\s]?value\b", re.IGNORECASE),
-     "M-value", ("Mechanism",)),
+     "M-value", "Mechanism", ("Mechanism",)),
     (re.compile(r"\b(?:hyperinsulinemic[-\s]?euglycemic\s+clamp|HE\s+clamp)\b", re.IGNORECASE),
-     "HE clamp", ("Mechanism",)),
+     "HE clamp", "Mechanism", ("Mechanism",)),
     (re.compile(r"\b(?:receptor\s+(?:affinity|binding|selectivity))\b", re.IGNORECASE),
-     "receptor binding", ("Mechanism",)),
-    (re.compile(r"\b(?:GIP|GLP[-\s]?1)\s+receptor\b", re.IGNORECASE),
-     "incretin receptor activity", ("Mechanism",)),
-
-    # Trial design / population
-    (re.compile(r"\b(?:sample\s+size|N\s*=\s*\d+|n\s*=\s*\d+|enrolled\s+\d+)\b", re.IGNORECASE),
-     "sample size", ("Efficacy", "Safety", "Comparative", "Dose Response")),
-    (re.compile(r"\bbaseline\b(?!\s+(?:value|of))", re.IGNORECASE),
-     "baseline value", ("Efficacy", "Comparative")),
+     "receptor binding", "Mechanism", ("Mechanism",)),
 ]
 
-# Comparator vocabulary — extracted from "vs/versus/compared to X" patterns.
-_COMPARATOR_LEAD_RE = re.compile(
-    r"\b(?:vs\.?|versus|compared\s+(?:to|with)|relative\s+to|against)\s+"
-    r"([A-Za-z][A-Za-z\s\-]{1,40}?)"
-    r"(?=[,;.\s\(]|$|\d|in\s+|at\s+)",
-    re.IGNORECASE,
-)
 
-# Timepoint patterns: "at week N", "after N weeks", "by N months", etc.
-_TIMEPOINT_RE = re.compile(
-    r"\b(?:at|after|by|over|in|through)\s+"
-    r"(\d+(?:\.\d+)?)\s*"
-    r"(weeks?|months?|years?|days?)\b",
-    re.IGNORECASE,
-)
-# Alternate: "week 40", "month 6"
-_TIMEPOINT_NAMED_RE = re.compile(
-    r"\b(week|month|year|day)\s+(\d+)\b",
-    re.IGNORECASE,
-)
+# ---------------------------------------------------------------------------
+# Statistical metadata vocab (Codex iter-1 addition).
+# These mark the NUMBER as a metric type, not as a primary endpoint
+# value. When an HR/OR/RR is detected, it modifies the OUTCOME atom's
+# unit field rather than creating its own atom.
+# ---------------------------------------------------------------------------
 
-# Unit patterns (associated with a number)
-_UNIT_TOKEN_RE = re.compile(
-    r"(?P<unit>%|"
-    r"percentage\s+points?|pp|"
-    r"mg|kg|g|mL|L|μg|mcg|IU|U|"
-    r"mmol/L|mg/dL|"
-    r"weeks?|months?|years?|days?|hours?|min(?:utes?)?|"
-    r"kg/m\^?2|kg\.m-2|"
-    r"per\s+1000|per\s+100|"
-    r"BPM|bpm|mmHg)\b",
-    re.IGNORECASE,
-)
+_STAT_METADATA: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\b(?:hazard\s+ratio|HR)\b", re.IGNORECASE), "HR"),
+    (re.compile(r"\b(?:relative\s+risk|RR)\b", re.IGNORECASE), "RR"),
+    (re.compile(r"\b(?:risk\s+ratio)\b", re.IGNORECASE), "RR"),
+    (re.compile(r"\b(?:odds\s+ratio|OR)\b", re.IGNORECASE), "OR"),
+    (re.compile(r"\b(?:absolute\s+risk\s+reduction|ARR)\b", re.IGNORECASE), "ARR"),
+    (re.compile(r"\b(?:number\s+needed\s+to\s+treat|NNT)\b", re.IGNORECASE), "NNT"),
+]
 
-# Number pattern (matches values that can serve as atom anchors).
-# Allows decimals, ranges (`7.25-10.36`), and signed numbers. Avoids
-# matching inside identifier-like sequences.
-_NUMBER_ATOM_RE = re.compile(
-    r"(?<![A-Za-z0-9_.])"
-    r"(?P<value>"
-    r"[-−]?\d+(?:[.,]\d+)?"
-    r"(?:\s*[-–—]\s*[-−]?\d+(?:[.,]\d+)?)?"  # optional range form
-    r")"
-    r"(?![A-Za-z0-9_])"
-)
 
-# Entity vocabulary (drug names + trial names). Reuses
-# evidence_value_extractor patterns but kept local so this module is
-# self-contained.
+# ---------------------------------------------------------------------------
+# Drug + trial vocabularies (kept local for self-containment)
+# ---------------------------------------------------------------------------
+
 _DRUG_RE = re.compile(
     r"\b("
     r"tirzepatide|semaglutide|liraglutide|dulaglutide|exenatide|lixisenatide"
@@ -268,7 +369,7 @@ _TRIAL_RE = re.compile(
     r"|EXSCEL|ELIXA|HARMONY"
     r"|ACCORD|ADVANCE|VADT|UKPDS|DCCT|EDIC"
     r"|EMPEROR-?(?:Preserved|Reduced|Pooled)?"
-    r"|ARISTOTLE|RE[-\s]?LY|ROCKET[-\s]?AF|ENGAGE[-\s]?AF|"
+    r"|ARISTOTLE|RE[-\s]?LY|ROCKET[-\s]?AF|ENGAGE[-\s]?AF"
     r"|AVERROES|RELY-?ABLE"
     r"|TIDE|TARGET|SOUL"
     r"|VERTIS-?(?:CV)?"
@@ -278,122 +379,405 @@ _TRIAL_RE = re.compile(
 
 
 # ---------------------------------------------------------------------------
-# Extraction
+# Number anchor + unit regexes (iter 2 fixes for P1 #1)
 # ---------------------------------------------------------------------------
 
-# Context window (chars before+after the number) to scan for endpoint /
-# comparator / timepoint / unit when building one atom around a number.
-_CONTEXT_BEFORE = 120
-_CONTEXT_AFTER = 80
+# Number anchor — same as iter 1
+_NUMBER_ATOM_RE = re.compile(
+    r"(?<![A-Za-z0-9_.])"
+    r"(?P<value>"
+    r"[-−]?\d+(?:[.,]\d+)?"
+    r"(?:\s*[-–—]\s*[-−]?\d+(?:[.,]\d+)?)?"
+    r")"
+    r"(?![A-Za-z0-9_])"
+)
+
+# P1.1 fix: unit regex split into TWO patterns:
+#   _UNIT_IMMEDIATE_RE — for unit attached directly after the number
+#     (must match at position 0 of the text passed in)
+#   _UNIT_PERCENT_RE — special-case for "%" without word boundary
+# Word units (kg, mg, ...) require leading whitespace or hyphen so we
+# don't match "kg" inside "kg/m2" mid-word or unrelated words.
+_UNIT_PERCENT_RE = re.compile(r"^\s*(%|pp\b|percentage\s+points?)")
+_UNIT_WORD_RE = re.compile(
+    r"^\s+(?P<unit>"
+    r"kg/m\^?2|mmol/L|mg/dL|mg/kg|μg/kg|"
+    r"kg|g|mL|L|μg|mcg|IU|U|"
+    r"BPM|bpm|mmHg|"
+    r"per\s+1000|per\s+100|per\s+1000\s+person[-\s]?years?"
+    r")\b",
+    re.IGNORECASE,
+)
+# Dose unit — only for classification (does NOT become an OUTCOME atom).
+_UNIT_DOSE_RE = re.compile(r"^\s?(mg|μg|mcg|g|IU|U)\b", re.IGNORECASE)
 
 
-def _extract_unit_near(text: str) -> str:
-    """Return the FIRST unit token found in `text`, lowercased and
-    normalized. Empty string if none."""
-    m = _UNIT_TOKEN_RE.search(text)
-    if not m:
-        return ""
-    raw = m.group("unit").lower().strip()
-    # Normalize percentage-points variants
-    if raw in ("pp", "percentage point", "percentage points"):
-        return "percentage points"
-    return raw
+# ---------------------------------------------------------------------------
+# Arm-local entity binding (P1 #3 fix)
+# ---------------------------------------------------------------------------
+
+# "with X dose" or "with X" — typically "...was -2.30 with tirzepatide 15 mg"
+_ARM_PHRASE_RIGHT_RE = re.compile(
+    r"^\s*(?:with|in|for|on)\s+"
+    r"(?P<arm>"
+    r"(?:"
+    + r"|".join(_DRUG_RE.pattern.lstrip("\\b(").rstrip(")\\b").split("|"))
+    + r")"  # any drug
+    r"(?:\s+\d+(?:\.\d+)?\s*(?:mg|μg|mcg|U|IU))?"  # optional dose
+    r")",
+    re.IGNORECASE,
+)
+
+# Comparator phrase: "versus X" / "compared to Y" / "vs Z"
+_COMPARATOR_PHRASE_RE = re.compile(
+    r"\b(?:vs\.?|versus|compared\s+(?:to|with)|against|relative\s+to)\b",
+    re.IGNORECASE,
+)
 
 
-def _extract_endpoint_near(
-    text: str,
-) -> tuple[str, tuple[str, ...]]:
-    """Return (canonical_endpoint_name, section_tags) for the FIRST
-    endpoint pattern that matches in `text`, or ("", ()) if none."""
-    for pat, canonical, tags in _ENDPOINT_VOCAB:
-        if pat.search(text):
-            return canonical, tags
-    return "", ()
+# ---------------------------------------------------------------------------
+# Decimal-aware sentence boundary (P1 #4 fix)
+# ---------------------------------------------------------------------------
+
+# A sentence boundary is: . ; ! ? \n followed by whitespace/EOL/uppercase.
+# A "." between digits (decimals like 8.21) is NOT a boundary.
+# Used by literal_text expansion to avoid splitting "8.21" mid-decimal.
+_SENTENCE_BOUNDARY_RE = re.compile(r"[.;!?](?=\s|$|\n)(?!\d)|\n+")
 
 
-def _extract_comparator_near(text: str, entity: str = "") -> str:
-    """Return the comparator drug found in `text`.
+# ---------------------------------------------------------------------------
+# Extraction helpers
+# ---------------------------------------------------------------------------
 
-    Strategy (iter 2 fix per pytest failure):
-        Clinical text often writes "versus -1.86 with semaglutide" where
-        the comparator drug name follows the comparison value (not
-        directly after "versus"). Regex-on-"versus" is brittle; the
-        better approach is: find ALL drugs in the local context, and
-        return the FIRST drug that is NOT the entity. The entity is the
-        drug the claim is ABOUT; the comparator is the other drug.
+_CONTEXT_BEFORE = 150
+_CONTEXT_AFTER = 100
+_ARM_LOOKAHEAD = 50  # P1 #3: arm phrase typically within 50 chars to the right
 
-    Fallback: if no drug-vs-drug pattern, use the legacy regex which
-    catches "vs placebo", "vs standard care", etc.
+
+def _classify_number(
+    direct_quote: str,
+    match: re.Match,
+    sentence_start: int = 0,
+) -> tuple[NumberRole, str]:
+    """Classify a numeric anchor as OUTCOME / DOSE / TIMEPOINT / etc.
+
+    Returns (role, normalized_unit). Per Codex iter-1 P1 #2: skip
+    non-OUTCOME numbers from atom creation.
+
+    sentence_start parameter (iter-2 refinement): the offset of the
+    sentence the value is in. Used for unit-inheritance lookback: in
+    "-2.01 percentage points ... -2.24 with 10 mg" the second value
+    inherits "percentage points" from the comma-coordinate antecedent
+    within the SAME sentence.
     """
-    entity_norm = entity.lower().strip()
-    # Pass 1: any drug name not matching entity
-    for m in _DRUG_RE.finditer(text):
-        d = m.group(0).lower().strip()
-        if entity_norm:
-            # Skip if this drug is the entity (allow partial-match dedup
-            # e.g., "tirzepatide" == "tirzepatide 15 mg")
-            if d == entity_norm or entity_norm.startswith(d) or d.startswith(entity_norm):
-                continue
-        return d
-    # Pass 2: legacy "vs X" / "compared to Y" regex
-    m = _COMPARATOR_LEAD_RE.search(text)
+    num_start, num_end = match.start(), match.end()
+    n = len(direct_quote)
+    right = direct_quote[num_end:min(num_end + 30, n)]
+    left = direct_quote[max(0, num_start - 60):num_start]
+
+    # --- CI bound / CI level ---
+    if _CI_LEVEL_RIGHT_RE.match(right):
+        return NumberRole.CI_LEVEL, "%"
+    # Second-bound: left ends with "<digit> to " — the value AFTER "to".
+    # Also catches paren-only "(0.58 to 0.95)" with no "CI" word.
+    if _CI_SECOND_BOUND_RE.search(left) or _CI_PAREN_LEFT_RE.search(left):
+        return NumberRole.CI_BOUND, ""
+    # First-bound: left ends with "CI, " (or "CI (") AND right starts with
+    # " to <digit>". This catches "0.58" in "(95% CI, 0.58 to 0.95)".
+    if _CI_FIRST_BOUND_RE.search(left) and _CI_RIGHT_RE.match(right):
+        return NumberRole.CI_BOUND, ""
+
+    # --- P-value ---
+    if _P_VALUE_LEFT_RE.search(left):
+        return NumberRole.P_VALUE, ""
+
+    # --- Dose ---
+    dose_m = _UNIT_DOSE_RE.match(right)
+    if dose_m:
+        return NumberRole.DOSE, dose_m.group(1).lower()
+
+    # --- Timepoint ---
+    if _TIMEPOINT_TRAILING_RE.match(right):
+        return NumberRole.TIMEPOINT, _TIMEPOINT_TRAILING_RE.match(right).group(0).strip().lower()
+    if _TIMEPOINT_BEFORE_RE.search(left):
+        return NumberRole.TIMEPOINT, ""
+
+    # --- Sample size ---
+    if _SAMPLE_SIZE_LEFT_RE.search(left) or _SAMPLE_SIZE_RIGHT_RE.match(right):
+        return NumberRole.SAMPLE_SIZE, ""
+
+    # --- OUTCOME: unit via direct attachment ---
+    pct = _UNIT_PERCENT_RE.match(right)
+    if pct:
+        unit_raw = pct.group(1)
+        if unit_raw.lower().startswith("pp") or "percentage" in unit_raw.lower():
+            return NumberRole.OUTCOME, "percentage points"
+        return NumberRole.OUTCOME, "%"
+
+    word_m = _UNIT_WORD_RE.match(right)
+    if word_m:
+        return NumberRole.OUTCOME, word_m.group("unit").lower()
+
+    # Stat metadata (HR, RR, OR) — unitless ratios
+    left_30 = direct_quote[max(0, num_start - 30):num_start]
+    for pat, label in _STAT_METADATA:
+        if pat.search(left_30):
+            return NumberRole.OUTCOME, label
+
+    # --- Unit inheritance from comma-coordinate antecedent (P1 #1 fix) ---
+    # Codex proposed_fix: "only inherit a prior unit within an explicit
+    # coordinate/list pattern."
+    #
+    # Iter-2 refinement: in clinical text "value unit with X, value with Y,
+    # and value with Z" — the unit attaches to value 1 only, but
+    # SEMANTICALLY all values share the unit. Trigger inheritance when:
+    #   (a) sentence_left contains a `value unit` pair, AND
+    #   (b) sentence_left contains a coordinate connector (comma OR
+    #       "and ") somewhere after the value-unit pair (indicates a
+    #       list/coordinate construction).
+    sentence_left = direct_quote[sentence_start:num_start]
+    if len(sentence_left) > 300:
+        sentence_left = sentence_left[-300:]
+    coord_unit_pat = re.compile(
+        r"[-−]?\d+(?:\.\d+)?\s+"
+        r"(?P<unit>"
+        r"percentage\s+points?|pp|%|"
+        r"kg/m\^?2|mmol/L|mg/dL|"
+        r"kg|g|mL|L|μg|mcg|IU|U|"
+        r"BPM|bpm|mmHg)"
+        r"\b",
+        re.IGNORECASE,
+    )
+    last_unit: Optional[str] = None
+    last_unit_end = -1
+    for cm in coord_unit_pat.finditer(sentence_left):
+        last_unit = cm.group("unit").lower()
+        last_unit_end = cm.end()
+    if last_unit is not None:
+        # Confirm coordinate structure: after the value-unit pair, look
+        # for a comma or "and " or "or " separator within the same sentence.
+        after_unit = sentence_left[last_unit_end:]
+        if re.search(r"(?:,|\band\b|\bor\b|;)", after_unit):
+            if last_unit in ("pp", "percentage point", "percentage points"):
+                return NumberRole.OUTCOME, "percentage points"
+            return NumberRole.OUTCOME, last_unit
+
+    return NumberRole.UNKNOWN, ""
+
+
+def _find_endpoint(text: str) -> tuple[str, str, tuple[str, ...]]:
+    """Find the first endpoint match in `text`. Returns
+    (canonical_endpoint, primary_section, secondary_section_tags)."""
+    for pat, canonical, primary, tags in _ENDPOINT_VOCAB:
+        if pat.search(text):
+            return canonical, primary, tags
+    return "", "", ()
+
+
+def _find_arm_local_entity(
+    direct_quote: str,
+    num_match: re.Match,
+) -> str:
+    """P1 #3 fix (iter 2): bind entity to the arm phrase nearest the value.
+
+    Strategy: find the FIRST arm phrase (closest to value) in the
+    right-side window, whether short-form ("with 15 mg") or full-form
+    ("with tirzepatide 15 mg"). For short-form, resolve drug from the
+    most-recent drug mention in the left context.
+
+    Critical: must find the CLOSEST arm, not the first full-form arm.
+    Earlier iter-2 attempt skipped past "with 15 mg" to find "with
+    semaglutide", flipping the arm for the tirzepatide 15 mg dose.
+    """
+    num_end = num_match.end()
+    right_window = direct_quote[num_end:num_end + 80]
+
+    # Combined regex: arm is either FULL_FORM (DRUG optionally + DOSE)
+    # or SHORT_FORM (DOSE alone). Take the FIRST match — closest wins.
+    drug_alt = _DRUG_RE.pattern.removeprefix(r"\b(").removesuffix(r")\b")
+    arm_re = re.compile(
+        r"\b(?:with|in|for|on)\s+"
+        r"(?P<arm>"
+        # FULL form: drug name with optional dose
+        + r"(?:" + drug_alt + r")"
+        + r"(?:\s+\d+(?:\.\d+)?\s*(?:mg|μg|mcg|U|IU))?"
+        + r"|"
+        # SHORT form: dose alone (drug inherited from left context)
+        + r"\d+(?:\.\d+)?\s*(?:mg|μg|mcg|U|IU)"
+        + r")",
+        re.IGNORECASE,
+    )
+    m = arm_re.search(right_window)
     if not m:
         return ""
-    raw = m.group(1).strip().lower()
-    for trailing in (" group", " arm", " patients", " participants"):
-        if raw.endswith(trailing):
-            raw = raw[: -len(trailing)]
-    return raw.strip()
+
+    arm_text = m.group("arm").strip()
+
+    # Short-form? First char is a digit. Resolve drug from left context.
+    if arm_text and arm_text[0].isdigit():
+        left_window = direct_quote[max(0, num_match.start() - 200):num_match.start()]
+        prior_drugs = list(_DRUG_RE.finditer(left_window))
+        if prior_drugs:
+            drug = prior_drugs[-1].group(0).strip()
+            return f"{drug} {arm_text.lower()}"
+        return arm_text
+
+    return arm_text
 
 
-def _extract_timepoint_near(text: str) -> str:
-    """Return the first timepoint phrase found in `text`."""
-    m = _TIMEPOINT_RE.search(text)
+def _find_comparator(literal_text: str, entity: str) -> str:
+    """Comparator extraction (iter-2 fix per Codex iter-1 P1 #3 review).
+
+    CONSTRAINED to literal_text only — comparator must be in the SAME
+    sentence as the value. This prevents "43% adverse events"
+    (AE-only sentence) from inheriting "semaglutide" comparator from
+    a previous sentence's HbA1c comparison.
+
+    Strategy (3 passes inside literal_text):
+        1. Explicit comparator phrase (versus/compared to X) + nearest
+           drug after it — strongest signal.
+        2. Any non-entity drug in literal_text (multi-arm comparison).
+        3. Placebo / standard care literal — if "placebo" / "control"
+           appears in literal_text.
+    """
+    entity_lower = entity.lower().strip()
+    entity_drug = re.split(r"\s+\d", entity_lower, maxsplit=1)[0].strip()
+
+    # Pass 1: explicit comparator phrase + drug after it
+    comp_phrase = _COMPARATOR_PHRASE_RE.search(literal_text)
+    if comp_phrase:
+        post_comp = literal_text[comp_phrase.end():comp_phrase.end() + 80]
+        drug_m = _DRUG_RE.search(post_comp)
+        if drug_m:
+            d = drug_m.group(0).strip().lower()
+            if not (entity_drug and (
+                d == entity_drug or d.startswith(entity_drug) or entity_drug.startswith(d)
+            )):
+                return d
+        # Fallback: literal noun after "versus"
+        noun_m = re.match(
+            r"\s*([A-Za-z][A-Za-z\s\-]{2,30}?)(?=[,;.\s\(]|$|\d)",
+            post_comp,
+        )
+        if noun_m:
+            cand = noun_m.group(1).strip().lower()
+            if cand and cand not in (entity_drug, entity_lower):
+                return cand
+
+    # Pass 2: any non-entity drug in literal_text
+    for m in _DRUG_RE.finditer(literal_text):
+        d = m.group(0).strip().lower()
+        if entity_drug and (
+            d == entity_drug or d.startswith(entity_drug) or entity_drug.startswith(d)
+        ):
+            continue
+        return d
+
+    # Pass 3: placebo / standard care
+    m = re.search(
+        r"\b(placebo|standard\s+care|usual\s+care|control)\b",
+        literal_text, re.IGNORECASE,
+    )
     if m:
-        n, unit = m.group(1), m.group(2)
-        return f"{n} {unit.lower()}"
-    m2 = _TIMEPOINT_NAMED_RE.search(text)
+        return m.group(1).lower()
+    return ""
+
+
+def _find_timepoint(direct_quote: str, num_match: re.Match) -> str:
+    """Find a timepoint phrase in the sentence containing the value."""
+    num_start = num_match.start()
+    ctx_start = max(0, num_start - 200)
+    ctx_end = min(len(direct_quote), num_match.end() + 100)
+    context = direct_quote[ctx_start:ctx_end]
+    m = re.search(
+        r"\b(?:at|after|by|over|in|through|for)\s+(\d+(?:\.\d+)?)\s*"
+        r"(weeks?|months?|years?|days?)\b",
+        context, re.IGNORECASE,
+    )
+    if m:
+        return f"{m.group(1)} {m.group(2).lower()}"
+    m2 = re.search(r"\b(week|month|year)\s+(\d+)\b", context, re.IGNORECASE)
     if m2:
-        unit, n = m2.group(1).lower(), m2.group(2)
-        return f"{unit} {n}"
+        return f"{m2.group(1).lower()} {m2.group(2)}"
     return ""
 
 
-def _entity_for_evidence(evidence_row: dict[str, Any], context: str) -> str:
-    """Determine the entity (drug / trial) this atom is about. Prefers
-    the explicit drug found in the local context; falls back to drug
-    found in the paper title; final fallback to first trial mention."""
-    drug_in_ctx = _DRUG_RE.search(context)
-    if drug_in_ctx:
-        return drug_in_ctx.group(0).strip()
-    title = evidence_row.get("statement") or evidence_row.get("title") or ""
-    drug_in_title = _DRUG_RE.search(title)
-    if drug_in_title:
-        return drug_in_title.group(0).strip()
-    trial_in_ctx = _TRIAL_RE.search(context)
-    if trial_in_ctx:
-        return trial_in_ctx.group(0).strip()
-    trial_in_title = _TRIAL_RE.search(title)
-    if trial_in_title:
-        return trial_in_title.group(0).strip()
-    return ""
+def _expand_literal_text(
+    direct_quote: str,
+    num_match: re.Match,
+) -> tuple[int, int, str]:
+    """P1 #4 fix: expand to nearest sentence boundary using DECIMAL-AWARE
+    boundary detection. Returns (span_start, span_end, literal_text).
+
+    The boundary is `[.;!?](?=\\s|$|\\n)` — a period followed by
+    whitespace or end-of-line. A period followed by a digit (decimal
+    like 8.21) is NOT a boundary.
+    """
+    num_start, num_end = num_match.start(), num_match.end()
+    n = len(direct_quote)
+
+    # Walk LEFT looking for a sentence-ending boundary
+    left_text = direct_quote[:num_start]
+    boundary_left = 0
+    for m in _SENTENCE_BOUNDARY_RE.finditer(left_text):
+        boundary_left = m.end()  # Last boundary BEFORE the number wins
+
+    # Walk RIGHT looking for the next sentence-ending boundary
+    right_text = direct_quote[num_end:]
+    m_right = _SENTENCE_BOUNDARY_RE.search(right_text)
+    if m_right:
+        boundary_right = num_end + m_right.end()
+    else:
+        boundary_right = n
+
+    lit = direct_quote[boundary_left:boundary_right].strip()
+    return boundary_left, boundary_right, lit
 
 
 def _score_confidence(
+    *,
     has_endpoint: bool,
+    has_entity: bool,
+    has_unit: bool,
     has_comparator: bool,
     has_timepoint: bool,
-    has_unit: bool,
-    has_entity: bool,
 ) -> str:
-    """Confidence = function of how many fields were extracted."""
-    score = sum([has_endpoint, has_comparator, has_timepoint, has_unit, has_entity])
-    if score >= 4:
+    """Recalibrated per Codex iter-1 P2:
+    HIGH = endpoint + entity + unit + (comparator OR timepoint)
+    MEDIUM = endpoint + entity + unit
+    LOW = endpoint + value (everything else)
+    """
+    if has_endpoint and has_entity and has_unit and (has_comparator or has_timepoint):
         return "high"
-    if score >= 2:
+    if has_endpoint and has_entity and has_unit:
         return "medium"
     return "low"
 
+
+def _compute_section_tags(
+    primary: str,
+    secondary: tuple[str, ...],
+    *,
+    has_comparator: bool,
+    has_dose_arm: bool,
+) -> tuple[str, ...]:
+    """Codex iter-1 P2 fix: section_tags are dynamic — add Comparative
+    when a comparator is present, add Dose Response when a dose-arm
+    is bound to the entity."""
+    tags = set(secondary)
+    tags.add(primary)
+    if has_comparator:
+        tags.add("Comparative")
+    if has_dose_arm:
+        tags.add("Dose Response")
+    # Order: primary first, then alphabetical
+    ordered = [primary] + sorted(t for t in tags if t != primary)
+    return tuple(ordered)
+
+
+# ---------------------------------------------------------------------------
+# Main extraction
+# ---------------------------------------------------------------------------
 
 def extract_atoms_from_evidence(
     evidence_row: dict[str, Any],
@@ -401,22 +785,17 @@ def extract_atoms_from_evidence(
 ) -> list[ClaimAtom]:
     """Extract ClaimAtoms from one evidence row's `direct_quote`.
 
-    Strategy:
-        Walk every numeric anchor in direct_quote. For each, examine a
-        context window (CONTEXT_BEFORE chars before + CONTEXT_AFTER
-        after) to extract endpoint / comparator / timepoint / unit. If
-        no endpoint is found, the number is dropped (it's not a
-        verifiable clinical claim — could be sample size on its own,
-        but we skip to avoid noise).
-
-    Args:
-        evidence_row: dict with keys evidence_id, direct_quote, tier,
-            statement/title, provenance_class
-        atom_id_start: starting index for atom_id generation (atoms are
-            numbered globally per query, not per evidence)
-
-    Returns:
-        list of ClaimAtom in evidence-document order.
+    Strategy (Codex iter-1-aware):
+        1. Walk every numeric anchor.
+        2. Classify each as OUTCOME / DOSE / TIMEPOINT / SAMPLE_SIZE /
+           CI_BOUND / CI_LEVEL / P_VALUE / UNKNOWN.
+        3. ONLY OUTCOME numbers become atoms.
+        4. For each OUTCOME, look in the SAME SENTENCE for endpoint.
+           If no endpoint → skip.
+        5. Bind entity from the closest arm phrase ("with X" or "X mg").
+        6. Bind comparator from explicit "versus" syntax.
+        7. Expand literal_text with decimal-aware sentence boundaries.
+        8. Validate literal_text contains the raw value text.
     """
     direct_quote = evidence_row.get("direct_quote") or ""
     if not direct_quote:
@@ -432,71 +811,71 @@ def extract_atoms_from_evidence(
     )
 
     atoms: list[ClaimAtom] = []
-    atom_counter = atom_id_start
-    n = len(direct_quote)
+    counter = atom_id_start
 
     for m in _NUMBER_ATOM_RE.finditer(direct_quote):
         raw_value = m.group("value").strip()
-        # Skip pure-integer single-digit "0"/"1"/etc. as standalone
-        # noise (no clinical meaning without context).
-        if raw_value.lstrip("-−") in {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}:
-            # Allow only if context strongly suggests a real claim
-            # (e.g., "1 mg" with unit). Detect via unit immediately after.
-            tail = direct_quote[m.end():m.end() + 8]
-            if not _UNIT_TOKEN_RE.match(tail.lstrip()):
-                continue
 
-        num_start, num_end = m.start(), m.end()
-        ctx_start = max(0, num_start - _CONTEXT_BEFORE)
-        ctx_end = min(n, num_end + _CONTEXT_AFTER)
-        context = direct_quote[ctx_start:ctx_end]
-        right_context = direct_quote[num_end:ctx_end]
+        # P1 #4 fix: decimal-aware literal_text expansion (FIRST so the
+        # sentence boundaries are known before classification).
+        span_start, span_end, literal_text = _expand_literal_text(direct_quote, m)
 
-        endpoint, section_tags = _extract_endpoint_near(context)
-        if not endpoint:
-            # No endpoint = no verifiable clinical claim.
+        # SAFETY FLOOR: literal_text MUST contain the raw value verbatim.
+        if raw_value not in literal_text:
             continue
 
-        timepoint = _extract_timepoint_near(context)
-        unit = _extract_unit_near(right_context) or _extract_unit_near(context)
-        entity = _entity_for_evidence(evidence_row, context)
-        comparator = _extract_comparator_near(context, entity=entity)
+        # P1 #2 fix: classify before atom creation. Pass sentence_start
+        # so unit-inheritance can search within the SAME sentence only.
+        role, unit = _classify_number(direct_quote, m, sentence_start=span_start)
+        if role != NumberRole.OUTCOME:
+            continue
 
-        # value_signed: number starts with - or unicode minus
+        # Find endpoint within the literal sentence.
+        endpoint, primary_section, secondary_tags = _find_endpoint(literal_text)
+        if not endpoint:
+            continue
+
+        # P1 #3 fix: arm-local entity binding.
+        entity = _find_arm_local_entity(direct_quote, m)
+        if not entity:
+            drug_m = _DRUG_RE.search(literal_text)
+            if drug_m:
+                entity = drug_m.group(0).strip()
+            else:
+                trial_m = _TRIAL_RE.search(literal_text)
+                if trial_m:
+                    entity = trial_m.group(0).strip()
+
+        # Comparator constrained to literal_text (iter-2 fix).
+        comparator = _find_comparator(literal_text, entity)
+        timepoint = _find_timepoint(direct_quote, m)
+
+        # Dose-arm detection: entity contains a dose unit
+        has_dose_arm = bool(re.search(r"\d+\s*(?:mg|μg|mcg|U|IU)", entity))
+
         value_signed = raw_value.startswith("-") or raw_value.startswith("−")
-        # Normalize unicode minus to ASCII for the stored value
         norm_value = raw_value.replace("−", "-")
 
         confidence = _score_confidence(
             has_endpoint=bool(endpoint),
+            has_entity=bool(entity),
+            has_unit=bool(unit),
             has_comparator=bool(comparator),
             has_timepoint=bool(timepoint),
-            has_unit=bool(unit),
-            has_entity=bool(entity),
         )
 
-        # Literal text = expand to nearest sentence boundary in the
-        # context window so the verifier can see the full clinical claim.
-        lit_start = ctx_start
-        lit_end = ctx_end
-        # Find nearest preceding sentence boundary
-        for i in range(num_start - 1, max(ctx_start - 1, -1), -1):
-            if direct_quote[i] in ".;\n":
-                lit_start = i + 1
-                break
-        # Find nearest following sentence boundary
-        for i in range(num_end, min(ctx_end + 60, n)):
-            if direct_quote[i] in ".;\n":
-                lit_end = i + 1
-                break
-        literal_text = direct_quote[lit_start:lit_end].strip()
+        section_tags = _compute_section_tags(
+            primary_section, secondary_tags,
+            has_comparator=bool(comparator),
+            has_dose_arm=has_dose_arm,
+        )
 
-        atom_counter += 1
+        counter += 1
         atoms.append(ClaimAtom(
-            atom_id=f"atom_{atom_counter:03d}",
+            atom_id=f"atom_{counter:03d}",
             evidence_id=ev_id,
-            span_start=lit_start,
-            span_end=lit_end,
+            span_start=span_start,
+            span_end=span_end,
             literal_text=literal_text,
             entity=entity,
             endpoint=endpoint,
@@ -504,6 +883,7 @@ def extract_atoms_from_evidence(
             timepoint=timepoint,
             value=norm_value,
             unit=unit,
+            primary_section=primary_section,
             section_tags=section_tags,
             tier=tier,
             value_signed=value_signed,
@@ -519,11 +899,7 @@ def build_atom_catalog(
 ) -> dict[str, ClaimAtom]:
     """Build the complete atom catalog from a section's evidence subset.
 
-    Atoms are numbered globally across the query (atom_001 in ev_001's
-    quote, atom_002 next, etc.) so atom_id is stable across sections.
-
-    Returns:
-        dict[atom_id, ClaimAtom]
+    Atoms numbered globally across the query.
     """
     catalog: dict[str, ClaimAtom] = {}
     counter = 0
@@ -539,16 +915,13 @@ def filter_atoms_for_section(
     catalog: dict[str, ClaimAtom],
     section_title: str,
 ) -> dict[str, ClaimAtom]:
-    """Filter to atoms whose section_tags include this section.
-
-    Section title is matched case-insensitively against the
-    section_tags tuple.
-    """
-    sec = section_title.strip()
+    """Filter to atoms whose section_tags include this section. Case-
+    insensitive match against section_tags."""
+    sec = section_title.strip().lower()
     return {
         aid: a
         for aid, a in catalog.items()
-        if any(s.lower() == sec.lower() for s in a.section_tags)
+        if any(s.lower() == sec for s in a.section_tags)
     }
 
 
@@ -557,14 +930,8 @@ def format_atom_catalog_for_prompt(
     *,
     max_atoms: int = 60,
 ) -> str:
-    """Render the section-filtered atom catalog as a structured block
-    for V4 Pro's system prompt.
-
-    Schema is compact JSON-ish per row; V4 Pro learns to read it
-    line-by-line. The prompt-side rule is: cite atom_ids, not raw
-    [ev_XXX]; if no atom supports your claim, refuse or weaken the
-    sentence to non-factual.
-    """
+    """Render the section-filtered atom catalog as a compact block for
+    V4 Pro's system prompt."""
     if not section_atoms:
         return "ATOM CATALOG: (empty — no verified atoms for this section's focus)"
 
@@ -573,7 +940,6 @@ def format_atom_catalog_for_prompt(
         if i >= max_atoms:
             lines.append(f"  ... ({len(section_atoms) - max_atoms} more atoms truncated)")
             break
-        # Compact one-line atom render
         parts = [f"  {aid}: ev={a.evidence_id} tier={a.tier} conf={a.confidence}"]
         parts.append(f"value={a.value}{(' ' + a.unit) if a.unit else ''}")
         if a.entity:
@@ -584,7 +950,6 @@ def format_atom_catalog_for_prompt(
         if a.timepoint:
             parts.append(f"timepoint={a.timepoint}")
         lines.append(" | ".join(parts))
-        # Literal text on the next indented line
         lit = a.literal_text[:200].replace("\n", " ")
         lines.append(f"    > {lit}")
     return "\n".join(lines)

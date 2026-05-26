@@ -85,15 +85,16 @@ def test_extract_atoms_from_surpass_2_basic():
     )
 
 
-def test_atom_has_all_13_fields():
+def test_atom_has_all_17_fields():
+    """Iter-2: schema is now 17 fields = 13 Codex APPROVE_DESIGN +
+    primary_section (Codex iter-1 P2 addition)."""
     atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
     a = atoms[0]
-    # ClaimAtom is frozen dataclass; check all 13 declared fields exist
     expected_fields = {
         "atom_id", "evidence_id", "span_start", "span_end", "literal_text",
         "entity", "endpoint", "comparator", "timepoint", "value", "unit",
-        "section_tags", "tier", "value_signed", "confidence",
-        "provenance_class", "source_paper_title",
+        "primary_section", "section_tags", "tier",
+        "value_signed", "confidence", "provenance_class", "source_paper_title",
     }
     actual_fields = set(a.__dataclass_fields__.keys())
     assert expected_fields == actual_fields, (
@@ -344,9 +345,191 @@ def test_high_confidence_atom_has_full_frame():
     """An atom with entity + endpoint + comparator + timepoint + unit
     should be high confidence."""
     atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
-    # Find the HbA1c -2.30 atom (full frame: tirzepatide vs semaglutide at 40 weeks)
     high_conf = [a for a in atoms if a.confidence == "high"]
     assert len(high_conf) >= 1, (
-        f"At least one HbA1c atom should be high confidence. "
+        f"At least one atom should be high confidence. "
         f"Confidences={[(a.endpoint, a.confidence) for a in atoms]}"
     )
+
+
+# ----------------------------------------------------------------------------
+# Codex iter-1 P1 EXACT REGRESSION TESTS
+# These assertions encode the SPECIFIC bugs Codex caught. Each test
+# documents the prior-bug behavior + the fixed behavior.
+# ----------------------------------------------------------------------------
+
+def test_p1_2_no_timepoint_as_outcome_value():
+    """Codex iter-1 P1 #2: '40 weeks' was emitted as HbA1c value.
+    After the NumberRole classifier, timepoint numbers must NOT
+    appear as atom values."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    values = {a.value for a in atoms}
+    assert "40" not in values, (
+        f"'40' (timepoint) leaked into atom values: {values}"
+    )
+
+
+def test_p1_2_no_dose_as_outcome_value():
+    """Codex iter-1 P1 #2: '5 mg' / '10 mg' / '15 mg' were emitted as
+    HbA1c values. Must NOT appear as atom values."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    values = {a.value for a in atoms}
+    # 5, 10, 15 are doses in SURPASS-2
+    assert "5" not in values
+    assert "10" not in values
+    assert "15" not in values
+
+
+def test_p1_2_no_sample_size_as_outcome_value():
+    """Codex iter-1 P1 #2: sample sizes (1879) were emitted as atoms.
+    Must NOT appear as atom values."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    values = {a.value for a in atoms}
+    assert "1879" not in values
+
+
+def test_p1_2_no_ci_bound_as_outcome_value():
+    """Codex iter-1 probe: '(95% CI, 0.58 to 0.95)' emitted 0.58 and
+    0.95 as MACE values. Must NOT happen."""
+    ev_ci = {
+        "evidence_id": "ev_ci",
+        "tier": "T1",
+        "title": "EMPA-REG MACE",
+        "statement": "EMPA-REG showed CV benefit",
+        "direct_quote": (
+            "In EMPA-REG OUTCOME, empagliflozin reduced MACE with a "
+            "hazard ratio of 0.74 (95% CI, 0.58 to 0.95) after 3 years."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev_ci)
+    values = {a.value for a in atoms}
+    # 0.58 and 0.95 are CI bounds, NOT outcome values
+    assert "0.58" not in values, f"CI lower bound leaked as value: {values}"
+    assert "0.95" not in values, f"CI upper bound leaked as value: {values}"
+    # 3 (years) is a timepoint, NOT a value
+    assert "3" not in values, f"Timepoint year leaked as value: {values}"
+    # 0.74 (the HR) IS a valid outcome — should be present
+    assert "0.74" in values, f"HR=0.74 should be in atom values: {values}"
+
+
+def test_p1_1_percent_unit_extracted_without_word_boundary():
+    """Codex iter-1 P1 #1: '%' was missed because of word-boundary
+    requirement. '43%' must produce unit '%', not 'l' or empty."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    ae_atoms = [a for a in atoms if a.value == "43"]
+    assert len(ae_atoms) == 1
+    assert ae_atoms[0].unit == "%", f"Expected unit='%', got '{ae_atoms[0].unit!r}'"
+
+
+def test_p1_1_no_dose_unit_on_outcome_value():
+    """Codex iter-1 P1 #1: HbA1c -2.24 got unit='mg' from nearby dose.
+    Must NOT happen — HbA1c unit should be 'percentage points'."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    hba1c_atoms = [a for a in atoms if a.endpoint == "HbA1c"]
+    for a in hba1c_atoms:
+        assert a.unit != "mg", (
+            f"HbA1c atom {a.atom_id} got unit='mg' (dose unit leaked): {a}"
+        )
+        assert "mg" not in a.unit, (
+            f"HbA1c atom {a.atom_id} got unit containing 'mg': '{a.unit}'"
+        )
+
+
+def test_p1_3_arm_specific_entity_binding():
+    """Codex iter-1 P1 #3: SURPASS-style sentences flipped arms
+    (tirzepatide outcome was labeled entity=semaglutide). With the
+    arm-local fix, the -2.30 value (tirzepatide 15 mg arm) must have
+    entity containing 'tirzepatide', NOT 'semaglutide'."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    hba1c_2_30 = [a for a in atoms if a.value == "-2.30"]
+    assert len(hba1c_2_30) == 1
+    a = hba1c_2_30[0]
+    assert "tirzepatide" in a.entity.lower(), (
+        f"-2.30 should be tirzepatide arm, got entity='{a.entity}'"
+    )
+    # Dose should be 15 mg
+    assert "15 mg" in a.entity or "15mg" in a.entity, (
+        f"-2.30 should be tirzepatide 15 mg, got entity='{a.entity}'"
+    )
+
+
+def test_p1_3_semaglutide_value_correctly_bound():
+    """Codex iter-1 P1 #3: '-1.86 percentage points with semaglutide'
+    should bind entity=semaglutide, NOT entity=tirzepatide."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    sema_atom = [a for a in atoms if a.value == "-1.86"]
+    assert len(sema_atom) == 1
+    a = sema_atom[0]
+    assert "semaglutide" in a.entity.lower(), (
+        f"-1.86 with semaglutide should bind entity=semaglutide, got '{a.entity}'"
+    )
+
+
+def test_p1_4_decimal_not_treated_as_sentence_boundary():
+    """Codex iter-1 P1 #4: literal_text expansion split decimals like
+    '-2.30' mid-decimal. Verify literal_text contains the FULL decimal."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    for a in atoms:
+        # The exact raw value must be a substring of literal_text
+        assert a.value in a.literal_text, (
+            f"Atom {a.atom_id} value='{a.value}' not in literal_text "
+            f"'{a.literal_text[:100]}...'"
+        )
+        # literal_text must NOT end mid-decimal
+        assert not a.literal_text.rstrip().endswith("-2."), (
+            f"literal_text split a decimal: '{a.literal_text}'"
+        )
+
+
+def test_comparator_does_not_leak_across_sentences():
+    """Codex iter-1 P1 #3 corollary: 'Adverse events 43%' should have
+    NO comparator. Before the iter-2 fix, the comparator search used a
+    300-char window which leaked 'semaglutide' from earlier HbA1c
+    sentence into the AE atom."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    ae_atoms = [a for a in atoms if a.endpoint == "adverse events"]
+    assert len(ae_atoms) >= 1
+    for a in ae_atoms:
+        assert a.comparator == "", (
+            f"AE atom comparator should be empty (single-arm sentence), "
+            f"got '{a.comparator}'"
+        )
+
+
+def test_section_tags_dynamic_dose_response():
+    """Codex iter-1 P2: section_tags should add 'Dose Response' when
+    the entity contains a dose-arm (e.g., 'tirzepatide 15 mg')."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    # HbA1c -2.30 has entity 'tirzepatide 15 mg' → Dose Response should be in tags
+    a_230 = [a for a in atoms if a.value == "-2.30"][0]
+    assert "Dose Response" in a_230.section_tags
+    # AE 43% has no dose-arm → Dose Response should NOT be in tags
+    a_43 = [a for a in atoms if a.value == "43"][0]
+    assert "Dose Response" not in a_43.section_tags
+
+
+def test_section_tags_comparative_only_when_comparator_present():
+    """Codex iter-1 P2: 'Comparative' tag should be added dynamically
+    based on extracted comparator, not statically per endpoint."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    # AE 43% with empty comparator → 'Comparative' should NOT be in tags
+    a_43 = [a for a in atoms if a.value == "43"][0]
+    assert "Comparative" not in a_43.section_tags, (
+        f"AE atom shouldn't have Comparative tag without a comparator, "
+        f"got tags={a_43.section_tags}"
+    )
+    # HbA1c -2.30 with comparator=semaglutide → 'Comparative' MUST be in tags
+    a_230 = [a for a in atoms if a.value == "-2.30"][0]
+    assert "Comparative" in a_230.section_tags
+
+
+def test_primary_section_field_populated():
+    """Codex iter-1 P2: primary_section identifies the single best-fit
+    section. HbA1c → Efficacy. AE → Safety."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    hba1c = [a for a in atoms if a.endpoint == "HbA1c"]
+    for a in hba1c:
+        assert a.primary_section == "Efficacy"
+    ae = [a for a in atoms if a.endpoint == "adverse events"]
+    for a in ae:
+        assert a.primary_section == "Safety"
