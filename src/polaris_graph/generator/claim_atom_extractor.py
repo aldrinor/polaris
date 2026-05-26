@@ -409,7 +409,11 @@ _UNIT_WORD_RE = re.compile(
     re.IGNORECASE,
 )
 # Dose unit — only for classification (does NOT become an OUTCOME atom).
-_UNIT_DOSE_RE = re.compile(r"^\s?(mg|μg|mcg|g|IU|U)\b", re.IGNORECASE)
+# Iter-3 fix (Codex iter-2 P2): require NON-slash terminator to avoid
+# matching mg in "mg/dL" (an LDL-C lab unit, not a dose). Negative
+# lookahead `(?!/)` lets _UNIT_WORD_RE (mg/dL, mg/kg) win for compound
+# lab units.
+_UNIT_DOSE_RE = re.compile(r"^\s?(mg|μg|mcg|g|IU|U)(?!\w)(?!/)\b", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +458,30 @@ _CONTEXT_AFTER = 100
 _ARM_LOOKAHEAD = 50  # P1 #3: arm phrase typically within 50 chars to the right
 
 
+def _is_inside_ci_parens(direct_quote: str, num_start: int) -> bool:
+    """Iter-3 helper (Codex iter-2 continuing-P1.2): True if `num_start`
+    is inside a parenthetical group whose content contains "CI" before
+    the number. Catches comma form, dash-range form, "to" form uniformly.
+
+    Walks backward from num_start tracking paren depth. When we find the
+    enclosing `(` or `[`, scan from that paren forward to num_start; if
+    `\\bCI\\b` appears in that prefix, the number is a CI bound.
+    """
+    i = num_start - 1
+    paren_depth = 0
+    while i >= 0:
+        c = direct_quote[i]
+        if c == ')' or c == ']':
+            paren_depth += 1
+        elif c == '(' or c == '[':
+            if paren_depth == 0:
+                inside = direct_quote[i + 1:num_start]
+                return bool(re.search(r'\bCI\b', inside, re.IGNORECASE))
+            paren_depth -= 1
+        i -= 1
+    return False
+
+
 def _classify_number(
     direct_quote: str,
     match: re.Match,
@@ -478,13 +506,20 @@ def _classify_number(
     # --- CI bound / CI level ---
     if _CI_LEVEL_RIGHT_RE.match(right):
         return NumberRole.CI_LEVEL, "%"
-    # Second-bound: left ends with "<digit> to " — the value AFTER "to".
-    # Also catches paren-only "(0.58 to 0.95)" with no "CI" word.
-    if _CI_SECOND_BOUND_RE.search(left) or _CI_PAREN_LEFT_RE.search(left):
+    # Iter-3 fix (Codex iter-2 continuing-P1.2): catch ALL CI-parens forms
+    # (to / comma / dash-range / nested) by detecting that the number lives
+    # inside parens whose content contains "CI". Covers:
+    #   (95% CI, 0.58 to 0.95)   — original "to" form
+    #   (95% CI 0.58, 0.95)      — comma form
+    #   (95% CI 0.58-0.95)       — compact dash range (matched as ONE token)
+    #   (CI 0.58 to 0.95)        — bare "CI"
+    if _is_inside_ci_parens(direct_quote, num_start):
         return NumberRole.CI_BOUND, ""
-    # First-bound: left ends with "CI, " (or "CI (") AND right starts with
-    # " to <digit>". This catches "0.58" in "(95% CI, 0.58 to 0.95)".
-    if _CI_FIRST_BOUND_RE.search(left) and _CI_RIGHT_RE.match(right):
+    # Paren-only range without "CI" word: "(0.58 to 0.95)" — second bound
+    # via left context ending with "(<digit> to ". CI-bearing-parens already
+    # caught above; this catches bare paren ranges (clinically rare but
+    # safer to skip than emit).
+    if _CI_PAREN_LEFT_RE.search(left):
         return NumberRole.CI_BOUND, ""
 
     # --- P-value ---
@@ -565,13 +600,48 @@ def _classify_number(
     return NumberRole.UNKNOWN, ""
 
 
-def _find_endpoint(text: str) -> tuple[str, str, tuple[str, ...]]:
-    """Find the first endpoint match in `text`. Returns
-    (canonical_endpoint, primary_section, secondary_section_tags)."""
+def _find_endpoint(
+    text: str,
+    num_offset: Optional[int] = None,
+) -> tuple[str, str, tuple[str, ...]]:
+    """Find endpoint in `text`. Returns (canonical, primary_section, tags).
+
+    Iter-3 fix (Codex iter-2 novel-P1 multi_endpoint_first_binding): when
+    `num_offset` is provided, search for the CLOSEST endpoint phrase to
+    the value (walking backward first, then forward). Without this, a
+    sentence like "...HbA1c by -2.30 percentage points and body weight by
+    -11.2 kg" binds -11.2 kg to HbA1c (first endpoint), producing a
+    FALSE atom.
+
+    Legacy call (no num_offset) keeps the original first-match behavior
+    for tests that don't pass a position.
+    """
+    if num_offset is None:
+        for pat, canonical, primary, tags in _ENDPOINT_VOCAB:
+            if pat.search(text):
+                return canonical, primary, tags
+        return "", "", ()
+
+    # Collect ALL endpoint matches with their positions
+    candidates: list[tuple[int, str, str, tuple[str, ...]]] = []
     for pat, canonical, primary, tags in _ENDPOINT_VOCAB:
-        if pat.search(text):
-            return canonical, primary, tags
-    return "", "", ()
+        for m in pat.finditer(text):
+            candidates.append((m.end(), canonical, primary, tags))
+
+    if not candidates:
+        return "", "", ()
+
+    # Prefer the closest endpoint to the LEFT of num_offset.
+    # If none on left, take the closest on right.
+    left_cands = [c for c in candidates if c[0] <= num_offset]
+    if left_cands:
+        # Closest on left = max end-position
+        _, canonical, primary, tags = max(left_cands, key=lambda c: c[0])
+        return canonical, primary, tags
+    # Fall through to closest on right
+    right_cands = sorted(candidates, key=lambda c: c[0])
+    _, canonical, primary, tags = right_cands[0]
+    return canonical, primary, tags
 
 
 def _find_arm_local_entity(
@@ -642,6 +712,17 @@ def _find_comparator(literal_text: str, entity: str) -> str:
     """
     entity_lower = entity.lower().strip()
     entity_drug = re.split(r"\s+\d", entity_lower, maxsplit=1)[0].strip()
+
+    # Iter-3 fix (Codex iter-2 novel-P1): if `entity` appears AFTER a
+    # "versus"/"vs"/"compared to" connector, entity IS the comparator arm.
+    # Emitting `comparator=<index-drug>` would be a REVERSE COMPARATIVE
+    # claim (semaglutide vs tirzepatide, when the sentence is making the
+    # opposite claim). Suppress comparator entirely for comparator-arm
+    # values.
+    for vm in _COMPARATOR_PHRASE_RE.finditer(literal_text):
+        after_versus = literal_text[vm.end():vm.end() + 100].lower()
+        if entity_drug and entity_drug in after_versus:
+            return ""
 
     # Pass 1: explicit comparator phrase + drug after it
     comp_phrase = _COMPARATOR_PHRASE_RE.search(literal_text)
@@ -775,6 +856,28 @@ def _compute_section_tags(
     return tuple(ordered)
 
 
+def _compute_primary_section(
+    vocab_primary: str,
+    *,
+    has_comparator: bool,
+    has_dose_arm: bool,
+) -> str:
+    """Iter-3 fix (Codex iter-2 P2): primary_section must be DYNAMIC per
+    comparator + dose-arm presence, not the static vocab default.
+
+    Dose-arm + comparator → "Dose Response" (most specific placement)
+    Comparator only       → "Comparative Effectiveness"
+    Otherwise             → vocab primary (e.g. HbA1c → "Efficacy")
+
+    Prevents the same HbA1c dose-arm atom landing in 3 different sections.
+    """
+    if has_dose_arm and has_comparator:
+        return "Dose Response"
+    if has_comparator:
+        return "Comparative Effectiveness"
+    return vocab_primary
+
+
 # ---------------------------------------------------------------------------
 # Main extraction
 # ---------------------------------------------------------------------------
@@ -831,7 +934,13 @@ def extract_atoms_from_evidence(
             continue
 
         # Find endpoint within the literal sentence.
-        endpoint, primary_section, secondary_tags = _find_endpoint(literal_text)
+        # Iter-3 fix: pass num offset (relative to literal_text) so the
+        # CLOSEST endpoint to the value wins, not the first endpoint in
+        # the sentence. Prevents multi-endpoint binding errors.
+        num_offset_in_literal = m.start() - span_start
+        endpoint, primary_section, secondary_tags = _find_endpoint(
+            literal_text, num_offset=num_offset_in_literal
+        )
         if not endpoint:
             continue
 
@@ -866,6 +975,14 @@ def extract_atoms_from_evidence(
 
         section_tags = _compute_section_tags(
             primary_section, secondary_tags,
+            has_comparator=bool(comparator),
+            has_dose_arm=has_dose_arm,
+        )
+        # Iter-3 fix (Codex iter-2 P2): primary_section is dynamic, not
+        # static vocab default. Dose-arm + comparator HbA1c atom goes to
+        # "Dose Response", not "Efficacy". Prevents 3-section reuse.
+        primary_section = _compute_primary_section(
+            primary_section,
             has_comparator=bool(comparator),
             has_dose_arm=has_dose_arm,
         )
@@ -915,13 +1032,35 @@ def filter_atoms_for_section(
     catalog: dict[str, ClaimAtom],
     section_title: str,
 ) -> dict[str, ClaimAtom]:
-    """Filter to atoms whose section_tags include this section. Case-
-    insensitive match against section_tags."""
+    """Filter atoms for a section.
+
+    Iter-3 fix (Codex iter-2 P2): single-best-placement enforcement.
+    Returns atoms whose `primary_section` matches the section title.
+    Atoms with this section in `section_tags` but NOT as primary are
+    excluded — they are cited in their primary section and should not be
+    re-cited here. This prevents the same atom from landing in 3
+    different sections of the report.
+
+    Case-insensitive match. Section-name variants are normalized:
+    "Comparative" ≡ "Comparative Effectiveness".
+    """
     sec = section_title.strip().lower()
+    # Section-name normalization for matching
+    sec_aliases = {
+        "comparative": "comparative effectiveness",
+        "comparative effectiveness": "comparative effectiveness",
+    }
+    sec_normalized = sec_aliases.get(sec, sec)
+
+    def matches(primary: str) -> bool:
+        p = primary.strip().lower()
+        p_normalized = sec_aliases.get(p, p)
+        return p_normalized == sec_normalized
+
     return {
         aid: a
         for aid, a in catalog.items()
-        if any(s.lower() == sec for s in a.section_tags)
+        if matches(a.primary_section)
     }
 
 

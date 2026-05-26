@@ -524,12 +524,177 @@ def test_section_tags_comparative_only_when_comparator_present():
 
 
 def test_primary_section_field_populated():
-    """Codex iter-1 P2: primary_section identifies the single best-fit
-    section. HbA1c → Efficacy. AE → Safety."""
+    """Codex iter-2 P2 fix: primary_section is DYNAMIC per comparator +
+    dose-arm presence, not static vocab default. In SURPASS-2:
+      - HbA1c -2.01/-2.24/-2.30 with comparator=semaglutide AND dose-arms
+        → primary_section="Dose Response" (most specific placement).
+      - HbA1c -1.86 with comparator=tirzepatide but NO dose-arm
+        → primary_section="Comparative Effectiveness".
+      - AE 43% with no comparator, no dose-arm → primary_section="Safety".
+    Prevents same atom landing in 3 different sections.
+    """
     atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
-    hba1c = [a for a in atoms if a.endpoint == "HbA1c"]
-    for a in hba1c:
-        assert a.primary_section == "Efficacy"
+    # tirzepatide arms (dose-arm + comparator) → Dose Response
+    tirz_hba1c = [
+        a for a in atoms
+        if a.endpoint == "HbA1c"
+        and "tirzepatide" in (a.entity or "").lower()
+    ]
+    assert len(tirz_hba1c) == 3, f"expected 3 tirz HbA1c atoms, got {len(tirz_hba1c)}"
+    for a in tirz_hba1c:
+        assert a.primary_section == "Dose Response", (
+            f"tirz HbA1c {a.value} should be Dose Response (dose-arm + "
+            f"comparator), got {a.primary_section}"
+        )
+    # AE 43% → Safety (no comparator suppression — Safety is vocab primary)
     ae = [a for a in atoms if a.endpoint == "adverse events"]
     for a in ae:
         assert a.primary_section == "Safety"
+
+
+# ============================================================================
+# ITER-3 REGRESSION TESTS (Codex iter-2 verdict → 3 P1s + 2 P2s)
+# ============================================================================
+
+
+def test_iter3_p1_ci_comma_form_not_emitted_as_outcome():
+    """Codex iter-2 continuing-P1.2 (ci_comma_form):
+    `HR 0.74 (95% CI 0.58, 0.95)` must NOT emit 0.58 / 0.95 as
+    MACE/HR outcome atoms (they are CI bounds)."""
+    ev = {
+        "evidence_id": "ev_ci_comma",
+        "tier": "T1",
+        "direct_quote": (
+            "In EMPA-REG OUTCOME, empagliflozin reduced MACE with a "
+            "hazard ratio of 0.74 (95% CI 0.58, 0.95) after 3 years."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    values = {a.value for a in atoms}
+    assert "0.58" not in values, f"CI lower-bound leaked: {values}"
+    assert "0.95" not in values, f"CI upper-bound leaked: {values}"
+    # The HR value 0.74 is OK as an outcome (it's the hazard ratio itself).
+
+
+def test_iter3_p1_ci_dash_range_not_emitted_as_outcome():
+    """Codex iter-2 continuing-P1.2 (ci_compact_dash_range):
+    `HR 0.74 (95% CI 0.58-0.95)` must NOT emit "0.58-0.95" range as
+    a MACE/HR outcome atom."""
+    ev = {
+        "evidence_id": "ev_ci_dash",
+        "tier": "T1",
+        "direct_quote": (
+            "In DAPA-HF, dapagliflozin reduced HF hospitalization with a "
+            "hazard ratio of 0.74 (95% CI 0.58-0.95) over the follow-up."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    values = {a.value for a in atoms}
+    # The dash range should not be emitted as a value
+    assert not any("0.58" in v and "0.95" in v for v in values), (
+        f"CI dash-range leaked as range atom: {values}"
+    )
+    assert "0.58" not in values, f"CI lower-bound (split) leaked: {values}"
+    assert "0.95" not in values, f"CI upper-bound (split) leaked: {values}"
+
+
+def test_iter3_p1_reverse_comparator_suppressed_on_comparator_arm():
+    """Codex iter-2 novel-P1 (same_sentence_comparator_arm):
+    In SURPASS-2, semaglutide is the comparator arm. The -1.86 atom
+    must have entity=semaglutide AND comparator="" — NOT
+    comparator=tirzepatide (a reverse comparative claim)."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    sema = [a for a in atoms if a.value == "-1.86"]
+    assert len(sema) == 1, f"expected 1 atom for -1.86, got {len(sema)}"
+    a = sema[0]
+    assert "semaglutide" in (a.entity or "").lower(), (
+        f"-1.86 should bind to semaglutide arm, got entity={a.entity}"
+    )
+    assert a.comparator == "", (
+        f"-1.86 is the comparator arm — must NOT emit comparator. "
+        f"Got comparator={a.comparator!r}, which makes a reverse "
+        f"comparative claim (semaglutide vs tirzepatide)."
+    )
+
+
+def test_iter3_p1_multi_endpoint_value_binds_to_closest_endpoint():
+    """Codex iter-2 novel-P1 (multi_endpoint_sentence):
+    `tirzepatide reduced HbA1c by -2.30 percentage points and body
+    weight by -11.2 kg` — the -11.2 atom must bind to body weight,
+    NOT HbA1c."""
+    ev = {
+        "evidence_id": "ev_multi_endpoint",
+        "tier": "T1",
+        "direct_quote": (
+            "In SURPASS-3, tirzepatide reduced HbA1c by -2.30 percentage "
+            "points and body weight by -11.2 kg at 52 weeks."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    wt = [a for a in atoms if a.value == "-11.2"]
+    assert len(wt) == 1, f"expected 1 atom for -11.2, got {len(wt)}"
+    assert wt[0].endpoint != "HbA1c", (
+        f"-11.2 kg must NOT bind to HbA1c (false atom). "
+        f"Got endpoint={wt[0].endpoint!r}"
+    )
+    assert "weight" in wt[0].endpoint.lower(), (
+        f"-11.2 kg should bind to body weight, got {wt[0].endpoint!r}"
+    )
+
+
+def test_iter3_p2_dose_unit_does_not_preempt_lab_unit():
+    """Codex iter-2 P2 (dose_classifier_preempts_compound_lab_units):
+    `LDL-C dropped to 90 mg/dL` — the 90 must be classified as
+    OUTCOME with unit `mg/dL`, NOT DOSE with unit `mg` (which would
+    skip the atom entirely as a non-OUTCOME role)."""
+    ev = {
+        "evidence_id": "ev_ldl",
+        "tier": "T1",
+        "direct_quote": (
+            "In JUPITER, rosuvastatin reduced LDL-C from 130 to 90 mg/dL "
+            "at 12 months in the high-risk arm."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    values = {a.value: a for a in atoms}
+    assert "90" in values, (
+        f"90 mg/dL should be extracted as OUTCOME (not skipped as DOSE). "
+        f"Got values={list(values.keys())}"
+    )
+    a90 = values["90"]
+    assert "mg/dl" in a90.unit.lower() or "mg/dL" == a90.unit, (
+        f"90 should have unit mg/dL, got unit={a90.unit!r}"
+    )
+
+
+def test_iter3_p2_filter_by_primary_section_excludes_secondary_tags():
+    """Codex iter-2 P2 (primary_section_not_enforced):
+    filter_atoms_for_section now returns atoms whose PRIMARY section
+    matches — atoms tagged with the section in section_tags but where
+    primary_section != section_title are EXCLUDED. Prevents same atom
+    landing in 3 sections."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    catalog = {a.atom_id: a for a in atoms}
+
+    # tirz HbA1c atoms have primary=Dose Response. They should:
+    #   appear in filter("Dose Response")
+    #   NOT appear in filter("Efficacy") even though section_tags
+    #     includes "Efficacy" too.
+    dose_resp = filter_atoms_for_section(catalog, "Dose Response")
+    efficacy = filter_atoms_for_section(catalog, "Efficacy")
+
+    tirz_atoms = [
+        a for a in atoms
+        if a.endpoint == "HbA1c"
+        and "tirzepatide" in (a.entity or "").lower()
+    ]
+    assert len(tirz_atoms) > 0
+    for a in tirz_atoms:
+        assert a.atom_id in dose_resp, (
+            f"tirz atom {a.atom_id} (primary=Dose Response) missing "
+            f"from Dose Response filter"
+        )
+        assert a.atom_id not in efficacy, (
+            f"tirz atom {a.atom_id} (primary=Dose Response) leaked "
+            f"into Efficacy filter — should be SINGLE PLACEMENT only"
+        )
