@@ -1,11 +1,10 @@
-# PR #910 — I-gen-005 Step 3f Claude architect review
+# PR #911 — I-gen-005 Step 3g Claude architect review
 
-Closes PR #906 iter-5 follow-up #1: operator log_only calibration smoke.
+Resolves pre-existing test_provenance_generator failure (flagged
+out-of-scope in PR #908).
 
-iter-1: --outdir flag mismatch (sweep uses --out-root) → Codex caught
-iter-2: 3 call sites fixed → Codex APPROVE
+Two replacement tests document the §-1.1 trade-off explicitly:
+1. local_support_window rescues narrow-cite-but-data-in-evidence
+2. safety floor: numbers absent from evidence STILL fail
 
-Operator-launched per CLAUDE.md §8.4 (real V4 Pro API costs). Script
-prints calibration summary + decision hint after sweep completes.
-
-Ready for merge.
+14/14 test_provenance_generator pass. Codex iter-1: APPROVE.

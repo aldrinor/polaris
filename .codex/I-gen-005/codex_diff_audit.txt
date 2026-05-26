@@ -1,6 +1,5 @@
-# PR #910 — operator log_only smoke
-# Codex iter-2: APPROVE
-#   flag_alignment_correct: YES
-#   approval_to_merge: YES
-
+# PR #911 — verify-test update for Step 1 local_support_window
+# Codex iter-1: APPROVE
+#   test_pair_correctly_captures_intent: YES
+#   safety_floor_test_correct: YES
 verdict: APPROVE

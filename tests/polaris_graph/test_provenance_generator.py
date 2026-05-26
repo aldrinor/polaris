@@ -94,19 +94,55 @@ def test_verify_sentence_passes_with_valid_span() -> None:
     assert v.is_verified is True
 
 
-def test_verify_sentence_fails_when_span_missing_number() -> None:
+def test_verify_passes_when_number_in_local_support_window() -> None:
+    """I-gen-005 Step 1 (PR #905): when a number is missing from the
+    CITED span but IS present in the broader evidence direct_quote,
+    the local_support_window logic rescues the sentence. Without this,
+    `abort_no_verified_sections` fires whenever the writer cites a
+    narrow byte range but the data lives in a later table.
+
+    Original test (pre-Step-1) asserted is_verified=False for this case;
+    Step 1 reverses that behavior — narrow-cite-but-data-in-evidence now
+    PASSES with a warning log line. Test renamed to reflect actual
+    behavior under §-1.1 trade-off (false-negative recoverable,
+    false-positive lethal)."""
     direct_quote = "At week 68, adults receiving semaglutide achieved a mean weight loss of 14.9%."
     evidence_pool = {
         "ev_step1": {"direct_quote": direct_quote},
     }
-    # Span 0-20 = "At week 68, adults r" — doesn't contain 14.9
-    sentence = "Weight loss was 14.9% [#ev:ev_step1:0-20]."
+    # Span 0-50 = "At week 68, adults receiving semaglutide achieved "
+    # shares content words (adults, receiving, semaglutide) with the
+    # sentence but does NOT contain "14.9" — that's at offset 73 in
+    # the broader direct_quote. local_support_window rescues.
+    sentence = (
+        "Adults receiving semaglutide achieved a 14.9% reduction "
+        "[#ev:ev_step1:0-50]."
+    )
+    v = verify_sentence_provenance(sentence, evidence_pool)
+    assert v.is_verified is True, (
+        f"local_support_window should rescue narrow-cite-but-data-in-evidence "
+        f"case. Got failure_reasons={v.failure_reasons}"
+    )
+
+
+def test_verify_sentence_fails_when_number_not_in_evidence_at_all() -> None:
+    """Counter-case to test_verify_passes_when_number_in_local_support_window:
+    when the number is NOT in the evidence anywhere (even the broader
+    direct_quote), local_support_window cannot rescue and the sentence
+    is correctly dropped. This is the actual safety floor under
+    §-1.1 — false claims about numbers absent from evidence must fail."""
+    direct_quote = "At week 68, adults receiving semaglutide had measurable improvements."
+    evidence_pool = {
+        "ev_step1": {"direct_quote": direct_quote},
+    }
+    # Sentence claims "14.9%" — number ABSENT from evidence entirely.
+    sentence = "Weight loss was 14.9% [#ev:ev_step1:0-69]."
     v = verify_sentence_provenance(sentence, evidence_pool)
     assert v.is_verified is False
-    # Post-Fix-3b the failure reason is "number_not_in_any_cited_span"
-    # (the verifier now aggregates across all tokens before declaring
-    # missing-ness).
-    assert any("number_not_in" in r for r in v.failure_reasons)
+    assert any("number_not_in" in r for r in v.failure_reasons), (
+        f"Number absent from evidence must produce 'number_not_in' failure; "
+        f"got failure_reasons={v.failure_reasons}"
+    )
 
 
 def test_verify_sentence_fails_when_evidence_missing() -> None:
