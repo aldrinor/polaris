@@ -63,9 +63,10 @@ def main() -> int:
         help="Vector slug to run (default: clinical_tirzepatide_t2dm)",
     )
     p.add_argument(
-        "--outdir",
+        "--out-root",
         default="outputs/honest_sweep_r3",
-        help="Output root (default: outputs/honest_sweep_r3)",
+        help="Output root (default: outputs/honest_sweep_r3) — matches "
+             "run_honest_sweep_r3.py's flag exactly.",
     )
     args = p.parse_args()
 
@@ -93,8 +94,8 @@ def main() -> int:
         str(sweep_script),
         "--only",
         args.vector,
-        "--outdir",
-        args.outdir,
+        "--out-root",
+        args.out_root,
     ]
     print(f"[smoke] launching: {' '.join(cmd)}", flush=True)
     print(f"[smoke] PG_ATOM_REFUSAL_MODE={mode}", flush=True)
@@ -104,11 +105,11 @@ def main() -> int:
         return rc
 
     # Locate the produced gaps.json
-    candidate_dirs = list(Path(args.outdir).rglob(args.vector))
+    candidate_dirs = list(Path(args.out_root).rglob(args.vector))
     if not candidate_dirs:
         print(
             f"[smoke] WARN: no run directory matching {args.vector!r} found "
-            f"under {args.outdir}",
+            f"under {args.out_root}",
             file=sys.stderr,
         )
         return 0
