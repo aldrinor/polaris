@@ -1,33 +1,26 @@
-# I-gen-005 PR #909 — skip atom validation for empty-catalog sections
+# I-gen-005 PR #910 iter 2 — flag fix
 
 ## §8.3.1 cap
 
 ```
-HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
-- If iter 5 REQUEST_CHANGES, force-APPROVE per §8.3.1.
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
 ```
 
-## Scope (1 file, 17 lines)
+## Iter 1 verdict → iter 2 fix
 
-Closes PR #906 iter-5 P2: skip atom validation when sr.atom_catalog is empty (contract-section path produces empty catalog → strict mode would refuse every claim, false positive storm).
+REQUEST_CHANGES with 1 P1: flag mismatch (--outdir vs --out-root).
 
-Telemetry: skipped sections get `atom_validation_mode = "skipped_empty_catalog"`.
+iter-2 commit `1ec4ddea`: 3 call sites updated (argparse, subprocess cmd, candidate_dirs glob). --help confirms --out-root flag renders.
 
-Default behavior unchanged: PG_ATOM_REFUSAL_MODE=off still skips the whole block.
+## Canonical hash
+
+SHA256: `ef2d97ca36ff84be825c0a4d7eea1c38386d9448ee056c9f76622e3f57712416`
 
 ## Output
 
 ```yaml
 verdict: APPROVE | REQUEST_CHANGES
-
-skip_on_empty_catalog_correct: YES | NO
-
-telemetry_distinction_correct: YES | NO
-
-novel_p0: []
-novel_p1: []
-p2: []
-
+flag_alignment_correct: YES | NO
 approval_to_merge: YES | NO
 ```
 

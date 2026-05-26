@@ -1,11 +1,11 @@
-# PR #909 — I-gen-005 Step 3e Claude architect review
+# PR #910 — I-gen-005 Step 3f Claude architect review
 
-Closes Codex PR #906 iter-5 P2: contract-section path produces empty
-atom_catalog → strict mode would refuse every claim → false positive
-storm.
+Closes PR #906 iter-5 follow-up #1: operator log_only calibration smoke.
 
-Fix: skip-on-empty-catalog path in the validator hook (17 lines, 1 file).
-Skipped sections get atom_validation_mode = "skipped_empty_catalog" for
-telemetry distinction.
+iter-1: --outdir flag mismatch (sweep uses --out-root) → Codex caught
+iter-2: 3 call sites fixed → Codex APPROVE
 
-Codex iter-1: APPROVE. Ready to merge.
+Operator-launched per CLAUDE.md §8.4 (real V4 Pro API costs). Script
+prints calibration summary + decision hint after sweep completes.
+
+Ready for merge.
