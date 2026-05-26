@@ -1,0 +1,53 @@
+# I-gen-005 umbrella diff audit — aggregation of per-component Codex APPROVE verdicts
+#
+# Per CLAUDE.md §3.0, 5-artifact triple. This file aggregates the
+# component-level diff approvals that constitute the I-gen-005 PR.
+#
+# COMPONENT REVIEWS (all APPROVE):
+#
+# 1. Step 1 verifier fixes (provenance_generator.py)
+#    .codex/I-gen-005/codex_step1_diff_verdict_iter5.txt — APPROVE iter 5
+#
+# 2. Step 1.5 final-state telemetry (multi_section_generator.py +
+#    contract_section_runner.py + run_honest_sweep_r3.py)
+#    Codex smoke review APPROVE'd the telemetry shape post-iter 3 design call.
+#
+# 3. Step 2 PG_PROVENANCE_SPAN_WINDOW default 500→800
+#    Decision based on Codex Step 1 iter-2 P1 finding (smoke entailment
+#    fallback was using 400-char window vs strict_verify's 800).
+#    Single-line config bump; no separate review cycle.
+#
+# 4. claim_atom_extractor.py (5 Codex iters + post-cap fix)
+#    .codex/I-gen-005-step15-atom/codex_diff_verdict_iter5.txt
+#    .codex/I-gen-005-step15-atom/codex_diff_audit_iter5_force_approve.txt
+#    Force-APPROVE'd per §8.3.1 cap with Codex convergence_call:
+#    accept_remaining. Post-cap fix shipped in commit 25db48ec
+#    (digit-in-endpoint bypass).
+#
+# 5. atom_refusal_validator.py (4 Codex iters)
+#    .codex/I-gen-005-refusal/codex_diff_verdict_iter4.txt — APPROVE iter 4
+#    iter4_cap_consideration: APPROVE_THIS (iter 5 not needed)
+#
+# 6. Step 3a multi_section_generator atom catalog prompt injection (2 Codex iters)
+#    .codex/I-gen-005-refusal/codex_step3a_verdict_iter2.txt — APPROVE iter 2
+#    p1_atom_now_additive_to_ev: YES
+#    approval_to_proceed_to_step_3b_pr: YES
+#
+# UMBRELLA AGGREGATION REVIEW (this PR as a whole):
+#    .codex/I-gen-005/codex_brief_verdict.txt — APPROVE
+#    per_component_approvals_complete: YES
+#    architectural_pivot_sound: YES
+#    additive_citation_contract_correct: YES
+#    step_3b_deferral_acceptable: YES
+#    approval_to_merge: YES
+#
+# P2 follow-ups (deferred to Step 3b separate PR per Codex iter-2):
+#    - preserve exact _call_section atom catalog / atom_NNN numbering
+#    - strip atom_NNN before strict_verify numeric matching
+#    - start logging-only behind flag (rollout phase)
+#
+# TESTS PASSING AT MERGE TIME:
+#    109/109 (52 claim_atom_extractor + 42 atom_refusal_validator +
+#             15 step15_telemetry)
+
+verdict: APPROVE
