@@ -827,8 +827,22 @@ async def _call_section(
     tighter_retry: bool = False,
     contradictions: list[dict[str, Any]] | None = None,
     cross_trial_block: Any = None,
-) -> tuple[str, int, int]:
-    """Single LLM call for one section. Returns (raw_draft, in_tok, out_tok).
+) -> tuple[str, int, int, dict[str, Any]]:
+    """Single LLM call for one section.
+
+    Returns (raw_draft, in_tok, out_tok, atom_catalog).
+
+    I-gen-005 Step 3b commit 3: atom_catalog is the SECTION-FILTERED
+    dict[atom_id, ClaimAtom] that was actually injected into V4 Pro's
+    system prompt (per Step 3a). Threading it back to the caller
+    enables the post-hoc atom_refusal_validator to use the EXACT
+    catalog/numbering that V4 Pro saw — avoiding rebuild-and-mismatch
+    failure mode per Codex Step 3a iter-2 P2.
+
+    Catalog is empty dict {} when:
+      - evidence_subset is empty
+      - atom extraction errored (fail-soft fallback in atom block)
+      - no atoms matched extraction regex for any evidence row
 
     V32 (M-71): when `contradictions` is non-None and the section's
     title matches one of the relevant body sections (Safety,
@@ -893,6 +907,11 @@ async def _call_section(
                 "section %r: %s — proceeding without allow-list",
                 section.title, _allow_exc,
             )
+
+    # I-gen-005 Step 3b commit 3: initialize _section_atoms BEFORE the
+    # try block so it is always bound for the return tuple, even on
+    # extraction error / empty catalog. Per Codex APPROVE_DESIGN iter-3.
+    _section_atoms: dict[str, Any] = {}
 
     # I-gen-005 Step 3a (atom-first architecture, Codex APPROVE_DESIGN
     # iter-4 + Step3a-diff-review iter-1 P1 fix): inject the section-
@@ -1094,7 +1113,8 @@ async def _call_section(
             "detail: %s",
             section.title, model, max_tokens, tighter_retry, exc,
         )
-        return "", 0, 0
+        # Step 3b commit 3: return atom_catalog (empty here — no draft to validate)
+        return "", 0, 0, _section_atoms
     finally:
         if hasattr(client, "close"):
             try:
@@ -1102,7 +1122,14 @@ async def _call_section(
             except Exception:
                 pass
 
-    return (response.content or "").strip(), response.input_tokens, response.output_tokens
+    # Step 3b commit 3: 4-tuple return — atom_catalog is the
+    # section-filtered dict injected into the system prompt.
+    return (
+        (response.content or "").strip(),
+        response.input_tokens,
+        response.output_tokens,
+        _section_atoms,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1364,7 +1391,10 @@ async def _run_section(
     total_out_tok = 0
 
     # First pass
-    raw, in_tok, out_tok = await _call_section(
+    # Step 3b commit 3: _call_section now returns the atom_catalog as
+    # 4th tuple element. Preserve for Step 3b commit 4 final-hook
+    # validator wiring on SectionResult.
+    raw, in_tok, out_tok, section_atom_catalog = await _call_section(
         section, ev_subset, model, temperature, max_tokens_per_section,
         tighter_retry=False,
         contradictions=contradictions,
@@ -1463,7 +1493,10 @@ async def _run_section(
             section.title, post_filter_fraction, min_kept_fraction,
         )
         regen_attempted = True
-        raw2, in_tok2, out_tok2 = await _call_section(
+        # Step 3b commit 3: 4-tuple unpacking. Retry catalog identical
+        # to first-pass catalog (same evidence_subset → same atom_NNN
+        # numbering). Discard duplicate.
+        raw2, in_tok2, out_tok2, _ = await _call_section(
             section, ev_subset, model, temperature, max_tokens_per_section,
             tighter_retry=True,
             contradictions=contradictions,
