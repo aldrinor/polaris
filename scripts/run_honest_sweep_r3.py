@@ -2700,6 +2700,40 @@ async def run_one_query(
             encoding="utf-8",
         )
 
+        # I-gen-005 Step 3c (PR #906 Codex iter-5 P2 follow-up):
+        # gaps.json sidecar writer. When PG_ATOM_REFUSAL_MODE was
+        # log_only or strict, each non-dropped SectionResult carries an
+        # atom_validation_result populated by the orchestrator hook
+        # (multi_section_generator line ~4358). Persist these as
+        # gaps.json next to report.md per the Codex APPROVE_DESIGN
+        # gaps.json schema (per-section claims + per-section summary +
+        # document totals).
+        try:
+            from src.polaris_graph.generator.atom_refusal_validator import (
+                write_gaps_sidecar,
+                SectionValidationResult,
+            )
+            _section_val_results = []
+            for sr in multi.sections:
+                val = getattr(sr, "atom_validation_result", None)
+                if val is not None and isinstance(val, SectionValidationResult):
+                    _section_val_results.append(val)
+            if _section_val_results:
+                _gaps_path = write_gaps_sidecar(
+                    run_dir,
+                    document_id=q.get("slug", q.get("question", "")[:60]),
+                    section_results=_section_val_results,
+                )
+                _log(
+                    f"[gaps]        wrote {_gaps_path.name} "
+                    f"({len(_section_val_results)} sections, mode="
+                    f"{multi.sections[0].atom_validation_mode if multi.sections else 'off'})"
+                )
+        except Exception as _gaps_exc:
+            # Fail-soft per atom-first design — gaps.json missing must
+            # not crash the sweep. Log loud + continue.
+            _log(f"[gaps]        WARN write_gaps_sidecar failed: {_gaps_exc}")
+
         # I-gen-005 Step 1.5 (Codex smoke-review P1 finding): serialize
         # the FINAL per-sentence accounting from SectionResult, not a
         # bare re-run of strict_verify on sr.rewritten_draft. The prior
