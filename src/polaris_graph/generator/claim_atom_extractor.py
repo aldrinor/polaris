@@ -154,24 +154,13 @@ _SAMPLE_SIZE_RIGHT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# CI bound: number is inside parens with "CI" or "to" pattern nearby.
-# Codex flagged that "(95% CI, 0.58 to 0.95)" was emitting 0.58 and 0.95
-# as MACE values. They're CI bounds, not outcome values.
-#
-# Iter-2 fix: TWO left-side patterns needed:
-#   (a) "CI, " or "CI (" immediately before this value (catches the
-#       FIRST bound: 0.58 in "...CI, 0.58 to 0.95")
-#   (b) digit + "to" / "–" + space before this value (catches the
-#       SECOND bound: 0.95 in "0.58 to 0.95")
-_CI_FIRST_BOUND_RE = re.compile(
-    r"\bCI\s*[,;]?\s*[\(\[]?\s*[-−]?$",
-    re.IGNORECASE,
-)
-_CI_SECOND_BOUND_RE = re.compile(
-    r"[-−]?\d+(?:\.\d+)?\s*(?:to|[-–—])\s*[-−]?$",
-)
+# CI bound: number is inside parens with "CI" pattern nearby. Iter-3
+# replaced the iter-2 brittle left/right regex chain with the
+# _is_inside_ci_parens() structural walk; iter-4 added
+# _is_ci_bound_unparen() for non-parenthesized "HR 0.74, 95% CI 0.58,
+# 0.95" forms. Only _CI_PAREN_LEFT_RE remains as a defense-in-depth
+# catch for paren-only ranges without the "CI" word literal.
 _CI_PAREN_LEFT_RE = re.compile(r"[\(\[][-−]?\d+(?:\.\d+)?\s*(?:to|[-–—])\s*$")
-_CI_RIGHT_RE = re.compile(r"^\s*(?:to|[-–—])\s*[-−]?\d+(?:\.\d+)?", re.IGNORECASE)
 
 # CI level: number directly followed by "% CI" or "% confidence interval"
 _CI_LEVEL_RIGHT_RE = re.compile(
@@ -669,39 +658,44 @@ def _find_endpoint(
     if not candidates:
         return "", "", ()
 
-    # Iter-4 fix (Codex iter-3 continuing-P1): coordinated endpoint list
-    # ambiguity. Pattern: "HbA1c and body weight reductions were -2.30
-    # percentage points and -11.2 kg" — both endpoints sit LEFT of both
-    # values, separated by `and`/`,`. Closest-left for -2.30 picks the
-    # LAST endpoint mentioned ("body weight"), which is WRONG.
+    # Iter-5 fix (Codex iter-4 continuing-P1): coordinated endpoint
+    # ambiguity — use CLAUSE STRUCTURE, not character distance.
     #
-    # Heuristic: if two or more distinct endpoint canonicals appear on
-    # the left with NO value between them, the binding is AMBIGUOUS →
-    # skip the atom (refusal is safer than a false binding).
-    left_cands = [c for c in candidates if c[0] <= num_offset]
+    # Algorithm:
+    #   1. Find closest endpoint LEFT of value.
+    #   2. For each OTHER endpoint with a different canonical also on
+    #      the left, check the region between them and the closest:
+    #      - If sentence/clause break (`.` or `;`) → different clause,
+    #        not ambiguous, skip this candidate.
+    #      - If a digit appears between → already separated by a value,
+    #        skip.
+    #      - If a coordinate connector (`and`/`or`/`,`) → ambiguous in
+    #        same clause → REFUSE atom.
+    #
+    # Catches all coordinated forms including long endpoint phrases
+    # ("all-cause mortality and hospitalization for heart failure ...")
+    # without false refusals on multi-clause sentences.
+    left_cands = sorted(
+        [c for c in candidates if c[0] <= num_offset],
+        key=lambda c: c[0],
+    )
     if left_cands:
-        # Dedupe by canonical name; check for multiple distinct endpoints
-        # in the left region with no value between them.
-        left_canonicals_sorted = sorted(left_cands, key=lambda c: c[0])
-        distinct_canonicals = []
-        for c in left_canonicals_sorted:
-            if c[1] not in [d[1] for d in distinct_canonicals]:
-                distinct_canonicals.append(c)
-        if len(distinct_canonicals) >= 2:
-            # Check region between the two most recent distinct endpoints
-            second_to_last = distinct_canonicals[-2]
-            last = distinct_canonicals[-1]
-            between = text[second_to_last[0]:last[0]]
-            # If region between is short (under 30 chars) AND contains
-            # a coordinate connector (`and`, `,`, `or`), AND no value
-            # between, ambiguous → skip.
-            has_value_between = bool(re.search(r"[-−]?\d+(?:\.\d+)?", between))
-            has_coord = bool(re.search(r"\b(?:and|or)\b|,", between))
-            if len(between) < 30 and has_coord and not has_value_between:
-                return "", "", ()  # AMBIGUOUS, refuse rather than emit false atom
-        # Closest on left = max end-position (normal case)
-        _, canonical, primary, tags = max(left_cands, key=lambda c: c[0])
-        return canonical, primary, tags
+        closest = left_cands[-1]
+        for c in left_cands[:-1]:
+            if c[1] == closest[1]:
+                continue  # same canonical = not ambiguous
+            between = text[c[0]:closest[0]]
+            # Different clause? Skip.
+            if re.search(r"[.;](?=\s|$)", between):
+                continue
+            # Already separated by a value? Skip.
+            if re.search(r"[-−]?\d", between):
+                continue
+            # Coordinate connector in same clause + no separator
+            # → ambiguous → refuse atom.
+            if re.search(r"\band\b|\bor\b|,", between):
+                return "", "", ()
+        return closest[1], closest[2], closest[3]
     # Fall through to closest on right
     right_cands = sorted(candidates, key=lambda c: c[0])
     _, canonical, primary, tags = right_cands[0]

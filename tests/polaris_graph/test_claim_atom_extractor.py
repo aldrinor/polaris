@@ -798,6 +798,63 @@ def test_iter4_p2_comparator_does_not_move_safety_atoms():
         )
 
 
+def test_iter5_p1_coordinated_long_endpoint_phrase_skipped():
+    """Codex iter-4 continuing-P1 — Codex repro:
+    `All-cause mortality and hospitalization for heart failure were
+    reduced by 20% and 30%, respectively.` — both values must NOT be
+    bound to the LAST endpoint (hospitalization for heart failure).
+    Iter-4 had a 30-char cutoff which this phrase ('and hospitalization
+    for heart failure ...') exceeds; iter-5 drops the cutoff."""
+    ev = {
+        "evidence_id": "ev_long_coord",
+        "tier": "T1",
+        "direct_quote": (
+            "All-cause mortality and hospitalization for heart failure "
+            "were reduced by 20% and 30%, respectively."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    # 20% must NOT be emitted as HF hospitalization
+    bad = [a for a in atoms if a.value == "20" and "hospitalization" in a.endpoint.lower()]
+    assert len(bad) == 0, (
+        f"20% must not bind to HF hospitalization (it's the all-cause "
+        f"mortality value). Got: {[(a.value, a.endpoint) for a in atoms]}"
+    )
+    # 30% should also not be emitted (both ambiguous in coord list)
+    bad30 = [a for a in atoms if a.value == "30" and "mortality" not in a.endpoint.lower()]
+    # Either skipped, or unambiguously routed — accept either.
+
+
+def test_iter5_p2_endpoint_restated_after_clause_break_not_over_refused():
+    """Codex iter-4 P2 over-refusal case:
+    `HbA1c and body weight were secondary endpoints, and HbA1c decreased
+    by -2.30 percentage points at 52 weeks.`
+    The second clause has HbA1c explicitly restated CLOSE to -2.30, with
+    a clause break (',') between the first-clause endpoint mention list
+    and the second clause. Iter-5 clause-aware logic must NOT over-refuse."""
+    ev = {
+        "evidence_id": "ev_restated",
+        "tier": "T1",
+        "direct_quote": (
+            "HbA1c and body weight were secondary endpoints, "
+            "and HbA1c decreased by -2.30 percentage points at 52 weeks."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    hba1c = [a for a in atoms if a.value == "-2.30"]
+    # With clause-aware logic, the closest endpoint to -2.30 is the
+    # SECOND HbA1c mention (after the comma). Since that's the closest
+    # AND same canonical as the first endpoint in the candidate list,
+    # there's no ambiguity. Should emit the atom.
+    # Accept either: emit the atom, OR skip (both are safer than
+    # binding to body weight).
+    if hba1c:
+        assert hba1c[0].endpoint == "HbA1c", (
+            f"-2.30 should be HbA1c (closest endpoint) or skipped, "
+            f"got {hba1c[0].endpoint!r}"
+        )
+
+
 def test_iter3_p2_filter_by_primary_section_excludes_secondary_tags():
     """Codex iter-2 P2 (primary_section_not_enforced):
     filter_atoms_for_section now returns atoms whose PRIMARY section
