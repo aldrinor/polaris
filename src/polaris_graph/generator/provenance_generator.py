@@ -1529,10 +1529,10 @@ def resolve_provenance_to_citations(
         # Strip provenance tokens first so degenerate fragments can be
         # detected before we assign citation numbers (otherwise the
         # bibliography keeps an entry whose only citing sentence we
-        # later drop). Step 3b commit 1 follow-up (Codex PR #906
-        # iter-1 P1): use _verifier_cleaned_text so atom_NNN does not
-        # falsely add "atom" to the content-word count.
-        stripped = _verifier_cleaned_text(sv.sentence)
+        # later drop). `stripped` is the FINAL rendered sentence body
+        # — must PRESERVE atom_NNN so PR #906 Step 3b validator can
+        # see atom citations downstream in verified_text.
+        stripped = _PROVENANCE_TOKEN_RE.sub("", sv.sentence).strip()
         # Clean trailing spaces before punctuation
         stripped = re.sub(r"\s+([.!?,;])", r"\1", stripped)
         # BUG-M-8 (Codex pass 9): drop degenerate sentence fragments
@@ -1543,8 +1543,14 @@ def resolve_provenance_to_citations(
         # stripping. Lower bounds deliberately conservative — the
         # shortest legitimate research sentences in smoke runs
         # ("No contradictions detected.") comfortably clear it.
-        _content_w = re.findall(r"[A-Za-z]+", stripped)
-        if len(_content_w) < 3 or len(stripped) < 15:
+        # Step 3b commit 1 follow-up iter-2 (Codex PR #906 iter-2 P1):
+        # use _verifier_cleaned_text ONLY for the word/length count
+        # (so "atom" in "atom_003" does not inflate the count) — but
+        # DO NOT modify the rendered `stripped` itself; the downstream
+        # validator must see atom_NNN tokens in verified_text.
+        _for_count = _verifier_cleaned_text(sv.sentence)
+        _content_w = re.findall(r"[A-Za-z]+", _for_count)
+        if len(_content_w) < 3 or len(_for_count) < 15:
             continue
         # Assign citation numbers only for surviving sentences
         used_nums: list[int] = []
