@@ -398,16 +398,20 @@ def split_sentences(text: str) -> list[str]:
     (`.[N]`) attach to the preceding sentence; whitespace is the
     consumed delimiter only.
 
-    Step 3b PR #906 iter-4 P1 (Codex): finditer-based slicing so the
-    `[N]` marker is PRESERVED in the preceding sentence (re.split-with-
-    optional-group iter-3 was consuming it as delimiter).
+    Step 3h fix (real-data smoke PR #911 follow-up): paren-aware —
+    `;` and other punctuation INSIDE `(...)`, `[...]`, `{...}` do NOT
+    boundary. V4 Pro routinely writes "...(95% CI, -0.28 to -0.03;
+    P=0.02) for the 5 mg dose, -0.39 percentage points (..." as ONE
+    sentence; the embedded `;` inside the CI parens previously broke
+    it into fragments, causing false refusals.
 
     Strategy:
       1. Protect "<digit>.<digit>" via sentinel so "2.30" stays intact.
       2. finditer boundary positions (punctuation + optional [N]).
-      3. Slice manually: take protected[last_end:boundary.end()] as the
+      3. SKIP boundaries that fall inside an open paren/bracket/brace.
+      4. Slice manually: take protected[last_end:boundary.end()] as the
          sentence, advance past whitespace, continue.
-      4. Restore decimal sentinels in each piece.
+      5. Restore decimal sentinels in each piece.
     """
     if not text:
         return []
@@ -420,7 +424,26 @@ def split_sentences(text: str) -> list[str]:
     pieces: list[str] = []
     last_end = 0
     n = len(protected)
+    open_map = {"(": ")", "[": "]", "{": "}"}
+    close_set = {")", "]", "}"}
+
+    def _is_inside_paren(pos: int) -> bool:
+        """True if pos falls inside an unclosed paren/bracket/brace.
+        Note: balanced [N] biblio markers don't count as 'inside' for
+        boundaries past them — depth resets to 0 when closing bracket
+        is seen."""
+        depth = 0
+        for i in range(pos):
+            ch = protected[i]
+            if ch in open_map:
+                depth += 1
+            elif ch in close_set and depth > 0:
+                depth -= 1
+        return depth > 0
+
     for m in _SENTENCE_BOUNDARY_RE.finditer(protected):
+        if _is_inside_paren(m.start()):
+            continue
         end_pos = m.end()
         pieces.append(protected[last_end:end_pos])
         while end_pos < n and protected[end_pos].isspace():
@@ -512,11 +535,20 @@ def validate_sentence(
         # "2.30" inside "12.30" (false negative on mismatch). New
         # check uses the same _NUMBER_RE that extracted detected_values
         # — equality on token strings (sign-normalized).
-        atom_val_normalized = atom.value.replace("−", "-")
+        # Step 3h fix (real-data smoke PR #911 finding): normalize
+        # BOTH Unicode minus variants on BOTH sides. V4 Pro emits
+        # U+2212 (MINUS SIGN, "−") + U+2013/2014 (en/em dash) in
+        # clinical text; atom_extractor stores values with U+002D
+        # (HYPHEN-MINUS, "-"). Without sentence-side normalization,
+        # every clinical negative value reads as false SOFT_MISMATCH.
+        # Real smoke showed 4/4 soft_mismatches were this artifact.
+        def _normalize_minus(s: str) -> str:
+            return s.replace("−", "-").replace("–", "-").replace("—", "-")
+        atom_val_normalized = _normalize_minus(atom.value)
         atom_val_unsigned = atom_val_normalized.lstrip("-")
-        # Sentence contains atom's value iff atom_val (signed or unsigned)
-        # appears as an EXTRACTED number token in the sentence.
-        sentence_unsigned = {v.lstrip("-") for v in detected_value_set}
+        sentence_unsigned = {
+            _normalize_minus(v).lstrip("-") for v in detected_value_set
+        }
         if atom_val_unsigned and atom_val_unsigned not in sentence_unsigned:
             soft_notes.append(
                 f"atom={aid} value={atom.value!r} not in sentence numeric tokens"

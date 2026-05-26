@@ -147,10 +147,10 @@ def main() -> int:
         print(f"  refusal_rate:  {refusal_rate:.1%}")
         # Codex iter-1 advice threshold
         if refusal_rate < 0.30:
-            print("  → strict-rollout candidate (refusal_rate < 30%)")
+            print("  ->strict-rollout candidate (refusal_rate < 30%)")
         else:
             print(
-                "  → V4 Pro atom compliance needs work BEFORE flipping to "
+                "  ->V4 Pro atom compliance needs work BEFORE flipping to "
                 "strict (refusal_rate >= 30%)"
             )
 
