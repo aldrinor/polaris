@@ -546,6 +546,61 @@ def test_iter2_p2_soft_value_word_boundary_match():
     assert record.reason == RefusalReason.SOFT_MISMATCH
 
 
+def test_iter3_p1_eligibility_override_does_not_mask_outcome_claim():
+    """Codex iter-2 novel-P1 repro: 'Patients with baseline HbA1c of 8.6%
+    had HbA1c reductions of 2.3 percentage points.' was returning False
+    (allowed) because 'baseline HbA1c' fired eligibility override. This
+    is a REAL outcome claim ('reductions of 2.3 percentage points') and
+    must require atom citation."""
+    requires, trigger = requires_atom_citation(
+        "Patients with baseline HbA1c of 8.6% had HbA1c reductions of "
+        "2.3 percentage points."
+    )
+    assert requires, (
+        "Outcome claim with baseline-mention must require atom citation, "
+        "not bypass via eligibility override"
+    )
+    assert trigger == "trigger_A_number_plus_endpoint"
+
+
+def test_iter3_p2_comparator_arm_does_not_match_generic_words():
+    """Codex iter-2 P2 repro: 'This was more than enough evidence' and
+    'More patients than expected completed follow-up' must NOT trigger
+    qualitative comparator because 'enough' and 'expected' aren't
+    treatment arms."""
+    requires1, _ = requires_atom_citation(
+        "This was more than enough evidence to proceed."
+    )
+    assert not requires1, (
+        "'more than enough' is benign prose, not a comparative claim"
+    )
+
+    requires2, _ = requires_atom_citation(
+        "More patients than expected completed follow-up."
+    )
+    assert not requires2, (
+        "'more than expected' is benign prose, not a comparative claim"
+    )
+
+
+def test_iter3_eligibility_pure_still_allowed():
+    """Regression check: pure eligibility framing without outcome verbs
+    still passes through (no over-correction in iter-3)."""
+    requires, _ = requires_atom_citation(
+        "Inclusion criteria required HbA1c between 7.0 and 10.0."
+    )
+    assert not requires
+
+
+def test_iter3_qualitative_drug_arm_still_requires_atom():
+    """Regression check: drug comparator arms still trigger atom requirement
+    (tightening the `\\w{3,}` didn't break the legitimate cases)."""
+    requires, _ = requires_atom_citation(
+        "Tirzepatide showed greater reduction than semaglutide."
+    )
+    assert requires
+
+
 def test_iter2_p2_refused_record_includes_detected_values():
     """Codex iter-1 P2: refused records must populate detected_values
     for downstream audit."""
