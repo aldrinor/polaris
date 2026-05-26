@@ -1,0 +1,184 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e65de-f302-7960-9834-0e9778012803
+--------
+user
+# Codex Step 3b DESIGN iter 3 — strict_verify scope + P2 acknowledgments
+
+## §8.3.1 cap
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+- Front-load ALL findings. No drip-feeding.
+- "Don't pick bone from egg" — reserve P0/P1 for execution risks.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE per §8.3.1.
+- Verdict APPROVE iff zero NOVEL P0/P1.
+```
+
+## Iter 2 verdict → iter 3 responses
+
+REQUEST_CHANGES, 1 new P1 + 4 P2s. All iter-1 P1s YES.
+
+### Iter-2 novel P1: strict_verify scope under-specified
+
+You correctly noted that strict_verify's internal checks include:
+- numeric extraction (covered by iter-2 proposal)
+- content-overlap with cited span
+- local-window placement check
+- entailment judge (default-enforced)
+
+If only numeric extraction strips atom_NNN/ev_XXX/[N], the other checks still see the raw tokens. content-overlap sees "atom_003" and tries to match it in the cited span (fails). entailment judge sees noise.
+
+**Iter-3 fix**: introduce ONE verifier-cleaned sentence string used across all strict_verify internal checks. SentenceVerification.sentence preserves the original (with all citation artifacts). The cleaning function lives in strict_verify or its companion module, applied once at the top of verify_sentence_provenance:
+
+```python
+def _verifier_cleaned_text(sentence: str) -> str:
+    """Strip citation artifacts before any verifier internal check."""
+    s = re.sub(r"\[\d+\]", " ", sentence)              # bibliography markers
+    s = re.sub(r"\[?ev_\d+(?::\d+-\d+)?\]?", " ", s)   # ev tokens
+    s = re.sub(r"\(?atom_\d{3,}(?:,\s*atom_\d{3,})*\)?", " ", s)  # atom tokens
+    return re.sub(r"\s+", " ", s).strip()
+```
+
+In `verify_sentence_provenance`:
+```python
+verifier_text = _verifier_cleaned_text(sentence)
+# Numeric extraction uses verifier_text
+# content-overlap compares verifier_text vs cited span text
+# local-window check positions verifier_text
+# entailment judge inputs verifier_text + cited span
+# SentenceVerification.sentence = original sentence (preserved)
+```
+
+Single point of strip. All internal paths cleaned. Original preserved for downstream (atom validator, citation resolver).
+
+### Iter-2 P2 acknowledgments
+
+**P2.1 Final-remap hook placement**: hook immediately after `sr.verified_text = remapped_texts[...]` assignment, before `analyst_synthesis` consumes verified prose. I will locate the exact site in implementation iter.
+
+**P2.2 fact_dedup atom-preservation**: LLM rewrites in dedup may strip atoms. Final validation catches unsafe rewrites (sentence loses atom_NNN → flagged refused). Separate follow-up: tune the dedup rewrite prompt to prefer atom-preserving consolidation. Out of scope for Step 3b core wiring; flagged for post-Step-3b.
+
+**P2.3 Recompute totals after strict replacement**: if strict mode replaces sentences after `total_words` is computed, recompute section/report word counts post-validation. Add to SectionResult update path.
+
+**P2.4 Monotonic sentence_index across paragraphs**: in `validate_section`, when splitting on `\n\n+` for paragraph preservation, increment sentence_index ACROSS paragraphs (don't reset per paragraph). Ensures gaps.json claim_id values are unique.
+
+```python
+def validate_section(section_text, section_id, section_title, catalog):
+    paragraphs = re.split(r"\n{2,}", section_text)
+    rendered_paragraphs = []
+    gap_records = []
+    sentence_index = 0  # monotonic across paragraphs
+    for para in paragraphs:
+        sentences = split_sentences(para)
+        rendered_sentences = []
+        for sent in sentences:
+            record = validate_sentence(
+                sent, sentence_index, section_id, section_title, catalog,
+            )
+            gap_records.append(record)
+            rendered_sentences.append(record.rendered_text)
+            sentence_index += 1
+        rendered_paragraphs.append(" ".join(rendered_sentences))
+    rendered_text = "\n\n".join(rendered_paragraphs)
+    return SectionValidationResult(...)
+```
+
+## Architecture summary (iter-3)
+
+1. atom_refusal_validator: strip [N]/ev_XXX/atom_NNN from sentence COPY before claim detection AND value extraction. Original sentence retained for citation parsing.
+2. atom_refusal_validator: paragraph-preserving split with monotonic sentence_index.
+3. strict_verify: add `_verifier_cleaned_text` applied at top of verify_sentence_provenance. ALL internal checks use cleaned text. SentenceVerification.sentence = original.
+4. multi_section_generator._call_section: change return signature to include catalog (`tuple[str, int, int, dict[str, ClaimAtom]]`).
+5. Section pipeline: store catalog + catalog_status on SectionResult as transient fields.
+6. Orchestrator: hook validate_section AFTER final citation remap (`sr.verified_text = remapped_texts[...]` is the trigger point), BEFORE analyst_synthesis.
+7. Strict mode: recompute total_words after validation.
+8. gaps.json: written per-section next to report.md, with per-section + per-document totals including atom_validation_mode + catalog_status.
+9. PG_ATOM_REFUSAL_MODE env flag: off (default) / log_only / strict.
+
+## Open question for iter-3
+
+### Q1: Implementation order
+
+I propose:
+1. Modify strict_verify to add _verifier_cleaned_text (separate small commit)
+2. Update atom_refusal_validator with paragraph preservation + token strip (separate commit)
+3. Change _call_section signature (separate commit)
+4. Add SectionResult fields + final-remap hook + sweep integration (final commit)
+
+This gives reviewable per-commit increments. APPROVE this order, or different sequence?
+
+### Q2: Tests for the new behavior
+
+I'll add tests for:
+- strict_verify's _verifier_cleaned_text correctness (atom_NNN, ev, [N] all stripped)
+- strict_verify unchanged sentence equivalence (cleaning is idempotent on already-clean text)
+- atom_refusal_validator paragraph preservation
+- atom_refusal_validator monotonic sentence_index
+- End-to-end: synthetic SectionResult with atom-cited sentence → validate_section produces correct gap_records
+- log_only mode: report.md unchanged, gaps.json written
+- strict mode: report.md contains refusal blocks
+
+Anything else you'd require tests for?
+
+## Output schema
+
+```
+verdict: APPROVE_DESIGN | REQUEST_CHANGES
+
+p1_strict_verify_scope_addressed_all_internal_checks: YES | NO
+
+implementation_order_acceptable: YES | NO
+  if_no: |
+    (preferred order)
+
+test_coverage_sufficient: YES | NO
+  if_no: |
+    (additional tests to add)
+
+novel_p0: [...]
+novel_p1: [...]
+continuing_p0: [...]
+continuing_p1: [...]
+p2: [...]
+
+ready_to_implement: YES | NO
+```
+
+EMIT YAML ONLY.
+
+codex
+verdict: APPROVE_DESIGN
+p1_strict_verify_scope_addressed_all_internal_checks: YES
+implementation_order_acceptable: YES
+test_coverage_sufficient: YES
+novel_p0: []
+novel_p1: []
+continuing_p0: []
+continuing_p1: []
+p2:
+  - "Add one regression test that strict_verify content-overlap and entailment receive the cleaned verifier_text, not only numeric extraction. A mock/spy around those internal paths is enough."
+  - "Use the exact implemented token grammar for ev/atom IDs in _verifier_cleaned_text; if ev IDs are not strictly numeric, widen the regex before implementation."
+  - "Add a recompute-total assertion in the strict-mode integration test so post-validation word counts cannot silently remain stale."
+ready_to_implement: YES
+tokens used
+3,661
+verdict: APPROVE_DESIGN
+p1_strict_verify_scope_addressed_all_internal_checks: YES
+implementation_order_acceptable: YES
+test_coverage_sufficient: YES
+novel_p0: []
+novel_p1: []
+continuing_p0: []
+continuing_p1: []
+p2:
+  - "Add one regression test that strict_verify content-overlap and entailment receive the cleaned verifier_text, not only numeric extraction. A mock/spy around those internal paths is enough."
+  - "Use the exact implemented token grammar for ev/atom IDs in _verifier_cleaned_text; if ev IDs are not strictly numeric, widen the regex before implementation."
+  - "Add a recompute-total assertion in the strict-mode integration test so post-validation word counts cannot silently remain stale."
+ready_to_implement: YES

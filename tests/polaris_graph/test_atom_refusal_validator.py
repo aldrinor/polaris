@@ -476,6 +476,87 @@ def test_write_gaps_sidecar(tmp_path: Path):
 # ============================================================================
 
 
+def test_step3b_commit2_biblio_marker_not_triggers_false_claim():
+    """Step 3b commit 2 (Codex iter-1 P1.1): [1] bibliography markers
+    in resolved verified_text must NOT be parsed as numbers by
+    _NUMBER_RE → falsely require atom citation on narrative sentences.
+    The citation-strip pre-pass removes them before claim detection."""
+    requires, _ = requires_atom_citation(
+        "Tirzepatide acts via dual GIP/GLP-1 receptor agonism [1]."
+    )
+    assert not requires, (
+        "Narrative sentence with [1] bibliography marker should NOT "
+        "require atom citation — [N] markers are not outcome numbers."
+    )
+
+
+def test_step3b_commit2_atom_id_not_triggers_false_number_in_narrative():
+    """Step 3b commit 2: atom_NNN in a narrative sentence must not
+    trigger Trigger B (number alone) due to the embedded digits."""
+    requires, _ = requires_atom_citation(
+        "These outcomes were consistent across the SURPASS program (atom_001)."
+    )
+    # Narrative phrase ("these outcomes were consistent") matches
+    # narrative regex; atom_001 strip prevents the "001" from triggering.
+    assert not requires
+
+
+def test_step3b_commit2_paragraph_preservation_in_validate_section():
+    """Step 3b commit 2 (Codex iter-2 P2.4): validate_section must
+    preserve paragraph boundaries — \\n\\n separates paragraphs in the
+    rendered_text, not all flattened to single line."""
+    section_text = (
+        "Tirzepatide acts via dual GIP/GLP-1 receptor agonism.\n\n"
+        "Tirzepatide reduced HbA1c by -2.30 percentage points atom_003."
+    )
+    result = validate_section(
+        section_text, "efficacy", "Efficacy", _CATALOG,
+    )
+    assert "\n\n" in result.rendered_text, (
+        "Paragraph boundaries must be preserved in rendered_text"
+    )
+
+
+def test_step3b_pr906_iter3_split_handles_resolved_citation_boundary():
+    """Codex PR #906 iter-3 P1: resolve_provenance_to_citations emits
+    'sentence.[1] next_sentence.[2]' with citation marker glued to the
+    period. Splitter must boundary on this.
+
+    Codex iter-4 P1 follow-up: the [N] marker MUST be PRESERVED in the
+    preceding sentence (not consumed as delimiter), otherwise strict
+    mode would silently drop bibliography citations from report.md."""
+    parts = split_sentences("A.[1] B.[2]")
+    assert parts == ["A.[1]", "B.[2]"], (
+        f"split must preserve [N] in preceding sentence, got {parts}"
+    )
+
+    parts2 = split_sentences(
+        "Tirzepatide reduced HbA1c by -2.30 (atom_003).[1] "
+        "Semaglutide reduced HbA1c by -1.86.[2]"
+    )
+    assert parts2 == [
+        "Tirzepatide reduced HbA1c by -2.30 (atom_003).[1]",
+        "Semaglutide reduced HbA1c by -1.86.[2]",
+    ], f"clinical pattern must preserve atom_NNN + [N], got {parts2}"
+
+
+def test_step3b_commit2_sentence_index_monotonic_across_paragraphs():
+    """Step 3b commit 2 (Codex iter-2 P2.4): sentence_index increments
+    across paragraphs to ensure claim_id values stay unique in gaps.json."""
+    section_text = (
+        "First narrative sentence.\n\n"
+        "Second paragraph sentence one. Second paragraph sentence two."
+    )
+    result = validate_section(
+        section_text, "test", "Test", _CATALOG,
+    )
+    indices = [g.sentence_index for g in result.gap_records]
+    assert indices == sorted(indices) and len(indices) == len(set(indices)), (
+        f"sentence_index must be monotonic + unique across paragraphs, "
+        f"got {indices}"
+    )
+
+
 def test_split_sentences_decimal_aware():
     """Decimal-aware split — '2.30' is one token, not 'sentence 2. 30 ...'."""
     parts = split_sentences(

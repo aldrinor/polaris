@@ -1,26 +1,12 @@
-# I-gen-005 umbrella canonical diff marker
+# PR #906 — I-gen-005 Step 3b post-hoc atom validator pipeline
 #
-# This file binds the Codex umbrella APPROVE (codex_diff_audit.txt) to
-# the specific canonical PR diff for I-gen-005. The CI gate parses the
-# trailer below to verify the approved patch matches the actual PR.
+# canonical-diff-sha256: 8fbbecf9409238bf2de2adfbe4cf6221bae9fb42c6885ede305d6cbf893b5768
 #
-# Component-level Codex APPROVE verdicts:
-#   - Step 1: .codex/I-gen-005/codex_step1_diff_verdict_iter5.txt
-#   - claim_atom_extractor (force-APPROVE iter-5 §8.3.1):
-#     .codex/I-gen-005-step15-atom/codex_diff_verdict_iter5.txt +
-#     .codex/I-gen-005-step15-atom/codex_diff_audit_iter5_force_approve.txt
-#   - atom_refusal_validator iter-4 APPROVE:
-#     .codex/I-gen-005-refusal/codex_diff_verdict_iter4.txt
-#   - Step 3a multi_section_generator iter-2 APPROVE:
-#     .codex/I-gen-005-refusal/codex_step3a_verdict_iter2.txt
-#   - Umbrella aggregation APPROVE:
-#     .codex/I-gen-005/codex_brief_verdict.txt (this commit)
+# Codex umbrella review trail:
+#   iter 1: REQUEST_CHANGES (entailment + content-word P1) → fixed
+#   iter 2: REQUEST_CHANGES (over-stripped rendered text P1) → fixed
+#   iter 3: REQUEST_CHANGES (splitter missed .[N] glued boundary) → fixed
+#   iter 4: REQUEST_CHANGES (split consumed [N] marker) → fixed
+#   iter 5: APPROVE — approval_to_merge: YES
 #
-# Canonical diff = git diff base...HEAD excluding .codex/I-gen-005/
-# and outputs/audits/I-gen-005/ per .github/workflows/codex-required.yml.
-# Hash computed at HEAD=8c4cdff8 (one commit before the canonical
-# artifact triple was added; subsequent commits adding only
-# .codex/I-gen-005/* and outputs/audits/I-gen-005/* files do not
-# change the canonical hash because those paths are excluded by CI.
-#
-# canonical-diff-sha256: 7ec7f2a0f24f839635eddba8eb5bde22cc33c56734cdbcfb2b5ce25296e5af21
+# 99/99 tests pass at HEAD. PG_ATOM_REFUSAL_MODE defaults to "off".

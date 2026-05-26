@@ -189,6 +189,43 @@ _ATOM_ID_RE = re.compile(r"\batom_\d{3,}\b")
 _EV_ID_RE = re.compile(r"\[?ev_\d{3,}(?::\d+-\d+)?\]?")
 _PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:ev_\d{3,}:\d+-\d+\]")
 
+# I-gen-005 Step 3b commit 2 (Codex iter-1 P1.1): resolved verified_text
+# contains numeric bibliography markers [1], [2], etc. (from
+# resolve_provenance_to_citations) + atom_NNN (from V4 Pro per Step 3a)
+# + bare [ev_XXX] (defensive). All three would be matched by _NUMBER_RE
+# as bare numbers and trigger false Trigger B (number alone).
+#
+# These strip patterns produce a CLEANED COPY used for claim detection
+# and value extraction. extract_atom_citations / extract_ev_citations
+# still consume the ORIGINAL sentence for citation parsing.
+_BIBLIO_MARKER_RE = re.compile(r"\[\d+\]")
+_ATOM_TOKEN_FOR_STRIP_RE = re.compile(
+    r"\(?atom_\d{3,}(?:,\s*atom_\d{3,})*\)?",
+    re.IGNORECASE,
+)
+_EV_TOKEN_FOR_STRIP_RE = re.compile(
+    r"\[?ev_\d+(?::\d+-\d+)?\]?",
+    re.IGNORECASE,
+)
+
+
+def _strip_citation_tokens_for_detection(sentence: str) -> str:
+    """Strip [N] bibliography markers + atom_NNN + [ev_XXX] tokens from
+    the sentence COPY used by claim detection and number extraction.
+
+    Per Codex Step 3b iter-1 P1.1: validating resolved verified_text
+    without stripping these tokens caused false Trigger B activations
+    on narrative sentences with citation markers.
+
+    The original sentence is preserved for citation parsing —
+    extract_atom_citations / extract_ev_citations should always be
+    called on the ORIGINAL sentence, never on the cleaned copy.
+    """
+    s = _BIBLIO_MARKER_RE.sub(" ", sentence)
+    s = _ATOM_TOKEN_FOR_STRIP_RE.sub(" ", s)
+    s = _EV_TOKEN_FOR_STRIP_RE.sub(" ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
 
 @dataclass
 class GapRecord:
@@ -245,7 +282,14 @@ def requires_atom_citation(sentence: str) -> tuple[bool, Optional[str]]:
     Excludes:
       - pure mechanism / trial identity / eligibility / background prose
     """
-    s = sentence.strip()
+    s_raw = sentence.strip()
+    if not s_raw:
+        return False, None
+
+    # Step 3b commit 2: strip citation tokens for detection-time analysis.
+    # [N] markers + atom_NNN + [ev_XXX] would otherwise be parsed as
+    # bare numbers and trigger false claim-required.
+    s = _strip_citation_tokens_for_detection(s_raw)
     if not s:
         return False, None
 
@@ -332,27 +376,59 @@ def has_ev_citation_for_factual_claim(sentence: str) -> bool:
 # Sentence splitter (decimal-aware, matches atom_extractor's logic)
 # ---------------------------------------------------------------------------
 
-# Decimal-aware sentence split. Split on [.;!?] followed by whitespace
-# (or end-of-text). Negative lookbehind for digit-period-digit prevents
-# splitting "2.30" mid-decimal. Negative lookahead for digit prevents
-# splitting before "0.95" in "(95% CI 0.58, 0.95)" (closing paren may
-# precede a value).
-_SENTENCE_SPLIT_RE = re.compile(
-    r"(?<=[.;!?])\s+(?=[A-Z\[]|$)"
+# Decimal-aware sentence split. Two boundary patterns (alternation):
+#   (a) [.;!?] followed by whitespace + [A-Z\[] or end-of-text
+#       (standard prose boundary; lookbehind handles decimals via
+#        sentinel-pre-pass in split_sentences below)
+#   (b) [.;!?]\[N\] + whitespace + [A-Z\[]
+#       (resolved-citation boundary — Step 3b commit 2 follow-up iter-3
+#        per Codex PR #906 iter-3 P1). resolve_provenance_to_citations
+#        emits "<sentence>.[1] <next_sentence>.[2]" with the citation
+#        marker GLUED to the period. Pattern (a) alone misses this:
+#        "[1] sentence_two" matches but skips before "[1]". Pattern (b)
+#        explicitly consumes the [N] marker as part of the boundary so
+#        the SECOND sentence is its own validator input.
+_SENTENCE_BOUNDARY_RE = re.compile(
+    r"[.;!?](?:\[\d+\])?(?=\s+(?:[A-Z\[]|$))"
 )
 
 
 def split_sentences(text: str) -> list[str]:
-    """Decimal-aware sentence split — matches atom_extractor's boundary
-    rule (period followed by digit is NOT a boundary)."""
+    """Decimal-aware sentence split. Resolved bibliography markers
+    (`.[N]`) attach to the preceding sentence; whitespace is the
+    consumed delimiter only.
+
+    Step 3b PR #906 iter-4 P1 (Codex): finditer-based slicing so the
+    `[N]` marker is PRESERVED in the preceding sentence (re.split-with-
+    optional-group iter-3 was consuming it as delimiter).
+
+    Strategy:
+      1. Protect "<digit>.<digit>" via sentinel so "2.30" stays intact.
+      2. finditer boundary positions (punctuation + optional [N]).
+      3. Slice manually: take protected[last_end:boundary.end()] as the
+         sentence, advance past whitespace, continue.
+      4. Restore decimal sentinels in each piece.
+    """
     if not text:
         return []
-    # Pre-process: protect decimals by temporarily replacing "X.Y" with
-    # "XY" before split, then restore.
-    PROTECT = ""
-    protected = re.sub(r"(\d)\.(\d)", rf"\1{PROTECT}\2", text)
-    parts = _SENTENCE_SPLIT_RE.split(protected)
-    return [p.replace(PROTECT, ".").strip() for p in parts if p.strip()]
+    sentinel = "\x00DEC\x00"
+    protected = re.sub(
+        r"(\d)\.(\d)",
+        lambda m: f"{m.group(1)}{sentinel}{m.group(2)}",
+        text,
+    )
+    pieces: list[str] = []
+    last_end = 0
+    n = len(protected)
+    for m in _SENTENCE_BOUNDARY_RE.finditer(protected):
+        end_pos = m.end()
+        pieces.append(protected[last_end:end_pos])
+        while end_pos < n and protected[end_pos].isspace():
+            end_pos += 1
+        last_end = end_pos
+    if last_end < n:
+        pieces.append(protected[last_end:])
+    return [p.replace(sentinel, ".").strip() for p in pieces if p.strip()]
 
 
 # ---------------------------------------------------------------------------
@@ -423,8 +499,11 @@ def validate_sentence(
         )
 
     # All cited atoms valid — SOFT mismatch checks (logged_only)
+    # Step 3b commit 2: extract numbers from the citation-stripped copy
+    # so atom_NNN/biblio markers do not pollute detected_values.
     soft_notes = []
-    detected_values = _NUMBER_RE.findall(sentence)
+    sentence_for_values = _strip_citation_tokens_for_detection(sentence)
+    detected_values = _NUMBER_RE.findall(sentence_for_values)
     detected_value_set = set(detected_values)
     for aid in cited_atoms:
         atom = catalog[aid]
@@ -567,21 +646,47 @@ def validate_section(
     section_title: str,
     catalog: dict[str, ClaimAtom],
 ) -> SectionValidationResult:
-    """Validate all sentences in a section. Sentence-level refusal:
-    refused sentences are replaced in `rendered_text`, others kept as-is.
+    """Validate all sentences in a section, preserving paragraph
+    structure. Sentence-level refusal: refused sentences are replaced
+    in `rendered_text`, others kept as-is.
+
+    Step 3b commit 2 (Codex iter-2 P2.4): split on paragraph boundaries
+    FIRST, validate per paragraph, join with \\n\\n. Sentence_index is
+    MONOTONIC across paragraphs so gaps.json claim_id values stay
+    unique. Previously a single " ".join collapsed all paragraphs into
+    a single line — broke report.md formatting.
     """
-    sentences = split_sentences(section_text)
-    gap_records: list[GapRecord] = []
-    rendered_sentences: list[str] = []
-
-    for i, sent in enumerate(sentences):
-        record = validate_sentence(
-            sent, i, section_id, section_title, catalog,
+    if not section_text or not section_text.strip():
+        return SectionValidationResult(
+            section_id=section_id,
+            section_title=section_title,
+            original_text=section_text,
+            rendered_text=section_text,
+            gap_records=[],
         )
-        gap_records.append(record)
-        rendered_sentences.append(record.rendered_text)
 
-    rendered_text = " ".join(rendered_sentences)
+    paragraphs = re.split(r"\n{2,}", section_text)
+    rendered_paragraphs: list[str] = []
+    gap_records: list[GapRecord] = []
+    sentence_index = 0  # monotonic across paragraphs
+
+    for para in paragraphs:
+        para_stripped = para.strip()
+        if not para_stripped:
+            rendered_paragraphs.append(para)  # preserve whitespace-only paragraph
+            continue
+        sentences = split_sentences(para_stripped)
+        rendered_sentences: list[str] = []
+        for sent in sentences:
+            record = validate_sentence(
+                sent, sentence_index, section_id, section_title, catalog,
+            )
+            gap_records.append(record)
+            rendered_sentences.append(record.rendered_text)
+            sentence_index += 1
+        rendered_paragraphs.append(" ".join(rendered_sentences))
+
+    rendered_text = "\n\n".join(rendered_paragraphs)
     return SectionValidationResult(
         section_id=section_id,
         section_title=section_title,
