@@ -1,33 +1,157 @@
-# I-gen-005 PR #912 — 3 real-V4-Pro-smoke-found validator bugs
+# I-gen-005 Step 3i — V4 Pro prompt tightening (design review)
 
 ## §8.3.1 cap
 
 ```
 HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings. No drip-feeding.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE per §8.3.1.
 ```
 
-## Scope (3 fixes + 3 regression tests)
+## Context (from your APPROVE_AUDIT verdict, this session)
 
-PR #910 smoke (PG_ATOM_REFUSAL_MODE=log_only) produced real-V4-Pro gaps.json with 61.5% refusal_rate. Analysis: bugs not compliance.
+Your line-by-line audit on the smoke gaps.json identified 4 GENUINE refusals where V4 Pro emitted `[ev_XXX]`-only (resolved to `[1]` in final text) for factual numeric claims when `atom_NNN` citations were available or expected:
 
-1. Splitter `;` inside parens (efficacy.s001-s003 in real gaps.json)
-2. Unicode minus mismatch (4/4 SOFT_MISMATCHES were this)
-3. Smoke print U+2192 crash on Windows cp1252
+- `efficacy.s005`: responder-rate claim (82-86% HbA1c<7.0%). atoms 031/032/034/035 EXIST in catalog (you verified via verification_details.atomized_equivalent). V4 Pro emitted only `[1]`.
+- `safety.s000`: GI events (nausea/diarrhea/vomiting percentages). V4 Pro emitted only `[1]`. You noted atoms may not cover per-row granularity (separate Step 3k).
+- `safety.s001`: SAE/discontinuation percentages. Same pattern.
+- `efficacy.s009`: trial-design framing. Detector over-trigger; separate Step 3j.
 
-120/120 tests pass.
+Your recommendation: `TIGHTEN_V4_PROMPT_THEN_RERUN`. Specifically for s005/safety.s000/s001: "require row-level atom citations ... if catalog lacks ... the generator should refuse instead of emitting bare [1]."
 
-Canonical hash: `017b788bb52c3415e7e8ee3aec1be6031175705e4fd998bd9df10fb45dc630fa`
+This Step 3i implements that prompt-side tightening.
+
+## Current prompt block (multi_section_generator.py:951-969)
+
+```
+ATOM-CITATION CONTRACT (additive to [ev_XXX]):
+For factual quantitative claims (effect size, comparator, safety
+incidence, dose-response), cite BOTH the atom_NNN ID (in parentheses)
+AND the existing [ev_XXX] provenance marker. atom_NNN is ADDITIVE — it
+does NOT replace [ev_XXX]. The [ev_XXX] token is REQUIRED for all
+sentences per SECTION_SYSTEM_PROMPT rule #2.
+Use [ev_XXX] alone (without atom_NNN) for narrative sentences:
+mechanism, trial design, eligibility, hedges.
+If the catalog does NOT contain an atom supporting a factual claim,
+prefer OMITTING that claim over writing it without atom_NNN — a future
+post-hoc validator will replace bare-claim factual sentences with a
+refusal block.
+Example cited form: 'Tirzepatide 15 mg reduced HbA1c by -2.30
+percentage points versus -1.86 with semaglutide (atom_003, atom_004)
+[ev_001].'
+```
+
+## Why current prompt failed empirically
+
+Looking at V4 Pro's actual output:
+- "Nausea occurred in 17.4%, 19.2%, 22.1%, 17.9% of patients.[1]" — V4 Pro treated multi-value safety listing as if "narrative" — emitted [ev_XXX] alone (→ [1])
+- "82-86% achieved HbA1c<7.0% with tirzepatide.[1]" — V4 Pro treated responder-rate as narrative
+
+Failure modes:
+1. The current "trial design, eligibility, hedges" narrative list is loose — V4 Pro extended it to "things with many numbers in one sentence" / "things from a table"
+2. The "prefer OMITTING" instruction is not strongly bound — V4 Pro fell back to [ev_XXX]-only when no exact atom matched
+3. No explicit RIGHT-vs-WRONG examples for the failure modes that actually happened
+
+## Proposed tightened wording
+
+```
+ATOM-CITATION CONTRACT (additive to [ev_XXX]; STRICTER per real-data audit):
+
+EVERY factual numeric claim MUST have BOTH (atom_NNN) AND [ev_XXX]:
+  ✓ Effect sizes (% reductions, mg/dL changes, hazard ratios)
+  ✓ Safety incidence rates (AE %, SAE %, discontinuation %)
+  ✓ Responder rates (% achieving HbA1c<7.0%, % ≥5% weight loss)
+  ✓ Dose-response comparisons
+  ✓ Treatment-difference statistics
+
+NARRATIVE-ONLY (use [ev_XXX] without atom_NNN — these MUST contain no
+factual numbers, or only design-context numbers like trial phase, N,
+duration):
+  - Mechanism of action prose
+  - Hedges, caveats, limitations
+  - Cross-trial qualitative synthesis with NO specific outcome values
+  - Trial-design summaries that do not assert outcome magnitude
+
+WRONG patterns (do NOT write these):
+  - "Nausea occurred in 17.4%, 19.2%, 22.1%, 17.9%.[ev_000]"
+    ← safety incidence numbers without atom_NNN — REJECTED
+  - "82-86% achieved HbA1c<7.0% with tirzepatide.[ev_000]"
+    ← responder-rate without atom_NNN — REJECTED
+  - "Serious AEs were 7.0%, 5.3%, 5.7%, 2.8%.[ev_000]"
+    ← SAE rates without atom_NNN — REJECTED
+
+RIGHT patterns:
+  - "Nausea occurred in 17.4% with tirzepatide 5 mg (atom_022) [ev_000]."
+  - "82% of tirzepatide-5mg patients achieved HbA1c<7.0% (atom_031) [ev_000]."
+
+WHEN NO atom_NNN MATCHES YOUR PLANNED CLAIM:
+  → OMIT the entire claim.
+  → Do NOT fall back to [ev_XXX]-alone for factual numbers.
+  → It is acceptable to write fewer cited sentences if those are
+    fully atom-cited, than many sentences with bare [ev_XXX].
+  → A post-hoc validator REPLACES bare-factual sentences with refusal
+    disclosure blocks — your bare claim will be visibly removed from
+    the report.
+
+PRIORITY ORDER for handling a planned factual numeric claim:
+  1. atom_NNN + [ev_XXX] cited together — preferred
+  2. OMIT the claim — second-best
+  3. Bare [ev_XXX] without atom_NNN — FORBIDDEN for factual numbers
+
+Example of correct atom-cited form:
+  "Tirzepatide 15 mg reduced HbA1c by -2.30 percentage points versus
+  -1.86 with semaglutide (atom_003, atom_004) [ev_001]."
+```
+
+## What this prompt change is expected to fix
+
+Of the 5 GENUINE refusals in the real smoke gaps.json:
+- `efficacy.s005` (responder): atoms 031/032/034/035 EXIST — V4 Pro should cite them with this stricter prompt. **Expected: FIXED.**
+- `safety.s000` (GI events): atoms may not cover per-row granularity. **Expected: still refuses (OMIT path triggered), but legitimately — V4 Pro per new prompt OMITS rather than emitting bare [ev_XXX].**
+- `safety.s001` (SAE): same. **Expected: same as safety.s000.**
+- `efficacy.s009` (trial design): detector over-trigger; separate Step 3j.
+- merged `efficacy.s001-004` (treatment differences): atom_extractor may not generate treatment-difference atoms (statistic-from-statistic). **Expected: same as safety — V4 Pro OMITS.**
+
+Predicted post-Step-3i refusal_rate (sentences in gaps.json): unchanged in absolute count if V4 Pro chooses OMIT path correctly, but the report.md SHOULD have fewer refused-replaced sentences (the OMITted claims never reach the validator at all). The data we should look for in the next smoke: number of CLAIMS in gaps.json should DROP (fewer sentences total, because V4 Pro omitted), and refusal_rate among the remaining should drop too.
+
+## Questions for you
+
+1. Is the proposed tightened wording clear enough to actually change V4 Pro behavior? The earlier prompt had OMIT in it but V4 Pro didn't follow.
+
+2. Are there ADDITIONAL failure modes you'd predict from this wording? E.g. could "OMIT > [ev_XXX]-bare" cause V4 Pro to refuse legitimate narrative claims that should keep [ev_XXX]?
+
+3. Should the prompt include a NEGATIVE example of an over-OMIT case (V4 Pro deleting too much) to balance against the positive "be more strict" framing?
+
+4. Other concerns specific to this wording?
 
 ## Output
 
 ```yaml
 verdict: APPROVE | REQUEST_CHANGES
-bug1_splitter_paren_aware_correct: YES | NO
-bug2_unicode_minus_both_sides_correct: YES | NO
-bug3_ascii_arrow_correct: YES | NO
+
+wording_clarity: SUFFICIENT | NEEDS_WORK
+  if_needs_work: |
+    (specific phrasing suggestions)
+
+failure_modes_addressed:
+  - "efficacy.s005 responder": YES | NO | UNCLEAR
+  - "safety.s000 GI events": YES | NO | UNCLEAR
+  - "safety.s001 SAE": YES | NO | UNCLEAR
+  - "merged treatment differences": YES | NO | UNCLEAR
+
+over_omit_risk: LOW | MEDIUM | HIGH
+  if_medium_or_high: |
+    (mitigation suggestion)
+
+balancing_negative_example_needed: YES | NO
+  if_yes: |
+    (proposed example)
+
 novel_p0: []
 novel_p1: []
-approval_to_merge: YES | NO
+p2: []
+
+approval_to_implement_and_pr: YES | NO
 ```
 
 EMIT YAML ONLY.
