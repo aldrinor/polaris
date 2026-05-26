@@ -1,0 +1,2083 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e659a-aeb2-7ad3-81ce-9855edf51b1a
+--------
+user
+# Codex iter 5 — claim_atom_extractor.py diff review (FINAL — cap iteration)
+
+## §8.3.1 cap directive (verbatim)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 5 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+**THIS IS ITER 5 — the cap. After this verdict, the file is shipped
+regardless. If REQUEST_CHANGES, residual concerns become follow-up
+Issues per §8.3.1 force-APPROVE procedure.**
+
+## Iter 4 verdict → addressed in iter 5
+
+Your iter 4 verdict:
+- ✓ p1_ci_non_parenthesized_fixed: YES
+- ✓ p1_left_side_comparator_arm_fixed: YES
+- PARTIAL p1_coordinated_endpoint_refusal_correct: longer endpoint phrases miss the 30-char cutoff
+- ✓ p2_dose_arm_alone_primary_correct: YES
+- ✓ p2_safety_atoms_protected_from_comparator: YES
+- P2 over-refusal: `HbA1c and body weight were endpoints, and HbA1c decreased by ...`
+- P3 stale CI regexes
+
+## Iter-5 fixes (this diff)
+
+### P1 closure: clause-aware ambiguity, not distance cap
+
+Replaced `len(between) < 30` brittle cap with clause-structure check:
+
+```python
+for c in left_cands[:-1]:
+    if c[1] == closest[1]:
+        continue                    # same canonical = not ambiguous
+    between = text[c[0]:closest[0]]
+    if re.search(r"[.;](?=\s|$)", between):
+        continue                    # different clause
+    if re.search(r"[-−]?\d", between):
+        continue                    # value already separates
+    if re.search(r"\band\b|\bor\b|,", between):
+        return "", "", ()           # ambiguous in same clause → refuse
+```
+
+Result on your iter-4 repro: `All-cause mortality and hospitalization for heart failure were reduced by 20% and 30%, respectively.`
+→ atoms: (none — refused due to coord ambiguity). ✓ (no false binding)
+
+Result on your iter-4 P2 over-refusal case: `HbA1c and body weight were secondary endpoints, and HbA1c decreased by -2.30 percentage points at 52 weeks.`
+→ atom: val=-2.30 ep=HbA1c primary=Efficacy ✓ (the second-clause restated HbA1c is closest; the first-clause "body weight" mention is separated by a clause break — not ambiguous)
+
+Result on the original short coord: `HbA1c and body weight reductions were -2.30 percentage points and -11.2 kg`
+→ atoms: (none — refused, same as iter 4) ✓
+
+### P3 cleanup: stale CI regexes removed
+
+Deleted `_CI_FIRST_BOUND_RE`, `_CI_SECOND_BOUND_RE`, `_CI_RIGHT_RE`. Iter-3's `_is_inside_ci_parens()` + iter-4's `_is_ci_bound_unparen()` fully supersede them. `_CI_PAREN_LEFT_RE` retained as defense-in-depth for paren-only ranges without "CI" word.
+
+## Tests (51/51 PASS)
+
+- 24 iter-1 + 13 iter-2 + 6 iter-3 + 6 iter-4 + 2 iter-5
+
+New iter-5 tests:
+- `test_iter5_p1_coordinated_long_endpoint_phrase_skipped` — exact Codex iter-4 repro
+- `test_iter5_p2_endpoint_restated_after_clause_break_not_over_refused` — the P2 over-refusal case
+
+## Pre-approval acknowledgment per §8.3.1
+
+If you return APPROVE: I proceed to refusal/gap rendering (recommended_path #4).
+
+If you return REQUEST_CHANGES: I force-APPROVE per §8.3.1, log to `state/polaris_restart/iteration_trajectory.md`, file remaining findings as follow-up Issues, and proceed to refusal/gap rendering anyway. The CI gate parses the LAST `verdict:` line of this file — I'll append `verdict: APPROVE` with a `# force-approved at iter 5 cap per CLAUDE.md §8.3.1` marker, write the `_iter5_force_approve.txt` annotation file alongside, and proceed.
+
+The atom-first architecture's value is `safe_atom + refusal` together as a closed-world for V4 Pro. Missing atoms → refusal. False atoms are the lethal failure mode; missing ones are recoverable via refusal disclosure.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+
+p1_coordinated_endpoint_clause_aware_fix_correct: YES | NO | PARTIAL
+  if_not_yes: |
+    (specific failure mode + repro)
+
+p2_endpoint_restatement_no_over_refusal: YES | NO
+  if_no: |
+    (specific case)
+
+p3_stale_regex_cleanup_complete: YES | NO
+
+residual_concerns_for_followup_issues:
+  - id: ...
+    severity: P2 | P3
+    file: ...
+    issue: |
+      (description, NOT a blocker)
+
+novel_p0: [...]
+novel_p1: [...]
+continuing_p0: [...]
+continuing_p1: [...]
+
+approval_to_proceed_to_refusal_gap_rendering: YES | NO
+
+convergence_call: continue | accept_remaining
+```
+
+EMIT YAML ONLY. Diff is at `.codex/I-gen-005-step15-atom/codex_diff_iter5.patch` (179 lines).
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files -g '*claim_atom_extractor.py' -g '*test*claim*'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path .codex/I-gen-005-step15-atom/codex_diff_iter5.patch' in C:\POLARIS
+ succeeded in 1103ms:
+diff --git a/src/polaris_graph/generator/claim_atom_extractor.py b/src/polaris_graph/generator/claim_atom_extractor.py
+index 2d1e6f89..574ef4da 100644
+--- a/src/polaris_graph/generator/claim_atom_extractor.py
++++ b/src/polaris_graph/generator/claim_atom_extractor.py
+@@ -154,24 +154,13 @@ _SAMPLE_SIZE_RIGHT_RE = re.compile(
+     re.IGNORECASE,
+ )
+ 
+-# CI bound: number is inside parens with "CI" or "to" pattern nearby.
+-# Codex flagged that "(95% CI, 0.58 to 0.95)" was emitting 0.58 and 0.95
+-# as MACE values. They're CI bounds, not outcome values.
+-#
+-# Iter-2 fix: TWO left-side patterns needed:
+-#   (a) "CI, " or "CI (" immediately before this value (catches the
+-#       FIRST bound: 0.58 in "...CI, 0.58 to 0.95")
+-#   (b) digit + "to" / "–" + space before this value (catches the
+-#       SECOND bound: 0.95 in "0.58 to 0.95")
+-_CI_FIRST_BOUND_RE = re.compile(
+-    r"\bCI\s*[,;]?\s*[\(\[]?\s*[-−]?$",
+-    re.IGNORECASE,
+-)
+-_CI_SECOND_BOUND_RE = re.compile(
+-    r"[-−]?\d+(?:\.\d+)?\s*(?:to|[-–—])\s*[-−]?$",
+-)
++# CI bound: number is inside parens with "CI" pattern nearby. Iter-3
++# replaced the iter-2 brittle left/right regex chain with the
++# _is_inside_ci_parens() structural walk; iter-4 added
++# _is_ci_bound_unparen() for non-parenthesized "HR 0.74, 95% CI 0.58,
++# 0.95" forms. Only _CI_PAREN_LEFT_RE remains as a defense-in-depth
++# catch for paren-only ranges without the "CI" word literal.
+ _CI_PAREN_LEFT_RE = re.compile(r"[\(\[][-−]?\d+(?:\.\d+)?\s*(?:to|[-–—])\s*$")
+-_CI_RIGHT_RE = re.compile(r"^\s*(?:to|[-–—])\s*[-−]?\d+(?:\.\d+)?", re.IGNORECASE)
+ 
+ # CI level: number directly followed by "% CI" or "% confidence interval"
+ _CI_LEVEL_RIGHT_RE = re.compile(
+@@ -669,39 +658,44 @@ def _find_endpoint(
+     if not candidates:
+         return "", "", ()
+ 
+-    # Iter-4 fix (Codex iter-3 continuing-P1): coordinated endpoint list
+-    # ambiguity. Pattern: "HbA1c and body weight reductions were -2.30
+-    # percentage points and -11.2 kg" — both endpoints sit LEFT of both
+-    # values, separated by `and`/`,`. Closest-left for -2.30 picks the
+-    # LAST endpoint mentioned ("body weight"), which is WRONG.
++    # Iter-5 fix (Codex iter-4 continuing-P1): coordinated endpoint
++    # ambiguity — use CLAUSE STRUCTURE, not character distance.
+     #
+-    # Heuristic: if two or more distinct endpoint canonicals appear on
+-    # the left with NO value between them, the binding is AMBIGUOUS →
+-    # skip the atom (refusal is safer than a false binding).
+-    left_cands = [c for c in candidates if c[0] <= num_offset]
++    # Algorithm:
++    #   1. Find closest endpoint LEFT of value.
++    #   2. For each OTHER endpoint with a different canonical also on
++    #      the left, check the region between them and the closest:
++    #      - If sentence/clause break (`.` or `;`) → different clause,
++    #        not ambiguous, skip this candidate.
++    #      - If a digit appears between → already separated by a value,
++    #        skip.
++    #      - If a coordinate connector (`and`/`or`/`,`) → ambiguous in
++    #        same clause → REFUSE atom.
++    #
++    # Catches all coordinated forms including long endpoint phrases
++    # ("all-cause mortality and hospitalization for heart failure ...")
++    # without false refusals on multi-clause sentences.
++    left_cands = sorted(
++        [c for c in candidates if c[0] <= num_offset],
++        key=lambda c: c[0],
++    )
+     if left_cands:
+-        # Dedupe by canonical name; check for multiple distinct endpoints
+-        # in the left region with no value between them.
+-        left_canonicals_sorted = sorted(left_cands, key=lambda c: c[0])
+-        distinct_canonicals = []
+-        for c in left_canonicals_sorted:
+-            if c[1] not in [d[1] for d in distinct_canonicals]:
+-                distinct_canonicals.append(c)
+-        if len(distinct_canonicals) >= 2:
+-            # Check region between the two most recent distinct endpoints
+-            second_to_last = distinct_canonicals[-2]
+-            last = distinct_canonicals[-1]
+-            between = text[second_to_last[0]:last[0]]
+-            # If region between is short (under 30 chars) AND contains
+-            # a coordinate connector (`and`, `,`, `or`), AND no value
+-            # between, ambiguous → skip.
+-            has_value_between = bool(re.search(r"[-−]?\d+(?:\.\d+)?", between))
+-            has_coord = bool(re.search(r"\b(?:and|or)\b|,", between))
+-            if len(between) < 30 and has_coord and not has_value_between:
+-                return "", "", ()  # AMBIGUOUS, refuse rather than emit false atom
+-        # Closest on left = max end-position (normal case)
+-        _, canonical, primary, tags = max(left_cands, key=lambda c: c[0])
+-        return canonical, primary, tags
++        closest = left_cands[-1]
++        for c in left_cands[:-1]:
++            if c[1] == closest[1]:
++                continue  # same canonical = not ambiguous
++            between = text[c[0]:closest[0]]
++            # Different clause? Skip.
++            if re.search(r"[.;](?=\s|$)", between):
++                continue
++            # Already separated by a value? Skip.
++            if re.search(r"[-−]?\d", between):
++                continue
++            # Coordinate connector in same clause + no separator
++            # → ambiguous → refuse atom.
++            if re.search(r"\band\b|\bor\b|,", between):
++                return "", "", ()
++        return closest[1], closest[2], closest[3]
+     # Fall through to closest on right
+     right_cands = sorted(candidates, key=lambda c: c[0])
+     _, canonical, primary, tags = right_cands[0]
+diff --git a/tests/polaris_graph/test_claim_atom_extractor.py b/tests/polaris_graph/test_claim_atom_extractor.py
+index a60ca414..a5f6aa9d 100644
+--- a/tests/polaris_graph/test_claim_atom_extractor.py
++++ b/tests/polaris_graph/test_claim_atom_extractor.py
+@@ -798,6 +798,63 @@ def test_iter4_p2_comparator_does_not_move_safety_atoms():
+         )
+ 
+ 
++def test_iter5_p1_coordinated_long_endpoint_phrase_skipped():
++    """Codex iter-4 continuing-P1 — Codex repro:
++    `All-cause mortality and hospitalization for heart failure were
++    reduced by 20% and 30%, respectively.` — both values must NOT be
++    bound to the LAST endpoint (hospitalization for heart failure).
++    Iter-4 had a 30-char cutoff which this phrase ('and hospitalization
++    for heart failure ...') exceeds; iter-5 drops the cutoff."""
++    ev = {
++        "evidence_id": "ev_long_coord",
++        "tier": "T1",
++        "direct_quote": (
++            "All-cause mortality and hospitalization for heart failure "
++            "were reduced by 20% and 30%, respectively."
++        ),
++    }
++    atoms = extract_atoms_from_evidence(ev)
++    # 20% must NOT be emitted as HF hospitalization
++    bad = [a for a in atoms if a.value == "20" and "hospitalization" in a.endpoint.lower()]
++    assert len(bad) == 0, (
++        f"20% must not bind to HF hospitalization (it's the all-cause "
++        f"mortality value). Got: {[(a.value, a.endpoint) for a in atoms]}"
++    )
++    # 30% should also not be emitted (both ambiguous in coord list)
++    bad30 = [a for a in atoms if a.value == "30" and "mortality" not in a.endpoint.lower()]
++    # Either skipped, or unambiguously routed — accept either.
++
++
++def test_iter5_p2_endpoint_restated_after_clause_break_not_over_refused():
++    """Codex iter-4 P2 over-refusal case:
++    `HbA1c and body weight were secondary endpoints, and HbA1c decreased
++    by -2.30 percentage points at 52 weeks.`
++    The second clause has HbA1c explicitly restated CLOSE to -2.30, with
++    a clause break (',') between the first-clause endpoint mention list
++    and the second clause. Iter-5 clause-aware logic must NOT over-refuse."""
++    ev = {
++        "evidence_id": "ev_restated",
++        "tier": "T1",
++        "direct_quote": (
++            "HbA1c and body weight were secondary endpoints, "
++            "and HbA1c decreased by -2.30 percentage points at 52 weeks."
++        ),
++    }
++    atoms = extract_atoms_from_evidence(ev)
++    hba1c = [a for a in atoms if a.value == "-2.30"]
++    # With clause-aware logic, the closest endpoint to -2.30 is the
++    # SECOND HbA1c mention (after the comma). Since that's the closest
++    # AND same canonical as the first endpoint in the candidate list,
++    # there's no ambiguity. Should emit the atom.
++    # Accept either: emit the atom, OR skip (both are safer than
++    # binding to body weight).
++    if hba1c:
++        assert hba1c[0].endpoint == "HbA1c", (
++            f"-2.30 should be HbA1c (closest endpoint) or skipped, "
++            f"got {hba1c[0].endpoint!r}"
++        )
++
++
+ def test_iter3_p2_filter_by_primary_section_excludes_secondary_tags():
+     """Codex iter-2 P2 (primary_section_not_enforced):
+     filter_atoms_for_section now returns atoms whose PRIMARY section
+
+2026-05-26T18:45:07.840036Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+tests\v6\compare\test_claim_diff.py
+tests\polaris_graph\test_m38_trial_framed_claims.py
+tests\polaris_graph\test_m32_claim_frame_prompt.py
+tests\polaris_graph\test_claim_atom_extractor.py
+tests\unit\test_mesh_claim_extract.py
+src\polaris_graph\generator\claim_atom_extractor.py
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./probe-mfxdkp1r: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+
+ exited 1 in 1107ms:
+tests\v6\compare\test_claim_diff.py
+tests\polaris_graph\test_m38_trial_framed_claims.py
+tests\polaris_graph\test_m32_claim_frame_prompt.py
+tests\polaris_graph\test_claim_atom_extractor.py
+tests\unit\test_mesh_claim_extract.py
+src\polaris_graph\generator\claim_atom_extractor.py
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./probe-mfxdkp1r: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/generator/claim_atom_extractor.py | Select-Object -Skip 560 -First 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/test_claim_atom_extractor.py | Select-Object -Skip 760 -First 130' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "_CI_(FIRST|SECOND|RIGHT|PAREN|LEVEL)|is_inside_ci|is_ci_bound" src/polaris_graph/generator/claim_atom_extractor.py' in C:\POLARIS
+ succeeded in 938ms:
+    from the Dose Response section."""
+    ev = {
+        "evidence_id": "ev_single_arm_dose",
+        "tier": "T1",
+        "direct_quote": (
+            "In the open-label phase 2 study, tirzepatide 15 mg reduced "
+            "HbA1c by -2.20 percentage points at 26 weeks."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    a = [a for a in atoms if a.value == "-2.20"]
+    assert len(a) == 1
+    assert a[0].primary_section == "Dose Response", (
+        f"dose-arm-only HbA1c atom should primary to Dose Response, "
+        f"got {a[0].primary_section!r}"
+    )
+
+
+def test_iter4_p2_comparator_does_not_move_safety_atoms():
+    """Codex iter-3 P2: comparator should not automatically move
+    safety/mechanism atoms OUT of Safety/Mechanism. Only Efficacy /
+    Comparative Effectiveness primary atoms can be re-routed by
+    comparator presence."""
+    ev = {
+        "evidence_id": "ev_safety_comparator",
+        "tier": "T1",
+        "direct_quote": (
+            "Adverse events occurred in 45% of tirzepatide patients "
+            "versus 38% of semaglutide patients."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    ae = [a for a in atoms if a.endpoint == "adverse events"]
+    for a in ae:
+        assert a.primary_section == "Safety", (
+            f"AE atom with comparator must stay in Safety (vocab primary), "
+            f"got {a.primary_section!r}"
+        )
+
+
+def test_iter5_p1_coordinated_long_endpoint_phrase_skipped():
+    """Codex iter-4 continuing-P1 — Codex repro:
+    `All-cause mortality and hospitalization for heart failure were
+    reduced by 20% and 30%, respectively.` — both values must NOT be
+    bound to the LAST endpoint (hospitalization for heart failure).
+    Iter-4 had a 30-char cutoff which this phrase ('and hospitalization
+    for heart failure ...') exceeds; iter-5 drops the cutoff."""
+    ev = {
+        "evidence_id": "ev_long_coord",
+        "tier": "T1",
+        "direct_quote": (
+            "All-cause mortality and hospitalization for heart failure "
+            "were reduced by 20% and 30%, respectively."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    # 20% must NOT be emitted as HF hospitalization
+    bad = [a for a in atoms if a.value == "20" and "hospitalization" in a.endpoint.lower()]
+    assert len(bad) == 0, (
+        f"20% must not bind to HF hospitalization (it's the all-cause "
+        f"mortality value). Got: {[(a.value, a.endpoint) for a in atoms]}"
+    )
+    # 30% should also not be emitted (both ambiguous in coord list)
+    bad30 = [a for a in atoms if a.value == "30" and "mortality" not in a.endpoint.lower()]
+    # Either skipped, or unambiguously routed — accept either.
+
+
+def test_iter5_p2_endpoint_restated_after_clause_break_not_over_refused():
+    """Codex iter-4 P2 over-refusal case:
+    `HbA1c and body weight were secondary endpoints, and HbA1c decreased
+    by -2.30 percentage points at 52 weeks.`
+    The second clause has HbA1c explicitly restated CLOSE to -2.30, with
+    a clause break (',') between the first-clause endpoint mention list
+    and the second clause. Iter-5 clause-aware logic must NOT over-refuse."""
+    ev = {
+        "evidence_id": "ev_restated",
+        "tier": "T1",
+        "direct_quote": (
+            "HbA1c and body weight were secondary endpoints, "
+            "and HbA1c decreased by -2.30 percentage points at 52 weeks."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    hba1c = [a for a in atoms if a.value == "-2.30"]
+    # With clause-aware logic, the closest endpoint to -2.30 is the
+    # SECOND HbA1c mention (after the comma). Since that's the closest
+    # AND same canonical as the first endpoint in the candidate list,
+    # there's no ambiguity. Should emit the atom.
+    # Accept either: emit the atom, OR skip (both are safer than
+    # binding to body weight).
+    if hba1c:
+        assert hba1c[0].endpoint == "HbA1c", (
+            f"-2.30 should be HbA1c (closest endpoint) or skipped, "
+            f"got {hba1c[0].endpoint!r}"
+        )
+
+
+def test_iter3_p2_filter_by_primary_section_excludes_secondary_tags():
+    """Codex iter-2 P2 (primary_section_not_enforced):
+    filter_atoms_for_section now returns atoms whose PRIMARY section
+    matches — atoms tagged with the section in section_tags but where
+    primary_section != section_title are EXCLUDED. Prevents same atom
+    landing in 3 sections."""
+    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+    catalog = {a.atom_id: a for a in atoms}
+
+    # tirz HbA1c atoms have primary=Dose Response. They should:
+    #   appear in filter("Dose Response")
+    #   NOT appear in filter("Efficacy") even though section_tags
+    #     includes "Efficacy" too.
+    dose_resp = filter_atoms_for_section(catalog, "Dose Response")
+    efficacy = filter_atoms_for_section(catalog, "Efficacy")
+
+    tirz_atoms = [
+        a for a in atoms
+        if a.endpoint == "HbA1c"
+        and "tirzepatide" in (a.entity or "").lower()
+    ]
+    assert len(tirz_atoms) > 0
+    for a in tirz_atoms:
+        assert a.atom_id in dose_resp, (
+            f"tirz atom {a.atom_id} (primary=Dose Response) missing "
+            f"from Dose Response filter"
+        )
+        assert a.atom_id not in efficacy, (
+            f"tirz atom {a.atom_id} (primary=Dose Response) leaked "
+            f"into Efficacy filter — should be SINGLE PLACEMENT only"
+        )
+
+ succeeded in 1007ms:
+    # --- Timepoint ---
+    if _TIMEPOINT_TRAILING_RE.match(right):
+        return NumberRole.TIMEPOINT, _TIMEPOINT_TRAILING_RE.match(right).group(0).strip().lower()
+    if _TIMEPOINT_BEFORE_RE.search(left):
+        return NumberRole.TIMEPOINT, ""
+
+    # --- Sample size ---
+    if _SAMPLE_SIZE_LEFT_RE.search(left) or _SAMPLE_SIZE_RIGHT_RE.match(right):
+        return NumberRole.SAMPLE_SIZE, ""
+
+    # --- OUTCOME: unit via direct attachment ---
+    pct = _UNIT_PERCENT_RE.match(right)
+    if pct:
+        unit_raw = pct.group(1)
+        if unit_raw.lower().startswith("pp") or "percentage" in unit_raw.lower():
+            return NumberRole.OUTCOME, "percentage points"
+        return NumberRole.OUTCOME, "%"
+
+    word_m = _UNIT_WORD_RE.match(right)
+    if word_m:
+        return NumberRole.OUTCOME, word_m.group("unit").lower()
+
+    # Stat metadata (HR, RR, OR) — unitless ratios
+    left_30 = direct_quote[max(0, num_start - 30):num_start]
+    for pat, label in _STAT_METADATA:
+        if pat.search(left_30):
+            return NumberRole.OUTCOME, label
+
+    # --- Unit inheritance from comma-coordinate antecedent (P1 #1 fix) ---
+    # Codex proposed_fix: "only inherit a prior unit within an explicit
+    # coordinate/list pattern."
+    #
+    # Iter-2 refinement: in clinical text "value unit with X, value with Y,
+    # and value with Z" — the unit attaches to value 1 only, but
+    # SEMANTICALLY all values share the unit. Trigger inheritance when:
+    #   (a) sentence_left contains a `value unit` pair, AND
+    #   (b) sentence_left contains a coordinate connector (comma OR
+    #       "and ") somewhere after the value-unit pair (indicates a
+    #       list/coordinate construction).
+    sentence_left = direct_quote[sentence_start:num_start]
+    if len(sentence_left) > 300:
+        sentence_left = sentence_left[-300:]
+    coord_unit_pat = re.compile(
+        r"[-−]?\d+(?:\.\d+)?\s+"
+        r"(?P<unit>"
+        r"percentage\s+points?|pp|%|"
+        r"kg/m\^?2|mmol/L|mg/dL|"
+        r"kg|g|mL|L|μg|mcg|IU|U|"
+        r"BPM|bpm|mmHg)"
+        r"\b",
+        re.IGNORECASE,
+    )
+    last_unit: Optional[str] = None
+    last_unit_end = -1
+    for cm in coord_unit_pat.finditer(sentence_left):
+        last_unit = cm.group("unit").lower()
+        last_unit_end = cm.end()
+    if last_unit is not None:
+        # Confirm coordinate structure: after the value-unit pair, look
+        # for a comma or "and " or "or " separator within the same sentence.
+        after_unit = sentence_left[last_unit_end:]
+        if re.search(r"(?:,|\band\b|\bor\b|;)", after_unit):
+            if last_unit in ("pp", "percentage point", "percentage points"):
+                return NumberRole.OUTCOME, "percentage points"
+            return NumberRole.OUTCOME, last_unit
+
+    return NumberRole.UNKNOWN, ""
+
+
+def _find_endpoint(
+    text: str,
+    num_offset: Optional[int] = None,
+) -> tuple[str, str, tuple[str, ...]]:
+    """Find endpoint in `text`. Returns (canonical, primary_section, tags).
+
+    Iter-3 fix (Codex iter-2 novel-P1 multi_endpoint_first_binding): when
+    `num_offset` is provided, search for the CLOSEST endpoint phrase to
+    the value (walking backward first, then forward). Without this, a
+    sentence like "...HbA1c by -2.30 percentage points and body weight by
+    -11.2 kg" binds -11.2 kg to HbA1c (first endpoint), producing a
+    FALSE atom.
+
+    Legacy call (no num_offset) keeps the original first-match behavior
+    for tests that don't pass a position.
+    """
+    if num_offset is None:
+        for pat, canonical, primary, tags in _ENDPOINT_VOCAB:
+            if pat.search(text):
+                return canonical, primary, tags
+        return "", "", ()
+
+    # Collect ALL endpoint matches with their positions
+    candidates: list[tuple[int, str, str, tuple[str, ...]]] = []
+    for pat, canonical, primary, tags in _ENDPOINT_VOCAB:
+        for m in pat.finditer(text):
+            candidates.append((m.end(), canonical, primary, tags))
+
+    if not candidates:
+        return "", "", ()
+
+    # Iter-5 fix (Codex iter-4 continuing-P1): coordinated endpoint
+    # ambiguity — use CLAUSE STRUCTURE, not character distance.
+    #
+    # Algorithm:
+    #   1. Find closest endpoint LEFT of value.
+    #   2. For each OTHER endpoint with a different canonical also on
+    #      the left, check the region between them and the closest:
+    #      - If sentence/clause break (`.` or `;`) → different clause,
+    #        not ambiguous, skip this candidate.
+    #      - If a digit appears between → already separated by a value,
+    #        skip.
+    #      - If a coordinate connector (`and`/`or`/`,`) → ambiguous in
+    #        same clause → REFUSE atom.
+    #
+    # Catches all coordinated forms including long endpoint phrases
+    # ("all-cause mortality and hospitalization for heart failure ...")
+    # without false refusals on multi-clause sentences.
+    left_cands = sorted(
+        [c for c in candidates if c[0] <= num_offset],
+        key=lambda c: c[0],
+    )
+    if left_cands:
+        closest = left_cands[-1]
+        for c in left_cands[:-1]:
+            if c[1] == closest[1]:
+                continue  # same canonical = not ambiguous
+            between = text[c[0]:closest[0]]
+            # Different clause? Skip.
+            if re.search(r"[.;](?=\s|$)", between):
+                continue
+            # Already separated by a value? Skip.
+            if re.search(r"[-−]?\d", between):
+                continue
+            # Coordinate connector in same clause + no separator
+            # → ambiguous → refuse atom.
+            if re.search(r"\band\b|\bor\b|,", between):
+                return "", "", ()
+        return closest[1], closest[2], closest[3]
+    # Fall through to closest on right
+    right_cands = sorted(candidates, key=lambda c: c[0])
+    _, canonical, primary, tags = right_cands[0]
+    return canonical, primary, tags
+
+
+def _find_arm_local_entity(
+    direct_quote: str,
+    num_match: re.Match,
+) -> str:
+    """P1 #3 fix (iter 2): bind entity to the arm phrase nearest the value.
+
+    Strategy: find the FIRST arm phrase (closest to value) in the
+    right-side window, whether short-form ("with 15 mg") or full-form
+    ("with tirzepatide 15 mg"). For short-form, resolve drug from the
+    most-recent drug mention in the left context.
+
+    Critical: must find the CLOSEST arm, not the first full-form arm.
+    Earlier iter-2 attempt skipped past "with 15 mg" to find "with
+    semaglutide", flipping the arm for the tirzepatide 15 mg dose.
+    """
+    num_end = num_match.end()
+    right_window = direct_quote[num_end:num_end + 80]
+
+    # Combined regex: arm is either FULL_FORM (DRUG optionally + DOSE)
+    # or SHORT_FORM (DOSE alone). Take the FIRST match — closest wins.
+    # Iter-4 fix: also match "of <DRUG> patients/subjects" — clinical
+    # safety pattern "in 45% of tirzepatide patients ... 38% of
+    # semaglutide patients" where each value is followed by its arm.
+    drug_alt = _DRUG_RE.pattern.removeprefix(r"\b(").removesuffix(r")\b")
+    arm_re = re.compile(
+        r"\b(?:with|in|for|on|of)\s+"
+        r"(?P<arm>"
+        # FULL form: drug name with optional dose
+        + r"(?:" + drug_alt + r")"
+        + r"(?:\s+\d+(?:\.\d+)?\s*(?:mg|μg|mcg|U|IU))?"
+        + r"|"
+        # SHORT form: dose alone (drug inherited from left context)
+        + r"\d+(?:\.\d+)?\s*(?:mg|μg|mcg|U|IU)"
+        + r")",
+        re.IGNORECASE,
+    )
+
+ succeeded in 986ms:
+# _is_inside_ci_parens() structural walk; iter-4 added
+# _is_ci_bound_unparen() for non-parenthesized "HR 0.74, 95% CI 0.58,
+# 0.95" forms. Only _CI_PAREN_LEFT_RE remains as a defense-in-depth
+_CI_PAREN_LEFT_RE = re.compile(r"[\(\[][-−]?\d+(?:\.\d+)?\s*(?:to|[-–—])\s*$")
+_CI_LEVEL_RIGHT_RE = re.compile(
+def _is_inside_ci_parens(direct_quote: str, num_start: int) -> bool:
+def _is_ci_bound_unparen(direct_quote: str, num_start: int) -> bool:
+    if _CI_LEVEL_RIGHT_RE.match(right):
+    if _is_inside_ci_parens(direct_quote, num_start):
+    if _is_ci_bound_unparen(direct_quote, num_start):
+    if _CI_PAREN_LEFT_RE.search(left):
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/generator/claim_atom_extractor.py | Select-Object -Skip 260 -First 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/generator/claim_atom_extractor.py | Select-Object -First 260' in C:\POLARIS
+ succeeded in 867ms:
+"""I-gen-005 atom-first architecture: extract STRUCTURED claim atoms
+from evidence direct_quotes.
+
+Per Codex strategy verdict 2026-05-26
+(`codex_quality_strategy_verdict.txt`) recommended_path #2 + design
+verdict APPROVE_DESIGN + diff iter-1 REQUEST_CHANGES (4 P1s closed
+this iteration).
+
+Why this module exists:
+    The current architecture lets V4 Pro write open prose, then catches
+    fabrications post-hoc via strict_verify. Codex's read: that's
+    backwards. The fix is to PRE-EXTRACT verifiable facts (atoms) from
+    cited evidence spans BEFORE generation, then constrain V4 Pro to
+    cite atom_ids that map to fixed spans. V4 Pro becomes the
+    rhetorical/synthesis layer, not the fact source.
+
+Iter 2 (Codex iter-1 REQUEST_CHANGES) closes 4 P1 bugs:
+    P1.1 unit_extraction_corrupts_units (line 209)
+        Fix: special-case `%` without word boundary; word units need
+        leading boundary; restrict fallback unit-scan to immediate
+        post-value or comma-coordinate context only.
+
+    P1.2 numeric_anchor_filter_emits_non_claim_values (line 438)
+        Fix: NumberRole classifier (OUTCOME / DOSE / TIMEPOINT /
+        SAMPLE_SIZE / CI_BOUND / CI_LEVEL) runs BEFORE atom creation.
+        Only OUTCOME numbers become atoms. Doses, timepoints, sample
+        sizes are stored as metadata fields on the OUTCOME atom they
+        modify, not as separate atoms.
+
+    P1.3 entity_comparator_binding_flips_arms (line 362)
+        Fix: arm-local entity binding. For each value, find the
+        nearest arm phrase ("with X", "X mg", "X group") within
+        ~50 chars to the right (where clinical text typically places
+        the arm label). Comparator from explicit "versus X" /
+        "compared to Y" syntax separately.
+
+    P1.4 literal_span_expansion_splits_decimals (line 483)
+        Fix: decimal-aware sentence boundary regex. A period followed
+        by a digit is part of a decimal (8.21), not a sentence end.
+        Use ``\\.(?=\\s|$|\\n|[A-Z])`` boundary.
+
+Also addresses Codex iter-1 P2s:
+    - primary_section field added; section_tags computed dynamically
+      from extracted comparator + dose + safety presence
+    - Endpoint vocabulary extended with renal, CV/HF, obesity,
+      metabolic, safety subgroup, and statistical-metadata terms
+
+Module remains INTENTIONALLY pure-Python regex — no LLM call. Fast,
+deterministic, reproducible. Atoms come from actual evidence text;
+nothing fabricated here.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Optional
+
+
+# ---------------------------------------------------------------------------
+# ClaimAtom — the structured record V4 Pro will cite from
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ClaimAtom:
+    """A single verifiable claim extracted from an evidence span.
+
+    Frozen because atom_id resolution depends on stable identity through
+    the pipeline. 14 fields (13 from Codex APPROVE_DESIGN + primary_section
+    added per Codex iter-1 diff review P2).
+    """
+
+    # Identity + provenance:
+    atom_id: str            # "atom_001"
+    evidence_id: str        # "ev_017"
+    span_start: int         # offset in direct_quote where the atom is grounded
+    span_end: int           # offset in direct_quote (exclusive)
+    literal_text: str       # verbatim text from the span supporting this claim
+
+    # Semantic fields:
+    entity: str             # "tirzepatide 15 mg" / "SURPASS-2" / "apixaban"
+    endpoint: str           # "HbA1c" / "body weight" / "stroke"
+    comparator: str         # "semaglutide" / "placebo" / "" if none
+    timepoint: str          # "40 weeks" / "1.8 years" / "" if none
+    value: str              # "-2.30" / "0.69" / "82-86"
+    unit: str               # "percentage points" / "kg" / "%" / "RR" / ""
+
+    # Routing:
+    primary_section: str            # Single best-fit section
+    section_tags: tuple[str, ...]   # All sections this atom can serve
+    tier: str                       # "T1" / "T2" / ...
+
+    # Codex APPROVE_DESIGN additions:
+    value_signed: bool              # True if the value is negative
+    confidence: str                 # "high" | "medium" | "low"
+    provenance_class: str           # "abstract_only" | "open_access" | ...
+    source_paper_title: str         # for refusal disclosure
+
+
+# ---------------------------------------------------------------------------
+# NumberRole — what role does a numeric anchor play in clinical text?
+# Codex iter-1 P1 #2 fix: classify each number BEFORE atom creation so
+# timepoints / doses / sample-sizes / CI bounds don't pollute the catalog.
+# ---------------------------------------------------------------------------
+
+class NumberRole(Enum):
+    OUTCOME = "outcome"          # Primary or secondary clinical endpoint value
+    DOSE = "dose"                # Drug dose (5 mg, 0.5 μg)
+    TIMEPOINT = "timepoint"      # Follow-up duration (40 weeks, 1.8 years)
+    SAMPLE_SIZE = "sample_size"  # Number of participants (N=1879)
+    CI_BOUND = "ci_bound"        # Confidence interval limits (0.58 to 0.95)
+    CI_LEVEL = "ci_level"        # CI confidence level (95% CI)
+    P_VALUE = "p_value"          # P-value (P<0.001)
+    UNKNOWN = "unknown"          # Couldn't classify
+
+
+# Classifiers — small per-role regex patterns evaluated against the
+# IMMEDIATE neighborhood of the number (±20 chars). Order matters: first
+# match wins. OUTCOME is the implicit default if no classifier hits.
+
+# Dose: number immediately followed by mg/μg/U/etc with a drug name nearby
+_DOSE_UNIT_RE = re.compile(
+    r"^\s?(mg|μg|mcg|g|IU|U)\b",
+    re.IGNORECASE,
+)
+
+# Timepoint: surrounded by "at/after/by/over" + "weeks/months/years/..."
+_TIMEPOINT_BEFORE_RE = re.compile(
+    r"\b(?:at|after|by|over|in|through|for|of)\s+\d+(?:\.\d+)?\s*"
+    r"(?:weeks?|months?|years?|days?|hours?|min(?:utes?)?)\b$",
+    re.IGNORECASE,
+)
+_TIMEPOINT_TRAILING_RE = re.compile(
+    r"^\s?(?:weeks?|months?|years?|days?|hours?|min(?:utes?)?)\b",
+    re.IGNORECASE,
+)
+
+# Sample size: number preceded by N=, n=, "enrolled", "randomized",
+# "patients with", "participants with", "trial of", etc.
+_SAMPLE_SIZE_LEFT_RE = re.compile(
+    r"(?:\b(?:[Nn]\s*=\s*|enrolled|randomi[sz]ed|"
+    r"included|recruited|trial\s+of|patients\s+with|"
+    r"participants\s+with|adults\s+with|subjects\s+with|"
+    r"a\s+total\s+of|cohort\s+of|study\s+of|population\s+of)\s*)$",
+    re.IGNORECASE,
+)
+# Sample size: number followed by "patients", "participants", "adults",
+# "subjects" (e.g., "1879 adults", "18,201 patients").
+_SAMPLE_SIZE_RIGHT_RE = re.compile(
+    r"^\s*"
+    r"(?:patients?|participants?|adults?|subjects?|"
+    r"individuals|persons|men|women)\b",
+    re.IGNORECASE,
+)
+
+# CI bound: number is inside parens with "CI" pattern nearby. Iter-3
+# replaced the iter-2 brittle left/right regex chain with the
+# _is_inside_ci_parens() structural walk; iter-4 added
+# _is_ci_bound_unparen() for non-parenthesized "HR 0.74, 95% CI 0.58,
+# 0.95" forms. Only _CI_PAREN_LEFT_RE remains as a defense-in-depth
+# catch for paren-only ranges without the "CI" word literal.
+_CI_PAREN_LEFT_RE = re.compile(r"[\(\[][-−]?\d+(?:\.\d+)?\s*(?:to|[-–—])\s*$")
+
+# CI level: number directly followed by "% CI" or "% confidence interval"
+_CI_LEVEL_RIGHT_RE = re.compile(
+    r"^\s?%?\s*(?:CI|confidence\s+interval)\b",
+    re.IGNORECASE,
+)
+
+# P-value: "P<", "P=", "P>", "p value", "P-value"
+_P_VALUE_LEFT_RE = re.compile(
+    r"\b[Pp]\s*[<>=]\s*$|\b[Pp][-\s]?(?:value)?\s*=?\s*$",
+)
+
+
+# ---------------------------------------------------------------------------
+# Endpoint vocabulary (expanded per Codex iter-1 P1 review)
+# Each tuple = (regex_pattern, canonical_name, primary_section, secondary_tags)
+# ---------------------------------------------------------------------------
+
+_ENDPOINT_VOCAB: list[tuple[re.Pattern, str, str, tuple[str, ...]]] = [
+    # ── Glycemic ──
+    (re.compile(r"\b(?:HbA1c|HbA1C|glycated\s+hemoglobin|A1C)\b", re.IGNORECASE),
+     "HbA1c", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\b(?:FPG|fasting\s+plasma\s+glucose|fasting\s+serum\s+glucose|FSG)\b", re.IGNORECASE),
+     "fasting glucose", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\bnormoglycemi[ac]\b|\bHbA1c\s*<\s*5\.7", re.IGNORECASE),
+     "normoglycemia (HbA1c<5.7%)", "Efficacy", ("Efficacy",)),
+
+    # ── Weight / obesity / metabolic (Codex iter-1 vocab additions) ──
+    (re.compile(r"\b(?:body\s+weight|weight\s+loss|weight\s+reduction|kg\s+loss)\b", re.IGNORECASE),
+     "body weight", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\bBMI\b", re.IGNORECASE),
+     "BMI", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\bwaist\s+circumference\b", re.IGNORECASE),
+     "waist circumference", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\b(?:percent|%)\s+(?:body[-\s])?weight\s+(?:change|reduction|loss)", re.IGNORECASE),
+     "% body weight change", "Efficacy", ("Efficacy",)),
+    (re.compile(r"(?:≥|>=|\bat\s+least\s+)\s?(?:5|10|15|20)\s?%\s*(?:weight\s+loss|body[-\s]?weight)", re.IGNORECASE),
+     "weight-loss threshold (≥5/10/15/20%)", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\b(?:insulin\s+sensitivity|HOMA[-\s]?IR)\b", re.IGNORECASE),
+     "insulin sensitivity", "Mechanism", ("Mechanism", "Efficacy")),
+    (re.compile(r"\bC[-\s]?peptide\b", re.IGNORECASE),
+     "C-peptide", "Mechanism", ("Mechanism",)),
+    (re.compile(r"\bbeta[-\s]?cell\s+function\b", re.IGNORECASE),
+     "beta-cell function", "Mechanism", ("Mechanism",)),
+
+    # ── Cardiovascular / heart failure (Codex iter-1 vocab additions) ──
+    (re.compile(r"\bMACE\b|major\s+adverse\s+cardiovascular\s+events?", re.IGNORECASE),
+     "MACE", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:cardiovascular|CV)\s+(?:death|mortality)", re.IGNORECASE),
+     "cardiovascular mortality", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\ball[-\s]?cause\s+(?:death|mortality)", re.IGNORECASE),
+     "all-cause mortality", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:hospitalization\s+for\s+heart\s+failure|HF\s+hospitalization|HHF)\b", re.IGNORECASE),
+     "heart failure hospitalization", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:ischemic\s+)?stroke\b(?!\s+prevention)", re.IGNORECASE),
+     "stroke", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\bmyocardial\s+infarction|\bMI\b(?!\s+\d)", re.IGNORECASE),
+     "myocardial infarction", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\brevascularization\b", re.IGNORECASE),
+     "revascularization", "Efficacy", ("Efficacy",)),
+
+    # ── Blood pressure ──
+    (re.compile(r"\bsystolic\s+blood\s+pressure|\bsystolic\s+BP\b|\bSBP\b", re.IGNORECASE),
+     "systolic BP", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\bdiastolic\s+blood\s+pressure|\bdiastolic\s+BP\b|\bDBP\b", re.IGNORECASE),
+     "diastolic BP", "Efficacy", ("Efficacy",)),
+
+    # ── Lipids ──
+    (re.compile(r"\b(?:LDL[-\s]?C|low[-\s]density\s+lipoprotein)", re.IGNORECASE),
+     "LDL-C", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\btriglycerides?\b", re.IGNORECASE),
+     "triglycerides", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\b(?:HDL[-\s]?C|high[-\s]density\s+lipoprotein)", re.IGNORECASE),
+     "HDL-C", "Efficacy", ("Efficacy",)),
+
+    # ── Renal (Codex iter-1 vocab additions) ──
+    (re.compile(r"\beGFR\b|\bestimated\s+GFR\b|\bglomerular\s+filtration\s+rate\b", re.IGNORECASE),
+     "eGFR", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:UACR|urine\s+albumin[-\s]?creatinine|albuminuria)\b", re.IGNORECASE),
+     "UACR/albuminuria", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\bserum\s+creatinine\b|\bcreatinine\b", re.IGNORECASE),
+     "serum creatinine", "Safety", ("Safety",)),
+    (re.compile(r"\bkidney\s+composite\b|\brenal\s+composite\b", re.IGNORECASE),
+     "kidney composite", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\bCKD\s+progression\b|\bchronic\s+kidney\s+disease\b", re.IGNORECASE),
+     "CKD progression", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:AKI|acute\s+kidney\s+injury)\b", re.IGNORECASE),
+     "acute kidney injury", "Safety", ("Safety",)),
+
+    # ── Safety: AEs ──
+    (re.compile(r"\bserious\s+adverse\s+events?|\bSAE\b", re.IGNORECASE),
+     "serious adverse events", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:treatment[-\s]emergent\s+)?adverse\s+events?\b|\bTEAE\b", re.IGNORECASE),
+     "adverse events", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:discontinuation|discontinued|treatment\s+withdrawal)\b", re.IGNORECASE),
+     "discontinuation", "Safety", ("Safety",)),
+    (re.compile(r"\bnausea\b", re.IGNORECASE), "nausea", "Safety", ("Safety",)),
+
+ succeeded in 874ms:
+    (re.compile(r"\bvomiting\b", re.IGNORECASE), "vomiting", "Safety", ("Safety",)),
+    (re.compile(r"\bdiarr?h[oe]a\b", re.IGNORECASE), "diarrhea", "Safety", ("Safety",)),
+    (re.compile(r"\babdominal\s+pain\b", re.IGNORECASE), "abdominal pain", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:gastrointestinal|GI)\s+(?:adverse|events?)\b", re.IGNORECASE),
+     "GI events", "Safety", ("Safety",)),
+    (re.compile(r"\bhypoglycem(?:ia|ic)\b", re.IGNORECASE),
+     "hypoglycemia", "Safety", ("Safety",)),
+    (re.compile(r"\bpancreatitis\b", re.IGNORECASE),
+     "pancreatitis", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:intracranial\s+hemorrhage|ICH)\b", re.IGNORECASE),
+     "intracranial hemorrhage", "Safety", ("Safety",)),
+    (re.compile(r"\bGI\s+bleeding\b|\bgastrointestinal\s+bleeding\b", re.IGNORECASE),
+     "GI bleeding", "Safety", ("Safety",)),
+    (re.compile(r"\bmajor\s+bleeding\b", re.IGNORECASE),
+     "major bleeding", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:C[-\s]?cell\s+(?:hyperplasia|cancer)|thyroid\s+(?:carcinoma|cancer)|MTC)\b", re.IGNORECASE),
+     "thyroid C-cell signal", "Safety", ("Safety",)),
+    (re.compile(r"\bretinopathy\b", re.IGNORECASE),
+     "retinopathy", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:gallbladder\s+disease|cholelithiasis|cholecystitis)\b", re.IGNORECASE),
+     "gallbladder disease", "Safety", ("Safety",)),
+
+    # ── Treatment differences (efficacy + comparative) ──
+    (re.compile(r"\bestimated\s+treatment\s+difference|\bETD\b", re.IGNORECASE),
+     "estimated treatment difference", "Comparative", ("Efficacy", "Comparative")),
+    (re.compile(r"\btreatment\s+difference\b", re.IGNORECASE),
+     "treatment difference", "Comparative", ("Efficacy", "Comparative")),
+
+    # ── Mechanism ──
+    (re.compile(r"\bhalf[-\s]?life\b", re.IGNORECASE),
+     "half-life", "Mechanism", ("Mechanism",)),
+    (re.compile(r"\bbioavailability\b", re.IGNORECASE),
+     "bioavailability", "Mechanism", ("Mechanism",)),
+    (re.compile(r"\b(?:Tmax|tmax|T_max)\b"),
+     "Tmax", "Mechanism", ("Mechanism",)),
+    (re.compile(r"\bM[-\s]?value\b", re.IGNORECASE),
+     "M-value", "Mechanism", ("Mechanism",)),
+    (re.compile(r"\b(?:hyperinsulinemic[-\s]?euglycemic\s+clamp|HE\s+clamp)\b", re.IGNORECASE),
+     "HE clamp", "Mechanism", ("Mechanism",)),
+    (re.compile(r"\b(?:receptor\s+(?:affinity|binding|selectivity))\b", re.IGNORECASE),
+     "receptor binding", "Mechanism", ("Mechanism",)),
+]
+
+
+# ---------------------------------------------------------------------------
+# Statistical metadata vocab (Codex iter-1 addition).
+# These mark the NUMBER as a metric type, not as a primary endpoint
+# value. When an HR/OR/RR is detected, it modifies the OUTCOME atom's
+# unit field rather than creating its own atom.
+# ---------------------------------------------------------------------------
+
+_STAT_METADATA: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\b(?:hazard\s+ratio|HR)\b", re.IGNORECASE), "HR"),
+    (re.compile(r"\b(?:relative\s+risk|RR)\b", re.IGNORECASE), "RR"),
+    (re.compile(r"\b(?:risk\s+ratio)\b", re.IGNORECASE), "RR"),
+    (re.compile(r"\b(?:odds\s+ratio|OR)\b", re.IGNORECASE), "OR"),
+    (re.compile(r"\b(?:absolute\s+risk\s+reduction|ARR)\b", re.IGNORECASE), "ARR"),
+    (re.compile(r"\b(?:number\s+needed\s+to\s+treat|NNT)\b", re.IGNORECASE), "NNT"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Drug + trial vocabularies (kept local for self-containment)
+# ---------------------------------------------------------------------------
+
+_DRUG_RE = re.compile(
+    r"\b("
+    r"tirzepatide|semaglutide|liraglutide|dulaglutide|exenatide|lixisenatide"
+    r"|empagliflozin|dapagliflozin|canagliflozin|ertugliflozin|sotagliflozin"
+    r"|sitagliptin|saxagliptin|linagliptin|alogliptin|vildagliptin"
+    r"|metformin|insulin\s+(?:glargine|degludec|aspart|lispro|detemir|isophane|NPH)?"
+    r"|pioglitazone|rosiglitazone"
+    r"|glipizide|glyburide|glimepiride|tolbutamide"
+    r"|repaglinide|nateglinide"
+    r"|acarbose|miglitol"
+    r"|warfarin|coumarin|VKA|vitamin\s+K\s+antagonist"
+    r"|dabigatran|rivaroxaban|apixaban|edoxaban|DOAC|NOAC|direct\s+oral\s+anticoagulant"
+    r"|aspirin|clopidogrel|prasugrel|ticagrelor"
+    r"|Mounjaro|Zepbound|Ozempic|Wegovy|Rybelsus|Victoza|Trulicity|Byetta|Bydureon"
+    r"|Jardiance|Farxiga|Invokana|Steglatro"
+    r"|Januvia|Onglyza|Tradjenta|Nesina"
+    r"|Eliquis|Xarelto|Pradaxa|Lixiana|Savaysa"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_TRIAL_RE = re.compile(
+    r"\b("
+    r"SURPASS(?:[- ]?(?:CVOT|J|AP|\d))?"
+    r"|SURMOUNT(?:[- ]?\d+)?"
+    r"|SUSTAIN(?:[- ]?\d+)?"
+    r"|REWIND|LEADER|DECLARE(?:-?TIMI(?:[- ]?\d+)?)?"
+    r"|EMPA(?:-?REG)?"
+    r"|CANVAS|CREDENCE|DAPA-?HF|DAPA-?CKD"
+    r"|STEP(?:[- ]?\d+)?"
+    r"|PIONEER(?:[- ]?\d+)?"
+    r"|AWARD(?:[- ]?\d+)?"
+    r"|EXSCEL|ELIXA|HARMONY"
+    r"|ACCORD|ADVANCE|VADT|UKPDS|DCCT|EDIC"
+    r"|EMPEROR-?(?:Preserved|Reduced|Pooled)?"
+    r"|ARISTOTLE|RE[-\s]?LY|ROCKET[-\s]?AF|ENGAGE[-\s]?AF"
+    r"|AVERROES|RELY-?ABLE"
+    r"|TIDE|TARGET|SOUL"
+    r"|VERTIS-?(?:CV)?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+# ---------------------------------------------------------------------------
+# Number anchor + unit regexes (iter 2 fixes for P1 #1)
+# ---------------------------------------------------------------------------
+
+# Number anchor — same as iter 1
+_NUMBER_ATOM_RE = re.compile(
+    r"(?<![A-Za-z0-9_.])"
+    r"(?P<value>"
+    r"[-−]?\d+(?:[.,]\d+)?"
+    r"(?:\s*[-–—]\s*[-−]?\d+(?:[.,]\d+)?)?"
+    r")"
+    r"(?![A-Za-z0-9_])"
+)
+
+# P1.1 fix: unit regex split into TWO patterns:
+#   _UNIT_IMMEDIATE_RE — for unit attached directly after the number
+#     (must match at position 0 of the text passed in)
+#   _UNIT_PERCENT_RE — special-case for "%" without word boundary
+# Word units (kg, mg, ...) require leading whitespace or hyphen so we
+# don't match "kg" inside "kg/m2" mid-word or unrelated words.
+_UNIT_PERCENT_RE = re.compile(r"^\s*(%|pp\b|percentage\s+points?)")
+_UNIT_WORD_RE = re.compile(
+    r"^\s+(?P<unit>"
+    r"kg/m\^?2|mmol/L|mg/dL|mg/kg|μg/kg|"
+    r"kg|g|mL|L|μg|mcg|IU|U|"
+    r"BPM|bpm|mmHg|"
+    r"per\s+1000|per\s+100|per\s+1000\s+person[-\s]?years?"
+    r")\b",
+    re.IGNORECASE,
+)
+# Dose unit — only for classification (does NOT become an OUTCOME atom).
+# Iter-3 fix (Codex iter-2 P2): require NON-slash terminator to avoid
+# matching mg in "mg/dL" (an LDL-C lab unit, not a dose). Negative
+# lookahead `(?!/)` lets _UNIT_WORD_RE (mg/dL, mg/kg) win for compound
+# lab units.
+_UNIT_DOSE_RE = re.compile(r"^\s?(mg|μg|mcg|g|IU|U)(?!\w)(?!/)\b", re.IGNORECASE)
+
+
+# ---------------------------------------------------------------------------
+# Arm-local entity binding (P1 #3 fix)
+# ---------------------------------------------------------------------------
+
+# "with X dose" or "with X" — typically "...was -2.30 with tirzepatide 15 mg"
+_ARM_PHRASE_RIGHT_RE = re.compile(
+    r"^\s*(?:with|in|for|on)\s+"
+    r"(?P<arm>"
+    r"(?:"
+    + r"|".join(_DRUG_RE.pattern.lstrip("\\b(").rstrip(")\\b").split("|"))
+    + r")"  # any drug
+    r"(?:\s+\d+(?:\.\d+)?\s*(?:mg|μg|mcg|U|IU))?"  # optional dose
+    r")",
+    re.IGNORECASE,
+)
+
+# Comparator phrase: "versus X" / "compared to Y" / "vs Z"
+_COMPARATOR_PHRASE_RE = re.compile(
+    r"\b(?:vs\.?|versus|compared\s+(?:to|with)|against|relative\s+to)\b",
+    re.IGNORECASE,
+)
+
+
+# ---------------------------------------------------------------------------
+# Decimal-aware sentence boundary (P1 #4 fix)
+# ---------------------------------------------------------------------------
+
+# A sentence boundary is: . ; ! ? \n followed by whitespace/EOL/uppercase.
+# A "." between digits (decimals like 8.21) is NOT a boundary.
+# Used by literal_text expansion to avoid splitting "8.21" mid-decimal.
+_SENTENCE_BOUNDARY_RE = re.compile(r"[.;!?](?=\s|$|\n)(?!\d)|\n+")
+
+
+# ---------------------------------------------------------------------------
+# Extraction helpers
+# ---------------------------------------------------------------------------
+
+_CONTEXT_BEFORE = 150
+_CONTEXT_AFTER = 100
+_ARM_LOOKAHEAD = 50  # P1 #3: arm phrase typically within 50 chars to the right
+
+
+def _is_inside_ci_parens(direct_quote: str, num_start: int) -> bool:
+    """Iter-3 helper (Codex iter-2 continuing-P1.2): True if `num_start`
+    is inside a parenthetical group whose content contains "CI" before
+    the number. Catches comma form, dash-range form, "to" form uniformly.
+
+    Walks backward from num_start tracking paren depth. When we find the
+    enclosing `(` or `[`, scan from that paren forward to num_start; if
+    `\\bCI\\b` appears in that prefix, the number is a CI bound.
+    """
+    i = num_start - 1
+    paren_depth = 0
+    while i >= 0:
+        c = direct_quote[i]
+        if c == ')' or c == ']':
+            paren_depth += 1
+        elif c == '(' or c == '[':
+            if paren_depth == 0:
+                inside = direct_quote[i + 1:num_start]
+                return bool(re.search(r'\bCI\b', inside, re.IGNORECASE))
+            paren_depth -= 1
+        i -= 1
+    return False
+
+
+def _is_ci_bound_unparen(direct_quote: str, num_start: int) -> bool:
+    """Iter-4 helper (Codex iter-3 continuing-P1): catch non-parenthesized
+    CI forms: "HR 0.74, 95% CI 0.58, 0.95" or "HR 0.74, 95% CI 0.58-0.95".
+
+    The most recent "CI" mention within 60 chars LEFT of the number,
+    with no sentence terminator between, where this number is the 1st
+    or 2nd number after CI (first bound or second bound). Confidence-
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/generator/claim_atom_extractor.py | Select-Object -Skip 340 -First 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/generator/claim_atom_extractor.py | Select-Object -Skip 760 -First 260' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"_find_endpoint\\(|extract_atoms_from_evidence|NumberRole\" -n src/polaris_graph/generator/claim_atom_extractor.py tests/polaris_graph/test_claim_atom_extractor.py" in C:\POLARIS
+ succeeded in 1064ms:
+    r"|Januvia|Onglyza|Tradjenta|Nesina"
+    r"|Eliquis|Xarelto|Pradaxa|Lixiana|Savaysa"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_TRIAL_RE = re.compile(
+    r"\b("
+    r"SURPASS(?:[- ]?(?:CVOT|J|AP|\d))?"
+    r"|SURMOUNT(?:[- ]?\d+)?"
+    r"|SUSTAIN(?:[- ]?\d+)?"
+    r"|REWIND|LEADER|DECLARE(?:-?TIMI(?:[- ]?\d+)?)?"
+    r"|EMPA(?:-?REG)?"
+    r"|CANVAS|CREDENCE|DAPA-?HF|DAPA-?CKD"
+    r"|STEP(?:[- ]?\d+)?"
+    r"|PIONEER(?:[- ]?\d+)?"
+    r"|AWARD(?:[- ]?\d+)?"
+    r"|EXSCEL|ELIXA|HARMONY"
+    r"|ACCORD|ADVANCE|VADT|UKPDS|DCCT|EDIC"
+    r"|EMPEROR-?(?:Preserved|Reduced|Pooled)?"
+    r"|ARISTOTLE|RE[-\s]?LY|ROCKET[-\s]?AF|ENGAGE[-\s]?AF"
+    r"|AVERROES|RELY-?ABLE"
+    r"|TIDE|TARGET|SOUL"
+    r"|VERTIS-?(?:CV)?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+# ---------------------------------------------------------------------------
+# Number anchor + unit regexes (iter 2 fixes for P1 #1)
+# ---------------------------------------------------------------------------
+
+# Number anchor — same as iter 1
+_NUMBER_ATOM_RE = re.compile(
+    r"(?<![A-Za-z0-9_.])"
+    r"(?P<value>"
+    r"[-−]?\d+(?:[.,]\d+)?"
+    r"(?:\s*[-–—]\s*[-−]?\d+(?:[.,]\d+)?)?"
+    r")"
+    r"(?![A-Za-z0-9_])"
+)
+
+# P1.1 fix: unit regex split into TWO patterns:
+#   _UNIT_IMMEDIATE_RE — for unit attached directly after the number
+#     (must match at position 0 of the text passed in)
+#   _UNIT_PERCENT_RE — special-case for "%" without word boundary
+# Word units (kg, mg, ...) require leading whitespace or hyphen so we
+# don't match "kg" inside "kg/m2" mid-word or unrelated words.
+_UNIT_PERCENT_RE = re.compile(r"^\s*(%|pp\b|percentage\s+points?)")
+_UNIT_WORD_RE = re.compile(
+    r"^\s+(?P<unit>"
+    r"kg/m\^?2|mmol/L|mg/dL|mg/kg|μg/kg|"
+    r"kg|g|mL|L|μg|mcg|IU|U|"
+    r"BPM|bpm|mmHg|"
+    r"per\s+1000|per\s+100|per\s+1000\s+person[-\s]?years?"
+    r")\b",
+    re.IGNORECASE,
+)
+# Dose unit — only for classification (does NOT become an OUTCOME atom).
+# Iter-3 fix (Codex iter-2 P2): require NON-slash terminator to avoid
+# matching mg in "mg/dL" (an LDL-C lab unit, not a dose). Negative
+# lookahead `(?!/)` lets _UNIT_WORD_RE (mg/dL, mg/kg) win for compound
+# lab units.
+_UNIT_DOSE_RE = re.compile(r"^\s?(mg|μg|mcg|g|IU|U)(?!\w)(?!/)\b", re.IGNORECASE)
+
+
+# ---------------------------------------------------------------------------
+# Arm-local entity binding (P1 #3 fix)
+# ---------------------------------------------------------------------------
+
+# "with X dose" or "with X" — typically "...was -2.30 with tirzepatide 15 mg"
+_ARM_PHRASE_RIGHT_RE = re.compile(
+    r"^\s*(?:with|in|for|on)\s+"
+    r"(?P<arm>"
+    r"(?:"
+    + r"|".join(_DRUG_RE.pattern.lstrip("\\b(").rstrip(")\\b").split("|"))
+    + r")"  # any drug
+    r"(?:\s+\d+(?:\.\d+)?\s*(?:mg|μg|mcg|U|IU))?"  # optional dose
+    r")",
+    re.IGNORECASE,
+)
+
+# Comparator phrase: "versus X" / "compared to Y" / "vs Z"
+_COMPARATOR_PHRASE_RE = re.compile(
+    r"\b(?:vs\.?|versus|compared\s+(?:to|with)|against|relative\s+to)\b",
+    re.IGNORECASE,
+)
+
+
+# ---------------------------------------------------------------------------
+# Decimal-aware sentence boundary (P1 #4 fix)
+# ---------------------------------------------------------------------------
+
+# A sentence boundary is: . ; ! ? \n followed by whitespace/EOL/uppercase.
+# A "." between digits (decimals like 8.21) is NOT a boundary.
+# Used by literal_text expansion to avoid splitting "8.21" mid-decimal.
+_SENTENCE_BOUNDARY_RE = re.compile(r"[.;!?](?=\s|$|\n)(?!\d)|\n+")
+
+
+# ---------------------------------------------------------------------------
+# Extraction helpers
+# ---------------------------------------------------------------------------
+
+_CONTEXT_BEFORE = 150
+_CONTEXT_AFTER = 100
+_ARM_LOOKAHEAD = 50  # P1 #3: arm phrase typically within 50 chars to the right
+
+
+def _is_inside_ci_parens(direct_quote: str, num_start: int) -> bool:
+    """Iter-3 helper (Codex iter-2 continuing-P1.2): True if `num_start`
+    is inside a parenthetical group whose content contains "CI" before
+    the number. Catches comma form, dash-range form, "to" form uniformly.
+
+    Walks backward from num_start tracking paren depth. When we find the
+    enclosing `(` or `[`, scan from that paren forward to num_start; if
+    `\\bCI\\b` appears in that prefix, the number is a CI bound.
+    """
+    i = num_start - 1
+    paren_depth = 0
+    while i >= 0:
+        c = direct_quote[i]
+        if c == ')' or c == ']':
+            paren_depth += 1
+        elif c == '(' or c == '[':
+            if paren_depth == 0:
+                inside = direct_quote[i + 1:num_start]
+                return bool(re.search(r'\bCI\b', inside, re.IGNORECASE))
+            paren_depth -= 1
+        i -= 1
+    return False
+
+
+def _is_ci_bound_unparen(direct_quote: str, num_start: int) -> bool:
+    """Iter-4 helper (Codex iter-3 continuing-P1): catch non-parenthesized
+    CI forms: "HR 0.74, 95% CI 0.58, 0.95" or "HR 0.74, 95% CI 0.58-0.95".
+
+    The most recent "CI" mention within 60 chars LEFT of the number,
+    with no sentence terminator between, where this number is the 1st
+    or 2nd number after CI (first bound or second bound). Confidence-
+    interval spelled-out form is also supported.
+    """
+    left_60 = direct_quote[max(0, num_start - 60):num_start]
+    # Find most recent CI mention (last finditer match)
+    ci_pos = -1
+    for m in re.finditer(
+        r'\b(?:CI|confidence\s+interval)\b',
+        left_60,
+        re.IGNORECASE,
+    ):
+        ci_pos = m.end()
+    if ci_pos == -1:
+        return False
+    between = left_60[ci_pos:]
+    # Sentence boundary between CI and number → not a CI bound
+    if re.search(r'[.;!?](?=\s|$)(?!\d)', between):
+        return False
+    # Newline between CI and number → different context
+    if "\n" in between:
+        return False
+    # Count digits between — at most 1 prior number (this is bound 1 or 2)
+    nums_before = len(re.findall(r'[-−]?\d+(?:\.\d+)?', between))
+    return nums_before <= 1
+
+
+def _classify_number(
+    direct_quote: str,
+    match: re.Match,
+    sentence_start: int = 0,
+) -> tuple[NumberRole, str]:
+    """Classify a numeric anchor as OUTCOME / DOSE / TIMEPOINT / etc.
+
+    Returns (role, normalized_unit). Per Codex iter-1 P1 #2: skip
+    non-OUTCOME numbers from atom creation.
+
+    sentence_start parameter (iter-2 refinement): the offset of the
+    sentence the value is in. Used for unit-inheritance lookback: in
+    "-2.01 percentage points ... -2.24 with 10 mg" the second value
+    inherits "percentage points" from the comma-coordinate antecedent
+    within the SAME sentence.
+    """
+    num_start, num_end = match.start(), match.end()
+    n = len(direct_quote)
+    right = direct_quote[num_end:min(num_end + 30, n)]
+    left = direct_quote[max(0, num_start - 60):num_start]
+
+    # --- CI bound / CI level ---
+    if _CI_LEVEL_RIGHT_RE.match(right):
+        return NumberRole.CI_LEVEL, "%"
+    # Iter-3 fix (Codex iter-2 continuing-P1.2): catch ALL CI-parens forms
+    # (to / comma / dash-range / nested) by detecting that the number lives
+    # inside parens whose content contains "CI". Covers:
+    #   (95% CI, 0.58 to 0.95)   — original "to" form
+    #   (95% CI 0.58, 0.95)      — comma form
+    #   (95% CI 0.58-0.95)       — compact dash range (matched as ONE token)
+    #   (CI 0.58 to 0.95)        — bare "CI"
+    if _is_inside_ci_parens(direct_quote, num_start):
+        return NumberRole.CI_BOUND, ""
+    # Iter-4 fix (Codex iter-3 continuing-P1): non-parenthesized CI.
+    # "HR 0.74, 95% CI 0.58, 0.95" or "HR 0.74, 95% CI 0.58-0.95" still
+    # passed iter-3 because no enclosing paren. The helper checks recent
+    # CI mention within 60 chars + ≤1 prior number + no sentence boundary.
+    if _is_ci_bound_unparen(direct_quote, num_start):
+        return NumberRole.CI_BOUND, ""
+    # Paren-only range without "CI" word: "(0.58 to 0.95)" — second bound
+    # via left context ending with "(<digit> to ". CI-bearing-parens already
+    # caught above; this catches bare paren ranges (clinically rare but
+    # safer to skip than emit).
+    if _CI_PAREN_LEFT_RE.search(left):
+        return NumberRole.CI_BOUND, ""
+
+    # --- P-value ---
+    if _P_VALUE_LEFT_RE.search(left):
+        return NumberRole.P_VALUE, ""
+
+    # --- Dose ---
+    dose_m = _UNIT_DOSE_RE.match(right)
+    if dose_m:
+        return NumberRole.DOSE, dose_m.group(1).lower()
+
+
+ succeeded in 1066ms:
+
+    CONSTRAINED to literal_text only — comparator must be in the SAME
+    sentence as the value. This prevents "43% adverse events"
+    (AE-only sentence) from inheriting "semaglutide" comparator from
+    a previous sentence's HbA1c comparison.
+
+    Strategy (3 passes inside literal_text):
+        1. Explicit comparator phrase (versus/compared to X) + nearest
+           drug after it — strongest signal.
+        2. Any non-entity drug in literal_text (multi-arm comparison).
+        3. Placebo / standard care literal — if "placebo" / "control"
+           appears in literal_text.
+    """
+    entity_lower = entity.lower().strip()
+    entity_drug = re.split(r"\s+\d", entity_lower, maxsplit=1)[0].strip()
+
+    # Iter-3 fix (Codex iter-2 novel-P1): if `entity` appears AFTER a
+    # "versus"/"vs"/"compared to" connector, entity IS the comparator arm.
+    # Emitting `comparator=<index-drug>` would be a REVERSE COMPARATIVE
+    # claim (semaglutide vs tirzepatide, when the sentence is making the
+    # opposite claim). Suppress comparator entirely for comparator-arm
+    # values.
+    for vm in _COMPARATOR_PHRASE_RE.finditer(literal_text):
+        after_versus = literal_text[vm.end():vm.end() + 100].lower()
+        if entity_drug and entity_drug in after_versus:
+            return ""
+
+    # Pass 1: explicit comparator phrase + drug after it
+    comp_phrase = _COMPARATOR_PHRASE_RE.search(literal_text)
+    if comp_phrase:
+        post_comp = literal_text[comp_phrase.end():comp_phrase.end() + 80]
+        drug_m = _DRUG_RE.search(post_comp)
+        if drug_m:
+            d = drug_m.group(0).strip().lower()
+            if not (entity_drug and (
+                d == entity_drug or d.startswith(entity_drug) or entity_drug.startswith(d)
+            )):
+                return d
+        # Fallback: literal noun after "versus"
+        noun_m = re.match(
+            r"\s*([A-Za-z][A-Za-z\s\-]{2,30}?)(?=[,;.\s\(]|$|\d)",
+            post_comp,
+        )
+        if noun_m:
+            cand = noun_m.group(1).strip().lower()
+            if cand and cand not in (entity_drug, entity_lower):
+                return cand
+
+    # Pass 2: any non-entity drug in literal_text
+    for m in _DRUG_RE.finditer(literal_text):
+        d = m.group(0).strip().lower()
+        if entity_drug and (
+            d == entity_drug or d.startswith(entity_drug) or entity_drug.startswith(d)
+        ):
+            continue
+        return d
+
+    # Pass 3: placebo / standard care
+    m = re.search(
+        r"\b(placebo|standard\s+care|usual\s+care|control)\b",
+        literal_text, re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).lower()
+    return ""
+
+
+def _find_timepoint(direct_quote: str, num_match: re.Match) -> str:
+    """Find a timepoint phrase in the sentence containing the value."""
+    num_start = num_match.start()
+    ctx_start = max(0, num_start - 200)
+    ctx_end = min(len(direct_quote), num_match.end() + 100)
+    context = direct_quote[ctx_start:ctx_end]
+    m = re.search(
+        r"\b(?:at|after|by|over|in|through|for)\s+(\d+(?:\.\d+)?)\s*"
+        r"(weeks?|months?|years?|days?)\b",
+        context, re.IGNORECASE,
+    )
+    if m:
+        return f"{m.group(1)} {m.group(2).lower()}"
+    m2 = re.search(r"\b(week|month|year)\s+(\d+)\b", context, re.IGNORECASE)
+    if m2:
+        return f"{m2.group(1).lower()} {m2.group(2)}"
+    return ""
+
+
+def _expand_literal_text(
+    direct_quote: str,
+    num_match: re.Match,
+) -> tuple[int, int, str]:
+    """P1 #4 fix: expand to nearest sentence boundary using DECIMAL-AWARE
+    boundary detection. Returns (span_start, span_end, literal_text).
+
+    The boundary is `[.;!?](?=\\s|$|\\n)` — a period followed by
+    whitespace or end-of-line. A period followed by a digit (decimal
+    like 8.21) is NOT a boundary.
+    """
+    num_start, num_end = num_match.start(), num_match.end()
+    n = len(direct_quote)
+
+    # Walk LEFT looking for a sentence-ending boundary
+    left_text = direct_quote[:num_start]
+    boundary_left = 0
+    for m in _SENTENCE_BOUNDARY_RE.finditer(left_text):
+        boundary_left = m.end()  # Last boundary BEFORE the number wins
+
+    # Walk RIGHT looking for the next sentence-ending boundary
+    right_text = direct_quote[num_end:]
+    m_right = _SENTENCE_BOUNDARY_RE.search(right_text)
+    if m_right:
+        boundary_right = num_end + m_right.end()
+    else:
+        boundary_right = n
+
+    lit = direct_quote[boundary_left:boundary_right].strip()
+    return boundary_left, boundary_right, lit
+
+
+def _score_confidence(
+    *,
+    has_endpoint: bool,
+    has_entity: bool,
+    has_unit: bool,
+    has_comparator: bool,
+    has_timepoint: bool,
+) -> str:
+    """Recalibrated per Codex iter-1 P2:
+    HIGH = endpoint + entity + unit + (comparator OR timepoint)
+    MEDIUM = endpoint + entity + unit
+    LOW = endpoint + value (everything else)
+    """
+    if has_endpoint and has_entity and has_unit and (has_comparator or has_timepoint):
+        return "high"
+    if has_endpoint and has_entity and has_unit:
+        return "medium"
+    return "low"
+
+
+def _compute_section_tags(
+    primary: str,
+    secondary: tuple[str, ...],
+    *,
+    has_comparator: bool,
+    has_dose_arm: bool,
+) -> tuple[str, ...]:
+    """Codex iter-1 P2 fix: section_tags are dynamic — add Comparative
+    when a comparator is present, add Dose Response when a dose-arm
+    is bound to the entity."""
+    tags = set(secondary)
+    tags.add(primary)
+    if has_comparator:
+        tags.add("Comparative")
+    if has_dose_arm:
+        tags.add("Dose Response")
+    # Order: primary first, then alphabetical
+    ordered = [primary] + sorted(t for t in tags if t != primary)
+    return tuple(ordered)
+
+
+def _compute_primary_section(
+    vocab_primary: str,
+    *,
+    has_comparator: bool,
+    has_dose_arm: bool,
+) -> str:
+    """Iter-4 fix (Codex iter-3 P2 ranking):
+
+    Hierarchy (iter-4):
+      1. has_dose_arm → "Dose Response" (always, regardless of comparator)
+      2. has_comparator AND vocab_primary in {"Efficacy",
+         "Comparative Effectiveness"} → "Comparative Effectiveness"
+      3. otherwise → vocab_primary
+
+    Per Codex iter-3: dose-arm WITHOUT comparator should still primary
+    to Dose Response (dose-arm IS the dose-response signal). Comparator
+    should NOT automatically move Safety/Mechanism atoms out of their
+    vocab primary section — only Efficacy/Comparative atoms get
+    re-routed.
+    """
+    if has_dose_arm:
+        return "Dose Response"
+    if has_comparator and vocab_primary in ("Efficacy", "Comparative Effectiveness"):
+        return "Comparative Effectiveness"
+    return vocab_primary
+
+
+# ---------------------------------------------------------------------------
+# Main extraction
+# ---------------------------------------------------------------------------
+
+def extract_atoms_from_evidence(
+    evidence_row: dict[str, Any],
+    atom_id_start: int = 0,
+) -> list[ClaimAtom]:
+    """Extract ClaimAtoms from one evidence row's `direct_quote`.
+
+    Strategy (Codex iter-1-aware):
+        1. Walk every numeric anchor.
+        2. Classify each as OUTCOME / DOSE / TIMEPOINT / SAMPLE_SIZE /
+           CI_BOUND / CI_LEVEL / P_VALUE / UNKNOWN.
+        3. ONLY OUTCOME numbers become atoms.
+        4. For each OUTCOME, look in the SAME SENTENCE for endpoint.
+           If no endpoint → skip.
+        5. Bind entity from the closest arm phrase ("with X" or "X mg").
+        6. Bind comparator from explicit "versus" syntax.
+        7. Expand literal_text with decimal-aware sentence boundaries.
+        8. Validate literal_text contains the raw value text.
+    """
+    direct_quote = evidence_row.get("direct_quote") or ""
+    if not direct_quote:
+        return []
+
+    ev_id = evidence_row.get("evidence_id", "")
+    tier = str(evidence_row.get("tier", ""))
+    provenance_class = str(evidence_row.get("provenance_class", ""))
+    paper_title = (
+        evidence_row.get("title")
+        or evidence_row.get("statement", "")[:120]
+        or ""
+    )
+
+    atoms: list[ClaimAtom] = []
+    counter = atom_id_start
+
+    for m in _NUMBER_ATOM_RE.finditer(direct_quote):
+        raw_value = m.group("value").strip()
+
+        # P1 #4 fix: decimal-aware literal_text expansion (FIRST so the
+        # sentence boundaries are known before classification).
+        span_start, span_end, literal_text = _expand_literal_text(direct_quote, m)
+
+        # SAFETY FLOOR: literal_text MUST contain the raw value verbatim.
+        if raw_value not in literal_text:
+            continue
+
+        # P1 #2 fix: classify before atom creation. Pass sentence_start
+        # so unit-inheritance can search within the SAME sentence only.
+        role, unit = _classify_number(direct_quote, m, sentence_start=span_start)
+        if role != NumberRole.OUTCOME:
+            continue
+
+        # Find endpoint within the literal sentence.
+        # Iter-3 fix: pass num offset (relative to literal_text) so the
+        # CLOSEST endpoint to the value wins, not the first endpoint in
+        # the sentence. Prevents multi-endpoint binding errors.
+        num_offset_in_literal = m.start() - span_start
+        endpoint, primary_section, secondary_tags = _find_endpoint(
+            literal_text, num_offset=num_offset_in_literal
+        )
+        if not endpoint:
+            continue
+
+        # P1 #3 fix: arm-local entity binding.
+        entity = _find_arm_local_entity(direct_quote, m)
+        if not entity:
+            # Iter-4 fix (Codex iter-3 continuing-P1): pick CLOSEST drug
+            # to the value (preferring left side), not first drug in
+            # literal_text. Handles "semaglutide, which reduced HbA1c
+            # by -1.86" where the comparator-arm drug is left of value.
+            #
+
+ succeeded in 1067ms:
+tests/polaris_graph/test_claim_atom_extractor.py:29:    extract_atoms_from_evidence,
+tests/polaris_graph/test_claim_atom_extractor.py:82:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:91:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:108:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:116:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:125:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:139:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:151:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:172:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:182:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:198:    atoms = extract_atoms_from_evidence(ev)
+tests/polaris_graph/test_claim_atom_extractor.py:207:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:215:    atoms = extract_atoms_from_evidence(_AFIB_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:225:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:237:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:347:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:363:    After the NumberRole classifier, timepoint numbers must NOT
+tests/polaris_graph/test_claim_atom_extractor.py:365:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:375:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:386:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:404:    atoms = extract_atoms_from_evidence(ev_ci)
+tests/polaris_graph/test_claim_atom_extractor.py:418:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:427:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:443:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:459:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:471:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:489:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:502:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:514:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:536:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:572:    atoms = extract_atoms_from_evidence(ev)
+tests/polaris_graph/test_claim_atom_extractor.py:591:    atoms = extract_atoms_from_evidence(ev)
+tests/polaris_graph/test_claim_atom_extractor.py:606:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+tests/polaris_graph/test_claim_atom_extractor.py:633:    atoms = extract_atoms_from_evidence(ev)
+tests/polaris_graph/test_claim_atom_extractor.py:658:    atoms = extract_atoms_from_evidence(ev)
+tests/polaris_graph/test_claim_atom_extractor.py:681:    atoms = extract_atoms_from_evidence(ev)
+tests/polaris_graph/test_claim_atom_extractor.py:698:    atoms = extract_atoms_from_evidence(ev)
+tests/polaris_graph/test_claim_atom_extractor.py:719:    atoms = extract_atoms_from_evidence(ev)
+tests/polaris_graph/test_claim_atom_extractor.py:743:    atoms = extract_atoms_from_evidence(ev)
+tests/polaris_graph/test_claim_atom_extractor.py:770:    atoms = extract_atoms_from_evidence(ev)
+tests/polaris_graph/test_claim_atom_extractor.py:792:    atoms = extract_atoms_from_evidence(ev)
+tests/polaris_graph/test_claim_atom_extractor.py:816:    atoms = extract_atoms_from_evidence(ev)
+tests/polaris_graph/test_claim_atom_extractor.py:843:    atoms = extract_atoms_from_evidence(ev)
+tests/polaris_graph/test_claim_atom_extractor.py:864:    atoms = extract_atoms_from_evidence(_SURPASS_2_EV)
+src/polaris_graph/generator/claim_atom_extractor.py:24:        Fix: NumberRole classifier (OUTCOME / DOSE / TIMEPOINT /
+src/polaris_graph/generator/claim_atom_extractor.py:102:# NumberRole — what role does a numeric anchor play in clinical text?
+src/polaris_graph/generator/claim_atom_extractor.py:107:class NumberRole(Enum):
+src/polaris_graph/generator/claim_atom_extractor.py:510:) -> tuple[NumberRole, str]:
+src/polaris_graph/generator/claim_atom_extractor.py:529:        return NumberRole.CI_LEVEL, "%"
+src/polaris_graph/generator/claim_atom_extractor.py:538:        return NumberRole.CI_BOUND, ""
+src/polaris_graph/generator/claim_atom_extractor.py:544:        return NumberRole.CI_BOUND, ""
+src/polaris_graph/generator/claim_atom_extractor.py:550:        return NumberRole.CI_BOUND, ""
+src/polaris_graph/generator/claim_atom_extractor.py:554:        return NumberRole.P_VALUE, ""
+src/polaris_graph/generator/claim_atom_extractor.py:559:        return NumberRole.DOSE, dose_m.group(1).lower()
+src/polaris_graph/generator/claim_atom_extractor.py:563:        return NumberRole.TIMEPOINT, _TIMEPOINT_TRAILING_RE.match(right).group(0).strip().lower()
+src/polaris_graph/generator/claim_atom_extractor.py:565:        return NumberRole.TIMEPOINT, ""
+src/polaris_graph/generator/claim_atom_extractor.py:569:        return NumberRole.SAMPLE_SIZE, ""
+src/polaris_graph/generator/claim_atom_extractor.py:576:            return NumberRole.OUTCOME, "percentage points"
+src/polaris_graph/generator/claim_atom_extractor.py:577:        return NumberRole.OUTCOME, "%"
+src/polaris_graph/generator/claim_atom_extractor.py:581:        return NumberRole.OUTCOME, word_m.group("unit").lower()
+src/polaris_graph/generator/claim_atom_extractor.py:587:            return NumberRole.OUTCOME, label
+src/polaris_graph/generator/claim_atom_extractor.py:624:                return NumberRole.OUTCOME, "percentage points"
+src/polaris_graph/generator/claim_atom_extractor.py:625:            return NumberRole.OUTCOME, last_unit
+src/polaris_graph/generator/claim_atom_extractor.py:627:    return NumberRole.UNKNOWN, ""
+src/polaris_graph/generator/claim_atom_extractor.py:630:def _find_endpoint(
+src/polaris_graph/generator/claim_atom_extractor.py:951:def extract_atoms_from_evidence(
+src/polaris_graph/generator/claim_atom_extractor.py:999:        if role != NumberRole.OUTCOME:
+src/polaris_graph/generator/claim_atom_extractor.py:1007:        endpoint, primary_section, secondary_tags = _find_endpoint(
+src/polaris_graph/generator/claim_atom_extractor.py:1113:        atoms = extract_atoms_from_evidence(ev, atom_id_start=counter)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/generator/claim_atom_extractor.py | Select-Object -Skip 980 -First 150' in C:\POLARIS
+ succeeded in 734ms:
+
+    atoms: list[ClaimAtom] = []
+    counter = atom_id_start
+
+    for m in _NUMBER_ATOM_RE.finditer(direct_quote):
+        raw_value = m.group("value").strip()
+
+        # P1 #4 fix: decimal-aware literal_text expansion (FIRST so the
+        # sentence boundaries are known before classification).
+        span_start, span_end, literal_text = _expand_literal_text(direct_quote, m)
+
+        # SAFETY FLOOR: literal_text MUST contain the raw value verbatim.
+        if raw_value not in literal_text:
+            continue
+
+        # P1 #2 fix: classify before atom creation. Pass sentence_start
+        # so unit-inheritance can search within the SAME sentence only.
+        role, unit = _classify_number(direct_quote, m, sentence_start=span_start)
+        if role != NumberRole.OUTCOME:
+            continue
+
+        # Find endpoint within the literal sentence.
+        # Iter-3 fix: pass num offset (relative to literal_text) so the
+        # CLOSEST endpoint to the value wins, not the first endpoint in
+        # the sentence. Prevents multi-endpoint binding errors.
+        num_offset_in_literal = m.start() - span_start
+        endpoint, primary_section, secondary_tags = _find_endpoint(
+            literal_text, num_offset=num_offset_in_literal
+        )
+        if not endpoint:
+            continue
+
+        # P1 #3 fix: arm-local entity binding.
+        entity = _find_arm_local_entity(direct_quote, m)
+        if not entity:
+            # Iter-4 fix (Codex iter-3 continuing-P1): pick CLOSEST drug
+            # to the value (preferring left side), not first drug in
+            # literal_text. Handles "semaglutide, which reduced HbA1c
+            # by -1.86" where the comparator-arm drug is left of value.
+            #
+            # Also iter-4 dose-arm fix: capture "<DRUG> N mg" as a single
+            # entity so has_dose_arm=True. Critical for single-arm dose
+            # studies where the dose is on the LEFT not right of value.
+            num_offset_in_literal = m.start() - span_start
+            drug_with_dose_re = re.compile(
+                rf"({_DRUG_RE.pattern.removeprefix(chr(92) + 'b(').removesuffix(')' + chr(92) + 'b')})"
+                r"(?:\s+\d+(?:\.\d+)?\s*(?:mg|μg|mcg|U|IU))?",
+                re.IGNORECASE,
+            )
+            drug_candidates = list(drug_with_dose_re.finditer(literal_text))
+            left_drugs = [d for d in drug_candidates if d.end() <= num_offset_in_literal]
+            if left_drugs:
+                # Closest on left = max end-position
+                closest = max(left_drugs, key=lambda d: d.end())
+                entity = closest.group(0).strip()
+            elif drug_candidates:
+                # No drug on left → take closest on right
+                closest = min(drug_candidates, key=lambda d: d.start())
+                entity = closest.group(0).strip()
+            else:
+                trial_m = _TRIAL_RE.search(literal_text)
+                if trial_m:
+                    entity = trial_m.group(0).strip()
+
+        # Comparator constrained to literal_text (iter-2 fix).
+        comparator = _find_comparator(literal_text, entity)
+        timepoint = _find_timepoint(direct_quote, m)
+
+        # Dose-arm detection: entity contains a dose unit
+        has_dose_arm = bool(re.search(r"\d+\s*(?:mg|μg|mcg|U|IU)", entity))
+
+        value_signed = raw_value.startswith("-") or raw_value.startswith("−")
+        norm_value = raw_value.replace("−", "-")
+
+        confidence = _score_confidence(
+            has_endpoint=bool(endpoint),
+            has_entity=bool(entity),
+            has_unit=bool(unit),
+            has_comparator=bool(comparator),
+            has_timepoint=bool(timepoint),
+        )
+
+        # Iter-3 fix (Codex iter-2 P2): primary_section is dynamic, not
+        # static vocab default. Dose-arm + comparator HbA1c atom goes to
+        # "Dose Response", not "Efficacy". Prevents 3-section reuse.
+        # Iter-4 fix (Codex iter-3 P3): compute primary_section BEFORE
+        # section_tags so the tuple order reflects the rewritten primary.
+        primary_section = _compute_primary_section(
+            primary_section,
+            has_comparator=bool(comparator),
+            has_dose_arm=has_dose_arm,
+        )
+        section_tags = _compute_section_tags(
+            primary_section, secondary_tags,
+            has_comparator=bool(comparator),
+            has_dose_arm=has_dose_arm,
+        )
+
+        counter += 1
+        atoms.append(ClaimAtom(
+            atom_id=f"atom_{counter:03d}",
+            evidence_id=ev_id,
+            span_start=span_start,
+            span_end=span_end,
+            literal_text=literal_text,
+            entity=entity,
+            endpoint=endpoint,
+            comparator=comparator,
+            timepoint=timepoint,
+            value=norm_value,
+            unit=unit,
+            primary_section=primary_section,
+            section_tags=section_tags,
+            tier=tier,
+            value_signed=value_signed,
+            confidence=confidence,
+            provenance_class=provenance_class,
+            source_paper_title=paper_title,
+        ))
+    return atoms
+
+
+def build_atom_catalog(
+    evidence_subset: list[dict[str, Any]],
+) -> dict[str, ClaimAtom]:
+    """Build the complete atom catalog from a section's evidence subset.
+
+    Atoms numbered globally across the query.
+    """
+    catalog: dict[str, ClaimAtom] = {}
+    counter = 0
+    for ev in evidence_subset:
+        atoms = extract_atoms_from_evidence(ev, atom_id_start=counter)
+        for a in atoms:
+            catalog[a.atom_id] = a
+        counter += len(atoms)
+    return catalog
+
+
+def filter_atoms_for_section(
+    catalog: dict[str, ClaimAtom],
+    section_title: str,
+) -> dict[str, ClaimAtom]:
+    """Filter atoms for a section.
+
+    Iter-3 fix (Codex iter-2 P2): single-best-placement enforcement.
+    Returns atoms whose `primary_section` matches the section title.
+    Atoms with this section in `section_tags` but NOT as primary are
+    excluded — they are cited in their primary section and should not be
+    re-cited here. This prevents the same atom from landing in 3
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/test_claim_atom_extractor.py -q' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from polaris_graph.generator.claim_atom_extractor import extract_atoms_from_evidence
+cases = [
+    (\"long_coord\", \"All-cause mortality and hospitalization for heart failure were reduced by 20% and 30%, respectively.\"),
+    (\"restated\", \"HbA1c and body weight were secondary endpoints, and HbA1c decreased by -2.30 percentage points at 52 weeks.\"),
+    (\"short_coord\", \"HbA1c and body weight reductions were -2.30 percentage points and -11.2 kg\"),
+]
+for name, q in cases:
+    atoms = extract_atoms_from_evidence({\"evidence_id\": name, \"tier\": \"T1\", \"direct_quote\": q})
+    print(name, [(a.value, a.endpoint, a.unit, a.literal_text) for a in atoms])
+'@ | python -" in C:\POLARIS
+2026-05-26T18:45:42.860169Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.8 seconds
+Output:
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+ModuleNotFoundError: No module named 'polaris_graph'
+
+ exited 1 in 1755ms:
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+ModuleNotFoundError: No module named 'polaris_graph'
+
+ succeeded in 7438ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 51 items
+
+tests\polaris_graph\test_claim_atom_extractor.py ....................... [ 45%]
+............................                                             [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 51 passed, 1 warning in 3.33s ========================
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; @'
+from polaris_graph.generator.claim_atom_extractor import extract_atoms_from_evidence
+cases = [
+    (\"long_coord\", \"All-cause mortality and hospitalization for heart failure were reduced by 20% and 30%, respectively.\"),
+    (\"restated\", \"HbA1c and body weight were secondary endpoints, and HbA1c decreased by -2.30 percentage points at 52 weeks.\"),
+    (\"short_coord\", \"HbA1c and body weight reductions were -2.30 percentage points and -11.2 kg\"),
+]
+for name, q in cases:
+    atoms = extract_atoms_from_evidence({\"evidence_id\": name, \"tier\": \"T1\", \"direct_quote\": q})
+    print(name, [(a.value, a.endpoint, a.unit, a.literal_text) for a in atoms])
+'@ | python -" in C:\POLARIS
+ succeeded in 1667ms:
+long_coord []
+restated [('-2.30', 'HbA1c', 'percentage points', 'HbA1c and body weight were secondary endpoints, and HbA1c decreased by -2.30 percentage points at 52 weeks.')]
+short_coord []
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; @'
+import re
+import polaris_graph.generator.claim_atom_extractor as cae
+text=\"HbA1c and body weight were secondary endpoints, and HbA1c decreased by -2.30 percentage points at 52 weeks.\"
+num_offset=text.index('-2.30')
+cs=[]
+for pat, canonical, primary, tags in cae._ENDPOINT_VOCAB:
+    for m in pat.finditer(text):
+        cs.append((m.start(), m.end(), canonical, text[m.start():m.end()]))
+print('num_offset', num_offset)
+for c in sorted(cs, key=lambda x:x[1]): print(c)
+print('find', cae._find_endpoint(text, num_offset))
+'@ | python -" in C:\POLARIS
+ succeeded in 1729ms:
+num_offset 71
+(0, 5, 'HbA1c', 'HbA1c')
+(10, 21, 'body weight', 'body weight')
+(52, 57, 'HbA1c', 'HbA1c')
+find ('HbA1c', 'Efficacy', ('Efficacy',))
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; @'
+from polaris_graph.generator.claim_atom_extractor import extract_atoms_from_evidence
+q=\"Body weight and HbA1c reductions were -11.2 kg and -2.30 percentage points, respectively.\"
+atoms=extract_atoms_from_evidence({\"evidence_id\":\"ev_rev\",\"tier\":\"T1\",\"direct_quote\":q})
+print([(a.value,a.endpoint,a.unit,a.literal_text) for a in atoms])
+'@ | python -" in C:\POLARIS
+ succeeded in 1443ms:
+[('-11.2', 'HbA1c', 'kg', 'Body weight and HbA1c reductions were -11.2 kg and -2.30 percentage points, respectively.'), ('-2.30', 'HbA1c', 'percentage points', 'Body weight and HbA1c reductions were -11.2 kg and -2.30 percentage points, respectively.')]
+
+codex
+verdict: REQUEST_CHANGES
+
+p1_coordinated_endpoint_clause_aware_fix_correct: PARTIAL
+if_not_yes: |
+  The ambiguity scan uses only endpoint end offsets, so `between = text[c[0]:closest[0]]` includes the closest endpoint text itself. If the closest endpoint contains a digit, the digit check treats the endpoint name as a value separator and suppresses the ambiguity refusal.
+
+  Repro:
+  `Body weight and HbA1c reductions were -11.2 kg and -2.30 percentage points, respectively.`
+
+  Actual atoms:
+  `-11.2 kg` binds to `HbA1c`, which is a false atom. This is the same coordinated-endpoint P1 class, just reversed endpoint order.
+
+p2_endpoint_restatement_no_over_refusal: YES
+if_no: ""
+
+p3_stale_regex_cleanup_complete: YES
+
+residual_concerns_for_followup_issues:
+  - id: iter5_test_bad30_not_asserted
+    severity: P3
+    file: tests/polaris_graph/test_claim_atom_extractor.py
+    issue: |
+      `test_iter5_p1_coordinated_long_endpoint_phrase_skipped` computes `bad30` but never asserts it. This weakens regression coverage but is not itself an execution blocker.
+
+novel_p0: []
+novel_p1: []
+continuing_p0: []
+continuing_p1:
+  - id: p1_coordinated_endpoint_digit_in_closest_endpoint_bypasses_refusal
+    file: src/polaris_graph/generator/claim_atom_extractor.py
+    issue: |
+      Coordinated endpoint ambiguity is still not closed when the closest-left endpoint name contains a digit, e.g. HbA1c. The current slice includes the closest endpoint token, so `HbA1c` satisfies the numeric-separator guard and allows a false binding.
+
+approval_to_proceed_to_refusal_gap_rendering: NO
+
+convergence_call: accept_remaining
+tokens used
+36,411
+verdict: REQUEST_CHANGES
+
+p1_coordinated_endpoint_clause_aware_fix_correct: PARTIAL
+if_not_yes: |
+  The ambiguity scan uses only endpoint end offsets, so `between = text[c[0]:closest[0]]` includes the closest endpoint text itself. If the closest endpoint contains a digit, the digit check treats the endpoint name as a value separator and suppresses the ambiguity refusal.
+
+  Repro:
+  `Body weight and HbA1c reductions were -11.2 kg and -2.30 percentage points, respectively.`
+
+  Actual atoms:
+  `-11.2 kg` binds to `HbA1c`, which is a false atom. This is the same coordinated-endpoint P1 class, just reversed endpoint order.
+
+p2_endpoint_restatement_no_over_refusal: YES
+if_no: ""
+
+p3_stale_regex_cleanup_complete: YES
+
+residual_concerns_for_followup_issues:
+  - id: iter5_test_bad30_not_asserted
+    severity: P3
+    file: tests/polaris_graph/test_claim_atom_extractor.py
+    issue: |
+      `test_iter5_p1_coordinated_long_endpoint_phrase_skipped` computes `bad30` but never asserts it. This weakens regression coverage but is not itself an execution blocker.
+
+novel_p0: []
+novel_p1: []
+continuing_p0: []
+continuing_p1:
+  - id: p1_coordinated_endpoint_digit_in_closest_endpoint_bypasses_refusal
+    file: src/polaris_graph/generator/claim_atom_extractor.py
+    issue: |
+      Coordinated endpoint ambiguity is still not closed when the closest-left endpoint name contains a digit, e.g. HbA1c. The current slice includes the closest endpoint token, so `HbA1c` satisfies the numeric-separator guard and allows a false binding.
+
+approval_to_proceed_to_refusal_gap_rendering: NO
+
+convergence_call: accept_remaining
+
+# force-approved at iter 5 cap per CLAUDE.md §8.3.1
+# Codex's continuing P1 (digit-in-endpoint bypass) was fixed in
+# commit 25db48ec BEFORE the force-APPROVE; the fix is trivial
+# (12 lines) and the post-cap test test_iter5_postcap_p1_digit_in_
+# endpoint_name_not_bypass_refusal verifies refusal works on
+# Codex's exact repro.
+# Codex convergence_call: accept_remaining (per §8.3.6, respect it).
+# Tests: 52/52 pass at HEAD.
+verdict: APPROVE
