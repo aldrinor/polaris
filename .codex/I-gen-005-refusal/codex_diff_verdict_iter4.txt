@@ -1,0 +1,3331 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e65bb-7bed-7cc1-8a64-eb1b0e037d8e
+--------
+user
+# Codex iter 4 — atom_refusal_validator.py diff review
+
+## §8.3.1 cap (verbatim)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 4 of 5.
+- Front-load ALL real findings. No drip-feeding.
+- "Don't pick bone from egg" — reserve P0/P1 for execution risks.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE per §8.3.1.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+**Iter 4 of 5. One iteration remains.**
+
+## Iter 3 verdict → iter 4 response
+
+REQUEST_CHANGES with continuing P1 (eligibility override masks outcomes
+with non-narrow verb forms like "had HbA1c of N") + novel P1 (comparator
+drug list missing exenatide).
+
+### Iter-4 design decision: drop eligibility override entirely
+
+Two iterations of regex tightening (iter-2, iter-3) couldn't reliably
+distinguish:
+- "Patients meeting inclusion criteria had HbA1c of 6.8%" (outcome — must require)
+- "Eligible adults had baseline HbA1c between 7.0 and 10.0" (eligibility — could allow)
+
+The right answer is structural: drop the override. Per CLAUDE.md §-1.1
+clinical-safety principle:
+- false negative (over-refuse benign eligibility) → recoverable
+  (V4 Pro emits refusal block; awkward but safe)
+- false positive (mask real outcome) → lethal
+
+`requires_atom_citation` no longer has any eligibility override; any
+quantitative claim requires atom citation. The eligibility regex
+constants are kept in the file with a docstring noting the iter-4
+decision; not called.
+
+### Comparator drug list fix
+
+`_build_comparative_arm_re()` now imports `_DRUG_RE.pattern` from
+atom_extractor and embeds the full drug-name alternation. Any drug
+name the extractor recognizes (including exenatide which wasn't in
+my iter-3 hardcoded list) is auto-recognized as a comparator arm.
+
+## Live verification on iter-3 repros
+
+```
+"Patients meeting inclusion criteria had HbA1c of 6.8% at 40 weeks."
+→ (True, 'trigger_A_number_plus_endpoint')    ✓ now requires (was False)
+
+"Tirzepatide showed greater reduction than exenatide."
+→ (True, 'trigger_qualitative_comparative')    ✓ now requires (was False)
+
+"This was more than enough evidence to proceed."
+→ (False, None)    ✓ still benign (regression check)
+
+"More patients than expected completed follow-up."
+→ (False, None)    ✓ still benign (regression check)
+```
+
+## Tests (42/42 PASS — 94/94 combined)
+
+Three prior eligibility tests updated to reflect new "require atom"
+behavior. Two new iter-4 regression tests:
+- `test_iter4_codex_repro_outcome_with_criteria_still_required`
+- `test_iter4_comparator_arm_uses_full_drug_regex`
+
+## Trade-off acknowledgment
+
+Eligibility-frame sentences with endpoint+number now go through Trigger
+A and require atom citation. If V4 Pro can't find a supporting atom
+(because the sentence is actually eligibility framing not an outcome
+claim), it emits a refusal block: "Insufficient verified atom-level
+evidence about HbA1c..." This reads awkwardly for a benign eligibility
+sentence but is the SAFE default.
+
+To mitigate the awkwardness, V4 Pro's system prompt (Step 3 — not in
+this diff) will be instructed to recognize eligibility-frame sentences
+and write them as pure design prose without endpoint+number framing
+where possible.
+
+## Output schema
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+
+p1_outcome_with_criteria_now_requires_atom: YES | NO
+p1_comparator_drug_list_complete: YES | NO
+
+trade_off_acceptable: YES | NO
+  if_no: |
+    (concern about over-refusal cost)
+
+novel_p0: [...]
+novel_p1: [...]
+continuing_p0: [...]
+continuing_p1: [...]
+p2: [...]
+p3: [...]
+
+approval_to_proceed_to_step_3: YES | NO
+
+iter4_cap_consideration: APPROVE_THIS | CONTINUE_TO_ITER_5
+  reasoning: |
+
+convergence_call: continue | accept_remaining
+```
+
+EMIT YAML ONLY. Diff at `.codex/I-gen-005-refusal/codex_diff_iter4.patch`.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw .codex/I-gen-005-refusal/codex_diff_iter4.patch' in C:\POLARIS
+ succeeded in 666ms:
+diff --git a/src/polaris_graph/generator/atom_refusal_validator.py b/src/polaris_graph/generator/atom_refusal_validator.py
+index 99f3afe4..7ebee46c 100644
+--- a/src/polaris_graph/generator/atom_refusal_validator.py
++++ b/src/polaris_graph/generator/atom_refusal_validator.py
+@@ -141,26 +141,26 @@ _QUAL_COMPARATIVE_RE = re.compile(
+ )
+ 
+ # Comparator/arm language that — combined with a comparative phrase —
+-# signals a factual comparative claim even without a specific endpoint
+-# vocab term. Iter-3 fix (Codex iter-2 P2): tightened from `\w{3,}` to
+-# specific treatment-arm terms only. "than enough", "than expected",
+-# "than usual" no longer match.
+-_COMPARATIVE_ARM_RE = re.compile(
+-    r"\b(?:than|versus|vs\.?|compared\s+(?:to|with))\s+"
+-    r"(?:"
+-    r"placebo|control(?:s|\s+arm)?|standard\s+care|usual\s+care|"
+-    r"active\s+comparator|background\s+therapy|sham|"
+-    # Drug-class terms
+-    r"glp[-\s]?1|sglt2|dpp[-\s]?4|insulin|metformin|sulfonylurea|"
+-    # Common comparator drug names (subset of atom_extractor's _DRUG_RE)
+-    r"semaglutide|tirzepatide|dulaglutide|liraglutide|"
+-    r"empagliflozin|dapagliflozin|canagliflozin|ertugliflozin|"
+-    r"sitagliptin|linagliptin|saxagliptin|alogliptin|"
+-    r"warfarin|apixaban|rivaroxaban|dabigatran|edoxaban|"
+-    r"rosuvastatin|atorvastatin|simvastatin"
+-    r")\b",
+-    re.IGNORECASE,
+-)
++# signals a factual comparative claim. Iter-4 fix (Codex iter-3 novel-P1):
++# build comparator-arm regex from claim_atom_extractor._DRUG_RE so any
++# drug name known to the atom extractor is also recognized here.
++# Avoids drift between extractor's vocab and validator's vocab.
++def _build_comparative_arm_re() -> re.Pattern:
++    from src.polaris_graph.generator.claim_atom_extractor import _DRUG_RE
++    drug_alt = _DRUG_RE.pattern.removeprefix(r"\b(").removesuffix(r")\b")
++    pattern = (
++        r"\b(?:than|versus|vs\.?|compared\s+(?:to|with))\s+"
++        r"(?:"
++        r"placebo|control(?:s|\s+arm)?|standard\s+care|usual\s+care|"
++        r"active\s+comparator|background\s+therapy|sham|"
++        r"glp[-\s]?1|sglt2|dpp[-\s]?4|insulin|metformin|sulfonylurea|"
++        + drug_alt
++        + r")\b"
++    )
++    return re.compile(pattern, re.IGNORECASE)
++
++
++_COMPARATIVE_ARM_RE = _build_comparative_arm_re()
+ 
+ # Numbers to EXCLUDE from Trigger B when they appear with admin/design context
+ _ADMIN_NUMBER_RE = re.compile(
+@@ -263,20 +263,25 @@ def requires_atom_citation(sentence: str) -> tuple[bool, Optional[str]]:
+     has_comparator_arm = bool(_COMPARATIVE_ARM_RE.search(s))
+     has_outcome_number = bool(numbers) and has_endpoint
+ 
+-    # Iter-2/3 fix (Codex iter-2 novel-P1): eligibility-range override
+-    # ONLY fires when the sentence is PURE eligibility framing:
+-    #   - has eligibility keyword
+-    #   - no qualitative comparative
+-    #   - no outcome-verb-with-number ("reductions of 2.3", "decreased
+-    #     by 0.5", etc.)
+-    # This prevents masking real outcome claims that happen to mention
+-    # baseline characteristics.
+-    if (
+-        _ELIGIBILITY_RANGE_RE.search(s)
+-        and not has_qual_comparative
+-        and not _OUTCOME_VERB_WITH_NUMBER_RE.search(s)
+-    ):
+-        return False, None
++    # Iter-4 decision (Codex iter-3 continuing-P1): the eligibility
++    # override was removed. Two iterations of regex tightening (iter-2,
++    # iter-3) still couldn't reliably distinguish:
++    #   - "Patients meeting inclusion criteria had HbA1c of 6.8%"  (outcome — must require)
++    #   - "Eligible adults had baseline HbA1c between 7.0 and 10.0" (eligibility — should allow)
++    # Codex correctly observed that pure-regex disambiguation is
++    # fundamentally fragile here.
++    #
++    # SAFE DEFAULT: any quantitative claim requires atom citation. If
++    # V4 Pro cannot find a supporting atom (because the sentence is
++    # actually just eligibility framing), V4 Pro emits a refusal block.
++    # The refusal reads slightly awkwardly for benign eligibility
++    # sentences ("Insufficient evidence about HbA1c..."), but this is
++    # SAFER than masking real outcome claims that happen to share
++    # eligibility-frame keywords.
++    #
++    # Trade-off accepted per clinical-safety principle (CLAUDE.md §-1.1):
++    # false negative (over-refuse benign eligibility) is recoverable;
++    # false positive (mask real outcome) is lethal.
+ 
+     # Pure narrative categories — never require atom citation UNLESS
+     # there's also an outcome-number combo or qualitative comparative.
+diff --git a/tests/polaris_graph/test_atom_refusal_validator.py b/tests/polaris_graph/test_atom_refusal_validator.py
+index dfe9ece1..6711e630 100644
+--- a/tests/polaris_graph/test_atom_refusal_validator.py
++++ b/tests/polaris_graph/test_atom_refusal_validator.py
+@@ -165,16 +165,22 @@ def test_trial_design_sentence_does_not_require_atom():
+     assert not requires
+ 
+ 
+-def test_eligibility_sentence_does_not_require_atom():
+-    """Codex iter-1 P2 fix: eligibility-range framing overrides Trigger A.
+-    'Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0'
+-    is design/eligibility — NOT an outcome claim."""
++def test_eligibility_sentence_requires_atom_safe_default():
++    """Iter-4 decision (Codex iter-3 continuing-P1): eligibility override
++    REMOVED. Quantitative claims with eligibility framing now require
++    atom citation as the SAFE default. V4 Pro will refuse with the
++    refusal template if no supporting atom — preferable to masking a
++    real outcome claim that happens to mention baseline characteristics.
++
++    Trade-off per CLAUDE.md §-1.1: false negative (over-refuse benign
++    eligibility) is recoverable; false positive (mask real outcome) is
++    lethal in clinical context."""
+     requires, _ = requires_atom_citation(
+         "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0."
+     )
+-    assert not requires, (
+-        "Eligibility-range sentence should be allowed without atom citation "
+-        "(iter-2 fix for Codex iter-1 P2)."
++    assert requires, (
++        "After iter-4 eligibility-override removal, this sentence requires "
++        "atom citation. V4 Pro emits refusal block; slightly awkward but safe."
+     )
+ 
+ 
+@@ -519,13 +525,14 @@ def test_iter2_p1_qualitative_greater_reduction_than_requires_atom():
+     assert trigger == "trigger_qualitative_comparative"
+ 
+ 
+-def test_iter2_p2_eligibility_range_allowed():
+-    """Codex iter-1 P2: eligibility ranges should be allowed even with
+-    endpoint+number combo."""
++def test_iter2_p2_eligibility_range_now_requires_atom_safe_default():
++    """Superseded by iter-4 (Codex iter-3 continuing-P1): eligibility
++    override removed. Quantitative + endpoint sentences require atom
++    citation regardless of eligibility framing — safer default."""
+     requires, _ = requires_atom_citation(
+         "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0."
+     )
+-    assert not requires
++    assert requires
+ 
+ 
+ def test_iter2_p2_soft_value_word_boundary_match():
+@@ -583,13 +590,14 @@ def test_iter3_p2_comparator_arm_does_not_match_generic_words():
+     )
+ 
+ 
+-def test_iter3_eligibility_pure_still_allowed():
+-    """Regression check: pure eligibility framing without outcome verbs
+-    still passes through (no over-correction in iter-3)."""
++def test_iter3_eligibility_now_requires_atom_post_override_removal():
++    """Iter-4 update: eligibility override removed entirely (Codex
++    iter-3 continuing-P1). Pure eligibility sentences with endpoint+
++    number now also require atom (safe default)."""
+     requires, _ = requires_atom_citation(
+         "Inclusion criteria required HbA1c between 7.0 and 10.0."
+     )
+-    assert not requires
++    assert requires
+ 
+ 
+ def test_iter3_qualitative_drug_arm_still_requires_atom():
+@@ -601,6 +609,29 @@ def test_iter3_qualitative_drug_arm_still_requires_atom():
+     assert requires
+ 
+ 
++def test_iter4_codex_repro_outcome_with_criteria_still_required():
++    """Codex iter-3 continuing-P1 repro: 'Patients meeting inclusion
++    criteria had HbA1c of 6.8% at 40 weeks.' must require atom."""
++    requires, _ = requires_atom_citation(
++        "Patients meeting inclusion criteria had HbA1c of 6.8% at 40 weeks."
++    )
++    assert requires, (
++        "Outcome claim with criteria-frame must require atom citation"
++    )
++
++
++def test_iter4_comparator_arm_uses_full_drug_regex():
++    """Codex iter-3 novel-P1: 'Tirzepatide showed greater reduction
++    than exenatide.' was failing because exenatide wasn't in iter-3's
++    hardcoded comparator list. iter-4 imports _DRUG_RE from
++    atom_extractor so any drug it knows about is auto-included."""
++    requires, trigger = requires_atom_citation(
++        "Tirzepatide showed greater reduction than exenatide."
++    )
++    assert requires
++    assert trigger == "trigger_qualitative_comparative"
++
++
+ def test_iter2_p2_refused_record_includes_detected_values():
+     """Codex iter-1 P2: refused records must populate detected_values
+     for downstream audit."""
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw src/polaris_graph/generator/claim_atom_extractor.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw src/polaris_graph/generator/atom_refusal_validator.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw tests/polaris_graph/test_atom_refusal_validator.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "requires_atom_citation|_DRUG_RE|COMPARATIVE_ARM|ELIGIBILITY|comparative" src tests' in C:\POLARIS
+ succeeded in 813ms:
+"""I-gen-005 atom-first architecture: extract STRUCTURED claim atoms
+from evidence direct_quotes.
+
+Per Codex strategy verdict 2026-05-26
+(`codex_quality_strategy_verdict.txt`) recommended_path #2 + design
+verdict APPROVE_DESIGN + diff iter-1 REQUEST_CHANGES (4 P1s closed
+this iteration).
+
+Why this module exists:
+    The current architecture lets V4 Pro write open prose, then catches
+    fabrications post-hoc via strict_verify. Codex's read: that's
+    backwards. The fix is to PRE-EXTRACT verifiable facts (atoms) from
+    cited evidence spans BEFORE generation, then constrain V4 Pro to
+    cite atom_ids that map to fixed spans. V4 Pro becomes the
+    rhetorical/synthesis layer, not the fact source.
+
+Iter 2 (Codex iter-1 REQUEST_CHANGES) closes 4 P1 bugs:
+    P1.1 unit_extraction_corrupts_units (line 209)
+        Fix: special-case `%` without word boundary; word units need
+        leading boundary; restrict fallback unit-scan to immediate
+        post-value or comma-coordinate context only.
+
+    P1.2 numeric_anchor_filter_emits_non_claim_values (line 438)
+        Fix: NumberRole classifier (OUTCOME / DOSE / TIMEPOINT /
+        SAMPLE_SIZE / CI_BOUND / CI_LEVEL) runs BEFORE atom creation.
+        Only OUTCOME numbers become atoms. Doses, timepoints, sample
+        sizes are stored as metadata fields on the OUTCOME atom they
+        modify, not as separate atoms.
+
+    P1.3 entity_comparator_binding_flips_arms (line 362)
+        Fix: arm-local entity binding. For each value, find the
+        nearest arm phrase ("with X", "X mg", "X group") within
+        ~50 chars to the right (where clinical text typically places
+        the arm label). Comparator from explicit "versus X" /
+        "compared to Y" syntax separately.
+
+    P1.4 literal_span_expansion_splits_decimals (line 483)
+        Fix: decimal-aware sentence boundary regex. A period followed
+        by a digit is part of a decimal (8.21), not a sentence end.
+        Use ``\\.(?=\\s|$|\\n|[A-Z])`` boundary.
+
+Also addresses Codex iter-1 P2s:
+    - primary_section field added; section_tags computed dynamically
+      from extracted comparator + dose + safety presence
+    - Endpoint vocabulary extended with renal, CV/HF, obesity,
+      metabolic, safety subgroup, and statistical-metadata terms
+
+Module remains INTENTIONALLY pure-Python regex — no LLM call. Fast,
+deterministic, reproducible. Atoms come from actual evidence text;
+nothing fabricated here.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Optional
+
+
+# ---------------------------------------------------------------------------
+# ClaimAtom — the structured record V4 Pro will cite from
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ClaimAtom:
+    """A single verifiable claim extracted from an evidence span.
+
+    Frozen because atom_id resolution depends on stable identity through
+    the pipeline. 14 fields (13 from Codex APPROVE_DESIGN + primary_section
+    added per Codex iter-1 diff review P2).
+    """
+
+    # Identity + provenance:
+    atom_id: str            # "atom_001"
+    evidence_id: str        # "ev_017"
+    span_start: int         # offset in direct_quote where the atom is grounded
+    span_end: int           # offset in direct_quote (exclusive)
+    literal_text: str       # verbatim text from the span supporting this claim
+
+    # Semantic fields:
+    entity: str             # "tirzepatide 15 mg" / "SURPASS-2" / "apixaban"
+    endpoint: str           # "HbA1c" / "body weight" / "stroke"
+    comparator: str         # "semaglutide" / "placebo" / "" if none
+    timepoint: str          # "40 weeks" / "1.8 years" / "" if none
+    value: str              # "-2.30" / "0.69" / "82-86"
+    unit: str               # "percentage points" / "kg" / "%" / "RR" / ""
+
+    # Routing:
+    primary_section: str            # Single best-fit section
+    section_tags: tuple[str, ...]   # All sections this atom can serve
+    tier: str                       # "T1" / "T2" / ...
+
+    # Codex APPROVE_DESIGN additions:
+    value_signed: bool              # True if the value is negative
+    confidence: str                 # "high" | "medium" | "low"
+    provenance_class: str           # "abstract_only" | "open_access" | ...
+    source_paper_title: str         # for refusal disclosure
+
+
+# ---------------------------------------------------------------------------
+# NumberRole — what role does a numeric anchor play in clinical text?
+# Codex iter-1 P1 #2 fix: classify each number BEFORE atom creation so
+# timepoints / doses / sample-sizes / CI bounds don't pollute the catalog.
+# ---------------------------------------------------------------------------
+
+class NumberRole(Enum):
+    OUTCOME = "outcome"          # Primary or secondary clinical endpoint value
+    DOSE = "dose"                # Drug dose (5 mg, 0.5 μg)
+    TIMEPOINT = "timepoint"      # Follow-up duration (40 weeks, 1.8 years)
+    SAMPLE_SIZE = "sample_size"  # Number of participants (N=1879)
+    CI_BOUND = "ci_bound"        # Confidence interval limits (0.58 to 0.95)
+    CI_LEVEL = "ci_level"        # CI confidence level (95% CI)
+    P_VALUE = "p_value"          # P-value (P<0.001)
+    UNKNOWN = "unknown"          # Couldn't classify
+
+
+# Classifiers — small per-role regex patterns evaluated against the
+# IMMEDIATE neighborhood of the number (±20 chars). Order matters: first
+# match wins. OUTCOME is the implicit default if no classifier hits.
+
+# Dose: number immediately followed by mg/μg/U/etc with a drug name nearby
+_DOSE_UNIT_RE = re.compile(
+    r"^\s?(mg|μg|mcg|g|IU|U)\b",
+    re.IGNORECASE,
+)
+
+# Timepoint: surrounded by "at/after/by/over" + "weeks/months/years/..."
+_TIMEPOINT_BEFORE_RE = re.compile(
+    r"\b(?:at|after|by|over|in|through|for|of)\s+\d+(?:\.\d+)?\s*"
+    r"(?:weeks?|months?|years?|days?|hours?|min(?:utes?)?)\b$",
+    re.IGNORECASE,
+)
+_TIMEPOINT_TRAILING_RE = re.compile(
+    r"^\s?(?:weeks?|months?|years?|days?|hours?|min(?:utes?)?)\b",
+    re.IGNORECASE,
+)
+
+# Sample size: number preceded by N=, n=, "enrolled", "randomized",
+# "patients with", "participants with", "trial of", etc.
+_SAMPLE_SIZE_LEFT_RE = re.compile(
+    r"(?:\b(?:[Nn]\s*=\s*|enrolled|randomi[sz]ed|"
+    r"included|recruited|trial\s+of|patients\s+with|"
+    r"participants\s+with|adults\s+with|subjects\s+with|"
+    r"a\s+total\s+of|cohort\s+of|study\s+of|population\s+of)\s*)$",
+    re.IGNORECASE,
+)
+# Sample size: number followed by "patients", "participants", "adults",
+# "subjects" (e.g., "1879 adults", "18,201 patients").
+_SAMPLE_SIZE_RIGHT_RE = re.compile(
+    r"^\s*"
+    r"(?:patients?|participants?|adults?|subjects?|"
+    r"individuals|persons|men|women)\b",
+    re.IGNORECASE,
+)
+
+# CI bound: number is inside parens with "CI" pattern nearby. Iter-3
+# replaced the iter-2 brittle left/right regex chain with the
+# _is_inside_ci_parens() structural walk; iter-4 added
+# _is_ci_bound_unparen() for non-parenthesized "HR 0.74, 95% CI 0.58,
+# 0.95" forms. Only _CI_PAREN_LEFT_RE remains as a defense-in-depth
+# catch for paren-only ranges without the "CI" word literal.
+_CI_PAREN_LEFT_RE = re.compile(r"[\(\[][-−]?\d+(?:\.\d+)?\s*(?:to|[-–—])\s*$")
+
+# CI level: number directly followed by "% CI" or "% confidence interval"
+_CI_LEVEL_RIGHT_RE = re.compile(
+    r"^\s?%?\s*(?:CI|confidence\s+interval)\b",
+    re.IGNORECASE,
+)
+
+# P-value: "P<", "P=", "P>", "p value", "P-value"
+_P_VALUE_LEFT_RE = re.compile(
+    r"\b[Pp]\s*[<>=]\s*$|\b[Pp][-\s]?(?:value)?\s*=?\s*$",
+)
+
+
+# ---------------------------------------------------------------------------
+# Endpoint vocabulary (expanded per Codex iter-1 P1 review)
+# Each tuple = (regex_pattern, canonical_name, primary_section, secondary_tags)
+# ---------------------------------------------------------------------------
+
+_ENDPOINT_VOCAB: list[tuple[re.Pattern, str, str, tuple[str, ...]]] = [
+    # ── Glycemic ──
+    (re.compile(r"\b(?:HbA1c|HbA1C|glycated\s+hemoglobin|A1C)\b", re.IGNORECASE),
+     "HbA1c", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\b(?:FPG|fasting\s+plasma\s+glucose|fasting\s+serum\s+glucose|FSG)\b", re.IGNORECASE),
+     "fasting glucose", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\bnormoglycemi[ac]\b|\bHbA1c\s*<\s*5\.7", re.IGNORECASE),
+     "normoglycemia (HbA1c<5.7%)", "Efficacy", ("Efficacy",)),
+
+    # ── Weight / obesity / metabolic (Codex iter-1 vocab additions) ──
+    (re.compile(r"\b(?:body\s+weight|weight\s+loss|weight\s+reduction|kg\s+loss)\b", re.IGNORECASE),
+     "body weight", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\bBMI\b", re.IGNORECASE),
+     "BMI", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\bwaist\s+circumference\b", re.IGNORECASE),
+     "waist circumference", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\b(?:percent|%)\s+(?:body[-\s])?weight\s+(?:change|reduction|loss)", re.IGNORECASE),
+     "% body weight change", "Efficacy", ("Efficacy",)),
+    (re.compile(r"(?:≥|>=|\bat\s+least\s+)\s?(?:5|10|15|20)\s?%\s*(?:weight\s+loss|body[-\s]?weight)", re.IGNORECASE),
+     "weight-loss threshold (≥5/10/15/20%)", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\b(?:insulin\s+sensitivity|HOMA[-\s]?IR)\b", re.IGNORECASE),
+     "insulin sensitivity", "Mechanism", ("Mechanism", "Efficacy")),
+    (re.compile(r"\bC[-\s]?peptide\b", re.IGNORECASE),
+     "C-peptide", "Mechanism", ("Mechanism",)),
+    (re.compile(r"\bbeta[-\s]?cell\s+function\b", re.IGNORECASE),
+     "beta-cell function", "Mechanism", ("Mechanism",)),
+
+    # ── Cardiovascular / heart failure (Codex iter-1 vocab additions) ──
+    (re.compile(r"\bMACE\b|major\s+adverse\s+cardiovascular\s+events?", re.IGNORECASE),
+     "MACE", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:cardiovascular|CV)\s+(?:death|mortality)", re.IGNORECASE),
+     "cardiovascular mortality", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\ball[-\s]?cause\s+(?:death|mortality)", re.IGNORECASE),
+     "all-cause mortality", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:hospitalization\s+for\s+heart\s+failure|HF\s+hospitalization|HHF)\b", re.IGNORECASE),
+     "heart failure hospitalization", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:ischemic\s+)?stroke\b(?!\s+prevention)", re.IGNORECASE),
+     "stroke", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\bmyocardial\s+infarction|\bMI\b(?!\s+\d)", re.IGNORECASE),
+     "myocardial infarction", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\brevascularization\b", re.IGNORECASE),
+     "revascularization", "Efficacy", ("Efficacy",)),
+
+    # ── Blood pressure ──
+    (re.compile(r"\bsystolic\s+blood\s+pressure|\bsystolic\s+BP\b|\bSBP\b", re.IGNORECASE),
+     "systolic BP", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\bdiastolic\s+blood\s+pressure|\bdiastolic\s+BP\b|\bDBP\b", re.IGNORECASE),
+     "diastolic BP", "Efficacy", ("Efficacy",)),
+
+    # ── Lipids ──
+    (re.compile(r"\b(?:LDL[-\s]?C|low[-\s]density\s+lipoprotein)", re.IGNORECASE),
+     "LDL-C", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\btriglycerides?\b", re.IGNORECASE),
+     "triglycerides", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\b(?:HDL[-\s]?C|high[-\s]density\s+lipoprotein)", re.IGNORECASE),
+     "HDL-C", "Efficacy", ("Efficacy",)),
+
+    # ── Renal (Codex iter-1 vocab additions) ──
+    (re.compile(r"\beGFR\b|\bestimated\s+GFR\b|\bglomerular\s+filtration\s+rate\b", re.IGNORECASE),
+     "eGFR", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:UACR|urine\s+albumin[-\s]?creatinine|albuminuria)\b", re.IGNORECASE),
+     "UACR/albuminuria", "Efficacy", ("Efficacy",)),
+    (re.compile(r"\bserum\s+creatinine\b|\bcreatinine\b", re.IGNORECASE),
+     "serum creatinine", "Safety", ("Safety",)),
+    (re.compile(r"\bkidney\s+composite\b|\brenal\s+composite\b", re.IGNORECASE),
+     "kidney composite", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\bCKD\s+progression\b|\bchronic\s+kidney\s+disease\b", re.IGNORECASE),
+     "CKD progression", "Efficacy", ("Efficacy", "Safety")),
+    (re.compile(r"\b(?:AKI|acute\s+kidney\s+injury)\b", re.IGNORECASE),
+     "acute kidney injury", "Safety", ("Safety",)),
+
+    # ── Safety: AEs ──
+    (re.compile(r"\bserious\s+adverse\s+events?|\bSAE\b", re.IGNORECASE),
+     "serious adverse events", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:treatment[-\s]emergent\s+)?adverse\s+events?\b|\bTEAE\b", re.IGNORECASE),
+     "adverse events", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:discontinuation|discontinued|treatment\s+withdrawal)\b", re.IGNORECASE),
+     "discontinuation", "Safety", ("Safety",)),
+    (re.compile(r"\bnausea\b", re.IGNORECASE), "nausea", "Safety", ("Safety",)),
+    (re.compile(r"\bvomiting\b", re.IGNORECASE), "vomiting", "Safety", ("Safety",)),
+    (re.compile(r"\bdiarr?h[oe]a\b", re.IGNORECASE), "diarrhea", "Safety", ("Safety",)),
+    (re.compile(r"\babdominal\s+pain\b", re.IGNORECASE), "abdominal pain", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:gastrointestinal|GI)\s+(?:adverse|events?)\b", re.IGNORECASE),
+     "GI events", "Safety", ("Safety",)),
+    (re.compile(r"\bhypoglycem(?:ia|ic)\b", re.IGNORECASE),
+     "hypoglycemia", "Safety", ("Safety",)),
+    (re.compile(r"\bpancreatitis\b", re.IGNORECASE),
+     "pancreatitis", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:intracranial\s+hemorrhage|ICH)\b", re.IGNORECASE),
+     "intracranial hemorrhage", "Safety", ("Safety",)),
+    (re.compile(r"\bGI\s+bleeding\b|\bgastrointestinal\s+bleeding\b", re.IGNORECASE),
+     "GI bleeding", "Safety", ("Safety",)),
+    (re.compile(r"\bmajor\s+bleeding\b", re.IGNORECASE),
+     "major bleeding", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:C[-\s]?cell\s+(?:hyperplasia|cancer)|thyroid\s+(?:carcinoma|cancer)|MTC)\b", re.IGNORECASE),
+     "thyroid C-cell signal", "Safety", ("Safety",)),
+    (re.compile(r"\bretinopathy\b", re.IGNORECASE),
+     "retinopathy", "Safety", ("Safety",)),
+    (re.compile(r"\b(?:gallbladder\s+disease|cholelithiasis|cholecystitis)\b", re.IGNORECASE),
+     "gallbladder disease", "Safety", ("Safety",)),
+
+    # ── Treatment differences (efficacy + comparative) ──
+    (re.compile(r"\bestimated\s+treatment\s+difference|\bETD\b", re.IGNORECASE),
+     "estimated treatment difference", "Comparative", ("Efficacy", "Comparative")),
+    (re.compile(r"\btreatment\s+difference\b", re.IGNORECASE),
+     "treatment difference", "Comparative", ("Efficacy", "Comparative")),
+
+    # ── Mechanism ──
+    (re.compile(r"\bhalf[-\s]?life\b", re.IGNORECASE),
+     "half-life", "Mechanism", ("Mechanism",)),
+    (re.compile(r"\bbioavailability\b", re.IGNORECASE),
+     "bioavailability", "Mechanism", ("Mechanism",)),
+    (re.compile(r"\b(?:Tmax|tmax|T_max)\b"),
+     "Tmax", "Mechanism", ("Mechanism",)),
+    (re.compile(r"\bM[-\s]?value\b", re.IGNORECASE),
+     "M-value", "Mechanism", ("Mechanism",)),
+    (re.compile(r"\b(?:hyperinsulinemic[-\s]?euglycemic\s+clamp|HE\s+clamp)\b", re.IGNORECASE),
+     "HE clamp", "Mechanism", ("Mechanism",)),
+    (re.compile(r"\b(?:receptor\s+(?:affinity|binding|selectivity))\b", re.IGNORECASE),
+     "receptor binding", "Mechanism", ("Mechanism",)),
+]
+
+
+# ---------------------------------------------------------------------------
+# Statistical metadata vocab (Codex iter-1 addition).
+# These mark the NUMBER as a metric type, not as a primary endpoint
+# value. When an HR/OR/RR is detected, it modifies the OUTCOME atom's
+# unit field rather than creating its own atom.
+# ---------------------------------------------------------------------------
+
+_STAT_METADATA: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\b(?:hazard\s+ratio|HR)\b", re.IGNORECASE), "HR"),
+    (re.compile(r"\b(?:relative\s+risk|RR)\b", re.IGNORECASE), "RR"),
+    (re.compile(r"\b(?:risk\s+ratio)\b", re.IGNORECASE), "RR"),
+    (re.compile(r"\b(?:odds\s+ratio|OR)\b", re.IGNORECASE), "OR"),
+    (re.compile(r"\b(?:absolute\s+risk\s+reduction|ARR)\b", re.IGNORECASE), "ARR"),
+    (re.compile(r"\b(?:number\s+needed\s+to\s+treat|NNT)\b", re.IGNORECASE), "NNT"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Drug + trial vocabularies (kept local for self-containment)
+# ---------------------------------------------------------------------------
+
+_DRUG_RE = re.compile(
+    r"\b("
+    r"tirzepatide|semaglutide|liraglutide|dulaglutide|exenatide|lixisenatide"
+    r"|empagliflozin|dapagliflozin|canagliflozin|ertugliflozin|sotagliflozin"
+    r"|sitagliptin|saxagliptin|linagliptin|alogliptin|vildagliptin"
+    r"|metformin|insulin\s+(?:glargine|degludec|aspart|lispro|detemir|isophane|NPH)?"
+    r"|pioglitazone|rosiglitazone"
+    r"|glipizide|glyburide|glimepiride|tolbutamide"
+    r"|repaglinide|nateglinide"
+    r"|acarbose|miglitol"
+    r"|warfarin|coumarin|VKA|vitamin\s+K\s+antagonist"
+    r"|dabigatran|rivaroxaban|apixaban|edoxaban|DOAC|NOAC|direct\s+oral\s+anticoagulant"
+    r"|aspirin|clopidogrel|prasugrel|ticagrelor"
+    r"|Mounjaro|Zepbound|Ozempic|Wegovy|Rybelsus|Victoza|Trulicity|Byetta|Bydureon"
+    r"|Jardiance|Farxiga|Invokana|Steglatro"
+    r"|Januvia|Onglyza|Tradjenta|Nesina"
+    r"|Eliquis|Xarelto|Pradaxa|Lixiana|Savaysa"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_TRIAL_RE = re.compile(
+    r"\b("
+    r"SURPASS(?:[- ]?(?:CVOT|J|AP|\d))?"
+    r"|SURMOUNT(?:[- ]?\d+)?"
+    r"|SUSTAIN(?:[- ]?\d+)?"
+    r"|REWIND|LEADER|DECLARE(?:-?TIMI(?:[- ]?\d+)?)?"
+    r"|EMPA(?:-?REG)?"
+    r"|CANVAS|CREDENCE|DAPA-?HF|DAPA-?CKD"
+    r"|STEP(?:[- ]?\d+)?"
+    r"|PIONEER(?:[- ]?\d+)?"
+    r"|AWARD(?:[- ]?\d+)?"
+    r"|EXSCEL|ELIXA|HARMONY"
+    r"|ACCORD|ADVANCE|VADT|UKPDS|DCCT|EDIC"
+    r"|EMPEROR-?(?:Preserved|Reduced|Pooled)?"
+    r"|ARISTOTLE|RE[-\s]?LY|ROCKET[-\s]?AF|ENGAGE[-\s]?AF"
+    r"|AVERROES|RELY-?ABLE"
+    r"|TIDE|TARGET|SOUL"
+    r"|VERTIS-?(?:CV)?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+# ---------------------------------------------------------------------------
+# Number anchor + unit regexes (iter 2 fixes for P1 #1)
+# ---------------------------------------------------------------------------
+
+# Number anchor — same as iter 1
+_NUMBER_ATOM_RE = re.compile(
+    r"(?<![A-Za-z0-9_.])"
+    r"(?P<value>"
+    r"[-−]?\d+(?:[.,]\d+)?"
+    r"(?:\s*[-–—]\s*[-−]?\d+(?:[.,]\d+)?)?"
+    r")"
+    r"(?![A-Za-z0-9_])"
+)
+
+# P1.1 fix: unit regex split into TWO patterns:
+#   _UNIT_IMMEDIATE_RE — for unit attached directly after the number
+#     (must match at position 0 of the text passed in)
+#   _UNIT_PERCENT_RE — special-case for "%" without word boundary
+# Word units (kg, mg, ...) require leading whitespace or hyphen so we
+# don't match "kg" inside "kg/m2" mid-word or unrelated words.
+_UNIT_PERCENT_RE = re.compile(r"^\s*(%|pp\b|percentage\s+points?)")
+_UNIT_WORD_RE = re.compile(
+    r"^\s+(?P<unit>"
+    r"kg/m\^?2|mmol/L|mg/dL|mg/kg|μg/kg|"
+    r"kg|g|mL|L|μg|mcg|IU|U|"
+    r"BPM|bpm|mmHg|"
+    r"per\s+1000|per\s+100|per\s+1000\s+person[-\s]?years?"
+    r")\b",
+    re.IGNORECASE,
+)
+# Dose unit — only for classification (does NOT become an OUTCOME atom).
+# Iter-3 fix (Codex iter-2 P2): require NON-slash terminator to avoid
+# matching mg in "mg/dL" (an LDL-C lab unit, not a dose). Negative
+# lookahead `(?!/)` lets _UNIT_WORD_RE (mg/dL, mg/kg) win for compound
+# lab units.
+_UNIT_DOSE_RE = re.compile(r"^\s?(mg|μg|mcg|g|IU|U)(?!\w)(?!/)\b", re.IGNORECASE)
+
+
+# ---------------------------------------------------------------------------
+# Arm-local entity binding (P1 #3 fix)
+# ---------------------------------------------------------------------------
+
+# "with X dose" or "with X" — typically "...was -2.30 with tirzepatide 15 mg"
+_ARM_PHRASE_RIGHT_RE = re.compile(
+    r"^\s*(?:with|in|for|on)\s+"
+    r"(?P<arm>"
+    r"(?:"
+    + r"|".join(_DRUG_RE.pattern.lstrip("\\b(").rstrip(")\\b").split("|"))
+    + r")"  # any drug
+    r"(?:\s+\d+(?:\.\d+)?\s*(?:mg|μg|mcg|U|IU))?"  # optional dose
+    r")",
+    re.IGNORECASE,
+)
+
+# Comparator phrase: "versus X" / "compared to Y" / "vs Z"
+_COMPARATOR_PHRASE_RE = re.compile(
+    r"\b(?:vs\.?|versus|compared\s+(?:to|with)|against|relative\s+to)\b",
+    re.IGNORECASE,
+)
+
+
+# ---------------------------------------------------------------------------
+# Decimal-aware sentence boundary (P1 #4 fix)
+# ---------------------------------------------------------------------------
+
+# A sentence boundary is: . ; ! ? \n followed by whitespace/EOL/uppercase.
+# A "." between digits (decimals like 8.21) is NOT a boundary.
+# Used by literal_text expansion to avoid splitting "8.21" mid-decimal.
+_SENTENCE_BOUNDARY_RE = re.compile(r"[.;!?](?=\s|$|\n)(?!\d)|\n+")
+
+
+# ---------------------------------------------------------------------------
+# Extraction helpers
+# ---------------------------------------------------------------------------
+
+_CONTEXT_BEFORE = 150
+_CONTEXT_AFTER = 100
+_ARM_LOOKAHEAD = 50  # P1 #3: arm phrase typically within 50 chars to the right
+
+
+def _is_inside_ci_parens(direct_quote: str, num_start: int) -> bool:
+    """Iter-3 helper (Codex iter-2 continuing-P1.2): True if `num_start`
+    is inside a parenthetical group whose content contains "CI" before
+    the number. Catches comma form, dash-range form, "to" form uniformly.
+
+    Walks backward from num_start tracking paren depth. When we find the
+    enclosing `(` or `[`, scan from that paren forward to num_start; if
+    `\\bCI\\b` appears in that prefix, the number is a CI bound.
+    """
+    i = num_start - 1
+    paren_depth = 0
+    while i >= 0:
+        c = direct_quote[i]
+        if c == ')' or c == ']':
+            paren_depth += 1
+        elif c == '(' or c == '[':
+            if paren_depth == 0:
+                inside = direct_quote[i + 1:num_start]
+                return bool(re.search(r'\bCI\b', inside, re.IGNORECASE))
+            paren_depth -= 1
+        i -= 1
+    return False
+
+
+def _is_ci_bound_unparen(direct_quote: str, num_start: int) -> bool:
+    """Iter-4 helper (Codex iter-3 continuing-P1): catch non-parenthesized
+    CI forms: "HR 0.74, 95% CI 0.58, 0.95" or "HR 0.74, 95% CI 0.58-0.95".
+
+    The most recent "CI" mention within 60 chars LEFT of the number,
+    with no sentence terminator between, where this number is the 1st
+    or 2nd number after CI (first bound or second bound). Confidence-
+    interval spelled-out form is also supported.
+    """
+    left_60 = direct_quote[max(0, num_start - 60):num_start]
+    # Find most recent CI mention (last finditer match)
+    ci_pos = -1
+    for m in re.finditer(
+        r'\b(?:CI|confidence\s+interval)\b',
+        left_60,
+        re.IGNORECASE,
+    ):
+        ci_pos = m.end()
+    if ci_pos == -1:
+        return False
+    between = left_60[ci_pos:]
+    # Sentence boundary between CI and number → not a CI bound
+    if re.search(r'[.;!?](?=\s|$)(?!\d)', between):
+        return False
+    # Newline between CI and number → different context
+    if "\n" in between:
+        return False
+    # Count digits between — at most 1 prior number (this is bound 1 or 2)
+    nums_before = len(re.findall(r'[-−]?\d+(?:\.\d+)?', between))
+    return nums_before <= 1
+
+
+def _classify_number(
+    direct_quote: str,
+    match: re.Match,
+    sentence_start: int = 0,
+) -> tuple[NumberRole, str]:
+    """Classify a numeric anchor as OUTCOME / DOSE / TIMEPOINT / etc.
+
+    Returns (role, normalized_unit). Per Codex iter-1 P1 #2: skip
+    non-OUTCOME numbers from atom creation.
+
+    sentence_start parameter (iter-2 refinement): the offset of the
+    sentence the value is in. Used for unit-inheritance lookback: in
+    "-2.01 percentage points ... -2.24 with 10 mg" the second value
+    inherits "percentage points" from the comma-coordinate antecedent
+    within the SAME sentence.
+    """
+    num_start, num_end = match.start(), match.end()
+    n = len(direct_quote)
+    right = direct_quote[num_end:min(num_end + 30, n)]
+    left = direct_quote[max(0, num_start - 60):num_start]
+
+    # --- CI bound / CI level ---
+    if _CI_LEVEL_RIGHT_RE.match(right):
+        return NumberRole.CI_LEVEL, "%"
+    # Iter-3 fix (Codex iter-2 continuing-P1.2): catch ALL CI-parens forms
+    # (to / comma / dash-range / nested) by detecting that the number lives
+    # inside parens whose content contains "CI". Covers:
+    #   (95% CI, 0.58 to 0.95)   — original "to" form
+    #   (95% CI 0.58, 0.95)      — comma form
+    #   (95% CI 0.58-0.95)       — compact dash range (matched as ONE token)
+    #   (CI 0.58 to 0.95)        — bare "CI"
+    if _is_inside_ci_parens(direct_quote, num_start):
+        return NumberRole.CI_BOUND, ""
+    # Iter-4 fix (Codex iter-3 continuing-P1): non-parenthesized CI.
+    # "HR 0.74, 95% CI 0.58, 0.95" or "HR 0.74, 95% CI 0.58-0.95" still
+    # passed iter-3 because no enclosing paren. The helper checks recent
+    # CI mention within 60 chars + ≤1 prior number + no sentence boundary.
+    if _is_ci_bound_unparen(direct_quote, num_start):
+        return NumberRole.CI_BOUND, ""
+    # Paren-only range without "CI" word: "(0.58 to 0.95)" — second bound
+    # via left context ending with "(<digit> to ". CI-bearing-parens already
+    # caught above; this catches bare paren ranges (clinically rare but
+    # safer to skip than emit).
+    if _CI_PAREN_LEFT_RE.search(left):
+        return NumberRole.CI_BOUND, ""
+
+    # --- P-value ---
+    if _P_VALUE_LEFT_RE.search(left):
+        return NumberRole.P_VALUE, ""
+
+    # --- Dose ---
+    dose_m = _UNIT_DOSE_RE.match(right)
+    if dose_m:
+        return NumberRole.DOSE, dose_m.group(1).lower()
+
+    # --- Timepoint ---
+    if _TIMEPOINT_TRAILING_RE.match(right):
+        return NumberRole.TIMEPOINT, _TIMEPOINT_TRAILING_RE.match(right).group(0).strip().lower()
+    if _TIMEPOINT_BEFORE_RE.search(left):
+        return NumberRole.TIMEPOINT, ""
+
+    # --- Sample size ---
+    if _SAMPLE_SIZE_LEFT_RE.search(left) or _SAMPLE_SIZE_RIGHT_RE.match(right):
+        return NumberRole.SAMPLE_SIZE, ""
+
+    # --- OUTCOME: unit via direct attachment ---
+    pct = _UNIT_PERCENT_RE.match(right)
+    if pct:
+        unit_raw = pct.group(1)
+        if unit_raw.lower().startswith("pp") or "percentage" in unit_raw.lower():
+            return NumberRole.OUTCOME, "percentage points"
+        return NumberRole.OUTCOME, "%"
+
+    word_m = _UNIT_WORD_RE.match(right)
+    if word_m:
+        return NumberRole.OUTCOME, word_m.group("unit").lower()
+
+    # Stat metadata (HR, RR, OR) — unitless ratios
+    left_30 = direct_quote[max(0, num_start - 30):num_start]
+    for pat, label in _STAT_METADATA:
+        if pat.search(left_30):
+            return NumberRole.OUTCOME, label
+
+    # --- Unit inheritance from comma-coordinate antecedent (P1 #1 fix) ---
+    # Codex proposed_fix: "only inherit a prior unit within an explicit
+    # coordinate/list pattern."
+    #
+    # Iter-2 refinement: in clinical text "value unit with X, value with Y,
+    # and value with Z" — the unit attaches to value 1 only, but
+    # SEMANTICALLY all values share the unit. Trigger inheritance when:
+    #   (a) sentence_left contains a `value unit` pair, AND
+    #   (b) sentence_left contains a coordinate connector (comma OR
+    #       "and ") somewhere after the value-unit pair (indicates a
+    #       list/coordinate construction).
+    sentence_left = direct_quote[sentence_start:num_start]
+    if len(sentence_left) > 300:
+        sentence_left = sentence_left[-300:]
+    coord_unit_pat = re.compile(
+        r"[-−]?\d+(?:\.\d+)?\s+"
+        r"(?P<unit>"
+        r"percentage\s+points?|pp|%|"
+        r"kg/m\^?2|mmol/L|mg/dL|"
+        r"kg|g|mL|L|μg|mcg|IU|U|"
+        r"BPM|bpm|mmHg)"
+        r"\b",
+        re.IGNORECASE,
+    )
+    last_unit: Optional[str] = None
+    last_unit_end = -1
+    for cm in coord_unit_pat.finditer(sentence_left):
+        last_unit = cm.group("unit").lower()
+        last_unit_end = cm.end()
+    if last_unit is not None:
+        # Confirm coordinate structure: after the value-unit pair, look
+        # for a comma or "and " or "or " separator within the same sentence.
+        after_unit = sentence_left[last_unit_end:]
+        if re.search(r"(?:,|\band\b|\bor\b|;)", after_unit):
+            if last_unit in ("pp", "percentage point", "percentage points"):
+                return NumberRole.OUTCOME, "percentage points"
+            return NumberRole.OUTCOME, last_unit
+
+    return NumberRole.UNKNOWN, ""
+
+
+def _find_endpoint(
+    text: str,
+    num_offset: Optional[int] = None,
+) -> tuple[str, str, tuple[str, ...]]:
+    """Find endpoint in `text`. Returns (canonical, primary_section, tags).
+
+    Iter-3 fix (Codex iter-2 novel-P1 multi_endpoint_first_binding): when
+    `num_offset` is provided, search for the CLOSEST endpoint phrase to
+    the value (walking backward first, then forward). Without this, a
+    sentence like "...HbA1c by -2.30 percentage points and body weight by
+    -11.2 kg" binds -11.2 kg to HbA1c (first endpoint), producing a
+    FALSE atom.
+
+    Legacy call (no num_offset) keeps the original first-match behavior
+    for tests that don't pass a position.
+    """
+    if num_offset is None:
+        for pat, canonical, primary, tags in _ENDPOINT_VOCAB:
+            if pat.search(text):
+                return canonical, primary, tags
+        return "", "", ()
+
+    # Collect ALL endpoint matches with their positions
+    candidates: list[tuple[int, str, str, tuple[str, ...]]] = []
+    for pat, canonical, primary, tags in _ENDPOINT_VOCAB:
+        for m in pat.finditer(text):
+            candidates.append((m.end(), canonical, primary, tags))
+
+    if not candidates:
+        return "", "", ()
+
+    # Iter-5 fix (Codex iter-4 continuing-P1): coordinated endpoint
+    # ambiguity — use CLAUSE STRUCTURE, not character distance.
+    #
+    # Algorithm:
+    #   1. Find closest endpoint LEFT of value.
+    #   2. For each OTHER endpoint with a different canonical also on
+    #      the left, check the region between them and the closest:
+    #      - If sentence/clause break (`.` or `;`) → different clause,
+    #        not ambiguous, skip this candidate.
+    #      - If a digit appears between → already separated by a value,
+    #        skip.
+    #      - If a coordinate connector (`and`/`or`/`,`) → ambiguous in
+    #        same clause → REFUSE atom.
+    #
+    # Catches all coordinated forms including long endpoint phrases
+    # ("all-cause mortality and hospitalization for heart failure ...")
+    # without false refusals on multi-clause sentences.
+    left_cands = sorted(
+        [c for c in candidates if c[0] <= num_offset],
+        key=lambda c: c[0],
+    )
+    if left_cands:
+        closest = left_cands[-1]
+        # Iter-5+ fix (Codex iter-5 continuing-P1): the previous
+        # `between = text[c[0]:closest[0]]` included the CLOSEST
+        # endpoint token itself in the slice. Endpoint names with
+        # digits (HbA1c, T2DM) satisfied the digit-separator guard
+        # and bypassed the refusal. Find the closest-endpoint START
+        # position via its pattern match, then slice up to that
+        # start position (excluding the endpoint token).
+        closest_start = closest[0]
+        for pat, canonical, _, _ in _ENDPOINT_VOCAB:
+            if canonical != closest[1]:
+                continue
+            for em in pat.finditer(text):
+                if em.end() == closest[0]:
+                    closest_start = em.start()
+                    break
+            if closest_start != closest[0]:
+                break
+        for c in left_cands[:-1]:
+            if c[1] == closest[1]:
+                continue  # same canonical = not ambiguous
+            between = text[c[0]:closest_start]
+            # Different clause? Skip.
+            if re.search(r"[.;](?=\s|$)", between):
+                continue
+            # Already separated by a value? Skip.
+            if re.search(r"[-−]?\d", between):
+                continue
+            # Coordinate connector in same clause + no separator
+            # → ambiguous → refuse atom.
+            if re.search(r"\band\b|\bor\b|,", between):
+                return "", "", ()
+        return closest[1], closest[2], closest[3]
+    # Fall through to closest on right
+    right_cands = sorted(candidates, key=lambda c: c[0])
+    _, canonical, primary, tags = right_cands[0]
+    return canonical, primary, tags
+
+
+def _find_arm_local_entity(
+    direct_quote: str,
+    num_match: re.Match,
+) -> str:
+    """P1 #3 fix (iter 2): bind entity to the arm phrase nearest the value.
+
+    Strategy: find the FIRST arm phrase (closest to value) in the
+    right-side window, whether short-form ("with 15 mg") or full-form
+    ("with tirzepatide 15 mg"). For short-form, resolve drug from the
+    most-recent drug mention in the left context.
+
+    Critical: must find the CLOSEST arm, not the first full-form arm.
+    Earlier iter-2 attempt skipped past "with 15 mg" to find "with
+    semaglutide", flipping the arm for the tirzepatide 15 mg dose.
+    """
+    num_end = num_match.end()
+    right_window = direct_quote[num_end:num_end + 80]
+
+    # Combined regex: arm is either FULL_FORM (DRUG optionally + DOSE)
+    # or SHORT_FORM (DOSE alone). Take the FIRST match — closest wins.
+    # Iter-4 fix: also match "of <DRUG> patients/subjects" — clinical
+    # safety pattern "in 45% of tirzepatide patients ... 38% of
+    # semaglutide patients" where each value is followed by its arm.
+    drug_alt = _DRUG_RE.pattern.removeprefix(r"\b(").removesuffix(r")\b")
+    arm_re = re.compile(
+        r"\b(?:with|in|for|on|of)\s+"
+        r"(?P<arm>"
+        # FULL form: drug name with optional dose
+        + r"(?:" + drug_alt + r")"
+        + r"(?:\s+\d+(?:\.\d+)?\s*(?:mg|μg|mcg|U|IU))?"
+        + r"|"
+        # SHORT form: dose alone (drug inherited from left context)
+        + r"\d+(?:\.\d+)?\s*(?:mg|μg|mcg|U|IU)"
+        + r")",
+        re.IGNORECASE,
+    )
+    m = arm_re.search(right_window)
+    if not m:
+        return ""
+
+    arm_text = m.group("arm").strip()
+
+    # Short-form? First char is a digit. Resolve drug from left context.
+    if arm_text and arm_text[0].isdigit():
+        left_window = direct_quote[max(0, num_match.start() - 200):num_match.start()]
+        prior_drugs = list(_DRUG_RE.finditer(left_window))
+        if prior_drugs:
+            drug = prior_drugs[-1].group(0).strip()
+            return f"{drug} {arm_text.lower()}"
+        return arm_text
+
+    return arm_text
+
+
+def _find_comparator(literal_text: str, entity: str) -> str:
+    """Comparator extraction (iter-2 fix per Codex iter-1 P1 #3 review).
+
+    CONSTRAINED to literal_text only — comparator must be in the SAME
+    sentence as the value. This prevents "43% adverse events"
+    (AE-only sentence) from inheriting "semaglutide" comparator from
+    a previous sentence's HbA1c comparison.
+
+    Strategy (3 passes inside literal_text):
+        1. Explicit comparator phrase (versus/compared to X) + nearest
+           drug after it — strongest signal.
+        2. Any non-entity drug in literal_text (multi-arm comparison).
+        3. Placebo / standard care literal — if "placebo" / "control"
+           appears in literal_text.
+    """
+    entity_lower = entity.lower().strip()
+    entity_drug = re.split(r"\s+\d", entity_lower, maxsplit=1)[0].strip()
+
+    # Iter-3 fix (Codex iter-2 novel-P1): if `entity` appears AFTER a
+    # "versus"/"vs"/"compared to" connector, entity IS the comparator arm.
+    # Emitting `comparator=<index-drug>` would be a REVERSE COMPARATIVE
+    # claim (semaglutide vs tirzepatide, when the sentence is making the
+    # opposite claim). Suppress comparator entirely for comparator-arm
+    # values.
+    for vm in _COMPARATOR_PHRASE_RE.finditer(literal_text):
+        after_versus = literal_text[vm.end():vm.end() + 100].lower()
+        if entity_drug and entity_drug in after_versus:
+            return ""
+
+    # Pass 1: explicit comparator phrase + drug after it
+    comp_phrase = _COMPARATOR_PHRASE_RE.search(literal_text)
+    if comp_phrase:
+        post_comp = literal_text[comp_phrase.end():comp_phrase.end() + 80]
+        drug_m = _DRUG_RE.search(post_comp)
+        if drug_m:
+            d = drug_m.group(0).strip().lower()
+            if not (entity_drug and (
+                d == entity_drug or d.startswith(entity_drug) or entity_drug.startswith(d)
+            )):
+                return d
+        # Fallback: literal noun after "versus"
+        noun_m = re.match(
+            r"\s*([A-Za-z][A-Za-z\s\-]{2,30}?)(?=[,;.\s\(]|$|\d)",
+            post_comp,
+        )
+        if noun_m:
+            cand = noun_m.group(1).strip().lower()
+            if cand and cand not in (entity_drug, entity_lower):
+                return cand
+
+    # Pass 2: any non-entity drug in literal_text
+    for m in _DRUG_RE.finditer(literal_text):
+        d = m.group(0).strip().lower()
+        if entity_drug and (
+            d == entity_drug or d.startswith(entity_drug) or entity_drug.startswith(d)
+        ):
+            continue
+        return d
+
+    # Pass 3: placebo / standard care
+    m = re.search(
+        r"\b(placebo|standard\s+care|usual\s+care|control)\b",
+        literal_text, re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).lower()
+    return ""
+
+
+def _find_timepoint(direct_quote: str, num_match: re.Match) -> str:
+    """Find a timepoint phrase in the sentence containing the value."""
+    num_start = num_match.start()
+    ctx_start = max(0, num_start - 200)
+    ctx_end = min(len(direct_quote), num_match.end() + 100)
+    context = direct_quote[ctx_start:ctx_end]
+    m = re.search(
+        r"\b(?:at|after|by|over|in|through|for)\s+(\d+(?:\.\d+)?)\s*"
+        r"(weeks?|months?|years?|days?)\b",
+        context, re.IGNORECASE,
+    )
+    if m:
+        return f"{m.group(1)} {m.group(2).lower()}"
+    m2 = re.search(r"\b(week|month|year)\s+(\d+)\b", context, re.IGNORECASE)
+    if m2:
+        return f"{m2.group(1).lower()} {m2.group(2)}"
+    return ""
+
+
+def _expand_literal_text(
+    direct_quote: str,
+    num_match: re.Match,
+) -> tuple[int, int, str]:
+    """P1 #4 fix: expand to nearest sentence boundary using DECIMAL-AWARE
+    boundary detection. Returns (span_start, span_end, literal_text).
+
+    The boundary is `[.;!?](?=\\s|$|\\n)` — a period followed by
+    whitespace or end-of-line. A period followed by a digit (decimal
+    like 8.21) is NOT a boundary.
+    """
+    num_start, num_end = num_match.start(), num_match.end()
+    n = len(direct_quote)
+
+    # Walk LEFT looking for a sentence-ending boundary
+    left_text = direct_quote[:num_start]
+    boundary_left = 0
+    for m in _SENTENCE_BOUNDARY_RE.finditer(left_text):
+        boundary_left = m.end()  # Last boundary BEFORE the number wins
+
+    # Walk RIGHT looking for the next sentence-ending boundary
+    right_text = direct_quote[num_end:]
+    m_right = _SENTENCE_BOUNDARY_RE.search(right_text)
+    if m_right:
+        boundary_right = num_end + m_right.end()
+    else:
+        boundary_right = n
+
+    lit = direct_quote[boundary_left:boundary_right].strip()
+    return boundary_left, boundary_right, lit
+
+
+def _score_confidence(
+    *,
+    has_endpoint: bool,
+    has_entity: bool,
+    has_unit: bool,
+    has_comparator: bool,
+    has_timepoint: bool,
+) -> str:
+    """Recalibrated per Codex iter-1 P2:
+    HIGH = endpoint + entity + unit + (comparator OR timepoint)
+    MEDIUM = endpoint + entity + unit
+    LOW = endpoint + value (everything else)
+    """
+    if has_endpoint and has_entity and has_unit and (has_comparator or has_timepoint):
+        return "high"
+    if has_endpoint and has_entity and has_unit:
+        return "medium"
+    return "low"
+
+
+def _compute_section_tags(
+    primary: str,
+    secondary: tuple[str, ...],
+    *,
+    has_comparator: bool,
+    has_dose_arm: bool,
+) -> tuple[str, ...]:
+    """Codex iter-1 P2 fix: section_tags are dynamic — add Comparative
+    when a comparator is present, add Dose Response when a dose-arm
+    is bound to the entity."""
+    tags = set(secondary)
+    tags.add(primary)
+    if has_comparator:
+        tags.add("Comparative")
+    if has_dose_arm:
+        tags.add("Dose Response")
+    # Order: primary first, then alphabetical
+    ordered = [primary] + sorted(t for t in tags if t != primary)
+    return tuple(ordered)
+
+
+def _compute_primary_section(
+    vocab_primary: str,
+    *,
+    has_comparator: bool,
+    has_dose_arm: bool,
+) -> str:
+    """Iter-4 fix (Codex iter-3 P2 ranking):
+
+    Hierarchy (iter-4):
+      1. has_dose_arm → "Dose Response" (always, regardless of comparator)
+      2. has_comparator AND vocab_primary in {"Efficacy",
+         "Comparative Effectiveness"} → "Comparative Effectiveness"
+      3. otherwise → vocab_primary
+
+    Per Codex iter-3: dose-arm WITHOUT comparator should still primary
+    to Dose Response (dose-arm IS the dose-response signal). Comparator
+    should NOT automatically move Safety/Mechanism atoms out of their
+    vocab primary section — only Efficacy/Comparative atoms get
+    re-routed.
+    """
+    if has_dose_arm:
+        return "Dose Response"
+    if has_comparator and vocab_primary in ("Efficacy", "Comparative Effectiveness"):
+        return "Comparative Effectiveness"
+    return vocab_primary
+
+
+# ---------------------------------------------------------------------------
+# Main extraction
+# ---------------------------------------------------------------------------
+
+def extract_atoms_from_evidence(
+    evidence_row: dict[str, Any],
+    atom_id_start: int = 0,
+) -> list[ClaimAtom]:
+    """Extract ClaimAtoms from one evidence row's `direct_quote`.
+
+    Strategy (Codex iter-1-aware):
+        1. Walk every numeric anchor.
+        2. Classify each as OUTCOME / DOSE / TIMEPOINT / SAMPLE_SIZE /
+           CI_BOUND / CI_LEVEL / P_VALUE / UNKNOWN.
+        3. ONLY OUTCOME numbers become atoms.
+        4. For each OUTCOME, look in the SAME SENTENCE for endpoint.
+           If no endpoint → skip.
+        5. Bind entity from the closest arm phrase ("with X" or "X mg").
+        6. Bind comparator from explicit "versus" syntax.
+        7. Expand literal_text with decimal-aware sentence boundaries.
+        8. Validate literal_text contains the raw value text.
+    """
+    direct_quote = evidence_row.get("direct_quote") or ""
+    if not direct_quote:
+        return []
+
+    ev_id = evidence_row.get("evidence_id", "")
+    tier = str(evidence_row.get("tier", ""))
+    provenance_class = str(evidence_row.get("provenance_class", ""))
+    paper_title = (
+        evidence_row.get("title")
+        or evidence_row.get("statement", "")[:120]
+        or ""
+    )
+
+    atoms: list[ClaimAtom] = []
+    counter = atom_id_start
+
+    for m in _NUMBER_ATOM_RE.finditer(direct_quote):
+        raw_value = m.group("value").strip()
+
+        # P1 #4 fix: decimal-aware literal_text expansion (FIRST so the
+        # sentence boundaries are known before classification).
+        span_start, span_end, literal_text = _expand_literal_text(direct_quote, m)
+
+        # SAFETY FLOOR: literal_text MUST contain the raw value verbatim.
+        if raw_value not in literal_text:
+            continue
+
+        # P1 #2 fix: classify before atom creation. Pass sentence_start
+        # so unit-inheritance can search within the SAME sentence only.
+        role, unit = _classify_number(direct_quote, m, sentence_start=span_start)
+        if role != NumberRole.OUTCOME:
+            continue
+
+        # Find endpoint within the literal sentence.
+        # Iter-3 fix: pass num offset (relative to literal_text) so the
+        # CLOSEST endpoint to the value wins, not the first endpoint in
+        # the sentence. Prevents multi-endpoint binding errors.
+        num_offset_in_literal = m.start() - span_start
+        endpoint, primary_section, secondary_tags = _find_endpoint(
+            literal_text, num_offset=num_offset_in_literal
+        )
+        if not endpoint:
+            continue
+
+        # P1 #3 fix: arm-local entity binding.
+        entity = _find_arm_local_entity(direct_quote, m)
+        if not entity:
+            # Iter-4 fix (Codex iter-3 continuing-P1): pick CLOSEST drug
+            # to the value (preferring left side), not first drug in
+            # literal_text. Handles "semaglutide, which reduced HbA1c
+            # by -1.86" where the comparator-arm drug is left of value.
+            #
+            # Also iter-4 dose-arm fix: capture "<DRUG> N mg" as a single
+            # entity so has_dose_arm=True. Critical for single-arm dose
+            # studies where the dose is on the LEFT not right of value.
+            num_offset_in_literal = m.start() - span_start
+            drug_with_dose_re = re.compile(
+                rf"({_DRUG_RE.pattern.removeprefix(chr(92) + 'b(').removesuffix(')' + chr(92) + 'b')})"
+                r"(?:\s+\d+(?:\.\d+)?\s*(?:mg|μg|mcg|U|IU))?",
+                re.IGNORECASE,
+            )
+            drug_candidates = list(drug_with_dose_re.finditer(literal_text))
+            left_drugs = [d for d in drug_candidates if d.end() <= num_offset_in_literal]
+            if left_drugs:
+                # Closest on left = max end-position
+                closest = max(left_drugs, key=lambda d: d.end())
+                entity = closest.group(0).strip()
+            elif drug_candidates:
+                # No drug on left → take closest on right
+                closest = min(drug_candidates, key=lambda d: d.start())
+                entity = closest.group(0).strip()
+            else:
+                trial_m = _TRIAL_RE.search(literal_text)
+                if trial_m:
+                    entity = trial_m.group(0).strip()
+
+        # Comparator constrained to literal_text (iter-2 fix).
+        comparator = _find_comparator(literal_text, entity)
+        timepoint = _find_timepoint(direct_quote, m)
+
+        # Dose-arm detection: entity contains a dose unit
+        has_dose_arm = bool(re.search(r"\d+\s*(?:mg|μg|mcg|U|IU)", entity))
+
+        value_signed = raw_value.startswith("-") or raw_value.startswith("−")
+        norm_value = raw_value.replace("−", "-")
+
+        confidence = _score_confidence(
+            has_endpoint=bool(endpoint),
+            has_entity=bool(entity),
+            has_unit=bool(unit),
+            has_comparator=bool(comparator),
+            has_timepoint=bool(timepoint),
+        )
+
+        # Iter-3 fix (Codex iter-2 P2): primary_section is dynamic, not
+        # static vocab default. Dose-arm + comparator HbA1c atom goes to
+        # "Dose Response", not "Efficacy". Prevents 3-section reuse.
+        # Iter-4 fix (Codex iter-3 P3): compute primary_section BEFORE
+        # section_tags so the tuple order reflects the rewritten primary.
+        primary_section = _compute_primary_section(
+            primary_section,
+            has_comparator=bool(comparator),
+            has_dose_arm=has_dose_arm,
+        )
+        section_tags = _compute_section_tags(
+            primary_section, secondary_tags,
+            has_comparator=bool(comparator),
+            has_dose_arm=has_dose_arm,
+        )
+
+        counter += 1
+        atoms.append(ClaimAtom(
+            atom_id=f"atom_{counter:03d}",
+            evidence_id=ev_id,
+            span_start=span_start,
+            span_end=span_end,
+            literal_text=literal_text,
+            entity=entity,
+            endpoint=endpoint,
+            comparator=comparator,
+            timepoint=timepoint,
+            value=norm_value,
+            unit=unit,
+            primary_section=primary_section,
+            section_tags=section_tags,
+            tier=tier,
+            value_signed=value_signed,
+            confidence=confidence,
+            provenance_class=provenance_class,
+            source_paper_title=paper_title,
+        ))
+    return atoms
+
+
+def build_atom_catalog(
+    evidence_subset: list[dict[str, Any]],
+) -> dict[str, ClaimAtom]:
+    """Build the complete atom catalog from a section's evidence subset.
+
+    Atoms numbered globally across the query.
+    """
+    catalog: dict[str, ClaimAtom] = {}
+    counter = 0
+    for ev in evidence_subset:
+        atoms = extract_atoms_from_evidence(ev, atom_id_start=counter)
+        for a in atoms:
+            catalog[a.atom_id] = a
+        counter += len(atoms)
+    return catalog
+
+
+def filter_atoms_for_section(
+    catalog: dict[str, ClaimAtom],
+    section_title: str,
+) -> dict[str, ClaimAtom]:
+    """Filter atoms for a section.
+
+    Iter-3 fix (Codex iter-2 P2): single-best-placement enforcement.
+    Returns atoms whose `primary_section` matches the section title.
+    Atoms with this section in `section_tags` but NOT as primary are
+    excluded — they are cited in their primary section and should not be
+    re-cited here. This prevents the same atom from landing in 3
+    different sections of the report.
+
+    Case-insensitive match. Section-name variants are normalized:
+    "Comparative" ≡ "Comparative Effectiveness".
+    """
+    sec = section_title.strip().lower()
+    # Section-name normalization for matching
+    sec_aliases = {
+        "comparative": "comparative effectiveness",
+        "comparative effectiveness": "comparative effectiveness",
+    }
+    sec_normalized = sec_aliases.get(sec, sec)
+
+    def matches(primary: str) -> bool:
+        p = primary.strip().lower()
+        p_normalized = sec_aliases.get(p, p)
+        return p_normalized == sec_normalized
+
+    return {
+        aid: a
+        for aid, a in catalog.items()
+        if matches(a.primary_section)
+    }
+
+
+def format_atom_catalog_for_prompt(
+    section_atoms: dict[str, ClaimAtom],
+    *,
+    max_atoms: int = 60,
+) -> str:
+    """Render the section-filtered atom catalog as a compact block for
+    V4 Pro's system prompt."""
+    if not section_atoms:
+        return "ATOM CATALOG: (empty — no verified atoms for this section's focus)"
+
+    lines = ["ATOM CATALOG (cite atom_ids in your prose; one per factual claim):"]
+    for i, (aid, a) in enumerate(sorted(section_atoms.items())):
+        if i >= max_atoms:
+            lines.append(f"  ... ({len(section_atoms) - max_atoms} more atoms truncated)")
+            break
+        parts = [f"  {aid}: ev={a.evidence_id} tier={a.tier} conf={a.confidence}"]
+        parts.append(f"value={a.value}{(' ' + a.unit) if a.unit else ''}")
+        if a.entity:
+            parts.append(f"entity={a.entity}")
+        parts.append(f"endpoint={a.endpoint}")
+        if a.comparator:
+            parts.append(f"vs={a.comparator}")
+        if a.timepoint:
+            parts.append(f"timepoint={a.timepoint}")
+        lines.append(" | ".join(parts))
+        lit = a.literal_text[:200].replace("\n", " ")
+        lines.append(f"    > {lit}")
+    return "\n".join(lines)
+
+
+def format_refusal_for_missing_atom(
+    *,
+    endpoint: str,
+    entity: str = "",
+    timepoint: str = "",
+) -> str:
+    """Codex APPROVE_DESIGN refusal template:
+
+        Insufficient verified atom-level evidence from the cited corpus
+        to support a claim about {endpoint} {timepoint_clause} for
+        {entity_clause}.
+    """
+    timepoint_clause = f"at {timepoint}" if timepoint else ""
+    entity_clause = entity if entity else "the cited population"
+    return (
+        f"Insufficient verified atom-level evidence from the cited corpus "
+        f"to support a claim about {endpoint} {timepoint_clause} "
+        f"for {entity_clause}."
+    ).replace("  ", " ").strip()
+
+
+ succeeded in 881ms:
+"""Atom citation validator + gap renderer (recommended_path #4).
+
+Per Codex APPROVE_DESIGN 2026-05-26 (refusal_design_verdict):
+    - Approach C hybrid: prompt-side instruction + post-hoc enforcement
+    - STRICT layer: missing/invalid atom_id → REPLACE sentence with refusal
+    - SOFT layer: value/endpoint/entity/timepoint mismatch → log only, do
+      NOT replace (during demo period)
+    - Sentence-level refusal granularity
+    - gaps.json sidecar AND inline refusal markers in report.md
+    - Multi-atom sentences: ALL cited atom_ids must exist (any missing → refuse)
+
+Quantitative-claim detector per Codex (triggers A + B only, with exclusions
+for design/admin numbers; qualitative comparative outcome language also
+required to cite atoms even without numbers).
+
+This module is pure functions — no I/O except gaps.json writing via
+explicit helper. Consumer (multi_section_generator) calls
+`validate_section()` once per V4 Pro section body, then
+`write_gaps_sidecar()` at the end.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from pathlib import Path
+from typing import Optional
+
+from src.polaris_graph.generator.claim_atom_extractor import (
+    ClaimAtom,
+    format_refusal_for_missing_atom,
+)
+
+
+class RefusalAction(str, Enum):
+    REFUSED = "refused"            # sentence replaced with refusal template
+    ALLOWED = "allowed"            # sentence kept as-is (atom valid)
+    LOGGED_ONLY = "logged_only"    # sentence kept but soft mismatch logged
+
+
+class RefusalReason(str, Enum):
+    MISSING_ATOM_CITATION = "missing_atom_citation"   # no atom_NNN in sentence
+    INVALID_ATOM_ID = "invalid_atom_id"               # atom_NNN cited but not in catalog
+    EV_CITATION_FOR_CLAIM = "ev_citation_for_claim"   # [ev_XXX] used for factual claim
+    SOFT_MISMATCH = "soft_mismatch"                   # cited atom value/endpoint differs
+    PARTIAL_COVERAGE_SUSPECTED = "partial_coverage_suspected"
+    NO_VIOLATION = "no_violation"                     # sentence is valid
+
+
+# ---------------------------------------------------------------------------
+# Quantitative-claim detector (per Codex APPROVE_DESIGN trigger schema)
+# ---------------------------------------------------------------------------
+
+# Trigger A: number + endpoint vocab term
+# Trigger B: number alone (but not design/admin numbers — see exclusions)
+
+# Numbers in sentence — require non-letter context to avoid matching
+# embedded digits in endpoint names like "HbA1c" (the "1") or "T2DM"
+# (the "2"). Same approach as atom_extractor._NUMBER_ATOM_RE.
+_NUMBER_RE = re.compile(
+    r"(?<![A-Za-z0-9_.])[-−]?\d+(?:\.\d+)?(?![A-Za-z0-9_])"
+)
+
+# Endpoint vocab — superset for claim-detection (any one of these triggers
+# atom-citation requirement when combined with a number or with a
+# qualitative comparative term)
+_ENDPOINT_VOCAB_RE = re.compile(
+    r"\b("
+    r"hba1c|fasting\s+(?:plasma\s+)?glucose|fpg|fsg|"
+    r"body\s+weight|weight\s+(?:loss|reduction)|bmi|waist\s+circumference|"
+    r"ldl[-\s]?c|hdl[-\s]?c|triglycerides|cholesterol|"
+    r"blood\s+pressure|systolic|diastolic|sbp|dbp|mmhg|"
+    r"mace|myocardial\s+infarction|stroke|cv\s+death|cardiovascular\s+death|"
+    r"all[-\s]?cause\s+mortality|heart\s+failure|hf\s+hospitali[zs]ation|"
+    r"egfr|uacr|aki|creatinine|"
+    r"adverse\s+events?|aes?|serious\s+adverse|sae|discontinuation|"
+    # Iter-2 fix (Codex iter-1 P1): common safety endpoints by name
+    r"nausea|vomiting|diarrh(?:o)?ea|constipation|abdominal\s+pain|"
+    r"injection[-\s]?site\s+reaction|"
+    r"hypoglycemia|hypoglycaemia|pancreatitis|gallbladder|retinopathy|mtc|"
+    r"hazard\s+ratio|risk\s+ratio|odds\s+ratio|relative\s+risk|"
+    r"responder\s+rate|response\s+rate|incidence|"
+    r"non[-\s]?inferiority|superior(?:ity)?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Iter-2 fix (Codex iter-1 P2): inclusion/eligibility-range framing.
+# "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0"
+# is design/eligibility, not an outcome claim. This regex detects framing
+# that overrides Trigger A for eligibility-range numbers.
+#
+# Iter-3 fix (Codex iter-2 novel-P1): tightened to only "inclusion/
+# exclusion criteria" frames; removed bare "baseline HbA1c" because real
+# outcome sentences may mention baseline characteristics + actual
+# reductions in the same breath ("Patients with baseline HbA1c of 8.6%
+# had HbA1c reductions of 2.3 percentage points" must NOT bypass Trigger A).
+_ELIGIBILITY_RANGE_RE = re.compile(
+    r"\b(?:inclusion\s+criter\w*|exclusion\s+criter\w*|"
+    r"eligibility\s+criter\w*|eligible\s+(?:if|when)\b|"
+    r"required\s+(?:hba1c|weight|bmi)\s+(?:of|between)\b)",
+    re.IGNORECASE,
+)
+
+# Iter-3 fix (Codex iter-2 novel-P1): outcome-verb-with-number pattern.
+# If a sentence contains "<outcome verb> <amount>" (reductions of N,
+# decreased by N, improved by N), the eligibility override MUST NOT fire
+# because there's a real quantitative outcome claim mixed with the
+# eligibility framing.
+_OUTCOME_VERB_WITH_NUMBER_RE = re.compile(
+    r"\b(?:reduc(?:ed|tions?|ing)|"
+    r"decreas(?:ed|es?|ing)|increas(?:ed|es?|ing)|"
+    r"chang(?:ed|es?)|improv(?:ed|ements?|ing)|"
+    r"lower(?:ed|ing)|rais(?:ed|ing)|"
+    r"fell|rose|dropped)\s+"
+    r"(?:by|of|from|to)?\s*[-−]?\d",
+    re.IGNORECASE,
+)
+
+# Qualitative comparative/outcome language requiring atom citation
+# (Codex iter-1 P1 expanded: catch "more common with X than Y", "higher
+# with X than Y", "greater reduction than", etc.)
+_QUAL_COMPARATIVE_RE = re.compile(
+    r"\b("
+    r"greater(?:\s+\w+){0,4}\s+than|"
+    r"less(?:\s+\w+){0,4}\s+than|"
+    r"lower(?:\s+\w+){0,4}\s+than|"
+    r"higher(?:\s+\w+){0,4}\s+than|"
+    r"more(?:\s+\w+){0,4}\s+than|"     # "more common with X than Y"
+    r"fewer(?:\s+\w+){0,4}\s+than|"
+    r"superior(?:ity)?\s+to|non[-\s]?inferior(?:ity)?\s+to|"
+    r"statistically\s+significant|significantly\s+\w+|"
+    r"reduced|increased|decreased|elevated|improved|worsened|"
+    r"more\s+(?:effective|common|frequent)|less\s+(?:effective|common|frequent)|"
+    r"compared\s+(?:to|with)|versus|vs\.?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Comparator/arm language that — combined with a comparative phrase —
+# signals a factual comparative claim. Iter-4 fix (Codex iter-3 novel-P1):
+# build comparator-arm regex from claim_atom_extractor._DRUG_RE so any
+# drug name known to the atom extractor is also recognized here.
+# Avoids drift between extractor's vocab and validator's vocab.
+def _build_comparative_arm_re() -> re.Pattern:
+    from src.polaris_graph.generator.claim_atom_extractor import _DRUG_RE
+    drug_alt = _DRUG_RE.pattern.removeprefix(r"\b(").removesuffix(r")\b")
+    pattern = (
+        r"\b(?:than|versus|vs\.?|compared\s+(?:to|with))\s+"
+        r"(?:"
+        r"placebo|control(?:s|\s+arm)?|standard\s+care|usual\s+care|"
+        r"active\s+comparator|background\s+therapy|sham|"
+        r"glp[-\s]?1|sglt2|dpp[-\s]?4|insulin|metformin|sulfonylurea|"
+        + drug_alt
+        + r")\b"
+    )
+    return re.compile(pattern, re.IGNORECASE)
+
+
+_COMPARATIVE_ARM_RE = _build_comparative_arm_re()
+
+# Numbers to EXCLUDE from Trigger B when they appear with admin/design context
+_ADMIN_NUMBER_RE = re.compile(
+    r"\b("
+    r"phase\s+(?:I{1,3}V?|IV|\d+)|"
+    r"week[s]?\s+\d+|\d+\s+week[s]?|"
+    r"month[s]?\s+\d+|\d+\s+month[s]?|"
+    r"year[s]?\s+\d+|\d+\s+year[s]?|"
+    r"day[s]?\s+\d+|\d+\s+day[s]?|"
+    r"n\s*=\s*\d+|sample\s+size\s+\d+|"
+    r"arm\s+\d+|\d+\s+arm[s]?|"
+    r"\d+(?:\.\d+)?\s*(?:mg|μg|mcg|kg|g|mL|L|U|IU)(?!\s*/[dl])"  # dose-only, lab unit still triggers
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Allowed-without-atom categories — narrative/synthesis prose
+_NARRATIVE_CATEGORY_RE = re.compile(
+    r"\b("
+    r"mechanism\s+of\s+action|receptor\s+agonis[mt]|incretin|"
+    r"open[-\s]?label|double[-\s]?blind|randomi[zs]ed|placebo[-\s]?controlled|"
+    r"phase\s+(?:I{1,3}V?|IV|\d+)\s+(?:trial|study)|"
+    r"inclusion\s+criter|exclusion\s+criter|eligibility|eligible\s+patients|"
+    r"prevalence|epidemiology|burden\s+of\s+disease|"
+    r"limitation|limited\s+by|caveat|long[-\s]?term\s+\w+\s+(?:data|safety)|"
+    r"these\s+(?:outcomes|results|findings)\s+(?:were|are)\s+(?:consistent|in\s+line)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+# Atom-ID citation pattern: atom_NNN
+_ATOM_ID_RE = re.compile(r"\batom_\d{3,}\b")
+_EV_ID_RE = re.compile(r"\[?ev_\d{3,}(?::\d+-\d+)?\]?")
+_PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:ev_\d{3,}:\d+-\d+\]")
+
+
+@dataclass
+class GapRecord:
+    """One per sentence in a section's validation pass."""
+    section_id: str
+    section_title: str
+    sentence_index: int
+    original_sentence: str
+    rendered_text: str
+    action: RefusalAction
+    reason: RefusalReason
+    cited_atoms: list[str] = field(default_factory=list)
+    missing_atoms: list[str] = field(default_factory=list)
+    detected_endpoint: Optional[str] = None
+    detected_entity: Optional[str] = None
+    detected_timepoint: Optional[str] = None
+    detected_values: list[str] = field(default_factory=list)
+    notes: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "claim_id": f"{self.section_id}.s{self.sentence_index:03d}",
+            "sentence_index": self.sentence_index,
+            "original_sentence": self.original_sentence,
+            "rendered_text": self.rendered_text,
+            "action": self.action.value,
+            "reason": self.reason.value,
+            "cited_atoms": self.cited_atoms,
+            "missing_atoms": self.missing_atoms,
+            "detected_endpoint": self.detected_endpoint,
+            "detected_entity": self.detected_entity,
+            "detected_timepoint": self.detected_timepoint,
+            "detected_values": self.detected_values,
+            "notes": self.notes,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Quantitative-claim detection
+# ---------------------------------------------------------------------------
+
+def requires_atom_citation(sentence: str) -> tuple[bool, Optional[str]]:
+    """Codex APPROVE_DESIGN claim detector.
+
+    Returns (requires_atom, reason). True if sentence makes a factual
+    quantitative claim that needs atom_NNN citation; False for pure
+    narrative/mechanism/trial-design prose.
+
+    Triggers:
+      A: number + endpoint vocab term → requires atom
+      B: number alone (excluding admin/design numbers) → requires atom
+      Plus: qualitative comparative outcome language even without numbers
+
+    Excludes:
+      - pure mechanism / trial identity / eligibility / background prose
+    """
+    s = sentence.strip()
+    if not s:
+        return False, None
+
+    numbers = _NUMBER_RE.findall(s)
+    has_endpoint = bool(_ENDPOINT_VOCAB_RE.search(s))
+    has_qual_comparative = bool(_QUAL_COMPARATIVE_RE.search(s))
+    has_comparator_arm = bool(_COMPARATIVE_ARM_RE.search(s))
+    has_outcome_number = bool(numbers) and has_endpoint
+
+    # Iter-4 decision (Codex iter-3 continuing-P1): the eligibility
+    # override was removed. Two iterations of regex tightening (iter-2,
+    # iter-3) still couldn't reliably distinguish:
+    #   - "Patients meeting inclusion criteria had HbA1c of 6.8%"  (outcome — must require)
+    #   - "Eligible adults had baseline HbA1c between 7.0 and 10.0" (eligibility — should allow)
+    # Codex correctly observed that pure-regex disambiguation is
+    # fundamentally fragile here.
+    #
+    # SAFE DEFAULT: any quantitative claim requires atom citation. If
+    # V4 Pro cannot find a supporting atom (because the sentence is
+    # actually just eligibility framing), V4 Pro emits a refusal block.
+    # The refusal reads slightly awkwardly for benign eligibility
+    # sentences ("Insufficient evidence about HbA1c..."), but this is
+    # SAFER than masking real outcome claims that happen to share
+    # eligibility-frame keywords.
+    #
+    # Trade-off accepted per clinical-safety principle (CLAUDE.md §-1.1):
+    # false negative (over-refuse benign eligibility) is recoverable;
+    # false positive (mask real outcome) is lethal.
+
+    # Pure narrative categories — never require atom citation UNLESS
+    # there's also an outcome-number combo or qualitative comparative.
+    narrative_matches = _NARRATIVE_CATEGORY_RE.findall(s)
+    if narrative_matches and not has_outcome_number and not has_qual_comparative:
+        return False, None
+
+    # Trigger A: number + endpoint
+    if has_outcome_number:
+        return True, "trigger_A_number_plus_endpoint"
+
+    # Qualitative comparative outcome language with an endpoint OR
+    # an explicit comparator arm (versus/than/compared to PLACEBO/DRUG).
+    # Catches "Tirzepatide showed greater reduction than semaglutide"
+    # (no endpoint vocab term but clearly a comparative claim).
+    if has_qual_comparative and (has_endpoint or has_comparator_arm):
+        return True, "trigger_qualitative_comparative"
+
+    # Trigger B: number alone, but check for admin/design exclusions
+    if numbers:
+        admin_matches = _ADMIN_NUMBER_RE.findall(s)
+        # If the sentence has more numbers than admin matches, at least
+        # one number is "outcome-like" — require citation.
+        if len(numbers) > len(admin_matches):
+            return True, "trigger_B_number_alone"
+
+    return False, None
+
+
+# ---------------------------------------------------------------------------
+# Citation parsing
+# ---------------------------------------------------------------------------
+
+def extract_atom_citations(sentence: str) -> list[str]:
+    """All atom_NNN citations in this sentence."""
+    return _ATOM_ID_RE.findall(sentence)
+
+
+def extract_ev_citations(sentence: str) -> list[str]:
+    """All [ev_XXX] or ev_XXX citations in this sentence."""
+    return _EV_ID_RE.findall(sentence)
+
+
+def has_ev_citation_for_factual_claim(sentence: str) -> bool:
+    """True if sentence cites [ev_XXX] for what should be a factual claim.
+
+    Per Codex APPROVE_DESIGN: '[ev_XXX] is for non-claim transitions only.'
+    """
+    requires_atom, _ = requires_atom_citation(sentence)
+    if not requires_atom:
+        return False
+    return bool(_EV_ID_RE.search(sentence)) and not _ATOM_ID_RE.search(sentence)
+
+
+# ---------------------------------------------------------------------------
+# Sentence splitter (decimal-aware, matches atom_extractor's logic)
+# ---------------------------------------------------------------------------
+
+# Decimal-aware sentence split. Split on [.;!?] followed by whitespace
+# (or end-of-text). Negative lookbehind for digit-period-digit prevents
+# splitting "2.30" mid-decimal. Negative lookahead for digit prevents
+# splitting before "0.95" in "(95% CI 0.58, 0.95)" (closing paren may
+# precede a value).
+_SENTENCE_SPLIT_RE = re.compile(
+    r"(?<=[.;!?])\s+(?=[A-Z\[]|$)"
+)
+
+
+def split_sentences(text: str) -> list[str]:
+    """Decimal-aware sentence split — matches atom_extractor's boundary
+    rule (period followed by digit is NOT a boundary)."""
+    if not text:
+        return []
+    # Pre-process: protect decimals by temporarily replacing "X.Y" with
+    # "XY" before split, then restore.
+    PROTECT = ""
+    protected = re.sub(r"(\d)\.(\d)", rf"\1{PROTECT}\2", text)
+    parts = _SENTENCE_SPLIT_RE.split(protected)
+    return [p.replace(PROTECT, ".").strip() for p in parts if p.strip()]
+
+
+# ---------------------------------------------------------------------------
+# Validation core
+# ---------------------------------------------------------------------------
+
+def validate_sentence(
+    sentence: str,
+    sentence_index: int,
+    section_id: str,
+    section_title: str,
+    catalog: dict[str, ClaimAtom],
+) -> GapRecord:
+    """Validate one sentence against the atom catalog.
+
+    Returns a GapRecord with action + reason.
+
+    STRICT layer (replaces sentence with refusal):
+      - Sentence requires atom citation BUT no atom_NNN cited
+      - Cited atom_NNN doesn't exist in catalog
+      - [ev_XXX] cited for a factual claim (no atom_NNN)
+      - Multi-atom: ANY cited atom_NNN missing → replace
+
+    SOFT layer (logged_only; sentence kept as-is):
+      - Cited atom value differs from sentence value (paraphrase)
+      - Cited atom endpoint differs from sentence endpoint
+    """
+    cited_atoms = extract_atom_citations(sentence)
+    requires_atom, claim_trigger = requires_atom_citation(sentence)
+
+    # Non-claim sentence with no atoms cited → allowed (narrative)
+    if not requires_atom and not cited_atoms:
+        return GapRecord(
+            section_id=section_id,
+            section_title=section_title,
+            sentence_index=sentence_index,
+            original_sentence=sentence,
+            rendered_text=sentence,
+            action=RefusalAction.ALLOWED,
+            reason=RefusalReason.NO_VIOLATION,
+            notes="narrative/non-claim sentence; no atom citation required",
+        )
+
+    # Requires atom but no atom cited
+    if requires_atom and not cited_atoms:
+        # Check for [ev_XXX] misuse
+        if extract_ev_citations(sentence):
+            return _build_refusal_record(
+                sentence, sentence_index, section_id, section_title,
+                reason=RefusalReason.EV_CITATION_FOR_CLAIM,
+                claim_trigger=claim_trigger,
+            )
+        return _build_refusal_record(
+            sentence, sentence_index, section_id, section_title,
+            reason=RefusalReason.MISSING_ATOM_CITATION,
+            claim_trigger=claim_trigger,
+        )
+
+    # Cited atoms exist — validate each exists in catalog
+    missing = [aid for aid in cited_atoms if aid not in catalog]
+    if missing:
+        return _build_refusal_record(
+            sentence, sentence_index, section_id, section_title,
+            reason=RefusalReason.INVALID_ATOM_ID,
+            missing_atoms=missing,
+            cited_atoms=cited_atoms,
+            claim_trigger=claim_trigger,
+        )
+
+    # All cited atoms valid — SOFT mismatch checks (logged_only)
+    soft_notes = []
+    detected_values = _NUMBER_RE.findall(sentence)
+    detected_value_set = set(detected_values)
+    for aid in cited_atoms:
+        atom = catalog[aid]
+        # Iter-2 fix (Codex iter-1 P2): tighten value matching to
+        # numeric-token boundaries. Old substring check matched
+        # "2.30" inside "12.30" (false negative on mismatch). New
+        # check uses the same _NUMBER_RE that extracted detected_values
+        # — equality on token strings (sign-normalized).
+        atom_val_normalized = atom.value.replace("−", "-")
+        atom_val_unsigned = atom_val_normalized.lstrip("-")
+        # Sentence contains atom's value iff atom_val (signed or unsigned)
+        # appears as an EXTRACTED number token in the sentence.
+        sentence_unsigned = {v.lstrip("-") for v in detected_value_set}
+        if atom_val_unsigned and atom_val_unsigned not in sentence_unsigned:
+            soft_notes.append(
+                f"atom={aid} value={atom.value!r} not in sentence numeric tokens"
+            )
+
+    if soft_notes:
+        return GapRecord(
+            section_id=section_id,
+            section_title=section_title,
+            sentence_index=sentence_index,
+            original_sentence=sentence,
+            rendered_text=sentence,  # KEEP (soft layer)
+            action=RefusalAction.LOGGED_ONLY,
+            reason=RefusalReason.SOFT_MISMATCH,
+            cited_atoms=cited_atoms,
+            detected_values=detected_values,
+            notes="; ".join(soft_notes),
+        )
+
+    # Clean — allowed
+    return GapRecord(
+        section_id=section_id,
+        section_title=section_title,
+        sentence_index=sentence_index,
+        original_sentence=sentence,
+        rendered_text=sentence,
+        action=RefusalAction.ALLOWED,
+        reason=RefusalReason.NO_VIOLATION,
+        cited_atoms=cited_atoms,
+        detected_values=detected_values,
+    )
+
+
+def _build_refusal_record(
+    sentence: str,
+    sentence_index: int,
+    section_id: str,
+    section_title: str,
+    *,
+    reason: RefusalReason,
+    missing_atoms: Optional[list[str]] = None,
+    cited_atoms: Optional[list[str]] = None,
+    claim_trigger: Optional[str] = None,
+) -> GapRecord:
+    """Build a refusal GapRecord. Renders the refusal template using
+    detected endpoint/entity/timepoint from sentence text."""
+    endpoint = _detect_endpoint_in_sentence(sentence) or "this outcome"
+    entity = _detect_entity_in_sentence(sentence) or ""
+    timepoint = _detect_timepoint_in_sentence(sentence) or ""
+
+    rendered = format_refusal_for_missing_atom(
+        endpoint=endpoint,
+        entity=entity,
+        timepoint=timepoint,
+    )
+
+    # Iter-2 fix (Codex iter-1 P2): preserve detected_values on refusal
+    # records for downstream audit.
+    detected_values = _NUMBER_RE.findall(sentence)
+
+    return GapRecord(
+        section_id=section_id,
+        section_title=section_title,
+        sentence_index=sentence_index,
+        original_sentence=sentence,
+        rendered_text=rendered,
+        action=RefusalAction.REFUSED,
+        reason=reason,
+        cited_atoms=cited_atoms or [],
+        missing_atoms=missing_atoms or [],
+        detected_endpoint=endpoint,
+        detected_entity=entity,
+        detected_timepoint=timepoint,
+        detected_values=detected_values,
+        notes=f"claim_trigger={claim_trigger}" if claim_trigger else None,
+    )
+
+
+def _detect_endpoint_in_sentence(sentence: str) -> Optional[str]:
+    m = _ENDPOINT_VOCAB_RE.search(sentence)
+    return m.group(1).lower() if m else None
+
+
+def _detect_entity_in_sentence(sentence: str) -> Optional[str]:
+    # Reuse drug regex from atom_extractor — local import to avoid cycle
+    from src.polaris_graph.generator.claim_atom_extractor import _DRUG_RE
+    m = _DRUG_RE.search(sentence)
+    return m.group(0).strip() if m else None
+
+
+def _detect_timepoint_in_sentence(sentence: str) -> Optional[str]:
+    m = re.search(
+        r"\b(?:at|after|by|over)\s+(\d+\s*(?:weeks?|months?|years?|days?))\b",
+        sentence, re.IGNORECASE,
+    )
+    return m.group(1).lower() if m else None
+
+
+# ---------------------------------------------------------------------------
+# Section-level validation
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SectionValidationResult:
+    section_id: str
+    section_title: str
+    original_text: str
+    rendered_text: str
+    gap_records: list[GapRecord] = field(default_factory=list)
+
+    @property
+    def refusal_count(self) -> int:
+        return sum(1 for g in self.gap_records if g.action == RefusalAction.REFUSED)
+
+    @property
+    def soft_mismatch_count(self) -> int:
+        return sum(1 for g in self.gap_records if g.action == RefusalAction.LOGGED_ONLY)
+
+    @property
+    def allowed_count(self) -> int:
+        return sum(1 for g in self.gap_records if g.action == RefusalAction.ALLOWED)
+
+
+def validate_section(
+    section_text: str,
+    section_id: str,
+    section_title: str,
+    catalog: dict[str, ClaimAtom],
+) -> SectionValidationResult:
+    """Validate all sentences in a section. Sentence-level refusal:
+    refused sentences are replaced in `rendered_text`, others kept as-is.
+    """
+    sentences = split_sentences(section_text)
+    gap_records: list[GapRecord] = []
+    rendered_sentences: list[str] = []
+
+    for i, sent in enumerate(sentences):
+        record = validate_sentence(
+            sent, i, section_id, section_title, catalog,
+        )
+        gap_records.append(record)
+        rendered_sentences.append(record.rendered_text)
+
+    rendered_text = " ".join(rendered_sentences)
+    return SectionValidationResult(
+        section_id=section_id,
+        section_title=section_title,
+        original_text=section_text,
+        rendered_text=rendered_text,
+        gap_records=gap_records,
+    )
+
+
+# ---------------------------------------------------------------------------
+# gaps.json sidecar writer
+# ---------------------------------------------------------------------------
+
+def build_gaps_document(
+    document_id: str,
+    section_results: list[SectionValidationResult],
+) -> dict:
+    """Per Codex APPROVE_DESIGN gaps.json schema."""
+    return {
+        "document_id": document_id,
+        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "sections": [
+            {
+                "section_id": s.section_id,
+                "section_title": s.section_title,
+                "claims": [g.to_dict() for g in s.gap_records],
+                "summary": {
+                    "total_sentences": len(s.gap_records),
+                    "refused": s.refusal_count,
+                    "soft_mismatch": s.soft_mismatch_count,
+                    "allowed": s.allowed_count,
+                },
+            }
+            for s in section_results
+        ],
+        "totals": {
+            "total_sentences": sum(len(s.gap_records) for s in section_results),
+            "refused": sum(s.refusal_count for s in section_results),
+            "soft_mismatch": sum(s.soft_mismatch_count for s in section_results),
+            "allowed": sum(s.allowed_count for s in section_results),
+        },
+    }
+
+
+def write_gaps_sidecar(
+    output_dir: Path,
+    document_id: str,
+    section_results: list[SectionValidationResult],
+    *,
+    filename: str = "gaps.json",
+) -> Path:
+    """Write the gaps.json sidecar next to report.md.
+
+    Returns the written path. Caller is responsible for ensuring
+    `output_dir` exists.
+    """
+    doc = build_gaps_document(document_id, section_results)
+    path = output_dir / filename
+    path.write_text(
+        json.dumps(doc, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return path
+
+
+ succeeded in 832ms:
+"""Tests for atom_refusal_validator — refusal/gap rendering.
+
+Per Codex APPROVE_DESIGN 2026-05-26:
+    - Approach C hybrid (prompt + post-hoc)
+    - STRICT layer: missing/invalid atom → REPLACE sentence
+    - SOFT layer: value/endpoint mismatch → log only
+    - Sentence-level granularity
+    - gaps.json sidecar AND inline refusal markers
+    - Multi-atom: ALL cited atoms must exist
+
+Coverage:
+    1. Quantitative-claim detector (Triggers A + B + qualitative)
+    2. Narrative-allowed prose
+    3. Admin-number exclusions
+    4. Atom citation parsing (atom_NNN extraction)
+    5. STRICT layer: missing citation → refused
+    6. STRICT layer: invalid atom_id → refused
+    7. STRICT layer: ev_XXX for factual claim → refused
+    8. STRICT layer: multi-atom ALL-required (one missing → refused)
+    9. SOFT layer: value mismatch → logged_only
+    10. Section validation end-to-end
+    11. gaps.json schema integrity
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from src.polaris_graph.generator.claim_atom_extractor import ClaimAtom
+from src.polaris_graph.generator.atom_refusal_validator import (
+    GapRecord,
+    RefusalAction,
+    RefusalReason,
+    build_gaps_document,
+    extract_atom_citations,
+    extract_ev_citations,
+    has_ev_citation_for_factual_claim,
+    requires_atom_citation,
+    split_sentences,
+    validate_section,
+    validate_sentence,
+    write_gaps_sidecar,
+)
+
+
+# ----------------------------------------------------------------------------
+# Test fixtures
+# ----------------------------------------------------------------------------
+
+def _make_atom(
+    aid: str,
+    value: str,
+    endpoint: str,
+    entity: str = "tirzepatide",
+    unit: str = "percentage points",
+    comparator: str = "",
+    primary_section: str = "Efficacy",
+) -> ClaimAtom:
+    return ClaimAtom(
+        atom_id=aid,
+        evidence_id="ev_001",
+        span_start=0,
+        span_end=100,
+        literal_text=f"placeholder for {aid}",
+        entity=entity,
+        endpoint=endpoint,
+        comparator=comparator,
+        timepoint="40 weeks",
+        value=value,
+        unit=unit,
+        primary_section=primary_section,
+        section_tags=(primary_section,),
+        tier="T1",
+        value_signed=value.startswith("-"),
+        confidence="high",
+        provenance_class="open_access",
+        source_paper_title="placeholder",
+    )
+
+
+_CATALOG = {
+    "atom_001": _make_atom("atom_001", "-2.01", "HbA1c"),
+    "atom_002": _make_atom("atom_002", "-2.24", "HbA1c"),
+    "atom_003": _make_atom("atom_003", "-2.30", "HbA1c"),
+    "atom_004": _make_atom("atom_004", "-1.86", "HbA1c", entity="semaglutide"),
+    "atom_005": _make_atom("atom_005", "43", "adverse events",
+                            unit="%", primary_section="Safety"),
+}
+
+
+# ============================================================================
+# Quantitative-claim detector
+# ============================================================================
+
+
+def test_trigger_a_number_plus_endpoint_requires_atom():
+    """Codex Trigger A: number + endpoint vocab term."""
+    requires, trigger = requires_atom_citation(
+        "Tirzepatide reduced HbA1c by -2.30 percentage points at 40 weeks."
+    )
+    assert requires
+    assert trigger == "trigger_A_number_plus_endpoint"
+
+
+def test_trigger_b_number_alone_requires_atom():
+    """Codex Trigger B: number alone (no endpoint vocab term) but not
+    admin/design. Note: 'risk ratio' IS in endpoint vocab so it would
+    fire Trigger A; here we use a bare number that's still an
+    outcome-shaped claim."""
+    requires, trigger = requires_atom_citation(
+        "The treatment effect was 0.32."
+    )
+    assert requires
+    assert trigger == "trigger_B_number_alone"
+
+
+def test_admin_phase_number_does_not_require_atom():
+    """Codex Trigger B exclusion: phase number is admin, not outcome."""
+    requires, _ = requires_atom_citation(
+        "SURPASS-2 was a phase 3 trial."
+    )
+    assert not requires
+
+
+def test_admin_week_duration_alone_does_not_require_atom():
+    """Codex Trigger B exclusion: week duration alone is admin."""
+    requires, _ = requires_atom_citation(
+        "The study period was 40 weeks."
+    )
+    assert not requires
+
+
+def test_dose_alone_does_not_require_atom():
+    """Codex Trigger B exclusion: '15 mg' as dose label alone."""
+    requires, _ = requires_atom_citation(
+        "Patients received tirzepatide 15 mg once weekly."
+    )
+    assert not requires
+
+
+def test_qualitative_comparative_without_number_requires_atom():
+    """Codex additional trigger: 'greater than [endpoint]' without
+    a number still requires an atom (it's making a comparative claim)."""
+    requires, trigger = requires_atom_citation(
+        "Tirzepatide produced greater HbA1c reduction than semaglutide."
+    )
+    assert requires
+    assert trigger == "trigger_qualitative_comparative"
+
+
+def test_mechanism_sentence_does_not_require_atom():
+    """Codex narrative-allowed: mechanism of action."""
+    requires, _ = requires_atom_citation(
+        "Tirzepatide acts via dual GIP/GLP-1 receptor agonism."
+    )
+    assert not requires
+
+
+def test_trial_design_sentence_does_not_require_atom():
+    """Codex narrative-allowed: trial design."""
+    requires, _ = requires_atom_citation(
+        "SURPASS-2 was an open-label, randomized, phase 3 trial."
+    )
+    assert not requires
+
+
+def test_eligibility_sentence_requires_atom_safe_default():
+    """Iter-4 decision (Codex iter-3 continuing-P1): eligibility override
+    REMOVED. Quantitative claims with eligibility framing now require
+    atom citation as the SAFE default. V4 Pro will refuse with the
+    refusal template if no supporting atom — preferable to masking a
+    real outcome claim that happens to mention baseline characteristics.
+
+    Trade-off per CLAUDE.md §-1.1: false negative (over-refuse benign
+    eligibility) is recoverable; false positive (mask real outcome) is
+    lethal in clinical context."""
+    requires, _ = requires_atom_citation(
+        "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0."
+    )
+    assert requires, (
+        "After iter-4 eligibility-override removal, this sentence requires "
+        "atom citation. V4 Pro emits refusal block; slightly awkward but safe."
+    )
+
+
+def test_hedge_sentence_does_not_require_atom():
+    """Codex narrative-allowed: hedges/limitations without quantitative claim.
+    '40 weeks' is admin-number; 'remain limited' is hedge."""
+    requires, _ = requires_atom_citation(
+        "Long-term safety data beyond 40 weeks remain limited."
+    )
+    assert not requires, (
+        "Hedge sentence with admin-number should be allowed without atom."
+    )
+
+
+# ============================================================================
+# Citation parsing
+# ============================================================================
+
+
+def test_extract_atom_citations_single():
+    cites = extract_atom_citations(
+        "Tirzepatide reduced HbA1c by -2.30 atom_003 at 40 weeks."
+    )
+    assert cites == ["atom_003"]
+
+
+def test_extract_atom_citations_multiple():
+    cites = extract_atom_citations(
+        "Doses produced -2.01 atom_001, -2.24 atom_002, -2.30 atom_003."
+    )
+    assert cites == ["atom_001", "atom_002", "atom_003"]
+
+
+def test_extract_ev_citations():
+    cites = extract_ev_citations(
+        "Per the protocol [ev_017], blinding was maintained."
+    )
+    assert "ev_017" in cites[0]
+
+
+def test_has_ev_citation_for_factual_claim_detected():
+    """Per Codex: [ev_XXX] for factual claim → REFUSE."""
+    assert has_ev_citation_for_factual_claim(
+        "HbA1c reduced by 2.30 percentage points [ev_017]."
+    )
+
+
+def test_has_ev_citation_for_narrative_allowed():
+    """ev_XXX in narrative context (no claim) → not flagged."""
+    assert not has_ev_citation_for_factual_claim(
+        "Per the protocol [ev_017], blinding was maintained."
+    )
+
+
+# ============================================================================
+# STRICT layer: refusal cases
+# ============================================================================
+
+
+def test_strict_missing_atom_citation_refused():
+    """Factual claim with no atom → refused."""
+    record = validate_sentence(
+        "Tirzepatide reduced HbA1c by -2.30 percentage points at 40 weeks.",
+        sentence_index=0,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=_CATALOG,
+    )
+    assert record.action == RefusalAction.REFUSED
+    assert record.reason == RefusalReason.MISSING_ATOM_CITATION
+    assert "Insufficient verified atom-level evidence" in record.rendered_text
+
+
+def test_strict_invalid_atom_id_refused():
+    """Cited atom_NNN that doesn't exist in catalog → refused."""
+    record = validate_sentence(
+        "Tirzepatide reduced HbA1c by -2.30 percentage points atom_999.",
+        sentence_index=0,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=_CATALOG,
+    )
+    assert record.action == RefusalAction.REFUSED
+    assert record.reason == RefusalReason.INVALID_ATOM_ID
+    assert "atom_999" in record.missing_atoms
+
+
+def test_strict_ev_for_factual_claim_refused():
+    """[ev_XXX] cited for a factual claim with no atom → refused."""
+    record = validate_sentence(
+        "HbA1c reduced by 2.30 percentage points [ev_017].",
+        sentence_index=0,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=_CATALOG,
+    )
+    assert record.action == RefusalAction.REFUSED
+    assert record.reason == RefusalReason.EV_CITATION_FOR_CLAIM
+
+
+def test_strict_multi_atom_all_required_any_missing_refuses():
+    """ALL_REQUIRED: one cited atom missing → refuse whole sentence."""
+    record = validate_sentence(
+        "Three doses produced atom_001, atom_002, and atom_999.",
+        sentence_index=0,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=_CATALOG,
+    )
+    assert record.action == RefusalAction.REFUSED
+    assert record.reason == RefusalReason.INVALID_ATOM_ID
+    assert "atom_999" in record.missing_atoms
+    assert "atom_001" not in record.missing_atoms
+
+
+def test_strict_all_atoms_valid_allows():
+    """All cited atoms exist + value present → allowed."""
+    record = validate_sentence(
+        "Tirzepatide reduced HbA1c by -2.30 percentage points atom_003.",
+        sentence_index=0,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=_CATALOG,
+    )
+    assert record.action == RefusalAction.ALLOWED
+    assert record.reason == RefusalReason.NO_VIOLATION
+
+
+# ============================================================================
+# SOFT layer: mismatch logged, sentence kept
+# ============================================================================
+
+
+def test_soft_layer_value_mismatch_logged_only():
+    """Cited atom_001 has value -2.01. Sentence says 2.99 — value not
+    in sentence. SOFT mismatch → logged, sentence KEPT."""
+    record = validate_sentence(
+        "Tirzepatide reduced HbA1c by 2.99 percentage points atom_001.",
+        sentence_index=0,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=_CATALOG,
+    )
+    assert record.action == RefusalAction.LOGGED_ONLY
+    assert record.reason == RefusalReason.SOFT_MISMATCH
+    assert record.rendered_text == record.original_sentence  # KEPT
+    assert "atom_001" in (record.notes or "")
+
+
+# ============================================================================
+# Narrative sentences pass through
+# ============================================================================
+
+
+def test_narrative_mechanism_allowed_no_citation():
+    record = validate_sentence(
+        "Tirzepatide acts via dual GIP/GLP-1 receptor agonism.",
+        sentence_index=0,
+        section_id="mechanism",
+        section_title="Mechanism",
+        catalog=_CATALOG,
+    )
+    assert record.action == RefusalAction.ALLOWED
+
+
+def test_narrative_trial_design_allowed_no_citation():
+    record = validate_sentence(
+        "SURPASS-2 was an open-label, randomized, phase 3 trial.",
+        sentence_index=0,
+        section_id="design",
+        section_title="Trial Design",
+        catalog=_CATALOG,
+    )
+    assert record.action == RefusalAction.ALLOWED
+
+
+# ============================================================================
+# Section-level end-to-end
+# ============================================================================
+
+
+def test_validate_section_mixed_sentences():
+    """Section with mix of allowed + refused + soft."""
+    section_text = (
+        "Tirzepatide acts via dual GIP/GLP-1 receptor agonism. "
+        "Tirzepatide reduced HbA1c by -2.30 percentage points atom_003 at 40 weeks. "
+        "HbA1c reduced by 2.99 percentage points atom_001. "
+        "Tirzepatide reduced HbA1c by -2.30 percentage points."
+    )
+    result = validate_section(
+        section_text,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=_CATALOG,
+    )
+    assert len(result.gap_records) == 4
+    assert result.gap_records[0].action == RefusalAction.ALLOWED  # mechanism
+    assert result.gap_records[1].action == RefusalAction.ALLOWED  # valid atom
+    assert result.gap_records[2].action == RefusalAction.LOGGED_ONLY  # soft mismatch
+    assert result.gap_records[3].action == RefusalAction.REFUSED  # no atom
+
+
+def test_validate_section_counts():
+    section_text = (
+        "Tirzepatide reduced HbA1c by -2.30 percentage points. "  # refused
+        "HbA1c improved by 2.30 atom_003."  # allowed? Let's check
+    )
+    result = validate_section(
+        section_text,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=_CATALOG,
+    )
+    assert result.refusal_count >= 1
+
+
+def test_validate_section_rendered_text_replaces_refused():
+    """Refused sentences ARE replaced in rendered_text; others kept."""
+    section_text = (
+        "Tirzepatide acts via dual GIP/GLP-1 receptor agonism. "
+        "Tirzepatide reduced HbA1c by -2.30 percentage points."
+    )
+    result = validate_section(
+        section_text,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=_CATALOG,
+    )
+    # First sentence kept verbatim
+    assert "GIP/GLP-1 receptor agonism" in result.rendered_text
+    # Second sentence replaced with refusal
+    assert "Insufficient verified atom-level evidence" in result.rendered_text
+
+
+# ============================================================================
+# gaps.json schema
+# ============================================================================
+
+
+def test_build_gaps_document_schema():
+    section_text = "Tirzepatide reduced HbA1c by -2.30 percentage points."
+    result = validate_section(
+        section_text, "efficacy", "Efficacy", _CATALOG,
+    )
+    doc = build_gaps_document("test-doc-001", [result])
+    assert doc["document_id"] == "test-doc-001"
+    assert "generated_at" in doc
+    assert len(doc["sections"]) == 1
+    sec = doc["sections"][0]
+    assert sec["section_id"] == "efficacy"
+    assert sec["section_title"] == "Efficacy"
+    assert "claims" in sec
+    assert "summary" in sec
+    assert sec["summary"]["total_sentences"] >= 1
+    assert "totals" in doc
+
+
+def test_gaps_document_claim_record_schema():
+    section_text = "Tirzepatide reduced HbA1c by -2.30 percentage points."
+    result = validate_section(
+        section_text, "efficacy", "Efficacy", _CATALOG,
+    )
+    doc = build_gaps_document("test-doc", [result])
+    claim = doc["sections"][0]["claims"][0]
+    assert "claim_id" in claim
+    assert "sentence_index" in claim
+    assert "original_sentence" in claim
+    assert "rendered_text" in claim
+    assert "action" in claim
+    assert "reason" in claim
+    assert "cited_atoms" in claim
+    assert "missing_atoms" in claim
+    assert "detected_endpoint" in claim
+    assert "detected_entity" in claim
+    assert "detected_timepoint" in claim
+    assert "detected_values" in claim
+
+
+def test_write_gaps_sidecar(tmp_path: Path):
+    section_text = "Tirzepatide reduced HbA1c by -2.30 percentage points."
+    result = validate_section(
+        section_text, "efficacy", "Efficacy", _CATALOG,
+    )
+    path = write_gaps_sidecar(tmp_path, "test-doc", [result])
+    assert path.exists()
+    assert path.name == "gaps.json"
+    loaded = json.loads(path.read_text(encoding="utf-8"))
+    assert loaded["document_id"] == "test-doc"
+
+
+# ============================================================================
+# Sentence splitter
+# ============================================================================
+
+
+def test_split_sentences_decimal_aware():
+    """Decimal-aware split — '2.30' is one token, not 'sentence 2. 30 ...'."""
+    parts = split_sentences(
+        "HbA1c was -2.30. AE rate was 43%."
+    )
+    assert len(parts) == 2
+    assert "-2.30" in parts[0]
+    assert "43%" in parts[1]
+
+
+# ============================================================================
+# ITER-2 REGRESSION TESTS (Codex iter-1 verdict)
+# ============================================================================
+
+
+def test_iter2_p1_qualitative_comparative_safety_requires_atom():
+    """Codex iter-1 P1 repro: 'Adverse events were more common with
+    tirzepatide than placebo.' must REQUIRE atom citation. Was returning
+    False because 'more common' wasn't in qual regex AND comparator-arm
+    signal didn't override missing endpoint."""
+    requires, trigger = requires_atom_citation(
+        "Adverse events were more common with tirzepatide than placebo."
+    )
+    assert requires, "Comparative safety claim must require atom citation"
+    assert trigger == "trigger_qualitative_comparative"
+
+
+def test_iter2_p1_qualitative_higher_with_drug_requires_atom():
+    """Codex iter-1 P1 repro: 'Nausea was higher with tirzepatide than
+    placebo.' must require atom. 'Nausea' wasn't in endpoint vocab + no
+    qual regex match."""
+    requires, trigger = requires_atom_citation(
+        "Nausea was higher with tirzepatide than placebo."
+    )
+    assert requires
+    assert trigger == "trigger_qualitative_comparative"
+
+
+def test_iter2_p1_qualitative_greater_reduction_than_requires_atom():
+    """Codex iter-1 P1 repro: 'Tirzepatide showed greater reduction than
+    semaglutide.' must require atom. No endpoint vocab term but clearly
+    a comparative claim via 'greater <noun> than <drug>'."""
+    requires, trigger = requires_atom_citation(
+        "Tirzepatide showed greater reduction than semaglutide."
+    )
+    assert requires
+    assert trigger == "trigger_qualitative_comparative"
+
+
+def test_iter2_p2_eligibility_range_now_requires_atom_safe_default():
+    """Superseded by iter-4 (Codex iter-3 continuing-P1): eligibility
+    override removed. Quantitative + endpoint sentences require atom
+    citation regardless of eligibility framing — safer default."""
+    requires, _ = requires_atom_citation(
+        "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0."
+    )
+    assert requires
+
+
+def test_iter2_p2_soft_value_word_boundary_match():
+    """Codex iter-1 P2 repro: atom_003 value=-2.30; sentence value=12.30.
+    Old substring check returned ALLOWED (false negative); new numeric-
+    token-boundary check correctly returns LOGGED_ONLY (SOFT_MISMATCH)."""
+    record = validate_sentence(
+        "Tirzepatide reduced HbA1c by 12.30 percentage points atom_003.",
+        sentence_index=0,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=_CATALOG,
+    )
+    assert record.action == RefusalAction.LOGGED_ONLY, (
+        f"12.30 in sentence != atom_003.value=-2.30; should be SOFT_MISMATCH "
+        f"(numeric-token boundary), not ALLOWED. Got {record.action}"
+    )
+    assert record.reason == RefusalReason.SOFT_MISMATCH
+
+
+def test_iter3_p1_eligibility_override_does_not_mask_outcome_claim():
+    """Codex iter-2 novel-P1 repro: 'Patients with baseline HbA1c of 8.6%
+    had HbA1c reductions of 2.3 percentage points.' was returning False
+    (allowed) because 'baseline HbA1c' fired eligibility override. This
+    is a REAL outcome claim ('reductions of 2.3 percentage points') and
+    must require atom citation."""
+    requires, trigger = requires_atom_citation(
+        "Patients with baseline HbA1c of 8.6% had HbA1c reductions of "
+        "2.3 percentage points."
+    )
+    assert requires, (
+        "Outcome claim with baseline-mention must require atom citation, "
+        "not bypass via eligibility override"
+    )
+    assert trigger == "trigger_A_number_plus_endpoint"
+
+
+def test_iter3_p2_comparator_arm_does_not_match_generic_words():
+    """Codex iter-2 P2 repro: 'This was more than enough evidence' and
+    'More patients than expected completed follow-up' must NOT trigger
+    qualitative comparator because 'enough' and 'expected' aren't
+    treatment arms."""
+    requires1, _ = requires_atom_citation(
+        "This was more than enough evidence to proceed."
+    )
+    assert not requires1, (
+        "'more than enough' is benign prose, not a comparative claim"
+    )
+
+    requires2, _ = requires_atom_citation(
+        "More patients than expected completed follow-up."
+    )
+    assert not requires2, (
+        "'more than expected' is benign prose, not a comparative claim"
+    )
+
+
+def test_iter3_eligibility_now_requires_atom_post_override_removal():
+    """Iter-4 update: eligibility override removed entirely (Codex
+    iter-3 continuing-P1). Pure eligibility sentences with endpoint+
+    number now also require atom (safe default)."""
+    requires, _ = requires_atom_citation(
+        "Inclusion criteria required HbA1c between 7.0 and 10.0."
+    )
+    assert requires
+
+
+def test_iter3_qualitative_drug_arm_still_requires_atom():
+    """Regression check: drug comparator arms still trigger atom requirement
+    (tightening the `\\w{3,}` didn't break the legitimate cases)."""
+    requires, _ = requires_atom_citation(
+        "Tirzepatide showed greater reduction than semaglutide."
+    )
+    assert requires
+
+
+def test_iter4_codex_repro_outcome_with_criteria_still_required():
+    """Codex iter-3 continuing-P1 repro: 'Patients meeting inclusion
+    criteria had HbA1c of 6.8% at 40 weeks.' must require atom."""
+    requires, _ = requires_atom_citation(
+        "Patients meeting inclusion criteria had HbA1c of 6.8% at 40 weeks."
+    )
+    assert requires, (
+        "Outcome claim with criteria-frame must require atom citation"
+    )
+
+
+def test_iter4_comparator_arm_uses_full_drug_regex():
+    """Codex iter-3 novel-P1: 'Tirzepatide showed greater reduction
+    than exenatide.' was failing because exenatide wasn't in iter-3's
+    hardcoded comparator list. iter-4 imports _DRUG_RE from
+    atom_extractor so any drug it knows about is auto-included."""
+    requires, trigger = requires_atom_citation(
+        "Tirzepatide showed greater reduction than exenatide."
+    )
+    assert requires
+    assert trigger == "trigger_qualitative_comparative"
+
+
+def test_iter2_p2_refused_record_includes_detected_values():
+    """Codex iter-1 P2: refused records must populate detected_values
+    for downstream audit."""
+    record = validate_sentence(
+        "Tirzepatide reduced HbA1c by -2.30 percentage points at 40 weeks.",
+        sentence_index=0,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=_CATALOG,
+    )
+    assert record.action == RefusalAction.REFUSED
+    assert "-2.30" in record.detected_values, (
+        f"Refused record must preserve detected_values. Got: {record.detected_values}"
+    )
+
+
+ succeeded in 952ms:
+src\agents\search_agent.py:1541:   - comparative → multiple sources for different perspectives
+src\agents\synthesizer_agent.py:249:- comparative: "3x higher than control group" [CITE]
+src\agents\synthesizer_agent.py:332:entity names, dates, locations, causal claims, comparative claims.
+src\agents\synthesizer_agent.py:990:            "causal_link", "comparative", "temporal_trend", "date_time",
+src\agents\triage_agent.py:5:- Query type (factual, statistical, comparative, etc.)
+src\agents\triage_agent.py:34:        "comparative",  # A vs B analysis
+src\agents\triage_agent.py:90:- comparative: Questions comparing two or more items, technologies, or approaches
+src\agents\planner_agent.py:42:    expected_data_type: Literal["factual", "statistical", "comparative", "procedural"] = Field(
+src\agents\planner_agent.py:154:2. Assign clear data types (factual, statistical, comparative, procedural)
+src\agents\citefirst_synthesizer.py:141:    claim_type: str  # factual, statistical, comparative, causal, definitional
+src\agents\citefirst_synthesizer.py:186:    claim_type: str  # factual, statistical, comparative, causal, definitional
+src\agents\citefirst_synthesizer.py:240:    claim_type: Literal["factual", "statistical", "comparative", "causal", "definitional"] = Field(
+src\agents\auditor_agent.py:913:        comparatives = [' more than ', ' less than ', ' compared to ', ' versus ']
+src\agents\auditor_agent.py:914:        for comp in comparatives:
+src\agents\auditor_agent.py:1011:        # Detect sentences that make analytical/comparative claims (e.g., "suggests",
+src\agents\analyst_agent.py:464:        "comparative", "procedural", "regulatory"
+src\agents\analyst_agent.py:481:        "factual", "causal", "comparative", "predictive", "evaluative"
+src\utils\atomic_decomposer.py:344:        comparatives = [' more than ', ' less than ', ' compared to ', ' versus ']
+src\utils\atomic_decomposer.py:345:        for comp in comparatives:
+tests\v3\test_react_live.py:83:            "source_content": "This comparative study examined different biochar feedstocks. " * 20,
+tests\v3\test_react_agent.py:2364:        "The comparative analysis reveals significant variation "
+tests\v3\test_react_agent.py:3362:    """Wave 5: Analytical claim regex matches comparative patterns."""
+tests\v3\test_live_tools.py:71:            "source_content": "This comparative study examined different biochar feedstocks. " * 50,
+tests\polaris_graph\test_atom_refusal_validator.py:39:    requires_atom_citation,
+tests\polaris_graph\test_atom_refusal_validator.py:99:    requires, trigger = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:111:    requires, trigger = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:120:    requires, _ = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:128:    requires, _ = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:136:    requires, _ = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:142:def test_qualitative_comparative_without_number_requires_atom():
+tests\polaris_graph\test_atom_refusal_validator.py:144:    a number still requires an atom (it's making a comparative claim)."""
+tests\polaris_graph\test_atom_refusal_validator.py:145:    requires, trigger = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:149:    assert trigger == "trigger_qualitative_comparative"
+tests\polaris_graph\test_atom_refusal_validator.py:154:    requires, _ = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:162:    requires, _ = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:178:    requires, _ = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:190:    requires, _ = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:494:def test_iter2_p1_qualitative_comparative_safety_requires_atom():
+tests\polaris_graph\test_atom_refusal_validator.py:499:    requires, trigger = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:503:    assert trigger == "trigger_qualitative_comparative"
+tests\polaris_graph\test_atom_refusal_validator.py:510:    requires, trigger = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:514:    assert trigger == "trigger_qualitative_comparative"
+tests\polaris_graph\test_atom_refusal_validator.py:520:    a comparative claim via 'greater <noun> than <drug>'."""
+tests\polaris_graph\test_atom_refusal_validator.py:521:    requires, trigger = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:525:    assert trigger == "trigger_qualitative_comparative"
+tests\polaris_graph\test_atom_refusal_validator.py:532:    requires, _ = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:562:    requires, trigger = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:578:    requires1, _ = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:582:        "'more than enough' is benign prose, not a comparative claim"
+tests\polaris_graph\test_atom_refusal_validator.py:585:    requires2, _ = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:589:        "'more than expected' is benign prose, not a comparative claim"
+tests\polaris_graph\test_atom_refusal_validator.py:597:    requires, _ = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:606:    requires, _ = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:615:    requires, _ = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:626:    hardcoded comparator list. iter-4 imports _DRUG_RE from
+tests\polaris_graph\test_atom_refusal_validator.py:628:    requires, trigger = requires_atom_citation(
+tests\polaris_graph\test_atom_refusal_validator.py:632:    assert trigger == "trigger_qualitative_comparative"
+tests\polaris_graph\test_claim_atom_extractor.py:168:def test_hba1c_routed_to_efficacy_comparative_dose_response():
+tests\polaris_graph\test_claim_atom_extractor.py:170:    comparative; dosing (5/10/15 mg) makes it dose-response. So the
+tests\polaris_graph\test_claim_atom_extractor.py:511:def test_section_tags_comparative_only_when_comparator_present():
+tests\polaris_graph\test_claim_atom_extractor.py:605:    comparator=tirzepatide (a reverse comparative claim)."""
+tests\polaris_graph\test_claim_atom_extractor.py:616:        f"comparative claim (semaglutide vs tirzepatide)."
+tests\polaris_graph\test_claim_atom_extractor.py:726:        f"comparator=semaglutide entity=tirzepatide makes a wrong comparative claim."
+tests\polaris_graph\test_hedging_gap2.py:40:def test_gap2_bare_comparative_flagged() -> None:
+tests\polaris_graph\test_hedging_gap2.py:45:def test_gap2_hedged_comparative_not_flagged() -> None:
+tests\polaris_graph\test_m25_trial_name_match.py:166:                "statement": "GLP-1/GIP co-agonist comparative review",
+tests\polaris_graph\test_m44_primary_injection_and_validator.py:37:    def test_comparative_eligible(self) -> None:
+tests\polaris_graph\test_m51_selector_primary_custody.py:199:                "glycemic weight loss comparative effectiveness "
+tests\unit\test_gemini_fixes.py:254:    def test_valid_comparative_sentence_passes(self, auditor):
+tests\polaris_graph\test_m71_contradiction_hedging.py:30:    def test_comparative_section_keywords(self) -> None:
+tests\polaris_graph\test_m71_contradiction_hedging.py:107:    def test_comparative_routes_weight_contradictions(self) -> None:
+tests\polaris_graph\test_m72_cross_trial_synthesis.py:205:        assert "comparative" in block.section_to_patterns
+src\orchestration\state.py:27:    expected_data_type: str  # factual, statistical, comparative, procedural
+src\orchestration\state.py:71:        "comparative", "geographic", "temporal_trend"
+src\orchestration\state.py:300:    query_type: str  # factual, statistical, comparative, procedural, exploratory, regulatory, market
+src\polaris_graph\audit_ir\competitor_manifest_extractor.py:154:    # comparative signal.
+src\polaris_graph\agents\nli_verifier.py:843:        # NLI is too strict for comparative/synthesis claims — the claim
+src\polaris_graph\agents\nli_verifier.py:849:                f"Wave 5 ANALYTICAL: comparative/ranking claim bypasses "
+src\polaris_graph\evaluator\external_evaluator.py:90:#   - comparatives `vs.`, `v.`
+src\polaris_graph\evaluator\external_evaluator.py:403:    ("PT13", "Superlative / comparative claims are hedged", "results"),
+src\polaris_graph\evaluator\external_evaluator.py:722:    # PT13 — Gap-2: hedging on superlative / comparative claims.
+src\polaris_graph\evaluator\external_evaluator.py:805:        "PT13", "Superlative / comparative claims are hedged to sources", pt13,
+src\polaris_graph\generator\contradiction_hedging.py:68:    "comparative": frozenset({
+src\polaris_graph\generator\evidence_value_extractor.py:70:_DRUG_RE = re.compile(
+src\polaris_graph\generator\evidence_value_extractor.py:144:    for m in _DRUG_RE.finditer(text):
+src\polaris_graph\generator\atom_refusal_validator.py:13:for design/admin numbers; qualitative comparative outcome language also
+src\polaris_graph\generator\atom_refusal_validator.py:69:# qualitative comparative term)
+src\polaris_graph\generator\atom_refusal_validator.py:101:_ELIGIBILITY_RANGE_RE = re.compile(
+src\polaris_graph\generator\atom_refusal_validator.py:123:# Qualitative comparative/outcome language requiring atom citation
+src\polaris_graph\generator\atom_refusal_validator.py:143:# Comparator/arm language that — combined with a comparative phrase —
+src\polaris_graph\generator\atom_refusal_validator.py:144:# signals a factual comparative claim. Iter-4 fix (Codex iter-3 novel-P1):
+src\polaris_graph\generator\atom_refusal_validator.py:145:# build comparator-arm regex from claim_atom_extractor._DRUG_RE so any
+src\polaris_graph\generator\atom_refusal_validator.py:148:def _build_comparative_arm_re() -> re.Pattern:
+src\polaris_graph\generator\atom_refusal_validator.py:149:    from src.polaris_graph.generator.claim_atom_extractor import _DRUG_RE
+src\polaris_graph\generator\atom_refusal_validator.py:150:    drug_alt = _DRUG_RE.pattern.removeprefix(r"\b(").removesuffix(r")\b")
+src\polaris_graph\generator\atom_refusal_validator.py:163:_COMPARATIVE_ARM_RE = _build_comparative_arm_re()
+src\polaris_graph\generator\atom_refusal_validator.py:241:def requires_atom_citation(sentence: str) -> tuple[bool, Optional[str]]:
+src\polaris_graph\generator\atom_refusal_validator.py:251:      Plus: qualitative comparative outcome language even without numbers
+src\polaris_graph\generator\atom_refusal_validator.py:262:    has_qual_comparative = bool(_QUAL_COMPARATIVE_RE.search(s))
+src\polaris_graph\generator\atom_refusal_validator.py:263:    has_comparator_arm = bool(_COMPARATIVE_ARM_RE.search(s))
+src\polaris_graph\generator\atom_refusal_validator.py:287:    # there's also an outcome-number combo or qualitative comparative.
+src\polaris_graph\generator\atom_refusal_validator.py:289:    if narrative_matches and not has_outcome_number and not has_qual_comparative:
+src\polaris_graph\generator\atom_refusal_validator.py:296:    # Qualitative comparative outcome language with an endpoint OR
+src\polaris_graph\generator\atom_refusal_validator.py:299:    # (no endpoint vocab term but clearly a comparative claim).
+src\polaris_graph\generator\atom_refusal_validator.py:300:    if has_qual_comparative and (has_endpoint or has_comparator_arm):
+src\polaris_graph\generator\atom_refusal_validator.py:301:        return True, "trigger_qualitative_comparative"
+src\polaris_graph\generator\atom_refusal_validator.py:333:    requires_atom, _ = requires_atom_citation(sentence)
+src\polaris_graph\generator\atom_refusal_validator.py:392:    requires_atom, claim_trigger = requires_atom_citation(sentence)
+src\polaris_graph\generator\atom_refusal_validator.py:534:    from src.polaris_graph.generator.claim_atom_extractor import _DRUG_RE
+src\polaris_graph\generator\atom_refusal_validator.py:535:    m = _DRUG_RE.search(sentence)
+src\polaris_graph\generator\claim_atom_extractor.py:283:    # ── Treatment differences (efficacy + comparative) ──
+src\polaris_graph\generator\claim_atom_extractor.py:326:_DRUG_RE = re.compile(
+src\polaris_graph\generator\claim_atom_extractor.py:417:    + r"|".join(_DRUG_RE.pattern.lstrip("\\b(").rstrip(")\\b").split("|"))
+src\polaris_graph\generator\claim_atom_extractor.py:745:    drug_alt = _DRUG_RE.pattern.removeprefix(r"\b(").removesuffix(r")\b")
+src\polaris_graph\generator\claim_atom_extractor.py:767:        prior_drugs = list(_DRUG_RE.finditer(left_window))
+src\polaris_graph\generator\claim_atom_extractor.py:809:        drug_m = _DRUG_RE.search(post_comp)
+src\polaris_graph\generator\claim_atom_extractor.py:827:    for m in _DRUG_RE.finditer(literal_text):
+src\polaris_graph\generator\claim_atom_extractor.py:1043:                rf"({_DRUG_RE.pattern.removeprefix(chr(92) + 'b(').removesuffix(')' + chr(92) + 'b')})"
+src\polaris_graph\generator\claim_atom_extractor.py:1156:        "comparative": "comparative effectiveness",
+src\polaris_graph\generator\claim_atom_extractor.py:1157:        "comparative effectiveness": "comparative effectiveness",
+src\polaris_graph\generator\live_deepseek_generator.py:91:8. **Superlatives and comparative claims must be ATTRIBUTED, not asserted.** Writing "X is the largest" or "X is better than Y" is forbidden; instead write "one review describes X as the largest observed to date [ev_002]" or "a real-world analysis found Y had lower event risk than X [ev_008]". If a source makes a cross-drug / cross-intervention comparison, the comparison ITSELF is the claim — quote the comparison, don't assert it.
+src\polaris_graph\tools\react_agent.py:198:    "relatively": "comparatively", "currently": "presently",
+src\polaris_graph\tools\react_agent.py:2275:            f"PQ-1: Synthesize findings using comparative language. "
+src\polaris_graph\tools\react_agent.py:4268:                f"4. Use comparative language (whereas, in "
+src\polaris_graph\tools\react_agent.py:4320:                f"4. Use comparative language (whereas, in "
+src\polaris_graph\tools\react_agent.py:4375:                f"4. Use comparative language (whereas, in "
+src\polaris_graph\generator\provenance_generator.py:429:# Gap-2 hedging detector. Superlative / comparative claims that appear
+src\polaris_graph\generator\provenance_generator.py:450:    comparative claim, or None.
+src\polaris_graph\generator\multi_section_generator.py:774:- [T2] systematic reviews and meta-analyses anchor pooled estimates and comparative claims.
+src\polaris_graph\generator\multi_section_generator.py:2468:    "comparative",
+src\polaris_graph\generator\multi_section_generator.py:2807:        "efficacy", "comparative", "safety", "dose response",
+src\polaris_graph\synthesis\section_writer.py:93:  that a source exists. Thin atomic facts must be integrated into comparative
+src\polaris_graph\synthesis\section_writer.py:1666:    # FIX-R2: Detect incomplete numerical claims (sentences ending with comparative
+src\polaris_graph\audit_ir\template_catalog.py:99:        "without published evidence; comparative-effectiveness between "
+src\polaris_graph\audit_ir\template_catalog.py:227:        "comparison", "comparative", "compared",
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest tests/polaris_graph/test_atom_refusal_validator.py -q' in C:\POLARIS
+2026-05-26T19:21:06.721834Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.7 seconds
+Output:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/test_atom_refusal_validator.py -q[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ exited 1 in 1734ms:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/test_atom_refusal_validator.py -q[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/test_atom_refusal_validator.py -q' in C:\POLARIS
+2026-05-26T19:21:14.663393Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 5.9 seconds
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 42 items
+
+tests\polaris_graph\test_atom_refusal_validator.py ..................... [ 50%]
+.......E.............                                                    [100%]
+
+=================================== ERRORS ====================================
+__________________ ERROR at setup of test_write_gaps_sidecar __________________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\pytest-of-msn'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/polaris_graph/test_atom_refusal_validator.py::test_write_gaps_sidecar
+=================== 41 passed, 2 warnings, 1 error in 2.59s ===================
+
+ exited 1 in 5932ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 42 items
+
+tests\polaris_graph\test_atom_refusal_validator.py ..................... [ 50%]
+.......E.............                                                    [100%]
+
+=================================== ERRORS ====================================
+__________________ ERROR at setup of test_write_gaps_sidecar __________________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\pytest-of-msn'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/polaris_graph/test_atom_refusal_validator.py::test_write_gaps_sidecar
+=================== 41 passed, 2 warnings, 1 error in 2.59s ===================
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:TMP='"'C:\\tmp'; "'$env:TEMP='"'C:\\tmp'; python -m pytest tests/polaris_graph/test_atom_refusal_validator.py -q -o cache_dir=C:\\tmp\\pytest_cache --basetemp=C:\\tmp\\pytest-basetemp" in C:\POLARIS
+2026-05-26T19:21:25.426803Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 6 seconds
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+cachedir: C:\tmp\pytest_cache
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 42 items
+
+tests\polaris_graph\test_atom_refusal_validator.py ..................... [ 50%]
+.......E.............                                                    [100%]
+
+=================================== ERRORS ====================================
+__________________ ERROR at setup of test_write_gaps_sidecar __________________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\pytest-basetemp'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\tmp\pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\tmp\\pytest-cache-files-7o4ac4i0'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\tmp\pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\tmp\\pytest-cache-files-2o9d52i7'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/polaris_graph/test_atom_refusal_validator.py::test_write_gaps_sidecar
+=================== 41 passed, 2 warnings, 1 error in 2.67s ===================
+
+ exited 1 in 6037ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+cachedir: C:\tmp\pytest_cache
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 42 items
+
+tests\polaris_graph\test_atom_refusal_validator.py ..................... [ 50%]
+.......E.............                                                    [100%]
+
+=================================== ERRORS ====================================
+__________________ ERROR at setup of test_write_gaps_sidecar __________________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\pytest-basetemp'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\tmp\pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\tmp\\pytest-cache-files-7o4ac4i0'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\tmp\pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\tmp\\pytest-cache-files-2o9d52i7'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/polaris_graph/test_atom_refusal_validator.py::test_write_gaps_sidecar
+=================== 41 passed, 2 warnings, 1 error in 2.67s ===================
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Test-Path C:\\tmp" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Force C:\\tmp | Select-Object -First 5" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "New-Item -ItemType Directory -Force C:\\POLARIS\\.codex\\tmp_probe | Out-Null; Test-Path C:\\POLARIS\\.codex\\tmp_probe" in C:\POLARIS
+ succeeded in 806ms:
+True
+
+ succeeded in 906ms:
+
+    Directory: C:\tmp
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m [32;1;3m        Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+d----          2026-05-11  2:23 PM                [44;1m__pycache__[0m
+d----          2026-02-23 12:10 AM                [44;1mclaude[0m
+d----          2026-04-10 11:33 PM                [44;1mocr_C-POLAR_Effectiveness_Virus_Bacteria_Molds[0m
+d----          2026-04-10 11:33 PM                [44;1mocr_C-POLAR_for_Wildfire_Smoke[0m
+d----          2026-04-10 11:33 PM                [44;1mocr_C-POLAR_Indoor_Airborne_Threats[0m
+
+
+ succeeded in 944ms:
+False
+[31;1mNew-Item: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mNew-Item -ItemType Directory -Force C:\POLARIS\.codex\tmp_probe[0m | Out …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAccess to the path 'C:\POLARIS\.codex\tmp_probe' is denied.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from src.polaris_graph.generator.atom_refusal_validator import requires_atom_citation
+cases = [
+\"Patients meeting inclusion criteria had HbA1c of 6.8% at 40 weeks.\",
+\"Tirzepatide showed greater reduction than exenatide.\",
+\"This was more than enough evidence to proceed.\",
+\"More patients than expected completed follow-up.\",
+\"Eligible adults had baseline HbA1c between 7.0 and 10.0.\",
+\"Inclusion criteria required HbA1c between 7.0 and 10.0.\",
+]
+for c in cases:
+    print(c, '=>', requires_atom_citation(c))
+'@ | python -" in C:\POLARIS
+ succeeded in 1504ms:
+Patients meeting inclusion criteria had HbA1c of 6.8% at 40 weeks. => (True, 'trigger_A_number_plus_endpoint')
+Tirzepatide showed greater reduction than exenatide. => (True, 'trigger_qualitative_comparative')
+This was more than enough evidence to proceed. => (False, None)
+More patients than expected completed follow-up. => (False, None)
+Eligible adults had baseline HbA1c between 7.0 and 10.0. => (True, 'trigger_A_number_plus_endpoint')
+Inclusion criteria required HbA1c between 7.0 and 10.0. => (True, 'trigger_A_number_plus_endpoint')
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from src.polaris_graph.generator.claim_atom_extractor import _DRUG_RE
+p=_DRUG_RE.pattern
+print(repr(p[:5]), repr(p[-5:]))
+print(p.startswith(r\"\\b(\"), p.endswith(r\")\\b\"))
+print(_DRUG_RE.pattern.removeprefix(r\"\\b(\").removesuffix(r\")\\b\")[:20])
+'@ | python -" in C:\POLARIS
+ succeeded in 1761ms:
+'\\b(ti' 'sa)\\b'
+True True
+tirzepatide|semaglut
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/test_atom_refusal_validator.py tests/polaris_graph/test_claim_atom_extractor.py -q -k "not write_gaps_sidecar" -o cache_dir=NUL' in C:\POLARIS
+ succeeded in 6585ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+cachedir: NUL
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 94 items / 1 deselected / 93 selected
+
+tests\polaris_graph\test_atom_refusal_validator.py ..................... [ 22%]
+....................                                                     [ 44%]
+tests\polaris_graph\test_claim_atom_extractor.py ....................... [ 68%]
+.............................                                            [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\NUL\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\pytest-cache-files-nz4qm3la'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================= 93 passed, 1 deselected, 1 warning in 2.87s =================
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/generator/atom_refusal_validator.py | ForEach-Object { $i++; if ($i -ge 92 -and $i -le 122) { '"'{0}:{1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 704ms:
+92:# "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0"
+93:# is design/eligibility, not an outcome claim. This regex detects framing
+94:# that overrides Trigger A for eligibility-range numbers.
+95:#
+96:# Iter-3 fix (Codex iter-2 novel-P1): tightened to only "inclusion/
+97:# exclusion criteria" frames; removed bare "baseline HbA1c" because real
+98:# outcome sentences may mention baseline characteristics + actual
+99:# reductions in the same breath ("Patients with baseline HbA1c of 8.6%
+100:# had HbA1c reductions of 2.3 percentage points" must NOT bypass Trigger A).
+101:_ELIGIBILITY_RANGE_RE = re.compile(
+102:    r"\b(?:inclusion\s+criter\w*|exclusion\s+criter\w*|"
+103:    r"eligibility\s+criter\w*|eligible\s+(?:if|when)\b|"
+104:    r"required\s+(?:hba1c|weight|bmi)\s+(?:of|between)\b)",
+105:    re.IGNORECASE,
+106:)
+107:
+108:# Iter-3 fix (Codex iter-2 novel-P1): outcome-verb-with-number pattern.
+109:# If a sentence contains "<outcome verb> <amount>" (reductions of N,
+110:# decreased by N, improved by N), the eligibility override MUST NOT fire
+111:# because there's a real quantitative outcome claim mixed with the
+112:# eligibility framing.
+113:_OUTCOME_VERB_WITH_NUMBER_RE = re.compile(
+114:    r"\b(?:reduc(?:ed|tions?|ing)|"
+115:    r"decreas(?:ed|es?|ing)|increas(?:ed|es?|ing)|"
+116:    r"chang(?:ed|es?)|improv(?:ed|ements?|ing)|"
+117:    r"lower(?:ed|ing)|rais(?:ed|ing)|"
+118:    r"fell|rose|dropped)\s+"
+119:    r"(?:by|of|from|to)?\s*[-−]?\d",
+120:    re.IGNORECASE,
+121:)
+122:
+
+codex
+verdict: APPROVE
+p1_outcome_with_criteria_now_requires_atom: YES
+p1_comparator_drug_list_complete: YES
+
+trade_off_acceptable: YES
+
+novel_p0: []
+novel_p1: []
+continuing_p0: []
+continuing_p1: []
+p2: []
+p3:
+  - "src/polaris_graph/generator/atom_refusal_validator.py:92: stale comments on _ELIGIBILITY_RANGE_RE/_OUTCOME_VERB_WITH_NUMBER_RE still describe an active eligibility override; execution is correct, but comments should be updated or removed when convenient."
+
+approval_to_proceed_to_step_3: YES
+
+iter4_cap_consideration: APPROVE_THIS
+reasoning: |
+  Iter 4 closes the continuing outcome-with-criteria P1 by removing the eligibility override from the control flow, and closes the comparator-list P1 by deriving comparator arms from the extractor's _DRUG_RE. The remaining behavior is conservative over-refusal for eligibility-frame quantitative endpoint sentences, which is acceptable under the stated clinical-safety principle. No P0/P1 remains, so iter 5 is not needed.
+
+convergence_call: accept_remaining
+tokens used
+54,961
+verdict: APPROVE
+p1_outcome_with_criteria_now_requires_atom: YES
+p1_comparator_drug_list_complete: YES
+
+trade_off_acceptable: YES
+
+novel_p0: []
+novel_p1: []
+continuing_p0: []
+continuing_p1: []
+p2: []
+p3:
+  - "src/polaris_graph/generator/atom_refusal_validator.py:92: stale comments on _ELIGIBILITY_RANGE_RE/_OUTCOME_VERB_WITH_NUMBER_RE still describe an active eligibility override; execution is correct, but comments should be updated or removed when convenient."
+
+approval_to_proceed_to_step_3: YES
+
+iter4_cap_consideration: APPROVE_THIS
+reasoning: |
+  Iter 4 closes the continuing outcome-with-criteria P1 by removing the eligibility override from the control flow, and closes the comparator-list P1 by deriving comparator arms from the extractor's _DRUG_RE. The remaining behavior is conservative over-refusal for eligibility-frame quantitative endpoint sentences, which is acceptable under the stated clinical-safety principle. No P0/P1 remains, so iter 5 is not needed.
+
+convergence_call: accept_remaining

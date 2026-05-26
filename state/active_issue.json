@@ -1,43 +1,99 @@
 {
-  "active_issue_id": null,
-  "current_step": "awaiting_user_decision_AND_next_assignment",
+  "active_issue_id": "I-p2-038",
+  "active_issue_github": 821,
+  "current_step": "step_1_pick_first_page_and_open_branch",
   "demo_target_window_utc": "2026-06-05 to 2026-06-09",
-  "merged_this_session": [
-    {"id": "I-carney-008", "github": 486, "pr": 488, "merge_sha": "fefa96ab", "desc": "sovereign pivot — Vexxhost + OVH + egress lockdown"},
-    {"id": "I-sov-001", "github": 199, "pr": 489, "merge_sha": "48eb3107", "desc": "vLLM endpoint cutover (env-configurable OPENROUTER_BASE_URL)"},
-    {"id": "I-carney-010", "github": 490, "pr": 491, "merge_sha": "0a8c49d4", "desc": "Serper stays — revert search-provider-deferred edits"},
-    {"id": "I-bug-112", "github": 492, "pr": 493, "merge_sha": "1d235bf4", "desc": "pin Dockerfile.v6 base to python:3.11-slim-bookworm"}
+  "umbrella": {
+    "github": 821,
+    "title": "Top-tier visual overhaul across all P2 pages \u00e2\u20ac\u201d retroactive design audit",
+    "methodology": "EXISTING P2 \u00e2\u20ac\u201d do NOT reinvent. References: state/polaris_phase2_ui_breakdown_2026_05_21.md + .codex/DESIGN_AUDIT_BRIEF_FORMAT.md + .codex/REVIEW_BRIEF_FORMAT.md \u00c2\u00a79",
+    "page_order": [
+      {
+        "page": "inspector",
+        "sub_pr_issue": null,
+        "checklist_item": "Inspector / Proof Replay (centerpiece) \u00e2\u20ac\u201d sub-PR 1 / #756 / resolve #728"
+      },
+      {
+        "page": "sign-in",
+        "sub_pr_issue": 898,
+        "checklist_item": "Sign-in \u00e2\u20ac\u201d sub-PR 9 / #898"
+      },
+      {
+        "page": "home",
+        "sub_pr_issue": 882,
+        "checklist_item": "Home \u00e2\u20ac\u201d sub-PR 2 / #882"
+      },
+      {
+        "page": "intake",
+        "sub_pr_issue": 884,
+        "checklist_item": "Intake \u00e2\u20ac\u201d sub-PR 3 / #884 + #886 + #900"
+      },
+      {
+        "page": "source_review",
+        "sub_pr_issue": 887,
+        "checklist_item": "Source Review \u00e2\u20ac\u201d sub-PR 4 / #887"
+      },
+      {
+        "page": "plan",
+        "sub_pr_issue": 889,
+        "checklist_item": "Plan Review \u00e2\u20ac\u201d sub-PR 5 / #889"
+      },
+      {
+        "page": "runs",
+        "sub_pr_issue": 894,
+        "checklist_item": "Run progress \u00e2\u20ac\u201d sub-PR 7 / #894"
+      },
+      {
+        "page": "compare",
+        "sub_pr_issue": 896,
+        "checklist_item": "Compare \u00e2\u20ac\u201d sub-PR 8 / #896"
+      },
+      {
+        "page": "dashboard",
+        "sub_pr_issue": 891,
+        "checklist_item": "Dashboard \u00e2\u20ac\u201d sub-PR 6 / #891"
+      }
+    ],
+    "supplemental_fix": "One-line \u00c2\u00a79 trigger extension in .codex/REVIEW_BRIEF_FORMAT.md (I-p2-*|I-ux-*|I-bug-* touching web/app/** or web/components/**)"
+  },
+  "drift_prevention_rules": [
+    "No new harness documents",
+    "No Codex review of plans",
+    "No new umbrella issues",
+    "Production standalone harness ONLY for screenshots (node web/.next/standalone/server.js, NOT next dev)",
+    "Operator screenshot sign-off is the merge gate per page",
+    "One page at a time \u00e2\u20ac\u201d cannot start page N+1 until page N is operator-signed-off",
+    "Every-pixel, every-line discipline \u00e2\u20ac\u201d full screenshot matrix per page, no skim"
   ],
-  "prep_done_this_session": [
-    "Codex 7-day-prep consultation (.codex/I-carney-prep-7day/) — 18 gaps, G3+G4 killed per user threat-model directive",
-    "G2 (#303) — vLLM↔OpenRouter dual-backend test; scoped I-sov-001 to ~27 LOC",
-    "G13 (#314) — docs/carney_secret_inventory.md, committed a70e90ea",
-    "10-question audit smoke (clinical_tirzepatide_t2dm) — harness works end-to-end, 14.7min/question, surfaced the model contradiction",
-    "G5 fallback-laptop drill prep — GPG demo key bootstrapped (FB221FA8...), JWT secret + bcrypt static_accounts wired into .env, found+fixed+merged I-bug-112, found I-bug-113"
-  ],
-  "BLOCKERS_NEEDING_USER": {
-    "model_decision": {
-      "blocks": "#2 — the full 10-question demo-content audit (GH#473 I-carney-006)",
-      "issue": "Working generator is deepseek-v3.2-exp, NOT deepseek-v4-pro. Per code comment I-bug-091 (2026-05-09), V4 Pro was deliberately reverted — structurally breaks the strict_verify provenance-token pipeline. But the OVH procurement spec + transparency docs + runbook all say V4 Pro.",
-      "options": "A — V3.2-Exp is the demo generator (works today, update docs) | B — fix V4 Pro compat first (real Issue, ~1-2 days) | C — user already knows the history, just picks",
-      "status": "ASKED, awaiting user — §6.1 clarification gate"
+  "closed_this_session": [
+    {
+      "github": 902,
+      "reason": "I-ux-002 dead meta-work \u00e2\u20ac\u201d reinvented existing P2"
     },
-    "I_bug_113": {
-      "github": 494,
-      "blocks": "#3 — the fallback-laptop drill build AND the Vexxhost deploy build",
-      "issue": "Unbounded langchain pins in requirements.txt:35-40 cause pip resolver runaway (7+ min, no convergence) once langchain 1.x is in the index. Fix is capping to <1.0.0 at the working versions — but touches the pipeline-A surface, needs a regression smoke. Filed, not yet started.",
-      "status": "filed GH#494; ready to execute on user go-ahead"
+    {
+      "github": 903,
+      "reason": "I-ux-002 followup \u00e2\u20ac\u201d orphaned"
+    },
+    {
+      "github": 829,
+      "reason": "I-p2-041 \u00e2\u20ac\u201d folded into #821"
     }
-  },
-  "operator_actions_in_flight": [
-    "Admin: OVH Canada sales email + Vexxhost subscription + Canadian DNS per docs/admin_provisioning_email_2026_05_13.md"
   ],
-  "fallback_drill_state": {
-    "gpg_key": "FB221FA8ED185F8E3F76F7E6F6F31CEDFF490C02 (bootstrapped local; .env updated; stale 42E8CB0D... commented out)",
-    "static_accounts": "state/fallback_drill_etc/static_accounts.yaml — bcrypt demo password 'carney-demo-local'",
-    "jwt_secret": "generated + wired into .env",
-    "compose_build": "BLOCKED on I-bug-113 (pip runaway); I-bug-112 cleared the apt blocker",
-    "passlib_finding": "passlib throws 'error reading bcrypt version' on this machine — hash still generated; verify the api container's login path is not affected once the stack builds"
+  "llm_state_verified_2026_05_25": {
+    "generator_default": "deepseek/deepseek-v4-pro (verified in openrouter_client.py:408)",
+    "evaluator_default": "google/gemma-4-31b-it (verified in .env.example:64)",
+    "docs_match_code": true,
+    "prior_active_issue_claim_about_v3_2_exp_mismatch": "STALE \u2014 predated I-gen-003 #495 (2026-05-14) which re-enabled V4 Pro with HARD OUTPUT CONTRACT anti-CoT prompt + bounded 3-retry for reasoning-first models. Mismatch no longer exists.",
+    "i_gen_003_fix_in_place": true,
+    "i_gen_004_reasoning_trace_capture_in_place": true,
+    "remaining_v4_pro_concerns": [
+      "Smoke test needed on real clinical question end-to-end to verify HHEM faithfulness + strict_verify pass rate are acceptable.",
+      "Multi-turn reasoning_content preservation bug (BerriAI/litellm #26395) does NOT affect POLARIS today (single-turn-per-section) but would bite if we ever add multi-turn refinement.",
+      "OpenRouter context-cap behavior (cline #10551) \u2014 unverified whether 1M -> 128K cap applies to POLARIS long-context corpus loading."
+    ],
+    "research_evidence": "docs/v4_pro_research_2026_05_25.md (42 primary sources)",
+    "no_llm_changes_this_session": true,
+    "correction_note": "I cited a stale active_issue.json claim about V3.2-Exp being the active generator. That was wrong \u2014 V4 Pro has been default since I-gen-003 #495 merged on 2026-05-14. Correction made 2026-05-25 night."
   },
-  "last_updated_utc": "2026-05-14T00:00:00Z"
+  "last_updated_utc": "2026-05-25T22:30:00Z"
 }

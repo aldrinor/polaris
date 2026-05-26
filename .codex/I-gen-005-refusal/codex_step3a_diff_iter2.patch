@@ -1,0 +1,82 @@
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 4a8cf55d..9e386716 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -894,16 +894,18 @@ async def _call_section(
+                 section.title, _allow_exc,
+             )
+ 
+-    # I-gen-005 Step 3 (atom-first architecture, Codex APPROVE_DESIGN):
+-    # inject the section-filtered atom catalog into the system prompt.
+-    # V4 Pro is instructed to cite atom_NNN for factual quantitative
+-    # claims; the post-hoc atom_refusal_validator (called in the consumer
+-    # path after this function returns) replaces sentences with refusal
+-    # template if atom citations are missing/invalid.
++    # I-gen-005 Step 3a (atom-first architecture, Codex APPROVE_DESIGN
++    # iter-4 + Step3a-diff-review iter-1 P1 fix): inject the section-
++    # filtered atom catalog into the system prompt.
+     #
+-    # This is the PROMPT side of Codex's hybrid Approach C. The POST-HOC
+-    # side runs in the caller via validate_section() after this function
+-    # returns. Together they enforce the atom-citation contract.
++    # CRITICAL (per Codex Step3a iter-1 P1): atom_NNN is ADDITIVE to the
++    # existing [ev_XXX] provenance marker, NOT a replacement. The
++    # existing strict_verify path requires [ev_XXX] tokens and would
++    # DROP atom-only sentences before the post-hoc validator (Step 3b,
++    # not yet wired) could see them. Instructed format:
++    #   <claim text> (atom_NNN) [ev_XXX]
++    # Both citations are present: [ev_XXX] satisfies strict_verify;
++    # atom_NNN satisfies the future atom_refusal_validator.
+     try:
+         from src.polaris_graph.generator.claim_atom_extractor import (
+             build_atom_catalog,
+@@ -915,25 +917,27 @@ async def _call_section(
+         if _section_atoms:
+             atom_block = format_atom_catalog_for_prompt(_section_atoms)
+             atom_instruction = (
+-                "\n\nATOM-CITATION CONTRACT (post-hoc enforced):\n"
++                "\n\nATOM-CITATION CONTRACT (additive to [ev_XXX]):\n"
+                 "For factual quantitative claims (effect size, comparator, "
+-                "safety incidence, dose-response), cite the atom_NNN ID "
+-                "from the ATOM CATALOG above — NOT the raw [ev_XXX] marker. "
+-                "Use [ev_XXX] only for narrative transitions (mechanism, "
+-                "trial design, eligibility, hedges/limitations).\n"
+-                "If the catalog does NOT contain an atom that supports a "
+-                "factual claim you would otherwise make, OMIT that claim. "
+-                "A sentence written without a supporting atom_NNN will be "
+-                "REPLACED with a refusal disclosure block by the post-hoc "
+-                "validator; better to write fewer cited claims than to "
+-                "have refusals replace your prose.\n"
++                "safety incidence, dose-response), cite BOTH the atom_NNN ID "
++                "(in parentheses) AND the existing [ev_XXX] provenance "
++                "marker. atom_NNN is ADDITIVE — it does NOT replace "
++                "[ev_XXX]. The [ev_XXX] token is REQUIRED for all "
++                "sentences per SECTION_SYSTEM_PROMPT rule #2.\n"
++                "Use [ev_XXX] alone (without atom_NNN) for narrative "
++                "sentences: mechanism, trial design, eligibility, hedges.\n"
++                "If the catalog does NOT contain an atom supporting a "
++                "factual claim, prefer OMITTING that claim over writing "
++                "it without atom_NNN — a future post-hoc validator will "
++                "replace bare-claim factual sentences with a refusal "
++                "block.\n"
+                 "Example cited form: 'Tirzepatide 15 mg reduced HbA1c by "
+                 "-2.30 percentage points versus -1.86 with semaglutide "
+-                "(atom_003, atom_004) at 40 weeks.'"
++                "(atom_003, atom_004) [ev_001].'"
+             )
+             system = system + "\n\n" + atom_block + atom_instruction
+             logger.info(
+-                "[multi_section] I-gen-005 Step 3 atom catalog injected: "
++                "[multi_section] I-gen-005 Step 3a atom catalog injected: "
+                 "%d atoms for section %r",
+                 len(_section_atoms), section.title,
+             )
+@@ -942,7 +946,7 @@ async def _call_section(
+         # fall through to the generator without the atom block (caller
+         # still has HARD CONTRACT + allow-list constraints).
+         logger.warning(
+-            "[multi_section] I-gen-005 Step 3 atom catalog build failed "
++            "[multi_section] I-gen-005 Step 3a atom catalog build failed "
+             "for section %r: %s — proceeding without atom block",
+             section.title, _atom_exc,
+         )

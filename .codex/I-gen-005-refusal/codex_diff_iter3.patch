@@ -1,0 +1,157 @@
+diff --git a/src/polaris_graph/generator/atom_refusal_validator.py b/src/polaris_graph/generator/atom_refusal_validator.py
+index 774055d5..99f3afe4 100644
+--- a/src/polaris_graph/generator/atom_refusal_validator.py
++++ b/src/polaris_graph/generator/atom_refusal_validator.py
+@@ -92,11 +92,31 @@ _ENDPOINT_VOCAB_RE = re.compile(
+ # "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0"
+ # is design/eligibility, not an outcome claim. This regex detects framing
+ # that overrides Trigger A for eligibility-range numbers.
++#
++# Iter-3 fix (Codex iter-2 novel-P1): tightened to only "inclusion/
++# exclusion criteria" frames; removed bare "baseline HbA1c" because real
++# outcome sentences may mention baseline characteristics + actual
++# reductions in the same breath ("Patients with baseline HbA1c of 8.6%
++# had HbA1c reductions of 2.3 percentage points" must NOT bypass Trigger A).
+ _ELIGIBILITY_RANGE_RE = re.compile(
+-    r"\b(?:inclusion\s+criter|exclusion\s+criter|eligibility|"
+-    r"eligible\s+patients|eligible\s+adults|"
+-    r"baseline\s+(?:hba1c|weight|bmi)|"
+-    r"required\s+(?:hba1c|weight))\b",
++    r"\b(?:inclusion\s+criter\w*|exclusion\s+criter\w*|"
++    r"eligibility\s+criter\w*|eligible\s+(?:if|when)\b|"
++    r"required\s+(?:hba1c|weight|bmi)\s+(?:of|between)\b)",
++    re.IGNORECASE,
++)
++
++# Iter-3 fix (Codex iter-2 novel-P1): outcome-verb-with-number pattern.
++# If a sentence contains "<outcome verb> <amount>" (reductions of N,
++# decreased by N, improved by N), the eligibility override MUST NOT fire
++# because there's a real quantitative outcome claim mixed with the
++# eligibility framing.
++_OUTCOME_VERB_WITH_NUMBER_RE = re.compile(
++    r"\b(?:reduc(?:ed|tions?|ing)|"
++    r"decreas(?:ed|es?|ing)|increas(?:ed|es?|ing)|"
++    r"chang(?:ed|es?)|improv(?:ed|ements?|ing)|"
++    r"lower(?:ed|ing)|rais(?:ed|ing)|"
++    r"fell|rose|dropped)\s+"
++    r"(?:by|of|from|to)?\s*[-−]?\d",
+     re.IGNORECASE,
+ )
+ 
+@@ -122,11 +142,23 @@ _QUAL_COMPARATIVE_RE = re.compile(
+ 
+ # Comparator/arm language that — combined with a comparative phrase —
+ # signals a factual comparative claim even without a specific endpoint
+-# vocab term. Catches "Tirzepatide showed greater reduction than
+-# semaglutide" where "reduction" isn't an endpoint vocab term.
++# vocab term. Iter-3 fix (Codex iter-2 P2): tightened from `\w{3,}` to
++# specific treatment-arm terms only. "than enough", "than expected",
++# "than usual" no longer match.
+ _COMPARATIVE_ARM_RE = re.compile(
+     r"\b(?:than|versus|vs\.?|compared\s+(?:to|with))\s+"
+-    r"(?:placebo|control|standard\s+care|usual\s+care|\w{3,})\b",
++    r"(?:"
++    r"placebo|control(?:s|\s+arm)?|standard\s+care|usual\s+care|"
++    r"active\s+comparator|background\s+therapy|sham|"
++    # Drug-class terms
++    r"glp[-\s]?1|sglt2|dpp[-\s]?4|insulin|metformin|sulfonylurea|"
++    # Common comparator drug names (subset of atom_extractor's _DRUG_RE)
++    r"semaglutide|tirzepatide|dulaglutide|liraglutide|"
++    r"empagliflozin|dapagliflozin|canagliflozin|ertugliflozin|"
++    r"sitagliptin|linagliptin|saxagliptin|alogliptin|"
++    r"warfarin|apixaban|rivaroxaban|dabigatran|edoxaban|"
++    r"rosuvastatin|atorvastatin|simvastatin"
++    r")\b",
+     re.IGNORECASE,
+ )
+ 
+@@ -231,10 +263,19 @@ def requires_atom_citation(sentence: str) -> tuple[bool, Optional[str]]:
+     has_comparator_arm = bool(_COMPARATIVE_ARM_RE.search(s))
+     has_outcome_number = bool(numbers) and has_endpoint
+ 
+-    # Iter-2 fix (Codex iter-1 P2): eligibility-range override BEFORE
+-    # Trigger A. "HbA1c between 7.0 and 10.0" in an inclusion-criteria
+-    # context is design, not outcome.
+-    if _ELIGIBILITY_RANGE_RE.search(s) and not has_qual_comparative:
++    # Iter-2/3 fix (Codex iter-2 novel-P1): eligibility-range override
++    # ONLY fires when the sentence is PURE eligibility framing:
++    #   - has eligibility keyword
++    #   - no qualitative comparative
++    #   - no outcome-verb-with-number ("reductions of 2.3", "decreased
++    #     by 0.5", etc.)
++    # This prevents masking real outcome claims that happen to mention
++    # baseline characteristics.
++    if (
++        _ELIGIBILITY_RANGE_RE.search(s)
++        and not has_qual_comparative
++        and not _OUTCOME_VERB_WITH_NUMBER_RE.search(s)
++    ):
+         return False, None
+ 
+     # Pure narrative categories — never require atom citation UNLESS
+diff --git a/tests/polaris_graph/test_atom_refusal_validator.py b/tests/polaris_graph/test_atom_refusal_validator.py
+index 3204e0bf..dfe9ece1 100644
+--- a/tests/polaris_graph/test_atom_refusal_validator.py
++++ b/tests/polaris_graph/test_atom_refusal_validator.py
+@@ -546,6 +546,61 @@ def test_iter2_p2_soft_value_word_boundary_match():
+     assert record.reason == RefusalReason.SOFT_MISMATCH
+ 
+ 
++def test_iter3_p1_eligibility_override_does_not_mask_outcome_claim():
++    """Codex iter-2 novel-P1 repro: 'Patients with baseline HbA1c of 8.6%
++    had HbA1c reductions of 2.3 percentage points.' was returning False
++    (allowed) because 'baseline HbA1c' fired eligibility override. This
++    is a REAL outcome claim ('reductions of 2.3 percentage points') and
++    must require atom citation."""
++    requires, trigger = requires_atom_citation(
++        "Patients with baseline HbA1c of 8.6% had HbA1c reductions of "
++        "2.3 percentage points."
++    )
++    assert requires, (
++        "Outcome claim with baseline-mention must require atom citation, "
++        "not bypass via eligibility override"
++    )
++    assert trigger == "trigger_A_number_plus_endpoint"
++
++
++def test_iter3_p2_comparator_arm_does_not_match_generic_words():
++    """Codex iter-2 P2 repro: 'This was more than enough evidence' and
++    'More patients than expected completed follow-up' must NOT trigger
++    qualitative comparator because 'enough' and 'expected' aren't
++    treatment arms."""
++    requires1, _ = requires_atom_citation(
++        "This was more than enough evidence to proceed."
++    )
++    assert not requires1, (
++        "'more than enough' is benign prose, not a comparative claim"
++    )
++
++    requires2, _ = requires_atom_citation(
++        "More patients than expected completed follow-up."
++    )
++    assert not requires2, (
++        "'more than expected' is benign prose, not a comparative claim"
++    )
++
++
++def test_iter3_eligibility_pure_still_allowed():
++    """Regression check: pure eligibility framing without outcome verbs
++    still passes through (no over-correction in iter-3)."""
++    requires, _ = requires_atom_citation(
++        "Inclusion criteria required HbA1c between 7.0 and 10.0."
++    )
++    assert not requires
++
++
++def test_iter3_qualitative_drug_arm_still_requires_atom():
++    """Regression check: drug comparator arms still trigger atom requirement
++    (tightening the `\\w{3,}` didn't break the legitimate cases)."""
++    requires, _ = requires_atom_citation(
++        "Tirzepatide showed greater reduction than semaglutide."
++    )
++    assert requires
++
++
+ def test_iter2_p2_refused_record_includes_detected_values():
+     """Codex iter-1 P2: refused records must populate detected_values
+     for downstream audit."""

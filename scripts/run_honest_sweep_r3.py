@@ -2700,12 +2700,20 @@ async def run_one_query(
             encoding="utf-8",
         )
 
-        # BUG-M-2 diagnostic: re-run strict_verify on the preserved
-        # rewritten_draft per section to capture the dropped-sentence
-        # detail (sentence, failure_reasons, soft_warnings). The raw
-        # StrictVerificationReport's `dropped_sentences` list isn't on
-        # SectionResult, but strict_verify is pure computation so we
-        # can reconstruct it here without an LLM call.
+        # I-gen-005 Step 1.5 (Codex smoke-review P1 finding): serialize
+        # the FINAL per-sentence accounting from SectionResult, not a
+        # bare re-run of strict_verify on sr.rewritten_draft. The prior
+        # re-run produced a STALE diagnostic log: sentences listed as
+        # "dropped" here were still appearing in report.md because
+        # downstream dedup/repair passes had accepted them, but the
+        # diagnostic re-run never saw the dedup state. Per Codex
+        # smoke-review verdict 2026-05-26 — "do not reconstruct final
+        # verification details by re-running bare strict_verify on
+        # rewritten drafts."
+        #
+        # NOTE: ev_pool dict is still constructed here because downstream
+        # code (line ~2815 evidence_pool.json writeback) consumes it.
+        # The strict_verify re-run was the only thing that needed to go.
         ev_pool = {ev["evidence_id"]: ev for ev in evidence_for_gen}
         verif_details = {
             "sections": [],
@@ -2715,15 +2723,24 @@ async def run_one_query(
             },
         }
         for sr in multi.sections:
-            if not sr.rewritten_draft:
+            if not sr.rewritten_draft and not sr.kept_sentences_pre_resolve:
                 continue
-            rpt = strict_verify(sr.rewritten_draft, ev_pool)
+            kept_svs = sr.kept_sentences_pre_resolve or []
+            dropped_svs = sr.dropped_sentences_final or []
+            dedup_redundants = sr.dropped_sentences_dedup_redundant or []
+            m41c_underframed_svs = getattr(
+                sr, "dropped_sentences_m41c_underframed", []
+            ) or []
+            total_dropped_section = (
+                len(dropped_svs) + len(dedup_redundants)
+                + len(m41c_underframed_svs)
+            )
             verif_details["sections"].append({
                 "title": sr.title,
                 "dropped_due_to_failure": sr.dropped_due_to_failure,
-                "total_in": rpt.total_in,
-                "total_kept": rpt.total_kept,
-                "total_dropped": rpt.total_dropped,
+                "total_in": len(kept_svs) + total_dropped_section,
+                "total_kept": len(kept_svs),
+                "total_dropped": total_dropped_section,
                 "kept": [
                     {
                         "sentence": sv.sentence,
@@ -2732,9 +2749,9 @@ async def run_one_query(
                              "start": t.start, "end": t.end}
                             for t in sv.tokens
                         ],
-                        "soft_warnings": sv.soft_warnings,
+                        "soft_warnings": getattr(sv, "soft_warnings", []),
                     }
-                    for sv in rpt.kept_sentences
+                    for sv in kept_svs
                 ],
                 "dropped": [
                     {
@@ -2746,10 +2763,29 @@ async def run_one_query(
                             for t in sv.tokens
                         ],
                     }
-                    for sv in rpt.dropped_sentences
+                    for sv in dropped_svs
+                ],
+                # I-gen-005 Step 1.5: dedup redundants are a SEPARATE
+                # category — LLM-consolidated near-duplicates, NOT
+                # strict_verify failures.
+                "dropped_by_dedup_redundant": list(dedup_redundants),
+                # I-gen-005 Step 1.5 iter-2 (Codex P1 #2): M-41c
+                # under-framed trial-name policy drops. Sentences here
+                # PASSED strict_verify but were removed by the M-41c
+                # claim-frame filter.
+                "dropped_by_m41c_underframed": [
+                    {
+                        "sentence": sv.sentence,
+                        "tokens": [
+                            {"evidence_id": t.evidence_id,
+                             "start": t.start, "end": t.end}
+                            for t in sv.tokens
+                        ],
+                    }
+                    for sv in m41c_underframed_svs
                 ],
             })
-        # Per-reason tally across all sections.
+        # Per-reason tally across all sections (strict_verify failures only).
         reason_counts: dict[str, int] = {}
         for s in verif_details["sections"]:
             for d in s["dropped"]:
@@ -2757,6 +2793,18 @@ async def run_one_query(
                     key = r.split(":", 1)[0]  # collapse parameterized detail
                     reason_counts[key] = reason_counts.get(key, 0) + 1
         verif_details["drop_reason_counts"] = reason_counts
+        # I-gen-005 Step 1.5: tally each post-strict-verify category
+        # separately so the operator can distinguish the three drop
+        # paths (strict_verify failures, dedup consolidations, M-41c
+        # policy drops).
+        verif_details["dedup_redundant_count"] = sum(
+            len(s.get("dropped_by_dedup_redundant", []))
+            for s in verif_details["sections"]
+        )
+        verif_details["m41c_underframed_count"] = sum(
+            len(s.get("dropped_by_m41c_underframed", []))
+            for s in verif_details["sections"]
+        )
         (run_dir / "verification_details.json").write_text(
             json.dumps(verif_details, indent=2, sort_keys=True, default=str) + "\n",
             encoding="utf-8",

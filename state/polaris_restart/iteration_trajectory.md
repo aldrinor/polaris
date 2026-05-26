@@ -775,3 +775,305 @@ Separate defect filed as GH#658 (`I-cd-003-followup`): `_verify_canonical_pin` i
 - iter-5 (CAP): REQUEST_CHANGES — NOVEL P1 consensus-validation false-promote. RESOLVED (START-anchored study-framing exclusions, §-1.2 step-6). Force-APPROVE per §8.3.1.
 - Trajectory: 5 real guideline-TITLE-form edges (toothpaste-squeeze), each a genuine false-promote/demote, all resolved with fixes + tests. 255 classifier tests green. Dangerous (false-promote) direction comprehensively guarded; residual = safe false-demote tail -> follow-up #813 (P3).
 - Brief+verdict+diff: .codex/I-bug-771/. End-to-end re-run verification pending (post-#763-sweep).
+
+[2026-05-25 UTC night] I-ux-002 brief review iter 1
+  verdict: REQUEST_CHANGES
+  novel_p0: 2 (script 5-iter semantics not persisted + audit not bound to PR HEAD)
+  p1: 2 (non-bot UI PR bypass + hover/focus not observable from static shots)
+  p2: 1 (rubric SHA enforcement weaker than docs)
+  tokens: 77118
+  convergence: continue (iter 2)
+
+[2026-05-25 UTC night] I-ux-002 brief review iter 2
+  verdict: REQUEST_CHANGES
+  novel_p0: 0  continuing_p0: 0
+  p1: 2 (motion still not observable from static; CI doesn't verify each screenshot file exists)
+  p2: 0
+  tokens: 12531
+  convergence: continue (iter 3)
+
+[2026-05-25 UTC night] I-ux-002 brief review iter 3
+  verdict: REQUEST_CHANGES
+  novel_p0: 0  continuing_p0: 0
+  p1: 1 (route-coverage not validated against changed UI surface)
+  p2: 0
+  tokens: 6019
+  convergence: continue (iter 4)
+
+[2026-05-25 UTC night] I-ux-002 brief review iter 4
+  verdict: REQUEST_CHANGES
+  novel_p0: 0  continuing_p0: 0
+  p1: 2 (component/layout coverage bypass; gate not yet in branch protection)
+  p2: 0
+  tokens: 94915
+  convergence: continue (iter 5 — hard cap)
+
+[2026-05-25 UTC night] I-ux-002 brief review iter 5 (HARD CAP)
+  verdict: REQUEST_CHANGES (cap-hit, force-APPROVE per §8.3.1)
+  novel_p0: 0  continuing_p0: 0
+  p1: 1 (P1-route-local-app-component-bypass — components under web/app/<route>/components/ fall through coverage check)
+  p2: 0
+  tokens: 100649
+  convergence: accept_remaining (Codex acknowledged)
+  action: force-APPROVE; residual P1 -> follow-up Issue
+
+[2026-05-25 UTC night] I-ux-002 diff review iter 1
+  verdict: REQUEST_CHANGES
+  novel_p0: 1 (pr_head_sha self-referential hash fixed point — audit commit changes HEAD, gate can never match)
+  p1: 1 (invalid Codex output silently force-approves at iter 5)
+  p2: 0
+  tokens: 52201
+  convergence: continue (iter 2)
+
+[2026-05-25 UTC night] I-ux-002 diff review iter 2
+  verdict: REQUEST_CHANGES
+  novel_p0: 0  continuing_p0: 1 (path_scan still matches by pr_head_sha; script no longer emits it)
+  p1: 0
+  p2: 0
+  tokens: 28007
+  convergence: continue (iter 3)
+
+[2026-05-25 UTC night] I-ux-002 master-plan adversarial review iter 1 (uncapped)
+  verdict: REQUEST_CHANGES
+  P0 findings: 6 (committed-artifact fabrication path; rubric mutation drift;
+                force-APPROVE breaks refusal authority; D-WL/D-MW/D-CFG/D-VPI/
+                D-LIVE/D-TEMP/D-CONS still open; R2/R3 built on unsupported
+                research; Visual Prompting iter-table FABRICATED in research;
+                Qwen3-VL 6% FNR UNSUPPORTED)
+  P1 findings: 8 (Skyvern citation unreproducible; Cline default-allow weakens
+                AAB analogy; Applitools FPR uncited; aggregate stats untraceable;
+                OpenAI section claimed but absent from vendor docs file; etc)
+  Suspected fabrications in research outputs: 6 (Skyvern, Browser-Use,
+                Stagehand, Playwright MCP, Argos, Lost Pixel — all citations
+                lack commit SHAs and several don't reproduce)
+  Internal contradictions: 4
+  convergence: continue (P0 architectural changes required)
+
+[2026-05-25 UTC night] I-gen-005 Step 1 diff review iter 1 (cap 5)
+  doc: codex_step1_diff_review_brief.md → codex_step1_diff_verdict_iter1.txt
+  verdict: REQUEST_CHANGES
+  diagnosis_alignment: PARTIAL
+  P1 findings: 3
+    - P1 #1 (line 547): _find_local_support_window uses substring matching
+      → '50' matches inside '150'/'21.50'; positive '1.07' matches '-1.07'
+    - P1 #2 (line 484): _normalize_unicode_minus collapses U+2013/2014/2012
+      to ASCII '-' → positive range '8.12–8.21' yields fake negative '-8.21'
+    - P1 #3 (line 975): entailment fallback re-judges against whole
+      direct_quote → same architecture as the rejected whole-doc numeric
+      fallback
+  P2 findings: 1 (3-placement cluster may miss valid clusters with
+                 asymmetric token distribution)
+  approval_to_run_smoke: NO
+  tokens: 98608
+  convergence: continue
+
+[2026-05-25 UTC night] I-gen-005 Step 1 diff review iter 2 (cap 5)
+  doc: codex_step1_diff_review_brief_iter2.md
+  status: submitted; awaiting verdict
+  P1 fixes claimed:
+    - P1 #1: token_regex.finditer() in both candidate-finding and
+      validation; integer-path passes _NUMBER_RE
+    - P1 #2: _RANGE_DASH_BETWEEN_DIGITS regex; en/em/figure dashes between
+      digits → space; U+2212 → ASCII minus
+    - P1 #3: entailment fallback uses _find_local_support_window to recover
+      bounded local window then judges against window text only; fail-closed
+      when no local window
+    - P2 cluster: rewrote to cluster-based placement (anchor on rarest,
+      nearest occurrence of each other needed-token, span check)
+  adversarial tests local: 12/12 PASS
+    (TEST 1 token-exact, TEST 2 range-dash, TEST 3 cancer-50% via full
+     verifier, TEST 4 SURPASS no regression, TEST 5 cluster placement)
+
+[2026-05-25 UTC night] I-gen-005 Step 1 diff review iter 2 (cap 5)
+  doc: codex_step1_diff_review_brief_iter2.md → codex_step1_diff_verdict_iter2.txt
+  verdict: REQUEST_CHANGES
+  diagnosis_alignment: PARTIAL
+  P1 findings: 1 (continuing P1 #2 — range-dash with whitespace BEFORE
+                  dash still produces fake negative; Codex ran live test
+                  showing '8.12 –8.21' yields decimals ['8.12', '-8.21'])
+  P2 findings: 1 (cluster placement still doesn't enumerate all valid
+                  clusters — recall/non-blocker per Codex)
+  min_content_overlap: KEEP_2 (confirmed)
+  approval_to_run_smoke: NO
+  tokens: 105578
+  convergence: continue
+
+[2026-05-25 UTC night] I-gen-005 Step 1 diff review iter 3 (cap 5)
+  doc: codex_step1_diff_review_brief_iter3.md → submitted
+  status: awaiting verdict
+  P1 fix claimed:
+    - P1 #2 (continuing): adopted Codex's suggested regex
+      `(?<=\d)(\s*[–—‒]\s*)(?=[−\-]?\d)` with optional whitespace
+      both sides; lookahead handles ranges of negatives
+  adversarial tests local: 21/21 PASS
+    (8 new ITER 3 whitespace-variant tests including Codex's exact
+     failing string)
+  Codex's exact test verified: 'HbA1c 95% CI was 8.12 –8.21 percent
+    at week 12 in patients.' now normalizes without `-8.21`, sentence
+    claiming `-8.21` is DROPPED via number_not_in_any_cited_span
+
+[2026-05-25 UTC night] I-gen-005 Step 1 diff review iter 3 (cap 5)
+  doc: codex_step1_diff_review_brief_iter3.md → codex_step1_diff_verdict_iter3.txt
+  verdict: REQUEST_CHANGES
+  diagnosis_alignment: PARTIAL
+  P1 findings: 1 (continuing P1 #2 — `\s*` crosses newlines AND zero-width
+                  chars bypass `\s`. Codex ran live test showing
+                  "HbA1c at week 12\n–8.21" corrupted negative `-8.21` into
+                  positive `8.21`. Also ZWSP U+200B between digit and dash
+                  bypasses `\s` regex.)
+  P2 findings: 1 (cluster placement still doesn't enumerate all valid
+                  clusters — recall/non-blocker per Codex)
+  approval_to_run_smoke: NO
+  tokens: 79959
+  convergence: continue
+
+[2026-05-25 UTC night] I-gen-005 Step 1 diff review iter 4 (cap 5)
+  doc: codex_step1_diff_review_brief_iter4.md → submitted
+  status: awaiting verdict (LAST CAPPED ITER BEFORE FORCE-APPROVE)
+  P1 fix claimed:
+    - P1 #2 (continuing): replaced `\s*` with explicit `_INLINE_RANGE_GAP`
+      class:
+        - horizontal whitespace: \t, space, NBSP, OGHAM, U+2000..U+200A,
+          U+202F, U+205F, U+3000
+        - zero-width separators: U+200B-U+200F, U+2060-U+2064,
+          U+2066-U+2069, U+FEFF, U+FE00-U+FE0F
+        - supplementary: U+E0000-U+E007F, U+E0100-U+E01EF
+      EXCLUDES: \n, \r, \v, \f, U+2028 LINE SEP, U+2029 PARA SEP
+  adversarial tests local: 30+ assertions PASS
+    (Codex's exact "week 12\n–8.21" reproducer now preserves -8.21;
+     ZWSP case extracts {8.12, 8.21}; PARA/LINE/VT/FF do NOT bridge;
+     NBSP IS bridged as range separator)
+
+[2026-05-25 UTC night] I-gen-005 Step 1 diff review iter 4 (cap 5)
+  doc: codex_step1_diff_review_brief_iter4.md → codex_step1_diff_verdict_iter4.txt
+  verdict: REQUEST_CHANGES
+  diagnosis_alignment: PARTIAL
+  P1 findings: 2
+    - (a) iter-4 regex `(?<=\d)<gap>*dash(?=digit)` corrupts real negatives
+          after bare integer labels with left-gap-only:
+          "HbA1c at week 12 –8.21" → "HbA1c at week 12 8.21" (loses -8.21)
+    - (b) Hand-built zero-width gap class omits U+00AD SOFT HYPHEN +
+          bidi controls (U+202A..U+202E, U+206A..U+206F) + interlinear
+          marks (U+FFF9..U+FFFB)
+  P2 findings: 1 (cluster placement still doesn't enumerate all valid
+                  clusters per non-rarest token — recall/non-blocker)
+  approval_to_run_smoke: NO
+  tokens: 97929
+  convergence: continue
+
+[2026-05-25 UTC night] I-gen-005 Step 1 diff review iter 5 (LAST CAP ITER)
+  doc: codex_step1_diff_review_brief_iter5.md → submitted
+  status: awaiting verdict (force-APPROVE if REQUEST_CHANGES per §8.3.1)
+  P1 fixes claimed:
+    - (a) split _RANGE_DASH_BETWEEN_DIGITS into TWO regexes:
+          Pattern A (no-left-gap OR both-gap): always range, ANY left token
+          Pattern B (left-gap-only + decimal-left ONLY): range with capture-
+          group replacement that preserves the decimal + gap + space
+          Bare integer + left-gap-only: NOT matched by either → step 3 falls
+          back to ASCII '-' conversion (negative preserved)
+    - (b) extended _INLINE_RANGE_GAP to include:
+          U+00AD soft hyphen, U+061C Arabic letter mark, U+180E Mongolian
+          vowel sep, U+202A-U+202E bidi controls, U+206A-U+206F deprecated
+          format, U+FFF9-U+FFFB interlinear marks
+  adversarial tests local: 40+ assertions PASS
+    (all 4 Codex iter-4 reproducers for (a) preserve negative -8.21;
+     all 4 Codex iter-4 reproducers for (b) extract positive {8.12, 8.21};
+     decimal-left regression still passes; integer-both-gap still range)
+
+[2026-05-25 UTC night] I-gen-005 Step 1 diff review iter 5 (cap 5) — APPROVE
+  doc: codex_step1_diff_review_brief_iter5.md → codex_step1_diff_verdict_iter5.txt
+  verdict: APPROVE
+  diagnosis_alignment: TRUE
+  P0/P1 findings: 0
+  P2 findings: 2 (cluster placement recall + future unicode codepoint
+                  hardening if smoke surfaces new shapes)
+  approval_to_run_smoke: YES
+  convergence_call: accept_remaining
+  remaining_blockers_for_execution: []
+  tokens: 138664
+  STEP 1 P1 FIXES COMPLETE — proceeding to smoke test.
+
+Step 1 final state (5 iterations to APPROVE):
+  - Iter 1: REQUEST_CHANGES (3 P1 + 1 P2)
+  - Iter 2: REQUEST_CHANGES (1 continuing P1 — left-ws variants)
+  - Iter 3: REQUEST_CHANGES (1 continuing P1 — newline + zero-width bypass)
+  - Iter 4: REQUEST_CHANGES (1 continuing P1 — integer label + U+00AD)
+  - Iter 5: APPROVE (all P1 closed; P2 cluster + codepoint hardening deferred)
+
+Operator directive 2026-05-25 night "Pls keep this iteration until Codex
+approve" — SATISFIED. Codex's hard adversarial review of Step 1 turned
+up 4 progressive P1 layers that the offline smoke would have hidden:
+1. Substring vs token-exact (50 in 150)
+2. Range-dash → fake negative (8.12–8.21 → -8.21)
+3. Whole-doc entailment fallback (semantic)
+4. Newline + zero-width bypass; integer-label false positive; U+00AD
+5. (none — APPROVE)
+
+[2026-05-26 04:50 UTC] I-gen-005 smoke INTERRUPTED (operator requested restart)
+  smoke: outputs/honest_sweep_r3.step1_iter5_complete/clinical/clinical_tirzepatide_t2dm/
+  pid_46612 killed at 04:50:28 (~54 min in)
+  phase reached: PT11 synthesis-repair pass (29 repairs done, manifest.json
+    not yet written)
+  artifacts on disk: protocol, live_corpus_dump, corpus_adequacy,
+    corpus_approval, completeness, contradictions, reasoning_trace.jsonl
+    (637KB / 42 entries: outline + 6 sections + 4 regens + 29 repairs)
+  artifacts missing: manifest.json, verification_details.json, report.md,
+    bibliography.json, qwen_judge_output.json, evaluator_rule_checks.json
+  step 1 status: CODE COMPLETE + CODEX-APPROVED (iter 5/5)
+  next action after restart: re-launch smoke with --out-root
+    outputs/honest_sweep_r3.step1_iter5_resume (smoke does NOT support
+    resume; must restart fresh)
+---
+[2026-05-26] I-gen-005 atom_extractor diff review iter 2: REQUEST_CHANGES
+  tokens: 64886
+  novel_p1: 2 (reverse_comparator_on_arm, multi_endpoint_first_binding)
+  continuing_p1: 1 (ci_comma_dash_forms_still_leak)
+  p2: 2 (primary_section_not_enforced, dose_preempts_mg_dL)
+  convergence_call: continue
+  next: iter-3 fixes all 5
+
+[2026-05-26] I-gen-005 atom_extractor diff review iter 3: REQUEST_CHANGES
+  tokens: 157305
+  continuing_p1 (all PARTIAL): 3
+    - non_parenthesized_CI_forms_still_leak
+    - reverse_comparator_with_left_side_drug_misbinds
+    - coordinated_endpoint_list_binds_first_value_to_last_endpoint
+  p2: 2
+  p3: 2 (stale regexes, section_tags order)
+  convergence_call: continue
+  next: iter-4 (1 left after this before force-approve cap)
+
+[2026-05-26] I-gen-005 atom_extractor diff review iter 4: REQUEST_CHANGES
+  tokens: 57942
+  fixed_to_YES: CI_non_paren, left_comparator, dose_arm, safety_atoms_protected
+  continuing_p1: coordinated_endpoint_long_phrase (30-char cap too brittle)
+  convergence_call: continue → next iter close
+
+[2026-05-26] I-gen-005 atom_extractor diff review iter 5: REQUEST_CHANGES → FORCE-APPROVE
+  tokens: 36411
+  continuing_p1: digit_in_endpoint_name_bypasses_refusal (HbA1c slice bug)
+  convergence_call: accept_remaining
+  resolution: applied trivial fix in commit 25db48ec (12 lines) + test;
+    force-APPROVE per §8.3.1 cap + §8.3.6 accept_remaining;
+    no follow-up issues required (both residuals fixed in same commit).
+  final state: 52/52 tests pass; ready for refusal/gap rendering integration
+
+[2026-05-26] I-gen-005 atom_refusal_validator diff review iter 4: APPROVE
+  tokens: 54961
+  zero p0/p1/p2; one p3 (stale comments — fixed)
+  approval_to_proceed_to_step_3: YES
+  iter4_cap_consideration: APPROVE_THIS (iter 5 not needed)
+  convergence_call: accept_remaining
+  trajectory: iter 1 P1+4P2+P3 → iter 2 novel P1+P2 → iter 3 continuing P1+novel P1 → iter 4 APPROVE
+
+[2026-05-26] I-gen-005 Step 3a multi_section prompt injection iter 1: REQUEST_CHANGES
+  tokens: 86602
+  novel_p1: atom_replaces_ev_breaks_strict_verify_pipeline
+  next: iter-2 make atom_NNN additive to [ev_XXX]
+
+[2026-05-26] I-gen-005 Step 3a multi_section prompt injection iter 2: APPROVE
+  tokens: 124021
+  zero p0/p1/p2; 3 P2s for Step 3b (separate PR)
+  approval_to_proceed_to_step_3b_pr: YES
+  Step 3b roadmap per Codex: separate PR, logging-only flag initial, 
+    pass-through catalog (not rebuild), strip atom_NNN before strict_verify

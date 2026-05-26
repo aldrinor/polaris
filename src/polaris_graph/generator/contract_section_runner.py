@@ -680,6 +680,15 @@ async def run_contract_section(
         not verified_blocks and len(all_entity_ids) > 0
     )
 
+    # I-gen-005 Step 1.5 iter-2 (Codex P1): populate final per-sentence
+    # telemetry fields so verification_details.json reflects contract
+    # sections' kept/dropped state. Rescued sentences (line 525) move
+    # from `dropped_sentences` to `kept_sentences`, so the FINAL dropped
+    # list excludes them.
+    rescued_ids = {id(sv) for sv in rescued}
+    final_dropped_svs = [
+        sv for sv in dropped_sentences if id(sv) not in rescued_ids
+    ]
     result = section_result_cls(
         title=plan.title,
         focus=plan.focus,
@@ -696,6 +705,13 @@ async def run_contract_section(
         input_tokens=total_in_tok,
         output_tokens=total_out_tok,
         error="" if kept > 0 else "no_sentences_verified",
+        # I-gen-005 Step 1.5 iter-2 (Codex P1 contract_runner:683):
+        # final kept + dropped SVs after rescue path. Rescued SVs are
+        # in kept_sentences_pre_resolve; non-rescued drops are in
+        # dropped_sentences_final. No dedup pass runs on contract
+        # sections, so dropped_sentences_dedup_redundant stays empty.
+        kept_sentences_pre_resolve=list(kept_sentences),
+        dropped_sentences_final=final_dropped_svs,
     )
     return result, payloads
 
