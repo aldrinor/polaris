@@ -1,6 +1,8 @@
-# PR #912 — 3 bugs caught by real-V4-Pro smoke
-# Codex iter-1: APPROVE
-#   bug1 splitter paren-aware: YES
-#   bug2 unicode minus both sides: YES
-#   bug3 ascii arrow: YES
+# PR #913 — Step 3i tightened V4 Pro prompt
+# Codex design verdict (pre-implementation): APPROVE
+#   wording_clarity: SUFFICIENT
+#   failure_modes_addressed: efficacy.s005 YES, safety.s000 YES, safety.s001 YES, merged-treatment-diffs YES
+#   over_omit_risk: MEDIUM → mitigated via design-context carve-out + balancing example
+#   approval_to_implement_and_pr: YES
+
 verdict: APPROVE

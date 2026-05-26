@@ -1,14 +1,15 @@
-# PR #912 — I-gen-005 Step 3h Claude architect review
+# PR #913 — Step 3i V4 Pro prompt tighten
 
-Real-V4-Pro smoke (PG_ATOM_REFUSAL_MODE=log_only) caught 3 bugs that
-unit tests + Codex theory review missed:
-1. Splitter `;` inside parens (CI bounds) — false refusals
-2. Unicode minus mismatch — false soft mismatches
-3. Smoke print U+2192 — Windows cp1252 crash
+Codex design review (this session) APPROVE'd the tightened wording with 2 P2 refinements:
+1. Design-context numbers carve-out (dose, arms, N, phase, duration)
+2. Multi-value sentence per-claim rule + balancing RIGHT narrative example
 
-All 3 fixed + regression-tested. 120/120 pass.
+Both applied in the final wording.
 
-Operator re-run after merge should show refusal_rate < 30%
-(predicted; not yet verified).
+Real-data targets:
+- efficacy.s005 (responder rates) — atom_NNN expected
+- safety.s000/s001 (per-row safety) — OMIT expected (catalog gap addressed in Step 3k)
+- merged efficacy.s001-004 (treatment differences) — OMIT expected
+- efficacy.s009 (trial design) — narrative-allowed (Step 3j handles detector)
 
-Codex iter-1: APPROVE. Ready to merge.
+Verification: 102/102 tests pass. Imports clean. Ready for merge.
