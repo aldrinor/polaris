@@ -517,6 +517,29 @@ def test_step3b_commit2_paragraph_preservation_in_validate_section():
     )
 
 
+def test_step3b_pr906_iter3_split_handles_resolved_citation_boundary():
+    """Codex PR #906 iter-3 P1 repro: resolve_provenance_to_citations
+    emits 'sentence.[1] next_sentence.[2]' with citation marker GLUED
+    to the period (no space). Sentence splitter MUST treat this as a
+    boundary; otherwise both sentences merge into one validator input
+    and a missing-atom claim can be masked by a valid atom citation
+    earlier in the merged result."""
+    text = "A.[1] B.[2]"
+    parts = split_sentences(text)
+    assert len(parts) == 2, f"expected 2 sentences from {text!r}, got {parts}"
+
+    # Real clinical pattern
+    text2 = (
+        "Tirzepatide reduced HbA1c by -2.30 (atom_003).[1] "
+        "Semaglutide reduced HbA1c by -1.86.[2]"
+    )
+    parts2 = split_sentences(text2)
+    assert len(parts2) == 2, (
+        f"resolved-citation sentences must split into separate inputs, "
+        f"got {parts2}"
+    )
+
+
 def test_step3b_commit2_sentence_index_monotonic_across_paragraphs():
     """Step 3b commit 2 (Codex iter-2 P2.4): sentence_index increments
     across paragraphs to ensure claim_id values stay unique in gaps.json."""

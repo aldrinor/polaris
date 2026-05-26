@@ -376,13 +376,20 @@ def has_ev_citation_for_factual_claim(sentence: str) -> bool:
 # Sentence splitter (decimal-aware, matches atom_extractor's logic)
 # ---------------------------------------------------------------------------
 
-# Decimal-aware sentence split. Split on [.;!?] followed by whitespace
-# (or end-of-text). Negative lookbehind for digit-period-digit prevents
-# splitting "2.30" mid-decimal. Negative lookahead for digit prevents
-# splitting before "0.95" in "(95% CI 0.58, 0.95)" (closing paren may
-# precede a value).
+# Decimal-aware sentence split. Two boundary patterns (alternation):
+#   (a) [.;!?] followed by whitespace + [A-Z\[] or end-of-text
+#       (standard prose boundary; lookbehind handles decimals via
+#        sentinel-pre-pass in split_sentences below)
+#   (b) [.;!?]\[N\] + whitespace + [A-Z\[]
+#       (resolved-citation boundary — Step 3b commit 2 follow-up iter-3
+#        per Codex PR #906 iter-3 P1). resolve_provenance_to_citations
+#        emits "<sentence>.[1] <next_sentence>.[2]" with the citation
+#        marker GLUED to the period. Pattern (a) alone misses this:
+#        "[1] sentence_two" matches but skips before "[1]". Pattern (b)
+#        explicitly consumes the [N] marker as part of the boundary so
+#        the SECOND sentence is its own validator input.
 _SENTENCE_SPLIT_RE = re.compile(
-    r"(?<=[.;!?])\s+(?=[A-Z\[]|$)"
+    r"(?<=[.;!?])(?:\[\d+\])?\s+(?=[A-Z\[]|$)"
 )
 
 
