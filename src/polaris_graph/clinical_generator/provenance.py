@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool, Source
+from src.polaris_graph.clinical_retrieval.evidence_pool import EvidencePool, Source
 
 
 # Source.source_id defaults to uuid.uuid4() (lowercase hex + dashes) but is

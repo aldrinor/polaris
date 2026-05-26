@@ -46,18 +46,18 @@ import logging
 import os
 import re
 
-from polaris_graph.clinical_generator.provenance import (
+from src.polaris_graph.clinical_generator.provenance import (
     ProvenanceToken,
     extract_tokens,
     get_span_text,
     strip_tokens,
     validate_token_against_pool,
 )
-from polaris_graph.clinical_generator.verified_report import (
+from src.polaris_graph.clinical_generator.verified_report import (
     DropReason,
     VerifiedSentence,
 )
-from polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
+from src.polaris_graph.clinical_retrieval.evidence_pool import EvidencePool
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +123,7 @@ def _decimals(text: str) -> set[str]:
 # (which lazy-imports `_get_judge` from this module) read the re-exported
 # names — a single rebind on `strict_verify` propagates to both.
 
-from polaris_graph.llm.entailment_judge import (  # noqa: E402  -- re-export
+from src.polaris_graph.llm.entailment_judge import (  # noqa: E402  -- re-export
     _DEFAULT_ENTAILMENT_MODEL,
     _ENTAILMENT_PROMPT,
     _ENTAILMENT_TIMEOUT_S,
