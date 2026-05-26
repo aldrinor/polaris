@@ -894,6 +894,59 @@ async def _call_section(
                 section.title, _allow_exc,
             )
 
+    # I-gen-005 Step 3 (atom-first architecture, Codex APPROVE_DESIGN):
+    # inject the section-filtered atom catalog into the system prompt.
+    # V4 Pro is instructed to cite atom_NNN for factual quantitative
+    # claims; the post-hoc atom_refusal_validator (called in the consumer
+    # path after this function returns) replaces sentences with refusal
+    # template if atom citations are missing/invalid.
+    #
+    # This is the PROMPT side of Codex's hybrid Approach C. The POST-HOC
+    # side runs in the caller via validate_section() after this function
+    # returns. Together they enforce the atom-citation contract.
+    try:
+        from src.polaris_graph.generator.claim_atom_extractor import (
+            build_atom_catalog,
+            filter_atoms_for_section,
+            format_atom_catalog_for_prompt,
+        )
+        _atom_catalog = build_atom_catalog(evidence_subset)
+        _section_atoms = filter_atoms_for_section(_atom_catalog, section.title)
+        if _section_atoms:
+            atom_block = format_atom_catalog_for_prompt(_section_atoms)
+            atom_instruction = (
+                "\n\nATOM-CITATION CONTRACT (post-hoc enforced):\n"
+                "For factual quantitative claims (effect size, comparator, "
+                "safety incidence, dose-response), cite the atom_NNN ID "
+                "from the ATOM CATALOG above — NOT the raw [ev_XXX] marker. "
+                "Use [ev_XXX] only for narrative transitions (mechanism, "
+                "trial design, eligibility, hedges/limitations).\n"
+                "If the catalog does NOT contain an atom that supports a "
+                "factual claim you would otherwise make, OMIT that claim. "
+                "A sentence written without a supporting atom_NNN will be "
+                "REPLACED with a refusal disclosure block by the post-hoc "
+                "validator; better to write fewer cited claims than to "
+                "have refusals replace your prose.\n"
+                "Example cited form: 'Tirzepatide 15 mg reduced HbA1c by "
+                "-2.30 percentage points versus -1.86 with semaglutide "
+                "(atom_003, atom_004) at 40 weeks.'"
+            )
+            system = system + "\n\n" + atom_block + atom_instruction
+            logger.info(
+                "[multi_section] I-gen-005 Step 3 atom catalog injected: "
+                "%d atoms for section %r",
+                len(_section_atoms), section.title,
+            )
+    except Exception as _atom_exc:
+        # Fail-soft per atom-first design: if atom extraction errors,
+        # fall through to the generator without the atom block (caller
+        # still has HARD CONTRACT + allow-list constraints).
+        logger.warning(
+            "[multi_section] I-gen-005 Step 3 atom catalog build failed "
+            "for section %r: %s — proceeding without atom block",
+            section.title, _atom_exc,
+        )
+
     # V32 M-71: inject section-local contradiction-hedging hints.
     if contradictions:
         from .contradiction_hedging import (
