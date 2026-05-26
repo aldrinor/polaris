@@ -344,6 +344,44 @@ _PROVENANCE_TOKEN_RE = re.compile(
     r"\[#ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]"
 )
 
+# I-gen-005 Step 3b commit 1 (Codex APPROVE_DESIGN iter-3): atom_NNN
+# tokens emitted by V4 Pro per the Step 3a atom-citation contract
+# (additive to [ev_XXX]) must be invisible to every internal check
+# inside verify_sentence_provenance — numeric extraction, content-
+# overlap, local-window placement, and the entailment judge.
+#
+# Without this strip, strict_verify's numeric matching treats the "003"
+# in "(atom_003)" as a number that must appear in cited spans → false
+# drop of valid atom-cited sentences. Same risk for the other internal
+# checks per Codex iter-2 P1.
+#
+# The strip applies ONLY to the verifier_text passed to internal
+# checks. SentenceVerification.sentence retains the original (with
+# atom_NNN tokens preserved) so downstream consumers (citation
+# resolver, atom_refusal_validator) see the originals.
+_VERIFIER_STRIP_ATOM_RE = re.compile(
+    r"\(?atom_\d{3,}(?:,\s*atom_\d{3,})*\)?",
+    re.IGNORECASE,
+)
+# Bare [ev_XXX] markers (pre-rewrite, defensive): these are normally
+# converted to [#ev:...] before strict_verify runs but if any survive,
+# they should not pollute verifier internal checks.
+_VERIFIER_STRIP_BARE_EV_RE = re.compile(
+    r"\[ev_\d+(?::\d+-\d+)?\]",
+    re.IGNORECASE,
+)
+
+
+def _verifier_cleaned_text(sentence: str) -> str:
+    """Strip citation artifacts (atom_NNN, [#ev:...], [ev_XXX]) for
+    verifier-internal checks. The original sentence is preserved on
+    SentenceVerification.sentence.
+    """
+    s = _PROVENANCE_TOKEN_RE.sub(" ", sentence)
+    s = _VERIFIER_STRIP_ATOM_RE.sub(" ", s)
+    s = _VERIFIER_STRIP_BARE_EV_RE.sub(" ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
 
 @dataclass
 class ProvenanceToken:
@@ -872,9 +910,15 @@ def verify_sentence_provenance(
     tokens = parse_provenance_tokens(sentence)
     failures: list[str] = []
 
-    # Strip provenance tokens for numeric matching to avoid matching
-    # the span numbers themselves (e.g., [#ev:x:12-45] has 12 and 45).
-    sentence_for_numbers = _PROVENANCE_TOKEN_RE.sub(" ", sentence).strip()
+    # I-gen-005 Step 3b commit 1: verifier_text strips ALL citation
+    # artifacts (provenance tokens + atom_NNN + bare [ev_XXX]) for ALL
+    # internal verifier checks. The original sentence is preserved
+    # on the returned SentenceVerification.sentence so downstream
+    # (atom_refusal_validator, citation resolver) see atom_NNN tokens.
+    # Per Codex Step 3b iter-2 P1: leaving atom_NNN in numeric or
+    # content-overlap or entailment inputs would falsely drop valid
+    # atom-cited sentences.
+    sentence_for_numbers = _verifier_cleaned_text(sentence)
 
     if not tokens:
         # Sentences without provenance are rejected outright.
