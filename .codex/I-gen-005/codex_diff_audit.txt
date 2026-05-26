@@ -1,8 +1,8 @@
-# PR #907 — gaps.json sidecar writer in run_honest_sweep_r3.py
-# Closes PR #906 iter-5 P2 follow-up.
-# Codex iter-1: APPROVE
-#   default_off_zero_behavior_change: YES
-#   fail_soft_correct: YES
-#   novel_p0: [], novel_p1: [], p2: []
+# PR #908 — strict_verify cleaned-text integration test
+# Codex iter-3: APPROVE
+#   data_flow_verified: YES
+#   import_chain_fix_scope_appropriate: YES
+#   pre_existing_test_failure_acknowledged: YES
+#   novel_p0/p1: [], p2: []
 
 verdict: APPROVE

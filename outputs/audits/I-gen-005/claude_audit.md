@@ -1,15 +1,15 @@
-# PR #907 — I-gen-005 Step 3c Claude architect review
+# PR #908 — I-gen-005 Step 3d Claude architect review
 
-Tiny PR (1 file, 34 lines). Closes Codex PR #906 iter-5 P2 follow-up.
+Closes Codex PR #906 iter-3 P2 explicit ask: integration test asserting
+strict_verify content-overlap + entailment receive cleaned verifier_text.
 
-Wires write_gaps_sidecar() as production caller in run_honest_sweep_r3.py
-after report.md + bibliography.json write. Collects SectionValidationResult
-from multi.sections (populated by PR #906 orchestrator hook when
-PG_ATOM_REFUSAL_MODE != "off"). Fail-soft: write failure logs + continues.
+iter-1: source-inspection test — Codex REQUEST_CHANGES (not data-flow linked)
+iter-2: real runtime mock + import-chain fix (2 files, 5 lines)
+iter-3: Codex APPROVE — data_flow_verified: YES
 
-Default behavior unchanged: PG_ATOM_REFUSAL_MODE=off → no validation
-results → no gaps.json. Zero impact on existing runs.
+Bonus: import chain fix unblocked 3 of 4 previously-broken
+test_provenance_generator tests. 1 remaining failure flagged as
+separate pre-existing test-vs-impl drift on
+test_verify_sentence_fails_when_span_missing_number.
 
-Tests: 99/99 pass. Sweep syntax check OK.
-
-Codex umbrella iter-1: APPROVE, approval_to_merge: YES. Ready to merge.
+Ready for merge.
