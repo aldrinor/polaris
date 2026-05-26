@@ -1150,7 +1150,13 @@ def verify_sentence_provenance(
 
             mode = _entailment_mode()
             if mode in ("warn", "enforce"):
-                sentence_clean = _PROVENANCE_TOKEN_RE.sub("", sentence).strip()
+                # Step 3b commit 1 fix (Codex PR #906 iter-1 P1): use
+                # _verifier_cleaned_text so atom_NNN (Step 3a additive
+                # contract) is invisible to the entailment judge. Prior
+                # bare _PROVENANCE_TOKEN_RE.sub left atom_NNN tokens in
+                # the judged sentence text — judge sees noise + may
+                # false-NEUTRAL/CONTRADICTED valid atom-cited claims.
+                sentence_clean = _verifier_cleaned_text(sentence)
                 combined_span = " ".join(aggregated_span_text)
                 verdict, reason = _get_judge().judge(
                     sentence_clean, combined_span,
@@ -1523,8 +1529,10 @@ def resolve_provenance_to_citations(
         # Strip provenance tokens first so degenerate fragments can be
         # detected before we assign citation numbers (otherwise the
         # bibliography keeps an entry whose only citing sentence we
-        # later drop).
-        stripped = _PROVENANCE_TOKEN_RE.sub("", sv.sentence).strip()
+        # later drop). Step 3b commit 1 follow-up (Codex PR #906
+        # iter-1 P1): use _verifier_cleaned_text so atom_NNN does not
+        # falsely add "atom" to the content-word count.
+        stripped = _verifier_cleaned_text(sv.sentence)
         # Clean trailing spaces before punctuation
         stripped = re.sub(r"\s+([.!?,;])", r"\1", stripped)
         # BUG-M-8 (Codex pass 9): drop degenerate sentence fragments
