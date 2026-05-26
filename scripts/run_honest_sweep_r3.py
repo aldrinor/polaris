@@ -2710,6 +2710,11 @@ async def run_one_query(
         # smoke-review verdict 2026-05-26 — "do not reconstruct final
         # verification details by re-running bare strict_verify on
         # rewritten drafts."
+        #
+        # NOTE: ev_pool dict is still constructed here because downstream
+        # code (line ~2815 evidence_pool.json writeback) consumes it.
+        # The strict_verify re-run was the only thing that needed to go.
+        ev_pool = {ev["evidence_id"]: ev for ev in evidence_for_gen}
         verif_details = {
             "sections": [],
             "totals": {
