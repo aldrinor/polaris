@@ -165,16 +165,22 @@ def test_trial_design_sentence_does_not_require_atom():
     assert not requires
 
 
-def test_eligibility_sentence_does_not_require_atom():
-    """Codex iter-1 P2 fix: eligibility-range framing overrides Trigger A.
-    'Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0'
-    is design/eligibility — NOT an outcome claim."""
+def test_eligibility_sentence_requires_atom_safe_default():
+    """Iter-4 decision (Codex iter-3 continuing-P1): eligibility override
+    REMOVED. Quantitative claims with eligibility framing now require
+    atom citation as the SAFE default. V4 Pro will refuse with the
+    refusal template if no supporting atom — preferable to masking a
+    real outcome claim that happens to mention baseline characteristics.
+
+    Trade-off per CLAUDE.md §-1.1: false negative (over-refuse benign
+    eligibility) is recoverable; false positive (mask real outcome) is
+    lethal in clinical context."""
     requires, _ = requires_atom_citation(
         "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0."
     )
-    assert not requires, (
-        "Eligibility-range sentence should be allowed without atom citation "
-        "(iter-2 fix for Codex iter-1 P2)."
+    assert requires, (
+        "After iter-4 eligibility-override removal, this sentence requires "
+        "atom citation. V4 Pro emits refusal block; slightly awkward but safe."
     )
 
 
@@ -519,13 +525,14 @@ def test_iter2_p1_qualitative_greater_reduction_than_requires_atom():
     assert trigger == "trigger_qualitative_comparative"
 
 
-def test_iter2_p2_eligibility_range_allowed():
-    """Codex iter-1 P2: eligibility ranges should be allowed even with
-    endpoint+number combo."""
+def test_iter2_p2_eligibility_range_now_requires_atom_safe_default():
+    """Superseded by iter-4 (Codex iter-3 continuing-P1): eligibility
+    override removed. Quantitative + endpoint sentences require atom
+    citation regardless of eligibility framing — safer default."""
     requires, _ = requires_atom_citation(
         "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0."
     )
-    assert not requires
+    assert requires
 
 
 def test_iter2_p2_soft_value_word_boundary_match():
@@ -583,13 +590,14 @@ def test_iter3_p2_comparator_arm_does_not_match_generic_words():
     )
 
 
-def test_iter3_eligibility_pure_still_allowed():
-    """Regression check: pure eligibility framing without outcome verbs
-    still passes through (no over-correction in iter-3)."""
+def test_iter3_eligibility_now_requires_atom_post_override_removal():
+    """Iter-4 update: eligibility override removed entirely (Codex
+    iter-3 continuing-P1). Pure eligibility sentences with endpoint+
+    number now also require atom (safe default)."""
     requires, _ = requires_atom_citation(
         "Inclusion criteria required HbA1c between 7.0 and 10.0."
     )
-    assert not requires
+    assert requires
 
 
 def test_iter3_qualitative_drug_arm_still_requires_atom():
@@ -599,6 +607,29 @@ def test_iter3_qualitative_drug_arm_still_requires_atom():
         "Tirzepatide showed greater reduction than semaglutide."
     )
     assert requires
+
+
+def test_iter4_codex_repro_outcome_with_criteria_still_required():
+    """Codex iter-3 continuing-P1 repro: 'Patients meeting inclusion
+    criteria had HbA1c of 6.8% at 40 weeks.' must require atom."""
+    requires, _ = requires_atom_citation(
+        "Patients meeting inclusion criteria had HbA1c of 6.8% at 40 weeks."
+    )
+    assert requires, (
+        "Outcome claim with criteria-frame must require atom citation"
+    )
+
+
+def test_iter4_comparator_arm_uses_full_drug_regex():
+    """Codex iter-3 novel-P1: 'Tirzepatide showed greater reduction
+    than exenatide.' was failing because exenatide wasn't in iter-3's
+    hardcoded comparator list. iter-4 imports _DRUG_RE from
+    atom_extractor so any drug it knows about is auto-included."""
+    requires, trigger = requires_atom_citation(
+        "Tirzepatide showed greater reduction than exenatide."
+    )
+    assert requires
+    assert trigger == "trigger_qualitative_comparative"
 
 
 def test_iter2_p2_refused_record_includes_detected_values():

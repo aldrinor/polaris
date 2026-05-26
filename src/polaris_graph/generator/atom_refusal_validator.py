@@ -141,26 +141,26 @@ _QUAL_COMPARATIVE_RE = re.compile(
 )
 
 # Comparator/arm language that — combined with a comparative phrase —
-# signals a factual comparative claim even without a specific endpoint
-# vocab term. Iter-3 fix (Codex iter-2 P2): tightened from `\w{3,}` to
-# specific treatment-arm terms only. "than enough", "than expected",
-# "than usual" no longer match.
-_COMPARATIVE_ARM_RE = re.compile(
-    r"\b(?:than|versus|vs\.?|compared\s+(?:to|with))\s+"
-    r"(?:"
-    r"placebo|control(?:s|\s+arm)?|standard\s+care|usual\s+care|"
-    r"active\s+comparator|background\s+therapy|sham|"
-    # Drug-class terms
-    r"glp[-\s]?1|sglt2|dpp[-\s]?4|insulin|metformin|sulfonylurea|"
-    # Common comparator drug names (subset of atom_extractor's _DRUG_RE)
-    r"semaglutide|tirzepatide|dulaglutide|liraglutide|"
-    r"empagliflozin|dapagliflozin|canagliflozin|ertugliflozin|"
-    r"sitagliptin|linagliptin|saxagliptin|alogliptin|"
-    r"warfarin|apixaban|rivaroxaban|dabigatran|edoxaban|"
-    r"rosuvastatin|atorvastatin|simvastatin"
-    r")\b",
-    re.IGNORECASE,
-)
+# signals a factual comparative claim. Iter-4 fix (Codex iter-3 novel-P1):
+# build comparator-arm regex from claim_atom_extractor._DRUG_RE so any
+# drug name known to the atom extractor is also recognized here.
+# Avoids drift between extractor's vocab and validator's vocab.
+def _build_comparative_arm_re() -> re.Pattern:
+    from src.polaris_graph.generator.claim_atom_extractor import _DRUG_RE
+    drug_alt = _DRUG_RE.pattern.removeprefix(r"\b(").removesuffix(r")\b")
+    pattern = (
+        r"\b(?:than|versus|vs\.?|compared\s+(?:to|with))\s+"
+        r"(?:"
+        r"placebo|control(?:s|\s+arm)?|standard\s+care|usual\s+care|"
+        r"active\s+comparator|background\s+therapy|sham|"
+        r"glp[-\s]?1|sglt2|dpp[-\s]?4|insulin|metformin|sulfonylurea|"
+        + drug_alt
+        + r")\b"
+    )
+    return re.compile(pattern, re.IGNORECASE)
+
+
+_COMPARATIVE_ARM_RE = _build_comparative_arm_re()
 
 # Numbers to EXCLUDE from Trigger B when they appear with admin/design context
 _ADMIN_NUMBER_RE = re.compile(
@@ -263,20 +263,25 @@ def requires_atom_citation(sentence: str) -> tuple[bool, Optional[str]]:
     has_comparator_arm = bool(_COMPARATIVE_ARM_RE.search(s))
     has_outcome_number = bool(numbers) and has_endpoint
 
-    # Iter-2/3 fix (Codex iter-2 novel-P1): eligibility-range override
-    # ONLY fires when the sentence is PURE eligibility framing:
-    #   - has eligibility keyword
-    #   - no qualitative comparative
-    #   - no outcome-verb-with-number ("reductions of 2.3", "decreased
-    #     by 0.5", etc.)
-    # This prevents masking real outcome claims that happen to mention
-    # baseline characteristics.
-    if (
-        _ELIGIBILITY_RANGE_RE.search(s)
-        and not has_qual_comparative
-        and not _OUTCOME_VERB_WITH_NUMBER_RE.search(s)
-    ):
-        return False, None
+    # Iter-4 decision (Codex iter-3 continuing-P1): the eligibility
+    # override was removed. Two iterations of regex tightening (iter-2,
+    # iter-3) still couldn't reliably distinguish:
+    #   - "Patients meeting inclusion criteria had HbA1c of 6.8%"  (outcome — must require)
+    #   - "Eligible adults had baseline HbA1c between 7.0 and 10.0" (eligibility — should allow)
+    # Codex correctly observed that pure-regex disambiguation is
+    # fundamentally fragile here.
+    #
+    # SAFE DEFAULT: any quantitative claim requires atom citation. If
+    # V4 Pro cannot find a supporting atom (because the sentence is
+    # actually just eligibility framing), V4 Pro emits a refusal block.
+    # The refusal reads slightly awkwardly for benign eligibility
+    # sentences ("Insufficient evidence about HbA1c..."), but this is
+    # SAFER than masking real outcome claims that happen to share
+    # eligibility-frame keywords.
+    #
+    # Trade-off accepted per clinical-safety principle (CLAUDE.md §-1.1):
+    # false negative (over-refuse benign eligibility) is recoverable;
+    # false positive (mask real outcome) is lethal.
 
     # Pure narrative categories — never require atom citation UNLESS
     # there's also an outcome-number combo or qualitative comparative.
