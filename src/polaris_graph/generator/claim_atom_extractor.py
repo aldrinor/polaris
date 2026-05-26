@@ -681,10 +681,27 @@ def _find_endpoint(
     )
     if left_cands:
         closest = left_cands[-1]
+        # Iter-5+ fix (Codex iter-5 continuing-P1): the previous
+        # `between = text[c[0]:closest[0]]` included the CLOSEST
+        # endpoint token itself in the slice. Endpoint names with
+        # digits (HbA1c, T2DM) satisfied the digit-separator guard
+        # and bypassed the refusal. Find the closest-endpoint START
+        # position via its pattern match, then slice up to that
+        # start position (excluding the endpoint token).
+        closest_start = closest[0]
+        for pat, canonical, _, _ in _ENDPOINT_VOCAB:
+            if canonical != closest[1]:
+                continue
+            for em in pat.finditer(text):
+                if em.end() == closest[0]:
+                    closest_start = em.start()
+                    break
+            if closest_start != closest[0]:
+                break
         for c in left_cands[:-1]:
             if c[1] == closest[1]:
                 continue  # same canonical = not ambiguous
-            between = text[c[0]:closest[0]]
+            between = text[c[0]:closest_start]
             # Different clause? Skip.
             if re.search(r"[.;](?=\s|$)", between):
                 continue

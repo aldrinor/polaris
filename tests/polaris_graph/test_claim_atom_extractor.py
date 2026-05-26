@@ -820,9 +820,44 @@ def test_iter5_p1_coordinated_long_endpoint_phrase_skipped():
         f"20% must not bind to HF hospitalization (it's the all-cause "
         f"mortality value). Got: {[(a.value, a.endpoint) for a in atoms]}"
     )
-    # 30% should also not be emitted (both ambiguous in coord list)
-    bad30 = [a for a in atoms if a.value == "30" and "mortality" not in a.endpoint.lower()]
-    # Either skipped, or unambiguously routed — accept either.
+    # 30% should also not be emitted as all-cause mortality (its
+    # actual binding under "respectively" semantics). Either skipped
+    # (refused due to ambiguity) OR not bound to mortality.
+    bad30_to_mortality = [
+        a for a in atoms
+        if a.value == "30" and "mortality" in a.endpoint.lower()
+    ]
+    assert len(bad30_to_mortality) == 0, (
+        f"30% should not bind to all-cause mortality (it's actually the "
+        f"HF hospitalization value per 'respectively'). Got: "
+        f"{[(a.value, a.endpoint) for a in atoms]}"
+    )
+
+
+def test_iter5_postcap_p1_digit_in_endpoint_name_not_bypass_refusal():
+    """Codex iter-5 continuing-P1 (force-APPROVE'd at cap then fixed):
+    `Body weight and HbA1c reductions were -11.2 kg and -2.30
+    percentage points, respectively.` — was emitting -11.2 kg with
+    endpoint=HbA1c (false atom) because the digit in 'HbA1c' satisfied
+    the digit-separator guard in the iter-5 ambiguity check.
+    Post-cap fix: slice EXCLUDES the closest endpoint token."""
+    ev = {
+        "evidence_id": "ev_digit_endpoint",
+        "tier": "T1",
+        "direct_quote": (
+            "Body weight and HbA1c reductions were -11.2 kg and -2.30 "
+            "percentage points, respectively."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    bad = [
+        a for a in atoms
+        if a.value == "-11.2" and a.endpoint == "HbA1c"
+    ]
+    assert len(bad) == 0, (
+        f"-11.2 kg must NOT bind to HbA1c (false atom; HbA1c has 'A1c' "
+        f"digit which was bypassing refusal). Got: {[(a.value, a.endpoint) for a in atoms]}"
+    )
 
 
 def test_iter5_p2_endpoint_restated_after_clause_break_not_over_refused():
