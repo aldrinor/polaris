@@ -727,3 +727,69 @@ def test_iter2_p2_refused_record_includes_detected_values():
     assert "-2.30" in record.detected_values, (
         f"Refused record must preserve detected_values. Got: {record.detected_values}"
     )
+
+
+def test_step3h_splitter_does_not_break_on_semicolon_inside_parens():
+    """Step 3h fix (real-V4-Pro smoke PR #911 data): V4 Pro emits
+    long sentences with `;` INSIDE parentheses (CI bounds, p-values).
+    Pre-fix splitter broke into 3+ fragments → false refusals."""
+    text = (
+        "The treatment differences were -0.15 percentage points "
+        "(95% CI, -0.28 to -0.03; P=0.02) for the 5 mg dose, "
+        "-0.39 percentage points (95% CI, -0.51 to -0.26; P<0.001) "
+        "for the 10 mg dose. Next sentence."
+    )
+    parts = split_sentences(text)
+    assert len(parts) == 2, (
+        f"Should split into 2 sentences (clinical claim + 'Next sentence.'), "
+        f"got {len(parts)}: {parts}"
+    )
+
+
+def test_step3h_splitter_keeps_balanced_brackets_outside_parens():
+    """Regression: [N] biblio markers (balanced) STILL boundary correctly
+    when sentence ends with .[N] (not inside parens)."""
+    parts = split_sentences("A.[1] B.[2]")
+    assert parts == ["A.[1]", "B.[2]"]
+
+
+def test_step3h_soft_layer_handles_unicode_minus():
+    """Step 3h fix (real-V4-Pro smoke PR #911 data): V4 Pro emits
+    U+2212 (MINUS SIGN, "−") for negative clinical values; atom values
+    use U+002D (HYPHEN-MINUS, "-"). Without normalization on BOTH sides,
+    every clinical negative was a false SOFT_MISMATCH. Real smoke
+    showed 4/4 soft_mismatches were this artifact."""
+    catalog = {
+        "atom_001": ClaimAtom(
+            atom_id="atom_001",
+            evidence_id="ev_001",
+            span_start=0,
+            span_end=10,
+            literal_text="placeholder",
+            entity="tirzepatide",
+            endpoint="HbA1c",
+            comparator="",
+            timepoint="",
+            value="-2.30",  # stored with ASCII hyphen-minus
+            unit="percentage points",
+            primary_section="Efficacy",
+            section_tags=("Efficacy",),
+            tier="T1",
+            value_signed=True,
+            confidence="high",
+            provenance_class="open_access",
+            source_paper_title="t",
+        ),
+    }
+    # Sentence with U+2212 minus (real V4 Pro output)
+    record = validate_sentence(
+        "Tirzepatide reduced HbA1c by −2.30 percentage points (atom_001).",
+        sentence_index=0,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=catalog,
+    )
+    assert record.action == RefusalAction.ALLOWED, (
+        f"U+2212 minus should normalize to ASCII for comparison; "
+        f"got action={record.action} reason={record.reason} notes={record.notes}"
+    )

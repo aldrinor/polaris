@@ -1,4 +1,4 @@
-# I-gen-005 PR #911 — update verify-test for Step 1 local_support_window
+# I-gen-005 PR #912 — 3 real-V4-Pro-smoke-found validator bugs
 
 ## §8.3.1 cap
 
@@ -6,25 +6,27 @@
 HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 ```
 
-## Scope (1 file, ~50 lines)
+## Scope (3 fixes + 3 regression tests)
 
-Replaces pre-existing test_verify_sentence_fails_when_span_missing_number (broken since Step 1 PR #905 added local_support_window) with two tests reflecting actual behavior + safety floor per §-1.1.
+PR #910 smoke (PG_ATOM_REFUSAL_MODE=log_only) produced real-V4-Pro gaps.json with 61.5% refusal_rate. Analysis: bugs not compliance.
 
-- test_verify_passes_when_number_in_local_support_window — narrow cite + data-in-broader-evidence rescued via local_support_window
-- test_verify_sentence_fails_when_number_not_in_evidence_at_all — number ABSENT from evidence still fails with "number_not_in" reason (the actual safety floor)
+1. Splitter `;` inside parens (efficacy.s001-s003 in real gaps.json)
+2. Unicode minus mismatch (4/4 SOFT_MISMATCHES were this)
+3. Smoke print U+2192 crash on Windows cp1252
 
-14/14 test_provenance_generator pass.
+120/120 tests pass.
 
-## Canonical hash
-
-SHA256: `19a9602903c0f989661f211fefbaafd065fe541a6ca2670037febaee30fe7bd0`
+Canonical hash: `017b788bb52c3415e7e8ee3aec1be6031175705e4fd998bd9df10fb45dc630fa`
 
 ## Output
 
 ```yaml
 verdict: APPROVE | REQUEST_CHANGES
-test_pair_correctly_captures_intent: YES | NO
-safety_floor_test_correct: YES | NO
+bug1_splitter_paren_aware_correct: YES | NO
+bug2_unicode_minus_both_sides_correct: YES | NO
+bug3_ascii_arrow_correct: YES | NO
+novel_p0: []
+novel_p1: []
 approval_to_merge: YES | NO
 ```
 
