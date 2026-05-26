@@ -1,12 +1,3 @@
-# PR #906 — I-gen-005 Step 3b post-hoc atom validator pipeline
-#
-# canonical-diff-sha256: 8fbbecf9409238bf2de2adfbe4cf6221bae9fb42c6885ede305d6cbf893b5768
-#
-# Codex umbrella review trail:
-#   iter 1: REQUEST_CHANGES (entailment + content-word P1) → fixed
-#   iter 2: REQUEST_CHANGES (over-stripped rendered text P1) → fixed
-#   iter 3: REQUEST_CHANGES (splitter missed .[N] glued boundary) → fixed
-#   iter 4: REQUEST_CHANGES (split consumed [N] marker) → fixed
-#   iter 5: APPROVE — approval_to_merge: YES
-#
-# 99/99 tests pass at HEAD. PG_ATOM_REFUSAL_MODE defaults to "off".
+# PR #907 — I-gen-005 Step 3c gaps.json sidecar writer
+# canonical-diff-sha256: b7ff37cc21d1fe0f7b0d1be197f791e3770a31a0b2081900af752c9360945f60
+# Codex umbrella iter-1: APPROVE
