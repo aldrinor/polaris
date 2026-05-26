@@ -667,6 +667,137 @@ def test_iter3_p2_dose_unit_does_not_preempt_lab_unit():
     )
 
 
+def test_iter4_p1_ci_non_parenthesized_comma_form_caught():
+    """Codex iter-3 continuing-P1: non-parenthesized CI forms still leak.
+    `HR 0.74, 95% CI 0.58, 0.95` must NOT emit 0.58/0.95 as outcomes."""
+    ev = {
+        "evidence_id": "ev_ci_unparen_comma",
+        "tier": "T1",
+        "direct_quote": (
+            "empagliflozin reduced MACE with HR 0.74, 95% CI 0.58, 0.95 "
+            "after 3 years."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    values = {a.value for a in atoms}
+    assert "0.58" not in values, f"Non-parenthesized CI lower-bound leaked: {values}"
+    assert "0.95" not in values, f"Non-parenthesized CI upper-bound leaked: {values}"
+
+
+def test_iter4_p1_ci_non_parenthesized_dash_range_caught():
+    """Codex iter-3 continuing-P1: non-parenthesized compact dash range.
+    `HR 0.74, 95% CI 0.58-0.95` must NOT emit `0.58-0.95` or split bounds."""
+    ev = {
+        "evidence_id": "ev_ci_unparen_dash",
+        "tier": "T1",
+        "direct_quote": (
+            "dapagliflozin reduced HF hospitalization with HR 0.74, 95% CI "
+            "0.58-0.95 in the trial."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    values = {a.value for a in atoms}
+    # Neither the range nor split bounds should be outcome values
+    assert not any("0.58" in v for v in values), f"CI bound leaked: {values}"
+    assert not any("0.95" in v for v in values), f"CI bound leaked: {values}"
+
+
+def test_iter4_p1_left_side_comparator_arm_entity_binding():
+    """Codex iter-3 continuing-P1: comparator-arm drug LEFT of value.
+    `tirzepatide reduced HbA1c by -2.30 ... versus semaglutide, which
+    reduced HbA1c by -1.86` — -1.86 must bind to semaglutide (closest
+    drug on left), not tirzepatide (first drug in sentence)."""
+    ev = {
+        "evidence_id": "ev_left_comparator",
+        "tier": "T1",
+        "direct_quote": (
+            "In SURPASS-2, tirzepatide reduced HbA1c by -2.30 percentage "
+            "points versus semaglutide, which reduced HbA1c by -1.86 "
+            "percentage points."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    sema_atom = [a for a in atoms if a.value == "-1.86"]
+    assert len(sema_atom) == 1, f"expected 1 atom for -1.86, got {len(sema_atom)}"
+    a = sema_atom[0]
+    assert "semaglutide" in (a.entity or "").lower(), (
+        f"-1.86 must bind to semaglutide (closest left drug), got "
+        f"entity={a.entity!r}. This was a P1 false attribution: emitting "
+        f"comparator=semaglutide entity=tirzepatide makes a wrong comparative claim."
+    )
+
+
+def test_iter4_p1_coordinated_endpoint_list_skipped_when_ambiguous():
+    """Codex iter-3 continuing-P1: `HbA1c and body weight reductions
+    were -2.30 percentage points and -11.2 kg` — both endpoints + both
+    values in coordinate lists. Binding by closest-left picks WRONG.
+    Acceptable behavior: skip atoms rather than emit false bindings."""
+    ev = {
+        "evidence_id": "ev_coord_endpoints",
+        "tier": "T1",
+        "direct_quote": (
+            "In SURPASS-3, HbA1c and body weight reductions were "
+            "-2.30 percentage points and -11.2 kg at 52 weeks."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    # -2.30 must NOT be emitted as endpoint=body_weight (would be a FALSE
+    # claim). Either skip the atom entirely, OR (less safe) emit it
+    # bound to HbA1c. The iter-4 fix prefers skip on ambiguity.
+    bad_atoms = [
+        a for a in atoms
+        if a.value == "-2.30"
+        and "weight" in a.endpoint.lower()
+    ]
+    assert len(bad_atoms) == 0, (
+        f"-2.30 percentage points was bound to body weight (false claim). "
+        f"On ambiguous coordinated endpoint lists, atoms must be skipped."
+    )
+
+
+def test_iter4_p2_dose_arm_alone_routes_to_dose_response():
+    """Codex iter-3 P2: dose-arm WITHOUT comparator should still primary
+    to Dose Response. Single-arm dose study atoms must not be excluded
+    from the Dose Response section."""
+    ev = {
+        "evidence_id": "ev_single_arm_dose",
+        "tier": "T1",
+        "direct_quote": (
+            "In the open-label phase 2 study, tirzepatide 15 mg reduced "
+            "HbA1c by -2.20 percentage points at 26 weeks."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    a = [a for a in atoms if a.value == "-2.20"]
+    assert len(a) == 1
+    assert a[0].primary_section == "Dose Response", (
+        f"dose-arm-only HbA1c atom should primary to Dose Response, "
+        f"got {a[0].primary_section!r}"
+    )
+
+
+def test_iter4_p2_comparator_does_not_move_safety_atoms():
+    """Codex iter-3 P2: comparator should not automatically move
+    safety/mechanism atoms OUT of Safety/Mechanism. Only Efficacy /
+    Comparative Effectiveness primary atoms can be re-routed by
+    comparator presence."""
+    ev = {
+        "evidence_id": "ev_safety_comparator",
+        "tier": "T1",
+        "direct_quote": (
+            "Adverse events occurred in 45% of tirzepatide patients "
+            "versus 38% of semaglutide patients."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(ev)
+    ae = [a for a in atoms if a.endpoint == "adverse events"]
+    for a in ae:
+        assert a.primary_section == "Safety", (
+            f"AE atom with comparator must stay in Safety (vocab primary), "
+            f"got {a.primary_section!r}"
+        )
+
+
 def test_iter3_p2_filter_by_primary_section_excludes_secondary_tags():
     """Codex iter-2 P2 (primary_section_not_enforced):
     filter_atoms_for_section now returns atoms whose PRIMARY section

@@ -482,6 +482,38 @@ def _is_inside_ci_parens(direct_quote: str, num_start: int) -> bool:
     return False
 
 
+def _is_ci_bound_unparen(direct_quote: str, num_start: int) -> bool:
+    """Iter-4 helper (Codex iter-3 continuing-P1): catch non-parenthesized
+    CI forms: "HR 0.74, 95% CI 0.58, 0.95" or "HR 0.74, 95% CI 0.58-0.95".
+
+    The most recent "CI" mention within 60 chars LEFT of the number,
+    with no sentence terminator between, where this number is the 1st
+    or 2nd number after CI (first bound or second bound). Confidence-
+    interval spelled-out form is also supported.
+    """
+    left_60 = direct_quote[max(0, num_start - 60):num_start]
+    # Find most recent CI mention (last finditer match)
+    ci_pos = -1
+    for m in re.finditer(
+        r'\b(?:CI|confidence\s+interval)\b',
+        left_60,
+        re.IGNORECASE,
+    ):
+        ci_pos = m.end()
+    if ci_pos == -1:
+        return False
+    between = left_60[ci_pos:]
+    # Sentence boundary between CI and number → not a CI bound
+    if re.search(r'[.;!?](?=\s|$)(?!\d)', between):
+        return False
+    # Newline between CI and number → different context
+    if "\n" in between:
+        return False
+    # Count digits between — at most 1 prior number (this is bound 1 or 2)
+    nums_before = len(re.findall(r'[-−]?\d+(?:\.\d+)?', between))
+    return nums_before <= 1
+
+
 def _classify_number(
     direct_quote: str,
     match: re.Match,
@@ -514,6 +546,12 @@ def _classify_number(
     #   (95% CI 0.58-0.95)       — compact dash range (matched as ONE token)
     #   (CI 0.58 to 0.95)        — bare "CI"
     if _is_inside_ci_parens(direct_quote, num_start):
+        return NumberRole.CI_BOUND, ""
+    # Iter-4 fix (Codex iter-3 continuing-P1): non-parenthesized CI.
+    # "HR 0.74, 95% CI 0.58, 0.95" or "HR 0.74, 95% CI 0.58-0.95" still
+    # passed iter-3 because no enclosing paren. The helper checks recent
+    # CI mention within 60 chars + ≤1 prior number + no sentence boundary.
+    if _is_ci_bound_unparen(direct_quote, num_start):
         return NumberRole.CI_BOUND, ""
     # Paren-only range without "CI" word: "(0.58 to 0.95)" — second bound
     # via left context ending with "(<digit> to ". CI-bearing-parens already
@@ -631,11 +669,37 @@ def _find_endpoint(
     if not candidates:
         return "", "", ()
 
-    # Prefer the closest endpoint to the LEFT of num_offset.
-    # If none on left, take the closest on right.
+    # Iter-4 fix (Codex iter-3 continuing-P1): coordinated endpoint list
+    # ambiguity. Pattern: "HbA1c and body weight reductions were -2.30
+    # percentage points and -11.2 kg" — both endpoints sit LEFT of both
+    # values, separated by `and`/`,`. Closest-left for -2.30 picks the
+    # LAST endpoint mentioned ("body weight"), which is WRONG.
+    #
+    # Heuristic: if two or more distinct endpoint canonicals appear on
+    # the left with NO value between them, the binding is AMBIGUOUS →
+    # skip the atom (refusal is safer than a false binding).
     left_cands = [c for c in candidates if c[0] <= num_offset]
     if left_cands:
-        # Closest on left = max end-position
+        # Dedupe by canonical name; check for multiple distinct endpoints
+        # in the left region with no value between them.
+        left_canonicals_sorted = sorted(left_cands, key=lambda c: c[0])
+        distinct_canonicals = []
+        for c in left_canonicals_sorted:
+            if c[1] not in [d[1] for d in distinct_canonicals]:
+                distinct_canonicals.append(c)
+        if len(distinct_canonicals) >= 2:
+            # Check region between the two most recent distinct endpoints
+            second_to_last = distinct_canonicals[-2]
+            last = distinct_canonicals[-1]
+            between = text[second_to_last[0]:last[0]]
+            # If region between is short (under 30 chars) AND contains
+            # a coordinate connector (`and`, `,`, `or`), AND no value
+            # between, ambiguous → skip.
+            has_value_between = bool(re.search(r"[-−]?\d+(?:\.\d+)?", between))
+            has_coord = bool(re.search(r"\b(?:and|or)\b|,", between))
+            if len(between) < 30 and has_coord and not has_value_between:
+                return "", "", ()  # AMBIGUOUS, refuse rather than emit false atom
+        # Closest on left = max end-position (normal case)
         _, canonical, primary, tags = max(left_cands, key=lambda c: c[0])
         return canonical, primary, tags
     # Fall through to closest on right
@@ -664,9 +728,12 @@ def _find_arm_local_entity(
 
     # Combined regex: arm is either FULL_FORM (DRUG optionally + DOSE)
     # or SHORT_FORM (DOSE alone). Take the FIRST match — closest wins.
+    # Iter-4 fix: also match "of <DRUG> patients/subjects" — clinical
+    # safety pattern "in 45% of tirzepatide patients ... 38% of
+    # semaglutide patients" where each value is followed by its arm.
     drug_alt = _DRUG_RE.pattern.removeprefix(r"\b(").removesuffix(r")\b")
     arm_re = re.compile(
-        r"\b(?:with|in|for|on)\s+"
+        r"\b(?:with|in|for|on|of)\s+"
         r"(?P<arm>"
         # FULL form: drug name with optional dose
         + r"(?:" + drug_alt + r")"
@@ -862,18 +929,23 @@ def _compute_primary_section(
     has_comparator: bool,
     has_dose_arm: bool,
 ) -> str:
-    """Iter-3 fix (Codex iter-2 P2): primary_section must be DYNAMIC per
-    comparator + dose-arm presence, not the static vocab default.
+    """Iter-4 fix (Codex iter-3 P2 ranking):
 
-    Dose-arm + comparator → "Dose Response" (most specific placement)
-    Comparator only       → "Comparative Effectiveness"
-    Otherwise             → vocab primary (e.g. HbA1c → "Efficacy")
+    Hierarchy (iter-4):
+      1. has_dose_arm → "Dose Response" (always, regardless of comparator)
+      2. has_comparator AND vocab_primary in {"Efficacy",
+         "Comparative Effectiveness"} → "Comparative Effectiveness"
+      3. otherwise → vocab_primary
 
-    Prevents the same HbA1c dose-arm atom landing in 3 different sections.
+    Per Codex iter-3: dose-arm WITHOUT comparator should still primary
+    to Dose Response (dose-arm IS the dose-response signal). Comparator
+    should NOT automatically move Safety/Mechanism atoms out of their
+    vocab primary section — only Efficacy/Comparative atoms get
+    re-routed.
     """
-    if has_dose_arm and has_comparator:
+    if has_dose_arm:
         return "Dose Response"
-    if has_comparator:
+    if has_comparator and vocab_primary in ("Efficacy", "Comparative Effectiveness"):
         return "Comparative Effectiveness"
     return vocab_primary
 
@@ -947,9 +1019,30 @@ def extract_atoms_from_evidence(
         # P1 #3 fix: arm-local entity binding.
         entity = _find_arm_local_entity(direct_quote, m)
         if not entity:
-            drug_m = _DRUG_RE.search(literal_text)
-            if drug_m:
-                entity = drug_m.group(0).strip()
+            # Iter-4 fix (Codex iter-3 continuing-P1): pick CLOSEST drug
+            # to the value (preferring left side), not first drug in
+            # literal_text. Handles "semaglutide, which reduced HbA1c
+            # by -1.86" where the comparator-arm drug is left of value.
+            #
+            # Also iter-4 dose-arm fix: capture "<DRUG> N mg" as a single
+            # entity so has_dose_arm=True. Critical for single-arm dose
+            # studies where the dose is on the LEFT not right of value.
+            num_offset_in_literal = m.start() - span_start
+            drug_with_dose_re = re.compile(
+                rf"({_DRUG_RE.pattern.removeprefix(chr(92) + 'b(').removesuffix(')' + chr(92) + 'b')})"
+                r"(?:\s+\d+(?:\.\d+)?\s*(?:mg|μg|mcg|U|IU))?",
+                re.IGNORECASE,
+            )
+            drug_candidates = list(drug_with_dose_re.finditer(literal_text))
+            left_drugs = [d for d in drug_candidates if d.end() <= num_offset_in_literal]
+            if left_drugs:
+                # Closest on left = max end-position
+                closest = max(left_drugs, key=lambda d: d.end())
+                entity = closest.group(0).strip()
+            elif drug_candidates:
+                # No drug on left → take closest on right
+                closest = min(drug_candidates, key=lambda d: d.start())
+                entity = closest.group(0).strip()
             else:
                 trial_m = _TRIAL_RE.search(literal_text)
                 if trial_m:
@@ -973,16 +1066,18 @@ def extract_atoms_from_evidence(
             has_timepoint=bool(timepoint),
         )
 
-        section_tags = _compute_section_tags(
-            primary_section, secondary_tags,
-            has_comparator=bool(comparator),
-            has_dose_arm=has_dose_arm,
-        )
         # Iter-3 fix (Codex iter-2 P2): primary_section is dynamic, not
         # static vocab default. Dose-arm + comparator HbA1c atom goes to
         # "Dose Response", not "Efficacy". Prevents 3-section reuse.
+        # Iter-4 fix (Codex iter-3 P3): compute primary_section BEFORE
+        # section_tags so the tuple order reflects the rewritten primary.
         primary_section = _compute_primary_section(
             primary_section,
+            has_comparator=bool(comparator),
+            has_dose_arm=has_dose_arm,
+        )
+        section_tags = _compute_section_tags(
+            primary_section, secondary_tags,
             has_comparator=bool(comparator),
             has_dose_arm=has_dose_arm,
         )
