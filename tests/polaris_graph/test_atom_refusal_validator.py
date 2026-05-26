@@ -518,26 +518,26 @@ def test_step3b_commit2_paragraph_preservation_in_validate_section():
 
 
 def test_step3b_pr906_iter3_split_handles_resolved_citation_boundary():
-    """Codex PR #906 iter-3 P1 repro: resolve_provenance_to_citations
-    emits 'sentence.[1] next_sentence.[2]' with citation marker GLUED
-    to the period (no space). Sentence splitter MUST treat this as a
-    boundary; otherwise both sentences merge into one validator input
-    and a missing-atom claim can be masked by a valid atom citation
-    earlier in the merged result."""
-    text = "A.[1] B.[2]"
-    parts = split_sentences(text)
-    assert len(parts) == 2, f"expected 2 sentences from {text!r}, got {parts}"
+    """Codex PR #906 iter-3 P1: resolve_provenance_to_citations emits
+    'sentence.[1] next_sentence.[2]' with citation marker glued to the
+    period. Splitter must boundary on this.
 
-    # Real clinical pattern
-    text2 = (
+    Codex iter-4 P1 follow-up: the [N] marker MUST be PRESERVED in the
+    preceding sentence (not consumed as delimiter), otherwise strict
+    mode would silently drop bibliography citations from report.md."""
+    parts = split_sentences("A.[1] B.[2]")
+    assert parts == ["A.[1]", "B.[2]"], (
+        f"split must preserve [N] in preceding sentence, got {parts}"
+    )
+
+    parts2 = split_sentences(
         "Tirzepatide reduced HbA1c by -2.30 (atom_003).[1] "
         "Semaglutide reduced HbA1c by -1.86.[2]"
     )
-    parts2 = split_sentences(text2)
-    assert len(parts2) == 2, (
-        f"resolved-citation sentences must split into separate inputs, "
-        f"got {parts2}"
-    )
+    assert parts2 == [
+        "Tirzepatide reduced HbA1c by -2.30 (atom_003).[1]",
+        "Semaglutide reduced HbA1c by -1.86.[2]",
+    ], f"clinical pattern must preserve atom_NNN + [N], got {parts2}"
 
 
 def test_step3b_commit2_sentence_index_monotonic_across_paragraphs():

@@ -388,22 +388,47 @@ def has_ev_citation_for_factual_claim(sentence: str) -> bool:
 #        "[1] sentence_two" matches but skips before "[1]". Pattern (b)
 #        explicitly consumes the [N] marker as part of the boundary so
 #        the SECOND sentence is its own validator input.
-_SENTENCE_SPLIT_RE = re.compile(
-    r"(?<=[.;!?])(?:\[\d+\])?\s+(?=[A-Z\[]|$)"
+_SENTENCE_BOUNDARY_RE = re.compile(
+    r"[.;!?](?:\[\d+\])?(?=\s+(?:[A-Z\[]|$))"
 )
 
 
 def split_sentences(text: str) -> list[str]:
-    """Decimal-aware sentence split — matches atom_extractor's boundary
-    rule (period followed by digit is NOT a boundary)."""
+    """Decimal-aware sentence split. Resolved bibliography markers
+    (`.[N]`) attach to the preceding sentence; whitespace is the
+    consumed delimiter only.
+
+    Step 3b PR #906 iter-4 P1 (Codex): finditer-based slicing so the
+    `[N]` marker is PRESERVED in the preceding sentence (re.split-with-
+    optional-group iter-3 was consuming it as delimiter).
+
+    Strategy:
+      1. Protect "<digit>.<digit>" via sentinel so "2.30" stays intact.
+      2. finditer boundary positions (punctuation + optional [N]).
+      3. Slice manually: take protected[last_end:boundary.end()] as the
+         sentence, advance past whitespace, continue.
+      4. Restore decimal sentinels in each piece.
+    """
     if not text:
         return []
-    # Pre-process: protect decimals by temporarily replacing "X.Y" with
-    # "XY" before split, then restore.
-    PROTECT = ""
-    protected = re.sub(r"(\d)\.(\d)", rf"\1{PROTECT}\2", text)
-    parts = _SENTENCE_SPLIT_RE.split(protected)
-    return [p.replace(PROTECT, ".").strip() for p in parts if p.strip()]
+    sentinel = "\x00DEC\x00"
+    protected = re.sub(
+        r"(\d)\.(\d)",
+        lambda m: f"{m.group(1)}{sentinel}{m.group(2)}",
+        text,
+    )
+    pieces: list[str] = []
+    last_end = 0
+    n = len(protected)
+    for m in _SENTENCE_BOUNDARY_RE.finditer(protected):
+        end_pos = m.end()
+        pieces.append(protected[last_end:end_pos])
+        while end_pos < n and protected[end_pos].isspace():
+            end_pos += 1
+        last_end = end_pos
+    if last_end < n:
+        pieces.append(protected[last_end:])
+    return [p.replace(sentinel, ".").strip() for p in pieces if p.strip()]
 
 
 # ---------------------------------------------------------------------------
