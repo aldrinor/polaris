@@ -77,6 +77,9 @@ _ENDPOINT_VOCAB_RE = re.compile(
     r"all[-\s]?cause\s+mortality|heart\s+failure|hf\s+hospitali[zs]ation|"
     r"egfr|uacr|aki|creatinine|"
     r"adverse\s+events?|aes?|serious\s+adverse|sae|discontinuation|"
+    # Iter-2 fix (Codex iter-1 P1): common safety endpoints by name
+    r"nausea|vomiting|diarrh(?:o)?ea|constipation|abdominal\s+pain|"
+    r"injection[-\s]?site\s+reaction|"
     r"hypoglycemia|hypoglycaemia|pancreatitis|gallbladder|retinopathy|mtc|"
     r"hazard\s+ratio|risk\s+ratio|odds\s+ratio|relative\s+risk|"
     r"responder\s+rate|response\s+rate|incidence|"
@@ -85,25 +88,45 @@ _ENDPOINT_VOCAB_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Iter-2 fix (Codex iter-1 P2): inclusion/eligibility-range framing.
+# "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0"
+# is design/eligibility, not an outcome claim. This regex detects framing
+# that overrides Trigger A for eligibility-range numbers.
+_ELIGIBILITY_RANGE_RE = re.compile(
+    r"\b(?:inclusion\s+criter|exclusion\s+criter|eligibility|"
+    r"eligible\s+patients|eligible\s+adults|"
+    r"baseline\s+(?:hba1c|weight|bmi)|"
+    r"required\s+(?:hba1c|weight))\b",
+    re.IGNORECASE,
+)
+
 # Qualitative comparative/outcome language requiring atom citation
-# (Codex: "greater/lower/superior/noninferior/significant/reduced/increased
-# plus endpoint/safety/comparator terms")
-# Patterns:
-#   - bare comparative verbs: reduced, increased, decreased, etc.
-#   - comparative phrases: greater than, superior to, more effective, etc.
-#   - "greater <noun> than": "greater HbA1c reduction than semaglutide"
+# (Codex iter-1 P1 expanded: catch "more common with X than Y", "higher
+# with X than Y", "greater reduction than", etc.)
 _QUAL_COMPARATIVE_RE = re.compile(
     r"\b("
     r"greater(?:\s+\w+){0,4}\s+than|"
     r"less(?:\s+\w+){0,4}\s+than|"
     r"lower(?:\s+\w+){0,4}\s+than|"
     r"higher(?:\s+\w+){0,4}\s+than|"
+    r"more(?:\s+\w+){0,4}\s+than|"     # "more common with X than Y"
+    r"fewer(?:\s+\w+){0,4}\s+than|"
     r"superior(?:ity)?\s+to|non[-\s]?inferior(?:ity)?\s+to|"
     r"statistically\s+significant|significantly\s+\w+|"
     r"reduced|increased|decreased|elevated|improved|worsened|"
-    r"more\s+effective|less\s+effective|"
+    r"more\s+(?:effective|common|frequent)|less\s+(?:effective|common|frequent)|"
     r"compared\s+(?:to|with)|versus|vs\.?"
     r")\b",
+    re.IGNORECASE,
+)
+
+# Comparator/arm language that — combined with a comparative phrase —
+# signals a factual comparative claim even without a specific endpoint
+# vocab term. Catches "Tirzepatide showed greater reduction than
+# semaglutide" where "reduction" isn't an endpoint vocab term.
+_COMPARATIVE_ARM_RE = re.compile(
+    r"\b(?:than|versus|vs\.?|compared\s+(?:to|with))\s+"
+    r"(?:placebo|control|standard\s+care|usual\s+care|\w{3,})\b",
     re.IGNORECASE,
 )
 
@@ -204,8 +227,15 @@ def requires_atom_citation(sentence: str) -> tuple[bool, Optional[str]]:
 
     numbers = _NUMBER_RE.findall(s)
     has_endpoint = bool(_ENDPOINT_VOCAB_RE.search(s))
-    has_outcome_number = bool(numbers) and has_endpoint
     has_qual_comparative = bool(_QUAL_COMPARATIVE_RE.search(s))
+    has_comparator_arm = bool(_COMPARATIVE_ARM_RE.search(s))
+    has_outcome_number = bool(numbers) and has_endpoint
+
+    # Iter-2 fix (Codex iter-1 P2): eligibility-range override BEFORE
+    # Trigger A. "HbA1c between 7.0 and 10.0" in an inclusion-criteria
+    # context is design, not outcome.
+    if _ELIGIBILITY_RANGE_RE.search(s) and not has_qual_comparative:
+        return False, None
 
     # Pure narrative categories — never require atom citation UNLESS
     # there's also an outcome-number combo or qualitative comparative.
@@ -217,8 +247,11 @@ def requires_atom_citation(sentence: str) -> tuple[bool, Optional[str]]:
     if has_outcome_number:
         return True, "trigger_A_number_plus_endpoint"
 
-    # Qualitative comparative outcome language + endpoint (no number needed)
-    if has_qual_comparative and has_endpoint:
+    # Qualitative comparative outcome language with an endpoint OR
+    # an explicit comparator arm (versus/than/compared to PLACEBO/DRUG).
+    # Catches "Tirzepatide showed greater reduction than semaglutide"
+    # (no endpoint vocab term but clearly a comparative claim).
+    if has_qual_comparative and (has_endpoint or has_comparator_arm):
         return True, "trigger_qualitative_comparative"
 
     # Trigger B: number alone, but check for admin/design exclusions
@@ -354,14 +387,22 @@ def validate_sentence(
     # All cited atoms valid — SOFT mismatch checks (logged_only)
     soft_notes = []
     detected_values = _NUMBER_RE.findall(sentence)
+    detected_value_set = set(detected_values)
     for aid in cited_atoms:
         atom = catalog[aid]
-        # Value mismatch: cited atom's value should appear (modulo sign)
-        # in the sentence. Sign-strip on both sides.
-        atom_val_stripped = atom.value.lstrip("-−")
-        if atom_val_stripped and atom_val_stripped not in sentence:
+        # Iter-2 fix (Codex iter-1 P2): tighten value matching to
+        # numeric-token boundaries. Old substring check matched
+        # "2.30" inside "12.30" (false negative on mismatch). New
+        # check uses the same _NUMBER_RE that extracted detected_values
+        # — equality on token strings (sign-normalized).
+        atom_val_normalized = atom.value.replace("−", "-")
+        atom_val_unsigned = atom_val_normalized.lstrip("-")
+        # Sentence contains atom's value iff atom_val (signed or unsigned)
+        # appears as an EXTRACTED number token in the sentence.
+        sentence_unsigned = {v.lstrip("-") for v in detected_value_set}
+        if atom_val_unsigned and atom_val_unsigned not in sentence_unsigned:
             soft_notes.append(
-                f"atom={aid} value={atom.value!r} not in sentence text"
+                f"atom={aid} value={atom.value!r} not in sentence numeric tokens"
             )
 
     if soft_notes:
@@ -415,6 +456,10 @@ def _build_refusal_record(
         timepoint=timepoint,
     )
 
+    # Iter-2 fix (Codex iter-1 P2): preserve detected_values on refusal
+    # records for downstream audit.
+    detected_values = _NUMBER_RE.findall(sentence)
+
     return GapRecord(
         section_id=section_id,
         section_title=section_title,
@@ -428,6 +473,7 @@ def _build_refusal_record(
         detected_endpoint=endpoint,
         detected_entity=entity,
         detected_timepoint=timepoint,
+        detected_values=detected_values,
         notes=f"claim_trigger={claim_trigger}" if claim_trigger else None,
     )
 

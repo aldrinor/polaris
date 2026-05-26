@@ -166,27 +166,27 @@ def test_trial_design_sentence_does_not_require_atom():
 
 
 def test_eligibility_sentence_does_not_require_atom():
-    """Codex narrative-allowed: eligibility/population framing."""
+    """Codex iter-1 P2 fix: eligibility-range framing overrides Trigger A.
+    'Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0'
+    is design/eligibility — NOT an outcome claim."""
     requires, _ = requires_atom_citation(
         "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0."
     )
-    # This DOES have outcome-like (HbA1c + numbers) — but the narrative
-    # category match dominates only if no outcome-number combo exists.
-    # In this case, "between 7.0 and 10.0" describes eligibility ranges,
-    # not outcomes — but the detector sees number+endpoint and would
-    # require atom. Acceptable conservative behavior.
-    # Mark this as an edge case: claim detector errs strict on edges.
+    assert not requires, (
+        "Eligibility-range sentence should be allowed without atom citation "
+        "(iter-2 fix for Codex iter-1 P2)."
+    )
 
 
 def test_hedge_sentence_does_not_require_atom():
-    """Codex narrative-allowed: hedges/limitations without quantitative claim."""
+    """Codex narrative-allowed: hedges/limitations without quantitative claim.
+    '40 weeks' is admin-number; 'remain limited' is hedge."""
     requires, _ = requires_atom_citation(
         "Long-term safety data beyond 40 weeks remain limited."
     )
-    # "40 weeks" is admin-number — and "remain limited" is narrative hedge.
-    # Acceptable if narrative category dominates.
-    # If the detector returns True (because of "40 weeks"), that's
-    # over-strict; let's allow either.
+    assert not requires, (
+        "Hedge sentence with admin-number should be allowed without atom."
+    )
 
 
 # ============================================================================
@@ -478,3 +478,85 @@ def test_split_sentences_decimal_aware():
     assert len(parts) == 2
     assert "-2.30" in parts[0]
     assert "43%" in parts[1]
+
+
+# ============================================================================
+# ITER-2 REGRESSION TESTS (Codex iter-1 verdict)
+# ============================================================================
+
+
+def test_iter2_p1_qualitative_comparative_safety_requires_atom():
+    """Codex iter-1 P1 repro: 'Adverse events were more common with
+    tirzepatide than placebo.' must REQUIRE atom citation. Was returning
+    False because 'more common' wasn't in qual regex AND comparator-arm
+    signal didn't override missing endpoint."""
+    requires, trigger = requires_atom_citation(
+        "Adverse events were more common with tirzepatide than placebo."
+    )
+    assert requires, "Comparative safety claim must require atom citation"
+    assert trigger == "trigger_qualitative_comparative"
+
+
+def test_iter2_p1_qualitative_higher_with_drug_requires_atom():
+    """Codex iter-1 P1 repro: 'Nausea was higher with tirzepatide than
+    placebo.' must require atom. 'Nausea' wasn't in endpoint vocab + no
+    qual regex match."""
+    requires, trigger = requires_atom_citation(
+        "Nausea was higher with tirzepatide than placebo."
+    )
+    assert requires
+    assert trigger == "trigger_qualitative_comparative"
+
+
+def test_iter2_p1_qualitative_greater_reduction_than_requires_atom():
+    """Codex iter-1 P1 repro: 'Tirzepatide showed greater reduction than
+    semaglutide.' must require atom. No endpoint vocab term but clearly
+    a comparative claim via 'greater <noun> than <drug>'."""
+    requires, trigger = requires_atom_citation(
+        "Tirzepatide showed greater reduction than semaglutide."
+    )
+    assert requires
+    assert trigger == "trigger_qualitative_comparative"
+
+
+def test_iter2_p2_eligibility_range_allowed():
+    """Codex iter-1 P2: eligibility ranges should be allowed even with
+    endpoint+number combo."""
+    requires, _ = requires_atom_citation(
+        "Eligible patients had inclusion criteria of HbA1c between 7.0 and 10.0."
+    )
+    assert not requires
+
+
+def test_iter2_p2_soft_value_word_boundary_match():
+    """Codex iter-1 P2 repro: atom_003 value=-2.30; sentence value=12.30.
+    Old substring check returned ALLOWED (false negative); new numeric-
+    token-boundary check correctly returns LOGGED_ONLY (SOFT_MISMATCH)."""
+    record = validate_sentence(
+        "Tirzepatide reduced HbA1c by 12.30 percentage points atom_003.",
+        sentence_index=0,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=_CATALOG,
+    )
+    assert record.action == RefusalAction.LOGGED_ONLY, (
+        f"12.30 in sentence != atom_003.value=-2.30; should be SOFT_MISMATCH "
+        f"(numeric-token boundary), not ALLOWED. Got {record.action}"
+    )
+    assert record.reason == RefusalReason.SOFT_MISMATCH
+
+
+def test_iter2_p2_refused_record_includes_detected_values():
+    """Codex iter-1 P2: refused records must populate detected_values
+    for downstream audit."""
+    record = validate_sentence(
+        "Tirzepatide reduced HbA1c by -2.30 percentage points at 40 weeks.",
+        sentence_index=0,
+        section_id="efficacy",
+        section_title="Efficacy",
+        catalog=_CATALOG,
+    )
+    assert record.action == RefusalAction.REFUSED
+    assert "-2.30" in record.detected_values, (
+        f"Refused record must preserve detected_values. Got: {record.detected_values}"
+    )
