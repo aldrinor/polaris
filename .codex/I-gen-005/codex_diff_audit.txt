@@ -1,5 +1,6 @@
-# PR #911 — verify-test update for Step 1 local_support_window
+# PR #912 — 3 bugs caught by real-V4-Pro smoke
 # Codex iter-1: APPROVE
-#   test_pair_correctly_captures_intent: YES
-#   safety_floor_test_correct: YES
+#   bug1 splitter paren-aware: YES
+#   bug2 unicode minus both sides: YES
+#   bug3 ascii arrow: YES
 verdict: APPROVE

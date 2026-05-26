@@ -1,10 +1,14 @@
-# PR #911 — I-gen-005 Step 3g Claude architect review
+# PR #912 — I-gen-005 Step 3h Claude architect review
 
-Resolves pre-existing test_provenance_generator failure (flagged
-out-of-scope in PR #908).
+Real-V4-Pro smoke (PG_ATOM_REFUSAL_MODE=log_only) caught 3 bugs that
+unit tests + Codex theory review missed:
+1. Splitter `;` inside parens (CI bounds) — false refusals
+2. Unicode minus mismatch — false soft mismatches
+3. Smoke print U+2192 — Windows cp1252 crash
 
-Two replacement tests document the §-1.1 trade-off explicitly:
-1. local_support_window rescues narrow-cite-but-data-in-evidence
-2. safety floor: numbers absent from evidence STILL fail
+All 3 fixed + regression-tested. 120/120 pass.
 
-14/14 test_provenance_generator pass. Codex iter-1: APPROVE.
+Operator re-run after merge should show refusal_rate < 30%
+(predicted; not yet verified).
+
+Codex iter-1: APPROVE. Ready to merge.
