@@ -1065,3 +1065,15 @@ up 4 progressive P1 layers that the offline smoke would have hidden:
   iter4_cap_consideration: APPROVE_THIS (iter 5 not needed)
   convergence_call: accept_remaining
   trajectory: iter 1 P1+4P2+P3 → iter 2 novel P1+P2 → iter 3 continuing P1+novel P1 → iter 4 APPROVE
+
+[2026-05-26] I-gen-005 Step 3a multi_section prompt injection iter 1: REQUEST_CHANGES
+  tokens: 86602
+  novel_p1: atom_replaces_ev_breaks_strict_verify_pipeline
+  next: iter-2 make atom_NNN additive to [ev_XXX]
+
+[2026-05-26] I-gen-005 Step 3a multi_section prompt injection iter 2: APPROVE
+  tokens: 124021
+  zero p0/p1/p2; 3 P2s for Step 3b (separate PR)
+  approval_to_proceed_to_step_3b_pr: YES
+  Step 3b roadmap per Codex: separate PR, logging-only flag initial, 
+    pass-through catalog (not rebuild), strip atom_NNN before strict_verify
