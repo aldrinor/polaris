@@ -1,8 +1,7 @@
-# PR #908 — strict_verify cleaned-text integration test
-# Codex iter-3: APPROVE
-#   data_flow_verified: YES
-#   import_chain_fix_scope_appropriate: YES
-#   pre_existing_test_failure_acknowledged: YES
+# PR #909 — empty-catalog skip in validator hook
+# Codex iter-1: APPROVE
+#   skip_on_empty_catalog_correct: YES
+#   telemetry_distinction_correct: YES
 #   novel_p0/p1: [], p2: []
 
 verdict: APPROVE
