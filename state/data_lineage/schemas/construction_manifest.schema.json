@@ -41,6 +41,8 @@
     "evidence_packet_id": {"type": "string", "minLength": 1},
     "claim_cited_source_ids": {"type": "array", "items": {"type": "string"}, "description": "Alias-resolved canonical_source_id values (0a.-1.D); claim-level set for criterion-2/5 Jaccard."},
     "claim_entity_ids": {"type": "array", "items": {"type": "string"}, "description": "0a.-1.D §5: source_entities ∪ claim_subject_entities, for COI."},
-    "created_at": {"type": "string", "format": "date-time"}
+    "created_at": {"type": "string", "format": "date-time"},
+    "retrieved_source_count": {"type": "integer", "minimum": 0, "description": "D3 §3: full production-retrieval admissible-source count before downselect. STRUCTURAL (pre-outcome). Optional; present when downselect occurred."},
+    "target_packet_source_count": {"type": "integer", "minimum": 1, "maximum": 80, "description": "D3 §3: the N downselected to (<=80), recorded BEFORE downselect. STRUCTURAL. Optional; present when downselect occurred."}
   }
 }

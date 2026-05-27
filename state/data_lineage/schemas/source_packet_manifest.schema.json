@@ -8,7 +8,7 @@
   "required": ["evidence_packet_id", "canonical_source_ids", "packet_class", "sha256_of_sorted_canonical_ids"],
   "properties": {
     "evidence_packet_id": {"type": "string", "minLength": 1},
-    "canonical_source_ids": {"type": "array", "items": {"type": "string"}, "description": "Alias-resolved canonical_source_id values; source-document-level set."},
+    "canonical_source_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "Alias-resolved canonical_source_id values; source-document-level set. minItems:1 enforces D3 §2.1 zero-source fail-closed (a 0-source packet is a construction error, not E1/E0)."},
     "packet_class": {"type": "string", "minLength": 1, "description": "Criterion-5 shared-packet-class input (0a.-1.D)."},
     "sha256_of_sorted_canonical_ids": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
   }
