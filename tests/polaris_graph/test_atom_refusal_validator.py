@@ -196,6 +196,378 @@ def test_hedge_sentence_does_not_require_atom():
 
 
 # ============================================================================
+# I-gen-005 Step 3j (Codex iter-4 APPROVE_DESIGN): trial-design narrative
+# exemption + result-attribution independent trigger.
+# ============================================================================
+
+
+def test_step3j_trial_design_methodology_sentence_allowed():
+    """The s009 real-smoke repro: trial-design methodology framing with
+    endpoint vocab + numbers but NO outcome verb or result attribution.
+    Must be allowed (Codex APPROVE_DESIGN iter-4)."""
+    requires, _ = requires_atom_citation(
+        "In a phase 3 trial, 1879 adults with type 2 diabetes "
+        "(mean baseline HbA1c 8.28%, mean weight 93.7 kg) were randomly "
+        "assigned to tirzepatide 5 mg, 10 mg, or 15 mg or semaglutide 1 mg, "
+        "with the primary endpoint of change in HbA1c at 40 weeks."
+    )
+    assert not requires, (
+        "Pure trial-design methodology sentence (Codex iter-4 target repro) "
+        "must be allowed without atom citation."
+    )
+
+
+def test_step3j_endpoint_attribution_with_methodology_still_refused():
+    """Codex iter-2 P1: 'primary endpoint of change in HbA1c was -2.30'
+    has methodology marker BUT also result-attribution (copular endpoint
+    value). Result-attribution is independent trigger — must REFUSE."""
+    requires, reason = requires_atom_citation(
+        "The primary endpoint of change in HbA1c was -2.30 percentage points."
+    )
+    assert requires, (
+        "Endpoint-of result attribution with methodology marker must still "
+        "refuse via independent result-attribution trigger."
+    )
+    assert reason == "trigger_endpoint_result_attribution"
+
+
+def test_step3j_primary_outcome_attribution_refused():
+    """Codex iter-3 P1: branch (a) symmetry — 'primary outcome of'
+    parallel to 'primary endpoint of'. Must REFUSE."""
+    requires, reason = requires_atom_citation(
+        "The primary outcome of change from baseline was -2.30."
+    )
+    assert requires, (
+        "'primary outcome of X was NUMBER' must refuse via "
+        "result-attribution independent trigger."
+    )
+    assert reason == "trigger_endpoint_result_attribution"
+
+
+def test_step3j_value_at_timepoint_with_phase3_marker_refused():
+    """Codex iter-2 P1: 'In a phase 3 trial, mean HbA1c at 40 weeks was 6.2%'
+    has trial-design marker but endpoint-at-timepoint with copular value.
+    Must REFUSE (preserves safety floor)."""
+    requires, reason = requires_atom_citation(
+        "In a phase 3 trial, mean HbA1c at 40 weeks was 6.2%."
+    )
+    assert requires
+    assert reason == "trigger_endpoint_result_attribution"
+
+
+def test_step3j_value_at_week_n_form_refused():
+    """Codex iter-2 P1 #2: 'week 40' form (alongside '40 weeks'). Must REFUSE."""
+    requires, reason = requires_atom_citation(
+        "Mean HbA1c at week 40 was 6.2%."
+    )
+    assert requires
+    assert reason == "trigger_endpoint_result_attribution"
+
+
+def test_step3j_reverse_order_change_was_n_at_timepoint_refused():
+    """Codex iter-2 P1 #1: reverse-order attribution. Must REFUSE."""
+    requires, reason = requires_atom_citation(
+        "In a phase 3 trial, mean change from baseline was -2.30 at 40 weeks."
+    )
+    assert requires
+    assert reason == "trigger_endpoint_result_attribution"
+
+
+def test_step3j_passive_was_reported_in_refused():
+    """Codex iter-2 P1 #4: passive 'X was reported in N%'. Must REFUSE."""
+    requires, reason = requires_atom_citation(
+        "In a phase 3 open-label trial, nausea was reported in 22%."
+    )
+    assert requires
+    assert reason == "trigger_endpoint_result_attribution"
+
+
+def test_step3j_passive_occurred_in_refused():
+    """Codex iter-2 P1 #4: 'X occurred in N%'. Must REFUSE."""
+    requires, reason = requires_atom_citation(
+        "Adverse events occurred in 30% of randomized patients."
+    )
+    assert requires
+    assert reason == "trigger_endpoint_result_attribution"
+
+
+def test_step3j_n_percent_achieved_endpoint_refused():
+    """Codex iter-2 P1 #4: 'NUMBER% achieved X'. Must REFUSE."""
+    requires, reason = requires_atom_citation(
+        "Across the open-label trial, 86% achieved HbA1c reduction."
+    )
+    assert requires
+    assert reason == "trigger_endpoint_result_attribution"
+
+
+def test_step3j_baseline_parenthetical_preserved_as_narrative():
+    """Codex iter-2/iter-4: design-context baseline characteristics in
+    parenthetical (no 'was/=' attribution) must stay allowed."""
+    requires, _ = requires_atom_citation(
+        "In a phase 3 trial, 1879 adults (mean baseline HbA1c 8.28%, mean "
+        "weight 93.7 kg) were randomly assigned to tirzepatide or semaglutide."
+    )
+    assert not requires, (
+        "Baseline parenthetical without 'was/=' value attribution must stay "
+        "narrative — distinguishes design-context numbers from outcome values."
+    )
+
+
+def test_step3j_step3b_iter3_historical_repro_still_refused():
+    """The Step 3b iter-3 failure mode case — outcome verb with number
+    must still refuse even though sentence has 'baseline' framing.
+    Verifies trial-design exemption did NOT reintroduce eligibility-masks-
+    outcome failure mode."""
+    requires, reason = requires_atom_citation(
+        "Patients with baseline HbA1c of 8.6% had HbA1c reductions of 2.3 "
+        "percentage points."
+    )
+    assert requires, (
+        "Outcome-verb-with-number must still refuse (Step 3b iter-3 safety "
+        "floor preserved through Step 3j changes)."
+    )
+
+
+def test_step3j_trial_design_with_qual_comparative_still_refused():
+    """Trial-design marker plus qualitative comparative — exemption must
+    NOT fire (qual comparative guard preserved)."""
+    requires, _ = requires_atom_citation(
+        "The phase 3 SURPASS-2 trial showed tirzepatide reduced HbA1c "
+        "more than semaglutide."
+    )
+    assert requires, (
+        "Trial-design marker plus qual-comparative must still refuse via "
+        "qual-comparative trigger (exemption guard preserved)."
+    )
+
+
+def test_step3j_independent_result_attribution_no_trial_marker_refused():
+    """Result-attribution trigger fires INDEPENDENT of trial-design marker.
+    Sentence with no methodology marker but with endpoint-at-timepoint
+    copular value must still refuse (independent trigger guarantees
+    safety even without methodology context)."""
+    requires, reason = requires_atom_citation(
+        "Baseline HbA1c was 8.5% and HbA1c at 40 weeks was 6.2%."
+    )
+    assert requires
+    assert reason == "trigger_endpoint_result_attribution"
+
+
+# ============================================================================
+# I-gen-005 Step 3j diff iter-1 Codex P1 fixes (3 NOVEL failure modes)
+# ============================================================================
+
+
+def test_step3j_diff_iter1_active_verb_produced_with_trial_marker_refused():
+    """Codex diff iter-1 P1 #1: active outcome verb 'produced' was not in
+    _OUTCOME_VERB_WITH_NUMBER_RE → trial-design exemption masked the
+    result. Now must REFUSE via the widened verb list."""
+    requires, _ = requires_atom_citation(
+        "In a phase 3 trial, tirzepatide produced -2.30 percentage-point "
+        "HbA1c reductions at 40 weeks."
+    )
+    assert requires, (
+        "'produced -2.30' is an outcome verb with number — must refuse "
+        "even with trial-design marker present."
+    )
+
+
+def test_step3j_diff_iter1_active_verb_showed_refused():
+    """Codex diff iter-1 P1 #1 expansion: 'showed' is similar active verb."""
+    requires, _ = requires_atom_citation(
+        "In a randomized open-label trial, tirzepatide showed -2.30 "
+        "HbA1c reduction at 40 weeks."
+    )
+    assert requires
+
+
+def test_step3j_diff_iter1_active_verb_resulted_in_refused():
+    """Codex diff iter-1 P1 #1: 'resulted in NUMBER'."""
+    requires, _ = requires_atom_citation(
+        "Treatment in this open-label trial resulted in 22% nausea."
+    )
+    assert requires
+
+
+def test_step3j_diff_iter1_pancreatitis_endpoint_refused():
+    """Codex diff iter-1 P1 #2: _ENDPOINT_NAMES_ALT missing pancreatitis.
+    Now in vocab — must REFUSE via branch (c)."""
+    requires, reason = requires_atom_citation(
+        "In the open-label trial, pancreatitis was 0.3%."
+    )
+    assert requires
+    assert reason == "trigger_endpoint_result_attribution"
+
+
+def test_step3j_diff_iter1_hazard_ratio_endpoint_refused():
+    """Codex diff iter-1 P1 #2: hazard ratio missing from vocab."""
+    requires, reason = requires_atom_citation(
+        "In a phase 3 trial, hazard ratio was 0.78."
+    )
+    assert requires
+    assert reason == "trigger_endpoint_result_attribution"
+
+
+def test_step3j_diff_iter1_injection_site_endpoint_refused():
+    """Codex diff iter-1 P1 #2: injection-site reactions missing."""
+    requires, reason = requires_atom_citation(
+        "In the open-label trial, injection-site reactions were 5.2%."
+    )
+    assert requires
+
+
+def test_step3j_diff_iter1_timepoint_after_refused():
+    """Codex diff iter-1 P1 #3: 'after 40 weeks' form."""
+    requires, _ = requires_atom_citation(
+        "In a phase 3 trial, mean HbA1c after 40 weeks was 6.2%."
+    )
+    assert requires
+
+
+def test_step3j_diff_iter1_timepoint_by_week_refused():
+    """Codex diff iter-1 P1 #3: 'by week 40' form."""
+    requires, _ = requires_atom_citation(
+        "In an open-label trial, HbA1c by week 40 was 6.2%."
+    )
+    assert requires
+
+
+def test_step3j_diff_iter1_timepoint_at_end_of_refused():
+    """Codex diff iter-1 P1 #3: 'at the end of 40 weeks' form."""
+    requires, _ = requires_atom_citation(
+        "In a phase 3 trial, HbA1c at the end of 40 weeks was 6.2%."
+    )
+    assert requires
+
+
+def test_step3j_diff_iter1_n_week_hyphen_form_refused():
+    """Codex diff iter-1 P1 #3: '40-week' hyphenated form."""
+    requires, _ = requires_atom_citation(
+        "In a phase 3 trial, mean HbA1c at the 40-week follow-up was 6.2%."
+    )
+    assert requires
+
+
+def test_step3j_diff_iter2_noninferiority_endpoint_refused():
+    """Codex diff iter-2 continuing P1 #2: 'noninferiority' missing from
+    _ENDPOINT_NAMES_ALT. Now added."""
+    requires, _ = requires_atom_citation(
+        "In a phase 3 trial, noninferiority was 0.95."
+    )
+    assert requires
+
+
+def test_step3j_diff_iter2_superiority_endpoint_refused():
+    """Codex diff iter-2 continuing P1 #2: 'superiority' missing from
+    _ENDPOINT_NAMES_ALT. Now added."""
+    requires, _ = requires_atom_citation(
+        "In a phase 3 trial, superiority was 0.4 percentage points."
+    )
+    assert requires
+
+
+def test_step3j_diff_iter2_active_verb_with_article_refused():
+    """Codex diff iter-2 novel P1: 'achieved a 2.30 percentage-point
+    reduction' — article between verb and number was missed by
+    _OUTCOME_VERB_WITH_NUMBER_RE. Now permits optional a/an/the."""
+    requires, _ = requires_atom_citation(
+        "In a phase 3 trial, tirzepatide achieved a 2.30 percentage-point "
+        "HbA1c reduction at 40 weeks."
+    )
+    assert requires
+
+
+def test_step3j_diff_iter2_active_verb_produced_with_article_refused():
+    """Same pattern with 'produced a'."""
+    requires, _ = requires_atom_citation(
+        "In a phase 3 trial, tirzepatide produced a -2.30 percentage-point "
+        "HbA1c reduction at 40 weeks."
+    )
+    assert requires
+
+
+def test_step3j_diff_iter2_led_to_with_article_refused():
+    """Same pattern with 'led to a'."""
+    requires, _ = requires_atom_citation(
+        "In a phase 3 trial, treatment led to a 22% nausea rate."
+    )
+    assert requires
+
+
+def test_step3j_diff_iter3_verb_endpoint_of_number_refused():
+    """Codex diff iter-3 novel P1: 'tirzepatide achieved HbA1c of 6.2%
+    at 40 weeks' — verb + endpoint + 'of NUMBER' pattern bypassed both
+    _OUTCOME_VERB_WITH_NUMBER_RE (no number directly after verb) and
+    _ENDPOINT_RESULT_ATTRIBUTION_RE branches a-e. New branch (f) catches
+    this."""
+    requires, reason = requires_atom_citation(
+        "In a phase 3 trial, tirzepatide achieved HbA1c of 6.2% at 40 weeks."
+    )
+    assert requires, (
+        "Verb-endpoint-of-NUMBER pattern must refuse via new branch (f)."
+    )
+    assert reason == "trigger_endpoint_result_attribution"
+
+
+def test_step3j_diff_iter3_verb_endpoint_of_number_variants():
+    """Same pattern with different verb forms."""
+    for sentence in [
+        "In a phase 3 trial, semaglutide produced HbA1c of 7.0% at 40 weeks.",
+        "In a phase 3 open-label trial, tirzepatide demonstrated nausea of 22%.",
+        "In a phase 3 trial, treatment showed weight loss of 14.9% at 68 weeks.",
+        "In a phase 3 trial, dulaglutide attained HbA1c of 6.8%.",
+    ]:
+        requires, _ = requires_atom_citation(sentence)
+        assert requires, f"Verb+endpoint+of+NUMBER must refuse: {sentence!r}"
+
+
+def test_step3j_diff_iter4_phrasal_verb_led_to_endpoint_of_number_refused():
+    """Codex diff iter-4 P1: phrasal verbs 'led to' / 'resulted in' were
+    missing from branch (f). Now added."""
+    for sentence in [
+        "In a phase 3 trial, treatment led to HbA1c of 6.2% at 40 weeks.",
+        "In a phase 3 trial, treatment resulted in HbA1c of 6.2% at 40 weeks.",
+        "In a phase 3 trial, treatment led to nausea of 22%.",
+        "In a phase 3 trial, treatment resulted in weight loss of 14.9% at 68 weeks.",
+        "In a phase 3 trial, treatment leading to weight loss of 14.9%.",
+    ]:
+        requires, _ = requires_atom_citation(sentence)
+        assert requires, (
+            f"Phrasal verb + endpoint + 'of NUMBER' must refuse: {sentence!r}"
+        )
+
+
+def test_step3j_diff_iter5_phrasal_verb_with_article_modifier_refused():
+    """Codex diff iter-5 P1 (cap-hit): articles/modifiers between
+    phrasal verb and endpoint masked outcome. Now permitted via
+    optional (a/an/the/mean/median/baseline/change in) carve-out."""
+    for sentence in [
+        "In a phase 3 trial, treatment led to an HbA1c of 6.2% at 40 weeks.",
+        "In a phase 3 trial, treatment resulted in mean HbA1c of 6.2% at 40 weeks.",
+        "In a phase 3 trial, treatment led to a change in HbA1c of -2.30 at 40 weeks.",
+        "In a phase 3 trial, treatment resulted in median weight loss of 14.9%.",
+    ]:
+        requires, _ = requires_atom_citation(sentence)
+        assert requires, (
+            f"Phrasal verb + article/modifier + endpoint + 'of NUMBER' must "
+            f"refuse: {sentence!r}"
+        )
+
+
+def test_step3j_diff_iter1_isolated_branch_b_test():
+    """Codex diff iter-1 P2: isolated branch (b) test with no endpoint
+    vocab name, only generic '<prep> <timepoint> was NUMBER'. Branch (b)
+    fires alone."""
+    # No endpoint vocab name in the sentence — only "at TIMEPOINT was N".
+    # If branch (b) is missing, branches (a)(c)(d)(e) wouldn't catch this.
+    requires, reason = requires_atom_citation(
+        "In a phase 3 trial, primary measure at 40 weeks was -2.30 points."
+    )
+    assert requires
+    assert reason == "trigger_endpoint_result_attribution"
+
+
+# ============================================================================
 # Citation parsing
 # ============================================================================
 
