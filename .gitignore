@@ -64,6 +64,10 @@ state/*
 !state/polaris_restart/**
 !state/polaris_statistical_contract/
 !state/polaris_statistical_contract/**
+!state/data_lineage/
+!state/data_lineage/schemas/
+!state/data_lineage/schemas/**
+!state/data_lineage/code_pins.sha256
 !state/active_issue.json
 !state/restart_instructions.md
 !state/handover.md

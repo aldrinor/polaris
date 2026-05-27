@@ -1,0 +1,20 @@
+codex
+No blocking findings.
+
+1. ✓ §2.4 custody fields: `StratumSummary` now carries both hashes, and `build_relations()` computes deterministic input/table hashes and denormalizes them onto each summary row.
+2. ✓ Fail-closed hardening: field presence/null/type checks, severity enum validation, duplicate construction/packet/severity row detection, and dangling reference checks all raise.
+3. ✓ Fixture coverage: the added tests match the locked spec expectations; I did not find a test encoding a wrong expectation.
+
+Verification: `python -m pytest tests/polaris_safety/test_relation_builder.py -q` -> `49 passed`. Only warning was pytest cache write permission under `.pytest_cache`, not a test failure.
+
+APPROVE 0a.-1.C code
+92,641
+No blocking findings.
+
+1. ✓ §2.4 custody fields: `StratumSummary` now carries both hashes, and `build_relations()` computes deterministic input/table hashes and denormalizes them onto each summary row.
+2. ✓ Fail-closed hardening: field presence/null/type checks, severity enum validation, duplicate construction/packet/severity row detection, and dangling reference checks all raise.
+3. ✓ Fixture coverage: the added tests match the locked spec expectations; I did not find a test encoding a wrong expectation.
+
+Verification: `python -m pytest tests/polaris_safety/test_relation_builder.py -q` -> `49 passed`. Only warning was pytest cache write permission under `.pytest_cache`, not a test failure.
+
+APPROVE 0a.-1.C code
