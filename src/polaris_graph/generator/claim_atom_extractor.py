@@ -368,6 +368,272 @@ _TRIAL_RE = re.compile(
 
 
 # ---------------------------------------------------------------------------
+# I-gen-005 Step 3k (Codex APPROVE_DESIGN iter-1): markdown safety-table
+# row detection + per-cell atom extraction. Target: safety tables with
+# format like:
+#   | Nausea | 82 (17.4) | 111 | 90 (19.2) | 124 | 104 (22.1) | ... |
+# Each cell with a percentage in parens or trailing % becomes a per-cell
+# atom with endpoint = row header. Column-to-arm mapping is DEFERRED
+# (Codex P2: trial-name entity fallback acceptable for now).
+# ---------------------------------------------------------------------------
+
+# Safety endpoint vocab for table-row headers. Mirrors the safety subset
+# of _ENDPOINT_VOCAB so any row labeled with a known safety endpoint
+# becomes a per-cell extraction candidate.
+_SAFETY_TABLE_HEADER_RE = re.compile(
+    r"(?:"
+    r"^|^\W+|"  # row prefix tolerant (markdown bullets, leading symbols)
+    r"\b"
+    r")"
+    r"(?P<endpoint>"
+    r"nausea|vomiting|diarrh(?:o)?ea|constipation|abdominal\s+pain|"
+    r"dyspepsia|decreased\s+appetite|"
+    r"hypoglycem(?:ia|ic)|"
+    r"pancreatitis|gallbladder(?:\s+disease)?|cholelithiasis|cholecystitis|"
+    r"retinopathy|"
+    r"injection[-\s]?site\s+reactions?|"
+    r"(?:all\s+)?(?:treatment[-\s]?related\s+|treatment[-\s]?emergent\s+)?"
+    r"adverse\s+events?(?:\s+leading\s+to\s+(?:treatment\s+)?discontinuation"
+    r"(?:\s+of\s+\w+(?:\s+(?:or|and)\s+\w+)?)?)?|"
+    r"TEAE|"
+    r"serious\s+adverse\s+events?|SAEs?|"
+    r"discontinuation|treatment\s+withdrawal|"
+    r"patients\s+with\s+(?:≥|>=|≧)\s*1\s+(?:serious\s+)?adverse\s+events?|"
+    r"patients\s+with\s+at\s+least\s+1\s+(?:serious\s+)?adverse\s+events?|"
+    r"(?:all\s+)?gastrointestinal\s+(?:adverse\s+)?events?|"
+    r"(?:all\s+)?GI\s+(?:adverse\s+)?events?|"
+    r"thyroid\s+(?:carcinoma|cancer|c[-\s]?cell)|MTC|"
+    r"C[-\s]?cell\s+(?:hyperplasia|cancer)|"
+    r"GI\s+bleeding|gastrointestinal\s+bleeding|major\s+bleeding|"
+    r"intracranial\s+hemorrhage|ICH|"
+    # Codex Step 3k diff iter-1 P2 #2: expanded vocab for fresh tables
+    r"death|all[-\s]?cause\s+mortality|"
+    r"fatigue|asthenia|headache|dizziness|"
+    r"hypersensitivity|allergic\s+reactions?|anaphylaxis|"
+    r"acute\s+kidney\s+injury|AKI|renal\s+(?:impairment|failure)|"
+    r"neoplasm|cancer|malignancy|"
+    r"calcitonin|"
+    r"hyperglycem(?:ia|ic)|"
+    r"infection|"
+    r"urinary\s+tract\s+infection|UTI|"
+    r"upper\s+respiratory\s+tract\s+infection|URTI|"
+    r"nasopharyngitis"
+    r")",
+    re.IGNORECASE,
+)
+
+# Cell percentage extraction:
+#   - Number followed by % → that number
+#   - Number inside (...) → that number (canonical "n (pct)" form)
+# Bare numbers are SKIPPED per Codex Step 3k P2 (column-header parsing
+# required to know if bare numbers are percentages vs counts).
+_CELL_PCT_TRAILING_RE = re.compile(r"(?P<val>\d+(?:\.\d+)?)\s*%")
+_CELL_PCT_PAREN_RE = re.compile(r"\(\s*(?P<val>\d+(?:\.\d+)?)\s*\)")
+
+
+def _canonicalize_safety_endpoint(raw: str) -> str:
+    """Map a raw safety table header to the canonical endpoint name
+    used elsewhere in the catalog (matching _ENDPOINT_VOCAB entries).
+    """
+    r = raw.strip().lower()
+    if "serious adverse" in r or re.match(r"^saes?$", r) or "≥1 serious adverse" in r:
+        return "serious adverse events"
+    if "leading to" in r and ("discontinuation" in r or "treatment withdrawal" in r):
+        return "discontinuation"
+    if "≥1 adverse event" in r or r in ("teae", "adverse event", "adverse events"):
+        return "adverse events"
+    if "gastrointestinal" in r or r in ("gi events", "gi adverse events"):
+        return "GI events"
+    if "injection" in r and "site" in r:
+        return "injection-site reaction"
+    if "thyroid" in r or r == "mtc" or "c-cell" in r or "c cell" in r:
+        return "thyroid C-cell signal"
+    if "gallbladder" in r or "cholelithiasis" in r or "cholecystitis" in r:
+        return "gallbladder disease"
+    # Common single-word endpoints — passthrough lowercase
+    if r in (
+        "nausea", "vomiting", "diarrhea", "diarrhoea", "constipation",
+        "abdominal pain", "hypoglycemia", "hypoglycemic",
+        "pancreatitis", "retinopathy", "discontinuation",
+        "dyspepsia", "decreased appetite",
+    ):
+        if r == "diarrhoea":
+            return "diarrhea"
+        if r == "hypoglycemic":
+            return "hypoglycemia"
+        return r
+    return r
+
+
+# Codex Step 3k diff iter-3: raise from 14 to 30. The original 14
+# was hit BEFORE the `||` row terminator in 5-arm tables (each arm
+# has 2 columns: "n (pct)" + "No. of events"), producing rows that
+# spilled across multiple actual rows.
+_MAX_PIPES_PER_ROW = 30
+# Empty-cell row separator pattern (markdown tables concatenated in
+# a single line use "| |" as the row boundary).
+_ROW_BOUNDARY_RE = re.compile(r"\|\s*\|")
+
+
+def _detect_all_table_regions(direct_quote: str) -> list[tuple[int, int]]:
+    """Codex Step 3k diff iter-2 P1 continuing: suppress legacy walk
+    inside ANY pipe-rich region, not just safety-header rows. Catches
+    descriptive sub-headers like 'Adverse events occurring in ≥5% of
+    patients' which are still inside the table block.
+
+    Returns list of (start, end) byte ranges in direct_quote where the
+    pipe-density is high enough to be a table block. Heuristic: any
+    window of 500 chars containing ≥6 `|` is part of a table; expand
+    to the surrounding pipe-rich neighborhood.
+    """
+    if "|" not in direct_quote:
+        return []
+    pipe_positions = [i for i, c in enumerate(direct_quote) if c == "|"]
+    if len(pipe_positions) < 6:
+        return []
+    regions: list[tuple[int, int]] = []
+    # Group consecutive pipes where adjacent pipes are within 200 chars.
+    # iter-3: raised from 80 to 200 to span descriptor cells like
+    # "Adverse events occurring in ≥0.2% of the overall population
+    # (i.e., 3 patients) and leading to discontinuation of tirzepatide
+    # or semaglutide" between pipe-clusters of two data sections.
+    cluster: list[int] = [pipe_positions[0]]
+    for p in pipe_positions[1:]:
+        if p - cluster[-1] <= 200:
+            cluster.append(p)
+        else:
+            if len(cluster) >= 6:
+                regions.append((cluster[0], cluster[-1] + 1))
+            cluster = [p]
+    if len(cluster) >= 6:
+        regions.append((cluster[0], cluster[-1] + 1))
+    return regions
+
+
+def _iter_safety_table_rows(direct_quote: str) -> list[tuple[str, str, str]]:
+    """Detect markdown safety-table rows in `direct_quote`.
+
+    A row is a candidate if:
+      1. First cell (preceded by `|` or line start) matches
+         _SAFETY_TABLE_HEADER_RE
+      2. Row has >= 3 pipe-separated data cells AFTER the header
+      3. Row terminates at: newline, empty-cell row separator (`| |`),
+         OR _MAX_PIPES_PER_ROW pipes (whichever comes first)
+
+    Returns list of (endpoint_canonical, row_text, raw_endpoint_text).
+
+    Header occurrences NOT inside a `|...|` row structure (i.e. in
+    prose) are skipped. Each header occurrence is matched at most once.
+    """
+    rows: list[tuple[str, str, str, int]] = []
+    text = direct_quote
+    seen_starts: set[int] = set()
+    for hdr in _SAFETY_TABLE_HEADER_RE.finditer(text):
+        endpoint_text = hdr.group("endpoint")
+        # Codex Step 3k diff iter-3 P1: use hdr.start("endpoint") not
+        # hdr.start(). The `^\W+` prefix consumes leading symbols, so
+        # hdr.start() is at position 0 (before `|`), forcing left_idx
+        # to -1. Use the named group's start so left-scan finds the
+        # actual `|` before the endpoint name.
+        endpoint_start = hdr.start("endpoint")
+        # Header must be inside a pipe-delimited structure. Codex Step 3k
+        # diff iter-2 P2: walk LEFT until we find `|`, allowing arbitrary
+        # cell content (e.g., "| Elevated blood calcitonin level |"
+        # where the endpoint vocab "calcitonin" is not at cell start).
+        # iter-3: bounded to 80 chars (typical cell width). Larger
+        # scans land in unrelated cells.
+        left_idx = endpoint_start - 1
+        scan_steps = 0
+        while left_idx >= 0 and scan_steps < 80:
+            if text[left_idx] == "|":
+                break
+            if text[left_idx] == "\n":
+                left_idx = -1
+                break
+            left_idx -= 1
+            scan_steps += 1
+        if left_idx < 0 or scan_steps >= 80 or text[left_idx] != "|":
+            continue
+        # Codex Step 3k diff iter-1 P1 #1: relax the right side — the
+        # cell can contain additional text after the matched endpoint
+        # phrase. The right boundary is the next `|`, not immediately
+        # after the match end.
+        right_idx = text.find("|", hdr.end())
+        if right_idx < 0:
+            continue
+        # Avoid pathological gap (header matches but next `|` is too far,
+        # e.g., in prose): reject if first-cell length > 200 chars.
+        if right_idx - left_idx > 200:
+            continue
+        # Dedup: avoid matching the same header position twice via
+        # overlapping regex matches.
+        if left_idx in seen_starts:
+            continue
+        seen_starts.add(left_idx)
+        # Walk forward from right_idx (the `|` right of header) counting
+        # data cells. Stop at: newline, empty-cell boundary `| |`, OR
+        # _MAX_PIPES_PER_ROW pipes total.
+        pipe_count = 1  # the `|` between header and first data cell
+        i = right_idx
+        row_end = right_idx
+        while i < len(text) and pipe_count <= _MAX_PIPES_PER_ROW:
+            ch = text[i]
+            if ch == "\n":
+                break
+            if ch == "|":
+                # Empty-cell row boundary check: is the next non-space
+                # also `|`? If so, this is the row terminator.
+                j = i + 1
+                while j < len(text) and text[j] in " \t":
+                    j += 1
+                if j < len(text) and text[j] == "|":
+                    # Empty cell ahead — row ends at THIS pipe.
+                    row_end = i
+                    break
+                pipe_count += 1
+                row_end = i
+            i += 1
+        # Require >= 3 data cells in the row (3 pipes after the
+        # header-right pipe).
+        if pipe_count < 4:
+            continue
+        row_text = text[left_idx:row_end + 1]
+        rows.append((endpoint_text.strip().lower(), row_text, endpoint_text, left_idx))
+    return rows
+
+
+def _extract_cell_percentages(row_text: str, header_end_idx: int) -> list[tuple[float, int, int, str]]:
+    """For a table row, extract per-cell percentages.
+
+    Returns list of (numeric_value, abs_start, abs_end, raw_text).
+    abs_start/end are offsets WITHIN the row_text. Caller adjusts to
+    direct_quote offsets.
+
+    Skip:
+      - Numbers before header_end_idx (the row header itself)
+      - Bare numbers without % or ( ... ) context (Codex P2)
+    """
+    cells: list[tuple[float, int, int, str]] = []
+    # Trailing-% form
+    for m in _CELL_PCT_TRAILING_RE.finditer(row_text):
+        if m.start() < header_end_idx:
+            continue
+        cells.append((float(m.group("val")), m.start("val"), m.end("val"), m.group(0)))
+    # Parenthetical form
+    for m in _CELL_PCT_PAREN_RE.finditer(row_text):
+        if m.start() < header_end_idx:
+            continue
+        # Don't double-count if this paren cell already matched %
+        already = any(
+            c[1] == m.start("val") and c[2] == m.end("val")
+            for c in cells
+        )
+        if not already:
+            cells.append((float(m.group("val")), m.start("val"), m.end("val"), m.group(0)))
+    return cells
+
+
+# ---------------------------------------------------------------------------
 # Number anchor + unit regexes (iter 2 fixes for P1 #1)
 # ---------------------------------------------------------------------------
 
@@ -999,8 +1265,95 @@ def extract_atoms_from_evidence(
     atoms: list[ClaimAtom] = []
     counter = atom_id_start
 
+    # I-gen-005 Step 3k (Codex APPROVE_DESIGN iter-1): per-cell atoms
+    # from markdown safety-table rows. Fires BEFORE the per-number walk
+    # so per-cell atoms get earlier IDs. The per-number walk is
+    # SUPPRESSED for numbers within detected table rows (Codex Step 3k
+    # diff iter-1 P1 #2: legacy walk emits misleading atoms with wrong
+    # entity/unit binding for table cells).
+    safety_table_rows = _iter_safety_table_rows(direct_quote)
+    # Codex Step 3k diff iter-4 P1: drop the broad _detect_all_table_regions
+    # suppression — it was breaking legacy walk on non-safety tables
+    # (efficacy, mechanism, etc.). Suppress ONLY within rows matched by
+    # the safety vocab (whether or not they pass the emit-worthy cell
+    # threshold). Descriptor rows ("≥0.2% of patients...") that match
+    # safety vocab are still in safety_table_rows for suppression,
+    # but don't emit atoms because cell count < 2.
+    table_row_ranges: list[tuple[int, int]] = []
+    for endpoint_canonical, row_text, raw_endpoint_text, row_start in safety_table_rows:
+        row_end = row_start + len(row_text)
+        table_row_ranges.append((row_start, row_end))
+        # Locate the endpoint header within the row to know where
+        # row-data begins (skip header value if any).
+        hdr_m = re.search(
+            re.escape(raw_endpoint_text), row_text, re.IGNORECASE
+        )
+        header_end = hdr_m.end() if hdr_m else 0
+        cells = _extract_cell_percentages(row_text, header_end)
+        # Codex Step 3k diff iter-3 P2: lowered from 3 to 2. Two-arm
+        # placebo-controlled trial tables have legitimate rows with only
+        # 2 percentage cells. Descriptor rows with embedded threshold
+        # values (e.g., "≥0.2% to ≥5%") would have 2 percentages but
+        # those rows are filtered upstream by the all-table-regions
+        # legacy-walk suppression + the `||||||||` empty-cells boundary.
+        if len(cells) < 2:
+            continue
+        # Trial-name fallback for entity (column-to-arm mapping DEFER
+        # per Codex P2 #4).
+        trial_m = _TRIAL_RE.search(direct_quote)
+        entity = trial_m.group(0).strip() if trial_m else (
+            evidence_row.get("statement", "")[:60] or "table"
+        )
+        # Canonicalize endpoint via vocab.
+        endpoint_canon = _canonicalize_safety_endpoint(endpoint_canonical)
+        for value_float, start, end, raw_text in cells:
+            value_str = f"{value_float:g}"
+            # Per-cell span offsets in direct_quote, per Codex Step 3k
+            # diff iter-1 P2 #3: ClaimAtom contract requires real
+            # direct_quote offsets, not row-relative.
+            cell_span_start = row_start + start
+            cell_span_end = row_start + end
+            counter += 1
+            atoms.append(ClaimAtom(
+                atom_id=f"atom_{counter:03d}",
+                evidence_id=ev_id,
+                span_start=cell_span_start,
+                span_end=cell_span_end,
+                literal_text=row_text,
+                entity=entity,
+                endpoint=endpoint_canon,
+                comparator="",
+                timepoint="",
+                value=value_str,
+                unit="%",
+                primary_section="Safety",
+                section_tags=("Safety",),
+                tier=tier,
+                value_signed=False,
+                # Codex Step 3k diff iter-1 P2 #4: ClaimAtom contract is
+                # "high"|"medium"|"low" — was incorrectly set to 0.7.
+                confidence="medium",
+                provenance_class=provenance_class,
+                source_paper_title=paper_title,
+            ))
+
+    def _in_table_row(pos: int) -> bool:
+        """Codex Step 3k diff iter-1 P1 #2 suppression: skip per-number
+        walk for numbers inside detected table rows. The legacy walk
+        produces wrong entity/unit bindings for table cells; the
+        table-row path emits the correct per-cell atoms above."""
+        for s, e in table_row_ranges:
+            if s <= pos < e:
+                return True
+        return False
+
     for m in _NUMBER_ATOM_RE.finditer(direct_quote):
         raw_value = m.group("value").strip()
+
+        # Codex Step 3k diff iter-1 P1 #2: skip numbers inside detected
+        # safety-table rows. The legacy walk produces wrong bindings.
+        if _in_table_row(m.start()):
+            continue
 
         # P1 #4 fix: decimal-aware literal_text expansion (FIRST so the
         # sentence boundaries are known before classification).
@@ -1008,6 +1361,15 @@ def extract_atoms_from_evidence(
 
         # SAFETY FLOOR: literal_text MUST contain the raw value verbatim.
         if raw_value not in literal_text:
+            continue
+
+        # Codex Step 3k diff iter-4 P1 hardening: if the literal_text
+        # is dominated by pipe-delimited table content (>=3 pipes), the
+        # number is in a table context — let the table-row path handle
+        # it (or skip silently if it's a descriptor row not covered by
+        # the table-row detector). Avoids "≥0.2%" / "≥5%" descriptor
+        # leaks while preserving prose-table mixed evidence.
+        if literal_text.count("|") >= 3:
             continue
 
         # P1 #2 fix: classify before atom creation. Pass sentence_start
