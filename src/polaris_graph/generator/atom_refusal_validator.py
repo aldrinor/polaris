@@ -107,8 +107,24 @@ _OUTCOME_VERB_WITH_NUMBER_RE = re.compile(
     r"decreas(?:ed|es?|ing)|increas(?:ed|es?|ing)|"
     r"chang(?:ed|es?)|improv(?:ed|ements?|ing)|"
     r"lower(?:ed|ing)|rais(?:ed|ing)|"
-    r"fell|rose|dropped)\s+"
-    r"(?:by|of|from|to)?\s*[-−]?\d",
+    r"fell|rose|dropped|"
+    # Codex Step 3j diff iter-1 P1 #1: active outcome verbs that V4 Pro
+    # may emit. Without these, "tirzepatide produced -2.30 percentage-point
+    # HbA1c reductions at 40 weeks" would slip past the trial-design
+    # exemption guard because no current verb matched.
+    r"produc(?:ed|es?|ing)|"
+    r"achiev(?:ed|es?|ing)|"
+    r"demonstrat(?:ed|es?|ing)|"
+    r"show(?:ed|s|n|ing)|"
+    r"yield(?:ed|s|ing)|"
+    r"deliver(?:ed|s|ing)|"
+    r"attain(?:ed|s|ing)|"
+    r"result(?:ed|s|ing)\s+in|"
+    r"led\s+to|leads\s+to|leading\s+to)\s+"
+    # Codex Step 3j diff iter-2 novel P1: optional article (a/an/the)
+    # between verb and number. Repro: "achieved a 2.30 percentage-point
+    # reduction" — without the article carve-out, this slipped past.
+    r"(?:by|of|from|to|in)?\s*(?:a|an|the)?\s*[-−]?\d",
     re.IGNORECASE,
 )
 
@@ -180,6 +196,158 @@ _NARRATIVE_CATEGORY_RE = re.compile(
     r"limitation|limited\s+by|caveat|long[-\s]?term\s+\w+\s+(?:data|safety)|"
     r"these\s+(?:outcomes|results|findings)\s+(?:were|are)\s+(?:consistent|in\s+line)"
     r")\b",
+    re.IGNORECASE,
+)
+
+
+# I-gen-005 Step 3j (Codex iter-4 APPROVE_DESIGN): trial-design framing
+# exemption for methodology narrative sentences that trigger Trigger A
+# (endpoint vocab + number) but describe what WILL BE measured, not what
+# WAS observed. Target repro from real V4 Pro smoke (gaps.json
+# efficacy.s009):
+#   "In a phase 3 trial, 1879 adults with type 2 diabetes (mean baseline
+#    HbA1c 8.28%, mean weight 93.7 kg) were randomly assigned to
+#    tirzepatide 5 mg, 10 mg, or 15 mg or semaglutide 1 mg, with the
+#    primary endpoint of change in HbA1c at 40 weeks[1]"
+#
+# Safety guard: result-attribution patterns (independent trigger,
+# below) catch outcome claims that would otherwise be masked by the
+# trial-design marker — see _ENDPOINT_RESULT_ATTRIBUTION_RE.
+#
+# Step 3b iter-3 lesson preserved: pure-regex disambiguation between
+# eligibility framing + endpoint+number AND outcome claim is fragile.
+# Trial-design markers are TIGHTER (require methodology-specific phrases,
+# not bare "baseline"); result-attribution guard catches the remaining
+# false-positive failure modes.
+_TRIAL_DESIGN_FRAME_RE = re.compile(
+    r"\b("
+    r"randomly\s+assigned\s+to|"
+    r"randomi[zs]ed\s+to|"
+    r"were\s+randomi[zs]ed|"
+    r"(?:primary|secondary)\s+end\s?point\s+of|"
+    r"(?:primary|secondary)\s+outcome\s+of|"
+    r"in\s+a\s+phase\s+(?:I{1,3}V?|IV|\d+)\s+trial|"
+    r"open[-\s]?label|"
+    r"double[-\s]?blind|"
+    r"placebo[-\s]?controlled|"
+    r"multicent(?:re|er)(?:d|ed)?|"
+    r"parallel[-\s]?group|"
+    r"stratified\s+by|"
+    r"head[-\s]?to[-\s]?head"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Endpoint-name alternation reused inside _ENDPOINT_RESULT_ATTRIBUTION_RE.
+# Codex iter-2 design P1 #3 + diff iter-1 P1 #2: must mirror
+# _ENDPOINT_VOCAB_RE coverage so the result-attribution guard doesn't
+# under-fire on hazard ratio, pancreatitis, abdominal pain, injection-site
+# reactions, urinary albumin excretion, etc.
+_ENDPOINT_NAMES_ALT = (
+    r"hba1c|glycated\s+h(?:a)?emoglobin|a1c|"
+    r"fasting\s+(?:plasma\s+)?glucose|fpg|fsg|"
+    r"body\s+weight|weight\s+(?:loss|reduction|change)|bmi|"
+    r"waist\s+circumference|"
+    r"ldl[-\s]?c|hdl[-\s]?c|triglycerides|cholesterol|"
+    r"blood\s+pressure|systolic|diastolic|sbp|dbp|mmhg|"
+    r"mace|myocardial\s+infarction|stroke|cv\s+death|cardiovascular\s+death|"
+    r"all[-\s]?cause\s+mortality|heart\s+failure|hf\s+hospitali[zs]ation|"
+    r"egfr|uacr|aki|creatinine|"
+    r"urinary\s+albumin(?:\s+excretion)?|"
+    r"adverse\s+events?|aes?|saes?|serious\s+adverse|discontinuation|"
+    r"nausea|vomiting|diarrh(?:o)?ea|constipation|abdominal\s+pain|"
+    r"injection[-\s]?site\s+reactions?|"
+    r"hypoglycemia|hypoglycaemia|hypoglyc(?:a)?emic\s+events?|"
+    r"pancreatitis|gallbladder|retinopathy|mtc|"
+    r"hazard\s+ratio|risk\s+ratio|odds\s+ratio|relative\s+risk|"
+    r"responder\s+rate|response\s+rate|incidence|"
+    # Codex Step 3j diff iter-2 P1 continuing #2: noninferiority and
+    # superiority are statistical endpoints in _ENDPOINT_VOCAB_RE.
+    r"non[-\s]?inferiority|superior(?:ity)?"
+)
+
+# Timepoint alternation — multiple natural forms (Codex Step 3j diff
+# iter-1 P1 #3 + design iter-2 P1 #2). Covers:
+#   "40 weeks", "week 40", "after 40 weeks", "by week 40",
+#   "at the end of 40 weeks", "40-week follow-up", "40-week".
+_TIMEPOINT_ALT = (
+    r"\d+\s*(?:weeks?|months?|years?|days?)|"
+    r"(?:weeks?|months?|years?|days?)\s+\d+|"
+    r"\d+[-\s](?:week|month|year|day)(?:s|\s+follow[-\s]?up)?"
+)
+# Prepositions/connectors that introduce a timepoint clause. Used
+# below; widened from bare "at" to cover real V4 Pro phrasings (Codex
+# Step 3j diff iter-1 P1 #3). Trailing "(?:\s+(?:the|a|an))?" handles
+# "at the 40-week follow-up" (article between prep and timepoint).
+_TIMEPOINT_PREP_ALT = (
+    r"(?:at|after|by|at\s+the\s+end\s+of|over|through(?:out)?|"
+    r"during|within|in)(?:\s+(?:the|a|an))?"
+)
+
+# I-gen-005 Step 3j (Codex iter-4 APPROVE_DESIGN): result-attribution
+# patterns that DON'T use outcome verbs but still assert an outcome
+# value. Wired as INDEPENDENT trigger (per Codex iter-3 P2): forces
+# atom-citation requirement REGARDLESS of trial-design marker. Catches:
+#   (a) "primary/secondary endpoint/outcome of <X> was NUMBER"
+#   (b) "at <timepoint> was NUMBER"
+#   (c) "<endpoint name> [at <timepoint>] was NUMBER"
+#   (d) REVERSE-ORDER: "change|reduction|... was NUMBER ... at <timepoint>"
+#   (e) PASSIVE/INCIDENCE: "X was reported in NUMBER", "occurred in NUMBER",
+#       "NUMBER achieved X"
+#
+# Safety floor: this guard combined with _OUTCOME_VERB_WITH_NUMBER_RE
+# means trial-design exemption only fires when the sentence has
+# methodology marker AND no outcome-verb-with-number AND no
+# result-attribution AND no qualitative comparative.
+_ENDPOINT_RESULT_ATTRIBUTION_RE = re.compile(
+    r"\b("
+    # (a) "primary/secondary endpoint|outcome of <anything> was NUMBER"
+    r"(?:primary|secondary)\s+(?:end\s?point|outcome)\s+of"
+    r"[^.]{1,80}?(?:was|were|is|are|=)\s*[-−]?\d+(?:\.\d+)?|"
+    # (b) "<prep> <timepoint> was NUMBER" — endpoint-at-timepoint result.
+    # Widened from bare "at" to all _TIMEPOINT_PREP_ALT (Codex Step 3j
+    # diff iter-1 P1 #3: "after 40 weeks", "by week 40", etc.).
+    + _TIMEPOINT_PREP_ALT + r"\s+(?:" + _TIMEPOINT_ALT + r")"
+    r"\s+(?:was|were|is|are|=)\s*[-−]?\d+(?:\.\d+)?|"
+    # (c) "<endpoint name> [<prep> <timepoint>] was NUMBER"
+    r"\b(?:" + _ENDPOINT_NAMES_ALT + r")"
+    r"(?:\s+" + _TIMEPOINT_PREP_ALT + r"\s+(?:" + _TIMEPOINT_ALT + r"))?"
+    r"\s+(?:was|were|is|are|=)\s*[-−]?\d+(?:\.\d+)?|"
+    # (d) REVERSE-ORDER: "change/reduction/... was NUMBER ... <prep> <timepoint>"
+    r"\b(?:change|reduction|level|rate|incidence|frequency)\b"
+    r"[^.]{1,80}?(?:was|were|is|are|=)\s*[-−]?\d+(?:\.\d+)?"
+    r"[^.]{1,80}?" + _TIMEPOINT_PREP_ALT + r"\s+(?:" + _TIMEPOINT_ALT + r")|"
+    # (e) PASSIVE/INCIDENCE result attribution
+    r"\b(?:" + _ENDPOINT_NAMES_ALT + r")\s+(?:was|were)\s+"
+    r"(?:reported|observed|recorded)\s+in\s+\d|"
+    r"\b(?:" + _ENDPOINT_NAMES_ALT + r")\s+occurred\s+in\s+\d|"
+    r"\d+\s*%?\s+achieved\s+(?:" + _ENDPOINT_NAMES_ALT + r")|"
+    # (f) VERB + ENDPOINT + "of NUMBER" — Codex Step 3j diff iter-3 P1.
+    # Repro: "tirzepatide achieved HbA1c of 6.2% at 40 weeks."
+    # The outcome-verb guard caught verb+NUMBER but not verb+endpoint+of+NUMBER.
+    # iter-4 P1: also include phrasal verbs (led to, resulted in,
+    # leading to, ...) for "led to HbA1c of 6.2%" and "resulted in
+    # nausea of 22%" patterns.
+    r"\b(?:produc(?:ed|es?|ing)|"
+    r"achiev(?:ed|es?|ing)|"
+    r"demonstrat(?:ed|es?|ing)|"
+    r"show(?:ed|s|n|ing)|"
+    r"yield(?:ed|s|ing)|"
+    r"deliver(?:ed|s|ing)|"
+    r"attain(?:ed|s|ing)|"
+    r"reduc(?:ed|tions?|ing)|"
+    r"lower(?:ed|ing)|rais(?:ed|ing)|"
+    r"increas(?:ed|es?|ing)|decreas(?:ed|es?|ing)|"
+    r"chang(?:ed|es?)|improv(?:ed|ements?|ing)|"
+    r"led\s+to|leads\s+to|leading\s+to|"
+    r"result(?:ed|s|ing)\s+in)"
+    # iter-5 P1: optional article/modifier (a/an/the/mean/median/
+    # baseline/change in) before the endpoint. Repro: "led to an
+    # HbA1c of 6.2%" / "resulted in mean HbA1c of 6.2%" / "led to
+    # a change in HbA1c of -2.30" — last needs 2 modifiers.
+    r"\s+(?:(?:a|an|the|mean|median|baseline|average|change\s+in)\s+){0,3}"
+    r"(?:" + _ENDPOINT_NAMES_ALT + r")\s+of\s+[-−]?\d+(?:\.\d+)?"
+    r")",
     re.IGNORECASE,
 )
 
@@ -319,10 +487,35 @@ def requires_atom_citation(sentence: str) -> tuple[bool, Optional[str]]:
     # false negative (over-refuse benign eligibility) is recoverable;
     # false positive (mask real outcome) is lethal.
 
+    # I-gen-005 Step 3j (Codex iter-4 APPROVE_DESIGN): independent
+    # result-attribution trigger. Catches outcome claims that lack an
+    # explicit outcome verb but still assert a value (copular endpoint
+    # attribution, value-at-timepoint, passive/incidence). Fires
+    # BEFORE narrative / trial-design exemption checks so result claims
+    # can never be masked by methodology framing.
+    if _ENDPOINT_RESULT_ATTRIBUTION_RE.search(s):
+        return True, "trigger_endpoint_result_attribution"
+
     # Pure narrative categories — never require atom citation UNLESS
     # there's also an outcome-number combo or qualitative comparative.
     narrative_matches = _NARRATIVE_CATEGORY_RE.findall(s)
     if narrative_matches and not has_outcome_number and not has_qual_comparative:
+        return False, None
+
+    # I-gen-005 Step 3j (Codex iter-4 APPROVE_DESIGN): trial-design
+    # framing exemption. Allow methodology-narrative sentences that
+    # describe what WILL BE measured (e.g. "primary endpoint of change
+    # in HbA1c at 40 weeks") without forcing atom citation, as long
+    # as no outcome-verb-with-number AND no result-attribution
+    # (already returned above) AND no qualitative comparative.
+    # Order matters: this runs AFTER the result-attribution independent
+    # trigger so a sentence like "primary endpoint of change in HbA1c
+    # was -2.30" still REFUSES via the independent trigger first.
+    if (
+        _TRIAL_DESIGN_FRAME_RE.search(s)
+        and not _OUTCOME_VERB_WITH_NUMBER_RE.search(s)
+        and not has_qual_comparative
+    ):
         return False, None
 
     # Trigger A: number + endpoint
