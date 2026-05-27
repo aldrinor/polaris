@@ -921,3 +921,128 @@ def test_iter3_p2_filter_by_primary_section_excludes_secondary_tags():
             f"tirz atom {a.atom_id} (primary=Dose Response) leaked "
             f"into Efficacy filter — should be SINGLE PLACEMENT only"
         )
+
+
+# ============================================================================
+# I-gen-005 Step 3k (Codex APPROVE_DESIGN iter-1): per-cell safety-table
+# atom extraction.
+# ============================================================================
+
+
+_SAFETY_TABLE_EV = {
+    "evidence_id": "ev_test_safety_table",
+    "tier": "T1",
+    "provenance_class": "primary",
+    "statement": "SURPASS-2 NEJM safety table fixture.",
+    "title": "Tirzepatide versus Semaglutide Once Weekly in Patients with T2DM",
+    "direct_quote": (
+        "Adverse events occurring in >=5% of patients. "
+        "| Nausea | 82 (17.4) | 111 | 90 (19.2) | 124 | 104 (22.1) | 136 "
+        "| 84 (17.9) | 126 | 360 (19.2) | 497 | "
+        "| Diarrhea | 62 (13.2) | 120 | 77 (16.4) | 99 | 65 (13.8) | 102 "
+        "| 54 (11.5) | 68 | 258 (13.7) | 389 | "
+        "| Vomiting | 27 (5.7) | 35 | 40 (8.5) | 56 | 46 (9.8) | 61 "
+        "| 39 (8.3) | 53 | 152 (8.1) | 205 | "
+        "| Patients with >=1 serious adverse event "
+        "| 33 (7.0) | - | 25 (5.3) | - | 27 (5.7) | - | 13 (2.8) | - "
+        "| 98 (5.2) | - |"
+    ),
+}
+
+
+def test_step3k_safety_table_rows_detected():
+    """Step 3k Codex APPROVE iter-1: per-cell atoms from markdown safety
+    table. Each row should produce one atom per (cell percentage)."""
+    atoms = extract_atoms_from_evidence(_SAFETY_TABLE_EV)
+    safety_atoms = [a for a in atoms if a.primary_section == "Safety"]
+    # 4 rows × ~5 cells each = ~20 atoms (varies by row count)
+    assert len(safety_atoms) >= 15, (
+        f"Step 3k should emit per-cell safety atoms; got "
+        f"{len(safety_atoms)} (expected >=15)"
+    )
+
+
+def test_step3k_nausea_target_values_extracted():
+    """The 4 V4 Pro target Nausea percentages from real smoke."""
+    atoms = extract_atoms_from_evidence(_SAFETY_TABLE_EV)
+    nausea_values = {
+        a.value for a in atoms
+        if a.endpoint == "nausea" and a.unit == "%"
+    }
+    expected = {"17.4", "19.2", "22.1", "17.9"}
+    missing = expected - nausea_values
+    assert not missing, (
+        f"Step 3k must extract V4 Pro target Nausea cell percentages; "
+        f"missing: {missing}; got: {sorted(nausea_values)}"
+    )
+
+
+def test_step3k_sae_canonical_endpoint_mapping():
+    """SAE row header 'Patients with >=1 serious adverse event' maps to
+    canonical 'serious adverse events'."""
+    atoms = extract_atoms_from_evidence(_SAFETY_TABLE_EV)
+    sae_values = {
+        a.value for a in atoms
+        if a.endpoint == "serious adverse events" and a.unit == "%"
+    }
+    expected = {"7", "5.3", "5.7", "2.8"}
+    missing = expected - sae_values
+    assert not missing, (
+        f"SAE per-cell percentages missing: {missing}; got: {sorted(sae_values)}"
+    )
+
+
+def test_step3k_non_table_evidence_unchanged():
+    """Sanity check: pre-Step-3k extraction behavior preserved for
+    non-table evidence."""
+    prose_ev = {
+        "evidence_id": "ev_test_prose",
+        "tier": "T1",
+        "provenance_class": "primary",
+        "statement": "prose-only fixture.",
+        "direct_quote": (
+            "In SURPASS-2, tirzepatide 15 mg reduced HbA1c by -2.46 "
+            "percentage points versus semaglutide 1 mg at 40 weeks."
+        ),
+    }
+    atoms = extract_atoms_from_evidence(prose_ev)
+    # The prose path should fire; no markdown table → no new
+    # per-cell atoms. Hypothesis: at least 1 atom for the HbA1c change.
+    hba1c_atoms = [a for a in atoms if a.endpoint == "HbA1c"]
+    assert len(hba1c_atoms) >= 1, (
+        f"Prose-only extraction should still produce HbA1c atom; "
+        f"got {len(atoms)} total atoms, {len(hba1c_atoms)} HbA1c."
+    )
+
+
+def test_step3k_no_atom_for_bare_numeric_cells():
+    """Codex Step 3k P2 #2: bare numeric cells without % or (...)
+    context should NOT become atoms (column-header parser not yet
+    implemented). Verifies we skip the 'n only' cells like '111'
+    in 'Nausea | 82 (17.4) | 111 |' (where 111 might be a sample size)."""
+    atoms = extract_atoms_from_evidence(_SAFETY_TABLE_EV)
+    nausea_atoms = [a for a in atoms if a.endpoint == "nausea"]
+    # Values: 17.4, 19.2, 22.1, 17.9, 19.2 (pooled total)
+    # SHOULD NOT include: 111, 124, 136, 126, 497 (bare sample-size cells)
+    nausea_values = {a.value for a in nausea_atoms}
+    bare_sample_sizes = {"111", "124", "136", "126", "497"}
+    leaked = nausea_values & bare_sample_sizes
+    assert not leaked, (
+        f"Bare sample-size cells should NOT become atoms; leaked: {leaked}"
+    )
+
+
+def test_step3k_dedup_not_required_per_codex_p2():
+    """Codex Step 3k P2 #1: per-cell atoms can repeat values across
+    columns (e.g., Nausea row has 19.2 in arm-2 AND pooled-total).
+    Both should appear as distinct atoms (no dedup)."""
+    atoms = extract_atoms_from_evidence(_SAFETY_TABLE_EV)
+    nausea_19_2 = [
+        a for a in atoms
+        if a.endpoint == "nausea" and a.value == "19.2"
+    ]
+    # The fixture has 19.2 twice in Nausea row (Tirz 10mg and pooled).
+    assert len(nausea_19_2) >= 2, (
+        f"Codex P2 #1: same value in different cells must produce "
+        f"distinct atoms (no dedup); got {len(nausea_19_2)} for 19.2"
+    )
