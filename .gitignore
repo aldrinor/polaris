@@ -62,6 +62,8 @@ outputs/*
 state/*
 !state/polaris_restart/
 !state/polaris_restart/**
+!state/polaris_statistical_contract/
+!state/polaris_statistical_contract/**
 !state/active_issue.json
 !state/restart_instructions.md
 !state/handover.md
