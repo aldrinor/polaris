@@ -2325,7 +2325,7 @@ async def run_one_query(
             min_kept_fraction=float(os.environ.get(
                 "PG_MIN_KEPT_FRACTION", "0.4",
             )),
-            max_parallel_sections=3,
+            max_parallel_sections=int(os.environ.get("PG_MAX_PARALLEL_SECTIONS", "3")),
             tier_fractions=dist.tier_fractions,
             contradictions=[asdict(c) for c in contradictions],
             date_range=(

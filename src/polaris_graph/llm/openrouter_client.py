@@ -1496,7 +1496,12 @@ class OpenRouterClient:
 
                 # Rate limit — back off
                 if status == 429:
-                    wait = RETRY_BACKOFF_BASE ** (attempt + 1)
+                    # I-bug-943: bumped 429 backoff floor 2,4,8 -> 15,30,60s (max 60s).
+                    # DeepInfra's V4 Pro throttle window is longer than 14s; the old 3-attempt
+                    # / 14s-total budget reliably gave up before the throttle cleared on
+                    # parallel-section generation. Operator-tunable via PG_RATE_LIMIT_FLOOR_S.
+                    floor = float(os.getenv("PG_RATE_LIMIT_FLOOR_S", "15.0"))
+                    wait = min(60.0, max(floor, RETRY_BACKOFF_BASE ** (attempt + 1)) * (attempt + 1))
                     logger.warning(
                         "[polaris graph] Rate limited, waiting %.1fs (attempt %d/%d)",
                         wait, attempt + 1, MAX_RETRIES + 1,
