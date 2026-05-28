@@ -1,7 +1,7 @@
 {
   "active_issue_id": "I-safety-002b",
   "active_issue_github": 925,
-  "current_step": "step_2_reauthor_gold_rubrics_for_golden_questions_then_codex_verify_freeze",
+  "current_step": "step_3_wire_pathB_run_gate_into_runner_then_polaris_runs (rubric answer-key FROZEN 2026-05-28: Codex APPROVE iter2, freeze_pin.txt)",
   "assigned_by": "operator directive 2026-05-28 ('update github open issue, make it as priority, ... start execution'; then 'find the most challenging questions from the golden benchmark' -> golden set LOCKED, Codex-confirmed)",
   "priority": true,
   "title": "Path B: POLARIS vs ChatGPT/Gemini/Perplexity DR — 5 GOLDEN DRB-EN Qs, full-power, per-run §-1.1 line-by-line",
@@ -15,7 +15,7 @@
     "5 golden DRB-EN questions LOCKED + Codex-confirmed (golden_questions_locked.md, codex_lock5.txt)",
     "gold_rubrics_pathB.md RE-AUTHORED against golden Qs (#75/#76/#78/#72/#90) — DRAFT, awaiting Codex §-1.1 source verification + hash-pin"
   ],
-  "next": "Codex §-1.1-verify the 5 re-authored gold rubrics against fetched authoritative sources + extract gold spans + hash-pin (freeze) -> wire pathB_run_gate into a real runner (Codex step-3 P1-3) -> POLARIS full-power runs through the gate + dual §-1.1 line-by-line audit",
+  "next": "DONE: gold-rubric answer key FROZEN (dual §-1.1 audit; Codex APPROVE iter2; freeze_pin.txt). NOW: wire pathB_run_gate into a real runner (Codex step-3 P1-3 — gate currently enforces only in fixtures) -> POLARIS full-power runs through the gate + dual §-1.1 line-by-line audit vs the frozen key. Competitor exports (operator) fold into the competitor side.",
   "operator_dependency": "competitor exports (ChatGPT/Gemini/Perplexity DR on the 5 golden Qs -> external_outputs/<tool>/Q##/ HTML + saved sources) — operator pulling these now (2026-05-28); needed only for the competitor side, NOT the POLARIS side",
   "five_questions": ["DRB#75_plasma_metal_ion_modulation_cvd", "DRB#76_gut_microbiota_probiotics_crc_diet", "DRB#78_parkinsons_staging_warning_signs_post_dbs", "DRB#72_ai_labor_market_lit_review_journal_only", "DRB#90_adas_liability_allocation_case_law"],
   "paused_umbrella": {
@@ -32,5 +32,5 @@
     "research_evidence": "docs/v4_pro_research_2026_05_25.md (42 primary sources)",
     "note": "These are the per-role pins the pathB_run_gate enforces: generator deepseek-v4-pro, evaluator gemma-4-31b-it."
   },
-  "last_updated_utc": "2026-05-28T10:30:00Z"
+  "last_updated_utc": "2026-05-28T12:15:00Z"
 }

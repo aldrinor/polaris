@@ -1084,3 +1084,4 @@ up 4 progressive P1 layers that the offline smoke would have hidden:
   - P2 (#72 El8): "A&R 2018/2019 AER" venue error — Automation and New Tasks is JEP 2019 not AER. FIXED.
   - Codex CONFIRMED the other 7 v2 changelog edits (TACT/TACT2, calcium, #76 El8 split, ISAPP defs, #78 device-safety, #90 statutes/cases, #72 generative-AI journal forms).
   - Both fixes verified-real → resubmitting iter 2 for APPROVE.
+- **iter 2** (2026-05-28): verdict APPROVE. 0 P0/P1/P2. benavides_fix_confirmed true; venue_fix_confirmed true; fabrication_firewall PASS; accept_remaining. ~81k tokens. -> answer key FROZEN + hash-pinned (freeze_pin.txt). Dual §-1.1 rubric audit closed at iter 2 (well under 5-cap).

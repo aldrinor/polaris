@@ -1,12 +1,14 @@
 # Gold rubrics (pre-registration DRAFT v2 — Claude-arm-verified) — Path-B (I-safety-002b / #925)
 
-**Status**: PRE-REGISTRATION DRAFT v2. Re-authored 2026-05-28 against the LOCKED golden DRB-EN
-questions (#75/#76/#78/#72/#90), then CORRECTED per the Claude-arm §-1.1 source verification
-(`claude_rubric_verification_ledger.md`: 5 parallel research agents, every element checked against
-a real fetched source, verbatim gold spans, zero fabrications across 38 elements). **NOT FROZEN.**
-Freeze requires: Codex runs the INDEPENDENT second §-1.1 arm (re-fetches sources itself, does NOT
-trust this draft or the Claude ledger) → reconcile Claude+Codex → hash-pin (rubric text + source
-URLs + fetch snapshots + gold spans) BEFORE any competitor/POLARIS output is viewed.
+**Status**: **FROZEN 2026-05-28 (pre-registration answer key, v3).** Dual §-1.1 audit complete:
+Claude arm = `claude_rubric_verification_ledger.md` (5 parallel research agents, 38 elements vs real
+fetched sources, verbatim gold spans, ZERO fabrications); Codex independent second arm = APPROVE
+iter 2 (`codex_rubric_freeze_iter2.txt`: zero P0/P1/P2, fabrication_firewall PASS, both iter-1 fixes
+confirmed — the Benavides P0 + the #72 venue P2). Codex's iter-1 independent re-fetch caught a real
+answer-key P0 (the wrongful blanket exclusion of the real Benavides v. Tesla verdict); fixed in v3.
+Hash-pinned in `freeze_pin.txt`. **FROZEN BEFORE any competitor/POLARIS output was viewed — that is
+the pre-registration property.** Any post-freeze change requires a new dated changelog entry +
+re-pin + Codex re-APPROVE.
 
 **What a rubric IS**: the required answer ELEMENTS a faithful deep-research report MUST cover
 (Lane-2 coverage), each tied to an authoritative source + a verified gold span. NOT exact numeric
