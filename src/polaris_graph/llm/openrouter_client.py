@@ -27,6 +27,9 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 
 from src.polaris_graph.tracing import _current_tracer
+# I-safety-002b (#925): Path-B benchmark gate capture (stdlib-only, no circular import;
+# all calls are gate-flagged via is_active() so the hot path pays one contextvar read).
+from src.polaris_graph.benchmark import pathB_capture as _pathb_capture
 
 load_dotenv()
 
@@ -1005,7 +1008,9 @@ class OpenRouterClient:
     ) -> tuple[str, str, dict]:
         """Accumulate SSE chunks from a streaming response.
 
-        Returns (content, reasoning_content, usage_data).
+        Returns (content, reasoning_content, usage_data, served_identity), where
+        served_identity holds the genuinely-served provider/model/system_fingerprint
+        captured from the SSE chunks (I-safety-002b #925).
 
         Handles OpenRouter SSE format:
         - ``data: {JSON}`` — delta chunks with content/reasoning_content
@@ -1019,6 +1024,11 @@ class OpenRouterClient:
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         usage_data: dict = {}
+        # I-safety-002b (#925): served-identity from SSE chunks (provider/model/
+        # system_fingerprint). OpenRouter reports these per-chunk; keep the last
+        # non-null. Used to populate the synthesized streaming `data` with the
+        # genuinely-served identity (not the request-derived model) for the gate.
+        served: dict = {}
 
         # Phase 3: SSE chunk metrics
         chunk_count = 0
@@ -1044,6 +1054,12 @@ class OpenRouterClient:
                 continue
 
             chunk_count += 1
+
+            # I-safety-002b (#925): capture genuinely-served identity (last non-null wins).
+            for _sk in ("provider", "model", "system_fingerprint"):
+                _sv = chunk.get(_sk)
+                if _sv:
+                    served[_sk] = _sv
 
             # Phase 3: Mid-stream error detection (SOTA research finding)
             # FIX-QWEN-1: Also detect top-level errors with empty choices
@@ -1111,11 +1127,11 @@ class OpenRouterClient:
                 chunk_count,
             )
 
-        return content_text, reasoning_text, usage_data
+        return content_text, reasoning_text, usage_data, served
 
     async def _read_stream(
         self, body: dict, timeout: float,
-    ) -> tuple[str, str, dict]:
+    ) -> tuple[str, str, dict, dict]:
         """Execute streaming POST and accumulate SSE response.
 
         Opens an httpx streaming connection, reads SSE events, and returns
@@ -1146,7 +1162,7 @@ class OpenRouterClient:
                     "[polaris graph] SSE path: Content-Type=%s",
                     content_type,
                 )
-                content, reasoning, usage = await self._accumulate_sse(response)
+                content, reasoning, usage, served = await self._accumulate_sse(response)
 
                 # Defense: if SSE produced nothing, the stream may have
                 # been malformed. Log for diagnostics.
@@ -1157,7 +1173,7 @@ class OpenRouterClient:
                         content_type,
                     )
 
-                return content, reasoning, usage
+                return content, reasoning, usage, served
 
             # Non-SSE response — provider returned standard JSON
             # despite stream:true. Read full body and parse.
@@ -1176,11 +1192,17 @@ class OpenRouterClient:
                     content_type,
                     str(exc)[:200],
                 )
-                return "", "", {}
+                return "", "", {}, {}
 
+            # I-safety-002b (#925): served identity from the real JSON body.
+            _served = {
+                _k: data.get(_k)
+                for _k in ("provider", "model", "system_fingerprint")
+                if data.get(_k)
+            }
             choices = data.get("choices", [])
             if not choices:
-                return "", "", data.get("usage", {})
+                return "", "", data.get("usage", {}), _served
 
             message = choices[0].get("message", {})
             logger.info(
@@ -1198,6 +1220,7 @@ class OpenRouterClient:
                 or message.get("reasoning", "")
                 or "",
                 data.get("usage", {}),
+                _served,
             )
 
     async def __aenter__(self):
@@ -1381,7 +1404,7 @@ class OpenRouterClient:
 
                 if body.get("stream", True):
                     # Streaming path — accumulate SSE chunks
-                    content_text, reasoning_text, stream_usage = await asyncio.wait_for(
+                    content_text, reasoning_text, stream_usage, stream_served = await asyncio.wait_for(
                         self._read_stream(body, actual_timeout),
                         timeout=actual_timeout + 30,
                     )
@@ -1396,6 +1419,11 @@ class OpenRouterClient:
                         "usage": stream_usage,
                         "model": self.model,
                     }
+                    # I-safety-002b (#925): stash the genuinely-SSE-served identity so the
+                    # Path-B gate sees the SERVED provider/model, not the request-derived
+                    # `self.model` fallback above. Gate-flagged: nothing added when off.
+                    if _pathb_capture.is_active():
+                        data["_pathb_served"] = stream_served
                 else:
                     # FIX-QWEN-2: Non-streaming path for json_object
                     resp = await asyncio.wait_for(
@@ -1655,6 +1683,17 @@ class OpenRouterClient:
         # run-scoped reasoning-trace sink BEFORE any caller-level promotion /
         # </think> extraction / retry / ReasoningFirstTruncationError raise.
         _capture_reasoning_trace(result, content, reasoning)
+
+        # I-safety-002b (#925): Path-B benchmark gate capture — one LLMCall per provider
+        # completion (this is the unified completion boundary for stream + non-stream +
+        # retries + reason/generate/generate_structured). Best-effort + gate-flagged:
+        # is_active() is a cheap contextvar read and is False outside a benchmark run.
+        if _pathb_capture.is_active():
+            _pathb_capture.capture_llm_call(
+                role=_pathb_capture.current_llm_role() or "generator",
+                messages=sanitized_messages,
+                raw_response=data,
+            )
 
         logger.info(
             "[polaris graph] %s completed: %d in/%d out/%d reasoning tokens, "

@@ -176,6 +176,22 @@ class _EntailmentJudge:
             response.raise_for_status()
             data = response.json()
 
+            # I-safety-002b (#925): Path-B gate capture. The entailment judge is the
+            # evaluator-family LLM call that bypasses OpenRouterClient (direct httpx),
+            # so without capturing here the gate's two-family completeness check would
+            # be a silent no-op. Best-effort + gate-flagged; lazy import keeps off-mode
+            # import cost zero. `data` is the genuinely-served non-stream JSON.
+            try:
+                from src.polaris_graph.benchmark import pathB_capture as _pathb
+                if _pathb.is_active():
+                    _pathb.capture_llm_call(
+                        role="evaluator",
+                        messages=[{"role": "user", "content": prompt}],
+                        raw_response=data,
+                    )
+            except Exception:  # noqa: BLE001 — capture must never break the judge
+                pass
+
             # I-bug-100: cost recording. Reads + records BEFORE verdict
             # parse so a cap breach aborts the sweep regardless of
             # downstream parse outcome.
