@@ -1105,3 +1105,23 @@ up 4 progressive P1 layers that the offline smoke would have hidden:
 - **Evaluator judge hook**: `src/polaris_graph/llm/entailment_judge.py` (invoked via provenance_generator `_get_judge().judge()` ~1161/1220) posts direct httpx to /chat/completions, bypassing OpenRouterClient — add the SAME capture inside its request method, role="evaluator", metadata from ITS response JSON.
 - **Module**: `src/polaris_graph/benchmark/pathB_capture.py` — contextvar sink + `llm_role` ctx-mgr (token/restore) + record_retrieval_attempt + build_response_metadata(drop None) + request_hash. Lazy, gate-flagged (zero hot-path cost when gate off).
 - Tests: tests/dr_benchmark/test_pathB_capture.py (pure): fake direct-judge proves evaluator capture; streaming-shape fake proves served-provider provenance; role ctx-mgr restore; None-field drop; request_hash stable.
+
+### PR-2 design fork (role-tagging vs real honest_sweep LLM topology) — discovered 2026-05-28
+PR-1 (capture + completion hook) is Codex-APPROVE'd + committed (731e022b). Authoring PR-2 surfaced
+that honest_sweep's LLM topology is richer than the gate-wiring brief assumed:
+- REPORT GENERATOR (deepseek): generator/multi_section_generator.generate_multi_section_report +
+  generator/analyst_synthesis.py:346-352 (sets reasoning_call_context @349).
+- EVALUATORS (gemma): evaluator/live_judge.judge_report (PG_EVALUATOR_MODEL, default gemma-4-31b,
+  OpenRouterClient @139/151); evaluator/external_evaluator.run_external_evaluation; the strict_verify
+  entailment judge (entailment_judge.py, role="evaluator" hooked in PR-1).
+- AUXILIARY (model = OPENROUTER_MODEL default = deepseek unless overridden): audit_ir/
+  scope_classifier_llm.py:584-589 (OpenRouterClient(model=model)); auto_induction/llm_inductor.py:332.
+PR-1 hook defaults untagged calls to role="generator" -> auxiliary calls bucket as generator; if any
+serves a non-deepseek/gemma model, assert_post_run false-fails ("served model"). FORK:
+- Option A (capture-all, default generator): stronger ("every generator-family call served deepseek")
+  but false-fails on any auxiliary serving a 3rd model.
+- Option B (capture-ONLY-explicitly-tagged): robust; change PR-1 hook `or "generator"` -> require
+  explicit role (skip untagged); tag report-generator + live_judge + external_evaluator as their roles
+  (entailment judge already role="evaluator"); auxiliary scope/inductor skipped. Matches the benchmark
+  purpose (police the report generator + evaluator). RECOMMENDED.
+Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list before authoring PR-2.
