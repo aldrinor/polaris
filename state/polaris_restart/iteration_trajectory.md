@@ -1149,3 +1149,13 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   - P3 #1: _carry_evidence note not appended. Fix: concatenate both auditors' notes with ' || '.
   - P3 #2: cells don't escape | or \n. Fix: _cell() helper applied everywhere.
   All 8 fixed; 91/91 dr_benchmark tests green (+7 regression tests). Resubmitting iter 2.
+- **iter 2** verdict APPROVE. 0 P0/P1/P2. 1 cosmetic P3 (silent_side label reversed in audit note; scoring unaffected) — fixed. accept_remaining. ~80k tokens. All 8 iter1 findings true. -> PR-3 SHIPS at 312783d6 + cosmetic fix.
+
+## I-safety-002b end-to-end gate-wiring milestone (2026-05-28)
+- Frozen gold-rubric answer key (dual §-1.1 audit; Codex APPROVE iter2; 3bcd839a). 38 elements, 0 fabrications.
+- Competitor side stored: 10/10 reports (GPT 5.5 Pro + Gemini 3.1 Pro), sha256-pinned.
+- PR-1 (capture primitives + completion hooks + streaming served-identity, 731e022b): Codex APPROVE iter2.
+- PR-2 (role tags + retrieval hooks + --pathB-gate lifecycle + INVALID sentinel, 0bc2c805): Codex APPROVE iter3 (caught 2 real P1 bugs pre-merge).
+- PR-3 (ledger + reconciler + score CLI + frozen-rubric JSON + final-report aggregator + smoke runbook, 2894f617+f38df40d+312783d6): Codex APPROVE iter2 (caught 2 real P1 + 4 P2 + 2 P3 bugs pre-merge).
+- 91/91 dr_benchmark tests green; 20+ touched-area smoke tests green.
+- Operator authorization needed: single-question smoke run on #72 (smoke.md) -> 5 full POLARIS runs through --pathB-gate -> dual §-1.1 line-by-line audit vs frozen rubric -> final_report.md.
