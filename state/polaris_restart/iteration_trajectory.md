@@ -1085,3 +1085,12 @@ up 4 progressive P1 layers that the offline smoke would have hidden:
   - Codex CONFIRMED the other 7 v2 changelog edits (TACT/TACT2, calcium, #76 El8 split, ISAPP defs, #78 device-safety, #90 statutes/cases, #72 generative-AI journal forms).
   - Both fixes verified-real → resubmitting iter 2 for APPROVE.
 - **iter 2** (2026-05-28): verdict APPROVE. 0 P0/P1/P2. benavides_fix_confirmed true; venue_fix_confirmed true; fabrication_firewall PASS; accept_remaining. ~81k tokens. -> answer key FROZEN + hash-pinned (freeze_pin.txt). Dual §-1.1 rubric audit closed at iter 2 (well under 5-cap).
+
+## I-safety-002b gate-wiring BRIEF (step-3 P1-3 approach) — Codex design review
+- **iter 1** (2026-05-28): doc = codex_gate_wiring_brief.md. verdict REQUEST_CHANGES. 0 P0, 3 P1, 3 P2. convergence continue. ~131k tokens. The brief-first review caught 3 real design errors BEFORE any diff:
+  - P1: capture seam must be at `_call_impl`/provider-completion boundary (not just generate/generate_structured) — else retries/superseded-attempts/reason() are missed.
+  - P1: the strict-verify ENTAILMENT JUDGE (evaluator family) uses direct httpx to /chat/completions, BYPASSING OpenRouterClient — my hook would miss all evaluator calls (two-family enforcement = silent no-op). Must capture or reroute.
+  - P1: streaming responses synthesize raw_response WITHOUT provider + with request-derived model=self.model — assert_post_run requires served provider_name+model; would fail or false-pass. Fix served-metadata provenance (read served provider+model from the actual response/SSE final chunk).
+  - P2: scoped role tagging via context-manager token/restore (not sticky set_llm_role); post-run assert on ALL exits incl. early abort, before any scorer; lazy gate-flagged import (no hard src->scripts import on the hot path).
+  - Answers: A explicit scoped role attribution (not model inference); B per-role preflight probe OK but must use the SAME capture/metadata path + not count request-derived fields as response-proven; C provider_name+model surrogate OK when system_fingerprint absent; D SPLIT into PR-1 (capture primitives + _call_impl + direct-judge capture tests) / PR-2 (retrieval hooks + runner gate lifecycle) / PR-3 (live/operator smoke + scoring); E YES run one supervised #72/#90 smoke AFTER wiring, BEFORE the 5 full runs (confirm non-clinical scope/corpus behavior).
+  - NEXT: investigate _call_impl boundary + streaming served-metadata + the direct entailment-judge call site; revise brief to v2; resubmit iter 2. Live run = operator-gated.
