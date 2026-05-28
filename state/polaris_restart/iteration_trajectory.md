@@ -1137,3 +1137,15 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
 - **iter 2** sandbox-env failure (Windows tmp_path PermissionError); 1 regression test successfully ran + PASSED. Budget exhausted on retries; no verdict YAML.
 - **iter 3** verdict APPROVE. 0 P0/P1/P2/P3. All 5 iter-1 findings closed (P1_generator_env_var, P1_surrogate_no_sysfp, P2_salt_redacted, P2_invalid_sentinel_for_downstream_skip, P3_preflight_fail_writes_result all true). All 4 verification flags true (role_tag_chokepoints_correct, per_question_lifecycle_correct, retrieval_hooks_complete, exception_propagation_correct). accept_remaining. ~12k tokens.
 - PR-2 SHIPS at 0bc2c805. -> author PR-3 design (scoring integration + smoke runbook + final report) -> Codex review -> PR-3 code.
+
+### PR-3 diff audit Codex iter1 -> iter2
+- **iter 1** REQUEST_CHANGES (0 P0, 2 P1, 4 P2, 2 P3). All real:
+  - P1 #1: score_run accepts single-auditor ledger -> bypass conservative-MAX. Fix: require auditor=='reconciled'.
+  - P1 #2: silent-auditor escalation crashes on UNREACHABLE present rows (subtype on non-UNREACHABLE). Fix: branch on UNREACHABLE-vs-other.
+  - P2 #1: Coverage accepts non-bool (string 'false' truthy). Fix: isinstance bool check.
+  - P2 #2: identity pins block missing pathB_gate served-identity. Fix: surface from score_run + render in aggregate.
+  - P2 #3: dual-pin discipline incomplete + nondeterministic JSON. Fix: drop timestamp + bytes write + require markdown pin + check JSON pin.
+  - P2 #4: parser silently under-parses. Fix: fail closed on element-count drift.
+  - P3 #1: _carry_evidence note not appended. Fix: concatenate both auditors' notes with ' || '.
+  - P3 #2: cells don't escape | or \n. Fix: _cell() helper applied everywhere.
+  All 8 fixed; 91/91 dr_benchmark tests green (+7 regression tests). Resubmitting iter 2.
