@@ -309,3 +309,17 @@ PRIORITY governance artifact for Carney readiness. v3.3 = methodology-locked pre
 **Master GH issue**: #917. Sub-issues: #918 (v3.3 lock), #919 (Phase 0a.0 design).
 
 **Memory**: `paired_llm_authorship_no_statistician_2026_05_27.md`.
+
+## 12. DR head-to-head benchmark harness — `scripts/dr_benchmark/` + `tests/dr_benchmark/` (added 2026-05-28)
+
+PRIORITY (I-safety-002b / #925). Benchmarks POLARIS as a deep-research tool vs ChatGPT/Gemini/Perplexity DR, §-1.1 claim-by-claim. Plan: `.codex/I-safety-002b/execution_plan_pathB.md` (Codex APPROVE iter 5).
+
+| Path | Purpose |
+|------|---------|
+| `scripts/dr_benchmark/pathB_run_gate.py` | Fatal preflight+post-run enforcement: whole-surface secret-redacted `effective_config.json`, per-role served-identity surrogate, `OPENROUTER_ALLOW_FALLBACKS=false` + singleton routing, fatal retrieval-capability preflight + backends-attempted assertion, all-LLM-paths completeness. 14 fixtures. |
+| `scripts/dr_benchmark/medhallu_adapter.py` | Scorer primitives (pairing, source-isolation, aggregation, confusion/F1). MedHallu retired to verifier-component-only proxy (NOT a deep-research benchmark). 12 fixtures. |
+| `scripts/dr_benchmark/medhallu_runner.py` | MedHallu entailment-layer runner (component sanity-check only). |
+| `tests/dr_benchmark/` | 26 fixtures green (gate + adapter), validated BEFORE any model run. |
+| (pending) `src/polaris_graph/benchmark/claim_audit_scorer.py` | Two-lane audit ledger (faithfulness + pre-registered rubric coverage) — REPLACES the §-1.1-banned/rigged `dimension_scorers.py`/`beat_both_scorer.py`. |
+
+**NOTE**: the legacy `src/polaris_graph/benchmark/dimension_scorers.py` + `beat_both_scorer.py` ("BEAT-BOTH", 7-dimension) are §-1.1-INVALID (count/pattern/string-match scoring + POLARIS auto-win dimensions) — DO NOT use as a benchmark scorer; being replaced by `claim_audit_scorer.py`.

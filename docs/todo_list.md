@@ -1,5 +1,8 @@
 # POLARIS — todo / active scope (RE-PRIORITIZED 2026-05-20)
 
+## ⭐ CURRENT PRIORITY (2026-05-28, operator-flagged): I-safety-002b (#925) — proper DR head-to-head benchmark
+Benchmark POLARIS **as a deep-research tool** vs ChatGPT/Gemini/Perplexity DR on 5 clinical Qs, POLARIS at MAX POWER, **per-run §-1.1 line-by-line dual audit** (Claude+Codex, claim → fetched cited span → verdict). Plan Codex-APPROVE'd iter 5 (5 rounds, 14 P1 closed): `.codex/I-safety-002b/execution_plan_pathB.md`. Active per `state/active_issue.json`. The pre-existing `beat_both_scorer.py`/`dimension_scorers.py` is §-1.1-BANNED + rigged → discarded; rebuilt as `claim_audit_scorer.py` (two-lane: faithfulness + pre-registered rubric coverage). Done: `pathB_run_gate.py` (enforcement) + 26 dr_benchmark fixtures green. Next: scorer + prompt-capture + 5 gold rubrics → Codex review → POLARIS runs. Operator dependency: competitor DR exports (Path B). **P2 UI umbrella (#821) PAUSED.**
+
 **Active scope: the Carney demo, RE-PRIORITIZED by demo value.**
 
 APD Scope source (in precedence order):
