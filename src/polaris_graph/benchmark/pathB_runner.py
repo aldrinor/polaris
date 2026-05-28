@@ -38,14 +38,26 @@ _DEFAULT_EVAL_SLUG = "google/gemma-4-31b-it"
 
 
 def _role_pins() -> list[RolePin]:
-    """Build the per-role pins from the live env. system_fingerprint is included as a
-    surrogate field — if the provider omits it, the capture drops the field and the
-    surrogate becomes provider+model (still exact-match-enforced)."""
-    gen = (os.getenv("OPENROUTER_DEFAULT_MODEL") or _DEFAULT_GEN_SLUG).strip()
+    """Build the per-role pins from the live env.
+
+    Codex PR-2 diff iter-1 P1 #1: read PG_GENERATOR_MODEL first (the documented honest_sweep
+    override used by generate_multi_section_report); fall back to OPENROUTER_DEFAULT_MODEL,
+    then the static default. Pinning the wrong env var made every correct call fail the gate.
+
+    Codex PR-2 diff iter-1 P1 #2: surrogate_fields MUST be only those PROVEN present in the
+    served response. assert_post_run treats a missing surrogate field as fatal, so requiring
+    system_fingerprint would fail any provider that omits it (entailment_judge often does).
+    Pin only the always-present surrogate (provider_name + model); build_response_metadata
+    still records system_fingerprint when present, but it is NOT a required surrogate."""
+    gen = (
+        os.getenv("PG_GENERATOR_MODEL")
+        or os.getenv("OPENROUTER_DEFAULT_MODEL")
+        or _DEFAULT_GEN_SLUG
+    ).strip()
     ev = (os.getenv("PG_EVALUATOR_MODEL") or _DEFAULT_EVAL_SLUG).strip()
     provider_order = (os.getenv("OPENROUTER_PROVIDER_ORDER") or "").strip()
     provider = provider_order.split(",")[0].strip() if provider_order else ""
-    surrogate_fields = ("provider_name", "model", "system_fingerprint")
+    surrogate_fields = ("provider_name", "model")
     return [
         RolePin("generator", gen, provider, surrogate_fields),
         RolePin("evaluator", ev, provider, surrogate_fields),
@@ -79,15 +91,33 @@ def gate_around_question(
 
     pin_path = run_dir / "pathB_gate_pin.json"
     result_path = run_dir / "pathB_gate_result.json"
+    invalid_sentinel = run_dir / "pathB_gate_INVALID"
+    run_dir.mkdir(parents=True, exist_ok=True)
 
-    pin = preflight(
-        control_vars=list(control_vars or []),
-        role_pins=_role_pins(),
-        salt=_salt(),
-        roots=[Path("src/polaris_graph"), Path("scripts")],
-        offline=False,  # real run = real reachability ping (gate enforce-by-default).
-    )
-    pin_path.parent.mkdir(parents=True, exist_ok=True)
+    # Codex PR-2 diff iter-1 P3: write a FAIL result file even when preflight raises,
+    # so a missing-credential / unreachable-backend failure has an explicit per-run record
+    # (otherwise the only artifact is a stderr exception, no traceable artifact).
+    try:
+        pin = preflight(
+            control_vars=list(control_vars or []),
+            role_pins=_role_pins(),
+            salt=_salt(),
+            roots=[Path("src/polaris_graph"), Path("scripts")],
+            offline=False,  # real run = real reachability ping (gate enforce-by-default).
+        )
+    except GateError as exc:
+        result_path.write_text(
+            json.dumps(
+                {"verdict": "FAIL", "stage": "preflight", "reason": str(exc)},
+                indent=2, sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        invalid_sentinel.write_text(
+            f"preflight FAIL: {exc}\n", encoding="utf-8",
+        )
+        logger.error("[pathB] preflight FAIL: %s", exc)
+        raise
     pin_path.write_text(json.dumps(pin, indent=2, sort_keys=True, default=str),
                         encoding="utf-8")
     _capture.register_pathB_capture()
@@ -115,8 +145,18 @@ def gate_around_question(
         logger.info("[pathB] gate PASS for run_dir=%s", run_dir)
     except GateError as exc:
         result_path.write_text(
-            json.dumps({"verdict": "FAIL", "reason": str(exc)}, indent=2, sort_keys=True),
+            json.dumps(
+                {"verdict": "FAIL", "stage": "post_run_assert", "reason": str(exc)},
+                indent=2, sort_keys=True,
+            ),
             encoding="utf-8",
+        )
+        # Codex PR-2 diff iter-1 P2 #2: write an INVALID sentinel so downstream scoring
+        # (PR-3 claim_audit_scorer) can skip the run_dir's per-run artifacts even though
+        # they were written during the run (manifest/judge/etc.). The gate is the source
+        # of truth for run validity; the sentinel makes that machine-readable.
+        invalid_sentinel.write_text(
+            f"post-run gate FAIL: {exc}\n", encoding="utf-8",
         )
         logger.error("[pathB] gate FAIL for run_dir=%s: %s", run_dir, exc)
         raise

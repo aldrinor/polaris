@@ -27,6 +27,9 @@ _SECRET_SUFFIXES = ("_API_KEY", "_SECRET", "_ACCESS_TOKEN", "_AUTH_TOKEN")
 _SECRET_EXPLICIT = {
     "OPENROUTER_API_KEY", "SERPER_API_KEY", "SEMANTIC_SCHOLAR_API_KEY",
     "EXA_API_KEY", "OPEN_PAGERANK_API_KEY",
+    # Codex PR-2 diff iter-1 P2: PG_PATHB_GATE_SALT is the HMAC salt used by
+    # build_effective_config to redact secrets — it MUST not be persisted in the pin.
+    "PG_PATHB_GATE_SALT",
 }
 _REQUIRED_RETRIEVAL_CREDS = ("SERPER_API_KEY", "SEMANTIC_SCHOLAR_API_KEY")
 # Run-affecting env that is NOT PG_*/OPENROUTER_* prefixed — must still be in the config hash

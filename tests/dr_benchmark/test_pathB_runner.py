@@ -17,8 +17,10 @@ def _full_power_env(monkeypatch) -> None:
     monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "deepinfra")
     monkeypatch.setenv("SERPER_API_KEY", "x")
     monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "y")
-    monkeypatch.setenv("PG_PATHB_GATE_SALT", "pathB-test-salt")
-    monkeypatch.setenv("OPENROUTER_DEFAULT_MODEL", "deepseek/deepseek-v4-pro")
+    monkeypatch.setenv("PG_PATHB_GATE_SALT", "pathB-test-salt-VERY-secret")
+    # Codex PR-2 diff iter-1 P1 #1: PG_GENERATOR_MODEL is the documented honest_sweep
+    # override; the pin must read it first (not OPENROUTER_DEFAULT_MODEL).
+    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
     monkeypatch.setenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
 
 
@@ -112,6 +114,103 @@ def test_enabled_fails_when_backend_not_attempted(tmp_path: Path, monkeypatch) -
     result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
     assert result["verdict"] == "FAIL"
     assert "never attempted" in result["reason"]
+
+
+# --- Codex PR-2 iter-1 P1 #1: PG_GENERATOR_MODEL is the documented honest_sweep override;
+# the pin MUST read it (not OPENROUTER_DEFAULT_MODEL alone). Regression test.
+def test_pin_reads_pg_generator_model_first(monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_DEFAULT_MODEL", "wrong/wrong-slug")
+    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
+    monkeypatch.setenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
+    monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "deepinfra")
+    from src.polaris_graph.benchmark.pathB_runner import _role_pins
+    pins = {p.role: p for p in _role_pins()}
+    assert pins["generator"].model_slug == "deepseek/deepseek-v4-pro"  # NOT "wrong/wrong-slug"
+
+
+# --- Codex PR-2 iter-1 P1 #2: system_fingerprint must NOT be a required surrogate field;
+# a valid response without it must pass the gate. Regression test.
+def test_gate_passes_without_system_fingerprint(tmp_path: Path, monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    _patch_preflight_offline(monkeypatch)
+    pc.clear_pathB_capture()
+    with gate_around_question(enabled=True, run_dir=tmp_path):
+        # responses deliberately OMIT system_fingerprint — must still pass
+        pc.capture_llm_call(
+            role="generator",
+            messages=[{"role": "user", "content": "q"}],
+            raw_response={"provider": "deepinfra", "model": "deepseek/deepseek-v4-pro"},
+        )
+        pc.capture_llm_call(
+            role="evaluator",
+            messages=[{"role": "user", "content": "j"}],
+            raw_response={"provider": "deepinfra", "model": "google/gemma-4-31b-it"},
+        )
+        pc.record_retrieval_attempt("serper")
+        pc.record_retrieval_attempt("semantic_scholar")
+    result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
+    assert result["verdict"] == "PASS"
+
+
+# --- Codex PR-2 iter-1 P2: PG_PATHB_GATE_SALT must be redacted in the pin (HMAC key).
+def test_salt_is_redacted_in_pin(tmp_path: Path, monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    _patch_preflight_offline(monkeypatch)
+    pc.clear_pathB_capture()
+    try:
+        with gate_around_question(enabled=True, run_dir=tmp_path):
+            pc.capture_llm_call(
+                role="generator", messages=[{"role": "user", "content": "q"}],
+                raw_response={"provider": "deepinfra", "model": "deepseek/deepseek-v4-pro"},
+            )
+            pc.capture_llm_call(
+                role="evaluator", messages=[{"role": "user", "content": "j"}],
+                raw_response={"provider": "deepinfra", "model": "google/gemma-4-31b-it"},
+            )
+            pc.record_retrieval_attempt("serper")
+            pc.record_retrieval_attempt("semantic_scholar")
+    except Exception:
+        pass
+    pin_text = (tmp_path / "pathB_gate_pin.json").read_text(encoding="utf-8")
+    assert "pathB-test-salt-VERY-secret" not in pin_text  # plaintext absent
+    # but the salt env var IS recorded as a secret presence/length entry
+    assert "PG_PATHB_GATE_SALT" in pin_text
+
+
+# --- Codex PR-2 iter-1 P3: preflight FAIL writes a per-run FAIL result + INVALID sentinel.
+def test_preflight_fail_writes_result_and_sentinel(tmp_path: Path, monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    # break full-power: remove OPENROUTER_ALLOW_FALLBACKS=false invariant
+    monkeypatch.setenv("OPENROUTER_ALLOW_FALLBACKS", "true")
+    _patch_preflight_offline(monkeypatch)
+    pc.clear_pathB_capture()
+    with pytest.raises(GateError):
+        with gate_around_question(enabled=True, run_dir=tmp_path):
+            pass  # never reached
+    result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
+    assert result["verdict"] == "FAIL"
+    assert result["stage"] == "preflight"
+    assert (tmp_path / "pathB_gate_INVALID").exists()
+
+
+# --- gate FAIL on post-run assert writes INVALID sentinel too (P2 #2: downstream skip) ---
+def test_post_run_fail_writes_invalid_sentinel(tmp_path: Path, monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    _patch_preflight_offline(monkeypatch)
+    pc.clear_pathB_capture()
+    with pytest.raises(GateError):
+        with gate_around_question(enabled=True, run_dir=tmp_path):
+            pc.capture_llm_call(
+                role="generator", messages=[{"role": "user", "content": "q"}],
+                raw_response={"provider": "deepinfra", "model": "deepseek/deepseek-v4-pro"},
+            )
+            pc.capture_llm_call(
+                role="evaluator", messages=[{"role": "user", "content": "j"}],
+                raw_response={"provider": "deepinfra", "model": "google/gemma-4-31b-it"},
+            )
+            pc.record_retrieval_attempt("serper")
+            # semantic_scholar deliberately omitted
+    assert (tmp_path / "pathB_gate_INVALID").exists()
 
 
 # --- exception inside body propagates, no post-run assert (would mask the cause) ---
