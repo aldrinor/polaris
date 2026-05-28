@@ -1,0 +1,84 @@
+# AI sovereignty domain completeness checklist.
+# Authored for the Statistical Safety Contract validation scope (D1, #919).
+# The validation-domain fail-closed guard (src/polaris_safety/validation_domain_guard.py)
+# requires this file to be present + non-empty for the `ai_sovereignty` domain.
+
+domain: ai_sovereignty
+
+topics:
+  - id: regulatory_framework
+    label: AI regulation / governance framework
+    keywords:
+      - "EU AI Act"
+      - "NIST AI RMF"
+      - "AI governance"
+      - "AI regulation"
+      - "national AI strategy"
+      - "risk management framework"
+      - "conformity assessment"
+    expand_queries:
+      - "{topic} AI governance regulatory framework"
+
+  - id: data_residency
+    label: Data residency / sovereignty requirements
+    keywords:
+      - "data residency"
+      - "data localization"
+      - "data sovereignty"
+      - "cross-border data transfer"
+      - "in-country"
+      - "jurisdiction"
+      - "sovereign cloud"
+    expand_queries:
+      - "{topic} data residency sovereignty requirement"
+
+  - id: procurement_standards
+    label: Public-sector procurement / standards
+    keywords:
+      - "procurement"
+      - "public sector"
+      - "government contract"
+      - "certification"
+      - "accreditation"
+      - "standard"
+      - "compliance requirement"
+    expand_queries:
+      - "{topic} public sector AI procurement standard"
+
+  - id: model_provenance
+    label: Model provenance / open-weight lineage
+    keywords:
+      - "open weight"
+      - "open source"
+      - "model license"
+      - "training lineage"
+      - "self-hosted"
+      - "model card"
+      - "weights"
+    expand_queries:
+      - "{topic} open-weight model provenance license"
+
+  - id: security_controls
+    label: Security / privacy controls
+    keywords:
+      - "encryption"
+      - "access control"
+      - "audit log"
+      - "privacy"
+      - "PII"
+      - "data protection"
+      - "threat model"
+    expand_queries:
+      - "{topic} AI security privacy controls"
+
+  - id: vendor_dependence
+    label: Vendor dependence / supply-chain risk
+    keywords:
+      - "vendor lock-in"
+      - "supply chain"
+      - "dependency"
+      - "third-party"
+      - "foreign control"
+      - "export control"
+    expand_queries:
+      - "{topic} AI vendor dependence supply chain risk"

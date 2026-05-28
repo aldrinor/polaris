@@ -1,0 +1,166 @@
+codex
+**§-1.1 Verdict**
+
+D4 is directionally correct, but I would not lock it as written. The L1/L2/L3 split is the right architecture, full-ID L3 matching is the right criterion-5 unit, and L3 append-only governance is the right basic posture. The blockers are in the operational controls: seed absence/contradiction, incomplete §P4 exposure mapping, insufficient anti-gaming controls for L3 additions/re-tagging, COI re-screening on ontology changes, and a few L2 category problems.
+
+**Control Split**
+
+L1 closed to the D1a six domains is correct.
+
+L2 closed is also correct. L2 is part of the canonical ID namespace, so allowing append-only L2 additions would create a clean gaming path: move a semantically identical L3 slug under a new L2 and avoid exact-match relations/COI. L2 changes should stay §P4-governed, not append-log governed.
+
+The caveat: close L2 only after fixing the current L2 table. “Six per domain” should not be treated as sacred if it forces bad taxonomy. Better to have 37 or 39 defensible L2s than 36 cosmetically balanced ones.
+
+**L2 Categories**
+
+Clinical needs revision. `drug_class` is too narrow for a clinical validation domain that includes drugs/devices/procedures/diagnostics/exposures, and there is no clean `outcome_endpoint` axis. `safety_signal` covers harms but not efficacy endpoints, biomarkers, hospitalization, mortality, surrogate endpoints, etc. Minimum fix: replace `drug_class` with `intervention_or_exposure` and add `outcome_endpoint` unless you merge outcome+safety explicitly.
+
+`canada_us` has the worst overlap. `binding_agreement` is a legal form, while the others are subject areas. CUSMA, NORAD, energy MOUs, immigration agreements, and regulatory-alignment agreements can all be “binding agreements,” so this L2 crosscuts the whole domain and will produce inconsistent tagging or false negatives under full-ID matching. Treat agreements as L3s under topical L2s, or add a separate instrument tag only if multi-tagging is mandatory and audited.
+
+`ai_sovereignty` is close but should explicitly place `compute_infrastructure` and `lawful_access`. If those are intended to live under `procurement`, `data_residency`, or `security_control`, D4 should say so; otherwise add/rename before closure.
+
+`due_diligence` is mostly workable, but it is light on IP/material-contract/operational-risk diligence. That can fit under `liability_risk` only if definitions say so. `policy` and `tech` are acceptable.
+
+**ID Scheme**
+
+`L1.L2.L3` is canonical and collision-safe if D4 adds a strict regex: lowercase ASCII slugs, dot reserved as separator, no aliases as IDs. Full-ID matching interacts correctly with 0a.-1.C criterion 5: `clinical.drug_class.glp1_ra` and `clinical.indication.glp1_ra` should not match.
+
+But this only works if L2 placement is stable and non-overlapping enough. If categories overlap, full-ID disambiguation becomes a false-negative generator. Add `display_name`, `aliases[]`, `definition`, `inclusion_criteria`, and `exclusion_criteria` to the seed/append schema so `glp1_ra`, `glp_1_ra`, and `glp1_receptor_agonist` do not become separate accidental topics.
+
+**Append Governance**
+
+“Before outcome exposure” is not sufficient. Per 0a.-1.E §6 / contract §P4.2, relation P/N/degree/relation hash/DEFF are structural exposure. After any allowed read of those structural artifacts, an L3 addition/split changes clustering/DEFF and must be a §P4 Category-3 amendment with affected manifests re-run and hash-pinned. After outcome exposure, Category-4.
+
+D4 needs three windows:
+
+Pre-structural exposure: recorded append allowed.
+
+Post-structural, pre-outcome: §P4 Category-3 amendment, uniform re-tag/rebuild, both old and new runs retained.
+
+Post-outcome: §P4 Category-4; confirmatory analysis becomes exploratory/remedial per contract.
+
+The append log also needs more than `{microtopic_id, added_by, added_at, rationale, parent_L2}`. It needs frozen meaning: definition, aliases, inclusion/exclusion criteria, status, ontology version/hash, supersedes/replaced_by, and whether it is assignable to new claims.
+
+**Gaming / Over-Breadth**
+
+The p95 degree audit is necessary but not sufficient. It catches broad tags after relations are computed; that is acceptable only if it is a blocking pre-outcome structural audit. It does not catch under-broad or hyper-specific tags, which are the more dangerous direction because they deflate P/DEFF.
+
+D4 needs explicit anti-gaming rules:
+
+L3 tags must be reusable semantic topics, not claim-specific, source-specific, packet-specific, entity-specific, severity-specific, or fabricated-claim-specific.
+
+Claims must carry all material L3 microtopics, not just one primary tag.
+
+Splitting an over-broad tag must re-tag all claims under the old semantic scope uniformly, not cherry-pick relation-reducing pairs.
+
+Deprecated tags remain in ontology history but are not assignable to new claims; corrected claim manifests get new versions/hashes.
+
+**COI Linkage**
+
+The L3 `topic_conflict_ids` design is consistent with 0a.-1.A §4 and 0a.-1.D §5, but D4 needs one more control: every L3 append must trigger COI re-screening before claims using that L3 can be assigned. Otherwise a new topic can appear after roster screening and silently bypass SME topic conflicts.
+
+Add `coi_screened_against_ontology_hash` or equivalent validation evidence. Fail closed on unresolved SME `topic_conflict_ids` as well as unresolved claim `microtopic_tags`.
+
+If broad SME advocacy conflicts are common, keep the validator L3-only but allow intake expansion: an L2/domain-level declared conflict is expanded into all current descendant L3s, and future L3 appends under that parent require re-screen.
+
+**Seed Deferral**
+
+This is the largest formal inconsistency. D4 says the initial L3 seed is locked/hash-pinned, and its definition of done includes the seed. But §7 says seed content is deferred until before pilot. As written, D4 cannot be “the `microtopic_tags` vocabulary” because there is no vocabulary to resolve against.
+
+Two acceptable paths:
+
+1. Include the machine-readable seed now and hash-pin it as part of D4.
+2. Rename this as D4-core structure/governance, then create a hard D4-seed gate before any SME COI screening, claim construction, construction_manifest acceptance, relation-builder dry run, D8 allocation, or pilot.
+
+“Before pilot” is too late if construction or COI assignment starts earlier.
+
+**Buildability**
+
+The relation-builder can consume exact string tags, but D4 must provide the resolver/validator substrate: canonical seed file, append-log schema, active/deprecated status, ontology hash/version, and a validator that rejects tags not active in the locked ontology version. Otherwise “unresolved microtopic” is not mechanically defined.
+
+Also clarify that D4 supplies the shared-microtopic predicate only; the full criterion-5 rule remains 0a.-1.C’s shared microtopic + same stratum + additional correlation gate.
+
+Fix the seed/validator, structural-exposure amendment mapping, anti-gaming retag rules, COI re-screening, and the L2 category revisions above then lock.
+85,295
+**§-1.1 Verdict**
+
+D4 is directionally correct, but I would not lock it as written. The L1/L2/L3 split is the right architecture, full-ID L3 matching is the right criterion-5 unit, and L3 append-only governance is the right basic posture. The blockers are in the operational controls: seed absence/contradiction, incomplete §P4 exposure mapping, insufficient anti-gaming controls for L3 additions/re-tagging, COI re-screening on ontology changes, and a few L2 category problems.
+
+**Control Split**
+
+L1 closed to the D1a six domains is correct.
+
+L2 closed is also correct. L2 is part of the canonical ID namespace, so allowing append-only L2 additions would create a clean gaming path: move a semantically identical L3 slug under a new L2 and avoid exact-match relations/COI. L2 changes should stay §P4-governed, not append-log governed.
+
+The caveat: close L2 only after fixing the current L2 table. “Six per domain” should not be treated as sacred if it forces bad taxonomy. Better to have 37 or 39 defensible L2s than 36 cosmetically balanced ones.
+
+**L2 Categories**
+
+Clinical needs revision. `drug_class` is too narrow for a clinical validation domain that includes drugs/devices/procedures/diagnostics/exposures, and there is no clean `outcome_endpoint` axis. `safety_signal` covers harms but not efficacy endpoints, biomarkers, hospitalization, mortality, surrogate endpoints, etc. Minimum fix: replace `drug_class` with `intervention_or_exposure` and add `outcome_endpoint` unless you merge outcome+safety explicitly.
+
+`canada_us` has the worst overlap. `binding_agreement` is a legal form, while the others are subject areas. CUSMA, NORAD, energy MOUs, immigration agreements, and regulatory-alignment agreements can all be “binding agreements,” so this L2 crosscuts the whole domain and will produce inconsistent tagging or false negatives under full-ID matching. Treat agreements as L3s under topical L2s, or add a separate instrument tag only if multi-tagging is mandatory and audited.
+
+`ai_sovereignty` is close but should explicitly place `compute_infrastructure` and `lawful_access`. If those are intended to live under `procurement`, `data_residency`, or `security_control`, D4 should say so; otherwise add/rename before closure.
+
+`due_diligence` is mostly workable, but it is light on IP/material-contract/operational-risk diligence. That can fit under `liability_risk` only if definitions say so. `policy` and `tech` are acceptable.
+
+**ID Scheme**
+
+`L1.L2.L3` is canonical and collision-safe if D4 adds a strict regex: lowercase ASCII slugs, dot reserved as separator, no aliases as IDs. Full-ID matching interacts correctly with 0a.-1.C criterion 5: `clinical.drug_class.glp1_ra` and `clinical.indication.glp1_ra` should not match.
+
+But this only works if L2 placement is stable and non-overlapping enough. If categories overlap, full-ID disambiguation becomes a false-negative generator. Add `display_name`, `aliases[]`, `definition`, `inclusion_criteria`, and `exclusion_criteria` to the seed/append schema so `glp1_ra`, `glp_1_ra`, and `glp1_receptor_agonist` do not become separate accidental topics.
+
+**Append Governance**
+
+“Before outcome exposure” is not sufficient. Per 0a.-1.E §6 / contract §P4.2, relation P/N/degree/relation hash/DEFF are structural exposure. After any allowed read of those structural artifacts, an L3 addition/split changes clustering/DEFF and must be a §P4 Category-3 amendment with affected manifests re-run and hash-pinned. After outcome exposure, Category-4.
+
+D4 needs three windows:
+
+Pre-structural exposure: recorded append allowed.
+
+Post-structural, pre-outcome: §P4 Category-3 amendment, uniform re-tag/rebuild, both old and new runs retained.
+
+Post-outcome: §P4 Category-4; confirmatory analysis becomes exploratory/remedial per contract.
+
+The append log also needs more than `{microtopic_id, added_by, added_at, rationale, parent_L2}`. It needs frozen meaning: definition, aliases, inclusion/exclusion criteria, status, ontology version/hash, supersedes/replaced_by, and whether it is assignable to new claims.
+
+**Gaming / Over-Breadth**
+
+The p95 degree audit is necessary but not sufficient. It catches broad tags after relations are computed; that is acceptable only if it is a blocking pre-outcome structural audit. It does not catch under-broad or hyper-specific tags, which are the more dangerous direction because they deflate P/DEFF.
+
+D4 needs explicit anti-gaming rules:
+
+L3 tags must be reusable semantic topics, not claim-specific, source-specific, packet-specific, entity-specific, severity-specific, or fabricated-claim-specific.
+
+Claims must carry all material L3 microtopics, not just one primary tag.
+
+Splitting an over-broad tag must re-tag all claims under the old semantic scope uniformly, not cherry-pick relation-reducing pairs.
+
+Deprecated tags remain in ontology history but are not assignable to new claims; corrected claim manifests get new versions/hashes.
+
+**COI Linkage**
+
+The L3 `topic_conflict_ids` design is consistent with 0a.-1.A §4 and 0a.-1.D §5, but D4 needs one more control: every L3 append must trigger COI re-screening before claims using that L3 can be assigned. Otherwise a new topic can appear after roster screening and silently bypass SME topic conflicts.
+
+Add `coi_screened_against_ontology_hash` or equivalent validation evidence. Fail closed on unresolved SME `topic_conflict_ids` as well as unresolved claim `microtopic_tags`.
+
+If broad SME advocacy conflicts are common, keep the validator L3-only but allow intake expansion: an L2/domain-level declared conflict is expanded into all current descendant L3s, and future L3 appends under that parent require re-screen.
+
+**Seed Deferral**
+
+This is the largest formal inconsistency. D4 says the initial L3 seed is locked/hash-pinned, and its definition of done includes the seed. But §7 says seed content is deferred until before pilot. As written, D4 cannot be “the `microtopic_tags` vocabulary” because there is no vocabulary to resolve against.
+
+Two acceptable paths:
+
+1. Include the machine-readable seed now and hash-pin it as part of D4.
+2. Rename this as D4-core structure/governance, then create a hard D4-seed gate before any SME COI screening, claim construction, construction_manifest acceptance, relation-builder dry run, D8 allocation, or pilot.
+
+“Before pilot” is too late if construction or COI assignment starts earlier.
+
+**Buildability**
+
+The relation-builder can consume exact string tags, but D4 must provide the resolver/validator substrate: canonical seed file, append-log schema, active/deprecated status, ontology hash/version, and a validator that rejects tags not active in the locked ontology version. Otherwise “unresolved microtopic” is not mechanically defined.
+
+Also clarify that D4 supplies the shared-microtopic predicate only; the full criterion-5 rule remains 0a.-1.C’s shared microtopic + same stratum + additional correlation gate.
+
+Fix the seed/validator, structural-exposure amendment mapping, anti-gaming retag rules, COI re-screening, and the L2 category revisions above then lock.

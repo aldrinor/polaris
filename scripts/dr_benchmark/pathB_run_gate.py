@@ -1,0 +1,454 @@
+"""Path-B run gate: fatal preflight + post-run enforcement for the DR head-to-head.
+
+I-safety-002b (#925), Codex-APPROVE'd plan v5 (5 review rounds). The existing
+`model_pin.json` is non-gating telemetry, `OPENROUTER_ALLOW_FALLBACKS` defaults true, and
+"full power" silently degrades if a retrieval key is missing. This gate makes the run
+full-power + correctly-modeled + drift-free + secret-safe, ENFORCED not asserted-in-prose.
+
+Pure-logic core (this module) is fixture-tested with NO live system. The runner wiring
+(prompt-capture at the LLM call boundary) consumes these functions.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import os
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+# Env-var name patterns the runner+client read (Codex: enumerate, do not handpick).
+_CONTROL_PREFIXES = ("PG_", "OPENROUTER_")
+# A var name is a SECRET (redact value) iff it looks like a credential. NOTE: exclude the
+# many *_MAX_TOKENS / *_TOKEN_BUDGET knobs — those are config, not secrets.
+_SECRET_SUFFIXES = ("_API_KEY", "_SECRET", "_ACCESS_TOKEN", "_AUTH_TOKEN")
+_SECRET_EXPLICIT = {
+    "OPENROUTER_API_KEY", "SERPER_API_KEY", "SEMANTIC_SCHOLAR_API_KEY",
+    "EXA_API_KEY", "OPEN_PAGERANK_API_KEY",
+    # Codex PR-2 diff iter-1 P2: PG_PATHB_GATE_SALT is the HMAC salt used by
+    # build_effective_config to redact secrets — it MUST not be persisted in the pin.
+    "PG_PATHB_GATE_SALT",
+}
+_REQUIRED_RETRIEVAL_CREDS = ("SERPER_API_KEY", "SEMANTIC_SCHOLAR_API_KEY")
+# Run-affecting env that is NOT PG_*/OPENROUTER_* prefixed — must still be in the config hash
+# (Codex P1: retrieval creds/knobs were missing from the whole-surface enumeration).
+_EXTRA_CONTROL_ENV = (
+    "SERPER_API_KEY", "SEMANTIC_SCHOLAR_API_KEY", "EXA_API_KEY", "OPEN_PAGERANK_API_KEY",
+)
+
+
+def full_control_surface(roots: list[Path]) -> list[str]:
+    """Complete run-affecting env set = enumerated PG_*/OPENROUTER_* UNION the extra
+    retrieval/credential env (Codex P1 — these affect the run but aren't prefix-matched)."""
+    return sorted(set(enumerate_control_surface(roots)) | set(_EXTRA_CONTROL_ENV))
+
+
+def control_surface_sources(roots: list[Path]) -> dict[str, list[str]]:
+    """name -> sorted ['<relpath>:<lineno>', ...] provenance for each control var (Codex P2)."""
+    extra = "|".join(re.escape(n) for n in _EXTRA_CONTROL_ENV)
+    pat = re.compile(
+        rf"os\.(?:getenv|environ\.get)\(\s*['\"]((?:PG_|OPENROUTER_)[A-Z0-9_]+|{extra})['\"]"
+        rf"|os\.environ\[\s*['\"]((?:PG_|OPENROUTER_)[A-Z0-9_]+|{extra})['\"]"
+    )
+    out: dict[str, set[str]] = {}
+    for root in roots:
+        for py in root.rglob("*.py"):
+            try:
+                lines = py.read_text(encoding="utf-8", errors="ignore").splitlines()
+            except OSError:
+                continue
+            for i, line in enumerate(lines, 1):
+                for m in pat.finditer(line):
+                    name = m.group(1) or m.group(2)
+                    out.setdefault(name, set()).add(f"{py.as_posix()}:{i}")
+    return {k: sorted(v) for k, v in out.items()}
+
+# Volatile response fields EXCLUDED from the served-identity surrogate (Codex iter-5 P2).
+_VOLATILE_METADATA_FIELDS = frozenset(
+    {"id", "request_id", "created", "timestamp", "usage", "prompt_tokens",
+     "completion_tokens", "total_tokens", "latency", "latency_ms", "cost", "x-request-id"}
+)
+
+
+class GateError(RuntimeError):
+    """Fatal gate violation — the run is INVALID and must be discarded, never scored."""
+
+
+def is_secret_var(name: str) -> bool:
+    """True iff `name` is a credential whose VALUE must be redacted (not a *_TOKENS knob)."""
+    if name in _SECRET_EXPLICIT:
+        return True
+    if name.endswith(("_MAX_TOKENS", "_TOKENS", "_TOKEN_BUDGET")):
+        return False
+    return name.endswith(_SECRET_SUFFIXES)
+
+
+def enumerate_control_surface(roots: list[Path]) -> list[str]:
+    """Scan source for every PG_*/OPENROUTER_* env var actually read (Codex: complete set).
+
+    Greps os.getenv / os.environ.get / os.environ[...] reads — NOT a handpicked list.
+    """
+    pat = re.compile(
+        r"os\.(?:getenv|environ\.get)\(\s*['\"]((?:PG_|OPENROUTER_)[A-Z0-9_]+)['\"]"
+        r"|os\.environ\[\s*['\"]((?:PG_|OPENROUTER_)[A-Z0-9_]+)['\"]"
+    )
+    found: set[str] = set()
+    for root in roots:
+        for py in root.rglob("*.py"):
+            try:
+                text = py.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for m in pat.finditer(text):
+                found.add(m.group(1) or m.group(2))
+    return sorted(found)
+
+
+def _redact(name: str, value: str | None, salt: bytes) -> dict:
+    """Secret presence record: present/length/salted-HMAC only — never the value (Codex P1)."""
+    if value is None:
+        return {"present": False, "length": 0, "salted_hmac": None}
+    digest = hmac.new(salt, value.encode("utf-8"), hashlib.sha256).hexdigest()
+    return {"present": True, "length": len(value), "salted_hmac": digest}
+
+
+def build_effective_config(control_vars: list[str], salt: bytes) -> dict:
+    """Snapshot the full control surface; secret VALUES redacted (Codex P1)."""
+    cfg: dict[str, dict] = {}
+    for name in control_vars:
+        val = os.environ.get(name)
+        if is_secret_var(name):
+            cfg[name] = {"secret": True, **_redact(name, val, salt)}
+        else:
+            cfg[name] = {"secret": False, "value": val, "set": val is not None}
+    return cfg
+
+
+def effective_config_hash(cfg: dict) -> str:
+    return hashlib.sha256(json.dumps(cfg, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def served_identity(call_metadata: dict) -> str:
+    """Stable per-role served-identity surrogate (Codex iter-4 P1 + iter-5 P2).
+
+    OpenRouter has no stable `model_version`; use provider_name + model + system_fingerprint
+    (+ any stable router metadata), EXCLUDING volatile fields. Missing the agreed surrogate
+    fields is caught by the caller (fatal), not silently hashed to a constant here.
+    """
+    stable = {
+        k: v for k, v in call_metadata.items()
+        if k not in _VOLATILE_METADATA_FIELDS
+    }
+    return hashlib.sha256(json.dumps(stable, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+@dataclass
+class RolePin:
+    role: str            # "generator" | "evaluator"
+    model_slug: str      # FULL OpenRouter slug, e.g. "deepseek/deepseek-v4-pro" — EXACT match
+    provider_name: str
+    surrogate_fields: tuple[str, ...]   # the metadata fields PROVEN present at preflight
+    canonical_slug: str | None = None   # I-bug-945 (#931): OpenRouter dated snapshot resolved
+    # at preflight via GET /api/v1/models. The alias `model_slug` is the env-pin handle; the
+    # canonical_slug (e.g. deepseek/deepseek-v4-pro-20260423) is what gets served as `model`
+    # in chat completions and is the actual pre-registration anchor in pathB_gate_pin.json.
+    # Trailing defaulted field per Codex P2#3 (don't break positional RolePin call sites).
+
+
+def _role_surrogate(metadata: dict, surrogate_fields: tuple[str, ...] | list) -> str:
+    """The served-identity surrogate over the PINNED fields only (Codex P1 — exact pin)."""
+    picked = {f: metadata.get(f) for f in surrogate_fields}
+    return hashlib.sha256(json.dumps(picked, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def preflight(
+    control_vars: list[str],
+    role_pins: list[RolePin],
+    salt: bytes,
+    reachability_prober=None,
+    source_map: dict[str, list[str]] | None = None,
+    roots: list[Path] | None = None,
+    offline: bool = False,
+) -> dict:
+    """Fatal preflight. Returns the pin record to hash-pin BEFORE the run.
+
+    The gate FORCES the complete control surface (Codex iter-2 P1): it always unions the
+    retrieval/credential env into `control_vars`, and if `roots` is given it also unions the
+    grepped PG_*/OPENROUTER_* surface — so a caller passing `[]` cannot produce an empty config.
+
+    Reachability is enforce-by-default for real runs (Codex iter-2 P1): if `offline` is False
+    and no prober is given, `real_retrieval_prober` is used (live ping). Tests pass
+    `offline=True` to skip the network. `reachability_checked=False` is therefore only
+    possible in an explicitly-offline (test) run, never a real run gate.
+    """
+    # FORCE the complete control surface (retrieval creds always; grepped surface if roots given)
+    surface = set(control_vars or [])
+    if roots:
+        surface |= set(full_control_surface(roots))
+    surface |= set(_EXTRA_CONTROL_ENV)
+    control_vars = sorted(surface)
+    # reachability: enforce-by-default for real runs
+    if not offline and reachability_prober is None:
+        reachability_prober = real_retrieval_prober
+    # 1. fallbacks OFF
+    if os.environ.get("OPENROUTER_ALLOW_FALLBACKS", "true").strip().lower() not in ("false", "0", "no"):
+        raise GateError("OPENROUTER_ALLOW_FALLBACKS must be false (it defaults TRUE)")
+    # 2. provider routing — per-role resolution at preflight (I-bug-946 #932).
+    # The env supplies a candidate list (comma-separated). Each role's actual served provider
+    # is resolved via OpenRouter's per-model endpoints endpoint and pinned per role. The old
+    # "singleton" check rejected multi-provider orders, but disjoint model provider sets
+    # require a multi-entry order (e.g. fireworks for deepseek-v4-pro, novita for gemma).
+    order = (os.environ.get("OPENROUTER_PROVIDER_ORDER") or "").strip()
+    provider_order_list = [p.strip() for p in order.split(",") if p.strip()]
+    if not provider_order_list:
+        raise GateError("OPENROUTER_PROVIDER_ORDER must list at least one candidate provider")
+    # 3. required retrieval capability — PRESENCE *and* REACHABILITY (Codex P1)
+    missing = [c for c in _REQUIRED_RETRIEVAL_CREDS if not os.environ.get(c)]
+    if missing:
+        raise GateError(f"required retrieval credentials absent — not full-power: {missing}")
+    if reachability_prober is not None:
+        for cred, backend in _REQUIRED_RETRIEVAL_CREDS_TO_BACKENDS.items():
+            if not reachability_prober(backend):
+                raise GateError(f"retrieval backend {backend!r} unreachable/invalid-key — not full-power")
+    # 4. each role pin must declare which surrogate fields it PROVED present + a full slug
+    for rp in role_pins:
+        if not rp.surrogate_fields:
+            raise GateError(f"role {rp.role}: no served-identity surrogate fields proven present")
+        if "/" not in rp.model_slug:
+            raise GateError(f"role {rp.role}: model_slug must be the FULL slug (provider/model), got {rp.model_slug!r}")
+        # I-bug-945 (#931): resolve OpenRouter alias to its dated canonical_slug at preflight.
+        # The catalog is the single source of truth; fail closed if the alias is unknown.
+        # Skipped on offline runs (unit tests pass canonical_slug directly when needed).
+        if not offline and rp.canonical_slug is None:
+            rp.canonical_slug = resolve_canonical_slug(rp.model_slug)
+        # I-bug-946 (#932): resolve per-role provider via /api/v1/models/<id>/endpoints.
+        # Codex iter-1 diff P1: online preflight MUST always overwrite provider_name from
+        # the resolver, because _role_pins() previously pre-seeded provider_name from the
+        # env's first entry (now changed to empty, but the always-overwrite invariant is
+        # the defense-in-depth — any future caller passing a non-empty provider_name still
+        # gets re-resolved at preflight, so the persisted pin reflects the actual resolution).
+        # Offline tests skip the resolver (pre-injected RolePin.provider_name wins).
+        if not offline:
+            rp.provider_name = resolve_role_provider(rp.model_slug, provider_order_list)
+    # I-bug-946 (Codex iter 2 P2#3 + iter-1 diff P2#2): enforce that the effective
+    # entailment model equals the effective evaluator model. Compare EFFECTIVE values
+    # (with their defaults) so a single env override that diverges from the default still
+    # fails closed — not only the "both env vars set divergently" case.
+    _DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"  # mirror entailment_judge.py:79
+    _DEFAULT_EVALUATOR_MODEL = "google/gemma-4-31b-it"   # mirror pathB_runner.py:37
+    eff_entail = (os.environ.get("PG_ENTAILMENT_MODEL") or _DEFAULT_ENTAILMENT_MODEL).strip()
+    eff_eval = (os.environ.get("PG_EVALUATOR_MODEL") or _DEFAULT_EVALUATOR_MODEL).strip()
+    if eff_entail != eff_eval:
+        raise GateError(
+            f"effective PG_ENTAILMENT_MODEL={eff_entail!r} != effective PG_EVALUATOR_MODEL"
+            f"={eff_eval!r}; the gate cannot pin two different evaluator-family models"
+        )
+    cfg = build_effective_config(control_vars, salt)
+    return {
+        "effective_config": cfg,
+        "effective_config_hash": effective_config_hash(cfg),
+        "control_vars": control_vars,             # the RESOLVED surface (post-run rebuilds from this)
+        "control_source_map": source_map or {},   # name -> [file:line, ...] provenance (Codex P2)
+        "role_pins": [vars(rp) | {"surrogate_fields": list(rp.surrogate_fields)} for rp in role_pins],
+        "reachability_checked": reachability_prober is not None,
+        "openrouter_allow_fallbacks": False,
+        "openrouter_provider_order": order,
+    }
+
+
+def resolve_role_provider(model_slug: str, provider_order: list[str]) -> str:
+    """I-bug-946 (#932): resolve a role's served provider at preflight.
+
+    OpenRouter's GET /api/v1/models/<id>/endpoints returns the providers that actually serve
+    a model. Smoke #15 demonstrated that without per-role resolution, OpenRouter silently
+    routes a role to a provider OUTSIDE the env-pinned order (gemma is not on Fireworks, so
+    the evaluator was routed to Novita despite `OPENROUTER_PROVIDER_ORDER=fireworks` +
+    `allow_fallbacks=false`). The gate caught it correctly; the pin model was wrong.
+
+    Algorithm:
+      1. Fetch /api/v1/models/<id>/endpoints; parse `data.endpoints`.
+      2. Eligible = endpoints with status absent OR status==0. status != 0 means degraded /
+         lower-priority per OpenRouter docs (Codex iter-2 P2#4).
+      3. Intersect eligible providers (case-insensitive) with `provider_order`.
+      4. Return the catalog-cased provider_name of the FIRST match in `provider_order`.
+      5. Fail closed with diagnostic if no match OR endpoints list is empty.
+
+    Codex APPROVE iter 2 on choice C, brief at .codex/I-bug-946/brief_iter2.md.
+    """
+    import requests
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    url = f"https://openrouter.ai/api/v1/models/{model_slug}/endpoints"
+    try:
+        r = requests.get(url, headers=headers, timeout=20)
+        r.raise_for_status()
+        endpoints = r.json().get("data", {}).get("endpoints", [])
+    except Exception as exc:
+        raise GateError(f"OpenRouter endpoints catalog unreachable for {model_slug!r}: {exc}") from exc
+    if not endpoints:
+        raise GateError(f"OpenRouter has no endpoints for model {model_slug!r} (model offline?)")
+    eligible: list[str] = []
+    for ep in endpoints:
+        status = ep.get("status")
+        if status is None or status == 0:
+            name = ep.get("provider_name")
+            if name:
+                eligible.append(name)
+    if not eligible:
+        raise GateError(
+            f"OpenRouter has no eligible (status==0) endpoints for {model_slug!r}; "
+            f"all endpoints degraded"
+        )
+    eligible_lower = {n.lower(): n for n in eligible}  # case-insensitive lookup, catalog cased value
+    for wanted in provider_order:
+        catalog_cased = eligible_lower.get(wanted.strip().lower())
+        if catalog_cased is not None:
+            return catalog_cased
+    raise GateError(
+        f"OPENROUTER_PROVIDER_ORDER={provider_order!r} has no intersection with eligible "
+        f"endpoints for {model_slug!r}; available: {sorted(set(eligible))}"
+    )
+
+
+def resolve_canonical_slug(model_slug: str) -> str | None:
+    """I-bug-945 (#931): Resolve OpenRouter alias to its dated canonical_slug at preflight.
+
+    OpenRouter exposes a list at GET /api/v1/models with `id` (alias) + `canonical_slug`
+    (dated snapshot) per entry. The chat-completions response returns `model=<canonical_slug>`
+    while the env pin uses `<id>`. Resolving at preflight lets `assert_post_run` accept the
+    served canonical_slug without losing pre-registration integrity — the resolved value is
+    persisted in `pathB_gate_pin.json` and becomes the audit anchor.
+
+    Returns the canonical_slug, or None if it equals model_slug (no dated suffix exposed).
+    Raises GateError if the slug is not in the catalog (fail closed) — Codex P2#2.
+    """
+    import requests
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        r = requests.get("https://openrouter.ai/api/v1/models", headers=headers, timeout=20)
+        r.raise_for_status()
+        data = r.json().get("data", [])
+    except Exception as exc:
+        raise GateError(f"OpenRouter models catalog unreachable: {exc}") from exc
+    for m in data:
+        if m.get("id") == model_slug:
+            cs = m.get("canonical_slug")
+            return cs if cs and cs != model_slug else None
+    raise GateError(f"OpenRouter catalog has no entry for pinned slug {model_slug!r} (alias unknown)")
+
+
+def real_retrieval_prober(backend: str) -> bool:
+    """Minimal live reachability ping per backend (Codex P1). Returns True iff a valid
+    response. Cheap; runs once at preflight. Imported lazily to keep the module light."""
+    import requests
+    try:
+        if backend == "serper":
+            r = requests.post(
+                "https://google.serper.dev/search",
+                headers={"X-API-KEY": os.environ["SERPER_API_KEY"], "Content-Type": "application/json"},
+                json={"q": "metformin"}, timeout=15,
+            )
+            return r.status_code == 200
+        if backend == "semantic_scholar":
+            r = requests.get(
+                "https://api.semanticscholar.org/graph/v1/paper/search",
+                headers={"x-api-key": os.environ["SEMANTIC_SCHOLAR_API_KEY"]},
+                params={"query": "metformin", "limit": 1}, timeout=20,
+            )
+            return r.status_code == 200
+    except Exception:
+        return False
+    return False
+
+
+@dataclass
+class LLMCall:
+    call_id: str
+    role: str
+    prompt_messages_present: bool
+    request_hash: str | None
+    response_metadata: dict   # served {model, provider_name, system_fingerprint, ...}
+
+
+def assert_post_run(
+    pin: dict,
+    control_vars: list[str],
+    salt: bytes,
+    calls: list[LLMCall],
+    retrieval_backends_attempted: set[str],
+) -> dict:
+    """Fatal post-run gate (Codex). Any violation ⇒ run INVALID, discard + re-run.
+
+    Returns the established per-role served-identity surrogates on success."""
+    # config no-drift — rebuild from the SAME resolved surface preflight pinned (not a
+    # caller-passed list, which could differ / bypass; Codex iter-2).
+    pinned_vars = pin.get("control_vars", control_vars)
+    cfg_now = effective_config_hash(build_effective_config(pinned_vars, salt))
+    if cfg_now != pin["effective_config_hash"]:
+        raise GateError("effective_config drifted between preflight and post-run")
+    pins_by_role = {rp["role"]: rp for rp in pin["role_pins"]}
+    if not calls:
+        raise GateError("no LLM calls captured — completeness check cannot pass")
+    # COMPLETENESS: every pinned role must appear (Codex P1 — uncaptured evaluator/judge invisible)
+    roles_seen = {c.role for c in calls}
+    missing_roles = set(pins_by_role) - roles_seen
+    if missing_roles:
+        raise GateError(f"completeness: pinned role(s) with no captured LLM call: {missing_roles}")
+    surrogate_by_role: dict[str, set[str]] = {}
+    for c in calls:
+        if not (c.prompt_messages_present and c.request_hash and c.response_metadata):
+            raise GateError(f"call {c.call_id}: incomplete capture (prompt/request_hash/metadata)")
+        rp = pins_by_role.get(c.role)
+        if rp is None:
+            raise GateError(f"call {c.call_id}: role {c.role!r} not pinned")
+        for fld in rp["surrogate_fields"]:
+            if fld not in c.response_metadata:
+                raise GateError(f"call {c.call_id}: served metadata missing surrogate field {fld!r}")
+        # EXACT provider + EXACT full-slug model match (Codex P1 — no loose substring).
+        # I-bug-944 (#925 smoke #13): provider comparison is case-insensitive (OpenRouter
+        # returns "Fireworks" / "DeepInfra" with title case while the pin env var
+        # OPENROUTER_PROVIDER_ORDER is documented lower-case; case-mismatch is identity-
+        # equivalent and must not gate-fail an otherwise full-power run). Model slug stays
+        # case-sensitive — slugs are canonical.
+        served_provider = (c.response_metadata.get("provider_name") or "").strip().lower()
+        pinned_provider = (rp["provider_name"] or "").strip().lower()
+        if served_provider != pinned_provider:
+            raise GateError(f"call {c.call_id}: served provider {c.response_metadata.get('provider_name')!r} != pinned {rp['provider_name']!r}")
+        # I-bug-945 (#931): accept served model matching EITHER the pinned alias OR the
+        # canonical_slug resolved at preflight. The OpenRouter chat-completions response
+        # returns `model=<canonical_slug>` while the env pin is the alias; both are identity-
+        # equivalent and recorded in the persisted pin (pathB_gate_pin.json).
+        served_model = c.response_metadata.get("model")
+        accepted_models = {rp["model_slug"]}
+        if rp.get("canonical_slug"):
+            accepted_models.add(rp["canonical_slug"])
+        if served_model not in accepted_models:
+            raise GateError(
+                f"call {c.call_id}: served model {served_model!r} matches neither pinned "
+                f"alias {rp['model_slug']!r} nor canonical_slug {rp.get('canonical_slug')!r}"
+            )
+        # I-bug-945 P2#4 (Codex): normalize served `model` to the alias before surrogate
+        # compute, so a same-role mix of alias and canonical_slug calls produces a single
+        # surrogate value (otherwise raw-model drift would false-fail the mid-run check).
+        normalized_metadata = dict(c.response_metadata)
+        normalized_metadata["model"] = rp["model_slug"]
+        surrogate_by_role.setdefault(c.role, set()).add(_role_surrogate(normalized_metadata, rp["surrogate_fields"]))
+    # per-role served identity must be SINGLE-VALUED across the run (no mid-run drift, Codex P1)
+    for role, ids in surrogate_by_role.items():
+        if len(ids) != 1:
+            raise GateError(f"role {role}: served-identity surrogate drifted across calls ({len(ids)} distinct)")
+    # required retrieval backends were ACTUALLY attempted (Codex iter-5 P2)
+    required = set(_REQUIRED_RETRIEVAL_CREDS_TO_BACKENDS.values())
+    not_attempted = required - retrieval_backends_attempted
+    if not_attempted:
+        raise GateError(f"required retrieval backends never attempted this run: {not_attempted}")
+    return {"served_identity_by_role": {r: next(iter(ids)) for r, ids in surrogate_by_role.items()}}
+
+
+_REQUIRED_RETRIEVAL_CREDS_TO_BACKENDS = {
+    "SERPER_API_KEY": "serper",
+    "SEMANTIC_SCHOLAR_API_KEY": "semantic_scholar",
+}

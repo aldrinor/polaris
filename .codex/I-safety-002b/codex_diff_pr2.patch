@@ -1,0 +1,682 @@
+diff --git a/scripts/dr_benchmark/pathB_run_gate.py b/scripts/dr_benchmark/pathB_run_gate.py
+index 5823752d..ee7130a6 100644
+--- a/scripts/dr_benchmark/pathB_run_gate.py
++++ b/scripts/dr_benchmark/pathB_run_gate.py
+@@ -27,6 +27,9 @@ _SECRET_SUFFIXES = ("_API_KEY", "_SECRET", "_ACCESS_TOKEN", "_AUTH_TOKEN")
+ _SECRET_EXPLICIT = {
+     "OPENROUTER_API_KEY", "SERPER_API_KEY", "SEMANTIC_SCHOLAR_API_KEY",
+     "EXA_API_KEY", "OPEN_PAGERANK_API_KEY",
++    # Codex PR-2 diff iter-1 P2: PG_PATHB_GATE_SALT is the HMAC salt used by
++    # build_effective_config to redact secrets — it MUST not be persisted in the pin.
++    "PG_PATHB_GATE_SALT",
+ }
+ _REQUIRED_RETRIEVAL_CREDS = ("SERPER_API_KEY", "SEMANTIC_SCHOLAR_API_KEY")
+ # Run-affecting env that is NOT PG_*/OPENROUTER_* prefixed — must still be in the config hash
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index fef5f4f0..785b5187 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -48,6 +48,8 @@ for noisy in ("httpx", "httpcore"):
+ 
+ from src.polaris_graph.evaluator.external_evaluator import run_external_evaluation  # noqa: E402
+ from src.polaris_graph.evaluator.live_judge import judge_report  # noqa: E402
++# I-safety-002b (#925) PR-2: Path-B benchmark gate (preflight + capture + assert_post_run).
++from src.polaris_graph.benchmark import pathB_capture as _pathb  # noqa: E402
+ from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
+     generate_multi_section_report,
+ )
+@@ -2246,10 +2248,15 @@ async def run_one_query(
+         if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
+             return summary
+ 
+-        multi = await generate_multi_section_report(
+-            research_question=q["question"],
+-            evidence=evidence_for_gen,
+-            section_temperature=0.3,
++        # I-safety-002b (#925) PR-2: tag this entire call as the report-generator role
++        # so the Path-B gate captures every nested LLM completion (multi-section + analyst
++        # + retries + reason) under role="generator". No-op when the gate is inactive.
++        _pathb_gen_tok = _pathb.set_role("generator")
++        try:
++            multi = await generate_multi_section_report(
++                research_question=q["question"],
++                evidence=evidence_for_gen,
++                section_temperature=0.3,
+             # M-31 (2026-04-21): raise outline_max_tokens 800→2500 to
+             # match the upstream default. V19 had 3 / V20 had 2
+             # "Expecting ',' delimiter" JSON decode failures — all
+@@ -2318,7 +2325,9 @@ async def run_one_query(
+             m50_skip_anchors=_compute_m50_skip_anchors(
+                 _phase2_contract_plans, _primary_anchors,
+             ) if _phase2_contract_plans else None,
+-        )
++            )
++        finally:
++            _pathb.reset_role(_pathb_gen_tok)
+         dt = time.time() - t0
+         _log(f"              elapsed={dt:.1f}s outline={len(multi.outline)} "
+              f"sections, words={multi.total_words}, "
+@@ -2864,14 +2873,21 @@ async def run_one_query(
+         if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
+             return summary
+ 
+-        ev_out = run_external_evaluation(
+-            report_text=final_report,
+-            protocol=protocol,
+-            tier_distribution_report=asdict(dist),
+-            contradictions=[asdict(c) for c in contradictions],
+-            evidence_pool=ev_pool,
+-            enable_llm_judge=False,
+-        )
++        # I-safety-002b (#925) PR-2: tag external_evaluator under role="evaluator". Per
++        # Codex iter-1 P3: this is no-op in honest_sweep today (enable_llm_judge=False
++        # routes only rule checks; future-proofs if an LLM judge is enabled).
++        _pathb_ev_tok = _pathb.set_role("evaluator")
++        try:
++            ev_out = run_external_evaluation(
++                report_text=final_report,
++                protocol=protocol,
++                tier_distribution_report=asdict(dist),
++                contradictions=[asdict(c) for c in contradictions],
++                evidence_pool=ev_pool,
++                enable_llm_judge=False,
++            )
++        finally:
++            _pathb.reset_role(_pathb_ev_tok)
+         (run_dir / "evaluator_rule_checks.json").write_text(
+             json.dumps(ev_out.to_json_dict(), indent=2, sort_keys=True, default=str) + "\n",
+             encoding="utf-8",
+@@ -2885,12 +2901,17 @@ async def run_one_query(
+         # Judge
+         jr = None
+         try:
+-            jr = await judge_report(
+-                report_text=final_report,
+-                research_question=q["question"],
+-                temperature=0.2,
+-                max_tokens=800,
+-            )
++            # I-safety-002b (#925) PR-2: tag the live judge under role="evaluator".
++            _pathb_jr_tok = _pathb.set_role("evaluator")
++            try:
++                jr = await judge_report(
++                    report_text=final_report,
++                    research_question=q["question"],
++                    temperature=0.2,
++                    max_tokens=800,
++                )
++            finally:
++                _pathb.reset_role(_pathb_jr_tok)
+             if jr.parse_ok:
+                 vcounts = {
+                     v: sum(1 for j in jr.verdicts.values()
+@@ -3254,6 +3275,16 @@ async def main_async() -> int:
+         "--out-root", type=str, default=None,
+         help="Output directory root. Default: outputs/honest_sweep_r3",
+     )
++    parser.add_argument(
++        "--pathB-gate", action="store_true",
++        help=(
++            "I-safety-002b (#925): enable the Path-B DR head-to-head benchmark gate. "
++            "Per question: preflight (full-power env + reachability + no fallbacks), "
++            "capture every generator+evaluator LLM completion, then assert_post_run "
++            "(served-model match + retrieval-backends actually attempted) BEFORE any "
++            "scoring. Persists pathB_gate_pin.json + pathB_gate_result.json to run_dir."
++        ),
++    )
+     parser.add_argument(
+         "--replay-from-pin", type=str, default=None,
+         help=(
+@@ -3446,7 +3477,15 @@ async def main_async() -> int:
+         for q in queries_to_run:
+             print(f"\n>>> {q['domain']} / {q['slug']}")
+             t0 = time.time()
+-            summary = await run_one_query(q, out_root)
++            # I-safety-002b (#925) PR-2: wrap each question's run with the Path-B gate
++            # (preflight + capture + assert_post_run). No-op when --pathB-gate is off.
++            _pathb_run_dir = out_root / q["domain"] / q["slug"]
++            _pathb_run_dir.mkdir(parents=True, exist_ok=True)
++            from src.polaris_graph.benchmark.pathB_runner import gate_around_question
++            with gate_around_question(
++                enabled=args.pathB_gate, run_dir=_pathb_run_dir,
++            ):
++                summary = await run_one_query(q, out_root)
+             dt = time.time() - t0
+             summary["wall_time_seconds"] = round(dt, 1)
+             # M-INT-0b: capture a ModelPin for every run so later
+diff --git a/src/polaris_graph/benchmark/pathB_capture.py b/src/polaris_graph/benchmark/pathB_capture.py
+index eface51e..25c665da 100644
+--- a/src/polaris_graph/benchmark/pathB_capture.py
++++ b/src/polaris_graph/benchmark/pathB_capture.py
+@@ -66,6 +66,17 @@ def llm_role(role: str) -> Iterator[None]:
+         _ROLE.reset(token)
+ 
+ 
++def set_role(role: str):
++    """Set the role tag and return a token to restore on. Pair with reset_role(token)
++    inside a try/finally — equivalent guarantee to llm_role() ctx-mgr, used where
++    re-indenting a large multi-line call block under `with` would be invasive."""
++    return _ROLE.set(role)
++
++
++def reset_role(token) -> None:
++    _ROLE.reset(token)
++
++
+ def current_llm_role() -> str | None:
+     return _ROLE.get()
+ 
+diff --git a/src/polaris_graph/benchmark/pathB_runner.py b/src/polaris_graph/benchmark/pathB_runner.py
+new file mode 100644
+index 00000000..f5763060
+--- /dev/null
++++ b/src/polaris_graph/benchmark/pathB_runner.py
+@@ -0,0 +1,164 @@
++"""Path-B gate lifecycle helper for the honest_sweep runner (I-safety-002b #925).
++
++Wraps each benchmark question with the gate: preflight + register capture sink + run +
++assert_post_run before any scoring. Persists the pin record to the run dir. Self-contained
++so the runner diff is minimal (1 import + 1 ``with`` per question).
++
++Gate-off by default: the helper is a no-op context manager when ``--pathB-gate`` is not set,
++so the existing honest_sweep pipeline is untouched outside the benchmark.
++
++Per the Codex-APPROVED brief v2 (call_impl_capture + entailment_judge_capture +
++served_metadata_provenance) and the Codex-APPROVED PR-2 role-tag fork (Option B: capture
++only explicitly-tagged report-generator + report-evaluator calls; auxiliary scope/inductor
++LLMs are not gated).
++"""
++
++from __future__ import annotations
++
++import contextlib
++import json
++import logging
++import os
++from pathlib import Path
++from typing import Iterator
++
++from src.polaris_graph.benchmark import pathB_capture as _capture
++from scripts.dr_benchmark.pathB_run_gate import (
++    GateError,
++    LLMCall,
++    RolePin,
++    assert_post_run,
++    preflight,
++)
++
++logger = logging.getLogger(__name__)
++
++_DEFAULT_GEN_SLUG = "deepseek/deepseek-v4-pro"
++_DEFAULT_EVAL_SLUG = "google/gemma-4-31b-it"
++
++
++def _role_pins() -> list[RolePin]:
++    """Build the per-role pins from the live env.
++
++    Codex PR-2 diff iter-1 P1 #1: read PG_GENERATOR_MODEL first (the documented honest_sweep
++    override used by generate_multi_section_report); fall back to OPENROUTER_DEFAULT_MODEL,
++    then the static default. Pinning the wrong env var made every correct call fail the gate.
++
++    Codex PR-2 diff iter-1 P1 #2: surrogate_fields MUST be only those PROVEN present in the
++    served response. assert_post_run treats a missing surrogate field as fatal, so requiring
++    system_fingerprint would fail any provider that omits it (entailment_judge often does).
++    Pin only the always-present surrogate (provider_name + model); build_response_metadata
++    still records system_fingerprint when present, but it is NOT a required surrogate."""
++    gen = (
++        os.getenv("PG_GENERATOR_MODEL")
++        or os.getenv("OPENROUTER_DEFAULT_MODEL")
++        or _DEFAULT_GEN_SLUG
++    ).strip()
++    ev = (os.getenv("PG_EVALUATOR_MODEL") or _DEFAULT_EVAL_SLUG).strip()
++    provider_order = (os.getenv("OPENROUTER_PROVIDER_ORDER") or "").strip()
++    provider = provider_order.split(",")[0].strip() if provider_order else ""
++    surrogate_fields = ("provider_name", "model")
++    return [
++        RolePin("generator", gen, provider, surrogate_fields),
++        RolePin("evaluator", ev, provider, surrogate_fields),
++    ]
++
++
++def _salt() -> bytes:
++    return (os.getenv("PG_PATHB_GATE_SALT") or "pathB-default-unsalted").encode("utf-8")
++
++
++@contextlib.contextmanager
++def gate_around_question(
++    *, enabled: bool, run_dir: Path, control_vars: list[str] | None = None,
++) -> Iterator[None]:
++    """Wrap one benchmark question's run with preflight + post-run assertion.
++
++    Usage in the runner:
++        with gate_around_question(enabled=args.pathB_gate, run_dir=run_dir):
++            ... process_query body, including the role-tagged LLM calls ...
++            # On normal exit, assert_post_run runs (raises GateError if not full-power).
++
++    Behavior:
++    - enabled=False: no-op (yields immediately, no capture, no preflight).
++    - enabled=True: preflight (raises GateError if not full-power); register_pathB_capture;
++      yield; on normal exit, assert_post_run; persist pin + result to ``run_dir``. On
++      exception inside the body, capture is cleared but the exception propagates.
++    """
++    if not enabled:
++        yield
++        return
++
++    pin_path = run_dir / "pathB_gate_pin.json"
++    result_path = run_dir / "pathB_gate_result.json"
++    invalid_sentinel = run_dir / "pathB_gate_INVALID"
++    run_dir.mkdir(parents=True, exist_ok=True)
++
++    # Codex PR-2 diff iter-1 P3: write a FAIL result file even when preflight raises,
++    # so a missing-credential / unreachable-backend failure has an explicit per-run record
++    # (otherwise the only artifact is a stderr exception, no traceable artifact).
++    try:
++        pin = preflight(
++            control_vars=list(control_vars or []),
++            role_pins=_role_pins(),
++            salt=_salt(),
++            roots=[Path("src/polaris_graph"), Path("scripts")],
++            offline=False,  # real run = real reachability ping (gate enforce-by-default).
++        )
++    except GateError as exc:
++        result_path.write_text(
++            json.dumps(
++                {"verdict": "FAIL", "stage": "preflight", "reason": str(exc)},
++                indent=2, sort_keys=True,
++            ),
++            encoding="utf-8",
++        )
++        invalid_sentinel.write_text(
++            f"preflight FAIL: {exc}\n", encoding="utf-8",
++        )
++        logger.error("[pathB] preflight FAIL: %s", exc)
++        raise
++    pin_path.write_text(json.dumps(pin, indent=2, sort_keys=True, default=str),
++                        encoding="utf-8")
++    _capture.register_pathB_capture()
++    try:
++        yield
++    except Exception:
++        # Propagate; do not run assert_post_run on a failed run (it would mask the cause).
++        _capture.clear_pathB_capture()
++        raise
++
++    try:
++        calls = [LLMCall(**c) for c in _capture.collected_calls()]
++        backends = _capture.attempted_backends()
++        result = assert_post_run(
++            pin=pin,
++            control_vars=list(control_vars or []),
++            salt=_salt(),
++            calls=calls,
++            retrieval_backends_attempted=backends,
++        )
++        result_path.write_text(
++            json.dumps({"verdict": "PASS", **result}, indent=2, sort_keys=True, default=str),
++            encoding="utf-8",
++        )
++        logger.info("[pathB] gate PASS for run_dir=%s", run_dir)
++    except GateError as exc:
++        result_path.write_text(
++            json.dumps(
++                {"verdict": "FAIL", "stage": "post_run_assert", "reason": str(exc)},
++                indent=2, sort_keys=True,
++            ),
++            encoding="utf-8",
++        )
++        # Codex PR-2 diff iter-1 P2 #2: write an INVALID sentinel so downstream scoring
++        # (PR-3 claim_audit_scorer) can skip the run_dir's per-run artifacts even though
++        # they were written during the run (manifest/judge/etc.). The gate is the source
++        # of truth for run validity; the sentinel makes that machine-readable.
++        invalid_sentinel.write_text(
++            f"post-run gate FAIL: {exc}\n", encoding="utf-8",
++        )
++        logger.error("[pathB] gate FAIL for run_dir=%s: %s", run_dir, exc)
++        raise
++    finally:
++        _capture.clear_pathB_capture()
+diff --git a/src/polaris_graph/generator/analyst_synthesis.py b/src/polaris_graph/generator/analyst_synthesis.py
+index d42a21b7..d8aafea9 100644
+--- a/src/polaris_graph/generator/analyst_synthesis.py
++++ b/src/polaris_graph/generator/analyst_synthesis.py
+@@ -349,6 +349,9 @@ async def generate_analyst_synthesis(
+         set_reasoning_call_context(
+             section="Analyst Synthesis", call_type="analyst_synthesis",
+         )
++        # I-safety-002b (#925) PR-2: role-tagging for the Path-B gate is applied at the
++        # runner chokepoint (run_honest_sweep_r3.py wraps generate_multi_section_report
++        # with llm_role("generator")) — this nested call inherits the contextvar.
+         response = await client.generate(
+             prompt=prompt,
+             system=ANALYST_SYNTHESIS_SYSTEM_PROMPT,
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index c91e79bf..79256b99 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -1691,12 +1691,18 @@ class OpenRouterClient:
+         # completion (this is the unified completion boundary for stream + non-stream +
+         # retries + reason/generate/generate_structured). Best-effort + gate-flagged:
+         # is_active() is a cheap contextvar read and is False outside a benchmark run.
++        # PR-2: capture ONLY explicitly-tagged calls (Codex APPROVE Option B). Auxiliary
++        # calls (scope LLM, inductor) without a role tag are NOT captured / NOT gated —
++        # the gate polices the REPORT generator + REPORT evaluators only, which is what
++        # the benchmark needs and is robust to auxiliary-model config changes.
+         if _pathb_capture.is_active():
+-            _pathb_capture.capture_llm_call(
+-                role=_pathb_capture.current_llm_role() or "generator",
+-                messages=sanitized_messages,
+-                raw_response=data,
+-            )
++            _role = _pathb_capture.current_llm_role()
++            if _role is not None:
++                _pathb_capture.capture_llm_call(
++                    role=_role,
++                    messages=sanitized_messages,
++                    raw_response=data,
++                )
+ 
+         logger.info(
+             "[polaris graph] %s completed: %d in/%d out/%d reasoning tokens, "
+diff --git a/src/polaris_graph/retrieval/domain_backends.py b/src/polaris_graph/retrieval/domain_backends.py
+index ca8a9e03..af6ad05c 100644
+--- a/src/polaris_graph/retrieval/domain_backends.py
++++ b/src/polaris_graph/retrieval/domain_backends.py
+@@ -174,6 +174,12 @@ def policy_targeted_serper(
+     api_key = os.getenv("SERPER_API_KEY", "").strip()
+     if not api_key:
+         return []
++    # I-safety-002b (#925) PR-2: record serper attempt for the Path-B gate (best-effort).
++    try:
++        from src.polaris_graph.benchmark import pathB_capture as _pathb
++        _pathb.record_retrieval_attempt("serper")
++    except Exception:
++        pass
+     site_clause = " OR ".join(_POLICY_SITE_FILTERS)
+     q = f"{query} ({site_clause})"
+     try:
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index a18c7ef9..a43c2430 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -87,6 +87,14 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
+     if not api_key:
+         logger.warning("[live_retriever] SERPER_API_KEY missing — skipping Serper")
+         return []
++    # I-safety-002b (#925) PR-2: record that the Path-B-required backend was actually
++    # invoked (key present + call attempted). assert_post_run rejects a run where a
++    # required backend was never tried. Lazy + best-effort; no-op when gate is off.
++    try:
++        from src.polaris_graph.benchmark import pathB_capture as _pathb
++        _pathb.record_retrieval_attempt("serper")
++    except Exception:
++        pass
+     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+     payload = {"q": query, "num": max(1, min(num, 20))}
+     try:
+@@ -116,6 +124,12 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
+ 
+ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
+     api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
++    # I-safety-002b (#925) PR-2: record S2 backend attempt (lazy, best-effort).
++    try:
++        from src.polaris_graph.benchmark import pathB_capture as _pathb
++        _pathb.record_retrieval_attempt("semantic_scholar")
++    except Exception:
++        pass
+     headers = {}
+     if api_key:
+         headers["x-api-key"] = api_key
+diff --git a/tests/dr_benchmark/test_pathB_capture.py b/tests/dr_benchmark/test_pathB_capture.py
+index 74fb5f90..7788afb7 100644
+--- a/tests/dr_benchmark/test_pathB_capture.py
++++ b/tests/dr_benchmark/test_pathB_capture.py
+@@ -48,6 +48,15 @@ def test_register_then_clear() -> None:
+     assert pc.is_active() is False
+ 
+ 
++# --- PR-2 hook semantics: only EXPLICITLY-tagged calls are captured (Codex Option B) ---
++def test_set_role_reset_role_roundtrip() -> None:
++    assert pc.current_llm_role() is None
++    tok = pc.set_role("generator")
++    assert pc.current_llm_role() == "generator"
++    pc.reset_role(tok)
++    assert pc.current_llm_role() is None
++
++
+ # --- role context manager: scoped, restores (no leak to later calls) ---
+ def test_llm_role_scoped_restore() -> None:
+     assert pc.current_llm_role() is None
+diff --git a/tests/dr_benchmark/test_pathB_runner.py b/tests/dr_benchmark/test_pathB_runner.py
+new file mode 100644
+index 00000000..7d8b5d47
+--- /dev/null
++++ b/tests/dr_benchmark/test_pathB_runner.py
+@@ -0,0 +1,227 @@
++"""Path-B gate lifecycle tests (I-safety-002b / #925 PR-2). Offline, no real LLM."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++import pytest
++
++from src.polaris_graph.benchmark import pathB_capture as pc
++from src.polaris_graph.benchmark.pathB_runner import gate_around_question
++from scripts.dr_benchmark.pathB_run_gate import GateError
++
++
++def _full_power_env(monkeypatch) -> None:
++    monkeypatch.setenv("OPENROUTER_ALLOW_FALLBACKS", "false")
++    monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "deepinfra")
++    monkeypatch.setenv("SERPER_API_KEY", "x")
++    monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "y")
++    monkeypatch.setenv("PG_PATHB_GATE_SALT", "pathB-test-salt-VERY-secret")
++    # Codex PR-2 diff iter-1 P1 #1: PG_GENERATOR_MODEL is the documented honest_sweep
++    # override; the pin must read it first (not OPENROUTER_DEFAULT_MODEL).
++    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
++    monkeypatch.setenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
++
++
++def _patch_preflight_offline(monkeypatch):
++    """Force preflight(offline=True) so the lifecycle helper does not hit the network in tests."""
++    from src.polaris_graph.benchmark import pathB_runner
++    real_preflight = pathB_runner.preflight
++
++    def _offline_preflight(**kw):
++        kw["offline"] = True
++        return real_preflight(**kw)
++
++    monkeypatch.setattr(pathB_runner, "preflight", _offline_preflight)
++
++
++# --- gate disabled: no-op (no pin file, no capture, no exception) ---
++def test_disabled_is_noop(tmp_path: Path, monkeypatch) -> None:
++    _full_power_env(monkeypatch)
++    pc.clear_pathB_capture()
++    with gate_around_question(enabled=False, run_dir=tmp_path):
++        assert pc.is_active() is False
++    assert pc.is_active() is False
++    assert not (tmp_path / "pathB_gate_pin.json").exists()
++    assert not (tmp_path / "pathB_gate_result.json").exists()
++
++
++# --- gate enabled: tagged report calls captured + retrieval attempts noted + PASS ---
++def test_enabled_pass_writes_pin_and_result(tmp_path: Path, monkeypatch) -> None:
++    _full_power_env(monkeypatch)
++    _patch_preflight_offline(monkeypatch)
++    pc.clear_pathB_capture()
++    with gate_around_question(enabled=True, run_dir=tmp_path):
++        tok = pc.set_role("generator")
++        try:
++            pc.capture_llm_call(
++                role="generator",
++                messages=[{"role": "user", "content": "q"}],
++                raw_response={
++                    "provider": "deepinfra",
++                    "model": "deepseek/deepseek-v4-pro",
++                    "system_fingerprint": "fp_g",
++                },
++            )
++        finally:
++            pc.reset_role(tok)
++        pc.capture_llm_call(
++            role="evaluator",
++            messages=[{"role": "user", "content": "j"}],
++            raw_response={
++                "provider": "deepinfra",
++                "model": "google/gemma-4-31b-it",
++                "system_fingerprint": "fp_e",
++            },
++        )
++        pc.record_retrieval_attempt("serper")
++        pc.record_retrieval_attempt("semantic_scholar")
++    pin = json.loads((tmp_path / "pathB_gate_pin.json").read_text(encoding="utf-8"))
++    result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
++    assert "effective_config_hash" in pin
++    assert result["verdict"] == "PASS"
++    assert set(result["served_identity_by_role"]) == {"generator", "evaluator"}
++
++
++# --- gate enabled, but a required backend was never attempted -> GateError + result FAIL ---
++def test_enabled_fails_when_backend_not_attempted(tmp_path: Path, monkeypatch) -> None:
++    _full_power_env(monkeypatch)
++    _patch_preflight_offline(monkeypatch)
++    pc.clear_pathB_capture()
++    with pytest.raises(GateError, match="never attempted"):
++        with gate_around_question(enabled=True, run_dir=tmp_path):
++            pc.capture_llm_call(
++                role="generator",
++                messages=[{"role": "user", "content": "q"}],
++                raw_response={
++                    "provider": "deepinfra",
++                    "model": "deepseek/deepseek-v4-pro",
++                    "system_fingerprint": "fp_g",
++                },
++            )
++            pc.capture_llm_call(
++                role="evaluator",
++                messages=[{"role": "user", "content": "j"}],
++                raw_response={
++                    "provider": "deepinfra",
++                    "model": "google/gemma-4-31b-it",
++                    "system_fingerprint": "fp_e",
++                },
++            )
++            pc.record_retrieval_attempt("serper")
++            # semantic_scholar deliberately NOT attempted -> gate must FAIL
++    result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
++    assert result["verdict"] == "FAIL"
++    assert "never attempted" in result["reason"]
++
++
++# --- Codex PR-2 iter-1 P1 #1: PG_GENERATOR_MODEL is the documented honest_sweep override;
++# the pin MUST read it (not OPENROUTER_DEFAULT_MODEL alone). Regression test.
++def test_pin_reads_pg_generator_model_first(monkeypatch) -> None:
++    monkeypatch.setenv("OPENROUTER_DEFAULT_MODEL", "wrong/wrong-slug")
++    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
++    monkeypatch.setenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
++    monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "deepinfra")
++    from src.polaris_graph.benchmark.pathB_runner import _role_pins
++    pins = {p.role: p for p in _role_pins()}
++    assert pins["generator"].model_slug == "deepseek/deepseek-v4-pro"  # NOT "wrong/wrong-slug"
++
++
++# --- Codex PR-2 iter-1 P1 #2: system_fingerprint must NOT be a required surrogate field;
++# a valid response without it must pass the gate. Regression test.
++def test_gate_passes_without_system_fingerprint(tmp_path: Path, monkeypatch) -> None:
++    _full_power_env(monkeypatch)
++    _patch_preflight_offline(monkeypatch)
++    pc.clear_pathB_capture()
++    with gate_around_question(enabled=True, run_dir=tmp_path):
++        # responses deliberately OMIT system_fingerprint — must still pass
++        pc.capture_llm_call(
++            role="generator",
++            messages=[{"role": "user", "content": "q"}],
++            raw_response={"provider": "deepinfra", "model": "deepseek/deepseek-v4-pro"},
++        )
++        pc.capture_llm_call(
++            role="evaluator",
++            messages=[{"role": "user", "content": "j"}],
++            raw_response={"provider": "deepinfra", "model": "google/gemma-4-31b-it"},
++        )
++        pc.record_retrieval_attempt("serper")
++        pc.record_retrieval_attempt("semantic_scholar")
++    result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
++    assert result["verdict"] == "PASS"
++
++
++# --- Codex PR-2 iter-1 P2: PG_PATHB_GATE_SALT must be redacted in the pin (HMAC key).
++def test_salt_is_redacted_in_pin(tmp_path: Path, monkeypatch) -> None:
++    _full_power_env(monkeypatch)
++    _patch_preflight_offline(monkeypatch)
++    pc.clear_pathB_capture()
++    try:
++        with gate_around_question(enabled=True, run_dir=tmp_path):
++            pc.capture_llm_call(
++                role="generator", messages=[{"role": "user", "content": "q"}],
++                raw_response={"provider": "deepinfra", "model": "deepseek/deepseek-v4-pro"},
++            )
++            pc.capture_llm_call(
++                role="evaluator", messages=[{"role": "user", "content": "j"}],
++                raw_response={"provider": "deepinfra", "model": "google/gemma-4-31b-it"},
++            )
++            pc.record_retrieval_attempt("serper")
++            pc.record_retrieval_attempt("semantic_scholar")
++    except Exception:
++        pass
++    pin_text = (tmp_path / "pathB_gate_pin.json").read_text(encoding="utf-8")
++    assert "pathB-test-salt-VERY-secret" not in pin_text  # plaintext absent
++    # but the salt env var IS recorded as a secret presence/length entry
++    assert "PG_PATHB_GATE_SALT" in pin_text
++
++
++# --- Codex PR-2 iter-1 P3: preflight FAIL writes a per-run FAIL result + INVALID sentinel.
++def test_preflight_fail_writes_result_and_sentinel(tmp_path: Path, monkeypatch) -> None:
++    _full_power_env(monkeypatch)
++    # break full-power: remove OPENROUTER_ALLOW_FALLBACKS=false invariant
++    monkeypatch.setenv("OPENROUTER_ALLOW_FALLBACKS", "true")
++    _patch_preflight_offline(monkeypatch)
++    pc.clear_pathB_capture()
++    with pytest.raises(GateError):
++        with gate_around_question(enabled=True, run_dir=tmp_path):
++            pass  # never reached
++    result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
++    assert result["verdict"] == "FAIL"
++    assert result["stage"] == "preflight"
++    assert (tmp_path / "pathB_gate_INVALID").exists()
++
++
++# --- gate FAIL on post-run assert writes INVALID sentinel too (P2 #2: downstream skip) ---
++def test_post_run_fail_writes_invalid_sentinel(tmp_path: Path, monkeypatch) -> None:
++    _full_power_env(monkeypatch)
++    _patch_preflight_offline(monkeypatch)
++    pc.clear_pathB_capture()
++    with pytest.raises(GateError):
++        with gate_around_question(enabled=True, run_dir=tmp_path):
++            pc.capture_llm_call(
++                role="generator", messages=[{"role": "user", "content": "q"}],
++                raw_response={"provider": "deepinfra", "model": "deepseek/deepseek-v4-pro"},
++            )
++            pc.capture_llm_call(
++                role="evaluator", messages=[{"role": "user", "content": "j"}],
++                raw_response={"provider": "deepinfra", "model": "google/gemma-4-31b-it"},
++            )
++            pc.record_retrieval_attempt("serper")
++            # semantic_scholar deliberately omitted
++    assert (tmp_path / "pathB_gate_INVALID").exists()
++
++
++# --- exception inside body propagates, no post-run assert (would mask the cause) ---
++def test_body_exception_propagates_without_assert(tmp_path: Path, monkeypatch) -> None:
++    _full_power_env(monkeypatch)
++    _patch_preflight_offline(monkeypatch)
++    pc.clear_pathB_capture()
++    with pytest.raises(RuntimeError, match="boom"):
++        with gate_around_question(enabled=True, run_dir=tmp_path):
++            raise RuntimeError("boom")
++    assert pc.is_active() is False  # capture cleared on exception
++    # pin was written (preflight succeeded) but result was NOT (post-run didn't run)
++    assert (tmp_path / "pathB_gate_pin.json").exists()
++    assert not (tmp_path / "pathB_gate_result.json").exists()

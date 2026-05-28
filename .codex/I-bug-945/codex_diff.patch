@@ -1,0 +1,209 @@
+diff --git a/scripts/dr_benchmark/pathB_run_gate.py b/scripts/dr_benchmark/pathB_run_gate.py
+index 6b2019d8..6ce66202 100644
+--- a/scripts/dr_benchmark/pathB_run_gate.py
++++ b/scripts/dr_benchmark/pathB_run_gate.py
+@@ -150,6 +150,11 @@ class RolePin:
+     model_slug: str      # FULL OpenRouter slug, e.g. "deepseek/deepseek-v4-pro" — EXACT match
+     provider_name: str
+     surrogate_fields: tuple[str, ...]   # the metadata fields PROVEN present at preflight
++    canonical_slug: str | None = None   # I-bug-945 (#931): OpenRouter dated snapshot resolved
++    # at preflight via GET /api/v1/models. The alias `model_slug` is the env-pin handle; the
++    # canonical_slug (e.g. deepseek/deepseek-v4-pro-20260423) is what gets served as `model`
++    # in chat completions and is the actual pre-registration anchor in pathB_gate_pin.json.
++    # Trailing defaulted field per Codex P2#3 (don't break positional RolePin call sites).
+ 
+ 
+ def _role_surrogate(metadata: dict, surrogate_fields: tuple[str, ...] | list) -> str:
+@@ -208,6 +213,11 @@ def preflight(
+             raise GateError(f"role {rp.role}: no served-identity surrogate fields proven present")
+         if "/" not in rp.model_slug:
+             raise GateError(f"role {rp.role}: model_slug must be the FULL slug (provider/model), got {rp.model_slug!r}")
++        # I-bug-945 (#931): resolve OpenRouter alias to its dated canonical_slug at preflight.
++        # The catalog is the single source of truth; fail closed if the alias is unknown.
++        # Skipped on offline runs (unit tests pass canonical_slug directly when needed).
++        if not offline and rp.canonical_slug is None:
++            rp.canonical_slug = resolve_canonical_slug(rp.model_slug)
+     cfg = build_effective_config(control_vars, salt)
+     return {
+         "effective_config": cfg,
+@@ -221,6 +231,34 @@ def preflight(
+     }
+ 
+ 
++def resolve_canonical_slug(model_slug: str) -> str | None:
++    """I-bug-945 (#931): Resolve OpenRouter alias to its dated canonical_slug at preflight.
++
++    OpenRouter exposes a list at GET /api/v1/models with `id` (alias) + `canonical_slug`
++    (dated snapshot) per entry. The chat-completions response returns `model=<canonical_slug>`
++    while the env pin uses `<id>`. Resolving at preflight lets `assert_post_run` accept the
++    served canonical_slug without losing pre-registration integrity — the resolved value is
++    persisted in `pathB_gate_pin.json` and becomes the audit anchor.
++
++    Returns the canonical_slug, or None if it equals model_slug (no dated suffix exposed).
++    Raises GateError if the slug is not in the catalog (fail closed) — Codex P2#2.
++    """
++    import requests
++    api_key = os.environ.get("OPENROUTER_API_KEY")
++    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
++    try:
++        r = requests.get("https://openrouter.ai/api/v1/models", headers=headers, timeout=20)
++        r.raise_for_status()
++        data = r.json().get("data", [])
++    except Exception as exc:
++        raise GateError(f"OpenRouter models catalog unreachable: {exc}") from exc
++    for m in data:
++        if m.get("id") == model_slug:
++            cs = m.get("canonical_slug")
++            return cs if cs and cs != model_slug else None
++    raise GateError(f"OpenRouter catalog has no entry for pinned slug {model_slug!r} (alias unknown)")
++
++
+ def real_retrieval_prober(backend: str) -> bool:
+     """Minimal live reachability ping per backend (Codex P1). Returns True iff a valid
+     response. Cheap; runs once at preflight. Imported lazily to keep the module light."""
+@@ -298,10 +336,25 @@ def assert_post_run(
+         pinned_provider = (rp["provider_name"] or "").strip().lower()
+         if served_provider != pinned_provider:
+             raise GateError(f"call {c.call_id}: served provider {c.response_metadata.get('provider_name')!r} != pinned {rp['provider_name']!r}")
+-        if c.response_metadata.get("model") != rp["model_slug"]:
+-            raise GateError(f"call {c.call_id}: served model {c.response_metadata.get('model')!r} != pinned {rp['model_slug']!r}")
+-        # accumulate the per-role served-identity surrogate (over the pinned fields)
+-        surrogate_by_role.setdefault(c.role, set()).add(_role_surrogate(c.response_metadata, rp["surrogate_fields"]))
++        # I-bug-945 (#931): accept served model matching EITHER the pinned alias OR the
++        # canonical_slug resolved at preflight. The OpenRouter chat-completions response
++        # returns `model=<canonical_slug>` while the env pin is the alias; both are identity-
++        # equivalent and recorded in the persisted pin (pathB_gate_pin.json).
++        served_model = c.response_metadata.get("model")
++        accepted_models = {rp["model_slug"]}
++        if rp.get("canonical_slug"):
++            accepted_models.add(rp["canonical_slug"])
++        if served_model not in accepted_models:
++            raise GateError(
++                f"call {c.call_id}: served model {served_model!r} matches neither pinned "
++                f"alias {rp['model_slug']!r} nor canonical_slug {rp.get('canonical_slug')!r}"
++            )
++        # I-bug-945 P2#4 (Codex): normalize served `model` to the alias before surrogate
++        # compute, so a same-role mix of alias and canonical_slug calls produces a single
++        # surrogate value (otherwise raw-model drift would false-fail the mid-run check).
++        normalized_metadata = dict(c.response_metadata)
++        normalized_metadata["model"] = rp["model_slug"]
++        surrogate_by_role.setdefault(c.role, set()).add(_role_surrogate(normalized_metadata, rp["surrogate_fields"]))
+     # per-role served identity must be SINGLE-VALUED across the run (no mid-run drift, Codex P1)
+     for role, ids in surrogate_by_role.items():
+         if len(ids) != 1:
+diff --git a/tests/dr_benchmark/test_pathB_run_gate.py b/tests/dr_benchmark/test_pathB_run_gate.py
+index 6151838a..d5594bb3 100644
+--- a/tests/dr_benchmark/test_pathB_run_gate.py
++++ b/tests/dr_benchmark/test_pathB_run_gate.py
+@@ -15,6 +15,7 @@ from scripts.dr_benchmark.pathB_run_gate import (
+     effective_config_hash,
+     is_secret_var,
+     preflight,
++    resolve_canonical_slug,
+     served_identity,
+ )
+ 
+@@ -201,10 +202,102 @@ def test_post_run_fatal_on_model_drift(monkeypatch) -> None:
+     _full_power_env(monkeypatch)
+     pin = preflight([], _gen_pin(), _SALT, offline=True)
+     bad = [LLMCall("c1", "generator", True, "h", {"provider_name": "deepinfra", "model": "deepseek/deepseek-v3.2"})]
+-    with pytest.raises(GateError, match="served model"):
++    with pytest.raises(GateError, match="matches neither"):
+         assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+ 
+ 
++# I-bug-945 (#931 smoke #14): OpenRouter chat-completions returns the canonical_slug as the
++# served `model` while the env pin holds the alias. Preflight resolves alias→canonical_slug
++# via GET /api/v1/models so assert_post_run accepts either form (alias OR canonical_slug),
++# while the persisted pin records BOTH as the pre-registration anchor.
++def test_post_run_passes_when_served_model_is_canonical_slug(monkeypatch) -> None:
++    _full_power_env(monkeypatch)
++    canonical = "deepseek/deepseek-v4-pro-20260423"
++    pins = [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model"), canonical_slug=canonical)]
++    pin = preflight([], pins, _SALT, offline=True)
++    # Served `model` is the dated canonical_slug; pin's alias is `deepseek/deepseek-v4-pro`.
++    good = [LLMCall("c1", "generator", True, "h", {"provider_name": "deepinfra", "model": canonical})]
++    res = assert_post_run(pin, [], _SALT, good, {"serper", "semantic_scholar"})
++    assert "generator" in res["served_identity_by_role"]
++
++
++def test_post_run_fatal_when_served_matches_neither_alias_nor_canonical(monkeypatch) -> None:
++    _full_power_env(monkeypatch)
++    pins = [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model"), canonical_slug="deepseek/deepseek-v4-pro-20260423")]
++    pin = preflight([], pins, _SALT, offline=True)
++    # Served `model` is a different family entirely — must FAIL.
++    bad = [LLMCall("c1", "generator", True, "h", {"provider_name": "deepinfra", "model": "deepseek/deepseek-v3.2"})]
++    with pytest.raises(GateError, match="matches neither pinned alias"):
++        assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
++
++
++def test_post_run_surrogate_stable_across_mixed_alias_and_canonical(monkeypatch) -> None:
++    """Codex P2#4: same role mixing alias + canonical_slug must produce a single surrogate
++    value (raw-model drift is identity-preserving once normalized; the gate must not false-
++    fail on the mid-run drift check)."""
++    _full_power_env(monkeypatch)
++    canonical = "deepseek/deepseek-v4-pro-20260423"
++    pins = [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model"), canonical_slug=canonical)]
++    pin = preflight([], pins, _SALT, offline=True)
++    calls = [
++        LLMCall("c1", "generator", True, "h", {"provider_name": "deepinfra", "model": _GEN_SLUG}),
++        LLMCall("c2", "generator", True, "h", {"provider_name": "deepinfra", "model": canonical}),
++    ]
++    res = assert_post_run(pin, [], _SALT, calls, {"serper", "semantic_scholar"})
++    assert "generator" in res["served_identity_by_role"]
++
++
++def test_resolve_canonical_slug_returns_dated_snapshot(monkeypatch) -> None:
++    """Resolver hits OpenRouter /api/v1/models and exact-matches on `id`."""
++    class _R:
++        status_code = 200
++        def json(self) -> dict:
++            return {"data": [
++                {"id": "other/model", "canonical_slug": "other/model-20260101"},
++                {"id": "deepseek/deepseek-v4-pro", "canonical_slug": "deepseek/deepseek-v4-pro-20260423"},
++            ]}
++        def raise_for_status(self) -> None: ...
++    import scripts.dr_benchmark.pathB_run_gate as gate
++    monkeypatch.setattr(gate, "__name__", gate.__name__)  # no-op anchor for the lambda below
++    import requests
++    monkeypatch.setattr(requests, "get", lambda *a, **k: _R())
++    assert resolve_canonical_slug("deepseek/deepseek-v4-pro") == "deepseek/deepseek-v4-pro-20260423"
++
++
++def test_resolve_canonical_slug_returns_none_when_alias_equals_canonical(monkeypatch) -> None:
++    """When the catalog reports id == canonical_slug, return None (no dated suffix needed)."""
++    class _R:
++        status_code = 200
++        def json(self) -> dict:
++            return {"data": [{"id": "x/y", "canonical_slug": "x/y"}]}
++        def raise_for_status(self) -> None: ...
++    import requests
++    monkeypatch.setattr(requests, "get", lambda *a, **k: _R())
++    assert resolve_canonical_slug("x/y") is None
++
++
++def test_resolve_canonical_slug_fail_closed_on_unknown_alias(monkeypatch) -> None:
++    """Codex P2#2: if the alias isn't in the OpenRouter catalog, FAIL CLOSED."""
++    class _R:
++        status_code = 200
++        def json(self) -> dict:
++            return {"data": [{"id": "real/model", "canonical_slug": "real/model-20260101"}]}
++        def raise_for_status(self) -> None: ...
++    import requests
++    monkeypatch.setattr(requests, "get", lambda *a, **k: _R())
++    with pytest.raises(GateError, match="alias unknown"):
++        resolve_canonical_slug("does-not/exist")
++
++
++def test_preflight_persisted_pin_includes_canonical_slug(monkeypatch) -> None:
++    """The serialized pin must carry canonical_slug so pathB_gate_pin.json is the audit anchor."""
++    _full_power_env(monkeypatch)
++    canonical = "deepseek/deepseek-v4-pro-20260423"
++    pins = [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model"), canonical_slug=canonical)]
++    pin = preflight([], pins, _SALT, offline=True)
++    assert pin["role_pins"][0]["canonical_slug"] == canonical
++
++
+ def test_post_run_fatal_on_served_identity_drift(monkeypatch) -> None:
+     _full_power_env(monkeypatch)
+     pins = [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model", "system_fingerprint"))]

@@ -1,0 +1,1470 @@
+diff --git a/scripts/dr_benchmark/aggregate_systems.py b/scripts/dr_benchmark/aggregate_systems.py
+new file mode 100644
+index 00000000..c8789aee
+--- /dev/null
++++ b/scripts/dr_benchmark/aggregate_systems.py
+@@ -0,0 +1,214 @@
++"""Path-B final aggregator (I-safety-002b #925 PR-3).
++
++Reads all `outputs/dr_benchmark/scored/<system>_<question>.json` and produces the FINAL
++report `outputs/dr_benchmark/final_report.md` with:
++- **CLINICAL-3** (#75/#76/#78) and **OVERALL-5** sections reported SEPARATELY (Codex PR-3
++  design answer D + the locked honest-label discipline). No "wins" headline.
++- **INVALID rows reported as INVALID, omitted from numerator** (Codex answer D `report-omit`).
++  Denominator reports the valid subset; invalid runs are listed with reasons.
++- **Identity pins REQUIRED** (Codex answer F `yes-required`): cite freeze_pin.txt SHAs, the
++  pinned served-identity surrogates per role (from `pathB_gate_pin.json`), and per-question
++  retrieval reachability proofs.
++
++Pure aggregator: no scoring decisions made here. Every cell traces to a scored JSON file.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import sys
++from pathlib import Path
++
++_CLINICAL_QUESTIONS = ("Q75", "Q76", "Q78")
++_ALL_QUESTIONS = ("Q72", "Q75", "Q76", "Q78", "Q90")
++_SYSTEMS = ("polaris", "chatgpt", "gemini")
++
++
++def _read_scored(path: Path) -> dict:
++    return json.loads(path.read_text(encoding="utf-8"))
++
++
++def _collect(scored_dir: Path) -> dict[str, dict[str, dict]]:
++    """Return {system: {question_id: scored_dict}} from scored_dir."""
++    out: dict[str, dict[str, dict]] = {s: {} for s in _SYSTEMS}
++    for f in sorted(scored_dir.glob("*.json")):
++        d = _read_scored(f)
++        sys_id = d.get("system")
++        qid = d.get("question_id")
++        if sys_id in out and qid:
++            out[sys_id][qid] = d
++    return out
++
++
++def _section(scored: dict[str, dict[str, dict]], question_ids: tuple[str, ...], label: str) -> list[str]:
++    """Render a section table for the given question subset."""
++    lines = [f"### {label}\n"]
++    lines.append("| System | Valid runs | Passed | Pass rate | Invalid (reasons) |")
++    lines.append("|---|---|---|---|---|")
++    for sys_id in _SYSTEMS:
++        valid: list[dict] = []
++        invalid: list[dict] = []
++        for qid in question_ids:
++            d = scored.get(sys_id, {}).get(qid)
++            if d is None:
++                invalid.append({"question_id": qid, "reason": "no scored JSON"})
++                continue
++            if d.get("invalid"):
++                invalid.append({"question_id": qid, "reason": d.get("reason", "INVALID")})
++            else:
++                valid.append(d)
++        passed = sum(1 for d in valid if d.get("passed"))
++        n_valid = len(valid)
++        rate = f"{passed}/{n_valid}" if n_valid else "0/0"
++        rate_pct = f"({100.0 * passed / n_valid:.0f}%)" if n_valid else "(n/a)"
++        invalid_str = "; ".join(
++            f"{x['question_id']}: {x['reason'][:80]}" for x in invalid
++        ) or "—"
++        lines.append(
++            f"| {_cell(sys_id)} | {n_valid} | {passed} | {_cell(rate)} {_cell(rate_pct)} | "
++            f"{_cell(invalid_str)} |"
++        )
++    lines.append("")
++    return lines
++
++
++def _cell(text: str) -> str:
++    """Escape characters that break markdown table cells (Codex PR-3 diff P3 #2)."""
++    return (
++        (text or "")
++        .replace("|", "\\|")
++        .replace("\r\n", " ")
++        .replace("\n", " ")
++        .replace("\r", " ")
++    )
++
++
++def _per_question_detail(scored: dict[str, dict[str, dict]]) -> list[str]:
++    lines = ["### Per-question detail (clinical-3 + overall-5)\n"]
++    for qid in _ALL_QUESTIONS:
++        lines.append(f"#### {qid}\n")
++        lines.append("| System | Passed | Lane-1 hard_fail | Lane-2 coverage | Reasons |")
++        lines.append("|---|---|---|---|---|")
++        for sys_id in _SYSTEMS:
++            d = scored.get(sys_id, {}).get(qid)
++            if d is None:
++                lines.append(f"| {sys_id} | — | — | — | no scored JSON |")
++                continue
++            if d.get("invalid"):
++                lines.append(
++                    f"| {sys_id} | INVALID | — | — | {_cell(str(d.get('reason', ''))[:120])} |"
++                )
++                continue
++            lane1 = d.get("lane1", {})
++            lane2 = d.get("lane2", {})
++            reasons = "; ".join(d.get("reasons", [])) or "passed"
++            lines.append(
++                f"| {sys_id} | {d.get('passed')} | "
++                f"{lane1.get('hard_fail_count', '?')} | "
++                f"{lane2.get('coverage_fraction', 0):.2f} | "
++                f"{_cell(reasons[:120])} |"
++            )
++        lines.append("")
++    return lines
++
++
++def _identity_pins_block(freeze_pin: Path, scored: dict[str, dict[str, dict]]) -> list[str]:
++    """Identity pins block (Codex answer F yes-required) — cite freeze_pin SHAs AND, per
++    Codex PR-3 diff P2 #2, the pathB_gate served-identity + reachability proofs from each
++    POLARIS scored JSON (which scored_run.py surfaces under `pathB_gate_identity`)."""
++    lines = ["## Pre-registration identity pins (REQUIRED)\n"]
++    if freeze_pin.exists():
++        lines.append("**freeze_pin.txt contents** (hash-anchored answer key):\n")
++        lines.append("```")
++        lines.extend(freeze_pin.read_text(encoding="utf-8").splitlines())
++        lines.append("```\n")
++    else:
++        lines.append(f"freeze_pin.txt NOT FOUND at {freeze_pin} — IDENTITY UNVERIFIED\n")
++
++    # Per-(polaris, question) served-identity + reachability proofs from the gate.
++    polaris = scored.get("polaris", {})
++    if polaris:
++        lines.append(
++            "**POLARIS pathB_gate identity per question** "
++            "(served provider/model proven; retrieval backends reachability-checked):\n"
++        )
++        lines.append("| Question | Generator (served) | Evaluator (served) | Reachability | Fallbacks | Provider order |")
++        lines.append("|---|---|---|---|---|---|")
++        for qid in sorted(polaris.keys()):
++            d = polaris.get(qid, {})
++            ident = d.get("pathB_gate_identity") or {}
++            if not ident:
++                lines.append(f"| {qid} | — | — | — | — | — |")
++                continue
++            pins_by_role = {p.get("role"): p for p in ident.get("pinned_roles", [])}
++            served = ident.get("served_identity_by_role", {}) or {}
++            gen = pins_by_role.get("generator", {}) or {}
++            ev = pins_by_role.get("evaluator", {}) or {}
++            gen_str = (
++                f"{gen.get('provider_name', '?')}/{gen.get('model_slug', '?')} "
++                f"surrogate={(served.get('generator') or '?')[:12]}…"
++            )
++            ev_str = (
++                f"{ev.get('provider_name', '?')}/{ev.get('model_slug', '?')} "
++                f"surrogate={(served.get('evaluator') or '?')[:12]}…"
++            )
++            lines.append(
++                f"| {qid} | {_cell(gen_str)} | {_cell(ev_str)} | "
++                f"{ident.get('reachability_checked')} | "
++                f"{ident.get('openrouter_allow_fallbacks')} | "
++                f"{_cell(str(ident.get('openrouter_provider_order') or '—'))} |"
++            )
++        lines.append("")
++    return lines
++
++
++def render_final_report(
++    *, scored_dir: Path, freeze_pin: Path, out_path: Path,
++) -> int:
++    scored = _collect(scored_dir)
++    lines: list[str] = []
++    lines.append("# Path-B DR head-to-head — final report (I-safety-002b / #925)\n")
++    lines.append(
++        "Honest label: **DRB-EN high-stakes citation-faithfulness stress slice "
++        "(3 clinical + 2 source-critical)**. NOT 'the 5 objectively hardest' (DRB has no "
++        "hardness rank). Clinical-3 + Overall-5 reported SEPARATELY per the locked honest-"
++        "label discipline. No 'wins' headline; every cell traces to a scored JSON.\n",
++    )
++    lines.extend(_identity_pins_block(freeze_pin, scored))
++    lines.append("## Pass-rate summary\n")
++    lines.extend(_section(scored, _CLINICAL_QUESTIONS, "Clinical-3 (#75/#76/#78)"))
++    lines.extend(_section(scored, _ALL_QUESTIONS, "Overall-5 (#72/#75/#76/#78/#90)"))
++    lines.extend(_per_question_detail(scored))
++    lines.append(
++        "## Notes\n\n"
++        "- INVALID runs are reported and OMITTED from the numerator/denominator of the "
++        "valid subset (Codex PR-3 design answer D `report-omit`).\n"
++        "- Pass = zero S0–S2 FABRICATED/UNSUPPORTED material claims AND coverage ≥0.70 "
++        "(claim_audit_scorer thresholds, frozen).\n"
++        "- For POLARIS: scoring requires the Path-B gate's PASS verdict + absence of the "
++        "`pathB_gate_INVALID` sentinel. Gate FAILURES are reported as INVALID with the "
++        "gate's reason.\n"
++    )
++    out_path.parent.mkdir(parents=True, exist_ok=True)
++    out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
++    print(f"[aggregate_systems] wrote {out_path}")
++    return 0
++
++
++def main(argv: list[str] | None = None) -> int:
++    p = argparse.ArgumentParser(description="Path-B final aggregator.")
++    p.add_argument("--scored-dir", type=Path,
++                   default=Path("outputs/dr_benchmark/scored"))
++    p.add_argument("--freeze-pin", type=Path,
++                   default=Path(".codex/I-safety-002b/freeze_pin.txt"))
++    p.add_argument("--out", type=Path,
++                   default=Path("outputs/dr_benchmark/final_report.md"))
++    args = p.parse_args(argv)
++    return render_final_report(
++        scored_dir=args.scored_dir, freeze_pin=args.freeze_pin, out_path=args.out,
++    )
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/scripts/dr_benchmark/build_rubric_json.py b/scripts/dr_benchmark/build_rubric_json.py
+new file mode 100644
+index 00000000..0abd2577
+--- /dev/null
++++ b/scripts/dr_benchmark/build_rubric_json.py
+@@ -0,0 +1,180 @@
++"""Build the companion JSON snapshot of the frozen gold rubric (I-safety-002b #925 PR-3).
++
++Per Codex PR-3 design answer A (companion-json + dual SHA-pin): the canonical rubric is the
++human-readable `.codex/I-safety-002b/gold_rubrics_pathB.md`. This tool parses it ONCE into
++`outputs/dr_benchmark/rubric_v3_frozen.json` (machine-readable), then BOTH files are SHA256-
++pinned in `.codex/I-safety-002b/freeze_pin.txt`. Any edit to the markdown invalidates the JSON
++pin; the builder refuses to overwrite without matching the markdown's pinned sha.
++
++Schema:
++{
++  "rubric_sha256": "<sha256 of the source markdown>",
++  "rubric_path": ".codex/I-safety-002b/gold_rubrics_pathB.md",
++  "build_timestamp_utc": "...",
++  "questions": [
++    {
++      "question_id": "Q75" | "Q76" | "Q78" | "Q72" | "Q90",
++      "domain": "Health (clinical)" | ...,
++      "elements": [{"element_id": "Q75-E1", "requirement_text": "..."}, ...]
++    },
++    ...
++  ]
++}
++"""
++
++from __future__ import annotations
++
++import argparse
++import hashlib
++import json
++import re
++import sys
++from pathlib import Path
++
++# Codex PR-3 diff P2 #4: hard-coded EXPECTED rubric shape (FROZEN gold_rubrics_pathB.md v3).
++# The parser FAILS CLOSED if the markdown drifts from this — drift is a freeze violation,
++# not a "should silently update" case. Update these together with a new freeze_pin.txt SHA.
++_EXPECTED_QUESTIONS = ("Q75", "Q76", "Q78", "Q72", "Q90")
++_EXPECTED_ELEMENT_COUNTS = {"Q75": 7, "Q76": 8, "Q78": 8, "Q72": 8, "Q90": 8}
++
++_QUESTION_HEADER = re.compile(
++    r"^##\s+#(?P<num>\d+)\s+—\s+(?P<title>.+?)\s*$",
++    re.MULTILINE,
++)
++_ELEMENT_LINE = re.compile(
++    r"^(?P<n>\d+)\.\s+(?P<text>.+?)$",
++    re.MULTILINE,
++)
++
++
++def _sha256(p: Path) -> str:
++    return hashlib.sha256(p.read_bytes()).hexdigest()
++
++
++def _read_pinned_sha(freeze_pin_path: Path, rubric_relpath: str) -> str | None:
++    if not freeze_pin_path.exists():
++        return None
++    for line in freeze_pin_path.read_text(encoding="utf-8").splitlines():
++        line = line.strip()
++        if not line or line.startswith("#"):
++            continue
++        parts = line.split()
++        if len(parts) >= 2 and parts[1].endswith(rubric_relpath):
++            return parts[0]
++    return None
++
++
++def build_rubric_json(rubric_md: Path) -> dict:
++    """Parse the frozen rubric markdown into the companion-JSON dict."""
++    text = rubric_md.read_text(encoding="utf-8")
++    rubric_sha = _sha256(rubric_md)
++    questions: list[dict] = []
++
++    # Slice by "## #N — Title" headers; ignore non-question headers (CHANGELOG, etc.).
++    headers = list(_QUESTION_HEADER.finditer(text))
++    for i, m in enumerate(headers):
++        qnum = f"Q{m.group('num')}"
++        title = m.group("title").strip()
++        body_start = m.end()
++        body_end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
++        body = text[body_start:body_end]
++        # Extract numbered top-level elements: "1. ...", "2. ..." at start of line.
++        elements: list[dict] = []
++        for em in _ELEMENT_LINE.finditer(body):
++            n = int(em.group("n"))
++            elem_text = em.group("text").strip()
++            # Stop if the numbering resets / we leave the element list.
++            if n != len(elements) + 1:
++                break
++            elements.append({
++                "element_id": f"{qnum}-E{n}",
++                "requirement_text": elem_text,
++            })
++        questions.append({
++            "question_id": qnum,
++            "title": title,
++            "elements": elements,
++        })
++
++    # Codex PR-3 diff P2 #4: fail closed if the parsed shape doesn't match the FROZEN
++    # rubric (different question set, missing question, or wrong element count).
++    parsed_qids = tuple(q["question_id"] for q in questions)
++    if parsed_qids != _EXPECTED_QUESTIONS:
++        raise ValueError(
++            f"parsed question set {parsed_qids} != expected {_EXPECTED_QUESTIONS}; "
++            "the FROZEN rubric markdown drifted — fix the source or update the expected set "
++            "(and re-pin freeze_pin.txt)"
++        )
++    for q in questions:
++        expected = _EXPECTED_ELEMENT_COUNTS[q["question_id"]]
++        if len(q["elements"]) != expected:
++            raise ValueError(
++                f"{q['question_id']}: parsed {len(q['elements'])} elements != "
++                f"expected {expected}; parser dropped an element OR rubric drifted"
++            )
++    # Codex PR-3 diff P2 #3: omit build_timestamp_utc from the snapshot so the JSON is
++    # deterministic (same markdown -> same SHA). Audit trail is the pinned rubric_sha256.
++    return {
++        "rubric_sha256": rubric_sha,
++        "rubric_path": str(rubric_md).replace("\\", "/"),
++        "questions": questions,
++    }
++
++
++def main(argv: list[str] | None = None) -> int:
++    p = argparse.ArgumentParser(description="Build the frozen-rubric JSON snapshot.")
++    p.add_argument("--rubric", type=Path, default=Path(".codex/I-safety-002b/gold_rubrics_pathB.md"))
++    p.add_argument("--out", type=Path, default=Path("outputs/dr_benchmark/rubric_v3_frozen.json"))
++    p.add_argument("--freeze-pin", type=Path, default=Path(".codex/I-safety-002b/freeze_pin.txt"))
++    p.add_argument("--allow-unpinned", action="store_true",
++                   help="bypass the freeze-pin check (use ONLY for initial build before pinning)")
++    args = p.parse_args(argv)
++
++    if not args.rubric.exists():
++        print(f"[build_rubric_json] rubric not found: {args.rubric}", file=sys.stderr)
++        return 1
++
++    rubric_sha = _sha256(args.rubric)
++    md_pinned = _read_pinned_sha(args.freeze_pin, "gold_rubrics_pathB.md")
++    # Codex PR-3 diff P2 #3: require the markdown SHA to be pinned (unless explicit
++    # --allow-unpinned for initial build). Missing pin = pre-registration unanchored.
++    if md_pinned is None and not args.allow_unpinned:
++        print(
++            f"[build_rubric_json] freeze_pin.txt has NO pin for gold_rubrics_pathB.md "
++            f"-- pre-registration unanchored. Use --allow-unpinned ONLY for the initial build.",
++            file=sys.stderr,
++        )
++        return 2
++    if md_pinned is not None and md_pinned != rubric_sha and not args.allow_unpinned:
++        print(
++            f"[build_rubric_json] rubric SHA {rubric_sha} != pinned {md_pinned}; "
++            f"freeze_pin.txt out of sync — refusing to overwrite the JSON.",
++            file=sys.stderr,
++        )
++        return 2
++
++    doc = build_rubric_json(args.rubric)
++    payload = json.dumps(doc, indent=2, sort_keys=True) + "\n"
++    out_sha = hashlib.sha256(payload.encode("utf-8")).hexdigest()
++    # Codex PR-3 diff P2 #3: check the existing JSON pin (if any) matches the just-built SHA.
++    json_pinned = _read_pinned_sha(args.freeze_pin, "rubric_v3_frozen.json")
++    if json_pinned is not None and json_pinned != out_sha and not args.allow_unpinned:
++        print(
++            f"[build_rubric_json] rebuilt JSON SHA {out_sha} != pinned {json_pinned}; "
++            f"freeze_pin.txt out of sync OR build is no longer deterministic.",
++            file=sys.stderr,
++        )
++        return 2
++    args.out.parent.mkdir(parents=True, exist_ok=True)
++    # Write bytes (not write_text) so Windows doesn't translate LF→CRLF and break the
++    # deterministic SHA. The on-disk SHA must equal the in-memory payload SHA byte-for-byte.
++    args.out.write_bytes(payload.encode("utf-8"))
++    print(f"[build_rubric_json] wrote {args.out} (rubric_sha256={rubric_sha[:16]}…, "
++          f"json_sha256={out_sha[:16]}…, "
++          f"{len(doc['questions'])} questions, "
++          f"{sum(len(q['elements']) for q in doc['questions'])} elements)")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/scripts/dr_benchmark/ledger_schema.py b/scripts/dr_benchmark/ledger_schema.py
+new file mode 100644
+index 00000000..ab152791
+--- /dev/null
++++ b/scripts/dr_benchmark/ledger_schema.py
+@@ -0,0 +1,166 @@
++"""Path-B dual-§-1.1-audit ledger schema (I-safety-002b #925 PR-3).
++
++The per-(system × question) JSON each auditor (Claude / Codex) writes for the dual line-by-line
++audit. Mirrors `src.polaris_graph.benchmark.claim_audit_scorer.ClaimRow` validation so a ledger
++that fails-closed here cannot smuggle a malformed row into the scorer. Pure stdlib + dataclasses
++(no pydantic dep added).
++
++Public surface:
++- ``Claim``       — one atomic claim audited against the FETCHED cited span.
++- ``Coverage``    — one pre-registered gold-rubric element's coverage by THIS system's report.
++- ``Ledger``      — the full (system, question) audit ledger written by ONE auditor.
++- ``load_ledger`` — read+validate a ledger JSON from disk.
++- ``dump_ledger`` — write a validated ledger JSON to disk.
++"""
++
++from __future__ import annotations
++
++import json
++from dataclasses import asdict, dataclass, field
++from pathlib import Path
++from typing import Literal
++
++# Mirrored from claim_audit_scorer.py (PR-1) — do NOT diverge.
++Verdict = Literal["VERIFIED", "PARTIAL", "UNSUPPORTED", "FABRICATED", "UNREACHABLE"]
++Severity = Literal["S0", "S1", "S2", "S3"]
++UnreachableSubtype = Literal["paywall", "robots", "fetch_failure", "source_missing"]
++Auditor = Literal["claude", "codex", "reconciled"]
++SystemId = Literal["polaris", "chatgpt", "gemini"]
++
++_VERDICTS = ("VERIFIED", "PARTIAL", "UNSUPPORTED", "FABRICATED", "UNREACHABLE")
++_SEVERITIES = ("S0", "S1", "S2", "S3")
++_UNREACHABLE_SUBTYPES = ("paywall", "robots", "fetch_failure", "source_missing")
++# "reconciled" is the output of dual-auditor reconciliation (PR-3 reconcile.py), NOT a
++# real auditor — the upstream auditors are recorded in audit_method.
++_AUDITORS = ("claude", "codex", "reconciled")
++_SYSTEMS = ("polaris", "chatgpt", "gemini")
++
++
++@dataclass
++class Claim:
++    """One atomic claim's audit row. Validation MIRRORS ClaimRow.__post_init__:
++    UNREACHABLE requires unreachable_subtype; FABRICATED/PARTIAL require span_quote;
++    UNSUPPORTED+cited requires span_quote OR audit_note (traceability)."""
++
++    claim_id: str
++    severity: str            # "S0"|"S1"|"S2"|"S3"
++    verdict: str             # one of _VERDICTS
++    citation_id: str | None = None
++    span_quote: str | None = None
++    unreachable_subtype: str | None = None
++    audit_note: str | None = None
++
++    def __post_init__(self) -> None:
++        if not self.claim_id:
++            raise ValueError("Claim.claim_id is required")
++        if self.severity not in _SEVERITIES:
++            raise ValueError(f"{self.claim_id}: severity {self.severity!r} not in {_SEVERITIES}")
++        if self.verdict not in _VERDICTS:
++            raise ValueError(f"{self.claim_id}: verdict {self.verdict!r} not in {_VERDICTS}")
++        if self.verdict == "UNREACHABLE" and self.unreachable_subtype is None:
++            raise ValueError(f"{self.claim_id}: UNREACHABLE requires unreachable_subtype")
++        if self.verdict != "UNREACHABLE" and self.unreachable_subtype is not None:
++            raise ValueError(
++                f"{self.claim_id}: unreachable_subtype only valid for UNREACHABLE"
++            )
++        if (
++            self.unreachable_subtype is not None
++            and self.unreachable_subtype not in _UNREACHABLE_SUBTYPES
++        ):
++            raise ValueError(
++                f"{self.claim_id}: unreachable_subtype {self.unreachable_subtype!r} "
++                f"not in {_UNREACHABLE_SUBTYPES}"
++            )
++        if self.verdict in ("FABRICATED", "PARTIAL") and not self.span_quote:
++            raise ValueError(
++                f"{self.claim_id}: {self.verdict} requires a span_quote (the refuting/partial span)"
++            )
++        if (
++            self.verdict == "UNSUPPORTED"
++            and self.citation_id
++            and not (self.span_quote or self.audit_note)
++        ):
++            raise ValueError(
++                f"{self.claim_id}: UNSUPPORTED+cited requires a span_quote or audit_note (traceability)"
++            )
++
++
++@dataclass
++class Coverage:
++    """One pre-registered gold-rubric element's coverage row, produced in the SAME
++    pass as the per-claim audit (Codex PR-3 design answer B)."""
++
++    element_id: str
++    covered: bool
++    citation_supported: bool
++    auditor_note: str | None = None
++
++    def __post_init__(self) -> None:
++        if not self.element_id:
++            raise ValueError("Coverage.element_id is required")
++        # Codex PR-3 diff P2 #1: enforce real bools. JSON deserialization can yield strings
++        # ("false", "0", "") that are truthy in Python and would silently pass scoring.
++        for fname in ("covered", "citation_supported"):
++            v = getattr(self, fname)
++            if not isinstance(v, bool):
++                raise ValueError(
++                    f"Coverage.{fname} must be a bool, got {type(v).__name__}: {v!r}"
++                )
++
++
++@dataclass
++class Ledger:
++    """The full (system, question) audit ledger written by ONE auditor (claude OR codex)."""
++
++    system: str           # one of _SYSTEMS
++    question_id: str      # "Q72"|"Q75"|"Q76"|"Q78"|"Q90"
++    auditor: str          # one of _AUDITORS
++    audit_method: str     # short description, e.g. "dual-§-1.1-line-by-line-2026-05-28"
++    audit_timestamp_utc: str
++    rubric_sha256: str    # the freeze_pin.txt SHA of the rubric being audited against
++    claims: list[Claim] = field(default_factory=list)
++    coverage: list[Coverage] = field(default_factory=list)
++
++    def __post_init__(self) -> None:
++        if self.system not in _SYSTEMS:
++            raise ValueError(f"system {self.system!r} not in {_SYSTEMS}")
++        if self.auditor not in _AUDITORS:
++            raise ValueError(f"auditor {self.auditor!r} not in {_AUDITORS}")
++        if not self.question_id:
++            raise ValueError("Ledger.question_id is required")
++        if not self.audit_method:
++            raise ValueError("Ledger.audit_method is required (audit-protocol identity)")
++        if not self.audit_timestamp_utc:
++            raise ValueError("Ledger.audit_timestamp_utc is required (audit-time identity)")
++        if not self.rubric_sha256:
++            raise ValueError("Ledger.rubric_sha256 is required (pre-registration anchor)")
++        # Duplicate detection: claim_id and element_id are unique within a ledger.
++        seen_claims = set()
++        for c in self.claims:
++            if c.claim_id in seen_claims:
++                raise ValueError(f"duplicate claim_id {c.claim_id!r}")
++            seen_claims.add(c.claim_id)
++        seen_elements = set()
++        for cv in self.coverage:
++            if cv.element_id in seen_elements:
++                raise ValueError(f"duplicate element_id {cv.element_id!r}")
++            seen_elements.add(cv.element_id)
++
++
++def load_ledger(path: Path) -> Ledger:
++    """Read a ledger JSON; validate per dataclass __post_init__; raise on any malformed row."""
++    raw = json.loads(Path(path).read_text(encoding="utf-8"))
++    claims = [Claim(**c) for c in raw.get("claims", [])]
++    coverage = [Coverage(**c) for c in raw.get("coverage", [])]
++    head = {k: v for k, v in raw.items() if k not in ("claims", "coverage")}
++    return Ledger(claims=claims, coverage=coverage, **head)
++
++
++def dump_ledger(ledger: Ledger, path: Path) -> None:
++    """Write a ledger JSON (validated by construction; no extra validation needed)."""
++    out = asdict(ledger)
++    Path(path).parent.mkdir(parents=True, exist_ok=True)
++    Path(path).write_text(
++        json.dumps(out, indent=2, sort_keys=True, default=str) + "\n",
++        encoding="utf-8",
++    )
+diff --git a/scripts/dr_benchmark/reconcile.py b/scripts/dr_benchmark/reconcile.py
+new file mode 100644
+index 00000000..f20ba913
+--- /dev/null
++++ b/scripts/dr_benchmark/reconcile.py
+@@ -0,0 +1,219 @@
++"""Dual-§-1.1-audit reconciler (I-safety-002b #925 PR-3).
++
++Combines a Claude ledger + a Codex ledger for the same (system, question) into a single
++reconciled ledger. **Conservative-MAX rule** (Codex PR-3 design answer C): on per-claim verdict
++disagreement, take the WORSE-of-two as the gating verdict — clinical-lethal framing means a
++problem either auditor finds counts. The disagreement is preserved in `audit_note` so the
++trail is transparent. Same rule for Coverage rows (worse-of-two: covered AND citation_supported
++both demoted on either-says-no).
++
++Pure logic. No I/O beyond the schema dataclasses.
++"""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++
++from scripts.dr_benchmark.ledger_schema import Claim, Coverage, Ledger
++
++# Verdict severity order (low = good, high = bad). Conservative-MAX takes the HIGHEST.
++_VERDICT_ORDER = {
++    "VERIFIED": 0,
++    "PARTIAL": 1,
++    "UNREACHABLE": 2,
++    "UNSUPPORTED": 3,
++    "FABRICATED": 4,
++}
++_SEVERITY_ORDER = {"S3": 0, "S2": 1, "S1": 2, "S0": 3}
++
++
++def _worse_verdict(a: str, b: str) -> str:
++    return a if _VERDICT_ORDER[a] >= _VERDICT_ORDER[b] else b
++
++
++def _worse_severity(a: str, b: str) -> str:
++    """When auditors disagree on severity, escalate to the HIGHER severity (more critical)."""
++    return a if _SEVERITY_ORDER[a] >= _SEVERITY_ORDER[b] else b
++
++
++def _carry_evidence(a: Claim, b: Claim, worse_verdict: str) -> tuple[str | None, str | None, str | None]:
++    """For the worse verdict, pick the evidence (span_quote / unreachable_subtype / audit_note)
++    from whichever auditor produced THAT verdict. If both produced the worse verdict, prefer
++    Claude's span/subtype (deterministic tie-break) and CONCATENATE both auditors' notes
++    (Codex PR-3 diff P3 #1: comment said both appended; now it actually does)."""
++    winners: list[Claim] = [c for c in (a, b) if c.verdict == worse_verdict]
++    if not winners:
++        winners = [a, b]  # both better than worse_verdict (impossible by construction)
++    primary = winners[0]
++    if len(winners) == 2:
++        # Both auditors landed on the worse verdict — preserve both notes for traceability.
++        notes = [c.audit_note for c in winners if c.audit_note]
++        merged_note = (
++            " || ".join(notes) if len(notes) > 1
++            else (notes[0] if notes else primary.audit_note)
++        )
++        return primary.span_quote, primary.unreachable_subtype, merged_note
++    return primary.span_quote, primary.unreachable_subtype, primary.audit_note
++
++
++def _reconcile_claim(a: Claim, b: Claim) -> Claim:
++    """Conservative-MAX one claim; preserve disagreement in audit_note for traceability."""
++    worse_v = _worse_verdict(a.verdict, b.verdict)
++    worse_s = _worse_severity(a.severity, b.severity)
++    span, subtype, note = _carry_evidence(a, b, worse_v)
++    disagreement = a.verdict != b.verdict or a.severity != b.severity
++    base_note = note or ""
++    if disagreement:
++        trail = (
++            f"reconciled: claude={a.verdict}/{a.severity}, codex={b.verdict}/{b.severity}; "
++            f"conservative-MAX -> {worse_v}/{worse_s}"
++        )
++        full_note = f"{base_note} | {trail}" if base_note else trail
++    else:
++        full_note = note
++    # citation_id: prefer non-null; if both non-null but differ, prefer the worse_v auditor's.
++    citation = a.citation_id if (a.verdict == worse_v and a.citation_id) else (
++        b.citation_id if b.citation_id else a.citation_id
++    )
++    return Claim(
++        claim_id=a.claim_id,
++        severity=worse_s,
++        verdict=worse_v,
++        citation_id=citation,
++        span_quote=span,
++        unreachable_subtype=subtype if worse_v == "UNREACHABLE" else None,
++        audit_note=full_note,
++    )
++
++
++def _reconcile_coverage(a: Coverage, b: Coverage) -> Coverage:
++    """Conservative-MAX coverage: covered AND citation_supported each fall to the WORSE of two
++    (either auditor says NO -> NO). Disagreement preserved in auditor_note."""
++    covered = a.covered and b.covered
++    cs = a.citation_supported and b.citation_supported
++    if a.covered != b.covered or a.citation_supported != b.citation_supported:
++        trail = (
++            f"reconciled: claude=covered={a.covered}/cited={a.citation_supported}, "
++            f"codex=covered={b.covered}/cited={b.citation_supported}; "
++            f"conservative-MAX -> covered={covered}/cited={cs}"
++        )
++        base = a.auditor_note or b.auditor_note or ""
++        note = f"{base} | {trail}" if base else trail
++    else:
++        note = a.auditor_note or b.auditor_note
++    return Coverage(
++        element_id=a.element_id,
++        covered=covered,
++        citation_supported=cs,
++        auditor_note=note,
++    )
++
++
++def reconcile(claude: Ledger, codex: Ledger) -> Ledger:
++    """Reconcile two single-auditor ledgers for the same (system, question) into one.
++
++    Raises ValueError if the ledgers disagree on identity (system/question/rubric_sha256) —
++    that is a §-1.1 pre-registration violation, not a reconciliation case."""
++    if claude.system != codex.system:
++        raise ValueError(f"system mismatch: claude={claude.system}, codex={codex.system}")
++    if claude.question_id != codex.question_id:
++        raise ValueError(
++            f"question_id mismatch: claude={claude.question_id}, codex={codex.question_id}"
++        )
++    if claude.rubric_sha256 != codex.rubric_sha256:
++        raise ValueError(
++            "rubric_sha256 mismatch — auditors audited against DIFFERENT pinned rubrics: "
++            f"claude={claude.rubric_sha256}, codex={codex.rubric_sha256}"
++        )
++    if claude.auditor != "claude" or codex.auditor != "codex":
++        raise ValueError("reconcile(claude, codex) requires correctly-tagged auditors")
++
++    # Join claims by claim_id (require both auditors to cover each claim).
++    claude_claims = {c.claim_id: c for c in claude.claims}
++    codex_claims = {c.claim_id: c for c in codex.claims}
++    all_claim_ids = sorted(set(claude_claims) | set(codex_claims))
++    reconciled_claims: list[Claim] = []
++    for cid in all_claim_ids:
++        a = claude_claims.get(cid)
++        b = codex_claims.get(cid)
++        if a is None or b is None:
++            # Either auditor missed this claim: the missing auditor's silence is treated as
++            # WORSE-than-VERIFIED (UNSUPPORTED+audit_note) — conservative discipline. The other
++            # auditor's row carries forward, escalated.
++            #
++            # Codex PR-3 diff P1 #2: when the present row is UNREACHABLE, we cannot just
++            # escalate its verdict to UNSUPPORTED while keeping `unreachable_subtype` — Claim
++            # validation forbids subtype except on UNREACHABLE. Two cases:
++            #   - present.verdict == UNREACHABLE: keep UNREACHABLE (worse than VERIFIED;
++            #     escalation goal already met) + keep subtype.
++            #   - present.verdict != UNREACHABLE: escalate to UNSUPPORTED, drop any subtype,
++            #     and ensure traceability via audit_note (UNSUPPORTED+cited requires it).
++            present = a or b
++            silent_side = "claude" if b is None else "codex"
++            base_note = present.audit_note or ""
++            escalation_note = (
++                f"reconciled: only one auditor produced a row "
++                f"({'claude' if a else 'codex'}); {silent_side} silent -> escalated"
++            )
++            full_note = f"{base_note} | {escalation_note}" if base_note else escalation_note
++            if present.verdict == "UNREACHABLE":
++                # Already worse than VERIFIED; keep UNREACHABLE + subtype.
++                reconciled_claims.append(Claim(
++                    claim_id=cid,
++                    severity=present.severity,
++                    verdict="UNREACHABLE",
++                    citation_id=present.citation_id,
++                    span_quote=present.span_quote,
++                    unreachable_subtype=present.unreachable_subtype,
++                    audit_note=full_note,
++                ))
++            else:
++                escalated_verdict = _worse_verdict(present.verdict, "UNSUPPORTED")
++                # If we land on FABRICATED/PARTIAL we need a span_quote; if the present row
++                # has none, keep verdict=UNSUPPORTED instead (no span fabrication).
++                if escalated_verdict in ("FABRICATED", "PARTIAL") and not present.span_quote:
++                    escalated_verdict = "UNSUPPORTED"
++                reconciled_claims.append(Claim(
++                    claim_id=cid,
++                    severity=present.severity,
++                    verdict=escalated_verdict,
++                    citation_id=present.citation_id,
++                    span_quote=present.span_quote,
++                    unreachable_subtype=None,  # not UNREACHABLE -> must be None
++                    audit_note=full_note,
++                ))
++        else:
++            reconciled_claims.append(_reconcile_claim(a, b))
++
++    # Join coverage by element_id (same discipline).
++    claude_cov = {c.element_id: c for c in claude.coverage}
++    codex_cov = {c.element_id: c for c in codex.coverage}
++    all_element_ids = sorted(set(claude_cov) | set(codex_cov))
++    reconciled_coverage: list[Coverage] = []
++    for eid in all_element_ids:
++        a = claude_cov.get(eid)
++        b = codex_cov.get(eid)
++        if a is None or b is None:
++            present = a or b
++            reconciled_coverage.append(Coverage(
++                element_id=eid,
++                covered=False,  # missing-auditor escalates to NOT covered (conservative)
++                citation_supported=False,
++                auditor_note=(
++                    f"reconciled: only one auditor ({'claude' if a else 'codex'}) covered this element"
++                ),
++            ))
++        else:
++            reconciled_coverage.append(_reconcile_coverage(a, b))
++
++    return Ledger(
++        system=claude.system,
++        question_id=claude.question_id,
++        auditor="reconciled",
++        audit_method=f"reconciled-from:claude+codex (conservative-MAX); "
++                     f"upstream: {claude.audit_method} / {codex.audit_method}",
++        audit_timestamp_utc=datetime.now(timezone.utc).isoformat(),
++        rubric_sha256=claude.rubric_sha256,
++        claims=reconciled_claims,
++        coverage=reconciled_coverage,
++    )
+diff --git a/scripts/dr_benchmark/score_run.py b/scripts/dr_benchmark/score_run.py
+new file mode 100644
+index 00000000..e63bcfdf
+--- /dev/null
++++ b/scripts/dr_benchmark/score_run.py
+@@ -0,0 +1,218 @@
++"""Path-B (system, question) scorer (I-safety-002b #925 PR-3).
++
++Loads a RECONCILED dual-§-1.1 audit ledger + the frozen-rubric JSON snapshot, runs the
++existing two-lane scorer, and writes a per-(system, question) scored JSON.
++
++POLARIS-specific gate enforcement (Codex PR-3 design + Codex PR-2 P2 #2):
++- If `<run_dir>/pathB_gate_INVALID` exists, refuse to score (the gate marked the run invalid).
++- If `<run_dir>/pathB_gate_result.json` is missing OR verdict != "PASS", refuse to score.
++- The gate is the SOURCE OF TRUTH for run validity; per-run artifacts (manifest, judge, etc.)
++  may exist on disk even on FAIL, so the scorer MUST consult the sentinel + result first.
++
++CLI:
++    python -m scripts.dr_benchmark.score_run \
++        --system polaris --question Q75 \
++        --rubric outputs/dr_benchmark/rubric_v3_frozen.json \
++        --ledger outputs/dr_benchmark/ledgers/polaris_Q75_reconciled.json \
++        --run-dir outputs/honest_sweep_r3/health/Q75 \
++        --out outputs/dr_benchmark/scored/polaris_Q75.json
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import sys
++from pathlib import Path
++
++from scripts.dr_benchmark.ledger_schema import load_ledger
++from src.polaris_graph.benchmark.claim_audit_scorer import (
++    ClaimRow,
++    RubricElement,
++    SystemQuestionLedger,
++    aggregate,
++    system_passes_question,
++)
++
++
++class InvalidRunError(RuntimeError):
++    """POLARIS run was marked INVALID by the Path-B gate. Refuse to score."""
++
++
++def _read_polaris_gate_identity(run_dir: Path) -> dict:
++    """Codex PR-3 diff P2 #2: surface the gate's identity pins (served provider+model per
++    role + reachability_checked) for the aggregator's REQUIRED identity-pins block."""
++    pin = json.loads((run_dir / "pathB_gate_pin.json").read_text(encoding="utf-8"))
++    result = json.loads((run_dir / "pathB_gate_result.json").read_text(encoding="utf-8"))
++    role_pins = pin.get("role_pins", [])
++    return {
++        "served_identity_by_role": result.get("served_identity_by_role", {}),
++        "pinned_roles": [
++            {"role": rp.get("role"), "model_slug": rp.get("model_slug"),
++             "provider_name": rp.get("provider_name")}
++            for rp in role_pins
++        ],
++        "reachability_checked": pin.get("reachability_checked"),
++        "openrouter_allow_fallbacks": pin.get("openrouter_allow_fallbacks"),
++        "openrouter_provider_order": pin.get("openrouter_provider_order"),
++    }
++
++
++def _check_polaris_gate(run_dir: Path) -> None:
++    """For POLARIS scoring: the gate must have written a PASS result + no INVALID sentinel."""
++    if not run_dir.exists():
++        raise InvalidRunError(f"polaris run_dir does not exist: {run_dir}")
++    if (run_dir / "pathB_gate_INVALID").exists():
++        marker = (run_dir / "pathB_gate_INVALID").read_text(encoding="utf-8").strip()
++        raise InvalidRunError(
++            f"polaris run_dir marked INVALID by Path-B gate: {marker} ({run_dir})"
++        )
++    result_path = run_dir / "pathB_gate_result.json"
++    if not result_path.exists():
++        raise InvalidRunError(
++            f"polaris run_dir missing pathB_gate_result.json (gate not run): {run_dir}"
++        )
++    result = json.loads(result_path.read_text(encoding="utf-8"))
++    if result.get("verdict") != "PASS":
++        raise InvalidRunError(
++            f"polaris run_dir gate verdict != PASS: {result.get('verdict')!r} "
++            f"reason={result.get('reason')!r}"
++        )
++
++
++def score_one(
++    *, system: str, question_id: str, rubric_path: Path, ledger_path: Path,
++    run_dir: Path | None = None,
++) -> dict:
++    """Score one (system, question). Returns the scored dict; pure (no I/O beyond reads)."""
++    polaris_gate_identity: dict | None = None
++    if system == "polaris":
++        if run_dir is None:
++            raise InvalidRunError("polaris scoring requires --run-dir")
++        _check_polaris_gate(run_dir)
++        # Codex PR-3 diff P2 #2: surface the gate's served-identity + reachability for the
++        # aggregator's REQUIRED identity-pins block (design answer F).
++        polaris_gate_identity = _read_polaris_gate_identity(run_dir)
++
++    ledger = load_ledger(ledger_path)
++    # Codex PR-3 diff P1 #1: require a RECONCILED ledger; single-auditor ledgers must not
++    # be scored directly (that would bypass the dual-§-1.1 conservative-MAX discipline).
++    if ledger.auditor != "reconciled":
++        raise ValueError(
++            f"ledger.auditor must be 'reconciled' (Claude+Codex dual audit), got "
++            f"{ledger.auditor!r}; pass the reconciled ledger from "
++            f"scripts.dr_benchmark.reconcile, not a single-auditor ledger"
++        )
++    if ledger.system != system:
++        raise ValueError(
++            f"ledger.system {ledger.system!r} != requested system {system!r}"
++        )
++    if ledger.question_id != question_id:
++        raise ValueError(
++            f"ledger.question_id {ledger.question_id!r} != requested {question_id!r}"
++        )
++
++    rubric_doc = json.loads(rubric_path.read_text(encoding="utf-8"))
++    question_block = next(
++        (q for q in rubric_doc["questions"] if q["question_id"] == question_id), None,
++    )
++    if question_block is None:
++        raise ValueError(f"rubric does not contain question_id={question_id!r}")
++    if rubric_doc.get("rubric_sha256") != ledger.rubric_sha256:
++        raise ValueError(
++            "rubric_sha256 mismatch — ledger was audited against a DIFFERENT pinned rubric: "
++            f"ledger={ledger.rubric_sha256}, rubric_doc={rubric_doc.get('rubric_sha256')}"
++        )
++
++    # Build ClaimRow[] from ledger.claims (mirrors validation; ledger already validated).
++    rows = [
++        ClaimRow(
++            claim_id=c.claim_id,
++            severity=c.severity,
++            verdict=c.verdict,
++            citation_id=c.citation_id,
++            span_quote=c.span_quote,
++            unreachable_subtype=c.unreachable_subtype,
++            audit_note=c.audit_note,
++        )
++        for c in ledger.claims
++    ]
++    # Map coverage rows to RubricElement[] (the scorer expects covered+citation_supported).
++    coverage_by_eid = {cv.element_id: cv for cv in ledger.coverage}
++    rubric_elements = []
++    for el in question_block["elements"]:
++        cv = coverage_by_eid.get(el["element_id"])
++        if cv is None:
++            # No coverage row for a required element = NOT covered (conservative).
++            rubric_elements.append(RubricElement(
++                element_id=el["element_id"], covered=False, citation_supported=False,
++            ))
++        else:
++            rubric_elements.append(RubricElement(
++                element_id=el["element_id"],
++                covered=cv.covered,
++                citation_supported=cv.citation_supported,
++            ))
++
++    result = system_passes_question(rows, rubric_elements)
++    out = {
++        "system": system,
++        "question_id": question_id,
++        "rubric_sha256": rubric_doc["rubric_sha256"],
++        "ledger_audit_method": ledger.audit_method,
++        "n_claims_material": result["lane1"]["material_atoms"],
++        "n_rubric_elements": len(rubric_elements),
++        "passed": result["passed"],
++        "reasons": result["reasons"],
++        "lane1": result["lane1"],
++        "lane2": result["lane2"],
++    }
++    if polaris_gate_identity is not None:
++        out["pathB_gate_identity"] = polaris_gate_identity
++    return out
++
++
++def main(argv: list[str] | None = None) -> int:
++    p = argparse.ArgumentParser(description="Path-B (system, question) scorer.")
++    p.add_argument("--system", required=True, choices=("polaris", "chatgpt", "gemini"))
++    p.add_argument("--question", required=True, dest="question_id",
++                   choices=("Q72", "Q75", "Q76", "Q78", "Q90"))
++    p.add_argument("--rubric", required=True, type=Path,
++                   help="frozen-rubric JSON snapshot (rubric_v3_frozen.json)")
++    p.add_argument("--ledger", required=True, type=Path,
++                   help="reconciled dual-audit ledger JSON (claude+codex)")
++    p.add_argument("--run-dir", type=Path, default=None,
++                   help="polaris run dir (required for system=polaris; gate-check)")
++    p.add_argument("--out", required=True, type=Path,
++                   help="path to write scored JSON")
++    args = p.parse_args(argv)
++
++    try:
++        scored = score_one(
++            system=args.system, question_id=args.question_id,
++            rubric_path=args.rubric, ledger_path=args.ledger,
++            run_dir=args.run_dir,
++        )
++    except InvalidRunError as exc:
++        print(f"[score_run] INVALID: {exc}", file=sys.stderr)
++        # Write a stub INVALID record so the aggregator can still account for it.
++        args.out.parent.mkdir(parents=True, exist_ok=True)
++        args.out.write_text(json.dumps({
++            "system": args.system, "question_id": args.question_id,
++            "passed": False, "invalid": True, "reason": str(exc),
++        }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
++        return 2  # distinct from generic error
++    except Exception as exc:
++        print(f"[score_run] ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
++        return 1
++
++    args.out.parent.mkdir(parents=True, exist_ok=True)
++    args.out.write_text(
++        json.dumps(scored, indent=2, sort_keys=True, default=str) + "\n",
++        encoding="utf-8",
++    )
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/tests/dr_benchmark/test_pr3_pipeline.py b/tests/dr_benchmark/test_pr3_pipeline.py
+new file mode 100644
+index 00000000..d722ab95
+--- /dev/null
++++ b/tests/dr_benchmark/test_pr3_pipeline.py
+@@ -0,0 +1,437 @@
++"""PR-3 scoring pipeline tests (I-safety-002b #925). Pure, offline.
++
++Covers: ledger_schema validation + duplicate detection, reconcile conservative-MAX +
++silent-auditor escalation + identity-mismatch error, score_run polaris gate enforcement +
++INVALID sentinel skip + ledger/rubric mismatch error, aggregate_systems final-report
++shape + invalid-row reporting.
++"""
++
++from __future__ import annotations
++
++import hashlib
++import json
++from pathlib import Path
++
++import pytest
++
++from scripts.dr_benchmark.ledger_schema import (
++    Claim, Coverage, Ledger, dump_ledger, load_ledger,
++)
++from scripts.dr_benchmark.reconcile import reconcile
++from scripts.dr_benchmark.score_run import InvalidRunError, score_one
++from scripts.dr_benchmark.aggregate_systems import render_final_report
++
++_RUBRIC_SHA = "deadbeef" * 8
++
++
++# --- ledger_schema validation ----------------------------------------------
++def test_claim_unreachable_requires_subtype() -> None:
++    with pytest.raises(ValueError, match="UNREACHABLE requires"):
++        Claim(claim_id="c1", severity="S1", verdict="UNREACHABLE", citation_id="x")
++
++
++def test_claim_fabricated_requires_span() -> None:
++    with pytest.raises(ValueError, match="FABRICATED requires"):
++        Claim(claim_id="c1", severity="S1", verdict="FABRICATED", citation_id="x")
++    # ok with span
++    Claim(claim_id="c1", severity="S1", verdict="FABRICATED",
++          citation_id="x", span_quote="refuting")
++
++
++def test_claim_unsupported_cited_traceability() -> None:
++    with pytest.raises(ValueError, match="traceability"):
++        Claim(claim_id="c1", severity="S1", verdict="UNSUPPORTED", citation_id="x")
++    # ok with audit_note
++    Claim(claim_id="c1", severity="S1", verdict="UNSUPPORTED", citation_id="x",
++          audit_note="no supporting span found")
++
++
++def test_ledger_duplicate_claim_rejected() -> None:
++    with pytest.raises(ValueError, match="duplicate claim_id"):
++        Ledger(
++            system="polaris", question_id="Q75", auditor="claude",
++            audit_method="m", audit_timestamp_utc="2026-05-28T00:00:00Z",
++            rubric_sha256=_RUBRIC_SHA,
++            claims=[
++                Claim("c1", "S1", "VERIFIED"),
++                Claim("c1", "S1", "VERIFIED"),  # duplicate
++            ],
++        )
++
++
++def test_ledger_dump_load_roundtrip(tmp_path: Path) -> None:
++    led = Ledger(
++        system="polaris", question_id="Q75", auditor="claude",
++        audit_method="dual-§-1.1-2026-05-28", audit_timestamp_utc="2026-05-28T00:00:00Z",
++        rubric_sha256=_RUBRIC_SHA,
++        claims=[Claim("c1", "S1", "VERIFIED", citation_id="src1", span_quote="ok")],
++        coverage=[Coverage("Q75-E1", True, True)],
++    )
++    p = tmp_path / "led.json"
++    dump_ledger(led, p)
++    led2 = load_ledger(p)
++    assert led2.claims[0].claim_id == "c1"
++    assert led2.coverage[0].element_id == "Q75-E1"
++
++
++# --- reconcile (conservative-MAX) -----------------------------------------
++def _ledger(auditor: str, claim_verdict: str, *, severity: str = "S1",
++            covered: bool = True, cited: bool = True,
++            span: str | None = None, note: str | None = None,
++            subtype: str | None = None) -> Ledger:
++    rows = []
++    if claim_verdict == "FABRICATED" or claim_verdict == "PARTIAL":
++        span = span or "refuting"
++    if claim_verdict == "UNREACHABLE":
++        subtype = subtype or "paywall"
++    if claim_verdict == "UNSUPPORTED":
++        note = note or "no supporting span"
++    rows.append(Claim(
++        claim_id="c1", severity=severity, verdict=claim_verdict,
++        citation_id="src1", span_quote=span, unreachable_subtype=subtype, audit_note=note,
++    ))
++    return Ledger(
++        system="polaris", question_id="Q75", auditor=auditor,
++        audit_method=f"dual-{auditor}", audit_timestamp_utc="2026-05-28T00:00:00Z",
++        rubric_sha256=_RUBRIC_SHA,
++        claims=rows,
++        coverage=[Coverage("Q75-E1", covered, cited)],
++    )
++
++
++def test_reconcile_conservative_max_takes_worse_verdict() -> None:
++    a = _ledger("claude", "VERIFIED")
++    b = _ledger("codex", "FABRICATED")
++    r = reconcile(a, b)
++    assert r.claims[0].verdict == "FABRICATED"
++    assert "conservative-MAX" in (r.claims[0].audit_note or "")
++
++
++def test_reconcile_conservative_max_escalates_severity() -> None:
++    a = _ledger("claude", "VERIFIED", severity="S2")
++    b = _ledger("codex", "VERIFIED", severity="S0")
++    r = reconcile(a, b)
++    # both VERIFIED -> verdict stays VERIFIED, severity escalates to S0 (highest)
++    assert r.claims[0].verdict == "VERIFIED"
++    assert r.claims[0].severity == "S0"
++
++
++def test_reconcile_coverage_worse_of_two() -> None:
++    a = _ledger("claude", "VERIFIED", covered=True, cited=True)
++    b = _ledger("codex", "VERIFIED", covered=False, cited=False)
++    r = reconcile(a, b)
++    assert r.coverage[0].covered is False
++    assert r.coverage[0].citation_supported is False
++
++
++def test_reconcile_silent_auditor_escalates() -> None:
++    # One auditor missed claim "c2" entirely — conservative escalation kicks in.
++    a = _ledger("claude", "VERIFIED")
++    b = _ledger("codex", "VERIFIED")
++    # add a 2nd claim only to claude
++    a.claims.append(Claim("c2", "S1", "VERIFIED", citation_id="src2", span_quote="x"))
++    r = reconcile(a, b)
++    c2 = next(c for c in r.claims if c.claim_id == "c2")
++    assert c2.verdict in ("UNSUPPORTED", "FABRICATED")  # escalated above VERIFIED
++    assert "silent" in (c2.audit_note or "")
++
++
++def test_reconcile_rubric_sha_mismatch_raises() -> None:
++    a = _ledger("claude", "VERIFIED")
++    b = _ledger("codex", "VERIFIED")
++    b.rubric_sha256 = "0" * 64
++    with pytest.raises(ValueError, match="rubric_sha256 mismatch"):
++        reconcile(a, b)
++
++
++# --- score_run polaris gate enforcement -----------------------------------
++def _good_ledger_path(tmp_path: Path, system: str = "polaris", question: str = "Q75") -> Path:
++    led = Ledger(
++        system=system, question_id=question, auditor="reconciled",
++        audit_method="reconciled-test", audit_timestamp_utc="2026-05-28T00:00:00Z",
++        rubric_sha256=_RUBRIC_SHA,
++        claims=[Claim("c1", "S1", "VERIFIED", citation_id="src1", span_quote="ok")],
++        coverage=[Coverage("Q75-E1", True, True), Coverage("Q75-E2", True, True),
++                  Coverage("Q75-E3", True, True), Coverage("Q75-E4", True, True),
++                  Coverage("Q75-E5", True, True), Coverage("Q75-E6", True, True),
++                  Coverage("Q75-E7", True, True)],
++    )
++    p = tmp_path / "ledger.json"
++    dump_ledger(led, p)
++    return p
++
++
++def _good_rubric_path(tmp_path: Path) -> Path:
++    rubric = {
++        "rubric_sha256": _RUBRIC_SHA,
++        "rubric_path": "test/rubric.md",
++        "build_timestamp_utc": "2026-05-28T00:00:00Z",
++        "questions": [
++            {
++                "question_id": "Q75", "title": "test",
++                "elements": [{"element_id": f"Q75-E{i}", "requirement_text": f"e{i}"}
++                             for i in range(1, 8)],
++            },
++        ],
++    }
++    p = tmp_path / "rubric.json"
++    p.write_text(json.dumps(rubric), encoding="utf-8")
++    return p
++
++
++def test_score_polaris_refuses_when_invalid_sentinel(tmp_path: Path) -> None:
++    run_dir = tmp_path / "run"
++    run_dir.mkdir()
++    (run_dir / "pathB_gate_INVALID").write_text("preflight FAIL: example", encoding="utf-8")
++    with pytest.raises(InvalidRunError, match="INVALID"):
++        score_one(
++            system="polaris", question_id="Q75",
++            rubric_path=_good_rubric_path(tmp_path),
++            ledger_path=_good_ledger_path(tmp_path),
++            run_dir=run_dir,
++        )
++
++
++def test_score_polaris_refuses_when_no_gate_result(tmp_path: Path) -> None:
++    run_dir = tmp_path / "run"
++    run_dir.mkdir()
++    with pytest.raises(InvalidRunError, match="missing pathB_gate_result"):
++        score_one(
++            system="polaris", question_id="Q75",
++            rubric_path=_good_rubric_path(tmp_path),
++            ledger_path=_good_ledger_path(tmp_path),
++            run_dir=run_dir,
++        )
++
++
++def test_score_polaris_refuses_when_gate_fail(tmp_path: Path) -> None:
++    run_dir = tmp_path / "run"
++    run_dir.mkdir()
++    (run_dir / "pathB_gate_result.json").write_text(
++        json.dumps({"verdict": "FAIL", "reason": "OPENROUTER_ALLOW_FALLBACKS"}),
++        encoding="utf-8",
++    )
++    with pytest.raises(InvalidRunError, match="verdict != PASS"):
++        score_one(
++            system="polaris", question_id="Q75",
++            rubric_path=_good_rubric_path(tmp_path),
++            ledger_path=_good_ledger_path(tmp_path),
++            run_dir=run_dir,
++        )
++
++
++def test_score_polaris_passes_with_gate_pass(tmp_path: Path) -> None:
++    run_dir = tmp_path / "run"
++    run_dir.mkdir()
++    (run_dir / "pathB_gate_result.json").write_text(
++        json.dumps({
++            "verdict": "PASS",
++            "served_identity_by_role": {"generator": "abc123def456", "evaluator": "xyz789"},
++        }),
++        encoding="utf-8",
++    )
++    # Codex PR-3 diff P2 #2: score_run now reads pathB_gate_pin.json to surface identity
++    # into the scored JSON for the aggregator's REQUIRED identity-pins block.
++    (run_dir / "pathB_gate_pin.json").write_text(json.dumps({
++        "role_pins": [
++            {"role": "generator", "model_slug": "deepseek/deepseek-v4-pro", "provider_name": "deepinfra"},
++            {"role": "evaluator", "model_slug": "google/gemma-4-31b-it", "provider_name": "deepinfra"},
++        ],
++        "reachability_checked": True,
++        "openrouter_allow_fallbacks": False,
++        "openrouter_provider_order": "deepinfra",
++    }), encoding="utf-8")
++    scored = score_one(
++        system="polaris", question_id="Q75",
++        rubric_path=_good_rubric_path(tmp_path),
++        ledger_path=_good_ledger_path(tmp_path),
++        run_dir=run_dir,
++    )
++    assert scored["passed"] is True
++    assert scored["system"] == "polaris"
++    # P2 #2: identity surfaced for aggregator
++    ident = scored["pathB_gate_identity"]
++    assert ident["reachability_checked"] is True
++    assert ident["openrouter_allow_fallbacks"] is False
++    pinned_roles = {p["role"]: p for p in ident["pinned_roles"]}
++    assert pinned_roles["generator"]["model_slug"] == "deepseek/deepseek-v4-pro"
++    assert pinned_roles["evaluator"]["model_slug"] == "google/gemma-4-31b-it"
++
++
++def test_score_competitor_no_gate_check_needed(tmp_path: Path) -> None:
++    # chatgpt/gemini have no Path-B gate (they aren't our pipeline).
++    scored = score_one(
++        system="chatgpt", question_id="Q75",
++        rubric_path=_good_rubric_path(tmp_path),
++        ledger_path=_good_ledger_path(tmp_path, system="chatgpt"),
++        run_dir=None,
++    )
++    assert scored["system"] == "chatgpt"
++
++
++def test_score_rubric_ledger_sha_mismatch_raises(tmp_path: Path) -> None:
++    rubric = json.loads(_good_rubric_path(tmp_path).read_text())
++    rubric["rubric_sha256"] = "different" * 8
++    p = tmp_path / "rubric_mismatch.json"
++    p.write_text(json.dumps(rubric), encoding="utf-8")
++    with pytest.raises(ValueError, match="rubric_sha256 mismatch"):
++        score_one(
++            system="chatgpt", question_id="Q75",
++            rubric_path=p, ledger_path=_good_ledger_path(tmp_path, system="chatgpt"),
++            run_dir=None,
++        )
++
++
++# --- Codex PR-3 diff iter-1 regression tests -------------------------------
++
++def test_p1_1_score_run_rejects_single_auditor_ledger(tmp_path: Path) -> None:
++    """P1 #1: a CLAUDE-only ledger must NOT be scorable — only reconciled ledgers."""
++    led = Ledger(
++        system="chatgpt", question_id="Q75", auditor="claude",  # not "reconciled"
++        audit_method="single", audit_timestamp_utc="2026-05-28T00:00:00Z",
++        rubric_sha256=_RUBRIC_SHA,
++        claims=[Claim("c1", "S1", "VERIFIED", citation_id="src1", span_quote="ok")],
++        coverage=[Coverage(f"Q75-E{i}", True, True) for i in range(1, 8)],
++    )
++    p = tmp_path / "single.json"
++    dump_ledger(led, p)
++    with pytest.raises(ValueError, match="auditor must be 'reconciled'"):
++        score_one(system="chatgpt", question_id="Q75",
++                  rubric_path=_good_rubric_path(tmp_path), ledger_path=p,
++                  run_dir=None)
++
++
++def test_p1_2_reconcile_unreachable_silent_no_subtype_leak() -> None:
++    """P1 #2: when one auditor is silent and the present row is UNREACHABLE+subtype,
++    keep UNREACHABLE (don't escalate to UNSUPPORTED while carrying subtype — that violates
++    Claim.__post_init__). The reconciled Claim must still be VALID."""
++    a = _ledger("claude", "UNREACHABLE", subtype="paywall")
++    b = _ledger("codex", "VERIFIED")
++    # codex covers c1 too; add a c2 to claude only that is UNREACHABLE.
++    a.claims.append(Claim("c2", "S1", "UNREACHABLE", citation_id="src2",
++                          unreachable_subtype="robots"))
++    r = reconcile(a, b)  # must not raise
++    c2 = next(c for c in r.claims if c.claim_id == "c2")
++    assert c2.verdict == "UNREACHABLE"
++    assert c2.unreachable_subtype == "robots"
++
++
++def test_p1_2_reconcile_silent_other_verdict_drops_subtype() -> None:
++    """P1 #2 corollary: if the present row's verdict is NOT UNREACHABLE, escalating to
++    UNSUPPORTED drops subtype to None (subtype is invalid for non-UNREACHABLE)."""
++    a = _ledger("claude", "VERIFIED")
++    b = _ledger("codex", "VERIFIED")
++    a.claims.append(Claim("c2", "S1", "PARTIAL", citation_id="src2",
++                          span_quote="partial span"))
++    r = reconcile(a, b)  # must not raise
++    c2 = next(c for c in r.claims if c.claim_id == "c2")
++    assert c2.unreachable_subtype is None
++    # PARTIAL escalated to UNSUPPORTED because the present row had span_quote AND PARTIAL
++    # is already > UNSUPPORTED in our order... actually PARTIAL=1 < UNSUPPORTED=3, so the
++    # worse-of(PARTIAL, UNSUPPORTED) is UNSUPPORTED.
++    assert c2.verdict == "UNSUPPORTED"
++
++
++def test_p2_1_coverage_rejects_non_bool() -> None:
++    """P2 #1: Coverage must reject string 'false' (truthy in Python -> false positive)."""
++    with pytest.raises(ValueError, match="must be a bool"):
++        Coverage("Q75-E1", "false", True)  # type: ignore[arg-type]
++    with pytest.raises(ValueError, match="must be a bool"):
++        Coverage("Q75-E1", True, 1)  # type: ignore[arg-type]
++    # bool literals are fine
++    Coverage("Q75-E1", True, False)
++
++
++def test_p2_3_build_rubric_json_deterministic_no_timestamp(tmp_path: Path) -> None:
++    """P2 #3: rebuild SHA is deterministic — no build_timestamp_utc in the snapshot."""
++    from scripts.dr_benchmark.build_rubric_json import build_rubric_json
++    rubric_md = tmp_path / "fake_rubric.md"
++    # Minimal valid markdown matching _EXPECTED_QUESTIONS + counts.
++    sections = []
++    counts = {"Q75": 7, "Q76": 8, "Q78": 8, "Q72": 8, "Q90": 8}
++    for qid in ("Q75", "Q76", "Q78", "Q72", "Q90"):
++        num = qid[1:]
++        sections.append(f"## #{num} — title for {qid}\n")
++        for i in range(1, counts[qid] + 1):
++            sections.append(f"{i}. element {qid}-{i}\n")
++    rubric_md.write_text("".join(sections), encoding="utf-8")
++    doc1 = build_rubric_json(rubric_md)
++    doc2 = build_rubric_json(rubric_md)
++    assert doc1 == doc2  # deterministic
++    assert "build_timestamp_utc" not in doc1
++
++
++def test_p2_4_build_rubric_json_fails_closed_on_drift(tmp_path: Path) -> None:
++    """P2 #4: parser fails closed if a question's element count drifts."""
++    from scripts.dr_benchmark.build_rubric_json import build_rubric_json
++    rubric_md = tmp_path / "drifted.md"
++    counts = {"Q75": 6, "Q76": 8, "Q78": 8, "Q72": 8, "Q90": 8}  # Q75 short by 1
++    sections = []
++    for qid in ("Q75", "Q76", "Q78", "Q72", "Q90"):
++        num = qid[1:]
++        sections.append(f"## #{num} — title for {qid}\n")
++        for i in range(1, counts[qid] + 1):
++            sections.append(f"{i}. element {qid}-{i}\n")
++    rubric_md.write_text("".join(sections), encoding="utf-8")
++    with pytest.raises(ValueError, match=r"Q75.*elements != expected"):
++        build_rubric_json(rubric_md)
++
++
++def test_p3_2_aggregate_escapes_pipe_in_reasons(tmp_path: Path) -> None:
++    """P3 #2: a reason containing '|' or newline must be escaped so the table doesn't break."""
++    scored_dir = tmp_path / "scored"
++    scored_dir.mkdir()
++    (scored_dir / "polaris_Q75.json").write_text(json.dumps({
++        "system": "polaris", "question_id": "Q75", "passed": False,
++        "lane1": {"hard_fail_count": 1}, "lane2": {"coverage_fraction": 0.5},
++        "reasons": ["bad | pipe", "with\nnewline"],
++    }), encoding="utf-8")
++    freeze_pin = tmp_path / "freeze_pin.txt"
++    freeze_pin.write_text("abc  rubric.md\n", encoding="utf-8")
++    out = tmp_path / "final.md"
++    render_final_report(scored_dir=scored_dir, freeze_pin=freeze_pin, out_path=out)
++    text = out.read_text(encoding="utf-8")
++    # pipes inside cells are escaped; newlines are flattened
++    assert "bad \\| pipe" in text
++    assert "bad | pipe" not in text  # raw bare pipe should NOT appear in a cell
++    assert "with\nnewline" not in text  # newline flattened to space
++
++
++# --- aggregate_systems final report --------------------------------------
++def test_aggregate_renders_clinical_3_and_overall_5(tmp_path: Path) -> None:
++    scored_dir = tmp_path / "scored"
++    scored_dir.mkdir()
++    # 1 pass, 1 fail, 1 invalid
++    (scored_dir / "polaris_Q75.json").write_text(json.dumps({
++        "system": "polaris", "question_id": "Q75", "passed": True,
++        "lane1": {"hard_fail_count": 0}, "lane2": {"coverage_fraction": 0.9},
++        "reasons": [],
++    }), encoding="utf-8")
++    (scored_dir / "polaris_Q76.json").write_text(json.dumps({
++        "system": "polaris", "question_id": "Q76", "passed": False,
++        "lane1": {"hard_fail_count": 1}, "lane2": {"coverage_fraction": 0.5},
++        "reasons": ["1 hard fail", "low coverage"],
++    }), encoding="utf-8")
++    (scored_dir / "polaris_Q78.json").write_text(json.dumps({
++        "system": "polaris", "question_id": "Q78", "passed": False,
++        "invalid": True, "reason": "pathB_gate_INVALID present",
++    }), encoding="utf-8")
++    freeze_pin = tmp_path / "freeze_pin.txt"
++    freeze_pin.write_text(
++        "abc123  .codex/I-safety-002b/gold_rubrics_pathB.md\n",
++        encoding="utf-8",
++    )
++    out = tmp_path / "final_report.md"
++    rc = render_final_report(scored_dir=scored_dir, freeze_pin=freeze_pin, out_path=out)
++    assert rc == 0
++    text = out.read_text(encoding="utf-8")
++    # honest label + sections
++    assert "DRB-EN high-stakes citation-faithfulness stress slice" in text
++    assert "Clinical-3 (#75/#76/#78)" in text
++    assert "Overall-5 (#72/#75/#76/#78/#90)" in text
++    # invalid row reported, but omitted from numerator (1 passed / 2 valid)
++    assert "INVALID" in text
++    assert "1/2" in text  # polaris: 1 passed of 2 valid in clinical-3
++    # identity pins block present
++    assert "freeze_pin.txt" in text
++    assert "abc123" in text

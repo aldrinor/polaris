@@ -192,7 +192,7 @@ deployment plans, survey docs, etc.) archived to
 |------|----------|
 | `outputs/` | Runtime artifacts. Exception: `outputs/codex_findings/` is version-controlled (audit record). |
 | `logs/` | `pg_cost_ledger.jsonl`, `session_log.md`, `bug_log.md`, per-run logs |
-| `state/` | Pipeline state files (checkpoints, ledger, last_pointer) |
+| `state/` | Pipeline state files (checkpoints, ledger, last_pointer). Tracked governance subdirs: `state/polaris_restart/` (issue-driven workflow), `state/polaris_statistical_contract/` (Carney safety contract — Claude+Codex paired-LLM authorship, see §11 below). |
 | `data/` | Reproducible benchmarks and documents |
 | `models/` | ML weights (multi-GB) |
 | `memory/chroma_db/` | ChromaDB vector store (pipeline B) |
@@ -289,3 +289,37 @@ v6 (FastAPI 0.136, Pydantic 2.11, Dramatiq 2.1, OTEL 1.30, semconv
 The Carney-demo execution plan, gap register, GPU-sovereignty research and
 vendor-outreach notes are session-state working docs under `state/`
 (gitignored per §5); they are not part of the tracked file inventory.
+
+---
+
+## 11. Statistical Safety Contract — `state/polaris_statistical_contract/` (added 2026-05-27)
+
+PRIORITY governance artifact for Carney readiness. v3.3 = methodology-locked pre-registration draft, hash-pinned. Authored by Claude (Opus 4.7) + Codex (5.5) paired-LLM across 4 review rounds, no external statistician (operator directive 2026-05-27).
+
+| Path | Purpose |
+|------|---------|
+| `state/polaris_statistical_contract/v3_3/contract.md` | The locked contract: 4 safety gates (A=per-stratum claim-level, B=per-report customer, C=drift, D=classifier) + 1 validity gate (E=SME κ) + 4 prerequisites (P1=retrieval recall, P2=extraction recall, P3=contamination, P4=amendments) + §10 claim-license + §10.0 anti-overclaim layer (18 forbidden phrases) |
+| `state/polaris_statistical_contract/v3_3/contract.sha256` | SHA256 hash-pin: `75c9eb94a25450aca9e3b90b2272a5404e71c259203fdf465a38278bdd0d98a3` |
+| `state/polaris_statistical_contract/v3_3/LOCK_MANIFEST.md` | Lock procedure status, authorship trail |
+| `state/polaris_statistical_contract/v3_3/codex_review_trail/` | 6 files: deep-dialogue → design-partner v1 → 3 round audits → final lock verdict |
+| `state/polaris_statistical_contract/v3_3/codex_review_trail.sha256` | SHA256 hashes of the trail |
+
+**Status**: v3.3 methodology + formulas + governance locked. v3.4 (numerical lock) pending Phase 0a.
+
+**Master GH issue**: #917. Sub-issues: #918 (v3.3 lock), #919 (Phase 0a.0 design).
+
+**Memory**: `paired_llm_authorship_no_statistician_2026_05_27.md`.
+
+## 12. DR head-to-head benchmark harness — `scripts/dr_benchmark/` + `tests/dr_benchmark/` (added 2026-05-28)
+
+PRIORITY (I-safety-002b / #925). Benchmarks POLARIS as a deep-research tool vs ChatGPT/Gemini/Perplexity DR, §-1.1 claim-by-claim. Plan: `.codex/I-safety-002b/execution_plan_pathB.md` (Codex APPROVE iter 5).
+
+| Path | Purpose |
+|------|---------|
+| `scripts/dr_benchmark/pathB_run_gate.py` | Fatal preflight+post-run enforcement: whole-surface secret-redacted `effective_config.json`, per-role served-identity surrogate, `OPENROUTER_ALLOW_FALLBACKS=false` + singleton routing, fatal retrieval-capability preflight + backends-attempted assertion, all-LLM-paths completeness. 14 fixtures. |
+| `scripts/dr_benchmark/medhallu_adapter.py` | Scorer primitives (pairing, source-isolation, aggregation, confusion/F1). MedHallu retired to verifier-component-only proxy (NOT a deep-research benchmark). 12 fixtures. |
+| `scripts/dr_benchmark/medhallu_runner.py` | MedHallu entailment-layer runner (component sanity-check only). |
+| `tests/dr_benchmark/` | 26 fixtures green (gate + adapter), validated BEFORE any model run. |
+| (pending) `src/polaris_graph/benchmark/claim_audit_scorer.py` | Two-lane audit ledger (faithfulness + pre-registered rubric coverage) — REPLACES the §-1.1-banned/rigged `dimension_scorers.py`/`beat_both_scorer.py`. |
+
+**NOTE**: the legacy `src/polaris_graph/benchmark/dimension_scorers.py` + `beat_both_scorer.py` ("BEAT-BOTH", 7-dimension) are §-1.1-INVALID (count/pattern/string-match scoring + POLARIS auto-win dimensions) — DO NOT use as a benchmark scorer; being replaced by `claim_audit_scorer.py`.

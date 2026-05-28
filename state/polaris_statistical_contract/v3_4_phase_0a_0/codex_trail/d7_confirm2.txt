@@ -1,0 +1,8 @@
+codex
+Consistent. §7 now matches §3 and §6: `complexity_tier` is claim-level D2 metadata, not a `packet_class` component or D7' dependency.
+
+Lock D7'
+11,554
+Consistent. §7 now matches §3 and §6: `complexity_tier` is claim-level D2 metadata, not a `packet_class` component or D7' dependency.
+
+Lock D7'
