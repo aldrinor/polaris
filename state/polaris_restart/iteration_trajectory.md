@@ -1159,3 +1159,15 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
 - PR-3 (ledger + reconciler + score CLI + frozen-rubric JSON + final-report aggregator + smoke runbook, 2894f617+f38df40d+312783d6): Codex APPROVE iter2 (caught 2 real P1 + 4 P2 + 2 P3 bugs pre-merge).
 - 91/91 dr_benchmark tests green; 20+ touched-area smoke tests green.
 - Operator authorization needed: single-question smoke run on #72 (smoke.md) -> 5 full POLARIS runs through --pathB-gate -> dual §-1.1 line-by-line audit vs frozen rubric -> final_report.md.
+
+### I-safety-002b smoke run #72 — HARD STOP at OpenRouter 402 (account billing)
+- Smoke runs #1-#10 (2026-05-28 10:39-11:27 UTC) progressively unblocked layers via the path-B gate:
+  - #1-#2: env config (ALLOW_FALLBACKS, PROVIDER_ORDER) — operator override.
+  - #3: S2 reachability — transient, cleared on retry.
+  - #4-#6: OpenRouter 404 (real, not transient) → I-bug-940 (#926) transient-404 retry + I-bug-941 (#927) max_tokens cap 20000→16384.
+  - #7: abort_corpus_inadequate (T1=1 < threshold 2) → I-bug-942 (#928) journal-targeted site: queries.
+  - #8-#9: 429 mid-section-generation → I-bug-943 (#929) bump 429 floor 14s→15-60s + PG_MAX_PARALLEL_SECTIONS env.
+  - **#10: ONE generator section completed successfully** ($0.021, V4 Pro, 1590 in / 7433 out / 7010 reasoning tokens, 429s wall). Then OpenRouter returned **402 Payment Required** (account-level billing exhausted, not POLARIS PG_MAX_COST_PER_RUN budget).
+- **Pipeline end-to-end functional**: preflight ✓, retrieval ✓, corpus adequacy ✓, generator ✓ (one section), evaluator never reached.
+- **Operator action required**: top up the OpenRouter account billing. The $40 PG_MAX_COST_PER_RUN cap isn't the wall; OpenRouter's account-level 402 is.
+- Total real cost on this smoke (#10 only): $0.021. Total this campaign: $0.021 + $0.015 (#9) + $0.010 (#8) = ~$0.046.
