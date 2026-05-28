@@ -1005,7 +1005,7 @@ class OpenRouterClient:
 
     async def _accumulate_sse(
         self, response: httpx.Response,
-    ) -> tuple[str, str, dict]:
+    ) -> tuple[str, str, dict, dict]:
         """Accumulate SSE chunks from a streaming response.
 
         Returns (content, reasoning_content, usage_data, served_identity), where
@@ -1056,10 +1056,13 @@ class OpenRouterClient:
             chunk_count += 1
 
             # I-safety-002b (#925): capture genuinely-served identity (last non-null wins).
-            for _sk in ("provider", "model", "system_fingerprint"):
-                _sv = chunk.get(_sk)
-                if _sv:
-                    served[_sk] = _sv
+            # Gate-flagged: skip entirely when the Path-B capture is inactive (off-mode pays
+            # one contextvar read, not three dict lookups per chunk).
+            if _pathb_capture.is_active():
+                for _sk in ("provider", "model", "system_fingerprint"):
+                    _sv = chunk.get(_sk)
+                    if _sv:
+                        served[_sk] = _sv
 
             # Phase 3: Mid-stream error detection (SOTA research finding)
             # FIX-QWEN-1: Also detect top-level errors with empty choices
