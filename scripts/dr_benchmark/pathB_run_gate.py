@@ -150,6 +150,11 @@ class RolePin:
     model_slug: str      # FULL OpenRouter slug, e.g. "deepseek/deepseek-v4-pro" — EXACT match
     provider_name: str
     surrogate_fields: tuple[str, ...]   # the metadata fields PROVEN present at preflight
+    canonical_slug: str | None = None   # I-bug-945 (#931): OpenRouter dated snapshot resolved
+    # at preflight via GET /api/v1/models. The alias `model_slug` is the env-pin handle; the
+    # canonical_slug (e.g. deepseek/deepseek-v4-pro-20260423) is what gets served as `model`
+    # in chat completions and is the actual pre-registration anchor in pathB_gate_pin.json.
+    # Trailing defaulted field per Codex P2#3 (don't break positional RolePin call sites).
 
 
 def _role_surrogate(metadata: dict, surrogate_fields: tuple[str, ...] | list) -> str:
@@ -208,6 +213,11 @@ def preflight(
             raise GateError(f"role {rp.role}: no served-identity surrogate fields proven present")
         if "/" not in rp.model_slug:
             raise GateError(f"role {rp.role}: model_slug must be the FULL slug (provider/model), got {rp.model_slug!r}")
+        # I-bug-945 (#931): resolve OpenRouter alias to its dated canonical_slug at preflight.
+        # The catalog is the single source of truth; fail closed if the alias is unknown.
+        # Skipped on offline runs (unit tests pass canonical_slug directly when needed).
+        if not offline and rp.canonical_slug is None:
+            rp.canonical_slug = resolve_canonical_slug(rp.model_slug)
     cfg = build_effective_config(control_vars, salt)
     return {
         "effective_config": cfg,
@@ -219,6 +229,34 @@ def preflight(
         "openrouter_allow_fallbacks": False,
         "openrouter_provider_order": order,
     }
+
+
+def resolve_canonical_slug(model_slug: str) -> str | None:
+    """I-bug-945 (#931): Resolve OpenRouter alias to its dated canonical_slug at preflight.
+
+    OpenRouter exposes a list at GET /api/v1/models with `id` (alias) + `canonical_slug`
+    (dated snapshot) per entry. The chat-completions response returns `model=<canonical_slug>`
+    while the env pin uses `<id>`. Resolving at preflight lets `assert_post_run` accept the
+    served canonical_slug without losing pre-registration integrity — the resolved value is
+    persisted in `pathB_gate_pin.json` and becomes the audit anchor.
+
+    Returns the canonical_slug, or None if it equals model_slug (no dated suffix exposed).
+    Raises GateError if the slug is not in the catalog (fail closed) — Codex P2#2.
+    """
+    import requests
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        r = requests.get("https://openrouter.ai/api/v1/models", headers=headers, timeout=20)
+        r.raise_for_status()
+        data = r.json().get("data", [])
+    except Exception as exc:
+        raise GateError(f"OpenRouter models catalog unreachable: {exc}") from exc
+    for m in data:
+        if m.get("id") == model_slug:
+            cs = m.get("canonical_slug")
+            return cs if cs and cs != model_slug else None
+    raise GateError(f"OpenRouter catalog has no entry for pinned slug {model_slug!r} (alias unknown)")
 
 
 def real_retrieval_prober(backend: str) -> bool:
@@ -298,10 +336,25 @@ def assert_post_run(
         pinned_provider = (rp["provider_name"] or "").strip().lower()
         if served_provider != pinned_provider:
             raise GateError(f"call {c.call_id}: served provider {c.response_metadata.get('provider_name')!r} != pinned {rp['provider_name']!r}")
-        if c.response_metadata.get("model") != rp["model_slug"]:
-            raise GateError(f"call {c.call_id}: served model {c.response_metadata.get('model')!r} != pinned {rp['model_slug']!r}")
-        # accumulate the per-role served-identity surrogate (over the pinned fields)
-        surrogate_by_role.setdefault(c.role, set()).add(_role_surrogate(c.response_metadata, rp["surrogate_fields"]))
+        # I-bug-945 (#931): accept served model matching EITHER the pinned alias OR the
+        # canonical_slug resolved at preflight. The OpenRouter chat-completions response
+        # returns `model=<canonical_slug>` while the env pin is the alias; both are identity-
+        # equivalent and recorded in the persisted pin (pathB_gate_pin.json).
+        served_model = c.response_metadata.get("model")
+        accepted_models = {rp["model_slug"]}
+        if rp.get("canonical_slug"):
+            accepted_models.add(rp["canonical_slug"])
+        if served_model not in accepted_models:
+            raise GateError(
+                f"call {c.call_id}: served model {served_model!r} matches neither pinned "
+                f"alias {rp['model_slug']!r} nor canonical_slug {rp.get('canonical_slug')!r}"
+            )
+        # I-bug-945 P2#4 (Codex): normalize served `model` to the alias before surrogate
+        # compute, so a same-role mix of alias and canonical_slug calls produces a single
+        # surrogate value (otherwise raw-model drift would false-fail the mid-run check).
+        normalized_metadata = dict(c.response_metadata)
+        normalized_metadata["model"] = rp["model_slug"]
+        surrogate_by_role.setdefault(c.role, set()).add(_role_surrogate(normalized_metadata, rp["surrogate_fields"]))
     # per-role served identity must be SINGLE-VALUED across the run (no mid-run drift, Codex P1)
     for role, ids in surrogate_by_role.items():
         if len(ids) != 1:
