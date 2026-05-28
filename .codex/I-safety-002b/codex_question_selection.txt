@@ -1,0 +1,139 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e6e0a-5451-7853-bb96-6c72eee107d6
+--------
+user
+# Consult (design-partner, be skeptical): which GOLDEN benchmark questions for the POLARIS DR head-to-head (I-safety-002b / #925)
+
+Operator rejected our homegrown clinical_n10.json questions as selection-biased "bullshit" and demands the MOST CHALLENGING questions from the GOLDEN benchmark. Decide the question set with me. Push back hard if either option is methodologically weak.
+
+## Context
+- Benchmark = POLARIS (sovereign clinical deep-research tool; differentiator = per-claim faithfulness) vs ChatGPT/Gemini/Perplexity DR, scored §-1.1 claim-by-claim (Lane-1 faithfulness + Lane-2 pre-registered rubric coverage). Pilot (5 Qs). Carney pitch is CLINICAL safety/faithfulness.
+- Golden benchmark = DeepResearch Bench (RACE+FACT, 100 tasks, 50 EN / 50 ZH). POLARIS is English + clinical-tuned (6 domains: clinical, due_diligence, policy, tech, ai_sovereignty, canada_us).
+- DeepResearch Bench EN has only ~3 genuinely-hard CLINICAL/health tasks: #75 (plasma metal-ion modulation for CVD prevention/therapy + clinical evidence), #76 (gut microbiota/probiotics/prebiotics/pathogen toxic-metabolites/diet), #78 (Parkinson's post-DBS warning signs + daily-life support). Hardest non-clinical EN tasks include #62 (ion-trap quantum scaling, tech), #90 (ADAS liability — tech+law+case-law, ~policy), #54 (asset-allocation ML frameworks, ~finance/DD), #72 (AI labor-market lit review), #81 (history), #85 (industrial), #67 (RL).
+
+## The fork
+- **A**: the 5 hardest golden DeepResearch-Bench EN questions that map to POLARIS domains = #75 + #76 + #78 (clinical) + #62 (tech) + #90 (policy/law). Golden, hardest-tier, available now, spans POLARIS strengths — but only 3/5 clinical, dilutes the Carney clinical story.
+- **B**: pure-clinical 5 — take #75/#76/#78 from DeepResearch Bench + supplement 2 hard clinical questions from a dedicated medical deep-research golden benchmark (e.g. MedBrowseComp). All 5 clinical for the Carney pitch — but MIXES two benchmarks (is that clean?) and MedBrowseComp may be browse/short-answer not long-report.
+
+## Questions for you
+1. A or B — which is the more defensible golden benchmark question set for THIS pilot, and why?
+2. Is mixing DeepResearch Bench + MedBrowseComp methodologically OK, or does it break comparability (different task types/scoring)? Is MedBrowseComp even a long-form deep-RESEARCH-report benchmark or a browse/QA one?
+3. Does "pick the HARDEST" itself introduce a new bias (cherry-picking hard questions where competitors fail / POLARIS shines)? How to pick golden questions without re-introducing selection bias — random sample? all EN? a pre-registered rule?
+4. Contamination: these golden questions are public — frontier models likely trained on them. Does that matter for a faithfulness (cited-source) benchmark, and how to caveat?
+5. Domain-mismatch: POLARIS is clinical-tuned; running it on #62 quantum / #90 law tests it off-turf. Is that fair/useful, or does it just make POLARIS look bad on questions it wasn't built for?
+6. Your concrete recommendation: exact question set + selection rule, for a credible, no-selection-bias, golden, challenging 5-question pilot.
+
+## Output
+Design-partner prose. Be specific + skeptical. No iteration cap (consult).
+
+codex
+I’ll verify the benchmark definitions before taking a position, because the answer hinges on task format and scoring, not just labels like “golden” or “clinical.”
+web search: 
+web search: DeepResearch Bench RACE FACT 100 tasks benchmark ...
+web search: 
+web search: site:github.com DeepResearch Bench dataset json 75 plasma metal ion modulation cardiovascular ...
+web search: 
+web search: https://github.com/Ayanami0730/deep_research_bench
+web search: 
+web search: https://ar5iv.org/html/2505.14963v1
+web search: 
+web search: 'Dataset' in https://github.com/Ayanami0730/deep_research_bench
+web search: 
+web search: https://raw.githubusercontent.com/Ayanami0730/deep_research_bench/main/data/prompt_data/query.jsonl
+web search: 
+web search: https://raw.githubusercontent.com/Ayanami0730/deep_research_bench/main/data/prompt_data/query.jsonl
+web search: 
+web search: 
+web search: 
+web search: https://github.com/Ayanami0730/deep_research_bench/tree/main/results
+web search: 
+web search: https://github.com/Ayanami0730/deep_research_bench/tree/main/results/race/claude-3-7-sonnet-latest
+web search: 
+web search: https://github.com/Ayanami0730/deep_research_bench/blob/main/results/race/claude-3-7-sonnet-latest/race_result.txt
+web search: 
+web search: 
+web search: 
+web search: https://raw.githubusercontent.com/Ayanami0730/deep_research_bench/main/results/race/claude-3-7-sonnet-latest/raw_results.jsonl
+web search: 
+web search: '"id": 62' in https://raw.githubusercontent.com/Ayanami0730/deep_research_bench/main/results/race/claude-3-7-sonnet-latest/raw_results.jsonl
+codex
+My call: **A, but do not sell it as a 5-question clinical benchmark.** Sell it as a **golden long-form deep-research stress pilot with a clinical primary slice**.
+
+The cleanest single-track set is:
+
+| Role | ID | Task |
+|---|---:|---|
+| Primary clinical | #75 | plasma metal-ion modulation for CVD prevention/therapy |
+| Primary clinical | #76 | gut microbiota, probiotics/prebiotics, toxic metabolites, diet |
+| Primary clinical | #78 | Parkinson’s warning signs and post-DBS support |
+| Domain robustness | #62 | ion-trap quantum-computing scaling |
+| Domain robustness | #90 | ADAS liability: technical principles, law, case law, regulation |
+
+DeepResearch Bench is the right base because it is explicitly a **long-form deep-research report benchmark** with 100 expert-crafted tasks, 50 English / 50 Chinese, and RACE/FACT-style report and citation evaluation machinery. That matches POLARIS better than a browse-QA benchmark. The official repo exposes the 100 benchmark queries as `query.jsonl`, and #75/#76/#78/#62/#90 are in that task set. DRB’s own framing is report generation plus citation trustworthiness, not short-answer retrieval. ([deepresearch-bench.github.io](https://deepresearch-bench.github.io/)) ([github.com](https://github.com/Ayanami0730/deep_research_bench))
+
+I would **not choose B as the main pilot**. MedBrowseComp is medical and hard, but it is BrowseComp-inspired: short, objective, verifiable answers, not long-form research reports. The paper says it focuses on “fact-seeking questions where the answers are short, objective, and easily verifiable,” and its future-work section explicitly points to expansion into multi-paragraph justification, which implies that is not the current native task form. ([ar5iv.org](https://ar5iv.org/html/2505.14963v1)) Mixing two MedBrowseComp questions into a DRB long-report pilot gives you an aggregate nobody can interpret cleanly. It is acceptable only as a **separate clinical retrieval track**, scored with MedBrowseComp’s native short-answer accuracy, not folded into the DRB-style §-1.1 report score.
+
+Hard pushback: **“pick the hardest” is itself selection-biased unless hardness is pre-registered from an external source.** If the operator rejected homegrown questions for selection bias, then handpicking “the hardest questions where POLARIS should shine” is not a fix. It is a more respectable-looking version of the same problem. The defensible rule is:
+
+1. Freeze benchmark/version before running systems.
+2. Define eligible pool: DRB English tasks only.
+3. Define clinical eligibility before seeing outputs: include English tasks involving biomedical intervention, patient care, clinical warning signs, or disease-management evidence; exclude #77 because it is psychology/misinformation, not clinical safety.
+4. Include all eligible clinical DRB-English tasks: #75, #76, #78.
+5. Fill remaining slots from POLARIS nonclinical domains using an externally fixed difficulty rule, not post-hoc taste. If you already have an operator-approved hardest-tier list, #62 and #90 are acceptable. If not, do not call them “the five hardest”; call them “pre-registered clinical + robustness stress tasks.”
+6. Report per-task results, the 3-task clinical slice, and the 5-task overall separately.
+
+Contamination matters. These questions and reference artifacts are public. For a **faithfulness/cited-source** benchmark, contamination is less fatal than for closed-book answer accuracy, because the judge is supposed to verify whether claims are supported by cited sources. But contamination can still inflate rubric coverage and structure. Caveat the result as “public-golden, source-grounded evaluation,” not “unseen.” Also log cited sources, require live/source-accessible citations, and judge claims against retrieved sources, not against memorized reference reports. BrowseComp’s own authors warn about dataset leakage into training corpora, which is the right mental model here. ([openai.com](https://openai.com/index/browsecomp/))
+
+Domain mismatch: #62 and #90 are fair only if POLARIS is being pitched as **sovereign deep research across regulated/high-stakes domains**. They are not fair evidence for a **clinical-safety** claim. #90 is useful because legal liability is high-stakes and citation-sensitive. #62 is a harsher off-turf STEM control. If POLARIS underperforms there, that does not refute the clinical claim, but it does weaken any broad “better deep research” claim.
+
+So the recommendation is:
+
+**Use A as the official 5-question pilot, with this label:**  
+“Pre-registered DRB-English clinical + high-stakes robustness pilot: primary clinical slice #75/#76/#78; secondary robustness controls #62/#90.”
+
+Do **not** average it into “POLARIS wins clinical safety 5/5.” That would be methodologically weak. Use MedBrowseComp separately if Carney wants a pure medical stress test.
+tokens used
+86,820
+My call: **A, but do not sell it as a 5-question clinical benchmark.** Sell it as a **golden long-form deep-research stress pilot with a clinical primary slice**.
+
+The cleanest single-track set is:
+
+| Role | ID | Task |
+|---|---:|---|
+| Primary clinical | #75 | plasma metal-ion modulation for CVD prevention/therapy |
+| Primary clinical | #76 | gut microbiota, probiotics/prebiotics, toxic metabolites, diet |
+| Primary clinical | #78 | Parkinson’s warning signs and post-DBS support |
+| Domain robustness | #62 | ion-trap quantum-computing scaling |
+| Domain robustness | #90 | ADAS liability: technical principles, law, case law, regulation |
+
+DeepResearch Bench is the right base because it is explicitly a **long-form deep-research report benchmark** with 100 expert-crafted tasks, 50 English / 50 Chinese, and RACE/FACT-style report and citation evaluation machinery. That matches POLARIS better than a browse-QA benchmark. The official repo exposes the 100 benchmark queries as `query.jsonl`, and #75/#76/#78/#62/#90 are in that task set. DRB’s own framing is report generation plus citation trustworthiness, not short-answer retrieval. ([deepresearch-bench.github.io](https://deepresearch-bench.github.io/)) ([github.com](https://github.com/Ayanami0730/deep_research_bench))
+
+I would **not choose B as the main pilot**. MedBrowseComp is medical and hard, but it is BrowseComp-inspired: short, objective, verifiable answers, not long-form research reports. The paper says it focuses on “fact-seeking questions where the answers are short, objective, and easily verifiable,” and its future-work section explicitly points to expansion into multi-paragraph justification, which implies that is not the current native task form. ([ar5iv.org](https://ar5iv.org/html/2505.14963v1)) Mixing two MedBrowseComp questions into a DRB long-report pilot gives you an aggregate nobody can interpret cleanly. It is acceptable only as a **separate clinical retrieval track**, scored with MedBrowseComp’s native short-answer accuracy, not folded into the DRB-style §-1.1 report score.
+
+Hard pushback: **“pick the hardest” is itself selection-biased unless hardness is pre-registered from an external source.** If the operator rejected homegrown questions for selection bias, then handpicking “the hardest questions where POLARIS should shine” is not a fix. It is a more respectable-looking version of the same problem. The defensible rule is:
+
+1. Freeze benchmark/version before running systems.
+2. Define eligible pool: DRB English tasks only.
+3. Define clinical eligibility before seeing outputs: include English tasks involving biomedical intervention, patient care, clinical warning signs, or disease-management evidence; exclude #77 because it is psychology/misinformation, not clinical safety.
+4. Include all eligible clinical DRB-English tasks: #75, #76, #78.
+5. Fill remaining slots from POLARIS nonclinical domains using an externally fixed difficulty rule, not post-hoc taste. If you already have an operator-approved hardest-tier list, #62 and #90 are acceptable. If not, do not call them “the five hardest”; call them “pre-registered clinical + robustness stress tasks.”
+6. Report per-task results, the 3-task clinical slice, and the 5-task overall separately.
+
+Contamination matters. These questions and reference artifacts are public. For a **faithfulness/cited-source** benchmark, contamination is less fatal than for closed-book answer accuracy, because the judge is supposed to verify whether claims are supported by cited sources. But contamination can still inflate rubric coverage and structure. Caveat the result as “public-golden, source-grounded evaluation,” not “unseen.” Also log cited sources, require live/source-accessible citations, and judge claims against retrieved sources, not against memorized reference reports. BrowseComp’s own authors warn about dataset leakage into training corpora, which is the right mental model here. ([openai.com](https://openai.com/index/browsecomp/))
+
+Domain mismatch: #62 and #90 are fair only if POLARIS is being pitched as **sovereign deep research across regulated/high-stakes domains**. They are not fair evidence for a **clinical-safety** claim. #90 is useful because legal liability is high-stakes and citation-sensitive. #62 is a harsher off-turf STEM control. If POLARIS underperforms there, that does not refute the clinical claim, but it does weaken any broad “better deep research” claim.
+
+So the recommendation is:
+
+**Use A as the official 5-question pilot, with this label:**  
+“Pre-registered DRB-English clinical + high-stakes robustness pilot: primary clinical slice #75/#76/#78; secondary robustness controls #62/#90.”
+
+Do **not** average it into “POLARIS wins clinical safety 5/5.” That would be methodologically weak. Use MedBrowseComp separately if Carney wants a pure medical stress test.
