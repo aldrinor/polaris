@@ -21,7 +21,7 @@
 | **Escalation (§-1.1)** | Resolves persistent judge disagreement on severity | operator + Codex line-by-line vs cited evidence + **deterministic rule**. NO human SME. If rules + Codex cannot resolve, the item drops to exploratory (it does not get a human label) |
 
 **Family-disjointness invariant (replaces human role-disjointness; amendment §4)**: across a `blinding_unit_id` (claims sharing construction intent / fabrication pattern / evidence packet / batch),
-`constructor_family ∉ judge_panel_families` AND `verifier_family ∉ judge_panel_families` AND the ≥3 `judge_panel_families` are pairwise distinct.
+`constructor_family ∉ judge_panel_families` AND `verifier_family ∉ judge_panel_families` AND `constructor_family ≠ verifier_family` AND the ≥3 `judge_panel_families` are pairwise distinct. (All four pairwise lineages — constructor, verifier, and the ≥3 judges — are mutually distinct.)
 Rationale: shared lineage = shared blind spot. The disjointness scope is the `blinding_unit_id` (MAY equal a single claim; the manifest declares which).
 
 ## §2. Mechanical enforcement (deterministic, blocking — not policy prose)
@@ -50,6 +50,7 @@ Rationale: shared lineage = shared blind spot. The disjointness scope is the `bl
 A Python validator (`validate_judge_independence`) runs over `assignment_manifest` + `judge_registry` (§7) + `exposure_log` and REJECTS (non-zero exit, blocks the run) any row where, across the row's `blinding_unit_id`:
 - `constructor_instance.family ∈ judge_panel_families`, OR
 - `verifier_family ∈ judge_panel_families`, OR
+- `constructor_instance.family == verifier_family`, OR
 - `len(distinct judge_panel_families) < 3`, OR
 - duplicate family within `judge_instances`, OR
 - more than one `live` assignment row for the same `claim_id`, OR
@@ -118,7 +119,7 @@ Hiding labels is insufficient if packet CURATION leaks intent. v2 requires **lab
 
 ## §6. Severity tiebreak workflow (per-field majority across ≥3 judges; deterministic escalation)
 
-Severity is the only judged field (status is mechanical). The judged object is `severity ∈ {S0,S1,S2,SUPPORTED-control}` (SUPPORTED is a mechanical-status class, included for matched controls):
+Severity is the only judged field (status is mechanical). The judged object is `severity ∈ {S0,S1,S2}` for **FABRICATED items only**. **SUPPORTED matched-controls are NOT judged**: their status is mechanical and their severity is `N/A` — they are EXCLUDED from the judge panel and from the Gate E2 agreement (E2 is severity-only, over fabricated items). **S3 is NOT a gold-set stratum** (D6 §2.2): an item the panel would rate S3 is EXCLUDED → exploratory-only, before any S3 label reaches the gold severity layers. So the judged/labeled severity domain is strictly `{S0,S1,S2}`.
 
 1. ≥3 cross-family judges label severity first-pass (blinded).
 2. Deterministic hazard scaffold emits its presumptive band (S0-candidate etc.) independently.

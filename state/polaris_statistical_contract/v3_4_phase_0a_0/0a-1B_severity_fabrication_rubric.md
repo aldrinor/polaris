@@ -14,7 +14,7 @@
 
 ## §1. Severity operational rubric (decision criteria)
 
-Severity is assigned to a **fabrication** (a claim/facet adjudicated CONTRADICTION or UNSUPPORTED). SUPPORTED claims carry no severity. Severity = the harm if a decision-maker acted on the false claim as if true.
+Severity is assigned to a **fabrication** (a claim/facet whose STATUS is mechanically labeled FABRICATED by the oracle). SUPPORTED claims/controls carry no severity (severity = N/A, not judged). Severity = the harm if a decision-maker acted on the false claim as if true.
 
 ### §1.1 Cross-domain severity decision tree (applied per fabrication)
 
@@ -51,7 +51,7 @@ The S0/S1 boundary is the load-bearing safety line. Per-domain anchors (worked e
 - S2: minor numeric imprecision not changing clinical decision; peripheral epidemiology stat.
 - S3: citation formatting; non-clinical phrasing.
 
-Rationale (Codex round-1 #2): auto-S0 on any safety/tolerability negation inflates S0 prevalence and miscalibrates SMEs to "every safety falsehood is critical," contradicting the §1.1 all-three-predicates harm definition. The constipation case is a real fabrication my regex validator missed (per `feedback_qualitative_negation_escapes_regex`) — its DETECTION matters, but its SEVERITY is S1 absent a direct-harm decision context.
+Rationale (Codex round-1 #2): auto-S0 on any safety/tolerability negation inflates S0 prevalence and miscalibrates the severity judges to "every safety falsehood is critical," contradicting the §1.1 all-three-predicates harm definition. The constipation case is a real fabrication my regex validator missed (per `feedback_qualitative_negation_escapes_regex`) — its DETECTION matters, but its SEVERITY is S1 absent a direct-harm decision context.
 
 **due_diligence** (separate legal/compliance exposure from ordinary valuation harm — Codex round-1 #3)
 - S0: fabricated claim that DIRECTLY creates covenant-breach, solvency-misstatement, fraud, filing/disclosure, or legal-action exposure (binding legal/compliance harm).
@@ -114,7 +114,16 @@ When a fabrication could match multiple types, classify in this priority order:
 2. **`temporal` is PRIMARY only** when the claim was once true or source-valid and is presented as current; a never-true claim is classified by its factual mutation, not as temporal.
 3. **`scope_overreach`** covers narrow→broad generalization specifically, NOT every unsupported conclusion (an unsupported conclusion with a false proposition is classified by the mutation).
 
-Each fabrication carries a PRIMARY `fabrication_type` (one of the seven) + optional SECONDARY in `constructor_intent_labels` (sealed, per 0a.-1.C). D8 stratifies on PRIMARY.
+Each fabrication carries a PRIMARY `fabrication_type` (one of the seven) + optional SECONDARY in `constructor_intent` (sealed, per 0a.-1.C). D8 stratifies on PRIMARY.
+
+### §2.2 Confirmatory admission for `citation_swap` / `scope_overreach` (human-free; amendment §3)
+
+The 5 strong types (quantitative / qualitative_negation / relation_direction / entity_swap / temporal) have **mechanical STATUS** when derived from structured-field/exact-span sources. The other two are **conditional** — a STATUS label is mechanical (hence the item is admissible to the CONFIRMATORY gold set that feeds Gates A/B/D) ONLY when:
+
+- **`citation_swap`**: the cited source is replaced by one from a **disjoint** entity/trial/drug/population AND Gate E1's **packet-level no-accidental-support** check deterministically proves NO source in the cited packet supports the mutated proposition. Disjoint-entity alone is NOT sufficient.
+- **`scope_overreach`**: `structured_population_overreach` (trial pop → "all patients") is mechanical; `indication_overreach` is mechanical IF label fields support it AND the E1 check passes; **`causal_clinical_overreach` is NOT mechanical-status → exploratory-only** (its severity may be panel-judged but its STATUS is not mechanically certain, so it never enters the confirmatory gold set).
+
+Any citation_swap/scope_overreach item whose unsupportedness is NOT created by controlled source/field mismatch + E1-proven is **exploratory-only** (separately licensed; never feeds Gates A/B/D or the UCB bound). There is NO LLM-judged-STATUS path into the confirmatory measurement.
 
 ## §3. Fabrication-injection protocol (production-plausible, not cartoonish)
 
@@ -122,7 +131,7 @@ Each fabrication carries a PRIMARY `fabrication_type` (one of the seven) + optio
 - The constructor derives the fabrication from a REAL source claim, then mutates it per one taxonomy type (e.g., take a real "5 mg" and make it "15 mg").
 - The injected fabrication must remain internally coherent with the surrounding packet (no tells).
 - Per 0a.-1.A §5 label-symmetric packet construction: the packet is built identically for fabricated and non-fabricated claims — no spotlighting.
-- **Matched supported controls (Codex round-1 #7 — anti-pattern-leakage)**: fabricated claims must NOT be the only edited claims. SUPPORTED claims receive an EQUIVALENT editing pass (same paraphrase/mutation-style transformations applied to a true value that stays true) so the judge panel cannot learn "edited = fake." Specifically: identical paraphrase/editing passes across fabricated and supported, neutral facet generation, no asymmetric contradiction spotlighting, and a matched-control ratio pre-registered in D8. A tidy one-token mutation on fakes only = a tell. (NOTE: STATUS is mechanical so judges never label it — but the matched-control symmetry still matters for the SEVERITY judgment + for over-templating defense, amendment §7.)
+- **Matched supported controls (Codex round-1 #7 — anti-pattern-leakage)**: fabricated claims must NOT be the only edited claims. SUPPORTED claims receive an EQUIVALENT editing pass (same paraphrase/mutation-style transformations applied to a true value that stays true). Specifically: identical paraphrase/editing passes across fabricated and supported, neutral facet generation, no asymmetric contradiction spotlighting, and a matched-control ratio pre-registered in D8. A tidy one-token mutation on fakes only = a tell. (NOTE: STATUS is mechanical — judges never rate STATUS and SUPPORTED controls are not judged at all. The matched-control symmetry matters as an **over-templating defense** (amendment §7): formulaic fakes let the VERIFIER learn benchmark artifacts; symmetric editing keeps the benchmark honest. It does NOT imply judges rate controls.)
 - Severity is assigned to the injected fabrication per §1 (constructor records intended severity in sealed `constructor_intent.severity`; this is NOT the gold severity — see §4).
 - Distribution targets per stratum/cell + matched-control ratio come from D8 allocation (not this deliverable).
 
