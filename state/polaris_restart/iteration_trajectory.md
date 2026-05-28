@@ -1134,3 +1134,6 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   - P2: assert_post_run runs after per-run artifacts written (manifest/judge) — added pathB_gate_INVALID sentinel so PR-3 scoring can skip stale artifacts.
   - P3: preflight FAIL writes no result file — fixed; now writes FAIL result + sentinel before re-raising.
 - All 5 fixed, 67/67 dr_benchmark tests green (+5 regression tests); committed 0bc2c805. Resubmitting iter 2.
+- **iter 2** sandbox-env failure (Windows tmp_path PermissionError); 1 regression test successfully ran + PASSED. Budget exhausted on retries; no verdict YAML.
+- **iter 3** verdict APPROVE. 0 P0/P1/P2/P3. All 5 iter-1 findings closed (P1_generator_env_var, P1_surrogate_no_sysfp, P2_salt_redacted, P2_invalid_sentinel_for_downstream_skip, P3_preflight_fail_writes_result all true). All 4 verification flags true (role_tag_chokepoints_correct, per_question_lifecycle_correct, retrieval_hooks_complete, exception_propagation_correct). accept_remaining. ~12k tokens.
+- PR-2 SHIPS at 0bc2c805. -> author PR-3 design (scoring integration + smoke runbook + final report) -> Codex review -> PR-3 code.
