@@ -149,11 +149,15 @@ def reconcile(claude: Ledger, codex: Ledger) -> Ledger:
             #   - present.verdict != UNREACHABLE: escalate to UNSUPPORTED, drop any subtype,
             #     and ensure traceability via audit_note (UNSUPPORTED+cited requires it).
             present = a or b
-            silent_side = "claude" if b is None else "codex"
+            # Codex PR-3 diff iter2 P3: silent_side names the auditor that was SILENT —
+            # if claude (a) is present, codex was silent (and vice versa). Earlier
+            # assignment was reversed (self-contradictory text; scoring unaffected).
+            present_side = "claude" if a is not None else "codex"
+            silent_side = "codex" if a is not None else "claude"
             base_note = present.audit_note or ""
             escalation_note = (
                 f"reconciled: only one auditor produced a row "
-                f"({'claude' if a else 'codex'}); {silent_side} silent -> escalated"
+                f"({present_side}); {silent_side} silent -> escalated"
             )
             full_note = f"{base_note} | {escalation_note}" if base_note else escalation_note
             if present.verdict == "UNREACHABLE":
