@@ -14,3 +14,6 @@
 # Codex verdict trail: codex_rubric_freeze_iter1.txt (REQUEST_CHANGES, 1 P0 Benavides + 1 P2 venue)
 #                      codex_rubric_freeze_iter2.txt (APPROVE, both fixes confirmed, firewall PASS)
 # Question selection:  codex_lock5.txt (Codex-confirmed #75/#76/#78/#72/#90)
+
+# PR-3 (2026-05-28): companion-JSON snapshot, dual-pinned with the markdown (Codex design answer A).
+9aa494937dd619388d748cb38aa1899d0b989ca90af5cd36947c5244383a8c2a  outputs/dr_benchmark/rubric_v3_frozen.json
