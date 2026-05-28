@@ -44,9 +44,10 @@ def full_control_surface(roots: list[Path]) -> list[str]:
 
 def control_surface_sources(roots: list[Path]) -> dict[str, list[str]]:
     """name -> sorted ['<relpath>:<lineno>', ...] provenance for each control var (Codex P2)."""
+    extra = "|".join(re.escape(n) for n in _EXTRA_CONTROL_ENV)
     pat = re.compile(
-        r"os\.(?:getenv|environ\.get)\(\s*['\"]((?:PG_|OPENROUTER_)[A-Z0-9_]+)['\"]"
-        r"|os\.environ\[\s*['\"]((?:PG_|OPENROUTER_)[A-Z0-9_]+)['\"]"
+        rf"os\.(?:getenv|environ\.get)\(\s*['\"]((?:PG_|OPENROUTER_)[A-Z0-9_]+|{extra})['\"]"
+        rf"|os\.environ\[\s*['\"]((?:PG_|OPENROUTER_)[A-Z0-9_]+|{extra})['\"]"
     )
     out: dict[str, set[str]] = {}
     for root in roots:
@@ -160,13 +161,29 @@ def preflight(
     salt: bytes,
     reachability_prober=None,
     source_map: dict[str, list[str]] | None = None,
+    roots: list[Path] | None = None,
+    offline: bool = False,
 ) -> dict:
     """Fatal preflight. Returns the pin record to hash-pin BEFORE the run.
 
-    `reachability_prober(backend) -> bool` actually pings each required retrieval backend
-    (Codex P1: presence != reachability; an invalid/rate-limited key must FAIL preflight).
-    Injectable so fixtures don't hit the network.
+    The gate FORCES the complete control surface (Codex iter-2 P1): it always unions the
+    retrieval/credential env into `control_vars`, and if `roots` is given it also unions the
+    grepped PG_*/OPENROUTER_* surface — so a caller passing `[]` cannot produce an empty config.
+
+    Reachability is enforce-by-default for real runs (Codex iter-2 P1): if `offline` is False
+    and no prober is given, `real_retrieval_prober` is used (live ping). Tests pass
+    `offline=True` to skip the network. `reachability_checked=False` is therefore only
+    possible in an explicitly-offline (test) run, never a real run gate.
     """
+    # FORCE the complete control surface (retrieval creds always; grepped surface if roots given)
+    surface = set(control_vars or [])
+    if roots:
+        surface |= set(full_control_surface(roots))
+    surface |= set(_EXTRA_CONTROL_ENV)
+    control_vars = sorted(surface)
+    # reachability: enforce-by-default for real runs
+    if not offline and reachability_prober is None:
+        reachability_prober = real_retrieval_prober
     # 1. fallbacks OFF
     if os.environ.get("OPENROUTER_ALLOW_FALLBACKS", "true").strip().lower() not in ("false", "0", "no"):
         raise GateError("OPENROUTER_ALLOW_FALLBACKS must be false (it defaults TRUE)")
@@ -192,6 +209,7 @@ def preflight(
     return {
         "effective_config": cfg,
         "effective_config_hash": effective_config_hash(cfg),
+        "control_vars": control_vars,             # the RESOLVED surface (post-run rebuilds from this)
         "control_source_map": source_map or {},   # name -> [file:line, ...] provenance (Codex P2)
         "role_pins": [vars(rp) | {"surrogate_fields": list(rp.surrogate_fields)} for rp in role_pins],
         "reachability_checked": reachability_prober is not None,
@@ -239,10 +257,14 @@ def assert_post_run(
     salt: bytes,
     calls: list[LLMCall],
     retrieval_backends_attempted: set[str],
-) -> None:
-    """Fatal post-run gate (Codex). Any violation ⇒ run INVALID, discard + re-run."""
-    # config no-drift
-    cfg_now = effective_config_hash(build_effective_config(control_vars, salt))
+) -> dict:
+    """Fatal post-run gate (Codex). Any violation ⇒ run INVALID, discard + re-run.
+
+    Returns the established per-role served-identity surrogates on success."""
+    # config no-drift — rebuild from the SAME resolved surface preflight pinned (not a
+    # caller-passed list, which could differ / bypass; Codex iter-2).
+    pinned_vars = pin.get("control_vars", control_vars)
+    cfg_now = effective_config_hash(build_effective_config(pinned_vars, salt))
     if cfg_now != pin["effective_config_hash"]:
         raise GateError("effective_config drifted between preflight and post-run")
     pins_by_role = {rp["role"]: rp for rp in pin["role_pins"]}
