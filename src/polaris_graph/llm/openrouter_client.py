@@ -1374,9 +1374,20 @@ class OpenRouterClient:
             # ~12-15k content headroom. Env-tunable. Smoke #3 (2026-05-14)
             # confirmed: at 20000, V4 Pro completed all 6 sections with
             # zero ReasoningFirstTruncationError.
-            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "20000"))
+            # I-bug-941 (#927): default LOWERED 20000 → 16384 to match DeepInfra's
+            # deepseek-v4-pro provider cap (verified by binary search 2026-05-28: 16384
+            # → 200, 16385 → 404 "No endpoints found"). Operators with higher-tier
+            # endpoints can override via env. The 20000 floor produced a deterministic
+            # 404 on every generation call against the default provider configuration.
+            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "16384"))
             if body.get("max_tokens", 0) < _min_tokens:
                 body["max_tokens"] = _min_tokens
+            # Hard ceiling at DeepInfra's verified cap for deepseek-v4-pro. The runner's
+            # per-section/outline max_tokens kwargs can legally request higher (e.g. 24000
+            # for V30 Phase-2 long-form sections); without this clamp those requests 404.
+            _hard_cap = int(os.getenv("PG_REASONING_FIRST_HARD_CAP", "16384"))
+            if body.get("max_tokens", 0) > _hard_cap:
+                body["max_tokens"] = _hard_cap
 
         if response_format:
             body["response_format"] = response_format
