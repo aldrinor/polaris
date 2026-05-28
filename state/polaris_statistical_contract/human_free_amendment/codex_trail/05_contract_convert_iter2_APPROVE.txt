@@ -1,3 +1,47 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e6d07-62fb-7f40-b200-4cbc0df8b037
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings. Same quality bar. Reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE'd; do not bank.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# Review: contract.md human-free conversion — ITER 2 (I-safety-001c / #922)
+
+## Your iter-1 verdict was REQUEST_CHANGES (2 P1, 3 P2). All addressed:
+
+**P1 CLAIM-LICENSE** — FIXED. §10 now has an explicit "Human-free claim-license rule for Gates A/B/D": every confirmatory A/B/D claim cites E1 PASS; severity-stratified claims cite E2 PASS; E2 FAIL → only severity-agnostic overall miss-rate confirmatory. §10.1-10.4 retitled to E1/E2 citations; generic "Gate E" citation retired. §10.6 cites E1 not Gate E.
+
+**P1 PREREQ-HUMAN** — FIXED. §P1/§P2 now has a "Human-free conversion" block: P1 recall denominator from mechanical-oracle source provenance (not SME-identified); P2 extraction set from mechanically-injected/known proposition set + deterministic field/span match + cross-family panel only where not deterministically checkable; "NO SME path remains reachable", no SME-review fallback.
+
+**P2 E2-GOV-XREF** — FIXED. §7.E.gov custodian log path → state/gate_e2_judge_agreement_audit.json (was icc_surrogates.json); v3.4 lock bullet coefficient ref → §7.E2; changelog table row → §7.E2 governance (machine custodian).
+
+**P2 CYCLE-NAME** — FIXED. "evaluation cycle (A/B/D/E)" → "A/B/D/E1/E2".
+
+**P2 CHANGELOG** — FIXED. Added "Diff from v3.3 (human-free amendment)" line acknowledging it IS an architectural change to the validity story; the v3.3→v3.4 "no architectural change" line now notes the human-free amendment is a separate already-applied architectural change.
+
+## Your task this iter
+Confirm the fixes are real + complete. Any remaining DANGLING "Gate E" cross-ref, any remaining live human-SME dependency, any internal inconsistency. APPROVE if zero P0/P1.
+
+## Output schema
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+
+## The converted contract.md
 # POLARIS Statistical Safety Contract — v3.3 (LOCKED PRE-REGISTRATION DRAFT)
 
 > **HUMAN-FREE AMENDMENT (2026-05-27, Codex APPROVE iter 3)**: operator HARD CONSTRAINT — no human SMEs, ever; only budget is API fees. The SME-dependent parts of this contract are SUPERSEDED by `state/polaris_statistical_contract/human_free_amendment/AMENDMENT_human_free_validation.md`. Where this document says "SME", "adjudicator", or "human label", read the human-free replacement: fabrication STATUS = mechanical oracle (never LLM-judged); SEVERITY = deterministic hazard scaffold + cross-family LLM panel; Gate E → **E1** (mechanical oracle integrity) + **E2** (machine severity stability). The sections below are amended in place; the amendment doc is authoritative on any residual conflict.
@@ -499,3 +543,45 @@ Authorship is paired-LLM, NO external statistician (per operator instruction 202
 ---
 
 END OF v3.3 (LOCKED PRE-REGISTRATION DRAFT)
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+Findings: none at P0/P1/P2.
+
+The iter-1 blockers are resolved in the supplied text:
+
+- CLAIM-LICENSE: fixed. §10 now requires E1 PASS for confirmatory A/B/D claims and E2 PASS for severity-stratified claims; E2 failure correctly downgrades stratified assertions to exploratory.
+- PREREQ-HUMAN: fixed. §P1/§P2 now define mechanical provenance and mechanically injected/known proposition sets, with no SME fallback path.
+- E2-GOV-XREF: fixed. §7.E.gov points to `state/gate_e2_judge_agreement_audit.json`; §11 references §7.E2 coefficient choice.
+- CYCLE-NAME: fixed. The live cycle wording uses `A/B/D/E1/E2`.
+- CHANGELOG: fixed. The human-free amendment is explicitly acknowledged as an architectural change, separate from v3.3 to v3.4 numerical substitution.
+
+I found no dangling generic “Gate E” citation that still functions as a prerequisite, no reachable human-SME adjudication path, and no internal inconsistency that creates an execution blocker.
+tokens used
+10,741
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+Findings: none at P0/P1/P2.
+
+The iter-1 blockers are resolved in the supplied text:
+
+- CLAIM-LICENSE: fixed. §10 now requires E1 PASS for confirmatory A/B/D claims and E2 PASS for severity-stratified claims; E2 failure correctly downgrades stratified assertions to exploratory.
+- PREREQ-HUMAN: fixed. §P1/§P2 now define mechanical provenance and mechanically injected/known proposition sets, with no SME fallback path.
+- E2-GOV-XREF: fixed. §7.E.gov points to `state/gate_e2_judge_agreement_audit.json`; §11 references §7.E2 coefficient choice.
+- CYCLE-NAME: fixed. The live cycle wording uses `A/B/D/E1/E2`.
+- CHANGELOG: fixed. The human-free amendment is explicitly acknowledged as an architectural change, separate from v3.3 to v3.4 numerical substitution.
+
+I found no dangling generic “Gate E” citation that still functions as a prerequisite, no reachable human-SME adjudication path, and no internal inconsistency that creates an execution blocker.
