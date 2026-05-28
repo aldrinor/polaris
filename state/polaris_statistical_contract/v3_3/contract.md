@@ -1,6 +1,8 @@
 # POLARIS Statistical Safety Contract — v3.3 (LOCKED PRE-REGISTRATION DRAFT)
 
-**Status**: Codex round-3 verdict "lock as pre-registration draft pending Phase 0a numerical specification." v3.3 applies 10 local text patches from round 3.
+> **HUMAN-FREE AMENDMENT (2026-05-27, Codex APPROVE iter 3)**: operator HARD CONSTRAINT — no human SMEs, ever; only budget is API fees. The SME-dependent parts of this contract are SUPERSEDED by `state/polaris_statistical_contract/human_free_amendment/AMENDMENT_human_free_validation.md`. Where this document says "SME", "adjudicator", or "human label", read the human-free replacement: fabrication STATUS = mechanical oracle (never LLM-judged); SEVERITY = deterministic hazard scaffold + cross-family LLM panel; Gate E → **E1** (mechanical oracle integrity) + **E2** (machine severity stability). The sections below are amended in place; the amendment doc is authoritative on any residual conflict.
+
+**Status**: Codex round-3 verdict "lock as pre-registration draft pending Phase 0a numerical specification." v3.3 applies 10 local text patches from round 3. **Human-free amendment applied 2026-05-27 (Codex APPROVE).**
 
 **Diff from v3.2**: 10 local edits, no architectural change. Items 1, 4, 5 changed methodology details (logit-ANOVA → beta-binomial GLMM primary; Path 3 wording; mechanistic-judge leakage explicit). Items 2, 3, 6-10 are wording/tolerance/governance refinements.
 
@@ -28,8 +30,8 @@ S0=critical > S1=high > S2=medium > S3=low; SUPPORTED = verified.
 
 | Question | Locked answer |
 |---|---|
-| **Estimand** | `P(verifier fails to flag/escalate an adjudicated fabrication of severity S \| fabricated claim is in stratum S AND enters verifier)` for S ∈ {S0, S1, S2} |
-| **Sampling frame** | Gold-set claims, 6 domains × 3 complexity × 4 evidence-pool sizes, SME-adjudicated severity per Gate E |
+| **Estimand** | `P(verifier fails to flag/escalate a fabrication of severity S \| fabricated claim is in stratum S AND enters verifier)` for S ∈ {S0, S1, S2}. Fabrication STATUS is a mechanical-oracle label (deterministic injection, never LLM-judged); severity S is machine-adjudicated (Gate E2). |
+| **Sampling frame** | Confirmatory gold-set claims (mechanical-status-only; amendment §3.1), 6 domains × 3 complexity × 4 evidence-pool sizes, machine-adjudicated severity per Gate E2 (deterministic hazard scaffold + cross-family LLM panel) |
 | **Unit of independence** | Claim with cluster-adjusted binding analysis using pairwise scenario-family relations (§3.4) and ICC ceiling per §4.4 |
 | **Error-control** | Per-stratum cluster-adjusted Wilson one-sided 95% UCB. Per-domain = observability only. No unweighted population claim. |
 | **Binding rule** | See §3.2 |
@@ -72,7 +74,7 @@ SENSITIVITY: ρ=0.20 stress, informational.
 
 ### 3.4 Scenario-family pairwise relations + pairwise DEFF
 
-**Pairwise relation rules** (unchanged from v3.2): two claims are scenario-family-related iff ANY of criteria 1-5 (same report, evidence Jaccard≥0.5, same template/SME/24h, same prompt family, microtopic+stratum+correlation).
+**Pairwise relation rules** (unchanged from v3.2; human-free: criterion 3's "SME" is now the deterministic/LLM **constructor** instance, not a human): two claims are scenario-family-related iff ANY of criteria 1-5 (same report, evidence Jaccard≥0.5, same template/constructor/24h, same prompt family, microtopic+stratum+correlation).
 
 **Pairwise DEFF formula**:
 
@@ -248,32 +250,44 @@ Random seeds hash-pinned per cycle.
 
 ---
 
-## §7. Gate E — SME label quality
+## §7. Gate E → E1 + E2 (human-free amendment §5 — replaces "SME label quality")
 
-### 7.1-7.2 (mostly unchanged from v3.1-v3.2)
+The human-free amendment splits the former Gate E (human inter-rater reliability) into TWO gates. Human inter-rater reliability no longer exists; the validity story is carried by E1 (the labels are mechanically KNOWN) and E2 (the machine judges are stable).
 
-Coefficient choice unchanged: complete-panel binary → AC1; varying → Krippendorff α; ordinal → Krippendorff ordinal α or linearly-weighted κ (complete only).
+### 7.E1 Gate E1 — Mechanical Oracle Integrity (the validity backbone)
 
-### 7.2.1 Missingness/prevalence audit + blinded sign-off (REVISED v3.3 per Codex round-3 §7)
+Checks the benchmark labels are actually KNOWN (NOT a human-agreement check):
 
-**Missingness/prevalence audit** (unchanged from v3.2):
+1. Source-fetch reproducibility; structured-field extraction correctness.
+2. Mutation audit logs; original-vs-mutated diff validity; deterministic expected-label regeneration; fixture hash stability.
+3. **No accidental unsupported ORIGINAL claims** (the SUPPORTED controls must genuinely be supported).
+4. **Packet-level "no-accidental-support" check** (amendment §3/§5): for every confirmatory item, deterministically verify NO source in the cited packet supports the mutated proposition. This is what promotes a citation_swap/scope_overreach item from exploratory to confirmatory.
+5. **LLM-extracted facts are NOT mechanical** unless backed by a deterministic structured field OR exact-span reproducibility.
 
-1. Missingness rate per claim (target: <5%)
-2. Severity-class prevalence (expected S0/S1 ~10-30%)
-3. Rater-completeness matrix
+**Binding**: if E1 fails, the benchmark is INVALID (we do not actually know the labels) — Gates A/B/D are uninterpretable. E1 is the prerequisite that replaces the human-label-quality role.
 
-**Lightweight blinded sign-off** (NEW v3.3 per Codex round-3 §7):
+### 7.E2 Gate E2 — Machine Severity Stability (replaces inter-rater reliability)
 
-Coefficient choice deterministic from the pre-outcome missingness/prevalence/completeness audit. To prevent governance challenge, attach:
+Cross-family LLM-judge agreement on severity (NOT human agreement):
 
-- Named **audit custodian** (single person, identified in `state/icc_surrogates.json`)
-- Timestamp of audit completion
-- Hashes of all audit artifacts (missingness table, prevalence table, completeness matrix)
-- Custodian-signed statement: "I did NOT view inter-rater agreement coefficient values or any miss-outcome data while making this coefficient choice. The choice follows the §7.2 rule deterministically."
+1. Coefficient choice unchanged in form: complete-panel binary → AC1; varying → Krippendorff α; ordinal → Krippendorff ordinal α or linearly-weighted κ (complete only). The "raters" are the ≥3 cross-family LLM judges (amendment §4).
+2. Per-stratum disagreement, family-specific bias checks, deterministic-guardrail override rates, consensus-vs-rule conflict rates.
 
-**NOT an independent third-party audit.** Codex review remains for §-1.1 line-by-line, but Codex is NOT described as independent third-party. Per Codex round-3: full audit committee is NOT statistically required.
+**Gate A/B/D survival under E2 failure** (amendment §5): severity stratification uses **machine-adjudicated** severity. E2 PASS → full severity-stratified Gate A/B/D results + UCB bounds are confirmatory. E2 FAIL → only the **severity-agnostic overall fabrication miss-rate** (E1-backed, mechanical labels) remains confirmatory; all per-stratum claims drop to exploratory and the claim license forbids stratified assertions.
 
-### 7.3-7.4 (unchanged)
+**Agreement-worship guard**: high LLM-judge AC1 can mean shared bias. E2 is a STABILITY signal, not a TRUTH signal.
+
+### 7.E.gov Coefficient-choice governance (human-free)
+
+Coefficient choice is deterministic from the pre-outcome missingness/prevalence/completeness audit. Attach:
+
+- Named **audit custodian** = the deterministic audit SCRIPT + its code-pin (no human; the "custodian" is the pinned tool run + its log in `state/icc_surrogates.json`).
+- Timestamp; hashes of all audit artifacts (missingness table, prevalence table, judge-completeness matrix).
+- Machine-emitted statement: the choice follows the §7.E2 rule deterministically; cross-family-judge agreement coefficient VALUES are outcome-blinded until gate analysis (§P4.2).
+
+**NOT an independent third-party audit.** Codex review remains for §-1.1 line-by-line (Codex is the reviewer tool, NOT an SME).
+
+### 7.3-7.4 (unchanged in form; "rater" = cross-family LLM judge)
 
 ---
 
@@ -330,7 +344,7 @@ v3.2 had 9 items. v3.3 adds explicit mechanistic/hidden-state path:
 | Per-cell denominator counts | Allowed; §6.2 eligibility |
 | **Domain/stratum/cell denominator distributions + eligibility distributions** (NEW v3.3 explicit row per Codex round-3 §9) | Allowed pre-outcome |
 | Per-stratum severity label distributions (pre-outcome) | Allowed |
-| Missingness/prevalence/completeness audit (Gate E) | Allowed |
+| Missingness/prevalence/judge-completeness audit (Gate E1/E2) | Allowed |
 
 **Outcome exposure events** (must be blinded until gate analysis):
 
@@ -339,7 +353,7 @@ v3.2 had 9 items. v3.3 adds explicit mechanistic/hidden-state path:
 | Per-stratum / per-cell / per-domain miss counts | Outcome |
 | Severity-distribution AMONG MISSES | Outcome |
 | Customer-distribution of any affected reports | Outcome (vs aggregate customer count = structural) |
-| **Inter-rater agreement coefficient values** (NEW v3.3 explicit note per Codex round-3 §9 — even though severity labels themselves are needed structurally for Gate A) | Outcome |
+| **Cross-family LLM-judge agreement coefficient values (Gate E2)** (human-free: replaces inter-rater; severity labels themselves are needed structurally for Gate A but the agreement VALUES are outcome) | Outcome |
 | Under-rating-rate confusion matrix | Outcome |
 | Retrieval recall numerators | Outcome |
 | Extraction recall numerators | Outcome |
@@ -395,14 +409,15 @@ After outcome exposure: amendments require §P4 Category-4 (post-outcome design)
 | "Independently audited" | Codex audit ≠ regulatory or third-party |
 | **"AI-verified"** (NEW v3.3) | Verification is contractual, not autonomous |
 | **"Machine-checked"** (NEW v3.3) | Allowed ONLY if it refers to actual formal checker / deterministic test artifact, NOT an LLM judgment |
-| **"Auto-validated"** (NEW v3.3) | Implies autonomous validation; the contract requires human SME adjudication and Codex review |
-| **"Self-auditing"** (NEW v3.3) | The system does not self-audit; the contract specifies external SME + Codex |
+| **"Auto-validated"** (NEW v3.3) | Implies autonomous self-validation; the contract requires an independent mechanical oracle + cross-family LLM panel (different lineages from the verifier) + Codex review — not the system validating itself |
+| **"Self-auditing"** (NEW v3.3) | The system does not self-audit; the contract specifies an independent mechanical oracle + cross-family judges (verifier-family ≠ judge-family) + Codex |
 | **"Certified"** (NEW v3.3) | No certification authority has reviewed |
 | **"Guaranteed safe"** (NEW v3.3) | The contract bounds rates with confidence intervals, never guarantees |
 | **"Hallucination-free"** (NEW v3.3) | Same as "zero hallucinations" |
 | **"Formally verified"** (NEW v3.3) | Formal verification is a mathematical proof technique not used here |
 | **"Validated for production"** (NEW v3.3) | Validation is per-cycle, not blanket; production state changes invalidate |
-| **"Human-equivalent review"** (NEW v3.3) | The verifier and judges are LLMs; SME review remains the human-equivalent layer |
+| **"Human-equivalent review"** (NEW v3.3) | FORBIDDEN — there is NO human review layer. This is a reproducible bench safety stress test (mechanical oracle + machine judges), explicitly NOT clinical/expert validation (amendment §6 claim license) |
+| **"Expert-validated" / "clinically validated" / "physician-reviewed"** (NEW human-free) | FORBIDDEN as affirmative claims — no human clinician adjudicated. The mandatory negated disclaimer ("NOT expert-validated") is required and must pass the negation-aware linter (amendment §6) |
 
 **Every pass sentence MUST name**:
 
@@ -421,7 +436,11 @@ Pass and fail sentences unchanged; ρ_binding parameterized; prerequisite citati
 
 ### 10.4 Gate D pass / fail (unchanged from v3.2 — classifier-eligible-cell scoping + precision-is-workload already mentioned)
 
-### 10.5 Gate E pass / fail (unchanged from v3.2)
+### 10.5 Gate E1 + E2 pass / fail (human-free amendment §5)
+
+- **E1 (mechanical oracle integrity)**: PASS iff all §7.E1 checks hold (fetch reproducibility, mutation-audit validity, deterministic expected-label regeneration, packet-level no-accidental-support, no LLM-extracted facts grounding confirmatory labels). FAIL → benchmark invalid, Gates A/B/D uninterpretable.
+- **E2 (machine severity stability)**: PASS iff cross-family LLM-judge agreement (§7.E2 coefficient) ≥ the pre-registered threshold. FAIL → only severity-agnostic overall miss-rate stays confirmatory; per-stratum claims drop to exploratory.
+- Pass sentence MUST name the ≥3 judge model snapshots (SHA256) + the deterministic-oracle code-pin, and MUST carry the amendment §6 disclaimer ("bench safety stress test, NOT clinical/expert validation").
 
 ### 10.6 Prerequisites P1, P2, P3 (unchanged from v3.2)
 

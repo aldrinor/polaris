@@ -1,8 +1,10 @@
 # POLARIS Statistical Safety Contract v3.3 — Lock Manifest
 
-**Status**: Methodology-locked pre-registration draft.
+**Status**: Methodology-locked pre-registration draft. **Human-free amendment applied 2026-05-27 (Codex APPROVE iter 3) — see `../human_free_amendment/`.**
 
-**Lock date**: 2026-05-27
+**Lock date**: 2026-05-27 (original); human-free amendment 2026-05-27.
+
+**Human-free amendment note**: per operator HARD CONSTRAINT (no human SMEs, ever; only API budget), `contract.md` was amended in place to the human-free model (Gate E → E1+E2; SME→machine throughout). `contract.sha256` re-pinned to the amended content. The pre-amendment hash was `75c9eb94a25450aca9e3b90b2272a5404e71c259203fdf465a38278bdd0d98a3`; the codex_review_trail/ records the SME-era design and is preserved as frozen history.
 
 **Lock verdict source**: `codex_review_trail/05_v3_3_final_lock_verdict.txt`
 ("Lock v3.3 as pre-registration draft" — Codex round-3 final, all 10 items ✓ closed)
