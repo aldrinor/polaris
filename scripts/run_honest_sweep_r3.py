@@ -48,6 +48,8 @@ for noisy in ("httpx", "httpcore"):
 
 from src.polaris_graph.evaluator.external_evaluator import run_external_evaluation  # noqa: E402
 from src.polaris_graph.evaluator.live_judge import judge_report  # noqa: E402
+# I-safety-002b (#925) PR-2: Path-B benchmark gate (preflight + capture + assert_post_run).
+from src.polaris_graph.benchmark import pathB_capture as _pathb  # noqa: E402
 from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
     generate_multi_section_report,
 )
@@ -2246,10 +2248,15 @@ async def run_one_query(
         if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
             return summary
 
-        multi = await generate_multi_section_report(
-            research_question=q["question"],
-            evidence=evidence_for_gen,
-            section_temperature=0.3,
+        # I-safety-002b (#925) PR-2: tag this entire call as the report-generator role
+        # so the Path-B gate captures every nested LLM completion (multi-section + analyst
+        # + retries + reason) under role="generator". No-op when the gate is inactive.
+        _pathb_gen_tok = _pathb.set_role("generator")
+        try:
+            multi = await generate_multi_section_report(
+                research_question=q["question"],
+                evidence=evidence_for_gen,
+                section_temperature=0.3,
             # M-31 (2026-04-21): raise outline_max_tokens 800→2500 to
             # match the upstream default. V19 had 3 / V20 had 2
             # "Expecting ',' delimiter" JSON decode failures — all
@@ -2318,7 +2325,9 @@ async def run_one_query(
             m50_skip_anchors=_compute_m50_skip_anchors(
                 _phase2_contract_plans, _primary_anchors,
             ) if _phase2_contract_plans else None,
-        )
+            )
+        finally:
+            _pathb.reset_role(_pathb_gen_tok)
         dt = time.time() - t0
         _log(f"              elapsed={dt:.1f}s outline={len(multi.outline)} "
              f"sections, words={multi.total_words}, "
@@ -2864,14 +2873,21 @@ async def run_one_query(
         if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
             return summary
 
-        ev_out = run_external_evaluation(
-            report_text=final_report,
-            protocol=protocol,
-            tier_distribution_report=asdict(dist),
-            contradictions=[asdict(c) for c in contradictions],
-            evidence_pool=ev_pool,
-            enable_llm_judge=False,
-        )
+        # I-safety-002b (#925) PR-2: tag external_evaluator under role="evaluator". Per
+        # Codex iter-1 P3: this is no-op in honest_sweep today (enable_llm_judge=False
+        # routes only rule checks; future-proofs if an LLM judge is enabled).
+        _pathb_ev_tok = _pathb.set_role("evaluator")
+        try:
+            ev_out = run_external_evaluation(
+                report_text=final_report,
+                protocol=protocol,
+                tier_distribution_report=asdict(dist),
+                contradictions=[asdict(c) for c in contradictions],
+                evidence_pool=ev_pool,
+                enable_llm_judge=False,
+            )
+        finally:
+            _pathb.reset_role(_pathb_ev_tok)
         (run_dir / "evaluator_rule_checks.json").write_text(
             json.dumps(ev_out.to_json_dict(), indent=2, sort_keys=True, default=str) + "\n",
             encoding="utf-8",
@@ -2885,12 +2901,17 @@ async def run_one_query(
         # Judge
         jr = None
         try:
-            jr = await judge_report(
-                report_text=final_report,
-                research_question=q["question"],
-                temperature=0.2,
-                max_tokens=800,
-            )
+            # I-safety-002b (#925) PR-2: tag the live judge under role="evaluator".
+            _pathb_jr_tok = _pathb.set_role("evaluator")
+            try:
+                jr = await judge_report(
+                    report_text=final_report,
+                    research_question=q["question"],
+                    temperature=0.2,
+                    max_tokens=800,
+                )
+            finally:
+                _pathb.reset_role(_pathb_jr_tok)
             if jr.parse_ok:
                 vcounts = {
                     v: sum(1 for j in jr.verdicts.values()
@@ -3255,6 +3276,16 @@ async def main_async() -> int:
         help="Output directory root. Default: outputs/honest_sweep_r3",
     )
     parser.add_argument(
+        "--pathB-gate", action="store_true",
+        help=(
+            "I-safety-002b (#925): enable the Path-B DR head-to-head benchmark gate. "
+            "Per question: preflight (full-power env + reachability + no fallbacks), "
+            "capture every generator+evaluator LLM completion, then assert_post_run "
+            "(served-model match + retrieval-backends actually attempted) BEFORE any "
+            "scoring. Persists pathB_gate_pin.json + pathB_gate_result.json to run_dir."
+        ),
+    )
+    parser.add_argument(
         "--replay-from-pin", type=str, default=None,
         help=(
             "M-INT-0b: load a captured ModelPin from <path> and apply "
@@ -3446,7 +3477,15 @@ async def main_async() -> int:
         for q in queries_to_run:
             print(f"\n>>> {q['domain']} / {q['slug']}")
             t0 = time.time()
-            summary = await run_one_query(q, out_root)
+            # I-safety-002b (#925) PR-2: wrap each question's run with the Path-B gate
+            # (preflight + capture + assert_post_run). No-op when --pathB-gate is off.
+            _pathb_run_dir = out_root / q["domain"] / q["slug"]
+            _pathb_run_dir.mkdir(parents=True, exist_ok=True)
+            from src.polaris_graph.benchmark.pathB_runner import gate_around_question
+            with gate_around_question(
+                enabled=args.pathB_gate, run_dir=_pathb_run_dir,
+            ):
+                summary = await run_one_query(q, out_root)
             dt = time.time() - t0
             summary["wall_time_seconds"] = round(dt, 1)
             # M-INT-0b: capture a ModelPin for every run so later

@@ -66,6 +66,17 @@ def llm_role(role: str) -> Iterator[None]:
         _ROLE.reset(token)
 
 
+def set_role(role: str):
+    """Set the role tag and return a token to restore on. Pair with reset_role(token)
+    inside a try/finally — equivalent guarantee to llm_role() ctx-mgr, used where
+    re-indenting a large multi-line call block under `with` would be invasive."""
+    return _ROLE.set(role)
+
+
+def reset_role(token) -> None:
+    _ROLE.reset(token)
+
+
 def current_llm_role() -> str | None:
     return _ROLE.get()
 

@@ -87,6 +87,14 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
     if not api_key:
         logger.warning("[live_retriever] SERPER_API_KEY missing — skipping Serper")
         return []
+    # I-safety-002b (#925) PR-2: record that the Path-B-required backend was actually
+    # invoked (key present + call attempted). assert_post_run rejects a run where a
+    # required backend was never tried. Lazy + best-effort; no-op when gate is off.
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_attempt("serper")
+    except Exception:
+        pass
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
     payload = {"q": query, "num": max(1, min(num, 20))}
     try:
@@ -116,6 +124,12 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
 
 def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
     api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+    # I-safety-002b (#925) PR-2: record S2 backend attempt (lazy, best-effort).
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_attempt("semantic_scholar")
+    except Exception:
+        pass
     headers = {}
     if api_key:
         headers["x-api-key"] = api_key

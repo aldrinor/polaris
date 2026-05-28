@@ -48,6 +48,15 @@ def test_register_then_clear() -> None:
     assert pc.is_active() is False
 
 
+# --- PR-2 hook semantics: only EXPLICITLY-tagged calls are captured (Codex Option B) ---
+def test_set_role_reset_role_roundtrip() -> None:
+    assert pc.current_llm_role() is None
+    tok = pc.set_role("generator")
+    assert pc.current_llm_role() == "generator"
+    pc.reset_role(tok)
+    assert pc.current_llm_role() is None
+
+
 # --- role context manager: scoped, restores (no leak to later calls) ---
 def test_llm_role_scoped_restore() -> None:
     assert pc.current_llm_role() is None

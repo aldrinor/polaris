@@ -1691,12 +1691,18 @@ class OpenRouterClient:
         # completion (this is the unified completion boundary for stream + non-stream +
         # retries + reason/generate/generate_structured). Best-effort + gate-flagged:
         # is_active() is a cheap contextvar read and is False outside a benchmark run.
+        # PR-2: capture ONLY explicitly-tagged calls (Codex APPROVE Option B). Auxiliary
+        # calls (scope LLM, inductor) without a role tag are NOT captured / NOT gated —
+        # the gate polices the REPORT generator + REPORT evaluators only, which is what
+        # the benchmark needs and is robust to auxiliary-model config changes.
         if _pathb_capture.is_active():
-            _pathb_capture.capture_llm_call(
-                role=_pathb_capture.current_llm_role() or "generator",
-                messages=sanitized_messages,
-                raw_response=data,
-            )
+            _role = _pathb_capture.current_llm_role()
+            if _role is not None:
+                _pathb_capture.capture_llm_call(
+                    role=_role,
+                    messages=sanitized_messages,
+                    raw_response=data,
+                )
 
         logger.info(
             "[polaris graph] %s completed: %d in/%d out/%d reasoning tokens, "

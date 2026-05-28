@@ -1,0 +1,124 @@
+"""Path-B gate lifecycle helper for the honest_sweep runner (I-safety-002b #925).
+
+Wraps each benchmark question with the gate: preflight + register capture sink + run +
+assert_post_run before any scoring. Persists the pin record to the run dir. Self-contained
+so the runner diff is minimal (1 import + 1 ``with`` per question).
+
+Gate-off by default: the helper is a no-op context manager when ``--pathB-gate`` is not set,
+so the existing honest_sweep pipeline is untouched outside the benchmark.
+
+Per the Codex-APPROVED brief v2 (call_impl_capture + entailment_judge_capture +
+served_metadata_provenance) and the Codex-APPROVED PR-2 role-tag fork (Option B: capture
+only explicitly-tagged report-generator + report-evaluator calls; auxiliary scope/inductor
+LLMs are not gated).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import logging
+import os
+from pathlib import Path
+from typing import Iterator
+
+from src.polaris_graph.benchmark import pathB_capture as _capture
+from scripts.dr_benchmark.pathB_run_gate import (
+    GateError,
+    LLMCall,
+    RolePin,
+    assert_post_run,
+    preflight,
+)
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_GEN_SLUG = "deepseek/deepseek-v4-pro"
+_DEFAULT_EVAL_SLUG = "google/gemma-4-31b-it"
+
+
+def _role_pins() -> list[RolePin]:
+    """Build the per-role pins from the live env. system_fingerprint is included as a
+    surrogate field — if the provider omits it, the capture drops the field and the
+    surrogate becomes provider+model (still exact-match-enforced)."""
+    gen = (os.getenv("OPENROUTER_DEFAULT_MODEL") or _DEFAULT_GEN_SLUG).strip()
+    ev = (os.getenv("PG_EVALUATOR_MODEL") or _DEFAULT_EVAL_SLUG).strip()
+    provider_order = (os.getenv("OPENROUTER_PROVIDER_ORDER") or "").strip()
+    provider = provider_order.split(",")[0].strip() if provider_order else ""
+    surrogate_fields = ("provider_name", "model", "system_fingerprint")
+    return [
+        RolePin("generator", gen, provider, surrogate_fields),
+        RolePin("evaluator", ev, provider, surrogate_fields),
+    ]
+
+
+def _salt() -> bytes:
+    return (os.getenv("PG_PATHB_GATE_SALT") or "pathB-default-unsalted").encode("utf-8")
+
+
+@contextlib.contextmanager
+def gate_around_question(
+    *, enabled: bool, run_dir: Path, control_vars: list[str] | None = None,
+) -> Iterator[None]:
+    """Wrap one benchmark question's run with preflight + post-run assertion.
+
+    Usage in the runner:
+        with gate_around_question(enabled=args.pathB_gate, run_dir=run_dir):
+            ... process_query body, including the role-tagged LLM calls ...
+            # On normal exit, assert_post_run runs (raises GateError if not full-power).
+
+    Behavior:
+    - enabled=False: no-op (yields immediately, no capture, no preflight).
+    - enabled=True: preflight (raises GateError if not full-power); register_pathB_capture;
+      yield; on normal exit, assert_post_run; persist pin + result to ``run_dir``. On
+      exception inside the body, capture is cleared but the exception propagates.
+    """
+    if not enabled:
+        yield
+        return
+
+    pin_path = run_dir / "pathB_gate_pin.json"
+    result_path = run_dir / "pathB_gate_result.json"
+
+    pin = preflight(
+        control_vars=list(control_vars or []),
+        role_pins=_role_pins(),
+        salt=_salt(),
+        roots=[Path("src/polaris_graph"), Path("scripts")],
+        offline=False,  # real run = real reachability ping (gate enforce-by-default).
+    )
+    pin_path.parent.mkdir(parents=True, exist_ok=True)
+    pin_path.write_text(json.dumps(pin, indent=2, sort_keys=True, default=str),
+                        encoding="utf-8")
+    _capture.register_pathB_capture()
+    try:
+        yield
+    except Exception:
+        # Propagate; do not run assert_post_run on a failed run (it would mask the cause).
+        _capture.clear_pathB_capture()
+        raise
+
+    try:
+        calls = [LLMCall(**c) for c in _capture.collected_calls()]
+        backends = _capture.attempted_backends()
+        result = assert_post_run(
+            pin=pin,
+            control_vars=list(control_vars or []),
+            salt=_salt(),
+            calls=calls,
+            retrieval_backends_attempted=backends,
+        )
+        result_path.write_text(
+            json.dumps({"verdict": "PASS", **result}, indent=2, sort_keys=True, default=str),
+            encoding="utf-8",
+        )
+        logger.info("[pathB] gate PASS for run_dir=%s", run_dir)
+    except GateError as exc:
+        result_path.write_text(
+            json.dumps({"verdict": "FAIL", "reason": str(exc)}, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        logger.error("[pathB] gate FAIL for run_dir=%s: %s", run_dir, exc)
+        raise
+    finally:
+        _capture.clear_pathB_capture()
