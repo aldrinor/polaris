@@ -229,9 +229,13 @@ def preflight(
         # env's first entry (now changed to empty, but the always-overwrite invariant is
         # the defense-in-depth — any future caller passing a non-empty provider_name still
         # gets re-resolved at preflight, so the persisted pin reflects the actual resolution).
-        # Offline tests skip the resolver (pre-injected RolePin.provider_name wins).
+        # Offline tests skip the resolver; if provider_name is empty under offline, fall
+        # back to the env's first entry (test-compat — tests still drive the pipeline via
+        # OPENROUTER_PROVIDER_ORDER and expect the served provider to match the pin).
         if not offline:
             rp.provider_name = resolve_role_provider(rp.model_slug, provider_order_list)
+        elif not rp.provider_name and provider_order_list:
+            rp.provider_name = provider_order_list[0]
     # I-bug-946 (Codex iter 2 P2#3 + iter-1 diff P2#2): enforce that the effective
     # entailment model equals the effective evaluator model. Compare EFFECTIVE values
     # (with their defaults) so a single env override that diverges from the default still

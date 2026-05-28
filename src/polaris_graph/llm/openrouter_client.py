@@ -410,23 +410,44 @@ PG_GENERATOR_MODEL = os.getenv(
     # is obsolete — NOT a fallback.
     "deepseek/deepseek-v4-pro",
 )
-PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
+# I-meta-001 (#933): 4-role architecture env vars per the locked stack
+# (config/architecture/polaris_runtime_lock.yaml). Each role has its own knob;
+# the legacy PG_EVALUATOR_MODEL is compat-mapped to PG_MIRROR_MODEL until
+# 2026-09-06 (Carney demo) after which it fails the gate at preflight.
+PG_MIRROR_MODEL = os.getenv("PG_MIRROR_MODEL", "cohere/command-a-plus")
+PG_SENTINEL_MODEL = os.getenv("PG_SENTINEL_MODEL", "ibm-granite/granite-guardian-4.1-8b")
+PG_JUDGE_MODEL = os.getenv("PG_JUDGE_MODEL", "qwen/qwen-3.6-35b-a3b")
+
+# Legacy 2-LLM stub env. Resolves to PG_MIRROR_MODEL when unset (the Mirror
+# role subsumes the old "evaluator" responsibilities). When PG_EVALUATOR_MODEL
+# IS set, it overrides PG_MIRROR_MODEL for the Mirror role (back-compat).
+PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL") or PG_MIRROR_MODEL
 
 # Explicit family overrides for the cases where the model-name prefix is
 # not the true family (fine-tunes, licensed redistributions, etc.).
 PG_GENERATOR_FAMILY_OVERRIDE = os.getenv("PG_GENERATOR_FAMILY_OVERRIDE", "")
 PG_EVALUATOR_FAMILY_OVERRIDE = os.getenv("PG_EVALUATOR_FAMILY_OVERRIDE", "")
+PG_MIRROR_FAMILY_OVERRIDE = os.getenv("PG_MIRROR_FAMILY_OVERRIDE", "")
+PG_SENTINEL_FAMILY_OVERRIDE = os.getenv("PG_SENTINEL_FAMILY_OVERRIDE", "")
+PG_JUDGE_FAMILY_OVERRIDE = os.getenv("PG_JUDGE_FAMILY_OVERRIDE", "")
 
 # Known family prefixes. The first prefix matched wins. Distinct families
 # per the loopback/audit/_open_source_models_2026.md family-distance table.
+# I-meta-001 (#933): cohere + ibm-granite added for the locked 4-role architecture
+# (Generator deepseek + Mirror cohere + Sentinel ibm-granite + Judge qwen).
+# Codex iter-2 P1 — family registry must cover every role in the
+# config/architecture/polaris_runtime_lock.yaml or family_segregation refuses
+# to construct the client.
 _FAMILY_PREFIXES: dict[str, tuple[str, ...]] = {
-    "deepseek": ("deepseek/", "deepseek-ai/"),
-    "qwen":     ("qwen/", "qwen-ai/", "alibaba/"),
-    "glm":      ("z-ai/", "zhipuai/", "thudm/"),
-    "llama":    ("meta-llama/", "meta/", "llama/"),
-    "gemma":    ("google/gemma", "google/gemma-", "gemma/"),
-    "mistral":  ("mistralai/", "mistral/"),
-    "kimi":     ("moonshotai/", "moonshot/", "kimi/"),
+    "deepseek":    ("deepseek/", "deepseek-ai/"),
+    "qwen":        ("qwen/", "qwen-ai/", "alibaba/"),
+    "glm":         ("z-ai/", "zhipuai/", "thudm/"),
+    "llama":       ("meta-llama/", "meta/", "llama/"),
+    "gemma":       ("google/gemma", "google/gemma-", "gemma/"),
+    "mistral":     ("mistralai/", "mistral/"),
+    "kimi":        ("moonshotai/", "moonshot/", "kimi/"),
+    "cohere":      ("cohere/", "coherelabs/", "command-"),       # I-meta-001
+    "ibm-granite": ("ibm-granite/", "ibm/granite", "granite-"),  # I-meta-001
     # Closed frontier families included for completeness (off-MVP, but if
     # ever allowed via a closed-source fallback they get their own family).
     "openai":   ("openai/", "gpt-"),
@@ -506,6 +527,66 @@ def check_family_segregation(
             f"(evaluator) per loopback/audit/_open_source_models_2026.md."
         )
     return (gen_family, eval_family)
+
+
+def validate_role_families(role_map: dict[str, str], policy: str = "all_distinct",
+                           allowed_collisions: list[tuple[str, str]] | None = None) -> dict[str, str]:
+    """I-meta-001 (#933): N-way family segregation for the 4-role architecture.
+
+    Extends the pairwise check_family_segregation to N roles per the locked
+    architecture (Generator + Mirror + Sentinel + Judge). All four roles must
+    be from distinct training lineages by default; allowed_collisions overrides
+    specific pairs if the architecture lock's family_policy permits them.
+
+    Args:
+        role_map: {role_name: model_slug}, e.g. {"generator": "deepseek/...",
+                  "mirror": "cohere/...", "sentinel": "ibm-granite/...",
+                  "judge": "qwen/..."}
+        policy: "all_distinct" (default) or "permit_collisions".
+        allowed_collisions: list of [role_a, role_b] pairs whose families
+                  may collide. Ignored under all_distinct.
+
+    Returns:
+        {role_name: family_label} on success.
+
+    Raises:
+        RuntimeError if any role's family is "unknown" or if two roles share
+        a family outside allowed_collisions.
+
+    Codex APPROVE iter 2 — accept_remaining (see .codex/I-meta-001/codex_brief_iter2_verdict.txt).
+    """
+    allowed_collisions = allowed_collisions or []
+    role_families: dict[str, str] = {}
+    for role, model in role_map.items():
+        family = family_from_model(model)
+        if family == "unknown":
+            raise RuntimeError(
+                f"validate_role_families: role {role!r} model {model!r} returns "
+                f"family='unknown'. Add the family prefix to "
+                f"_FAMILY_PREFIXES in openrouter_client.py."
+            )
+        role_families[role] = family
+
+    if policy == "permit_collisions":
+        return role_families
+
+    # all_distinct (default policy): every family must be unique across roles
+    family_to_role: dict[str, str] = {}
+    allowed_set = {tuple(sorted([a, b])) for a, b in allowed_collisions}
+    for role, family in role_families.items():
+        if family in family_to_role:
+            other_role = family_to_role[family]
+            if tuple(sorted([role, other_role])) in allowed_set:
+                continue
+            raise RuntimeError(
+                f"validate_role_families: family {family!r} appears in both "
+                f"role {role!r} and role {other_role!r}; family_policy="
+                f"all_distinct forbids this. If intentional, add the pair to "
+                f"allowed_collisions in config/architecture/polaris_runtime_lock.yaml."
+            )
+        family_to_role[family] = role
+    return role_families
+
 
 # FIX-GLM5: Models that always route output to reasoning_content.
 # These need reasoning_enabled=True for all calls, and generate() must
