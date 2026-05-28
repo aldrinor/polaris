@@ -67,11 +67,20 @@ def _full_power_env(monkeypatch) -> None:
     monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "y")
 
 
+_GEN_SLUG = "deepseek/deepseek-v4-pro"
+_EVAL_SLUG = "google/gemma-4-31b-it"
+
+
 def _pins() -> list[RolePin]:
     return [
-        RolePin("generator", "deepseek-v4-pro", "deepinfra", ("provider_name", "model")),
-        RolePin("evaluator", "gemma-4-31b", "deepinfra", ("provider_name", "model")),
+        RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model")),
+        RolePin("evaluator", _EVAL_SLUG, "deepinfra", ("provider_name", "model")),
     ]
+
+
+def _gen_pin() -> list[RolePin]:
+    """Single-role pin for targeted failure tests (avoids the all-roles-present check masking)."""
+    return [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model"))]
 
 
 def test_preflight_passes_full_power(monkeypatch) -> None:
@@ -104,14 +113,33 @@ def test_preflight_fatal_on_missing_retrieval_cred(monkeypatch) -> None:
 
 def test_preflight_fatal_on_no_surrogate_fields(monkeypatch) -> None:
     _full_power_env(monkeypatch)
-    bad = [RolePin("generator", "m", "p", ())]
+    bad = [RolePin("generator", _GEN_SLUG, "deepinfra", ())]
     with pytest.raises(GateError, match="surrogate"):
         preflight([], bad, _SALT)
 
 
+def test_preflight_fatal_on_short_model_slug(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    bad = [RolePin("generator", "deepseek-v4-pro", "deepinfra", ("model",))]  # no provider/ prefix
+    with pytest.raises(GateError, match="FULL slug"):
+        preflight([], bad, _SALT)
+
+
+def test_preflight_fatal_on_unreachable_backend(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    with pytest.raises(GateError, match="unreachable"):
+        preflight([], _gen_pin(), _SALT, reachability_prober=lambda b: b != "serper")
+
+
+def test_preflight_passes_with_reachable_prober(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pin = preflight([], _gen_pin(), _SALT, reachability_prober=lambda b: True)
+    assert pin["reachability_checked"] is True
+
+
 # --- post-run fatal assertions ---
 def _good_call(role: str) -> LLMCall:
-    model = "deepseek-v4-pro" if role == "generator" else "gemma-4-31b"
+    model = _GEN_SLUG if role == "generator" else _EVAL_SLUG
     return LLMCall(
         call_id=f"c-{role}", role=role, prompt_messages_present=True, request_hash="h",
         response_metadata={"provider_name": "deepinfra", "model": model},
@@ -121,37 +149,62 @@ def _good_call(role: str) -> LLMCall:
 def test_post_run_passes(monkeypatch) -> None:
     _full_power_env(monkeypatch)
     pin = preflight(["PG_V30_ENABLED"], _pins(), _SALT)
-    calls = [
-        LLMCall("c1", "generator", True, "h", {"provider_name": "deepinfra", "model": "deepseek-v4-pro"}),
-        LLMCall("c2", "evaluator", True, "h", {"provider_name": "deepinfra", "model": "gemma-4-31b"}),
-    ]
-    assert_post_run(pin, ["PG_V30_ENABLED"], _SALT, calls, {"serper", "semantic_scholar"})
+    res = assert_post_run(pin, ["PG_V30_ENABLED"], _SALT,
+                          [_good_call("generator"), _good_call("evaluator")], {"serper", "semantic_scholar"})
+    assert set(res["served_identity_by_role"]) == {"generator", "evaluator"}
+
+
+def test_post_run_fatal_on_missing_role(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pin = preflight([], _pins(), _SALT)  # pins generator+evaluator
+    with pytest.raises(GateError, match="no captured LLM call"):
+        assert_post_run(pin, [], _SALT, [_good_call("generator")], {"serper", "semantic_scholar"})  # evaluator missing
 
 
 def test_post_run_fatal_on_incomplete_capture(monkeypatch) -> None:
     _full_power_env(monkeypatch)
-    pin = preflight([], _pins(), _SALT)
-    bad = [LLMCall("c1", "generator", True, None, {"provider_name": "deepinfra", "model": "deepseek-v4-pro"})]
+    pin = preflight([], _gen_pin(), _SALT)
+    bad = [LLMCall("c1", "generator", True, None, {"provider_name": "deepinfra", "model": _GEN_SLUG})]
     with pytest.raises(GateError, match="incomplete capture"):
         assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
 
 
 def test_post_run_fatal_on_missing_surrogate_field(monkeypatch) -> None:
     _full_power_env(monkeypatch)
-    pins = [RolePin("generator", "deepseek-v4-pro", "deepinfra", ("provider_name", "model", "system_fingerprint"))]
+    pins = [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model", "system_fingerprint"))]
     pin = preflight([], pins, _SALT)
-    # served metadata lacks the pinned 'system_fingerprint' surrogate field
-    bad = [LLMCall("c1", "generator", True, "h", {"provider_name": "deepinfra", "model": "deepseek-v4-pro"})]
+    bad = [LLMCall("c1", "generator", True, "h", {"provider_name": "deepinfra", "model": _GEN_SLUG})]
     with pytest.raises(GateError, match="surrogate field"):
         assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
 
 
 def test_post_run_fatal_on_provider_drift(monkeypatch) -> None:
     _full_power_env(monkeypatch)
-    pin = preflight([], _pins(), _SALT)
-    bad = [LLMCall("c1", "generator", True, "h", {"provider_name": "FALLBACK", "model": "deepseek-v4-pro"})]
+    pin = preflight([], _gen_pin(), _SALT)
+    bad = [LLMCall("c1", "generator", True, "h", {"provider_name": "FALLBACK", "model": _GEN_SLUG})]
     with pytest.raises(GateError, match="served provider"):
         assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+
+
+def test_post_run_fatal_on_model_drift(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pin = preflight([], _gen_pin(), _SALT)
+    bad = [LLMCall("c1", "generator", True, "h", {"provider_name": "deepinfra", "model": "deepseek/deepseek-v3.2"})]
+    with pytest.raises(GateError, match="served model"):
+        assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+
+
+def test_post_run_fatal_on_served_identity_drift(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pins = [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model", "system_fingerprint"))]
+    pin = preflight([], pins, _SALT)
+    # two generator calls with DIFFERENT system_fingerprint -> surrogate drift
+    calls = [
+        LLMCall("c1", "generator", True, "h", {"provider_name": "deepinfra", "model": _GEN_SLUG, "system_fingerprint": "fp_a"}),
+        LLMCall("c2", "generator", True, "h", {"provider_name": "deepinfra", "model": _GEN_SLUG, "system_fingerprint": "fp_b"}),
+    ]
+    with pytest.raises(GateError, match="surrogate drifted"):
+        assert_post_run(pin, [], _SALT, calls, {"serper", "semantic_scholar"})
 
 
 def test_post_run_fatal_on_backend_not_attempted(monkeypatch) -> None:
@@ -170,3 +223,10 @@ def test_post_run_fatal_on_config_drift(monkeypatch) -> None:
     calls = [_good_call("generator"), _good_call("evaluator")]
     with pytest.raises(GateError, match="drift"):
         assert_post_run(pin, ["PG_V30_ENABLED"], _SALT, calls, {"serper", "semantic_scholar"})
+
+
+def test_full_control_surface_includes_retrieval_creds() -> None:
+    from pathlib import Path
+    from scripts.dr_benchmark.pathB_run_gate import full_control_surface
+    surface = full_control_surface([Path("scripts/dr_benchmark")])
+    assert "SERPER_API_KEY" in surface and "SEMANTIC_SCHOLAR_API_KEY" in surface

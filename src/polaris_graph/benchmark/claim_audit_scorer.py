@@ -41,15 +41,20 @@ class ClaimRow:
     citation_id: str | None        # the citation the claim attaches to (None = uncited)
     span_quote: str | None         # exact supporting/refuting span from the FETCHED source
     unreachable_subtype: UnreachableSubtype | None = None
+    audit_note: str | None = None  # e.g. "no supporting span found in cited source" for UNSUPPORTED
 
     def __post_init__(self) -> None:
         if self.verdict == "UNREACHABLE" and self.unreachable_subtype is None:
             raise ValueError(f"{self.claim_id}: UNREACHABLE requires an unreachable_subtype")
         if self.verdict != "UNREACHABLE" and self.unreachable_subtype is not None:
             raise ValueError(f"{self.claim_id}: unreachable_subtype only valid for UNREACHABLE")
-        # every non-VERIFIED material verdict must carry span evidence or an uncited marker
+        # FABRICATED/PARTIAL must quote the refuting/partial span.
         if self.verdict in ("FABRICATED", "PARTIAL") and not self.span_quote:
             raise ValueError(f"{self.claim_id}: {self.verdict} requires a span_quote (evidence)")
+        # UNSUPPORTED on a CITED claim must record WHY (span checked or explicit no-support note)
+        # so the verdict is traceable, not asserted (Codex P2).
+        if self.verdict == "UNSUPPORTED" and self.citation_id and not (self.span_quote or self.audit_note):
+            raise ValueError(f"{self.claim_id}: UNSUPPORTED+cited requires a span_quote or audit_note (traceability)")
 
     @property
     def is_material(self) -> bool:

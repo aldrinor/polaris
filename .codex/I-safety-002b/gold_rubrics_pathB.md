@@ -19,9 +19,9 @@ Required elements (each → authoritative source class for Codex to verify+pin):
 7. **Drug interactions / acute-illness "sick-day" hold** (contrast, dehydration) — label.
 
 ## Q03 — Do statins reduce cardiovascular mortality in adults with hypercholesterolemia?
-1. **CV mortality / major-vascular-event reduction** magnitude + that benefit scales with LDL-C lowering — CTT meta-analysis (Lancet) + Cochrane.
+1. **Major-vascular-event reduction scaling with LDL-C lowering** — the ROBUST CTT finding (per ~1 mmol/L LDL reduction); CV-mortality reduction is real but its primary-prevention significance is weaker/less robust than MVE — do NOT overstate primary-prevention CV-mortality (Codex). Source: CTT meta-analysis (Lancet).
 2. **Primary vs secondary prevention** distinction (effect present in both; absolute benefit larger in secondary) — Cochrane primary-prevention review + guideline (ACC/AHA, ESC/EAS).
-3. **All-cause mortality** effect (reduced, mainly secondary prevention) — CTT/Cochrane.
+3. **All-cause + CV mortality nuance** — mortality benefit is clearest in SECONDARY prevention; primary-prevention all-cause/CV-mortality significance is more modest/contested — reported SEPARATELY from the MVE/LDL-scaling claim (Codex). Source: CTT / Cochrane.
 4. **Number-needed-to-treat / absolute vs relative risk** framing — guideline.
 5. **Adverse effects** (myopathy, modest new-onset diabetes, hepatic) in proper proportion — Cochrane + label.
 6. **High- vs moderate-intensity** statin + intensity-benefit relationship — ACC/AHA guideline.
@@ -33,12 +33,12 @@ Required elements (each → authoritative source class for Codex to verify+pin):
 3. **Performance-status eligibility** (ECOG 0-1) — the trial population + guideline.
 4. **Toxicity profile** (neutropenia, febrile neutropenia, diarrhea, neuropathy) — PRODIGE-11.
 5. **Comparison vs gemcitabine / gem-nab-paclitaxel** as the alternative regimen — ASCO/NCCN guideline.
-6. **Modified FOLFIRINOX** dose-reduction practice — subsequent literature / guideline.
+6. **Modified FOLFIRINOX** dose-reduction practice — concrete source required (e.g. NCCN pancreatic guideline mFOLFIRINOX reference OR a specific mFOLFIRINOX cohort/RCT), NOT merely implied from PRODIGE first-line dosing (Codex).
 7. **Overall poor absolute prognosis** of stage IV (honest framing, not overstated) — guideline/epidemiology (SEER).
 
 ## Q07 — Warfarin INR monitoring in elderly patients with atrial fibrillation
 1. **Target INR range 2.0-3.0** for non-valvular AF — ACC/AHA/HRS + ESC AF guideline + CHEST.
-2. **Monitoring frequency** (frequent at initiation; up to ~4-weekly once stable) — CHEST/guideline.
+2. **Monitoring frequency** (frequent at initiation; up to ~4-weekly once stable; **and EXTENDED intervals up to ~12 weeks in consistently stable patients** per CHEST — do NOT cap the "stable" interval at 4 weeks; Codex) — CHEST/guideline.
 3. **Time-in-therapeutic-range (TTR)** as the quality metric — guideline.
 4. **Bleeding risk in elderly** + HAS-BLED considerations (not a reason to withhold) — ESC/guideline.
 5. **Drug/diet/vitamin-K interactions** affecting INR — label/guideline.
@@ -49,7 +49,7 @@ Required elements (each → authoritative source class for Codex to verify+pin):
 1. **Overall survival benefit** vs chemotherapy (1L and 2L settings) — landmark RCTs (KEYNOTE-024/189/407, CheckMate-017/057) + guideline (NCCN/ASCO).
 2. **PD-L1 expression** as predictive biomarker (≥50% TPS 1L pembrolizumab monotherapy) — KEYNOTE-024 + guideline.
 3. **Chemo-immunotherapy combinations** (1L, regardless of PD-L1) — KEYNOTE-189/407.
-4. **Elderly-specific subgroup/efficacy + tolerability** (benefit retained ≥65; caution very elderly/poor PS) — subgroup analyses / guideline.
+4. **Elderly-specific subgroup/efficacy + tolerability** — benefit RETAINED in ≥65 subgroups, but evidence is WEAKER/more cautious in ≥75 and poor-performance-status patients (not "benefit confirmed in all elderly"; Codex) — subgroup analyses / guideline.
 5. **Immune-related adverse events** profile — label/guideline.
 6. **Progression-free survival / response rate** context — the RCTs.
 7. **Driver-mutation exclusion** caveat (EGFR/ALK do worse on IO) — guideline.

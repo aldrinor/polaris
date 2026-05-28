@@ -34,12 +34,22 @@ def test_fabricated_requires_span() -> None:
     ClaimRow("c1", "S1", "FABRICATED", "cit1", "the source says the opposite")  # ok
 
 
+def test_unsupported_cited_requires_traceability() -> None:
+    # cited but no span and no note -> must fail (traceability, Codex P2)
+    with pytest.raises(ValueError, match="traceability"):
+        ClaimRow("c1", "S1", "UNSUPPORTED", "cit1", None)
+    # explicit no-support note is acceptable
+    ClaimRow("c1", "S1", "UNSUPPORTED", "cit1", None, audit_note="no supporting span found")
+    # UNCITED unsupported claim needs nothing extra (it is unsupported BY CITATION)
+    ClaimRow("c2", "S1", "UNSUPPORTED", None, None)
+
+
 # --- Lane 1: material-only (S3 excluded), partial weighting, hard-fail count ---
 def test_lane1_s3_excluded_and_partial_weight() -> None:
     rows = [
         ClaimRow("c1", "S1", "VERIFIED", "a", "s"),
         ClaimRow("c2", "S2", "PARTIAL", "b", "partial span"),
-        ClaimRow("c3", "S2", "UNSUPPORTED", "c", None),
+        ClaimRow("c3", "S2", "UNSUPPORTED", "c", None, audit_note="no supporting span in cited source"),
         ClaimRow("c4", "S3", "FABRICATED", "d", "ignored stylistic"),  # S3 -> excluded
     ]
     l1 = lane1_faithfulness(rows)
