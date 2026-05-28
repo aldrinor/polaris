@@ -604,32 +604,31 @@ SWEEP_QUERIES: list[dict] = [
             "significant disruptions and affecting various industries. Ensure the "
             "review only cites high-quality, English-language journal articles."
         ),
-        # Amplified retrieval set targeting the 8 Q72 rubric elements: 4IR framing,
-        # automation/displacement (Frey&Osborne), task displacement+reinstatement
-        # (Acemoglu&Restrepo), job creation/augmentation (Autor JEP), polarization/SBTC
-        # (ALM QJE, GMS AER), sectoral heterogeneity, generative-AI evidence (Eloundou
-        # Science, Noy&Zhang Science, Brynjolfsson QJE), and citation-class compliance.
+        # Amplified retrieval set targeting the 8 Q72 rubric elements via JOURNAL-PUBLISHER
+        # site: operators (I-bug-942 #928 fix). The rubric demands "high-quality, English-
+        # language journal articles" exactly; targeting AEA/QJE/JPE/Science/Wiley directly
+        # pulls T1 sources past the corpus_adequacy_gate.
         "amplified": [
-            "Frey Osborne future of employment computerisation Technological Forecasting Social Change",
-            "Acemoglu Restrepo robots and jobs Journal of Political Economy",
-            "Acemoglu Restrepo race between man and machine American Economic Review",
-            "Autor why are there still so many jobs Journal of Economic Perspectives",
-            "Autor Levy Murnane skill content recent technological change Quarterly Journal of Economics",
-            "Goos Manning Salomons explaining job polarization American Economic Review 2014",
-            "skill biased technical change wage inequality labor economics journal",
-            "task based framework labor displacement reinstatement automation",
-            "Eloundou GPTs are GPTs labor market impact large language models Science 2024",
-            "Noy Zhang experimental evidence generative artificial intelligence productivity Science 2023",
-            "Brynjolfsson Li Raymond generative AI at work Quarterly Journal of Economics 2025",
-            "AI exposure occupations local labor market employment effects",
-            "Fourth Industrial Revolution labor market journal article",
-            "Southern Economic Journal Goldsmith Casey fourth industrial revolution future of work",
-            "automation sectoral heterogeneity manufacturing services labor",
-            "generative AI customer support agents productivity field experiment",
-            "freelance platform AI exposure demand writing coding image",
-            "Acemoglu Restrepo automation and new tasks Journal of Economic Perspectives",
-            "AI augmentation novice workers productivity gains experiments",
-            "robots commuting zones US labor market employment wages",
+            "site:aeaweb.org Autor why are there still so many jobs Journal of Economic Perspectives",
+            "site:aeaweb.org Goos Manning Salomons explaining job polarization American Economic Review",
+            "site:aeaweb.org Acemoglu Restrepo automation and new tasks Journal of Economic Perspectives",
+            "site:journals.uchicago.edu Acemoglu Restrepo robots and jobs Journal of Political Economy",
+            "site:academic.oup.com Brynjolfsson generative AI at work Quarterly Journal of Economics",
+            "site:academic.oup.com Autor Levy Murnane skill content technological change Quarterly Journal of Economics",
+            "site:science.org Eloundou GPTs are GPTs large language models labor",
+            "site:science.org Noy Zhang generative artificial intelligence productivity",
+            "site:sciencedirect.com Frey Osborne future of employment computerisation Technological Forecasting Social Change",
+            "site:onlinelibrary.wiley.com Goldsmith Casey fourth industrial revolution Southern Economic Journal",
+            "Frey Osborne 2017 Technological Forecasting Social Change 47 percent computerisation",
+            "Acemoglu Restrepo race between man and machine 2018 American Economic Review",
+            "Acemoglu Restrepo 2020 robots and jobs Journal of Political Economy 128",
+            "Brynjolfsson Li Raymond 2025 generative AI at work productivity QJE",
+            "Autor 2015 Journal of Economic Perspectives why so many jobs",
+            "Goos Manning Salomons 2014 American Economic Review polarization routine-biased",
+            "skill-biased technical change wage inequality peer reviewed economics",
+            "AI labor market exposure occupations literature review journal",
+            "automation employment effects commuting zones manufacturing peer reviewed",
+            "generative AI productivity field experiment journal article",
         ],
     },
 ]
