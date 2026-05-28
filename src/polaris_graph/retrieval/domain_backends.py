@@ -174,6 +174,12 @@ def policy_targeted_serper(
     api_key = os.getenv("SERPER_API_KEY", "").strip()
     if not api_key:
         return []
+    # I-safety-002b (#925) PR-2: record serper attempt for the Path-B gate (best-effort).
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_attempt("serper")
+    except Exception:
+        pass
     site_clause = " OR ".join(_POLICY_SITE_FILTERS)
     q = f"{query} ({site_clause})"
     try:

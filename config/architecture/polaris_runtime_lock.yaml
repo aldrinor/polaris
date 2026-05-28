@@ -1,0 +1,141 @@
+# POLARIS Runtime Architecture Lock — v1
+# I-meta-001 (#933) — Codex APPROVE_FOR_IMPLEMENTATION iter 2, operator D1 signed 2026-05-28T22:00 PDT
+#
+# This file is the SINGLE machine-readable source of truth for POLARIS's locked
+# LLM stack. Code defaults, gate checks, tests, deployment surfaces, and PR
+# attestations all derive their truth from this file.
+#
+# Mutation policy:
+#   - Edits require Codex APPROVE on a brief that names the superseding lock doc
+#   - Edits require operator commit signature (operator commits the change)
+#   - Edits invalidate the propagation manifest (must be re-completed)
+#   - canonical_pin.txt MUST track this file's SHA256
+#
+# Anti-drift gate: scripts/architecture/verify_lock.py asserts code defaults
+# match this file at preflight; pathB_run_gate.py refuses to PASS unless
+# every required_role is pinned AND observed in the captured LLM calls.
+
+version: 1
+schema_version: 1.0
+
+# Provenance — the decision authority + Codex cross-validation
+source_doc: docs/polaris_step_b_full_set_audit_2026_05_27.md
+source_doc_sha256: TO_BE_COMPUTED_AT_COMMIT  # propagation manifest fills this after commit
+codex_approval_artifact: .codex/I-meta-001/codex_brief_iter2_verdict.txt
+codex_verdict: APPROVE_FOR_IMPLEMENTATION
+codex_cross_validation_sources:
+  - https://huggingface.co/CohereLabs/command-a-plus-05-2026-bf16
+  - https://cohere.com/blog/command-a-plus
+  - https://huggingface.co/ibm-granite/granite-guardian-4.1-8b
+  - https://research.ibm.com/blog/granite-4-1-ai-foundation-models
+  - https://huggingface.co/Qwen/Qwen3.6-35B-A3B
+locked_at: 2026-05-27
+operator_d1_signature_utc: 2026-05-28T22:00:00Z
+
+# Lifecycle status — codex_approved_pending_operator_signature → locked
+# when the commit lands AND canonical_pin.txt + propagation manifest are complete
+status: codex_approved_pending_operator_signature
+promotion_to_locked_requires:
+  - this_file_committed
+  - source_doc_committed
+  - canonical_pin_includes_this_file
+  - propagation_manifest_all_checkpoints_true
+  - code_defaults_match
+  - tests_pass
+
+# === ARCHITECTURE: 4 LLM roles + 2 deterministic layers ===
+
+required_roles:
+  generator:
+    model_slug: deepseek/deepseek-v4-pro
+    family: deepseek
+    license: MIT
+    released: 2026-04-24
+    role_description: |
+      Recall-heavy synthesis. 1M context window. Top GDPval. Acknowledged 94%
+      non-abstention failure mode is mitigated by downstream Mirror/Sentinel/Judge layers.
+
+  mirror:
+    model_slug: cohere/command-a-plus
+    family: cohere
+    license: Apache 2.0
+    released: 2026-05-20
+    role_description: |
+      Calibration auditor. Best calibration in pool (14.1% AA-Omniscience).
+      Native citation grounding. Tests claims the Generator cannot self-verify.
+
+  sentinel:
+    model_slug: ibm-granite/granite-guardian-4.1-8b
+    family: ibm-granite
+    license: Apache 2.0
+    released: 2026
+    role_description: |
+      Purpose-built RAG hallucination detector. RAGTruth BAcc 0.841.
+      Broad guardrail coverage. Catches Mirror's misses.
+
+  judge:
+    model_slug: qwen/qwen-3.6-35b-a3b
+    family: qwen
+    license: Apache 2.0
+    released: 2026-04-16
+    role_description: |
+      Native structured-output discipline. Terminal arbiter — must emit
+      stable parseable verdicts. Function-call adherence closer to Claude
+      than to most open models per AA benchmarks.
+
+deterministic_layers:
+  - name: python_validators
+    role_description: |
+      Citation existence (DOI / OpenAlex), numeric/date checks, span-overlap
+      and content-word overlap (strict_verify).
+    code_path: src/polaris_graph/clinical_generator/strict_verify.py
+
+  - name: codex_section_1_1_audit
+    role_description: |
+      Final human-equivalent gate. Claim-by-claim line-by-line audit against
+      fetched cited spans. PRISMA 2020 + AMSTAR-2 + GRADE per claim. Per
+      CLAUDE.md §-1.1. Manual + Codex-assisted; runs out-of-band of the
+      automated pipeline.
+    code_path: external_review
+
+# === FAMILY POLICY: all 4 roles must be distinct lineages ===
+
+family_policy:
+  default_policy: all_distinct
+  allowed_collisions: []          # empty = no collisions permitted
+  rationale: |
+    Two-family invariant (CLAUDE.md §9.1) extended to N-way. Each role's
+    family-lineage must differ from every other role. Closed-source family
+    fallbacks (openai, anthropic, google-closed) are FORBIDDEN at runtime
+    per the sovereignty threat model (feedback_sovereignty_threat_model).
+
+# === ENVIRONMENT VARIABLES (binding) ===
+# Each role's runtime configuration knob. Defaults pulled from required_roles.
+
+env_vars:
+  generator:
+    primary: PG_GENERATOR_MODEL
+    fallbacks: [OPENROUTER_DEFAULT_MODEL]
+  mirror:
+    primary: PG_MIRROR_MODEL
+    fallbacks: []
+  sentinel:
+    primary: PG_SENTINEL_MODEL
+    fallbacks: []
+  judge:
+    primary: PG_JUDGE_MODEL
+    fallbacks: []
+
+# Compatibility map — PG_EVALUATOR_MODEL is OVERLOADED in the 2-LLM-stub legacy
+# code paths. It is being retired. Map it to mirror to preserve back-compat
+# during transition; legacy code paths still see "evaluator" but the gate
+# treats it as the Mirror role.
+legacy_compat:
+  PG_EVALUATOR_MODEL:
+    maps_to_role: mirror
+    deprecated_after: 2026-09-06
+    deprecation_notice: |
+      PG_EVALUATOR_MODEL was overloaded (covered evaluator + judge +
+      entailment in one knob). Use PG_MIRROR_MODEL / PG_SENTINEL_MODEL /
+      PG_JUDGE_MODEL instead. After 2026-09-06 (Carney demo), this env var
+      will fail the gate at preflight.

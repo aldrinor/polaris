@@ -349,6 +349,9 @@ async def generate_analyst_synthesis(
         set_reasoning_call_context(
             section="Analyst Synthesis", call_type="analyst_synthesis",
         )
+        # I-safety-002b (#925) PR-2: role-tagging for the Path-B gate is applied at the
+        # runner chokepoint (run_honest_sweep_r3.py wraps generate_multi_section_report
+        # with llm_role("generator")) — this nested call inherits the contextvar.
         response = await client.generate(
             prompt=prompt,
             system=ANALYST_SYNTHESIS_SYSTEM_PROMPT,

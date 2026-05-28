@@ -1,0 +1,12 @@
+codex
+Consistent.
+
+Line 10 removes the stale §6-sketch claim. Line 36 now matches the `_v<N>` suffix rule and §2.1 equality invariant.
+
+Lock D6.
+8,529
+Consistent.
+
+Line 10 removes the stale §6-sketch claim. Line 36 now matches the `_v<N>` suffix rule and §2.1 equality invariant.
+
+Lock D6.

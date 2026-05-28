@@ -1,0 +1,95 @@
+codex
+plan_assessment: NEEDS_REVISION.
+
+The plan is close in shape, but it has two real execution blockers. As written, it can hash-pin seven plausible documents and still leave Phase 0a.1 unable to construct auditable claims or compute the §3.4 pairwise relation table.
+
+findings:
+
+novel_p0:
+
+1. Missing severity/adjudication/SME governance substrate. The contract’s Gate A estimand depends on SME-adjudicated S0/S1/S2 severity, and Gate E depends on label quality, but Phase 0a.0 has no locked severity rubric, rater-role separation, constructor-vs-adjudicator blinding, tiebreak workflow, COI/qualification rule, or adjudication artifact schema. D6 only contains placeholders. This must be locked before SME template construction, not inside each template ad hoc.
+
+2. Missing integrated claim/scenario metadata schema and relation-builder contract. D1-D7 define ingredients, but not the machine-readable row schema needed to compute: same report, evidence Jaccard, same template/SME/24h, same prompt family, and microtopic+stratum+additional-correlation. You need a locked `claim_manifest` / `scenario_manifest` / `source_packet_manifest` / `pairwise_relation_manifest` schema plus a deterministic dry-run validator. Otherwise §3.4 remains conceptually specified but operationally unbuildable. See [contract.md](C:/POLARIS/state/polaris_statistical_contract/v3_3/contract.md:73) and the fuller v3.2 criteria in [polaris_safety_contract_v3_2.md](C:/POLARIS/.codex/I-gen-005-step5/polaris_safety_contract_v3_2.md:120).
+
+continuing_p0: none from the v3.3 methodology lock itself. These are new Phase 0a.0 execution-substrate holes, not reopened statistical-contract defects.
+
+p1:
+
+1. D2 and D3 are conflated. Complexity cannot be source count if evidence-pool size is its own stratum. Use a composite pre-construction complexity rubric: number of claim facets, jurisdictions/trials/classes, conflict-resolution requirements, temporal instability, and reasoning operations. Keep source count only for D3.
+
+2. D3 contradicts D7. E4 is `51+ sources`, while D7 says SMEs select `1-50 sources`. Pick one. I would use bins that are feasible under the packet protocol, or raise D7’s cap and justify prompt/context handling.
+
+3. D5 must be prompt-constructor/prompt-pattern level, not file level. `multi_section_generator.py` alone has outline, section, trial table, limitations, per-trial subsection, retry, and model-conditioned variants. Active prompt surfaces also exist outside `generator/` and `evaluator/`, so the inventory cannot be limited to those two directories. See [multi_section_generator.py](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:256).
+
+4. D7 cites the wrong allowlist. [registry.py](C:/POLARIS/src/polaris_graph/audit_ir/registry.py:1) is an audit artifact/run registry, not a production source allowlist. Source admissibility lives in domain templates, clinical source registries, retrieval tier classifiers, and source registry/citation machinery. D7 must define canonical source identity: DOI/PMID/registry ID, canonical URL, archive snapshot, PDF/content SHA, version date, and landing-page-vs-PDF equivalence.
+
+5. D1’s “select six from eight by exclusion” is not yet defensible. It may be acceptable, but only if D1 explicitly says these are validation-scope domains, not a population claim about Carney’s interests. Also, `ai_sovereignty` and `workforce` lack completeness checklists while `canada_us` has strong Carney relevance. Either add missing checklists or choose domains from the already-governed set.
+
+6. D6/D7 sequencing is cyclic. D6 references a source-packet protocol that D7 defines, while D7 depends on D6. Break it: define source identity and packet methodology before SME template format.
+
+7. The plan lacks Phase 0a pilot allocation rules. If Phase 0a is supposed to observe clustering structure, you must pre-lock how claims are allocated across 6×3×4 cells, severity/support classes, SMEs, templates, packets, and prompt families. Otherwise P/N is design-contaminated.
+
+p2:
+
+1. Use a hybrid microtopic ontology: controlled Level 1/2 and initial Level 3 vocabulary, with governed append-only Level 3 additions before outcome exposure. Fully closed is brittle; fully open is unauditable.
+
+2. Template IDs should be stable semantic IDs plus version/hash, not bare UUIDs. UUIDs are fine internally, but humans need `clinical_C2_E3_safety_signal_v1`.
+
+3. Prompt-family similarity tests can support audit, but must not define the family. The definition should be deterministic from prompt constructor, system template, user template, model-conditioned branches, retry path, and callable.
+
+4. The v3.3 lock manifest still shows operator sign-off and notarized timestamp pending. That does not block plan review, but it should be closed before real pilot execution.
+
+convergence_call: continue.
+
+remaining_blockers_for_execution: the P0s above, plus D2/D3/D7/D5 restructuring. Do not begin D1 as the first deliverable yet; D1 depends on a clearer prerequisite frame.
+
+recommendation_for_v1_to_v2: add Phase 0a.-1 first. Then run D1-D7 in revised order: Phase 0a.-1 → D1 domains → D2 complexity + D3 evidence bins → severity/fabrication rubric → D7 source identity/packet methodology → D4 microtopic ontology → D6 SME template format → D5 full active prompt-family inventory → integrated relation-builder dry-run and hash-pin.
+
+Add prerequisite Phase 0a.-1: SME panel/role separation, severity/adjudication rubric, Phase-0a claim/source/prompt metadata schema, and deterministic relation-builder dry-run.
+plan_assessment: NEEDS_REVISION.
+
+The plan is close in shape, but it has two real execution blockers. As written, it can hash-pin seven plausible documents and still leave Phase 0a.1 unable to construct auditable claims or compute the §3.4 pairwise relation table.
+
+findings:
+
+novel_p0:
+
+1. Missing severity/adjudication/SME governance substrate. The contract’s Gate A estimand depends on SME-adjudicated S0/S1/S2 severity, and Gate E depends on label quality, but Phase 0a.0 has no locked severity rubric, rater-role separation, constructor-vs-adjudicator blinding, tiebreak workflow, COI/qualification rule, or adjudication artifact schema. D6 only contains placeholders. This must be locked before SME template construction, not inside each template ad hoc.
+
+2. Missing integrated claim/scenario metadata schema and relation-builder contract. D1-D7 define ingredients, but not the machine-readable row schema needed to compute: same report, evidence Jaccard, same template/SME/24h, same prompt family, and microtopic+stratum+additional-correlation. You need a locked `claim_manifest` / `scenario_manifest` / `source_packet_manifest` / `pairwise_relation_manifest` schema plus a deterministic dry-run validator. Otherwise §3.4 remains conceptually specified but operationally unbuildable. See [contract.md](C:/POLARIS/state/polaris_statistical_contract/v3_3/contract.md:73) and the fuller v3.2 criteria in [polaris_safety_contract_v3_2.md](C:/POLARIS/.codex/I-gen-005-step5/polaris_safety_contract_v3_2.md:120).
+
+continuing_p0: none from the v3.3 methodology lock itself. These are new Phase 0a.0 execution-substrate holes, not reopened statistical-contract defects.
+
+p1:
+
+1. D2 and D3 are conflated. Complexity cannot be source count if evidence-pool size is its own stratum. Use a composite pre-construction complexity rubric: number of claim facets, jurisdictions/trials/classes, conflict-resolution requirements, temporal instability, and reasoning operations. Keep source count only for D3.
+
+2. D3 contradicts D7. E4 is `51+ sources`, while D7 says SMEs select `1-50 sources`. Pick one. I would use bins that are feasible under the packet protocol, or raise D7’s cap and justify prompt/context handling.
+
+3. D5 must be prompt-constructor/prompt-pattern level, not file level. `multi_section_generator.py` alone has outline, section, trial table, limitations, per-trial subsection, retry, and model-conditioned variants. Active prompt surfaces also exist outside `generator/` and `evaluator/`, so the inventory cannot be limited to those two directories. See [multi_section_generator.py](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:256).
+
+4. D7 cites the wrong allowlist. [registry.py](C:/POLARIS/src/polaris_graph/audit_ir/registry.py:1) is an audit artifact/run registry, not a production source allowlist. Source admissibility lives in domain templates, clinical source registries, retrieval tier classifiers, and source registry/citation machinery. D7 must define canonical source identity: DOI/PMID/registry ID, canonical URL, archive snapshot, PDF/content SHA, version date, and landing-page-vs-PDF equivalence.
+
+5. D1’s “select six from eight by exclusion” is not yet defensible. It may be acceptable, but only if D1 explicitly says these are validation-scope domains, not a population claim about Carney’s interests. Also, `ai_sovereignty` and `workforce` lack completeness checklists while `canada_us` has strong Carney relevance. Either add missing checklists or choose domains from the already-governed set.
+
+6. D6/D7 sequencing is cyclic. D6 references a source-packet protocol that D7 defines, while D7 depends on D6. Break it: define source identity and packet methodology before SME template format.
+
+7. The plan lacks Phase 0a pilot allocation rules. If Phase 0a is supposed to observe clustering structure, you must pre-lock how claims are allocated across 6×3×4 cells, severity/support classes, SMEs, templates, packets, and prompt families. Otherwise P/N is design-contaminated.
+
+p2:
+
+1. Use a hybrid microtopic ontology: controlled Level 1/2 and initial Level 3 vocabulary, with governed append-only Level 3 additions before outcome exposure. Fully closed is brittle; fully open is unauditable.
+
+2. Template IDs should be stable semantic IDs plus version/hash, not bare UUIDs. UUIDs are fine internally, but humans need `clinical_C2_E3_safety_signal_v1`.
+
+3. Prompt-family similarity tests can support audit, but must not define the family. The definition should be deterministic from prompt constructor, system template, user template, model-conditioned branches, retry path, and callable.
+
+4. The v3.3 lock manifest still shows operator sign-off and notarized timestamp pending. That does not block plan review, but it should be closed before real pilot execution.
+
+convergence_call: continue.
+
+remaining_blockers_for_execution: the P0s above, plus D2/D3/D7/D5 restructuring. Do not begin D1 as the first deliverable yet; D1 depends on a clearer prerequisite frame.
+
+recommendation_for_v1_to_v2: add Phase 0a.-1 first. Then run D1-D7 in revised order: Phase 0a.-1 → D1 domains → D2 complexity + D3 evidence bins → severity/fabrication rubric → D7 source identity/packet methodology → D4 microtopic ontology → D6 SME template format → D5 full active prompt-family inventory → integrated relation-builder dry-run and hash-pin.
+
+Add prerequisite Phase 0a.-1: SME panel/role separation, severity/adjudication rubric, Phase-0a claim/source/prompt metadata schema, and deterministic relation-builder dry-run.

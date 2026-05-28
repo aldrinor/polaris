@@ -1,0 +1,20 @@
+# FROZEN ANSWER-KEY PIN — Path-B DR head-to-head (I-safety-002b / #925)
+# Frozen 2026-05-28, BEFORE any competitor/POLARIS output was viewed (pre-registration property).
+# Dual §-1.1 audit complete: Claude arm (5 research agents, 38 elements, 0 fabrications) +
+# Codex independent second arm APPROVE iter 2 (0 P0/P1/P2, fabrication_firewall PASS).
+#
+# Any change to a pinned file after this point INVALIDATES the pre-registration claim unless it is
+# a new dated changelog entry + re-pin + Codex re-APPROVE. Verify before scoring any run:
+#   sha256sum -c freeze_pin.txt   (run from repo root)
+
+130799ffd7db3ec44226066817d3984e9e0c3f90ce1160f5f1bd9f8a90e4c631  .codex/I-safety-002b/golden_questions_locked.md
+7d6d9cb8ae354bdfbf4cd38194ae23d85e573bd6e0e165a8f0a43889100a0fc6  .codex/I-safety-002b/gold_rubrics_pathB.md
+2f8a80bad69d86c768e3928301dbdb7e213686ebd974007ae1de6e8cfee99b65  .codex/I-safety-002b/claude_rubric_verification_ledger.md
+
+# Codex verdict trail: codex_rubric_freeze_iter1.txt (REQUEST_CHANGES, 1 P0 Benavides + 1 P2 venue)
+#                      codex_rubric_freeze_iter2.txt (APPROVE, both fixes confirmed, firewall PASS)
+# Question selection:  codex_lock5.txt (Codex-confirmed #75/#76/#78/#72/#90)
+
+# PR-3 (2026-05-28): companion-JSON snapshot, dual-pinned with the markdown (Codex design answer A).
+# Codex PR-3 diff P2 #3 (2026-05-28 iter1): timestamp removed from snapshot for deterministic SHA.
+2a39d9ddd31386acf5c7c58f1f3e5befbfa5f5e4ed07baabef115d5d701ff140  outputs/dr_benchmark/rubric_v3_frozen.json

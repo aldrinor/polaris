@@ -1,3 +1,10 @@
+---
+status: superseded
+superseded_by: docs/polaris_step_b_full_set_audit_2026_05_27.md
+superseded_on: 2026-05-28
+superseded_reason: Step-B audit reached different conclusions on Mirror/Sentinel picks (Cohere Command A+ replaces Kimi K2.6 for Mirror; Granite Guardian 4.1 replaces 3.3 for Sentinel). Operator confirmed Step-B as final.
+---
+
 # POLARIS evaluator model — locked pick (I-cd-005-followup, GH#637)
 
 **Decision:** **`google/gemma-4-31B-it`** is the locked POLARIS evaluator,

@@ -1,99 +1,55 @@
 {
-  "active_issue_id": "I-p2-038",
-  "active_issue_github": 821,
-  "current_step": "step_1_pick_first_page_and_open_branch",
-  "demo_target_window_utc": "2026-06-05 to 2026-06-09",
-  "umbrella": {
-    "github": 821,
-    "title": "Top-tier visual overhaul across all P2 pages \u00e2\u20ac\u201d retroactive design audit",
-    "methodology": "EXISTING P2 \u00e2\u20ac\u201d do NOT reinvent. References: state/polaris_phase2_ui_breakdown_2026_05_21.md + .codex/DESIGN_AUDIT_BRIEF_FORMAT.md + .codex/REVIEW_BRIEF_FORMAT.md \u00c2\u00a79",
-    "page_order": [
-      {
-        "page": "inspector",
-        "sub_pr_issue": null,
-        "checklist_item": "Inspector / Proof Replay (centerpiece) \u00e2\u20ac\u201d sub-PR 1 / #756 / resolve #728"
-      },
-      {
-        "page": "sign-in",
-        "sub_pr_issue": 898,
-        "checklist_item": "Sign-in \u00e2\u20ac\u201d sub-PR 9 / #898"
-      },
-      {
-        "page": "home",
-        "sub_pr_issue": 882,
-        "checklist_item": "Home \u00e2\u20ac\u201d sub-PR 2 / #882"
-      },
-      {
-        "page": "intake",
-        "sub_pr_issue": 884,
-        "checklist_item": "Intake \u00e2\u20ac\u201d sub-PR 3 / #884 + #886 + #900"
-      },
-      {
-        "page": "source_review",
-        "sub_pr_issue": 887,
-        "checklist_item": "Source Review \u00e2\u20ac\u201d sub-PR 4 / #887"
-      },
-      {
-        "page": "plan",
-        "sub_pr_issue": 889,
-        "checklist_item": "Plan Review \u00e2\u20ac\u201d sub-PR 5 / #889"
-      },
-      {
-        "page": "runs",
-        "sub_pr_issue": 894,
-        "checklist_item": "Run progress \u00e2\u20ac\u201d sub-PR 7 / #894"
-      },
-      {
-        "page": "compare",
-        "sub_pr_issue": 896,
-        "checklist_item": "Compare \u00e2\u20ac\u201d sub-PR 8 / #896"
-      },
-      {
-        "page": "dashboard",
-        "sub_pr_issue": 891,
-        "checklist_item": "Dashboard \u00e2\u20ac\u201d sub-PR 6 / #891"
-      }
-    ],
-    "supplemental_fix": "One-line \u00c2\u00a79 trigger extension in .codex/REVIEW_BRIEF_FORMAT.md (I-p2-*|I-ux-*|I-bug-* touching web/app/** or web/components/**)"
+  "active_issue_id": "I-meta-001",
+  "active_issue_github": 933,
+  "current_step": "step_1_branch_hygiene_complete (now executing steps 2-12 of Codex APPROVE_FOR_IMPLEMENTATION plan; smokes FROZEN until polaris_runtime_lock.yaml lands in code)",
+  "assigned_by": "operator directive 2026-05-28T22:00 PDT: explicit authorization of all 12 steps + D1-D4 decisions confirmed (Step-B stack accepted as final architecture, split scope+runtime locks, commit all .codex/ history, operator authorized Claude to check GH branch protection via token)",
+  "priority": true,
+  "title": "Root-cause investigation + structural fix for 4-role architecture drift",
+  "investigation_artifacts": {
+    "issue_brief": ".codex/I-meta-001/brief.md (Claude-authored)",
+    "iter2_brief": ".codex/I-meta-001/brief_iter2.md (Claude-authored)",
+    "codex_iter1": ".codex/I-meta-001/codex_brief_iter1_verdict.txt (REQUEST_DEEPER_INVESTIGATION, 5 novel root causes)",
+    "codex_iter2": ".codex/I-meta-001/codex_brief_iter2_verdict.txt (APPROVE_FOR_IMPLEMENTATION, accept_remaining, 11 new root causes total, web-cross-validated Step-B stack)"
   },
-  "drift_prevention_rules": [
-    "No new harness documents",
-    "No Codex review of plans",
-    "No new umbrella issues",
-    "Production standalone harness ONLY for screenshots (node web/.next/standalone/server.js, NOT next dev)",
-    "Operator screenshot sign-off is the merge gate per page",
-    "One page at a time \u00e2\u20ac\u201d cannot start page N+1 until page N is operator-signed-off",
-    "Every-pixel, every-line discipline \u00e2\u20ac\u201d full screenshot matrix per page, no skim"
-  ],
-  "closed_this_session": [
-    {
-      "github": 902,
-      "reason": "I-ux-002 dead meta-work \u00e2\u20ac\u201d reinvented existing P2"
+  "locked_architecture_step_b_stack": {
+    "status": "codex_approved_pending_operator_signature",
+    "operator_d1_confirmation_utc": "2026-05-28T22:00:00Z",
+    "promotion_to_locked": "automatic when config/architecture/polaris_runtime_lock.yaml lands + canonical pin updated + propagation manifest complete",
+    "roles": {
+      "generator": {"model": "deepseek/deepseek-v4-pro", "family": "deepseek", "license": "MIT"},
+      "mirror":    {"model": "cohere/command-a-plus",   "family": "cohere",   "license": "Apache 2.0"},
+      "sentinel":  {"model": "ibm-granite/granite-guardian-4.1-8b", "family": "ibm-granite", "license": "Apache 2.0"},
+      "judge":     {"model": "qwen/qwen-3.6-35b-a3b",   "family": "qwen",     "license": "Apache 2.0"}
     },
-    {
-      "github": 903,
-      "reason": "I-ux-002 followup \u00e2\u20ac\u201d orphaned"
-    },
-    {
-      "github": 829,
-      "reason": "I-p2-041 \u00e2\u20ac\u201d folded into #821"
-    }
-  ],
-  "llm_state_verified_2026_05_25": {
-    "generator_default": "deepseek/deepseek-v4-pro (verified in openrouter_client.py:408)",
-    "evaluator_default": "google/gemma-4-31b-it (verified in .env.example:64)",
-    "docs_match_code": true,
-    "prior_active_issue_claim_about_v3_2_exp_mismatch": "STALE \u2014 predated I-gen-003 #495 (2026-05-14) which re-enabled V4 Pro with HARD OUTPUT CONTRACT anti-CoT prompt + bounded 3-retry for reasoning-first models. Mismatch no longer exists.",
-    "i_gen_003_fix_in_place": true,
-    "i_gen_004_reasoning_trace_capture_in_place": true,
-    "remaining_v4_pro_concerns": [
-      "Smoke test needed on real clinical question end-to-end to verify HHEM faithfulness + strict_verify pass rate are acceptable.",
-      "Multi-turn reasoning_content preservation bug (BerriAI/litellm #26395) does NOT affect POLARIS today (single-turn-per-section) but would bite if we ever add multi-turn refinement.",
-      "OpenRouter context-cap behavior (cline #10551) \u2014 unverified whether 1M -> 128K cap applies to POLARIS long-context corpus loading."
-    ],
-    "research_evidence": "docs/v4_pro_research_2026_05_25.md (42 primary sources)",
-    "no_llm_changes_this_session": true,
-    "correction_note": "I cited a stale active_issue.json claim about V3.2-Exp being the active generator. That was wrong \u2014 V4 Pro has been default since I-gen-003 #495 merged on 2026-05-14. Correction made 2026-05-25 night."
+    "deterministic_layers": ["python_validators", "codex_section_1_1_audit"],
+    "source_doc": "docs/polaris_step_b_full_set_audit_2026_05_27.md (untracked at investigation start; tracked as part of Step 2)",
+    "codex_cross_validation": ".codex/I-meta-001/codex_brief_iter2_verdict.txt (HF model cards + Cohere blog + IBM Research blog + Qwen card all verified by Codex via WebSearch)"
   },
-  "last_updated_utc": "2026-05-25T22:30:00Z"
+  "smokes_frozen_until": "polaris_runtime_lock.yaml + propagation manifest complete (Steps 4-6)",
+  "twelve_step_plan_status": {
+    "1_branch_hygiene": "COMPLETE — moved to bot/I-meta-001-arch-drift-fix; state/active_issue.json updated",
+    "2_commit_decision_docs": "IN PROGRESS",
+    "3_status_supersedes_frontmatter": "PENDING",
+    "4_runtime_lock_yaml": "PENDING",
+    "5_propagation_manifest_verifier": "PENDING",
+    "6_canonical_pin_update": "PENDING",
+    "7_family_registry_expansion_and_nway_check": "PENDING",
+    "8_distinct_role_env_vars": "PENDING",
+    "9_pathB_gate_architecture_coverage": "PENDING",
+    "10_update_stale_surfaces": "PENDING",
+    "11_pr_attestation_artifact_and_ci_gate": "PENDING",
+    "12_weekly_drift_report": "PENDING"
+  },
+  "paused_issues": [
+    {"issue": "I-safety-002b", "github": 925, "reason": "frozen until 4-role architecture wired (smokes invalid until then)"},
+    {"issue": "I-p2-038", "github": 821, "reason": "P2 UI retroactive-design umbrella, paused for higher-priority work"}
+  ],
+  "branch_protection_finding_d4": {
+    "polaris_main_required_status_checks": [],
+    "polaris_main_enforce_admins": false,
+    "polaris_main_allow_force_pushes": false,
+    "bot_branches_protected": false,
+    "implication": "codex-required CI check is NOT actually enforced as a required check on polaris. This is a separate operator-side branch-protection fix needed. Surfaced 2026-05-28."
+  },
+  "last_updated_utc": "2026-05-28T22:05:00Z"
 }

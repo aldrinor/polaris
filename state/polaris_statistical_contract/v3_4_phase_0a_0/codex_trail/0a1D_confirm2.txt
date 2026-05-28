@@ -1,0 +1,36 @@
+codex
+Fix one specific before lock.
+
+§7 is aligned: `claim.entity_ids = source_entities ∪ claim_subject_entities` per §5, not source records alone.
+
+The §3 authority body is also aligned: line 74 makes the scope template the complete authoritative admissible set, line 76 says the table is only a high-authority summary, and §3.1 says the validator consumes the scope template.
+
+Remaining blocker: the §3 heading still says:
+
+`## §3. Per-domain admissibility table (the actual allowlist)`
+
+That phrase reintroduces the table-vs-template conflict. Change it to something like:
+
+`## §3. Per-domain admissibility summary (scope template is the actual allowlist)`
+
+Optional cleanup: line 124 could also say `per-domain admissibility summary (scope-template-authoritative)` instead of `per-domain admissibility table`, but line 70 is the only lock-blocking contradiction.
+
+So: **Fix §3 heading line 70, then 0a.-1.D unblocks 0a.-1.C.**
+25,249
+Fix one specific before lock.
+
+§7 is aligned: `claim.entity_ids = source_entities ∪ claim_subject_entities` per §5, not source records alone.
+
+The §3 authority body is also aligned: line 74 makes the scope template the complete authoritative admissible set, line 76 says the table is only a high-authority summary, and §3.1 says the validator consumes the scope template.
+
+Remaining blocker: the §3 heading still says:
+
+`## §3. Per-domain admissibility table (the actual allowlist)`
+
+That phrase reintroduces the table-vs-template conflict. Change it to something like:
+
+`## §3. Per-domain admissibility summary (scope template is the actual allowlist)`
+
+Optional cleanup: line 124 could also say `per-domain admissibility summary (scope-template-authoritative)` instead of `per-domain admissibility table`, but line 70 is the only lock-blocking contradiction.
+
+So: **Fix §3 heading line 70, then 0a.-1.D unblocks 0a.-1.C.**
