@@ -1,7 +1,7 @@
 {
   "active_issue_id": "I-safety-002b",
   "active_issue_github": 925,
-  "current_step": "step_4_pr3_scoring_integration_then_operator_smoke_run (rubric FROZEN; PR-1+PR-2 both Codex-APPROVE'd: capture + completion-hooks + role-tags + retrieval-hooks + runner --pathB-gate lifecycle; PR-3 design in Codex review)",
+  "current_step": "step_5_operator_smoke_run_on_72 (END-TO-END GATE-WIRING COMPLETE: PR-1 731e022b + PR-2 0bc2c805 + PR-3 312783d6 all Codex-APPROVE'd, 91/91 dr_benchmark tests green; next = operator-authorized single-question smoke run on DRB-EN #72 per scripts/dr_benchmark/smoke.md)",
   "assigned_by": "operator directive 2026-05-28 ('update github open issue, make it as priority, ... start execution'; then 'find the most challenging questions from the golden benchmark' -> golden set LOCKED, Codex-confirmed)",
   "priority": true,
   "title": "Path B: POLARIS vs ChatGPT/Gemini/Perplexity DR — 5 GOLDEN DRB-EN Qs, full-power, per-run §-1.1 line-by-line",
@@ -18,7 +18,7 @@
     "PR-1 Codex APPROVE iter2 (731e022b): pathB_capture module + _call_impl + entailment_judge hooks + streaming served-identity provenance",
     "PR-2 Codex APPROVE iter3 (0bc2c805): role tags at honest_sweep chokepoints + retrieval-attempt hooks + runner --pathB-gate per-question lifecycle + INVALID sentinel; 67/67 dr_benchmark tests green"
   ],
-  "next": "PR-3 design in Codex review (codex_pr3_design_brief.md): scoring integration + smoke runbook + final-report tool. On APPROVE -> author PR-3 code -> operator-supervised smoke run on a non-clinical question (#72 or #90) -> 5 full POLARIS runs through --pathB-gate -> dual §-1.1 line-by-line audit (Claude + Codex independent) vs FROZEN rubric for POLARIS + GPT 5.5 Pro + Gemini 3.1 Pro -> clinical-3 + overall-5 SEPARATE.",
+  "next": "OPERATOR AUTHORIZATION REQUIRED: single-question smoke run on DRB-EN #72 (AI labor, non-clinical) per scripts/dr_benchmark/smoke.md to confirm POLARIS's clinical-tuned scope/corpus gates accept non-clinical questions BEFORE 5 full runs. On smoke PASS -> 5 full POLARIS runs through --pathB-gate -> dual §-1.1 audit -> reconciled ledger -> score_run.py -> aggregate_systems.py -> final_report.md.",
   "operator_dependency": "competitor exports (ChatGPT/Gemini/Perplexity DR on the 5 golden Qs -> external_outputs/<tool>/Q##/ HTML + saved sources) — operator pulling these now (2026-05-28); needed only for the competitor side, NOT the POLARIS side",
   "five_questions": ["DRB#75_plasma_metal_ion_modulation_cvd", "DRB#76_gut_microbiota_probiotics_crc_diet", "DRB#78_parkinsons_staging_warning_signs_post_dbs", "DRB#72_ai_labor_market_lit_review_journal_only", "DRB#90_adas_liability_allocation_case_law"],
   "paused_umbrella": {
@@ -35,5 +35,5 @@
     "research_evidence": "docs/v4_pro_research_2026_05_25.md (42 primary sources)",
     "note": "These are the per-role pins the pathB_run_gate enforces: generator deepseek-v4-pro, evaluator gemma-4-31b-it."
   },
-  "last_updated_utc": "2026-05-28T17:30:00Z"
+  "last_updated_utc": "2026-05-28T19:00:00Z"
 }
