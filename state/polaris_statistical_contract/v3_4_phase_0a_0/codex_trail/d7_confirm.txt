@@ -1,0 +1,16 @@
+codex
+1/4. ✓ Closed. §2 step 1 now records `source_selection_manifest`, retrieval queries, SME selections/rationales/provenance, matched-control pairing, selection-level label symmetry, custody, and construction-error divergence.
+
+3/6. △ Substantively closed in §3: `complexity_tier` removed, canonical `domain|evidence_pool_bin|dominant_source_class`, deterministic dominant class, exception token, single-source handling, reuse invariant. But §7 still says `D2 (complexity_tier for packet_class)`, which contradicts the removal.
+
+5. ✓ Closed. §5 derives `claim_cited_source_ids` from rendered cited spans/annotations, alias-resolves, subset-validates against packet `canonical_source_ids`, and treats non-subset as construction error.
+
+Fix §7 dependency note: remove/reword `D2 (complexity_tier for packet_class)` to make clear D2 is claim-level only, not a packet_class dependency. Then lock.
+34,782
+1/4. ✓ Closed. §2 step 1 now records `source_selection_manifest`, retrieval queries, SME selections/rationales/provenance, matched-control pairing, selection-level label symmetry, custody, and construction-error divergence.
+
+3/6. △ Substantively closed in §3: `complexity_tier` removed, canonical `domain|evidence_pool_bin|dominant_source_class`, deterministic dominant class, exception token, single-source handling, reuse invariant. But §7 still says `D2 (complexity_tier for packet_class)`, which contradicts the removal.
+
+5. ✓ Closed. §5 derives `claim_cited_source_ids` from rendered cited spans/annotations, alias-resolves, subset-validates against packet `canonical_source_ids`, and treats non-subset as construction error.
+
+Fix §7 dependency note: remove/reword `D2 (complexity_tier for packet_class)` to make clear D2 is claim-level only, not a packet_class dependency. Then lock.
