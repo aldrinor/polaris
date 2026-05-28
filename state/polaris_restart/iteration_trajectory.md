@@ -1125,3 +1125,12 @@ serves a non-deepseek/gemma model, assert_post_run false-fails ("served model").
   (entailment judge already role="evaluator"); auxiliary scope/inductor skipped. Matches the benchmark
   purpose (police the report generator + evaluator). RECOMMENDED.
 Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list before authoring PR-2.
+
+### PR-2 diff audit Codex iter1 -> iter2
+- **iter 1** REQUEST_CHANGES (0 P0, 2 P1, 2 P2, 1 P3). All real bugs caught pre-merge:
+  - P1: pin used OPENROUTER_DEFAULT_MODEL but generator reads PG_GENERATOR_MODEL (every correct call would have failed).
+  - P1: surrogate hard-required system_fingerprint -> every response that omits it would have failed.
+  - P2: PG_PATHB_GATE_SALT not classified secret -> HMAC key plaintext in pin file.
+  - P2: assert_post_run runs after per-run artifacts written (manifest/judge) — added pathB_gate_INVALID sentinel so PR-3 scoring can skip stale artifacts.
+  - P3: preflight FAIL writes no result file — fixed; now writes FAIL result + sentinel before re-raising.
+- All 5 fixed, 67/67 dr_benchmark tests green (+5 regression tests); committed 0bc2c805. Resubmitting iter 2.
