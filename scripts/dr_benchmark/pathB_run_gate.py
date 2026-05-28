@@ -195,10 +195,15 @@ def preflight(
     # 1. fallbacks OFF
     if os.environ.get("OPENROUTER_ALLOW_FALLBACKS", "true").strip().lower() not in ("false", "0", "no"):
         raise GateError("OPENROUTER_ALLOW_FALLBACKS must be false (it defaults TRUE)")
-    # 2. singleton provider routing (served backend known a priori)
+    # 2. provider routing — per-role resolution at preflight (I-bug-946 #932).
+    # The env supplies a candidate list (comma-separated). Each role's actual served provider
+    # is resolved via OpenRouter's per-model endpoints endpoint and pinned per role. The old
+    # "singleton" check rejected multi-provider orders, but disjoint model provider sets
+    # require a multi-entry order (e.g. fireworks for deepseek-v4-pro, novita for gemma).
     order = (os.environ.get("OPENROUTER_PROVIDER_ORDER") or "").strip()
-    if not order or len([p for p in order.split(",") if p.strip()]) != 1:
-        raise GateError("OPENROUTER_PROVIDER_ORDER must pin exactly ONE provider (singleton routing)")
+    provider_order_list = [p.strip() for p in order.split(",") if p.strip()]
+    if not provider_order_list:
+        raise GateError("OPENROUTER_PROVIDER_ORDER must list at least one candidate provider")
     # 3. required retrieval capability — PRESENCE *and* REACHABILITY (Codex P1)
     missing = [c for c in _REQUIRED_RETRIEVAL_CREDS if not os.environ.get(c)]
     if missing:
@@ -218,6 +223,28 @@ def preflight(
         # Skipped on offline runs (unit tests pass canonical_slug directly when needed).
         if not offline and rp.canonical_slug is None:
             rp.canonical_slug = resolve_canonical_slug(rp.model_slug)
+        # I-bug-946 (#932): resolve per-role provider via /api/v1/models/<id>/endpoints.
+        # Codex iter-1 diff P1: online preflight MUST always overwrite provider_name from
+        # the resolver, because _role_pins() previously pre-seeded provider_name from the
+        # env's first entry (now changed to empty, but the always-overwrite invariant is
+        # the defense-in-depth — any future caller passing a non-empty provider_name still
+        # gets re-resolved at preflight, so the persisted pin reflects the actual resolution).
+        # Offline tests skip the resolver (pre-injected RolePin.provider_name wins).
+        if not offline:
+            rp.provider_name = resolve_role_provider(rp.model_slug, provider_order_list)
+    # I-bug-946 (Codex iter 2 P2#3 + iter-1 diff P2#2): enforce that the effective
+    # entailment model equals the effective evaluator model. Compare EFFECTIVE values
+    # (with their defaults) so a single env override that diverges from the default still
+    # fails closed — not only the "both env vars set divergently" case.
+    _DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"  # mirror entailment_judge.py:79
+    _DEFAULT_EVALUATOR_MODEL = "google/gemma-4-31b-it"   # mirror pathB_runner.py:37
+    eff_entail = (os.environ.get("PG_ENTAILMENT_MODEL") or _DEFAULT_ENTAILMENT_MODEL).strip()
+    eff_eval = (os.environ.get("PG_EVALUATOR_MODEL") or _DEFAULT_EVALUATOR_MODEL).strip()
+    if eff_entail != eff_eval:
+        raise GateError(
+            f"effective PG_ENTAILMENT_MODEL={eff_entail!r} != effective PG_EVALUATOR_MODEL"
+            f"={eff_eval!r}; the gate cannot pin two different evaluator-family models"
+        )
     cfg = build_effective_config(control_vars, salt)
     return {
         "effective_config": cfg,
@@ -229,6 +256,60 @@ def preflight(
         "openrouter_allow_fallbacks": False,
         "openrouter_provider_order": order,
     }
+
+
+def resolve_role_provider(model_slug: str, provider_order: list[str]) -> str:
+    """I-bug-946 (#932): resolve a role's served provider at preflight.
+
+    OpenRouter's GET /api/v1/models/<id>/endpoints returns the providers that actually serve
+    a model. Smoke #15 demonstrated that without per-role resolution, OpenRouter silently
+    routes a role to a provider OUTSIDE the env-pinned order (gemma is not on Fireworks, so
+    the evaluator was routed to Novita despite `OPENROUTER_PROVIDER_ORDER=fireworks` +
+    `allow_fallbacks=false`). The gate caught it correctly; the pin model was wrong.
+
+    Algorithm:
+      1. Fetch /api/v1/models/<id>/endpoints; parse `data.endpoints`.
+      2. Eligible = endpoints with status absent OR status==0. status != 0 means degraded /
+         lower-priority per OpenRouter docs (Codex iter-2 P2#4).
+      3. Intersect eligible providers (case-insensitive) with `provider_order`.
+      4. Return the catalog-cased provider_name of the FIRST match in `provider_order`.
+      5. Fail closed with diagnostic if no match OR endpoints list is empty.
+
+    Codex APPROVE iter 2 on choice C, brief at .codex/I-bug-946/brief_iter2.md.
+    """
+    import requests
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    url = f"https://openrouter.ai/api/v1/models/{model_slug}/endpoints"
+    try:
+        r = requests.get(url, headers=headers, timeout=20)
+        r.raise_for_status()
+        endpoints = r.json().get("data", {}).get("endpoints", [])
+    except Exception as exc:
+        raise GateError(f"OpenRouter endpoints catalog unreachable for {model_slug!r}: {exc}") from exc
+    if not endpoints:
+        raise GateError(f"OpenRouter has no endpoints for model {model_slug!r} (model offline?)")
+    eligible: list[str] = []
+    for ep in endpoints:
+        status = ep.get("status")
+        if status is None or status == 0:
+            name = ep.get("provider_name")
+            if name:
+                eligible.append(name)
+    if not eligible:
+        raise GateError(
+            f"OpenRouter has no eligible (status==0) endpoints for {model_slug!r}; "
+            f"all endpoints degraded"
+        )
+    eligible_lower = {n.lower(): n for n in eligible}  # case-insensitive lookup, catalog cased value
+    for wanted in provider_order:
+        catalog_cased = eligible_lower.get(wanted.strip().lower())
+        if catalog_cased is not None:
+            return catalog_cased
+    raise GateError(
+        f"OPENROUTER_PROVIDER_ORDER={provider_order!r} has no intersection with eligible "
+        f"endpoints for {model_slug!r}; available: {sorted(set(eligible))}"
+    )
 
 
 def resolve_canonical_slug(model_slug: str) -> str | None:

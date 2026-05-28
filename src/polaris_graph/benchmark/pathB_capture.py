@@ -35,6 +35,16 @@ logger = logging.getLogger(__name__)
 _SINK: contextvars.ContextVar[list | None] = contextvars.ContextVar("_PATHB_SINK", default=None)
 _ROLE: contextvars.ContextVar[str | None] = contextvars.ContextVar("_PATHB_ROLE", default=None)
 _RETRIEVAL: contextvars.ContextVar[set | None] = contextvars.ContextVar("_PATHB_RETRIEVAL", default=None)
+# I-bug-946 (#932): per-role resolved provider (e.g. {"generator":"Fireworks","evaluator":"Novita"}).
+# Populated by gate_around_question() after preflight resolves each role's actual served provider
+# via GET /api/v1/models/<id>/endpoints. openrouter_client and entailment_judge read this to force
+# singleton provider routing in their request bodies (otherwise OpenRouter's silent fallback would
+# defeat the strict-identity guarantee that smoke #15 caught: evaluator routed to Novita while pin
+# expected Fireworks). Per Codex iter-2 P2: ContextVar lives in src (NOT scripts/) so the hot path
+# never imports scripts. Codex APPROVE iter 2 on I-bug-946 brief.
+_ROLE_PROVIDER: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "_PATHB_ROLE_PROVIDER", default=None,
+)
 
 
 def register_pathB_capture() -> None:
@@ -48,6 +58,54 @@ def clear_pathB_capture() -> None:
     _SINK.set(None)
     _ROLE.set(None)
     _RETRIEVAL.set(None)
+    _ROLE_PROVIDER.set(None)
+
+
+def set_role_providers(mapping: dict[str, str]):
+    """I-bug-946 (#932): set the resolved per-role provider mapping for the gate run.
+
+    Called by gate_around_question() AFTER preflight() resolves each role's served provider
+    via OpenRouter's /api/v1/models/<id>/endpoints. Returns a token; pair with
+    reset_role_providers() in try/finally so the mapping never leaks beyond the gate scope.
+    """
+    return _ROLE_PROVIDER.set(mapping)
+
+
+def reset_role_providers(token) -> None:
+    _ROLE_PROVIDER.reset(token)
+
+
+def current_role_provider() -> str | None:
+    """Return the resolved provider for the CURRENT role (read via _ROLE contextvar).
+
+    Returns None if either the gate is off (mapping is None) or the current role has no
+    entry in the mapping. openrouter_client calls this; when None it falls back to its
+    current env-driven path (gate-off mode).
+
+    NOTE: entailment_judge must NOT use this — see get_role_provider() below.
+    """
+    mapping = _ROLE_PROVIDER.get()
+    if mapping is None:
+        return None
+    role = _ROLE.get()
+    if role is None:
+        return None
+    return mapping.get(role)
+
+
+def get_role_provider(role: str) -> str | None:
+    """Explicit-role lookup, NOT keyed off the ambient _ROLE contextvar.
+
+    I-bug-946 (#932) Codex iter-1 diff P1#2: the entailment judge posts the evaluator
+    model but is INVOKED from within the generator's _ROLE scope (provenance verification
+    fires during section generation). Using current_role_provider() would resolve to the
+    generator's provider (Fireworks) for a Gemma post — Fireworks doesn't host Gemma →
+    silent re-route. The judge must pass role="evaluator" explicitly.
+    """
+    mapping = _ROLE_PROVIDER.get()
+    if mapping is None:
+        return None
+    return mapping.get(role)
 
 
 def is_active() -> bool:

@@ -1405,7 +1405,18 @@ class OpenRouterClient:
             "allow_fallbacks": allow_fb,
             "require_parameters": require_params,
         }
-        if provider_order:
+        # I-bug-946 (#932): when Path-B gate is active, override the env candidate list with
+        # the per-role resolved singleton provider (resolved at preflight via /api/v1/models/
+        # <id>/endpoints). This is what makes C work end-to-end: pin AND routing align per role.
+        # Outside gate runs (gate-off), the env-driven path is unchanged.
+        try:
+            resolved_provider = _pathb_capture.current_role_provider()
+        except Exception:
+            resolved_provider = None
+        if resolved_provider:
+            provider_block["order"] = [resolved_provider]
+            provider_block["allow_fallbacks"] = False
+        elif provider_order:
             provider_block["order"] = provider_order
         body["provider"] = provider_block
 

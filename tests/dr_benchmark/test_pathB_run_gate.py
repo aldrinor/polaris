@@ -16,6 +16,7 @@ from scripts.dr_benchmark.pathB_run_gate import (
     is_secret_var,
     preflight,
     resolve_canonical_slug,
+    resolve_role_provider,
     served_identity,
 )
 
@@ -98,11 +99,19 @@ def test_preflight_fatal_on_fallbacks_true(monkeypatch) -> None:
         preflight([], _pins(), _SALT, offline=True)
 
 
-def test_preflight_fatal_on_multi_provider(monkeypatch) -> None:
+def test_preflight_accepts_multi_provider_post_i_bug_946(monkeypatch) -> None:
+    """SUPERSEDED by I-bug-946 (#932): multi-provider order is now valid. Each role's actual
+    served provider is resolved at preflight via /api/v1/models/<id>/endpoints, so disjoint
+    model provider sets (e.g. fireworks for deepseek-v4-pro + novita for gemma) require a
+    multi-entry order. The old singleton check raised on this; the new gate enforces only
+    that the list is non-empty AND that each role intersects with at least one eligible
+    endpoint (see test_preflight_fatal_on_empty_provider_order and
+    test_resolve_role_provider_fails_closed_on_no_intersection)."""
     _full_power_env(monkeypatch)
     monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "deepinfra,fireworks")
-    with pytest.raises(GateError, match="singleton"):
-        preflight([], _pins(), _SALT, offline=True)
+    # offline=True skips the resolver; the multi-provider order itself is now accepted.
+    pin = preflight([], _pins(), _SALT, offline=True)
+    assert pin["openrouter_provider_order"] == "deepinfra,fireworks"
 
 
 def test_preflight_fatal_on_missing_retrieval_cred(monkeypatch) -> None:
@@ -300,6 +309,206 @@ def test_preflight_persisted_pin_includes_canonical_slug(monkeypatch) -> None:
     pins = [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model"), canonical_slug=canonical)]
     pin = preflight([], pins, _SALT, offline=True)
     assert pin["role_pins"][0]["canonical_slug"] == canonical
+
+
+# --- I-bug-946 (#932): per-role provider resolution via /api/v1/models/<id>/endpoints ---
+
+class _MockEndpointsResponse:
+    """Mock requests.Response carrying an OpenRouter endpoints payload."""
+    status_code = 200
+    def __init__(self, endpoints: list[dict]) -> None:
+        self._payload = {"data": {"endpoints": endpoints}}
+    def json(self) -> dict:
+        return self._payload
+    def raise_for_status(self) -> None:
+        return None
+
+
+def _patch_endpoints(monkeypatch, endpoints: list[dict]) -> None:
+    import requests
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _MockEndpointsResponse(endpoints))
+
+
+def test_resolve_role_provider_returns_first_in_order_match(monkeypatch) -> None:
+    _patch_endpoints(monkeypatch, [
+        {"provider_name": "Novita", "status": 0},
+        {"provider_name": "DeepInfra", "status": 0},
+    ])
+    # Order prefers fireworks (absent), then novita (present) — must return Novita.
+    assert resolve_role_provider("google/gemma-4-31b-it", ["fireworks", "novita"]) == "Novita"
+
+
+def test_resolve_role_provider_fails_closed_on_no_intersection(monkeypatch) -> None:
+    _patch_endpoints(monkeypatch, [
+        {"provider_name": "Novita", "status": 0},
+        {"provider_name": "DeepInfra", "status": 0},
+    ])
+    with pytest.raises(GateError, match="no intersection"):
+        resolve_role_provider("google/gemma-4-31b-it", ["fireworks"])
+
+
+def test_resolve_role_provider_skips_degraded_endpoints(monkeypatch) -> None:
+    """Codex P2#4: status != 0 means degraded/lower-priority; skip from intersection."""
+    _patch_endpoints(monkeypatch, [
+        {"provider_name": "Fireworks", "status": -5},  # degraded — must skip
+        {"provider_name": "Novita", "status": 0},
+    ])
+    # If fireworks weren't degraded, would return Fireworks. Since it IS degraded, fall to novita.
+    assert resolve_role_provider("any/model", ["fireworks", "novita"]) == "Novita"
+
+
+def test_resolve_role_provider_fails_closed_on_empty_endpoints(monkeypatch) -> None:
+    _patch_endpoints(monkeypatch, [])
+    with pytest.raises(GateError, match="no endpoints"):
+        resolve_role_provider("any/model", ["fireworks"])
+
+
+def test_resolve_role_provider_case_insensitive_with_catalog_spelling(monkeypatch) -> None:
+    """Codex P2#3: order is case-insensitive; pin preserves catalog spelling."""
+    _patch_endpoints(monkeypatch, [
+        {"provider_name": "Novita", "status": 0},
+    ])
+    # User typed 'NOVITA' in env; catalog spelling is 'Novita'. Returned pin keeps catalog case.
+    assert resolve_role_provider("any/model", ["NOVITA"]) == "Novita"
+
+
+def test_resolve_role_provider_treats_missing_status_as_eligible(monkeypatch) -> None:
+    """Some endpoints omit the status field entirely; treat as status==0 (eligible)."""
+    _patch_endpoints(monkeypatch, [
+        {"provider_name": "Fireworks"},  # no status field
+    ])
+    assert resolve_role_provider("any/model", ["fireworks"]) == "Fireworks"
+
+
+def test_preflight_pins_per_role_from_resolution(monkeypatch) -> None:
+    """End-to-end: preflight populates provider_name per role from endpoint resolution."""
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "fireworks,novita")
+    # Pre-injected RolePins so offline=True path skips the resolver entirely; this test
+    # asserts that the role_pin's provider_name flows through to the persisted pin.
+    pins = [
+        RolePin("generator", _GEN_SLUG, "Fireworks", ("provider_name", "model")),
+        RolePin("evaluator", _EVAL_SLUG, "Novita", ("provider_name", "model")),
+    ]
+    pin = preflight([], pins, _SALT, offline=True)
+    assert pin["role_pins"][0]["provider_name"] == "Fireworks"
+    assert pin["role_pins"][1]["provider_name"] == "Novita"
+
+
+def test_preflight_accepts_multi_provider_order(monkeypatch) -> None:
+    """Multi-entry provider_order is now valid (was rejected as non-singleton pre-I-bug-946)."""
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "fireworks,novita")
+    pins = [RolePin("generator", _GEN_SLUG, "Fireworks", ("provider_name", "model"))]
+    pin = preflight([], pins, _SALT, offline=True)
+    assert pin["openrouter_provider_order"] == "fireworks,novita"
+
+
+def test_preflight_fatal_on_empty_provider_order(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "")
+    with pytest.raises(GateError, match="at least one candidate provider"):
+        preflight([], _gen_pin(), _SALT, offline=True)
+
+
+def test_preflight_fatal_on_divergent_entailment_model(monkeypatch) -> None:
+    """Codex P2#3 iter-2: PG_ENTAILMENT_MODEL must equal PG_EVALUATOR_MODEL or be unset."""
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("PG_ENTAILMENT_MODEL", "google/gemma-2-27b-it")
+    monkeypatch.setenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
+    with pytest.raises(GateError, match="PG_ENTAILMENT_MODEL"):
+        preflight([], _gen_pin(), _SALT, offline=True)
+
+
+def test_preflight_online_resolves_per_role_distinct_providers(monkeypatch) -> None:
+    """Codex iter-1 diff P1#1 regression: online preflight (offline=False) MUST always
+    overwrite provider_name from the resolver, even when RolePin pre-seeds a value. Without
+    this, _role_pins's old env-first-entry seed would silently bypass per-role resolution
+    and pin both roles to the first env provider (the smoke-#15 bug, in a different shape)."""
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "fireworks,novita")
+    # Mock the endpoint resolver to return distinct providers per model: Fireworks for the
+    # generator's model (deepseek-v4-pro) and Novita for the evaluator's (gemma).
+    import requests
+    def _mock_get(url, *args, **kwargs):
+        if "deepseek-v4-pro" in url:
+            return _MockEndpointsResponse([
+                {"provider_name": "Fireworks", "status": 0},
+                {"provider_name": "Novita", "status": 0},
+            ])
+        if "gemma-4-31b-it" in url:
+            return _MockEndpointsResponse([
+                {"provider_name": "Novita", "status": 0},
+                {"provider_name": "DeepInfra", "status": 0},
+            ])
+        # Models endpoint for canonical_slug resolution (I-bug-945) — return a benign list.
+        return _MockEndpointsResponse_models()
+    class _MockEndpointsResponse_models:
+        status_code = 200
+        def __init__(self) -> None: pass
+        def json(self):
+            return {"data": [
+                {"id": _GEN_SLUG, "canonical_slug": _GEN_SLUG + "-x"},
+                {"id": _EVAL_SLUG, "canonical_slug": _EVAL_SLUG + "-y"},
+            ]}
+        def raise_for_status(self) -> None: ...
+    monkeypatch.setattr(requests, "get", _mock_get)
+    # _role_pins() seeds provider_name="" (post-Codex-iter-1 fix); preflight must overwrite.
+    pins = [
+        RolePin("generator", _GEN_SLUG, "", ("provider_name", "model")),
+        RolePin("evaluator", _EVAL_SLUG, "", ("provider_name", "model")),
+    ]
+    pin = preflight([], pins, _SALT, offline=False, reachability_prober=lambda b: True)
+    by_role = {rp["role"]: rp["provider_name"] for rp in pin["role_pins"]}
+    assert by_role["generator"] == "Fireworks"
+    assert by_role["evaluator"] == "Novita"
+
+
+def test_preflight_fatal_when_only_entailment_model_diverges(monkeypatch) -> None:
+    """Codex iter-1 diff P2#2: if ONLY PG_ENTAILMENT_MODEL is set away from the default and
+    PG_EVALUATOR_MODEL is unset (so the evaluator uses default = gemma-4-31b-it), the gate
+    must STILL fail closed — effective values still differ."""
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("PG_ENTAILMENT_MODEL", "google/gemma-2-27b-it")
+    monkeypatch.delenv("PG_EVALUATOR_MODEL", raising=False)
+    with pytest.raises(GateError, match="effective PG_ENTAILMENT_MODEL"):
+        preflight([], _gen_pin(), _SALT, offline=True)
+
+
+def test_get_role_provider_explicit_lookup_ignores_ambient_role() -> None:
+    """Codex iter-1 diff P1#2 regression: get_role_provider(role) MUST NOT read ambient _ROLE.
+    The entailment judge fires under _ROLE=='generator' but posts the evaluator model; it
+    must explicitly request the evaluator provider."""
+    from src.polaris_graph.benchmark import pathB_capture as _pb
+    token_rp = _pb.set_role_providers({"generator": "Fireworks", "evaluator": "Novita"})
+    try:
+        with _pb.llm_role("generator"):
+            # Under generator scope, explicit evaluator lookup must still return Novita.
+            assert _pb.get_role_provider("evaluator") == "Novita"
+            # And current_role_provider (ambient-based) returns Fireworks per spec.
+            assert _pb.current_role_provider() == "Fireworks"
+    finally:
+        _pb.reset_role_providers(token_rp)
+
+
+def test_role_provider_contextvar_set_get_reset() -> None:
+    """The pathB_capture ContextVar must roundtrip: set → get-by-role → reset."""
+    from src.polaris_graph.benchmark import pathB_capture as _pb
+    # Outside any role/gate scope, get returns None.
+    assert _pb.current_role_provider() is None
+    token_rp = _pb.set_role_providers({"generator": "Fireworks", "evaluator": "Novita"})
+    try:
+        # Without a role contextvar set, still None (no role to look up).
+        assert _pb.current_role_provider() is None
+        with _pb.llm_role("generator"):
+            assert _pb.current_role_provider() == "Fireworks"
+        with _pb.llm_role("evaluator"):
+            assert _pb.current_role_provider() == "Novita"
+        with _pb.llm_role("unknown_role"):
+            assert _pb.current_role_provider() is None
+    finally:
+        _pb.reset_role_providers(token_rp)
+    assert _pb.current_role_provider() is None
 
 
 def test_post_run_fatal_on_served_identity_drift(monkeypatch) -> None:

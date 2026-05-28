@@ -55,12 +55,16 @@ def _role_pins() -> list[RolePin]:
         or _DEFAULT_GEN_SLUG
     ).strip()
     ev = (os.getenv("PG_EVALUATOR_MODEL") or _DEFAULT_EVAL_SLUG).strip()
-    provider_order = (os.getenv("OPENROUTER_PROVIDER_ORDER") or "").strip()
-    provider = provider_order.split(",")[0].strip() if provider_order else ""
+    # I-bug-946 (#932): provider_name is no longer seeded from env's first entry. The
+    # OPENROUTER_PROVIDER_ORDER env is now a CANDIDATE LIST, and preflight() resolves the
+    # ACTUAL served provider per role via /api/v1/models/<id>/endpoints. Pre-seeding to
+    # the env first-entry was the Codex iter-1 diff P1 bypass: my preflight only resolved
+    # when provider_name was empty, so the bypass silently re-pointed both roles to the
+    # first env entry. Now: empty string here forces preflight to resolve per role.
     surrogate_fields = ("provider_name", "model")
     return [
-        RolePin("generator", gen, provider, surrogate_fields),
-        RolePin("evaluator", ev, provider, surrogate_fields),
+        RolePin("generator", gen, "", surrogate_fields),
+        RolePin("evaluator", ev, "", surrogate_fields),
     ]
 
 
@@ -121,10 +125,22 @@ def gate_around_question(
     pin_path.write_text(json.dumps(pin, indent=2, sort_keys=True, default=str),
                         encoding="utf-8")
     _capture.register_pathB_capture()
+    # I-bug-946 (#932): publish the resolved per-role provider mapping via ContextVar so
+    # openrouter_client and entailment_judge force singleton routing in their request bodies.
+    # Without this, OpenRouter's silent fallback re-routes mid-run and the post_run gate fails
+    # (smoke #15: evaluator served by Novita while pin expected Fireworks).
+    role_provider_map = {
+        rp["role"]: rp["provider_name"]
+        for rp in pin.get("role_pins", [])
+        if rp.get("provider_name")
+    }
+    rp_token = _capture.set_role_providers(role_provider_map) if role_provider_map else None
     try:
         yield
     except Exception:
         # Propagate; do not run assert_post_run on a failed run (it would mask the cause).
+        if rp_token is not None:
+            _capture.reset_role_providers(rp_token)
         _capture.clear_pathB_capture()
         raise
 

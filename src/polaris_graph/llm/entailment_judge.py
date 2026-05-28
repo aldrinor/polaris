@@ -158,6 +158,32 @@ class _EntailmentJudge:
         """
         prompt = _ENTAILMENT_PROMPT.format(span=span, sentence=sentence)
         started = time.monotonic()
+        # I-bug-946 (#932): when Path-B gate is active, force singleton provider routing in
+        # the request body to match the resolved-at-preflight per-role provider. Without this,
+        # this direct httpx path bypasses the gate's routing intent (the OpenRouterClient path
+        # also got the override via openrouter_client.py:1400-1410). Codex iter-2 P1#2.
+        # Codex iter-1 diff P1#2: this lookup MUST use explicit role="evaluator", NOT the
+        # ambient _ROLE contextvar. The entailment judge fires during section generation
+        # (where _ROLE=="generator"), but it posts the evaluator-family model — using the
+        # ambient role would route Gemma to the generator's provider (Fireworks, no Gemma).
+        try:
+            from src.polaris_graph.benchmark import pathB_capture as _pathb_for_routing
+            _gate_provider = _pathb_for_routing.get_role_provider("evaluator")
+        except Exception:
+            _gate_provider = None
+        json_body: dict = {
+            "model": self._model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+            "max_tokens": 100,
+            "response_format": {"type": "json_object"},
+        }
+        if _gate_provider:
+            json_body["provider"] = {
+                "order": [_gate_provider],
+                "allow_fallbacks": False,
+                "require_parameters": True,
+            }
         try:
             response = self._client.post(
                 self._endpoint,
@@ -165,13 +191,7 @@ class _EntailmentJudge:
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": self._model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.0,
-                    "max_tokens": 100,
-                    "response_format": {"type": "json_object"},
-                },
+                json=json_body,
             )
             response.raise_for_status()
             data = response.json()
