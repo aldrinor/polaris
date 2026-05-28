@@ -1493,6 +1493,21 @@ class OpenRouterClient:
                     await asyncio.sleep(wait)
                     continue
 
+                # I-bug-940: OpenRouter returns 404 transiently when the routed provider
+                # is briefly upstream-throttled or the edge routing has a momentary miss.
+                # Out-of-band probes confirmed the same call succeeds 8s later. Retry
+                # with backoff like 429 — a real "model not found" reproduces across all
+                # MAX_RETRIES+1 attempts (so a genuine config error still terminates).
+                if status == 404 and attempt < MAX_RETRIES:
+                    wait = RETRY_BACKOFF_BASE ** (attempt + 1)
+                    logger.warning(
+                        "[polaris graph] I-bug-940: 404 (transient provider routing), "
+                        "waiting %.1fs (attempt %d/%d)",
+                        wait, attempt + 1, MAX_RETRIES + 1,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+
                 # Server error — retry
                 if status >= 500:
                     wait = RETRY_BACKOFF_BASE ** attempt
