@@ -98,6 +98,14 @@ class Coverage:
     def __post_init__(self) -> None:
         if not self.element_id:
             raise ValueError("Coverage.element_id is required")
+        # Codex PR-3 diff P2 #1: enforce real bools. JSON deserialization can yield strings
+        # ("false", "0", "") that are truthy in Python and would silently pass scoring.
+        for fname in ("covered", "citation_supported"):
+            v = getattr(self, fname)
+            if not isinstance(v, bool):
+                raise ValueError(
+                    f"Coverage.{fname} must be a bool, got {type(v).__name__}: {v!r}"
+                )
 
 
 @dataclass

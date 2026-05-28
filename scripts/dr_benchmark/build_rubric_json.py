@@ -29,8 +29,13 @@ import hashlib
 import json
 import re
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
+
+# Codex PR-3 diff P2 #4: hard-coded EXPECTED rubric shape (FROZEN gold_rubrics_pathB.md v3).
+# The parser FAILS CLOSED if the markdown drifts from this — drift is a freeze violation,
+# not a "should silently update" case. Update these together with a new freeze_pin.txt SHA.
+_EXPECTED_QUESTIONS = ("Q75", "Q76", "Q78", "Q72", "Q90")
+_EXPECTED_ELEMENT_COUNTS = {"Q75": 7, "Q76": 8, "Q78": 8, "Q72": 8, "Q90": 8}
 
 _QUESTION_HEADER = re.compile(
     r"^##\s+#(?P<num>\d+)\s+—\s+(?P<title>.+?)\s*$",
@@ -91,10 +96,27 @@ def build_rubric_json(rubric_md: Path) -> dict:
             "elements": elements,
         })
 
+    # Codex PR-3 diff P2 #4: fail closed if the parsed shape doesn't match the FROZEN
+    # rubric (different question set, missing question, or wrong element count).
+    parsed_qids = tuple(q["question_id"] for q in questions)
+    if parsed_qids != _EXPECTED_QUESTIONS:
+        raise ValueError(
+            f"parsed question set {parsed_qids} != expected {_EXPECTED_QUESTIONS}; "
+            "the FROZEN rubric markdown drifted — fix the source or update the expected set "
+            "(and re-pin freeze_pin.txt)"
+        )
+    for q in questions:
+        expected = _EXPECTED_ELEMENT_COUNTS[q["question_id"]]
+        if len(q["elements"]) != expected:
+            raise ValueError(
+                f"{q['question_id']}: parsed {len(q['elements'])} elements != "
+                f"expected {expected}; parser dropped an element OR rubric drifted"
+            )
+    # Codex PR-3 diff P2 #3: omit build_timestamp_utc from the snapshot so the JSON is
+    # deterministic (same markdown -> same SHA). Audit trail is the pinned rubric_sha256.
     return {
         "rubric_sha256": rubric_sha,
         "rubric_path": str(rubric_md).replace("\\", "/"),
-        "build_timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "questions": questions,
     }
 
@@ -113,22 +135,42 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     rubric_sha = _sha256(args.rubric)
-    pinned = _read_pinned_sha(args.freeze_pin, "gold_rubrics_pathB.md")
-    if pinned is not None and pinned != rubric_sha and not args.allow_unpinned:
+    md_pinned = _read_pinned_sha(args.freeze_pin, "gold_rubrics_pathB.md")
+    # Codex PR-3 diff P2 #3: require the markdown SHA to be pinned (unless explicit
+    # --allow-unpinned for initial build). Missing pin = pre-registration unanchored.
+    if md_pinned is None and not args.allow_unpinned:
         print(
-            f"[build_rubric_json] rubric SHA {rubric_sha} != pinned {pinned}; "
+            f"[build_rubric_json] freeze_pin.txt has NO pin for gold_rubrics_pathB.md "
+            f"-- pre-registration unanchored. Use --allow-unpinned ONLY for the initial build.",
+            file=sys.stderr,
+        )
+        return 2
+    if md_pinned is not None and md_pinned != rubric_sha and not args.allow_unpinned:
+        print(
+            f"[build_rubric_json] rubric SHA {rubric_sha} != pinned {md_pinned}; "
             f"freeze_pin.txt out of sync — refusing to overwrite the JSON.",
             file=sys.stderr,
         )
         return 2
 
     doc = build_rubric_json(args.rubric)
+    payload = json.dumps(doc, indent=2, sort_keys=True) + "\n"
+    out_sha = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    # Codex PR-3 diff P2 #3: check the existing JSON pin (if any) matches the just-built SHA.
+    json_pinned = _read_pinned_sha(args.freeze_pin, "rubric_v3_frozen.json")
+    if json_pinned is not None and json_pinned != out_sha and not args.allow_unpinned:
+        print(
+            f"[build_rubric_json] rebuilt JSON SHA {out_sha} != pinned {json_pinned}; "
+            f"freeze_pin.txt out of sync OR build is no longer deterministic.",
+            file=sys.stderr,
+        )
+        return 2
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(
-        json.dumps(doc, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    # Write bytes (not write_text) so Windows doesn't translate LF→CRLF and break the
+    # deterministic SHA. The on-disk SHA must equal the in-memory payload SHA byte-for-byte.
+    args.out.write_bytes(payload.encode("utf-8"))
     print(f"[build_rubric_json] wrote {args.out} (rubric_sha256={rubric_sha[:16]}…, "
+          f"json_sha256={out_sha[:16]}…, "
           f"{len(doc['questions'])} questions, "
           f"{sum(len(q['elements']) for q in doc['questions'])} elements)")
     return 0

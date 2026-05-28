@@ -16,4 +16,5 @@
 # Question selection:  codex_lock5.txt (Codex-confirmed #75/#76/#78/#72/#90)
 
 # PR-3 (2026-05-28): companion-JSON snapshot, dual-pinned with the markdown (Codex design answer A).
-9aa494937dd619388d748cb38aa1899d0b989ca90af5cd36947c5244383a8c2a  outputs/dr_benchmark/rubric_v3_frozen.json
+# Codex PR-3 diff P2 #3 (2026-05-28 iter1): timestamp removed from snapshot for deterministic SHA.
+2a39d9ddd31386acf5c7c58f1f3e5befbfa5f5e4ed07baabef115d5d701ff140  outputs/dr_benchmark/rubric_v3_frozen.json

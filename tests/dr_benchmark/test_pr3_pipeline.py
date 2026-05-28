@@ -224,9 +224,23 @@ def test_score_polaris_passes_with_gate_pass(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "pathB_gate_result.json").write_text(
-        json.dumps({"verdict": "PASS", "served_identity_by_role": {}}),
+        json.dumps({
+            "verdict": "PASS",
+            "served_identity_by_role": {"generator": "abc123def456", "evaluator": "xyz789"},
+        }),
         encoding="utf-8",
     )
+    # Codex PR-3 diff P2 #2: score_run now reads pathB_gate_pin.json to surface identity
+    # into the scored JSON for the aggregator's REQUIRED identity-pins block.
+    (run_dir / "pathB_gate_pin.json").write_text(json.dumps({
+        "role_pins": [
+            {"role": "generator", "model_slug": "deepseek/deepseek-v4-pro", "provider_name": "deepinfra"},
+            {"role": "evaluator", "model_slug": "google/gemma-4-31b-it", "provider_name": "deepinfra"},
+        ],
+        "reachability_checked": True,
+        "openrouter_allow_fallbacks": False,
+        "openrouter_provider_order": "deepinfra",
+    }), encoding="utf-8")
     scored = score_one(
         system="polaris", question_id="Q75",
         rubric_path=_good_rubric_path(tmp_path),
@@ -235,6 +249,13 @@ def test_score_polaris_passes_with_gate_pass(tmp_path: Path) -> None:
     )
     assert scored["passed"] is True
     assert scored["system"] == "polaris"
+    # P2 #2: identity surfaced for aggregator
+    ident = scored["pathB_gate_identity"]
+    assert ident["reachability_checked"] is True
+    assert ident["openrouter_allow_fallbacks"] is False
+    pinned_roles = {p["role"]: p for p in ident["pinned_roles"]}
+    assert pinned_roles["generator"]["model_slug"] == "deepseek/deepseek-v4-pro"
+    assert pinned_roles["evaluator"]["model_slug"] == "google/gemma-4-31b-it"
 
 
 def test_score_competitor_no_gate_check_needed(tmp_path: Path) -> None:
@@ -259,6 +280,121 @@ def test_score_rubric_ledger_sha_mismatch_raises(tmp_path: Path) -> None:
             rubric_path=p, ledger_path=_good_ledger_path(tmp_path, system="chatgpt"),
             run_dir=None,
         )
+
+
+# --- Codex PR-3 diff iter-1 regression tests -------------------------------
+
+def test_p1_1_score_run_rejects_single_auditor_ledger(tmp_path: Path) -> None:
+    """P1 #1: a CLAUDE-only ledger must NOT be scorable — only reconciled ledgers."""
+    led = Ledger(
+        system="chatgpt", question_id="Q75", auditor="claude",  # not "reconciled"
+        audit_method="single", audit_timestamp_utc="2026-05-28T00:00:00Z",
+        rubric_sha256=_RUBRIC_SHA,
+        claims=[Claim("c1", "S1", "VERIFIED", citation_id="src1", span_quote="ok")],
+        coverage=[Coverage(f"Q75-E{i}", True, True) for i in range(1, 8)],
+    )
+    p = tmp_path / "single.json"
+    dump_ledger(led, p)
+    with pytest.raises(ValueError, match="auditor must be 'reconciled'"):
+        score_one(system="chatgpt", question_id="Q75",
+                  rubric_path=_good_rubric_path(tmp_path), ledger_path=p,
+                  run_dir=None)
+
+
+def test_p1_2_reconcile_unreachable_silent_no_subtype_leak() -> None:
+    """P1 #2: when one auditor is silent and the present row is UNREACHABLE+subtype,
+    keep UNREACHABLE (don't escalate to UNSUPPORTED while carrying subtype — that violates
+    Claim.__post_init__). The reconciled Claim must still be VALID."""
+    a = _ledger("claude", "UNREACHABLE", subtype="paywall")
+    b = _ledger("codex", "VERIFIED")
+    # codex covers c1 too; add a c2 to claude only that is UNREACHABLE.
+    a.claims.append(Claim("c2", "S1", "UNREACHABLE", citation_id="src2",
+                          unreachable_subtype="robots"))
+    r = reconcile(a, b)  # must not raise
+    c2 = next(c for c in r.claims if c.claim_id == "c2")
+    assert c2.verdict == "UNREACHABLE"
+    assert c2.unreachable_subtype == "robots"
+
+
+def test_p1_2_reconcile_silent_other_verdict_drops_subtype() -> None:
+    """P1 #2 corollary: if the present row's verdict is NOT UNREACHABLE, escalating to
+    UNSUPPORTED drops subtype to None (subtype is invalid for non-UNREACHABLE)."""
+    a = _ledger("claude", "VERIFIED")
+    b = _ledger("codex", "VERIFIED")
+    a.claims.append(Claim("c2", "S1", "PARTIAL", citation_id="src2",
+                          span_quote="partial span"))
+    r = reconcile(a, b)  # must not raise
+    c2 = next(c for c in r.claims if c.claim_id == "c2")
+    assert c2.unreachable_subtype is None
+    # PARTIAL escalated to UNSUPPORTED because the present row had span_quote AND PARTIAL
+    # is already > UNSUPPORTED in our order... actually PARTIAL=1 < UNSUPPORTED=3, so the
+    # worse-of(PARTIAL, UNSUPPORTED) is UNSUPPORTED.
+    assert c2.verdict == "UNSUPPORTED"
+
+
+def test_p2_1_coverage_rejects_non_bool() -> None:
+    """P2 #1: Coverage must reject string 'false' (truthy in Python -> false positive)."""
+    with pytest.raises(ValueError, match="must be a bool"):
+        Coverage("Q75-E1", "false", True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="must be a bool"):
+        Coverage("Q75-E1", True, 1)  # type: ignore[arg-type]
+    # bool literals are fine
+    Coverage("Q75-E1", True, False)
+
+
+def test_p2_3_build_rubric_json_deterministic_no_timestamp(tmp_path: Path) -> None:
+    """P2 #3: rebuild SHA is deterministic — no build_timestamp_utc in the snapshot."""
+    from scripts.dr_benchmark.build_rubric_json import build_rubric_json
+    rubric_md = tmp_path / "fake_rubric.md"
+    # Minimal valid markdown matching _EXPECTED_QUESTIONS + counts.
+    sections = []
+    counts = {"Q75": 7, "Q76": 8, "Q78": 8, "Q72": 8, "Q90": 8}
+    for qid in ("Q75", "Q76", "Q78", "Q72", "Q90"):
+        num = qid[1:]
+        sections.append(f"## #{num} — title for {qid}\n")
+        for i in range(1, counts[qid] + 1):
+            sections.append(f"{i}. element {qid}-{i}\n")
+    rubric_md.write_text("".join(sections), encoding="utf-8")
+    doc1 = build_rubric_json(rubric_md)
+    doc2 = build_rubric_json(rubric_md)
+    assert doc1 == doc2  # deterministic
+    assert "build_timestamp_utc" not in doc1
+
+
+def test_p2_4_build_rubric_json_fails_closed_on_drift(tmp_path: Path) -> None:
+    """P2 #4: parser fails closed if a question's element count drifts."""
+    from scripts.dr_benchmark.build_rubric_json import build_rubric_json
+    rubric_md = tmp_path / "drifted.md"
+    counts = {"Q75": 6, "Q76": 8, "Q78": 8, "Q72": 8, "Q90": 8}  # Q75 short by 1
+    sections = []
+    for qid in ("Q75", "Q76", "Q78", "Q72", "Q90"):
+        num = qid[1:]
+        sections.append(f"## #{num} — title for {qid}\n")
+        for i in range(1, counts[qid] + 1):
+            sections.append(f"{i}. element {qid}-{i}\n")
+    rubric_md.write_text("".join(sections), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"Q75.*elements != expected"):
+        build_rubric_json(rubric_md)
+
+
+def test_p3_2_aggregate_escapes_pipe_in_reasons(tmp_path: Path) -> None:
+    """P3 #2: a reason containing '|' or newline must be escaped so the table doesn't break."""
+    scored_dir = tmp_path / "scored"
+    scored_dir.mkdir()
+    (scored_dir / "polaris_Q75.json").write_text(json.dumps({
+        "system": "polaris", "question_id": "Q75", "passed": False,
+        "lane1": {"hard_fail_count": 1}, "lane2": {"coverage_fraction": 0.5},
+        "reasons": ["bad | pipe", "with\nnewline"],
+    }), encoding="utf-8")
+    freeze_pin = tmp_path / "freeze_pin.txt"
+    freeze_pin.write_text("abc  rubric.md\n", encoding="utf-8")
+    out = tmp_path / "final.md"
+    render_final_report(scored_dir=scored_dir, freeze_pin=freeze_pin, out_path=out)
+    text = out.read_text(encoding="utf-8")
+    # pipes inside cells are escaped; newlines are flattened
+    assert "bad \\| pipe" in text
+    assert "bad | pipe" not in text  # raw bare pipe should NOT appear in a cell
+    assert "with\nnewline" not in text  # newline flattened to space
 
 
 # --- aggregate_systems final report --------------------------------------

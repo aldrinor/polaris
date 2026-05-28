@@ -66,10 +66,22 @@ def _section(scored: dict[str, dict[str, dict]], question_ids: tuple[str, ...], 
             f"{x['question_id']}: {x['reason'][:80]}" for x in invalid
         ) or "—"
         lines.append(
-            f"| {sys_id} | {n_valid} | {passed} | {rate} {rate_pct} | {invalid_str} |"
+            f"| {_cell(sys_id)} | {n_valid} | {passed} | {_cell(rate)} {_cell(rate_pct)} | "
+            f"{_cell(invalid_str)} |"
         )
     lines.append("")
     return lines
+
+
+def _cell(text: str) -> str:
+    """Escape characters that break markdown table cells (Codex PR-3 diff P3 #2)."""
+    return (
+        (text or "")
+        .replace("|", "\\|")
+        .replace("\r\n", " ")
+        .replace("\n", " ")
+        .replace("\r", " ")
+    )
 
 
 def _per_question_detail(scored: dict[str, dict[str, dict]]) -> list[str]:
@@ -85,7 +97,7 @@ def _per_question_detail(scored: dict[str, dict[str, dict]]) -> list[str]:
                 continue
             if d.get("invalid"):
                 lines.append(
-                    f"| {sys_id} | INVALID | — | — | {d.get('reason', '')[:120]} |"
+                    f"| {sys_id} | INVALID | — | — | {_cell(str(d.get('reason', ''))[:120])} |"
                 )
                 continue
             lane1 = d.get("lane1", {})
@@ -95,14 +107,16 @@ def _per_question_detail(scored: dict[str, dict[str, dict]]) -> list[str]:
                 f"| {sys_id} | {d.get('passed')} | "
                 f"{lane1.get('hard_fail_count', '?')} | "
                 f"{lane2.get('coverage_fraction', 0):.2f} | "
-                f"{reasons[:120]} |"
+                f"{_cell(reasons[:120])} |"
             )
         lines.append("")
     return lines
 
 
-def _identity_pins_block(freeze_pin: Path) -> list[str]:
-    """Identity pins block (Codex answer F yes-required) — cite freeze_pin SHAs."""
+def _identity_pins_block(freeze_pin: Path, scored: dict[str, dict[str, dict]]) -> list[str]:
+    """Identity pins block (Codex answer F yes-required) — cite freeze_pin SHAs AND, per
+    Codex PR-3 diff P2 #2, the pathB_gate served-identity + reachability proofs from each
+    POLARIS scored JSON (which scored_run.py surfaces under `pathB_gate_identity`)."""
     lines = ["## Pre-registration identity pins (REQUIRED)\n"]
     if freeze_pin.exists():
         lines.append("**freeze_pin.txt contents** (hash-anchored answer key):\n")
@@ -111,6 +125,41 @@ def _identity_pins_block(freeze_pin: Path) -> list[str]:
         lines.append("```\n")
     else:
         lines.append(f"freeze_pin.txt NOT FOUND at {freeze_pin} — IDENTITY UNVERIFIED\n")
+
+    # Per-(polaris, question) served-identity + reachability proofs from the gate.
+    polaris = scored.get("polaris", {})
+    if polaris:
+        lines.append(
+            "**POLARIS pathB_gate identity per question** "
+            "(served provider/model proven; retrieval backends reachability-checked):\n"
+        )
+        lines.append("| Question | Generator (served) | Evaluator (served) | Reachability | Fallbacks | Provider order |")
+        lines.append("|---|---|---|---|---|---|")
+        for qid in sorted(polaris.keys()):
+            d = polaris.get(qid, {})
+            ident = d.get("pathB_gate_identity") or {}
+            if not ident:
+                lines.append(f"| {qid} | — | — | — | — | — |")
+                continue
+            pins_by_role = {p.get("role"): p for p in ident.get("pinned_roles", [])}
+            served = ident.get("served_identity_by_role", {}) or {}
+            gen = pins_by_role.get("generator", {}) or {}
+            ev = pins_by_role.get("evaluator", {}) or {}
+            gen_str = (
+                f"{gen.get('provider_name', '?')}/{gen.get('model_slug', '?')} "
+                f"surrogate={(served.get('generator') or '?')[:12]}…"
+            )
+            ev_str = (
+                f"{ev.get('provider_name', '?')}/{ev.get('model_slug', '?')} "
+                f"surrogate={(served.get('evaluator') or '?')[:12]}…"
+            )
+            lines.append(
+                f"| {qid} | {_cell(gen_str)} | {_cell(ev_str)} | "
+                f"{ident.get('reachability_checked')} | "
+                f"{ident.get('openrouter_allow_fallbacks')} | "
+                f"{_cell(str(ident.get('openrouter_provider_order') or '—'))} |"
+            )
+        lines.append("")
     return lines
 
 
@@ -126,7 +175,7 @@ def render_final_report(
         "hardness rank). Clinical-3 + Overall-5 reported SEPARATELY per the locked honest-"
         "label discipline. No 'wins' headline; every cell traces to a scored JSON.\n",
     )
-    lines.extend(_identity_pins_block(freeze_pin))
+    lines.extend(_identity_pins_block(freeze_pin, scored))
     lines.append("## Pass-rate summary\n")
     lines.extend(_section(scored, _CLINICAL_QUESTIONS, "Clinical-3 (#75/#76/#78)"))
     lines.extend(_section(scored, _ALL_QUESTIONS, "Overall-5 (#72/#75/#76/#78/#90)"))

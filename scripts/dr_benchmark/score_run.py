@@ -39,6 +39,25 @@ class InvalidRunError(RuntimeError):
     """POLARIS run was marked INVALID by the Path-B gate. Refuse to score."""
 
 
+def _read_polaris_gate_identity(run_dir: Path) -> dict:
+    """Codex PR-3 diff P2 #2: surface the gate's identity pins (served provider+model per
+    role + reachability_checked) for the aggregator's REQUIRED identity-pins block."""
+    pin = json.loads((run_dir / "pathB_gate_pin.json").read_text(encoding="utf-8"))
+    result = json.loads((run_dir / "pathB_gate_result.json").read_text(encoding="utf-8"))
+    role_pins = pin.get("role_pins", [])
+    return {
+        "served_identity_by_role": result.get("served_identity_by_role", {}),
+        "pinned_roles": [
+            {"role": rp.get("role"), "model_slug": rp.get("model_slug"),
+             "provider_name": rp.get("provider_name")}
+            for rp in role_pins
+        ],
+        "reachability_checked": pin.get("reachability_checked"),
+        "openrouter_allow_fallbacks": pin.get("openrouter_allow_fallbacks"),
+        "openrouter_provider_order": pin.get("openrouter_provider_order"),
+    }
+
+
 def _check_polaris_gate(run_dir: Path) -> None:
     """For POLARIS scoring: the gate must have written a PASS result + no INVALID sentinel."""
     if not run_dir.exists():
@@ -66,12 +85,24 @@ def score_one(
     run_dir: Path | None = None,
 ) -> dict:
     """Score one (system, question). Returns the scored dict; pure (no I/O beyond reads)."""
+    polaris_gate_identity: dict | None = None
     if system == "polaris":
         if run_dir is None:
             raise InvalidRunError("polaris scoring requires --run-dir")
         _check_polaris_gate(run_dir)
+        # Codex PR-3 diff P2 #2: surface the gate's served-identity + reachability for the
+        # aggregator's REQUIRED identity-pins block (design answer F).
+        polaris_gate_identity = _read_polaris_gate_identity(run_dir)
 
     ledger = load_ledger(ledger_path)
+    # Codex PR-3 diff P1 #1: require a RECONCILED ledger; single-auditor ledgers must not
+    # be scored directly (that would bypass the dual-§-1.1 conservative-MAX discipline).
+    if ledger.auditor != "reconciled":
+        raise ValueError(
+            f"ledger.auditor must be 'reconciled' (Claude+Codex dual audit), got "
+            f"{ledger.auditor!r}; pass the reconciled ledger from "
+            f"scripts.dr_benchmark.reconcile, not a single-auditor ledger"
+        )
     if ledger.system != system:
         raise ValueError(
             f"ledger.system {ledger.system!r} != requested system {system!r}"
@@ -124,7 +155,7 @@ def score_one(
             ))
 
     result = system_passes_question(rows, rubric_elements)
-    return {
+    out = {
         "system": system,
         "question_id": question_id,
         "rubric_sha256": rubric_doc["rubric_sha256"],
@@ -136,6 +167,9 @@ def score_one(
         "lane1": result["lane1"],
         "lane2": result["lane2"],
     }
+    if polaris_gate_identity is not None:
+        out["pathB_gate_identity"] = polaris_gate_identity
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:

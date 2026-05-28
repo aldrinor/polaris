@@ -39,12 +39,20 @@ def _worse_severity(a: str, b: str) -> str:
 def _carry_evidence(a: Claim, b: Claim, worse_verdict: str) -> tuple[str | None, str | None, str | None]:
     """For the worse verdict, pick the evidence (span_quote / unreachable_subtype / audit_note)
     from whichever auditor produced THAT verdict. If both produced the worse verdict, prefer
-    Claude's (deterministic tie-break) and append both notes."""
-    # The "winning" row(s) on the worse_verdict.
+    Claude's span/subtype (deterministic tie-break) and CONCATENATE both auditors' notes
+    (Codex PR-3 diff P3 #1: comment said both appended; now it actually does)."""
     winners: list[Claim] = [c for c in (a, b) if c.verdict == worse_verdict]
     if not winners:
         winners = [a, b]  # both better than worse_verdict (impossible by construction)
     primary = winners[0]
+    if len(winners) == 2:
+        # Both auditors landed on the worse verdict — preserve both notes for traceability.
+        notes = [c.audit_note for c in winners if c.audit_note]
+        merged_note = (
+            " || ".join(notes) if len(notes) > 1
+            else (notes[0] if notes else primary.audit_note)
+        )
+        return primary.span_quote, primary.unreachable_subtype, merged_note
     return primary.span_quote, primary.unreachable_subtype, primary.audit_note
 
 
@@ -132,19 +140,48 @@ def reconcile(claude: Ledger, codex: Ledger) -> Ledger:
             # Either auditor missed this claim: the missing auditor's silence is treated as
             # WORSE-than-VERIFIED (UNSUPPORTED+audit_note) — conservative discipline. The other
             # auditor's row carries forward, escalated.
+            #
+            # Codex PR-3 diff P1 #2: when the present row is UNREACHABLE, we cannot just
+            # escalate its verdict to UNSUPPORTED while keeping `unreachable_subtype` — Claim
+            # validation forbids subtype except on UNREACHABLE. Two cases:
+            #   - present.verdict == UNREACHABLE: keep UNREACHABLE (worse than VERIFIED;
+            #     escalation goal already met) + keep subtype.
+            #   - present.verdict != UNREACHABLE: escalate to UNSUPPORTED, drop any subtype,
+            #     and ensure traceability via audit_note (UNSUPPORTED+cited requires it).
             present = a or b
-            reconciled_claims.append(Claim(
-                claim_id=cid,
-                severity=present.severity,
-                verdict=_worse_verdict(present.verdict, "UNSUPPORTED"),
-                citation_id=present.citation_id,
-                span_quote=present.span_quote,
-                unreachable_subtype=present.unreachable_subtype if present.verdict == "UNREACHABLE" else None,
-                audit_note=(
-                    f"reconciled: only {present.audit_note or 'one'} auditor produced a row "
-                    f"({'claude' if a else 'codex'}); other auditor silent -> escalated"
-                ),
-            ))
+            silent_side = "claude" if b is None else "codex"
+            base_note = present.audit_note or ""
+            escalation_note = (
+                f"reconciled: only one auditor produced a row "
+                f"({'claude' if a else 'codex'}); {silent_side} silent -> escalated"
+            )
+            full_note = f"{base_note} | {escalation_note}" if base_note else escalation_note
+            if present.verdict == "UNREACHABLE":
+                # Already worse than VERIFIED; keep UNREACHABLE + subtype.
+                reconciled_claims.append(Claim(
+                    claim_id=cid,
+                    severity=present.severity,
+                    verdict="UNREACHABLE",
+                    citation_id=present.citation_id,
+                    span_quote=present.span_quote,
+                    unreachable_subtype=present.unreachable_subtype,
+                    audit_note=full_note,
+                ))
+            else:
+                escalated_verdict = _worse_verdict(present.verdict, "UNSUPPORTED")
+                # If we land on FABRICATED/PARTIAL we need a span_quote; if the present row
+                # has none, keep verdict=UNSUPPORTED instead (no span fabrication).
+                if escalated_verdict in ("FABRICATED", "PARTIAL") and not present.span_quote:
+                    escalated_verdict = "UNSUPPORTED"
+                reconciled_claims.append(Claim(
+                    claim_id=cid,
+                    severity=present.severity,
+                    verdict=escalated_verdict,
+                    citation_id=present.citation_id,
+                    span_quote=present.span_quote,
+                    unreachable_subtype=None,  # not UNREACHABLE -> must be None
+                    audit_note=full_note,
+                ))
         else:
             reconciled_claims.append(_reconcile_claim(a, b))
 
