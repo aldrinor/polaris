@@ -1077,3 +1077,10 @@ up 4 progressive P1 layers that the offline smoke would have hidden:
   approval_to_proceed_to_step_3b_pr: YES
   Step 3b roadmap per Codex: separate PR, logging-only flag initial, 
     pass-through catalog (not rebuild), strip atom_NNN before strict_verify
+
+## I-safety-002b gold-rubric freeze — Codex independent §-1.1 verification
+- **iter 1** (2026-05-28): doc = gold_rubrics_pathB.md (5 golden-Q answer key). verdict REQUEST_CHANGES. 1 NOVEL P0 + 1 P2. fabrication_firewall FAIL. ~124k tokens.
+  - P0 (#90 El5): blanket "exclude Tesla civil verdicts" was WRONG — Benavides v. Tesla (S.D. Fla. 1:21-cv-21940, ~$243M, Tesla 33%, upheld Feb 2026) is a REAL nonprecedential district-court civil verdict. Claude independently confirmed (WebSearch: CNBC, JDJournal). FIXED: Benavides now included with nonprecedential caveat.
+  - P2 (#72 El8): "A&R 2018/2019 AER" venue error — Automation and New Tasks is JEP 2019 not AER. FIXED.
+  - Codex CONFIRMED the other 7 v2 changelog edits (TACT/TACT2, calcium, #76 El8 split, ISAPP defs, #78 device-safety, #90 statutes/cases, #72 generative-AI journal forms).
+  - Both fixes verified-real → resubmitting iter 2 for APPROVE.

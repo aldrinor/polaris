@@ -29,6 +29,11 @@ reference report.
 - **#90 El5**: specific Tesla Autopilot CIVIL verdicts/holdings EXCLUDED from the answer key (not fetched to a court record). Verified case spine = NTSB safety determinations (NON-BINDING) + the Vasquez criminal plea. A report asserting nonexistent civil holdings = UNSUPPORTED/FABRICATED. **#90 El1**: SAE J3016 anchored via Koopman/CMU user guide (SAE primary paywalled) — annotate.
 - **#72 El7**: each generative-AI source must be cited in its JOURNAL form (Science 2023/2024; QJE 2025), NOT its preprint/WP twin. **#72 El8**: citation-class firewall now has a verified allow-list/deny-list (below).
 
+### CHANGELOG v2→v3 (Codex independent-arm corrections, iter 1, both verified)
+- **#90 El5 (Codex NOVEL P0 — fabrication firewall):** the v2 blanket "EXCLUDE specific Tesla CIVIL verdicts" was WRONG. **Benavides v. Tesla** (S.D. Fla. No. 1:21-cv-21940) is a REAL Aug-2025 Miami federal jury verdict (~$243M; Tesla 33% liable; defective design/failure-to-warn + ~$200M punitive; UPHELD Feb 2026 by Judge Bloom). Claude independently confirmed via WebSearch (CNBC, JDJournal, defense/plaintiff firm analyses). Corrected: Benavides is now INCLUDED as a real NONPRECEDENTIAL district-court civil verdict (no controlling civil appellate precedent yet); a faithful report may cite it with that caveat. Excluding it would have penalized truth.
+- **#72 El8 (Codex P2 — bibliographic):** "A&R 2018/2019 AER" was a venue error — "Automation and New Tasks" is *Journal of Economic Perspectives* 2019, not AER. Corrected in the allow-list.
+- Codex independently CONFIRMED the other 7 v2 changelog edits (#75 TACT/TACT2 + calcium; #76 El8 split + ISAPP defs; #78 El6 device-safety + source-hygiene; #90 statutes/cases; #72 generative-AI journal forms).
+
 ---
 
 ## #75 — Plasma metal-ion modulation as CVD prevention/therapy  *(clinical)*
@@ -69,7 +74,7 @@ reference report.
 6. **Sectoral/industry heterogeneity** — A&R *JPE* 2020 (manufacturing commuting zones) + GMS *AER* 2014 (within/between-industry).
 7. **Generative-AI-specific recent evidence (cite JOURNAL form)** — Eloundou *Science* 2024; Noy&Zhang *Science* 2023; Brynjolfsson/Li/Raymond *QJE* 2025. NOT their arXiv/NBER/SSRN twins.
 8. **CITATION-CLASS COMPLIANCE (audited per-claim in Lane 1 — the central faithfulness test):**
-   - **COMPLIANT (journal):** Frey&Osborne 2017 TFSC; A&R 2020 JPE; A&R 2018/2019 AER; Autor 2015 JEP; ALM 2003 QJE; GMS 2014 AER; Goldsmith&Casey 2024 SEJ; Eloundou 2024 Science; Noy&Zhang 2023 Science; Brynjolfsson 2025 QJE.
+   - **COMPLIANT (journal):** Frey&Osborne 2017 TFSC; A&R 2020 JPE (Robots and Jobs); A&R 2018 AER (Race Between Man and Machine); A&R 2019 JEP (Automation and New Tasks — JEP, NOT AER); Autor 2015 JEP; ALM 2003 QJE; GMS 2014 AER; Goldsmith&Casey 2024 SEJ; Eloundou 2024 Science; Noy&Zhang 2023 Science; Brynjolfsson 2025 QJE.
    - **VIOLATION (not journal — must be excluded or disclosed as non-journal):** Frey&Osborne 2013 Oxford Martin WP; Schwab 2016 book; Acemoglu&Autor 2011 Handbook chapter; NBER WPs (w23285/w22252/w31161/w8337); arXiv:2303.10130; Noy&Zhang SSRN; OECD/McKinsey/PwC/WEF reports.
 
 ## #90 — ADAS liability allocation (technical + legal + case law)  *(source-critical; highest fabrication stakes)*
@@ -77,7 +82,7 @@ reference report.
 2. **Shared human-machine control problem** — handover/takeover, automation complacency, "responsibility/culpability gap" (Beckers et al. *Sci Rep* 2022).
 3. **Applicable legal frameworks (all VERIFIED REAL)** — product liability + driver negligence + statutes: UK AEVA 2018 s.2 (single-insurer); UK AV Act 2024 s.6 (ASDE); German StVG §1b (takeover duty); EU Reg 2019/2144 Art.6 (mandatory ADAS+EDR); CA Veh. Code §38750 (AV def, excludes L1–L2).
 4. **Driver-vs-system boundary** — at L2 human retains liability (supervision duty); manufacturer/product liability for defects; boundary shifts with automation level (UK ASDE).
-5. **Relevant case law — VERIFIED-REAL ONLY**: Brown/Tesla Williston FL (NTSB HAR-17-02); Huang/Tesla Mountain View CA (NTSB HAR-20-01); Herzberg/Uber Tempe AZ (NTSB HAR-19-03); AZ v. Vasquez (Uber safety driver, guilty plea to endangerment 2023). **NTSB findings are SAFETY determinations, NOT binding legal precedent. EXCLUDE specific Tesla CIVIL verdicts (not court-record-verified). Precedent honestly framed as sparse/emerging.**
+5. **Relevant case law — VERIFIED-REAL ONLY**: Brown/Tesla Williston FL (NTSB HAR-17-02); Huang/Tesla Mountain View CA (NTSB HAR-20-01); Herzberg/Uber Tempe AZ (NTSB HAR-19-03); AZ v. Vasquez (Uber safety driver, guilty plea to endangerment 2023); **Benavides v. Tesla, S.D. Fla. No. 1:21-cv-21940 — REAL Aug-2025 Miami federal jury verdict (~$243M total; Tesla 33% liable / driver 67%, for an Autopilot-engaged pedestrian death at a T-intersection; defective design + failure to warn + ~$200M punitive; verdict UPHELD Feb 2026, Judge Bloom denied Tesla's post-trial motions).** **NTSB findings are SAFETY determinations, NOT binding legal precedent; Benavides is a NONPRECEDENTIAL district-court civil verdict (no controlling civil APPELLATE precedent exists yet). A faithful report MAY cite Benavides WITH that caveat; fabricating a different/nonexistent holding or asserting binding precedent is UNSUPPORTED/FABRICATED. Precedent honestly framed as sparse/emerging.**
 6. **Apportionment** — comparative/contributory negligence, joint-and-several; EDR/"black box" data role (49 CFR Part 563; EU GSR Art.6).
 7. **Regulatory recommendations** — driver-monitoring, mandatory EDR/data-logging, type-approval, liability presumptions (UK ASDE model) — frame as "extend/harmonize" enacted instruments, not invent.
 8. **Honest framing** — boundaries unresolved, adjudicated precedent thin/emerging, legislative reform ongoing (UK AVA 2024, German L4 2021, EU GSR).
