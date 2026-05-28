@@ -589,6 +589,49 @@ SWEEP_QUERIES: list[dict] = [
             "CIHI Conference Board pharmacare cost-effectiveness",
         ],
     },
+    # I-safety-002b (#925): DRB-EN #72 — AI labor-market lit review. Operator-authorized
+    # smoke run for the Path-B gate (per scripts/dr_benchmark/smoke.md). Verbatim prompt
+    # from .codex/I-safety-002b/golden_questions_locked.md. Domain "custom" because the
+    # workforce completeness_checklist is missing; custom is deliberately permissive on
+    # tier distribution but still fires corpus_adequacy_gate + strict_verify + evaluator.
+    {
+        "slug": "drb_72_ai_labor",
+        "domain": "custom",
+        "question": (
+            "Please write a literature review on the restructuring impact of "
+            "Artificial Intelligence (AI) on the labor market. Focus on how AI, "
+            "as a key driver of the Fourth Industrial Revolution, is causing "
+            "significant disruptions and affecting various industries. Ensure the "
+            "review only cites high-quality, English-language journal articles."
+        ),
+        # Amplified retrieval set targeting the 8 Q72 rubric elements: 4IR framing,
+        # automation/displacement (Frey&Osborne), task displacement+reinstatement
+        # (Acemoglu&Restrepo), job creation/augmentation (Autor JEP), polarization/SBTC
+        # (ALM QJE, GMS AER), sectoral heterogeneity, generative-AI evidence (Eloundou
+        # Science, Noy&Zhang Science, Brynjolfsson QJE), and citation-class compliance.
+        "amplified": [
+            "Frey Osborne future of employment computerisation Technological Forecasting Social Change",
+            "Acemoglu Restrepo robots and jobs Journal of Political Economy",
+            "Acemoglu Restrepo race between man and machine American Economic Review",
+            "Autor why are there still so many jobs Journal of Economic Perspectives",
+            "Autor Levy Murnane skill content recent technological change Quarterly Journal of Economics",
+            "Goos Manning Salomons explaining job polarization American Economic Review 2014",
+            "skill biased technical change wage inequality labor economics journal",
+            "task based framework labor displacement reinstatement automation",
+            "Eloundou GPTs are GPTs labor market impact large language models Science 2024",
+            "Noy Zhang experimental evidence generative artificial intelligence productivity Science 2023",
+            "Brynjolfsson Li Raymond generative AI at work Quarterly Journal of Economics 2025",
+            "AI exposure occupations local labor market employment effects",
+            "Fourth Industrial Revolution labor market journal article",
+            "Southern Economic Journal Goldsmith Casey fourth industrial revolution future of work",
+            "automation sectoral heterogeneity manufacturing services labor",
+            "generative AI customer support agents productivity field experiment",
+            "freelance platform AI exposure demand writing coding image",
+            "Acemoglu Restrepo automation and new tasks Journal of Economic Perspectives",
+            "AI augmentation novice workers productivity gains experiments",
+            "robots commuting zones US labor market employment wages",
+        ],
+    },
 ]
 
 
