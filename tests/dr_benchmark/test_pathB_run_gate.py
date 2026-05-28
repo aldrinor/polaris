@@ -138,7 +138,8 @@ def test_preflight_fatal_on_short_model_slug(monkeypatch) -> None:
 def test_preflight_fatal_on_unreachable_backend(monkeypatch) -> None:
     _full_power_env(monkeypatch)
     with pytest.raises(GateError, match="unreachable"):
-        preflight([], _gen_pin(), _SALT, reachability_prober=lambda b: b != "serper")
+        preflight([], _gen_pin(), _SALT, reachability_prober=lambda b: b != "serper",
+                  enforce_architecture_coverage=False)
 
 
 def test_preflight_passes_with_reachable_prober(monkeypatch) -> None:
@@ -147,7 +148,11 @@ def test_preflight_passes_with_reachable_prober(monkeypatch) -> None:
     # (the suite must not depend on live OpenRouter catalog reachability).
     import scripts.dr_benchmark.pathB_run_gate as gate
     monkeypatch.setattr(gate, "resolve_canonical_slug", lambda slug: None)
-    pin = preflight([], _gen_pin(), _SALT, reachability_prober=lambda b: True)
+    # I-meta-001 (#933) Step 9: this test uses online preflight (offline=False) so we must
+    # explicitly opt out of architecture coverage — the unit fixture's 1-role pin is not
+    # the locked 4-role architecture by design.
+    pin = preflight([], _gen_pin(), _SALT, reachability_prober=lambda b: True,
+                    enforce_architecture_coverage=False)
     assert pin["reachability_checked"] is True
 
 
@@ -458,7 +463,8 @@ def test_preflight_online_resolves_per_role_distinct_providers(monkeypatch) -> N
         RolePin("generator", _GEN_SLUG, "", ("provider_name", "model")),
         RolePin("evaluator", _EVAL_SLUG, "", ("provider_name", "model")),
     ]
-    pin = preflight([], pins, _SALT, offline=False, reachability_prober=lambda b: True)
+    pin = preflight([], pins, _SALT, offline=False, reachability_prober=lambda b: True,
+                    enforce_architecture_coverage=False)
     by_role = {rp["role"]: rp["provider_name"] for rp in pin["role_pins"]}
     assert by_role["generator"] == "Fireworks"
     assert by_role["evaluator"] == "Novita"
@@ -489,6 +495,28 @@ def test_get_role_provider_explicit_lookup_ignores_ambient_role() -> None:
             assert _pb.current_role_provider() == "Fireworks"
     finally:
         _pb.reset_role_providers(token_rp)
+
+
+def test_preflight_freezes_smokes_when_lock_pending_signature(monkeypatch) -> None:
+    """I-meta-001 (#933) Step 9: when lock status is codex_approved_pending_operator_signature
+    AND enforce_architecture_coverage=True (default for production / online preflight),
+    the gate MUST refuse to PASS — smokes are structurally frozen until lock is promoted."""
+    _full_power_env(monkeypatch)
+    import scripts.dr_benchmark.pathB_run_gate as gate
+    monkeypatch.setattr(gate, "resolve_canonical_slug", lambda slug: None)
+    with pytest.raises(GateError, match="codex_approved_pending_operator_signature"):
+        preflight([], _gen_pin(), _SALT, reachability_prober=lambda b: True,
+                  enforce_architecture_coverage=True)
+
+
+def test_preflight_architecture_coverage_can_be_explicitly_disabled(monkeypatch) -> None:
+    """Tests/legacy code can opt out of the architecture coverage check explicitly."""
+    _full_power_env(monkeypatch)
+    import scripts.dr_benchmark.pathB_run_gate as gate
+    monkeypatch.setattr(gate, "resolve_canonical_slug", lambda slug: None)
+    pin = preflight([], _gen_pin(), _SALT, reachability_prober=lambda b: True,
+                    enforce_architecture_coverage=False)
+    assert pin["architecture_coverage"]["status"] == "skipped"
 
 
 def test_role_provider_contextvar_set_get_reset() -> None:

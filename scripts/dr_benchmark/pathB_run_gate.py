@@ -171,6 +171,7 @@ def preflight(
     source_map: dict[str, list[str]] | None = None,
     roots: list[Path] | None = None,
     offline: bool = False,
+    enforce_architecture_coverage: bool = True,
 ) -> dict:
     """Fatal preflight. Returns the pin record to hash-pin BEFORE the run.
 
@@ -249,6 +250,17 @@ def preflight(
             f"effective PG_ENTAILMENT_MODEL={eff_entail!r} != effective PG_EVALUATOR_MODEL"
             f"={eff_eval!r}; the gate cannot pin two different evaluator-family models"
         )
+    # I-meta-001 (#933) Step 9: enforce architecture coverage at preflight.
+    # If config/architecture/polaris_runtime_lock.yaml exists, its required_roles set
+    # MUST match the role_pins set (every locked role pinned). Gate refuses if missing.
+    # offline=True implies test mode (unit fixtures intentionally use 2-role pins);
+    # tests can also explicitly opt out via enforce_architecture_coverage=False.
+    _enforce_coverage = enforce_architecture_coverage and not offline
+    arch_coverage = (
+        _assert_architecture_coverage(role_pins) if _enforce_coverage
+        else {"status": "skipped", "missing_roles": [], "lock_status": None,
+              "warning": "architecture coverage check skipped (offline=True or enforce=False)"}
+    )
     cfg = build_effective_config(control_vars, salt)
     return {
         "effective_config": cfg,
@@ -256,9 +268,67 @@ def preflight(
         "control_vars": control_vars,             # the RESOLVED surface (post-run rebuilds from this)
         "control_source_map": source_map or {},   # name -> [file:line, ...] provenance (Codex P2)
         "role_pins": [vars(rp) | {"surrogate_fields": list(rp.surrogate_fields)} for rp in role_pins],
+        "architecture_coverage": arch_coverage,  # I-meta-001 Step 9
         "reachability_checked": reachability_prober is not None,
         "openrouter_allow_fallbacks": False,
         "openrouter_provider_order": order,
+    }
+
+
+def _assert_architecture_coverage(role_pins: list) -> dict:
+    """I-meta-001 (#933) Step 9: refuse the smoke unless every locked architecture role
+    is present in role_pins.
+
+    Loads ``config/architecture/polaris_runtime_lock.yaml``. If the lock exists AND
+    its status is ``locked``, every ``required_roles`` key must appear in role_pins.
+    If status is ``codex_approved_pending_operator_signature`` (the explicit operator
+    freeze state), the gate refuses ALL smokes — smokes resume only after the lock is
+    promoted to ``locked`` via scripts/architecture/verify_lock.py.
+
+    When the lock file is missing (legacy path / pre-Step-4 commits), behavior is
+    permissive: accept any role_pins shape but emit a warning in the returned dict.
+
+    Returns a dict {"status": ..., "missing_roles": [...], "lock_status": ...}.
+    Raises GateError when coverage is enforced and violated.
+    """
+    from pathlib import Path
+    lock_path = Path(__file__).resolve().parents[2] / "config" / "architecture" / "polaris_runtime_lock.yaml"
+    if not lock_path.exists():
+        return {"status": "no_lock", "missing_roles": [], "lock_status": None,
+                "warning": "no config/architecture/polaris_runtime_lock.yaml — coverage not enforced"}
+
+    try:
+        import yaml  # type: ignore[import-not-found]
+        lock = yaml.safe_load(lock_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise GateError(f"architecture lock unreadable: {exc}") from exc
+
+    lock_status = lock.get("status")
+    required_roles = set(lock.get("required_roles", {}).keys())
+    pinned_roles = {rp.role for rp in role_pins}
+    missing = required_roles - pinned_roles
+
+    if lock_status == "codex_approved_pending_operator_signature":
+        raise GateError(
+            "architecture lock status is 'codex_approved_pending_operator_signature' — "
+            "smokes FROZEN per operator directive (I-meta-001 #933). Promote the lock to "
+            "status: locked via scripts/architecture/verify_lock.py after all propagation "
+            "checkpoints are complete + tests pass + operator commits."
+        )
+
+    if lock_status == "locked" and missing:
+        raise GateError(
+            f"architecture coverage incomplete: locked roles {required_roles!r} "
+            f"but pinned only {pinned_roles!r}; missing {missing!r}. The 4-role "
+            f"architecture requires generator + mirror + sentinel + judge."
+        )
+
+    return {
+        "status": "ok" if not missing else "partial",
+        "missing_roles": sorted(missing),
+        "lock_status": lock_status,
+        "required_roles": sorted(required_roles),
+        "pinned_roles": sorted(pinned_roles),
     }
 
 
