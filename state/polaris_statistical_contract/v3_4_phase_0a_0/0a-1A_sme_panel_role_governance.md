@@ -1,31 +1,30 @@
-# 0a.-1.A — SME Panel + Role Governance (draft for Codex review)
+# 0a.-1.A — Judge-Panel + Oracle Role Governance (human-free)
 
-**Deliverable**: Phase 0a.0 / 0a.-1.A — SME panel composition + role governance.
-**Status**: LOCKED (Codex §-1.1 APPROVE 2026-05-27 "Lock 0a.-1.A" after 3 review rounds: 8 fixes + 3 consistency-propagation fixes + 2 residual cleanups, all closed; pending operator sign-off).
-**Parent**: contract v3.3; depends on D1a (6 validation domains LOCKED).
-**Plan**: `PHASE_0a_0_PLAN.md`. Implements carry-forward redline #3 (mechanical role separation).
-**Codex review**: `.codex/I-safety-001b/codex_0a1A_review.txt` + `codex_0a1A_confirm{,2,3}.txt`.
-**Version**: 1 (LOCKED)
+**Deliverable**: Phase 0a.0 / 0a.-1.A — construction/adjudication role governance.
+**Status**: HUMAN-FREE CONVERSION (I-safety-001c / #922, per amendment §8). Original SME-panel version (Codex APPROVE 2026-05-27, 3 rounds) preserved in git history; this supersedes it under the operator HARD CONSTRAINT (no human SMEs, ever; only API budget).
+**Parent**: contract v3.3 (human-free amended) + `human_free_amendment/AMENDMENT_human_free_validation.md`; depends on D1a (6 validation domains).
+**Codex review**: original SME trail in `.codex/I-safety-001b/codex_0a1A_*`; human-free conversion review in `human_free_amendment/codex_trail/`.
+**Version**: 2 (human-free)
 
-**Scope split**: this deliverable locks the GOVERNANCE FRAMEWORK (roles, credential floors, COI rules, blinding, tiebreak, adjudication schema, mechanical role-disjointness enforcement). The actual SME identities/recruitment are operator-side procurement, captured in a roster manifest that this framework governs — NOT enumerated here.
+**What changed (SME → machine)**: the former human roles (constructor / adjudicator / tiebreaker / human panel) are replaced. Fabrication STATUS is now a **mechanical oracle** (deterministic mutation; never judged). SEVERITY is adjudicated by a **cross-family LLM judge panel** (≥3 lineages) + a **deterministic hazard scaffold**, with escalation to operator + Codex (NO human SME). There is NO recruitment, NO credentials, NO human COI.
 
 ---
 
-## §1. SME roles (locked role taxonomy)
+## §1. Role taxonomy (machine roles)
 
 | Role | Responsibility | Constraints |
 |---|---|---|
-| **Constructor** | Builds a claim+evidence-packet scenario; injects fabrications per the 0a.-1.B fabrication taxonomy; records sealed constructor-intent labels | A constructor's claims are NEVER adjudicated by the same person |
-| **Adjudicator** | Blinded first-pass labeling of severity + fabrication status against cited evidence; produces the IRR object (contract §7.3) | Must NOT have constructed the claim; must NOT see constructor-intent or consensus labels at first-pass |
-| **Tiebreaker** | Resolves 2-adjudicator disagreement | Must NOT be constructor OR a first-pass adjudicator of that claim |
-| **Panel (§-1.1)** | Final escalation for persistent disagreement | Operator + Codex line-by-line against cited evidence + ≥1 domain-qualified SME (clinical: MD/PharmD where applicable per §3) |
+| **Constructor** (deterministic/LLM pipeline) | Builds a claim+evidence-packet scenario; injects fabrications by **deterministic mutation** per the 0a.-1.B taxonomy; emits the sealed `constructor_intent` (the mechanical STATUS label — what was injected) | Constructor model-family MUST be disjoint from the judge-panel families AND the verifier family (anti-circularity, amendment §4) |
+| **Mechanical oracle** | The fabrication STATUS label itself — KNOWN because the constructor injected it; deterministic, NOT a judgment | NEVER LLM-judged. Status is computed from `constructor_intent` + structured-field/exact-span proof (Gate E1) |
+| **Severity judge panel** (≥3 cross-family LLMs) | Blinded first-pass SEVERITY label per item; produces the agreement object (Gate E2) | ≥3 distinct model lineages (e.g. GPT/Codex + Claude + Qwen); each blind to verifier outputs/rationales/scores and to the others' first-pass labels and to `constructor_intent` |
+| **Deterministic hazard scaffold** | Assigns a presumptive risk band from source-field + mutation-type where rules decide (dose/contraindication/boxed-warning/withdrawal/...) | "dose changed" → S0-CANDIDATE, never auto-S0 (severity-laundering guard, amendment §2/§7) |
+| **Escalation (§-1.1)** | Resolves persistent judge disagreement on severity | operator + Codex line-by-line vs cited evidence + **deterministic rule**. NO human SME. If rules + Codex cannot resolve, the item drops to exploratory (it does not get a human label) |
 
-**Role-disjointness invariant (per `blinding_unit`, NOT just per claim — Codex round-1 fix #4)**: role-disjointness applies across a `blinding_unit_id`, not a single claim. A `blinding_unit` groups claims that share construction intent, fabrication pattern, evidence packet, or batch notes — i.e., a scenario-family for blinding purposes (it MAY equal a single claim; the manifest states which). Across a blinding unit:
-`constructor_sme_id ∉ adjudicator_ids` AND `constructor_sme_id ≠ tiebreaker_id` AND `tiebreaker_id ∉ first_pass_adjudicator_ids`.
+**Family-disjointness invariant (replaces human role-disjointness; amendment §4)**: across a `blinding_unit_id` (claims sharing construction intent / fabrication pattern / evidence packet / batch),
+`constructor_family ∉ judge_panel_families` AND `verifier_family ∉ judge_panel_families` AND the ≥3 `judge_panel_families` are pairwise distinct.
+Rationale: shared lineage = shared blind spot. The disjointness scope is the `blinding_unit_id` (MAY equal a single claim; the manifest declares which).
 
-Rationale (Codex round-1 #4): if a constructor built sibling claim A in a unit, they must not adjudicate/tiebreak sibling claim B in the same unit — they already know the unit's fabrication pattern. The `blinding_unit_id` is the disjointness scope. If a unit is truly one claim, the manifest declares `blinding_unit_id == claim_id`.
-
-## §2. Mechanical enforcement (NOT policy prose — Codex round-3 redline #3)
+## §2. Mechanical enforcement (deterministic, blocking — not policy prose)
 
 ### §2.1 `assignment_manifest` (hash-pinned, append-only)
 
@@ -33,139 +32,132 @@ Rationale (Codex round-1 #4): if a constructor built sibling claim A in a unit, 
 {
   "claim_id": "<id>",
   "blinding_unit_id": "<id | == claim_id>",
-  "constructor_sme_id": "<sme_id>",
-  "adjudicator_ids": ["<sme_id>", "<sme_id>"],
-  "tiebreaker_id": "<sme_id | null>",
+  "constructor_instance": {"family": "<lineage>", "model": "<slug>", "version": "<snapshot>", "decoding": "<settings>"},
+  "judge_instances": [
+    {"family": "<lineage>", "model": "<slug>", "version": "<snapshot>", "decoding": "<settings>", "prompt_hash": "<sha256>"},
+    {"family": "<lineage>", "model": "<slug>", "version": "<snapshot>", "decoding": "<settings>", "prompt_hash": "<sha256>"},
+    {"family": "<lineage>", "model": "<slug>", "version": "<snapshot>", "decoding": "<settings>", "prompt_hash": "<sha256>"}
+  ],
+  "verifier_family": "<lineage>",
   "assigned_at": "<utc>",
   "assignment_seed": "<pinned randomization seed ref>",
   "row_status": "live | superseded"
 }
 ```
 
-### §2.2 Role-disjointness validator (deterministic, blocking — completeness per Codex round-1 #3)
+### §2.2 Family-disjointness + independence validator (deterministic, blocking)
 
-A Python validator (`validate_role_disjointness`) runs over `assignment_manifest` + `roster_manifest` + `exposure_log` and REJECTS (non-zero exit, blocks construction) any row where, evaluated across the row's `blinding_unit_id`:
-- `constructor_sme_id ∈ adjudicator_ids`, OR
-- `constructor_sme_id == tiebreaker_id`, OR
-- `tiebreaker_id ∈ adjudicator_ids` (first-pass), OR
-- `len(set(adjudicator_ids)) != 2` (exactly 2 first-pass adjudicators; multi-adjudicator consensus is not defined in this version), OR
-- duplicate `sme_id` within `adjudicator_ids`, OR
-- more than one `live` assignment row exists for the same `claim_id`, OR
-- any `sme_id` absent from the locked roster manifest, OR
-- any assigned `sme_id` is `active == false` or credential-unverified, OR
-- any assigned `sme_id` lacks qualification for the claim's domain, OR
+A Python validator (`validate_judge_independence`) runs over `assignment_manifest` + `judge_registry` (§7) + `exposure_log` and REJECTS (non-zero exit, blocks the run) any row where, across the row's `blinding_unit_id`:
+- `constructor_instance.family ∈ judge_panel_families`, OR
+- `verifier_family ∈ judge_panel_families`, OR
+- `len(distinct judge_panel_families) < 3`, OR
+- duplicate family within `judge_instances`, OR
+- more than one `live` assignment row for the same `claim_id`, OR
+- any judge/constructor instance absent from the locked `judge_registry`, OR
+- any judge instance is `active == false` or version-unfrozen, OR
+- any judge instance is not eligible for the claim's domain (§3), OR
 - the claim's entity/topic IDs are unresolved (fail-closed; see §4), OR
-- a COI hit: an assigned `sme_id` has `sme.entity_ids ∩ claim.entity_ids ≠ ∅` OR `sme.topic_conflict_ids ∩ claim.microtopic_tags ≠ ∅`, OR
-- exposure-log contamination: an assigned adjudicator/tiebreaker's exposure log shows a disqualifying prior read (constructor-intent, consensus label, or another adjudicator's first-pass for that blinding unit).
+- a leakage hit: a judge instance's prompt/exemplars/RAG/memory contains gold-set or Phase-0a content (per contract §P3.4 items 32-41), OR
+- exposure-log contamination: a judge's exposure log shows a disqualifying prior read (verifier output/rationale/score, `constructor_intent`, or another judge's first-pass for that blinding unit).
 
-The validator is hash-pinned (per 0a.-1.E custody). Its code hash is recorded alongside the relation-builder/randomizer hashes.
+The validator is hash-pinned (per 0a.-1.E custody) alongside the relation-builder/randomizer hashes.
 
-### §2.3 Adjudication tool enforcement — POSITIVE authorization (Codex round-1 #1)
+### §2.3 Judge invocation enforcement — POSITIVE authorization
 
-The adjudication UI/CLI does NOT merely block forbidden actions; it POSITIVELY AUTHORIZES. For any claim action:
-- **First-pass view/write**: permitted ONLY IF `logged_in_sme_id ∈ adjudicator_ids` for that claim. (A non-constructor SME who is not an assigned adjudicator is also refused — block-list alone was an honor-system gap.)
-- **Tiebreak view/write**: permitted ONLY IF `logged_in_sme_id == tiebreaker_id`.
-- **Panel action**: permitted ONLY IF `logged_in_sme_id` holds the authorized panel role for that claim.
-- **Constructor**: explicitly refused all adjudication/tiebreak/panel actions on any claim in a blinding unit they constructed.
-- The tool never renders constructor-intent or consensus labels to a first-pass adjudicator; the tiebreaker sees neither prior first-pass labels nor constructor-intent until their own label is sealed.
-- Every claim VIEW (read) and label WRITE is logged to the exposure log (per 0a.-1.E), reads included.
+The judge-invocation harness does NOT merely block forbidden inputs; it POSITIVELY AUTHORIZES and constructs each judge call deterministically:
+- **First-pass severity call**: permitted ONLY for an `judge_instance` listed for that claim; the call is constructed from the frozen judge prompt (`prompt_hash`) + the blinded packet; NO verifier output, NO `constructor_intent`, NO sibling-judge label is included in the context.
+- **Escalation**: operator + Codex + the deterministic rule; no human-SME label path exists.
+- Every judge call (input context hash + output) is logged to the exposure log (per 0a.-1.E), reads included.
 
-### §2.4 Controlled artifact / access layer (the 4th enforcement surface — Codex round-1 #2)
+### §2.4 Controlled artifact / access layer (4th enforcement surface)
 
-UI-level hiding is insufficient if SMEs can reach packet internals, constructor notes, prior labels, or consensus files OUTSIDE the tool. Binding rule:
-- Direct storage/object access to construction-intent, blinded-adjudication, consensus, and packet-internal artifacts MUST be role-scoped at the storage layer (object ACLs / access tokens), not only at the UI.
+UI/prompt-level hiding is insufficient if a judge process can reach packet internals, `constructor_intent`, verifier outputs, or sibling labels OUTSIDE the harness. Binding:
+- Storage/object access to construction-intent, first-pass-judge, consensus, verifier-output, and packet-internal artifacts MUST be role-scoped at the storage layer (object ACLs / tokens), not only at the harness.
 - Any access path is wired to the exposure log (reads + writes).
-- The §2.2 validator excludes any SME whose exposure log shows a disqualifying read.
+- The §2.2 validator excludes any judge instance whose exposure log shows a disqualifying read.
 - 0a.-1.E implements the storage-layer ACLs + exposure-log wiring; 0a.-1.A names it BINDING here.
 
-## §3. Per-domain credential floors (framework; actual roster operator-filled)
+## §3. Per-domain judge eligibility (replaces human credential floors)
 
-Each credential floor maps to roster-verifiable evidence tags (Codex round-1 #5): the roster records the SPECIFIC qualifying evidence, not a free-text assertion.
+There are NO human credentials. A judge instance is eligible for a domain iff it meets the deterministic eligibility profile. Each profile maps to registry-verifiable, hash-pinned fields (not free-text):
 
-| Domain | Credential floor (minimum) | Roster-verifiable evidence tags | COI screen |
-|---|---|---|---|
-| `clinical` | MD OR PharmD OR PhD (pharmacology/epidemiology/biostatistics) + ≥5y clinical-research, with relevant SPECIALTY tag | `degree`, `license_no`, `specialty`, `years_clinical_research`, `pubmed_authorships` | No financial interest in drugs/devices/sponsors under test |
-| `due_diligence` | CFA OR CPA OR JD OR ≥7y M&A/regulatory due-diligence | `credential`, `years_dd`, `deal_sheet_ref` | No interest in entities under test |
-| `policy` | PhD/Masters (public policy/law/economics) OR ≥7y legislative/regulatory analysis | `degree`, `years_policy`, `publication_refs` | No active lobbying/advocacy stake |
-| `tech` | PhD/Masters (engineering/CS) OR ≥7y standards/architecture | `degree`, `years_tech`, `standards_body_refs` | No vendor stake in the technology under test |
-| `ai_sovereignty` | ≥1 of: AI-governance program leadership; standards-body work; AI regulatory/procurement work; peer-reviewed/public AI-policy output; cloud/data-residency expertise; AI risk-evaluation experience — + ≥5y (per NIST AI RMF: documented roles/training/multidisciplinary expertise, NOT vague assertion) | `governance_role_ref`, `standards_work_ref`, `policy_output_ref`, `data_residency_ref`, `risk_eval_ref` | No vendor/government stake biasing the position under test |
-| `canada_us` | Cross-border policy/legal/economic expertise + ≥7y | `degree`, `years_crossborder`, `publication_refs` | No active advocacy stake |
+| Domain | Judge eligibility profile | Registry-verifiable fields |
+|---|---|---|
+| `clinical` | ≥3 distinct frontier lineages on the panel; each a current top-tier instruction model; deterministic hazard scaffold MANDATORY for treatment/pharmacotherapy/device items (structured-field rules auto-flag dose/contraindication/boxed-warning); structured clinical source (label/registry) REQUIRED for confirmatory status | `family`, `model_slug`, `version_snapshot`, `decoding`, `prompt_hash`, `hazard_scaffold_pin` |
+| `due_diligence` | ≥3 distinct lineages; entity grounding via 0a.-1.D registry IDs | `family`, `model_slug`, `version_snapshot`, `decoding`, `prompt_hash` |
+| `policy` | ≥3 distinct lineages; source grounding to dated/structured policy artifacts | same |
+| `tech` | ≥3 distinct lineages; standards/spec grounding | same |
+| `ai_sovereignty` | ≥3 distinct lineages; source grounding to governance/standards artifacts | same |
+| `canada_us` | ≥3 distinct lineages; cross-border source grounding | same |
 
-**Clinical adjudication-path rule (Codex round-1 #5)**: for claims about treatment / pharmacotherapy / device, at least one MD- or PharmD-qualified reviewer MUST appear in the adjudication path (first-pass OR tiebreak OR panel). Literature/evidence-only clinical claims may use the broader floor.
+**Clinical adjudication-path rule (human-free)**: for treatment/pharmacotherapy/device claims, the **deterministic hazard scaffold MUST be in the severity path** (it auto-flags dose/contraindication/boxed-warning fields as S0-candidate) AND the confirmatory STATUS label MUST be grounded in a structured clinical source (drug label / trial registry) per Gate E1. There is no MD/PharmD human requirement; the safety comes from mechanical status + structured-field hazard rules + the cross-family panel, with the honest claim-license caveat (NOT clinical/expert validation; amendment §6).
 
-**Panel-size math (corrected — Codex round-1 #9; the constructor IS an SME and must be role-disjoint)**: per claim the MINIMUM unique eligible SMEs is **3** (1 constructor + 2 first-pass adjudicators), rising to **4** when the tiebreak path is live. After accounting for COI exclusions, scheduling, and the clinical MD/PharmD-in-path rule, the per-domain roster TARGET is **5-6 qualified SMEs**, not 3. The prior "minimum 2 to operate" was incorrect and is withdrawn.
+**Panel-size math (human-free)**: the per-claim minimum is **≥3 distinct judge families** (the severity panel). There is no constructor-vs-adjudicator headcount (the constructor is a pipeline, family-disjoint from the panel). The deterministic hazard scaffold + the mechanical oracle do the rest. No roster TARGET of human SMEs — the "roster" is the frozen `judge_registry` (§7).
 
-## §4. COI screen protocol (mechanically enumerable — Codex round-1 #6)
+## §4. Independence / anti-contamination screen (replaces human COI; mechanically enumerable)
 
-Free-text declared-interest prose is NOT mechanically enumerable. v1 uses canonical IDs:
+Human COI does not exist. The analogue is judge INDEPENDENCE + leakage control:
 
-1. Each SME completes a declared-interest form recording canonical IDs, NOT prose:
-   - `entity_ids[]`: companies, sponsors, drugs/devices, governments, regulators, vendors (canonical identity per 0a.-1.D — DOI/registry/org-id scheme)
-   - `topic_conflict_ids[]`: topic-level advocacy conflicts, keyed to D4 microtopic IDs
-2. Roster manifest records these per the §7 schema: `{sme_id, domains_qualified[], entity_ids[], topic_conflict_ids[], coi_cleared_per_domain{}, coi_screened_by, coi_screened_at}`.
-3. Each claim carries resolved `entity_ids[]` + `microtopic_tags[]` (from 0a.-1.C construction_manifest). The §2.2 validator:
-   - computes COI hit = (`sme.entity_ids ∩ claim.entity_ids ≠ ∅`) OR (`sme.topic_conflict_ids ∩ claim.microtopic_tags ≠ ∅`)
-   - excludes a hit SME from constructing/adjudicating/tiebreaking that claim
-   - **fails closed** if the claim's entity/topic IDs are unresolved (no silent pass)
-4. Entity-ID resolution depends on 0a.-1.D (canonical source/entity identity) for `entity_ids` and D4 (microtopic ontology) for `topic_conflict_ids`. Until both exist, COI runs in fail-closed mode (claims with unresolved IDs cannot be assigned). This is a forward dependency, not a chicken-and-egg: the framework + validator are locked now; the ID resolution wires in when 0a.-1.D and D4 land.
+1. The `judge_registry` records per instance: `{family, model_slug, version_snapshot, decoding, prompt_hash, training_lineage_id, provider_opt_out_ref}`.
+2. Each claim carries resolved `entity_ids[]` + `microtopic_tags[]` (from 0a.-1.C construction_manifest) — used for stratification + leakage checks, not human COI.
+3. The §2.2 validator enforces: family-disjointness (constructor/verifier/judges all distinct lineages); NO shared exemplars/rationales/RAG/memory across constructor, verifier, and judge prompts (contract §P3.4); frozen versions + decoding; provider-side training/retention opt-out documented (`state/provider_opt_outs/`).
+4. **Fails closed** if a judge instance's lineage cannot be established as disjoint, or its leakage status is unresolved.
+5. Entity-ID resolution depends on 0a.-1.D (canonical entity identity) for `entity_ids` and D4 (microtopic ontology) for `microtopic_tags`. Until both exist, stratification/leakage checks run fail-closed.
 
-## §5. Blinding protocol (label-symmetric packet construction — Codex round-1 #7)
+## §5. Blinding / isolation protocol (label-symmetric construction; judge isolation)
 
-Hiding labels is insufficient if packet CURATION leaks intent (a packet suspiciously built around the fabricated claim tips off the adjudicator). v1 requires **label-symmetric packet construction**:
+Hiding labels is insufficient if packet CURATION leaks intent. v2 requires **label-symmetric packet construction** AND **judge isolation**:
 
-- Same packet builder + same source-selection rules for fabricated and non-fabricated claims.
-- Same facet generation (neutral, deterministic, uniform across all claims per 0a.-1.C facet label-safety — no constructor-authored spotlighting of the suspicious clause).
-- No packet metadata that reveals fabrication rationale (no "injected here" markers, no asymmetric annotation).
-- Adjudicators see: claim text + neutral facet views + rendered evidence packet + cited spans.
-- Adjudicators do NOT see: constructor-intent labels, fabrication-injection notes, consensus gold labels, other adjudicators' first-pass labels.
-- The TIEBREAKER receives the SAME blinded packet and does NOT see prior first-pass labels or constructor-intent until their own label is sealed.
-- IRR (contract §7.3) is computed on first-pass blinded labels ONLY.
+- Same deterministic packet builder + same source-selection rules for fabricated and non-fabricated (matched-control) claims.
+- Same facet generation (neutral, deterministic, uniform — no spotlighting of the mutated clause).
+- No packet metadata revealing the mutation (no "injected here" markers, no asymmetric annotation).
+- Each judge sees: claim text + neutral facet views + rendered evidence packet + cited spans.
+- Each judge does NOT see: `constructor_intent` (the mechanical status), the deterministic hazard band, verifier outputs/rationales/scores, or sibling judges' first-pass labels.
+- Cross-family judge agreement (Gate E2) is computed on first-pass blinded SEVERITY labels ONLY.
+- Fabrication STATUS is NOT judged — it comes from the mechanical oracle (Gate E1), so judge isolation cannot affect it.
 
-## §6. Tiebreak workflow (tuple-majority semantics — Codex round-1 #8)
+## §6. Severity tiebreak workflow (per-field majority across ≥3 judges; deterministic escalation)
 
-The label is a TUPLE `(severity, fab_status)`. Majority is evaluated PER REQUIRED FIELD, not over the whole tuple as a unit:
+Severity is the only judged field (status is mechanical). The judged object is `severity ∈ {S0,S1,S2,SUPPORTED-control}` (SUPPORTED is a mechanical-status class, included for matched controls):
 
-1. 2 adjudicators label first-pass (blinded).
-2. Both fields agree → consensus = agreement; path = `agree`.
-3. Any field disagrees → tiebreaker (role-disjoint per §1) labels the disagreeing field(s); for each field, majority of 3 = consensus; path = `tiebreak`.
-4. If ANY required field still lacks a majority (e.g., a 3-way ordinal severity split S1/S2/S3) → §-1.1 panel; path = `panel`. **Severity is NOT median/averaged** — ordinal disagreement escalates, it does not get numerically collapsed (no median/mean unless the rubric in 0a.-1.B later explicitly defines one).
-5. **Panel composition (corrected — Codex round-1 #8)**: the §-1.1 panel is operator + Codex line-by-line vs cited evidence AND ≥1 domain-qualified SME (especially mandatory for clinical gold labels per §3 MD/PharmD-in-path rule). Operator+Codex alone is insufficient for clinical severity gold labels.
-6. Consensus written to `consensus_gold_labels` (0a.-1.C); first-pass labels retained in `blinded_adjudication_labels` for IRR.
+1. ≥3 cross-family judges label severity first-pass (blinded).
+2. Deterministic hazard scaffold emits its presumptive band (S0-candidate etc.) independently.
+3. **Reconciliation**: per the pre-registered rule — majority of the ≥3 judges sets the panel severity; the hazard scaffold can ESCALATE (e.g. a structured dose mutation forces ≥ S0-candidate review) but never DOWNGRADE below the rule's floor.
+4. If judges lack a majority on an ordinal split (e.g. S1/S2/S0 three-way) → escalation: operator + Codex line-by-line + deterministic rule. **Severity is NOT median/averaged** — ordinal disagreement escalates. If escalation cannot resolve deterministically, the item drops to **exploratory** (no human label is invented).
+5. Consensus severity written to `llm_consensus_severity_labels` (0a.-1.C); first-pass labels retained in `llm_first_pass_severity_labels` for the Gate E2 agreement coefficient.
 
-## §7. Roster manifest (operator-procurement; framework-governed)
+## §7. Judge registry (frozen; the "roster" analogue — NO recruitment)
 
 ```json
 {
-  "sme_id": "<stable id>",
-  "domains_qualified": ["<domain>", ...],
-  "credentials": ["<credential>", ...],
-  "evidence_tags": {"<domain>": ["<roster-verifiable tag per §3>", ...]},
-  "credential_verified_by": "<operator/custodian>",
-  "credential_verified_at": "<utc>",
-  "entity_ids": ["<canonical entity id per §4 / 0a.-1.D>", ...],
-  "topic_conflict_ids": ["<D4 microtopic id per §4>", ...],
-  "coi_cleared_per_domain": {"<domain>": true},
-  "coi_screened_by": "<custodian>",
-  "coi_screened_at": "<utc>",
+  "judge_instance_id": "<stable id>",
+  "family": "<training lineage>",
+  "model_slug": "<provider model>",
+  "version_snapshot": "<frozen snapshot id>",
+  "decoding": {"temperature": 0, "top_p": 1, "...": "frozen"},
+  "prompt_hash": "<sha256 of the frozen judge prompt>",
+  "domains_eligible": ["<domain>", ...],
+  "training_lineage_id": "<for family-disjointness checks>",
+  "provider_opt_out_ref": "<state/provider_opt_outs/...>",
+  "frozen_by": "<custodian script + code-pin>",
+  "frozen_at": "<utc>",
   "active": true
 }
 ```
 
-(Free-text declared-interest prose, if collected on the intake form, is NON-BINDING and is NOT a validator input — only the canonical `entity_ids[]` / `topic_conflict_ids[]` per §4 are validator-consumed.)
-
-The roster is operator-filled (real SME recruitment). The framework (this deliverable) governs its schema + the validators that consume it. Construction CANNOT begin until, per §3's corrected capacity rule, each validation domain has enough coi-cleared, credential-verified SMEs to satisfy the per-claim minimum of 3 unique eligible SMEs (1 constructor + 2 first-pass adjudicators), rising to 4 when the tiebreak path is live — with a per-domain roster TARGET of 5-6 to absorb COI exclusions, the clinical MD/PharmD-in-path rule, and scheduling.
+The registry is FROZEN (model snapshots + prompts + decoding) before any gold-set judging; provider-side silent model updates invalidate the affected cycle (contract §P3.4). There is NO human recruitment — assembling the registry = selecting + freezing ≥3 cross-family model instances per domain. The framework (this deliverable) governs the registry schema + the validators that consume it.
 
 ---
 
 ## §8. Dependencies + ordering notes
 
 - Needs D1a (6 domains) — DONE.
-- 0a.-1.B (severity + fabrication rubric) must precede adjudicator CALIBRATION (can't calibrate against a rubric that doesn't exist) — but the GOVERNANCE framework (this deliverable) can lock first.
-- `assignment_manifest` + `roster_manifest` schemas feed 0a.-1.C (integrated metadata) and 0a.-1.E (custody/exposure log).
-- The role-disjointness validator + adjudication-tool enforcement are hash-pinned in 0a.-1.E.
+- 0a.-1.B (severity rubric + mechanical fabrication oracle) precedes judge prompt-freezing (the judges apply the rubric) — but this GOVERNANCE framework can lock first.
+- `assignment_manifest` + `judge_registry` schemas feed 0a.-1.C (integrated metadata) and 0a.-1.E (custody/exposure log).
+- The family-disjointness validator + judge-invocation enforcement are hash-pinned in 0a.-1.E.
 
-## §9. Definition of done (0a.-1.A)
+## §9. Definition of done (0a.-1.A, human-free)
 
-Framework locked: role taxonomy, role-disjointness invariant + validator spec, adjudication-tool enforcement rules, per-domain credential floors, COI protocol, blinding protocol, tiebreak workflow, roster + assignment manifest schemas. Codex §-1.1 APPROVE. Hash-pin. Operator sign-off (which also kicks off operator-side SME recruitment against the locked roster schema).
+Framework locked: machine role taxonomy (constructor pipeline / mechanical oracle / ≥3 cross-family severity judges / deterministic hazard scaffold / operator+Codex+rule escalation), family-disjointness invariant + validator spec, judge-invocation positive-authorization rules, per-domain judge-eligibility profiles, independence/anti-leakage screen, label-symmetric + judge-isolation blinding, severity tiebreak (per-field majority + deterministic escalation, drop-to-exploratory if unresolved), judge_registry + assignment_manifest schemas. ZERO human dependency (no recruitment / credentials / human COI / human panel). Codex §-1.1 APPROVE. Hash-pin. Operator sign-off.
 
-Deferred (operator procurement, NOT this deliverable): actual SME identities, credential verification, COI clearance.
+Deferred (NOT human procurement — model-side setup): selecting + freezing the ≥3 cross-family judge instances per domain into the `judge_registry`.
