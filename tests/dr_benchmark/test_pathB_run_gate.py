@@ -186,6 +186,17 @@ def test_post_run_fatal_on_provider_drift(monkeypatch) -> None:
         assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
 
 
+# I-bug-944 (#925 smoke #13): provider compare is case-insensitive (OpenRouter returns
+# "Fireworks" / "DeepInfra" with title case; the pin env var is lower-case by convention).
+def test_post_run_passes_on_provider_case_difference(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pin = preflight([], _gen_pin(), _SALT, offline=True)
+    # Pinned "deepinfra" (lower); served "DeepInfra" (title) — same identity, must pass.
+    good = [LLMCall("c1", "generator", True, "h", {"provider_name": "DeepInfra", "model": _GEN_SLUG})]
+    res = assert_post_run(pin, [], _SALT, good, {"serper", "semantic_scholar"})
+    assert "generator" in res["served_identity_by_role"]
+
+
 def test_post_run_fatal_on_model_drift(monkeypatch) -> None:
     _full_power_env(monkeypatch)
     pin = preflight([], _gen_pin(), _SALT, offline=True)

@@ -288,8 +288,15 @@ def assert_post_run(
         for fld in rp["surrogate_fields"]:
             if fld not in c.response_metadata:
                 raise GateError(f"call {c.call_id}: served metadata missing surrogate field {fld!r}")
-        # EXACT provider + EXACT full-slug model match (Codex P1 — no loose substring)
-        if c.response_metadata.get("provider_name") != rp["provider_name"]:
+        # EXACT provider + EXACT full-slug model match (Codex P1 — no loose substring).
+        # I-bug-944 (#925 smoke #13): provider comparison is case-insensitive (OpenRouter
+        # returns "Fireworks" / "DeepInfra" with title case while the pin env var
+        # OPENROUTER_PROVIDER_ORDER is documented lower-case; case-mismatch is identity-
+        # equivalent and must not gate-fail an otherwise full-power run). Model slug stays
+        # case-sensitive — slugs are canonical.
+        served_provider = (c.response_metadata.get("provider_name") or "").strip().lower()
+        pinned_provider = (rp["provider_name"] or "").strip().lower()
+        if served_provider != pinned_provider:
             raise GateError(f"call {c.call_id}: served provider {c.response_metadata.get('provider_name')!r} != pinned {rp['provider_name']!r}")
         if c.response_metadata.get("model") != rp["model_slug"]:
             raise GateError(f"call {c.call_id}: served model {c.response_metadata.get('model')!r} != pinned {rp['model_slug']!r}")
