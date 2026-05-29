@@ -416,7 +416,7 @@ PG_GENERATOR_MODEL = os.getenv(
 # 2026-09-06 (Carney demo) after which it fails the gate at preflight.
 PG_MIRROR_MODEL = os.getenv("PG_MIRROR_MODEL", "cohere/command-a-plus")
 PG_SENTINEL_MODEL = os.getenv("PG_SENTINEL_MODEL", "ibm-granite/granite-guardian-4.1-8b")
-PG_JUDGE_MODEL = os.getenv("PG_JUDGE_MODEL", "qwen/qwen-3.6-35b-a3b")
+PG_JUDGE_MODEL = os.getenv("PG_JUDGE_MODEL", "qwen/qwen3.6-35b-a3b")
 
 # Legacy 2-LLM stub env. Resolves to PG_MIRROR_MODEL when unset (the Mirror
 # role subsumes the old "evaluator" responsibilities). When PG_EVALUATOR_MODEL

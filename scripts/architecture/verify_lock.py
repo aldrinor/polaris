@@ -100,6 +100,36 @@ def verify_lock_against_code() -> dict:
                 )
             seen[fam] = role
 
+    # Slug check: each role's lock model_slug must equal its code default.
+    # Import lazily so this module stays import-safe at boot.
+    from src.polaris_graph.llm.openrouter_client import (
+        PG_GENERATOR_MODEL,
+        PG_JUDGE_MODEL,
+        PG_MIRROR_MODEL,
+        PG_SENTINEL_MODEL,
+    )
+
+    role_to_code_default = {
+        "generator": PG_GENERATOR_MODEL,
+        "mirror": PG_MIRROR_MODEL,
+        "sentinel": PG_SENTINEL_MODEL,
+        "judge": PG_JUDGE_MODEL,
+    }
+
+    for role, spec in lock["required_roles"].items():
+        code_default = role_to_code_default.get(role)
+        if code_default is None:
+            # No code-default constant for this role; skip the slug assertion.
+            continue
+        declared = spec["model_slug"]
+        if declared != code_default:
+            raise LockMismatch(
+                f"role {role!r} lock model_slug {declared!r} does not match "
+                f"code default {code_default!r}; reconcile "
+                f"config/architecture/polaris_runtime_lock.yaml with "
+                f"src/polaris_graph/llm/openrouter_client.py"
+            )
+
     for role, spec in lock["required_roles"].items():
         results[role] = {
             "ok": True,
@@ -188,5 +218,49 @@ def report(stream=sys.stdout) -> int:
         return 1
 
 
+def verify_consistency(stream=sys.stdout) -> int:
+    """Status-independent consistency gate.
+
+    Returns 0 when ALL of the following hold, REGARDLESS of the lock's
+    ``status`` field or the propagation ``tests_pass`` checkpoint:
+      - the lock YAML loads
+      - every declared family is registered in _FAMILY_PREFIXES
+      - family_policy (all_distinct) holds
+      - code defaults match the lock model_slugs
+      - canonical_pin.txt includes the lock file path
+
+    The first four are covered by verify_lock_against_code(); the last is a
+    substring presence check on canonical_pin.txt. This deliberately does NOT
+    route through check_propagation_manifest() (which hardwires tests_pass=False
+    and git-tracked checks). Returns 0 on full consistency, 1 on any mismatch.
+    """
+    try:
+        verify_lock_against_code()
+    except LockMismatch as exc:
+        print(f"Consistency: FAIL — {exc}", file=stream)
+        return 1
+
+    if not CANONICAL_PIN_PATH.exists():
+        print(
+            f"Consistency: FAIL — canonical pin missing: {CANONICAL_PIN_PATH}",
+            file=stream,
+        )
+        return 1
+
+    pin_content = CANONICAL_PIN_PATH.read_text(encoding="utf-8")
+    if "config/architecture/polaris_runtime_lock.yaml" not in pin_content:
+        print(
+            "Consistency: FAIL — canonical_pin.txt does not include the lock file",
+            file=stream,
+        )
+        return 1
+
+    print("Consistency: OK — families registered, family_policy holds, "
+          "code defaults match lock, canonical_pin includes lock file", file=stream)
+    return 0
+
+
 if __name__ == "__main__":
+    if "--consistency" in sys.argv:
+        sys.exit(verify_consistency())
     sys.exit(report())

@@ -49,6 +49,7 @@ required_roles:
   generator:
     model_slug: deepseek/deepseek-v4-pro
     family: deepseek
+    serving_route: openrouter
     license: MIT
     released: 2026-04-24
     role_description: |
@@ -58,6 +59,7 @@ required_roles:
   mirror:
     model_slug: cohere/command-a-plus
     family: cohere
+    serving_route: vast_self_host_bf16
     license: Apache 2.0
     released: 2026-05-20
     role_description: |
@@ -67,6 +69,7 @@ required_roles:
   sentinel:
     model_slug: ibm-granite/granite-guardian-4.1-8b
     family: ibm-granite
+    serving_route: vast_self_host
     license: Apache 2.0
     released: 2026
     role_description: |
@@ -74,8 +77,9 @@ required_roles:
       Broad guardrail coverage. Catches Mirror's misses.
 
   judge:
-    model_slug: qwen/qwen-3.6-35b-a3b
+    model_slug: qwen/qwen3.6-35b-a3b
     family: qwen
+    serving_route: vast_self_host_fp8
     license: Apache 2.0
     released: 2026-04-16
     role_description: |
