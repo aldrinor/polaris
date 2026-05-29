@@ -117,6 +117,11 @@ class VerifiedClaimGraphStore:
         self._conn.row_factory = sqlite3.Row
         self._ensure_table()
 
+    @property
+    def db_path(self) -> Path:
+        """The resolved SQLite path this store opened (read-only accessor for callers/audit)."""
+        return self._db_path
+
     def __enter__(self) -> "VerifiedClaimGraphStore":
         return self
 

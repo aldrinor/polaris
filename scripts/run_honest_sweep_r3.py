@@ -206,6 +206,11 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "abort_corpus_approval_denied": "abort_corpus_approval_denied",
     "abort_no_verified_sections": "abort_no_verified_sections",
     "abort_evaluator_critical": "abort_evaluator_critical",
+    # I-meta-002 sub-PR-6: 4-role D8 release decision (single binding gate). Released =>
+    # success; held => a release-blocking abort (D8 held: fabricated occurrence / coverage
+    # shortfall / S0 must-cover missing / pending rewrite). Only set on the guarded 4-role path.
+    "four_role_released": "success",
+    "four_role_held": "abort_four_role_release_held",
     "error": "error_unexpected",
 }
 
@@ -1201,8 +1206,24 @@ def _abort_if_cancelled(
 async def run_one_query(
     q: dict,
     out_root: Path,
+    *,
+    four_role_transport=None,
+    four_role_inputs=None,
 ) -> dict:
-    """Run the full honest pipeline on one query. Returns a summary dict."""
+    """Run the full honest pipeline on one query. Returns a summary dict.
+
+    I-meta-002 sub-PR-6 (4-role wiring, GUARDED + default OFF): the 4-role evaluation path
+    activates ONLY when BOTH ``four_role_transport`` is supplied (an explicit, INJECTED
+    ``RoleTransport`` — there is NO default real transport; live transport is Gate-B after lock
+    promotion) AND ``PG_FOUR_ROLE_MODE`` is enabled (env "1"/"true"/"True"). When OFF (the
+    default), the legacy evaluator-gate path below is byte-unchanged. ``four_role_inputs`` is the
+    caller-supplied ``FourRoleEvaluationInputs`` (claims with EXISTING ids, the canonical
+    required-element coverage ledger, and the required-S0 set) — the sweep NEVER synthesizes
+    them from the report (that extraction is Gate-B). When the branch fires it delegates entirely
+    to ``sweep_integration.run_four_role_evaluation`` (D8 is the single binding gate) and
+    overrides BOTH ``manifest['release_allowed']`` AND ``manifest['status']`` from the D8
+    decision, demoting the legacy evaluator_gate to ADVISORY metadata only.
+    """
     reset_run_cost()
     # I-bug-111: reset synthesis-scrub alert + telemetry at run
     # boundary so per-run manifest reflects ONLY this run's
@@ -3114,6 +3135,89 @@ async def run_one_query(
             # of the dedup behavior survives into manifest.json.
             "fact_dedup": getattr(multi, "fact_dedup_telemetry", {}),
         }
+
+        # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
+        # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)
+        # AND PG_FOUR_ROLE_MODE is enabled. There is NO default real transport: the live
+        # 4-role sweep is Gate-B (after lock promotion + operator spend authorization). When
+        # this branch is OFF (the default), every line below is the unchanged legacy path —
+        # eval_gate already drove manifest['release_allowed'] + status above.
+        #
+        # When ON: D8 (apply_d8_release_policy, via sweep_integration) is the SINGLE binding
+        # gate. We OVERRIDE both manifest['release_allowed'] AND manifest['status'] from the
+        # D8 decision (so status and release_allowed cannot contradict — the double-gate the
+        # Codex P2 forbids) and DEMOTE the legacy evaluator_gate to advisory metadata only.
+        # claims/ledger/required-set are caller-supplied (four_role_inputs); the sweep never
+        # synthesizes claim_ids or a coverage denominator (fail-closed: sweep_integration
+        # raises on a blank id or an empty canonical required set).
+        _four_role_on = os.environ.get("PG_FOUR_ROLE_MODE", "0").strip() in (
+            "1", "true", "True",
+        )
+        if _four_role_on and four_role_transport is not None:
+            if four_role_inputs is None:
+                raise ValueError(
+                    "PG_FOUR_ROLE_MODE is on and a transport was injected, but "
+                    "four_role_inputs (caller-supplied claims + canonical coverage ledger + "
+                    "required-S0 set) is None; the sweep does not synthesize them (fail-closed)."
+                )
+            from src.polaris_graph.roles.sweep_integration import (  # noqa: E402
+                run_four_role_evaluation,
+            )
+            four_role_result = run_four_role_evaluation(
+                four_role_transport,
+                claims=four_role_inputs.claims,
+                run_dir=run_dir,
+                timestamp=_utc_now_iso(),
+                coverage_ledger=four_role_inputs.coverage_ledger,
+                required_s0_categories=four_role_inputs.required_s0_categories,
+                model_slugs=four_role_inputs.model_slugs,
+                rewrite_already_attempted=four_role_inputs.rewrite_already_attempted,
+            )
+            # Demote the legacy gate to ADVISORY metadata; D8 owns the headline decision.
+            manifest["evaluator_gate_advisory"] = manifest.pop("evaluator_gate")
+            manifest["release_allowed"] = four_role_result.release_allowed
+            # Single binding status: released => success; held => release-blocking abort.
+            summary_status = (
+                "four_role_released"
+                if four_role_result.release_allowed
+                else "four_role_held"
+            )
+            # Reassign BOTH the summary label AND the unified local so manifest.json,
+            # sweep_summary.json (summary["status"] at the function tail), and the status log
+            # line are all D8-driven and cannot disagree (no double-gate, Codex P2).
+            unified_status = to_unified_status(summary_status)
+            manifest["status"] = unified_status
+            # final_verdicts (keyed by EXISTING claim_id) drive evaluator_agrees at the real
+            # assembly point (clinical_generator, Gate-B); they are surfaced here so the D8
+            # decision is fully auditable from the manifest. evaluator_agrees_from_verdict maps
+            # VERIFIED->True / else->False (the helper lives in sweep_integration). The sweep's
+            # SectionResult path holds SentenceVerification, NOT VerifiedSentence, so there is no
+            # VerifiedSentence object to write here — populating one would be fake wiring.
+            manifest["four_role_evaluation"] = {
+                "release_allowed": four_role_result.release_allowed,
+                "held_reasons": four_role_result.held_reasons,
+                "coverage_fraction": round(four_role_result.coverage_fraction, 3),
+                "fabricated_occurrence_latched": (
+                    four_role_result.fabricated_occurrence_latched
+                ),
+                "needs_rewrite": four_role_result.needs_rewrite,
+                "final_verdicts": four_role_result.final_verdicts,
+                "gaps": [
+                    {
+                        "ref": gap.ref,
+                        "kind": gap.kind,
+                        "severity": gap.severity,
+                        "note": gap.note,
+                    }
+                    for gap in four_role_result.gaps
+                ],
+                "kg_path": str(four_role_result.kg_path),
+            }
+            _log(
+                f"[four_role]   release_allowed={four_role_result.release_allowed} "
+                f"coverage={four_role_result.coverage_fraction:.3f} "
+                f"held_reasons={four_role_result.held_reasons}"
+            )
 
         # V30 Report Contract Architecture integration (Phase 1 of
         # two). Opt-in via PG_V30_ENABLED=1. When disabled this is a
