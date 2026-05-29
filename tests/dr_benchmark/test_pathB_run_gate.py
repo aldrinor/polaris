@@ -575,3 +575,121 @@ def test_full_control_surface_includes_retrieval_creds() -> None:
     from scripts.dr_benchmark.pathB_run_gate import full_control_surface
     surface = full_control_surface([Path("scripts/dr_benchmark")])
     assert "SERPER_API_KEY" in surface and "SEMANTIC_SCHOLAR_API_KEY" in surface
+
+
+# --- I-meta-002 PR-9/M4: self-host served==pinned (NO NETWORK, stub metadata) -------------
+# The runtime lock pins three self-hosted vLLM verifier roles (serving_route: vast_self_host*):
+#   mirror   -> cohere/command-a-plus           (vast_self_host_bf16)
+#   sentinel -> ibm-granite/granite-guardian-4.1-8b (vast_self_host)
+#   judge    -> qwen/qwen3.6-35b-a3b            (vast_self_host_fp8)
+# Preflight branches on serving_route (NO OpenRouter resolution; validate PG_<ROLE>_BASE_URL);
+# assert_post_run consumes the M1 _pathb_served {endpoint, model} (flattened by
+# build_response_metadata onto top-level model+endpoint keys) and fails closed on a wrong
+# model / wrong box. These tests inject stub captured-metadata dicts — no real endpoint.
+
+_MIRROR_SLUG = "cohere/command-a-plus"
+_SENTINEL_SLUG = "ibm-granite/granite-guardian-4.1-8b"
+_MIRROR_BASE_URL = "http://10.0.0.5:8000"
+
+
+def _self_host_pin(role: str, slug: str) -> RolePin:
+    """A self-host RolePin: surrogate_fields are unused by the self-host branch, but the
+    preflight no-empty-surrogate guard still requires them non-empty (matches _role_pins())."""
+    return RolePin(role, slug, "", ("provider_name", "model"))
+
+
+def test_preflight_self_host_passes_when_base_url_set(monkeypatch) -> None:
+    """A self-host role (mirror) passes preflight when PG_MIRROR_BASE_URL is set; NO OpenRouter
+    resolution fires (offline=True keeps the generator path off-network too)."""
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("PG_MIRROR_BASE_URL", _MIRROR_BASE_URL + "/")  # trailing slash tolerated
+    pins = [_self_host_pin("mirror", _MIRROR_SLUG)]
+    pin = preflight([], pins, _SALT, offline=True, enforce_architecture_coverage=False)
+    rp = pin["role_pins"][0]
+    assert rp["serving_route"] == "vast_self_host_bf16"
+    assert rp["base_url"] == _MIRROR_BASE_URL  # trailing slash stripped at pin time
+    # Self-host role is NOT resolved via OpenRouter: provider_name stays empty.
+    assert rp["provider_name"] == ""
+
+
+def test_preflight_self_host_fatal_when_base_url_unset(monkeypatch) -> None:
+    """Fail-closed (LAW VI): a self-host role with no PG_<ROLE>_BASE_URL is a deployment error."""
+    _full_power_env(monkeypatch)
+    monkeypatch.delenv("PG_SENTINEL_BASE_URL", raising=False)
+    pins = [_self_host_pin("sentinel", _SENTINEL_SLUG)]
+    with pytest.raises(GateError, match="PG_SENTINEL_BASE_URL"):
+        preflight([], pins, _SALT, offline=True, enforce_architecture_coverage=False)
+
+
+def test_post_run_self_host_passes_when_model_and_endpoint_match(monkeypatch) -> None:
+    """assert_post_run passes when served model == pinned slug AND served endpoint == base_url.
+    The served metadata carries ONLY model+endpoint (the flattened _pathb_served, no provider)."""
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("PG_MIRROR_BASE_URL", _MIRROR_BASE_URL)
+    pins = [_self_host_pin("mirror", _MIRROR_SLUG)]
+    pin = preflight([], pins, _SALT, offline=True, enforce_architecture_coverage=False)
+    # Served endpoint reported WITH a trailing slash — must still match (trailing-slash tolerant).
+    good = [LLMCall("c1", "mirror", True, "h",
+                    {"model": _MIRROR_SLUG, "endpoint": _MIRROR_BASE_URL + "/"})]
+    res = assert_post_run(pin, [], _SALT, good, {"serper", "semantic_scholar"})
+    assert "mirror" in res["served_identity_by_role"]
+
+
+def test_post_run_self_host_fatal_on_missing_pathb_served(monkeypatch) -> None:
+    """Missing endpoint/model (the _pathb_served block never reached capture) => fatal."""
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("PG_MIRROR_BASE_URL", _MIRROR_BASE_URL)
+    pins = [_self_host_pin("mirror", _MIRROR_SLUG)]
+    pin = preflight([], pins, _SALT, offline=True, enforce_architecture_coverage=False)
+    # Only model present, endpoint absent -> the served-identity block is incomplete.
+    bad = [LLMCall("c1", "mirror", True, "h", {"model": _MIRROR_SLUG})]
+    with pytest.raises(GateError, match="captured no served identity"):
+        assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+
+
+def test_post_run_self_host_fatal_on_wrong_model(monkeypatch) -> None:
+    """A self-host box serving the WRONG model must abort the gate (clinical-safety: a wrong
+    verifier model is a silent capability downgrade)."""
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("PG_MIRROR_BASE_URL", _MIRROR_BASE_URL)
+    pins = [_self_host_pin("mirror", _MIRROR_SLUG)]
+    pin = preflight([], pins, _SALT, offline=True, enforce_architecture_coverage=False)
+    bad = [LLMCall("c1", "mirror", True, "h",
+                   {"model": "cohere/command-r-plus", "endpoint": _MIRROR_BASE_URL})]
+    with pytest.raises(GateError, match="served model"):
+        assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+
+
+def test_post_run_self_host_fatal_on_wrong_endpoint(monkeypatch) -> None:
+    """A self-host call served from the WRONG box (endpoint != pinned base_url) must abort."""
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("PG_MIRROR_BASE_URL", _MIRROR_BASE_URL)
+    pins = [_self_host_pin("mirror", _MIRROR_SLUG)]
+    pin = preflight([], pins, _SALT, offline=True, enforce_architecture_coverage=False)
+    bad = [LLMCall("c1", "mirror", True, "h",
+                   {"model": _MIRROR_SLUG, "endpoint": "http://10.0.0.99:8000"})]
+    with pytest.raises(GateError, match="served endpoint"):
+        assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+
+
+def test_post_run_generator_openrouter_path_unchanged(monkeypatch) -> None:
+    """The generator (serving_route: openrouter, provider_name present) is UNCHANGED: it still
+    goes through the provider+model OpenRouter checks, not the self-host branch."""
+    _full_power_env(monkeypatch)
+    pin = preflight([], _gen_pin(), _SALT, offline=True, enforce_architecture_coverage=False)
+    # generator's serving_route is 'openrouter' in the lock => OpenRouter path.
+    assert pin["role_pins"][0]["serving_route"] == "openrouter"
+    good = [_good_call("generator")]
+    res = assert_post_run(pin, [], _SALT, good, {"serper", "semantic_scholar"})
+    assert "generator" in res["served_identity_by_role"]
+
+
+def test_role_serving_routes_maps_lock(monkeypatch) -> None:
+    """The lock-sourced route map carries each role's serving_route (generator openrouter;
+    mirror/sentinel/judge vast_self_host*)."""
+    from scripts.dr_benchmark.pathB_run_gate import _role_serving_routes
+    routes = _role_serving_routes()
+    assert routes["generator"] == "openrouter"
+    assert routes["mirror"].startswith("vast_self_host")
+    assert routes["sentinel"].startswith("vast_self_host")
+    assert routes["judge"].startswith("vast_self_host")

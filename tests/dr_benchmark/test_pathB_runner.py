@@ -28,6 +28,16 @@ _FOUR_ROLE_SLUGS = {
     "judge": _JUDGE_SLUG,
 }
 
+# I-meta-002 PR-9/M4: the 3 self-hosted vLLM verifier roles (serving_route: vast_self_host*)
+# require a configured PG_<ROLE>_BASE_URL at preflight and serve from THAT box. The post-run
+# gate compares the served endpoint to the pinned base_url, so the captured-metadata endpoint
+# below MUST equal the env value set in _full_power_env (single source of truth, no network).
+_SELF_HOST_BASE_URLS = {
+    "mirror": "http://10.0.0.5:8000",
+    "sentinel": "http://10.0.0.6:8000",
+    "judge": "http://10.0.0.7:8000",
+}
+
 
 def _full_power_env(monkeypatch) -> None:
     monkeypatch.setenv("OPENROUTER_ALLOW_FALLBACKS", "false")
@@ -42,20 +52,39 @@ def _full_power_env(monkeypatch) -> None:
     # keep it equal to the default entailment model (gemma) so that gate stays satisfied. It
     # is NOT a role pin anymore (the 4-role set is generator/mirror/sentinel/judge).
     monkeypatch.setenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
+    # I-meta-002 PR-9/M4: each self-host verifier role's endpoint must be configured at
+    # preflight (LAW VI fail-closed). Env-only — NO network in these offline tests.
+    for role, base_url in _SELF_HOST_BASE_URLS.items():
+        monkeypatch.setenv(f"PG_{role.upper()}_BASE_URL", base_url)
 
 
 def _capture_four_roles(pc) -> None:
     """Capture one served completion per locked role (generator/mirror/sentinel/judge).
 
     The post-run gate requires every PINNED role to appear in captured calls; the 4-role pin
-    set therefore needs a capture for each. Provider is the offline-pinned 'deepinfra' (the
-    only entry in OPENROUTER_PROVIDER_ORDER), and each served model matches its role's pin.
+    set therefore needs a capture for each.
+
+    Role-specific served shape (I-meta-002 PR-9/M4):
+    - generator (serving_route: openrouter) keeps the OpenRouter raw shape (provider +
+      served model); it still goes through the OpenRouter provider+model post-run checks. The
+      provider is the offline-pinned 'deepinfra' (the only entry in OPENROUTER_PROVIDER_ORDER).
+    - mirror/sentinel/judge (serving_route: vast_self_host*) carry the M1 self-host raw shape
+      raw['_pathb_served'] = {'endpoint': base_url, 'model': served_model} — exactly what
+      openai_compatible_transport stashes — which build_response_metadata flattens onto the
+      captured metadata as top-level model+endpoint keys for the served==pinned check. The
+      endpoint matches the PG_<ROLE>_BASE_URL set in _full_power_env (same source of truth).
     """
     for role, slug in _FOUR_ROLE_SLUGS.items():
+        if role in _SELF_HOST_BASE_URLS:
+            raw_response = {
+                "_pathb_served": {"endpoint": _SELF_HOST_BASE_URLS[role], "model": slug}
+            }
+        else:
+            raw_response = {"provider": "deepinfra", "model": slug}
         pc.capture_llm_call(
             role=role,
             messages=[{"role": "user", "content": role}],
-            raw_response={"provider": "deepinfra", "model": slug},
+            raw_response=raw_response,
         )
 
 

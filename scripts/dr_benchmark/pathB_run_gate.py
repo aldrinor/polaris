@@ -65,6 +65,13 @@ def control_surface_sources(roots: list[Path]) -> dict[str, list[str]]:
                     out.setdefault(name, set()).add(f"{py.as_posix()}:{i}")
     return {k: sorted(v) for k, v in out.items()}
 
+# I-meta-002 PR-9/M4: a lock `serving_route` starting with this prefix is a self-hosted vLLM
+# verifier box (Mirror / Sentinel / Judge), NOT OpenRouter. Self-host roles skip OpenRouter
+# resolution at preflight and are checked via the served {endpoint, model} (no provider_name).
+_SELF_HOST_ROUTE_PREFIX = "vast_self_host"
+# Per-role self-host endpoint env-var stem (mirrors openai_compatible_transport, LAW VI).
+_SELF_HOST_BASE_URL_ENV_TEMPLATE = "PG_{role}_BASE_URL"
+
 # Volatile response fields EXCLUDED from the served-identity surrogate (Codex iter-5 P2).
 _VOLATILE_METADATA_FIELDS = frozenset(
     {"id", "request_id", "created", "timestamp", "usage", "prompt_tokens",
@@ -146,7 +153,7 @@ def served_identity(call_metadata: dict) -> str:
 
 @dataclass
 class RolePin:
-    role: str            # "generator" | "evaluator"
+    role: str            # "generator" | "evaluator" | "mirror" | "sentinel" | "judge"
     model_slug: str      # FULL OpenRouter slug, e.g. "deepseek/deepseek-v4-pro" — EXACT match
     provider_name: str
     surrogate_fields: tuple[str, ...]   # the metadata fields PROVEN present at preflight
@@ -155,6 +162,15 @@ class RolePin:
     # canonical_slug (e.g. deepseek/deepseek-v4-pro-20260423) is what gets served as `model`
     # in chat completions and is the actual pre-registration anchor in pathB_gate_pin.json.
     # Trailing defaulted field per Codex P2#3 (don't break positional RolePin call sites).
+    serving_route: str | None = None    # I-meta-002 PR-9/M4: the lock-sourced serving_route
+    # for this role (e.g. "openrouter" | "vast_self_host" | "vast_self_host_bf16"). When it
+    # starts with "vast_self_host", preflight takes the self-host branch (NO OpenRouter
+    # resolution) and assert_post_run enforces served==pinned via _pathb_served instead of
+    # provider_name. None / "openrouter" => the unchanged OpenRouter path. Trailing defaulted.
+    base_url: str | None = None          # I-meta-002 PR-9/M4: the configured PG_<ROLE>_BASE_URL
+    # captured at preflight (trailing slash stripped). assert_post_run compares the served
+    # endpoint to THIS pinned value (drift-safe — PG_<ROLE>_BASE_URL is built via .format() so
+    # it is not in the grepped control surface / config-drift hash). Trailing defaulted.
 
 
 def _role_surrogate(metadata: dict, surrogate_fields: tuple[str, ...] | list) -> str:
@@ -213,12 +229,34 @@ def preflight(
         for cred, backend in _REQUIRED_RETRIEVAL_CREDS_TO_BACKENDS.items():
             if not reachability_prober(backend):
                 raise GateError(f"retrieval backend {backend!r} unreachable/invalid-key — not full-power")
+    # I-meta-002 PR-9/M4: lock-sourced role -> serving_route map. Self-host roles
+    # (serving_route: vast_self_host*) DO NOT resolve via OpenRouter; the generator
+    # (serving_route: openrouter) and any role absent from the lock keep the OpenRouter path.
+    serving_routes = _role_serving_routes()
     # 4. each role pin must declare which surrogate fields it PROVED present + a full slug
     for rp in role_pins:
         if not rp.surrogate_fields:
             raise GateError(f"role {rp.role}: no served-identity surrogate fields proven present")
         if "/" not in rp.model_slug:
             raise GateError(f"role {rp.role}: model_slug must be the FULL slug (provider/model), got {rp.model_slug!r}")
+        # I-meta-002 PR-9/M4 self-host branch: a self-hosted vLLM verifier (Mirror / Sentinel /
+        # Judge) is NOT on OpenRouter. Validate its PG_<ROLE>_BASE_URL is configured (fail-closed,
+        # LAW VI: a self-host role with no endpoint is a deployment error, never a silent default)
+        # and record the pinned base_url + serving_route for the post-run served==pinned check.
+        # NO network here (env presence + lock read only — the live /v1/models identity probe is
+        # the M2 canary, not preflight). Skip canonical_slug + OpenRouter provider resolution.
+        route = serving_routes.get(rp.role)
+        rp.serving_route = route
+        if _is_self_host_route(route):
+            base_url_env = _SELF_HOST_BASE_URL_ENV_TEMPLATE.format(role=rp.role.upper())
+            base_url = os.environ.get(base_url_env)
+            if not base_url:
+                raise GateError(
+                    f"role {rp.role}: self-host serving_route {route!r} requires {base_url_env} "
+                    f"to be set (the self-hosted endpoint must be configured, LAW VI)"
+                )
+            rp.base_url = base_url.rstrip("/")
+            continue
         # I-bug-945 (#931): resolve OpenRouter alias to its dated canonical_slug at preflight.
         # The catalog is the single source of truth; fail closed if the alias is unknown.
         # Skipped on offline runs (unit tests pass canonical_slug directly when needed).
@@ -330,6 +368,53 @@ def _assert_architecture_coverage(role_pins: list) -> dict:
         "required_roles": sorted(required_roles),
         "pinned_roles": sorted(pinned_roles),
     }
+
+
+def _role_serving_routes() -> dict[str, str]:
+    """I-meta-002 PR-9/M4: map ``role -> serving_route`` from the runtime architecture lock.
+
+    Reads ``config/architecture/polaris_runtime_lock.yaml`` (the single machine-readable source
+    of truth). The serving_route tells preflight + assert_post_run which roles are self-hosted
+    vLLM boxes (``serving_route: vast_self_host*``) vs OpenRouter (``serving_route: openrouter``).
+
+    Degrades gracefully (Codex M4 design): a missing / unreadable lock returns ``{}`` so EVERY
+    role falls through to the unchanged OpenRouter path. This keeps the offline
+    generator+evaluator unit fixtures green — ``evaluator`` is not in the lock (=> not self-host)
+    and ``generator`` is ``serving_route: openrouter`` (=> OpenRouter path unchanged). This helper
+    is independent of the freeze in ``_assert_architecture_coverage``: it NEVER raises on lock
+    status (the spend-freeze stays solely in that function, M4 criterion #3).
+    """
+    lock_path = Path(__file__).resolve().parents[2] / "config" / "architecture" / "polaris_runtime_lock.yaml"
+    if not lock_path.exists():
+        return {}
+    try:
+        import yaml  # type: ignore[import-not-found]
+        lock = yaml.safe_load(lock_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    required = (lock or {}).get("required_roles") or {}
+    routes: dict[str, str] = {}
+    for role, spec in required.items():
+        route = (spec or {}).get("serving_route")
+        if route:
+            routes[role] = str(route)
+    return routes
+
+
+def _is_self_host_route(serving_route: str | None) -> bool:
+    """True iff ``serving_route`` designates a self-hosted vLLM box (vast_self_host*)."""
+    return bool(serving_route) and serving_route.startswith(_SELF_HOST_ROUTE_PREFIX)
+
+
+def _self_host_endpoint_surrogate(served_model: str, served_endpoint: str) -> str:
+    """Single-valued served-identity surrogate for a self-host role.
+
+    A self-hosted vLLM response carries NO provider_name / system_fingerprint, so the served
+    identity is the (model, endpoint) pair (Codex M4). Used for the per-role no-mid-run-drift
+    check in assert_post_run — distinct from the OpenRouter surrogate over surrogate_fields.
+    """
+    picked = {"model": served_model, "endpoint": served_endpoint}
+    return hashlib.sha256(json.dumps(picked, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def resolve_role_provider(model_slug: str, provider_order: list[str]) -> str:
@@ -478,6 +563,42 @@ def assert_post_run(
         rp = pins_by_role.get(c.role)
         if rp is None:
             raise GateError(f"call {c.call_id}: role {c.role!r} not pinned")
+        # I-meta-002 PR-9/M4 self-host branch: a self-hosted vLLM verifier (Mirror / Sentinel /
+        # Judge) carries NO provider_name — its served identity is the M1 `_pathb_served`
+        # {endpoint, model}, which pathB_capture.build_response_metadata flattens onto the
+        # captured metadata as top-level `model` + `endpoint` keys (provider_name/
+        # system_fingerprint are dropped for a vLLM response). Read those flattened keys and
+        # fail-closed assert served model == pinned model_slug AND served endpoint == the
+        # PINNED base_url (drift-safe: PG_<ROLE>_BASE_URL is not in the config-drift hash;
+        # comparing against the value pinned at preflight is what catches a wrong-box serve).
+        # Missing endpoint and/or model => the `_pathb_served` block never reached capture =>
+        # fatal. This branch fires BEFORE the surrogate-field / provider OpenRouter checks
+        # (which would spuriously fail on a self-host call that has no provider_name).
+        if _is_self_host_route(rp.get("serving_route")):
+            served_model = c.response_metadata.get("model")
+            served_endpoint = c.response_metadata.get("endpoint")
+            if served_model is None or served_endpoint is None:
+                raise GateError(
+                    f"call {c.call_id}: self-host role {c.role!r} captured no served identity "
+                    f"(_pathb_served endpoint/model missing): model={served_model!r} "
+                    f"endpoint={served_endpoint!r}"
+                )
+            pinned_model = rp["model_slug"]
+            if served_model != pinned_model:
+                raise GateError(
+                    f"call {c.call_id}: self-host role {c.role!r} served model {served_model!r} "
+                    f"!= pinned model_slug {pinned_model!r}"
+                )
+            pinned_base_url = (rp.get("base_url") or "")
+            if pinned_base_url.rstrip("/") != served_endpoint.rstrip("/"):
+                raise GateError(
+                    f"call {c.call_id}: self-host role {c.role!r} served endpoint "
+                    f"{served_endpoint!r} != pinned base_url {rp.get('base_url')!r}"
+                )
+            surrogate_by_role.setdefault(c.role, set()).add(
+                _self_host_endpoint_surrogate(served_model, served_endpoint.rstrip("/"))
+            )
+            continue
         for fld in rp["surrogate_fields"]:
             if fld not in c.response_metadata:
                 raise GateError(f"call {c.call_id}: served metadata missing surrogate field {fld!r}")
