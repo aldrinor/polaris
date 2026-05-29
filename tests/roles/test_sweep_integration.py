@@ -24,6 +24,7 @@ from src.polaris_graph.roles.role_transport import (
 )
 from src.polaris_graph.roles.sweep_integration import (
     FourRoleClaim,
+    build_evaluator_agrees_map,
     evaluator_agrees_from_verdict,
     run_four_role_evaluation,
 )
@@ -230,3 +231,65 @@ def test_coverage_credit_only_on_verified(tmp_path) -> None:
     # Only elem-1 credited; elem-2 uncovered -> fraction 0.5 < 0.70 -> held.
     assert result.coverage_fraction == pytest.approx(0.5)
     assert result.release_allowed is False
+
+
+# --- I-meta-002 PR-9/M5: build_evaluator_agrees_map §-1.1 safe-rule ---------------------------
+# evaluator_agrees = (claim kept) AND (final_verdict == "VERIFIED"); every other verdict -> False;
+# empty -> {}; a not-kept claim_id -> False even if VERIFIED. Audit metadata only (no release gate).
+
+
+def test_evaluator_agrees_map_true_only_for_verified() -> None:
+    """Across the full verdict alphabet, ONLY the VERIFIED claim maps to True; every other
+    verdict — PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE and an unknown string — is False."""
+    final_verdicts = {
+        "c-verified": "VERIFIED",
+        "c-partial": "PARTIAL",
+        "c-unsupported": "UNSUPPORTED",
+        "c-fabricated": "FABRICATED",
+        "c-unreachable": "UNREACHABLE",
+        "c-unknown": "SOMETHING_ELSE",
+    }
+    agrees = build_evaluator_agrees_map(final_verdicts)
+    assert agrees == {
+        "c-verified": True,
+        "c-partial": False,
+        "c-unsupported": False,
+        "c-fabricated": False,
+        "c-unreachable": False,
+        "c-unknown": False,
+    }
+    # Keys are EXACTLY final_verdicts keys (joinable to four_role_claim_audit.json).
+    assert set(agrees) == set(final_verdicts)
+
+
+def test_evaluator_agrees_map_empty_is_empty_dict() -> None:
+    """An empty final_verdicts yields {} (no error; upstream guards handle empty claim sets)."""
+    assert build_evaluator_agrees_map({}) == {}
+
+
+def test_evaluator_agrees_map_not_kept_is_false_even_if_verified() -> None:
+    """The defensive kept-gate: a VERIFIED claim_id ABSENT from kept_claim_ids maps to False, and
+    a kept VERIFIED claim maps to True. This proves the kept-set actually gates the boolean — a
+    helper that ignored kept_claim_ids would still pass the verdict-mapping test above."""
+    final_verdicts = {"kept-ok": "VERIFIED", "dropped-but-verified": "VERIFIED"}
+    agrees = build_evaluator_agrees_map(final_verdicts, kept_claim_ids={"kept-ok"})
+    assert agrees == {"kept-ok": True, "dropped-but-verified": False}
+
+
+def test_evaluator_agrees_map_none_kept_set_treats_all_as_kept() -> None:
+    """kept_claim_ids=None treats ALL claim_ids as kept (the sweep-path invariant: final_verdicts
+    is built from KEPT/is_verified sentences only). It must NOT collapse to an empty set."""
+    final_verdicts = {"a": "VERIFIED", "b": "UNSUPPORTED"}
+    assert build_evaluator_agrees_map(final_verdicts, kept_claim_ids=None) == {
+        "a": True,
+        "b": False,
+    }
+
+
+def test_evaluator_agrees_map_extra_kept_id_does_not_add_key() -> None:
+    """A claim_id present in kept_claim_ids but ABSENT from final_verdicts must NOT appear in the
+    map; kept_claim_ids only affects the boolean value, never the key set (joinability invariant)."""
+    agrees = build_evaluator_agrees_map(
+        {"only-claim": "VERIFIED"}, kept_claim_ids={"only-claim", "ghost-id"}
+    )
+    assert agrees == {"only-claim": True}

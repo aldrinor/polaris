@@ -3168,6 +3168,7 @@ async def run_one_query(
             # audit map next to the run. The builder closure is called HERE — AFTER generation —
             # so it sees the finished `multi` report; the sweep still synthesizes nothing itself.
             from src.polaris_graph.roles.sweep_integration import (  # noqa: E402
+                build_evaluator_agrees_map,
                 run_four_role_seam,
             )
             four_role_result = run_four_role_seam(
@@ -3222,6 +3223,16 @@ async def run_one_query(
                 ],
                 "kg_path": str(four_role_result.kg_path),
             }
+            # I-meta-002 PR-9/M5: ADDITIVE per-claim evaluator_agrees MAP for audit/inspector
+            # fidelity (NOT a release gate — D8 above stays the single binding gate). Joinable to
+            # four_role_claim_audit.json by claim_id. kept_claim_ids is None here: on the sweep
+            # path the FourRoleClaim set is built from KEPT (is_verified) sentences only, so every
+            # claim_id in final_verdicts is already a kept claim (invariant documented in the
+            # helper). The §-1.1 fail-safe rule (VERIFIED+kept -> True; every other verdict ->
+            # False) lives in build_evaluator_agrees_map -> evaluator_agrees_from_verdict.
+            manifest["four_role_evaluation"]["evaluator_agrees"] = (
+                build_evaluator_agrees_map(four_role_result.final_verdicts)
+            )
             _log(
                 f"[four_role]   release_allowed={four_role_result.release_allowed} "
                 f"coverage={four_role_result.coverage_fraction:.3f} "

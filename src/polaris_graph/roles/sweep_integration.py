@@ -32,8 +32,10 @@ Fail-closed contract (Codex P2 directives, binding):
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from src.polaris_graph.roles.release_policy import (
     CoverageLedger,
@@ -127,6 +129,41 @@ def evaluator_agrees_from_verdict(final_verdict: str) -> bool:
     `evaluator_agrees=True` on a dropped sentence is never tripped.
     """
     return final_verdict == _VERDICT_VERIFIED
+
+
+def build_evaluator_agrees_map(
+    final_verdicts: dict[str, str],
+    kept_claim_ids: set[str] | None = None,
+) -> dict[str, bool]:
+    """Build the per-claim `evaluator_agrees` MAP for the sweep manifest (I-meta-002 PR-9/M5).
+
+    Maps each `claim_id` in `final_verdicts` to the §-1.1 fail-safe boolean:
+
+        evaluator_agrees = (claim is kept) AND evaluator_agrees_from_verdict(final_verdict)
+
+    where `evaluator_agrees_from_verdict` is the SINGLE source of the verdict rule
+    (`final_verdict == "VERIFIED"`). Every other verdict — PARTIAL / UNSUPPORTED / FABRICATED /
+    UNREACHABLE / any unknown string — maps to False. The value is NEVER True before a VERIFIED
+    final verdict exists AND the claim is kept (a non-VERIFIED verdict must never read as
+    "evaluator agreed" in clinical context).
+
+    `kept_claim_ids` is the set of claim_ids that survived as kept/verified sentences
+    (`verifier_pass=True`). When it is None, ALL claim_ids in `final_verdicts` are treated as
+    kept — INVARIANT: on the sweep path the `FourRoleClaim` set is built (by the M3a builder)
+    from KEPT (is_verified) sentences only, so every claim_id in `final_verdicts` is already a
+    kept claim and passing None is correct there. When a set IS supplied, a claim_id absent from
+    it maps to False even if its verdict is VERIFIED (defensive: a not-kept claim can never agree).
+
+    Keys are EXACTLY `final_verdicts.keys()` (so the map is joinable to
+    `four_role_claim_audit.json` from M3b); `kept_claim_ids` affects only the boolean value and
+    never adds or removes keys. An empty `final_verdicts` yields `{}` (no error here; the sweep
+    branch's own fail-closed guards already handle empty claim sets upstream).
+    """
+    agrees_map: dict[str, bool] = {}
+    for claim_id, final_verdict in final_verdicts.items():
+        is_kept = kept_claim_ids is None or claim_id in kept_claim_ids
+        agrees_map[claim_id] = is_kept and evaluator_agrees_from_verdict(final_verdict)
+    return agrees_map
 
 
 def run_four_role_evaluation(
@@ -282,4 +319,100 @@ def run_four_role_evaluation(
         fabricated_occurrence_latched=decision.fabricated_occurrence_latched,
         needs_rewrite=decision.needs_rewrite,
         kg_path=kg_path,
+    )
+
+
+# --- M3b seam: the single thin core both the sweep branch and the offline test call --------
+# The builder is a KEYWORD-ARGUMENT closure that the SEAM calls AFTER generation with the
+# run-local objects (`multi`, `template`, `slug`, `domain`, `ev_pool`); it PRODUCES a bundle
+# with `.inputs` (FourRoleEvaluationInputs) and `.audit_map` (dict[str, dict]). It is wired in
+# scripts/dr_benchmark/run_gate_b.py over native_gate_b_inputs.build_native_gate_b_inputs +
+# the evidence normalization. The builder takes run-local objects (NOT captured at construction)
+# because `multi`/`ev_pool` only exist INSIDE run_one_query, after generation — the seam supplies
+# them. Kept as a structural `Callable` so this module never imports the builder (LAW VII CLI
+# isolation; the builder lives in roles/, the closure in scripts/).
+FourRoleBundleBuilder = Callable[..., object]
+
+# Filename of the per-claim audit map persisted next to the run (Codex M3 P2 #2). The SEAM
+# writes it; the builder does NO file I/O.
+FOUR_ROLE_CLAIM_AUDIT_FILENAME = "four_role_claim_audit.json"
+
+
+def run_four_role_seam(
+    transport: RoleTransport,
+    *,
+    run_dir: Path,
+    timestamp: str,
+    four_role_input_builder: FourRoleBundleBuilder | None = None,
+    four_role_inputs: FourRoleEvaluationInputs | None = None,
+    multi: object = None,
+    template: object = None,
+    slug: str | None = None,
+    domain: str | None = None,
+    ev_pool: object = None,
+) -> FourRoleEvaluationResult:
+    """Resolve the 4-role inputs (builder WINS), run the SINGLE binding D8 gate, persist audit.
+
+    This is the seam core extracted so BOTH the guarded `run_one_query` branch and the offline
+    seam test exercise the SAME code (no copy-paste of the override logic). Precedence (Codex
+    M3 P2 #1): if `four_role_input_builder` is provided it WINS — the SEAM calls it AFTER
+    generation with the run-local objects (`multi`, `template`, `slug`, `domain`, `ev_pool`) so
+    it PRODUCES the inputs+audit bundle from the finished report, and the SEAM writes
+    `bundle.audit_map` to `run_dir / FOUR_ROLE_CLAIM_AUDIT_FILENAME` (json, sorted keys) so every
+    claim_id is traceable alongside the run. Otherwise a directly-supplied static
+    `four_role_inputs` is used as-is (unit/static path; it carries no audit_map, so nothing is
+    written). If BOTH are None the branch fails closed (the sweep never synthesizes inputs).
+
+    The run-local objects are passed through (NOT captured by the closure at construction)
+    because `multi`/`ev_pool` only exist inside `run_one_query` after generation; the builder
+    cannot have closed over them when the caller constructed it. Duck-typed `object` here so this
+    seam never imports the generator's `MultiSectionResult` (LAW VII CLI isolation).
+
+    Pure orchestration over the INJECTED `transport` (no network, no spend) plus one JSON write.
+    """
+    if four_role_input_builder is not None:
+        # BUILDER WINS: produce the inputs+audit bundle from the finished report + native
+        # contract (supplied the run-local objects HERE), then run the gate over bundle.inputs.
+        bundle = four_role_input_builder(
+            multi=multi,
+            template=template,
+            slug=slug,
+            domain=domain,
+            ev_pool=ev_pool,
+        )
+        inputs = bundle.inputs
+        result = run_four_role_evaluation(
+            transport,
+            claims=inputs.claims,
+            run_dir=run_dir,
+            timestamp=timestamp,
+            coverage_ledger=inputs.coverage_ledger,
+            required_s0_categories=inputs.required_s0_categories,
+            model_slugs=inputs.model_slugs,
+            rewrite_already_attempted=inputs.rewrite_already_attempted,
+        )
+        # The SEAM (not the builder) persists the per-claim audit map alongside the run.
+        (run_dir / FOUR_ROLE_CLAIM_AUDIT_FILENAME).write_text(
+            json.dumps(bundle.audit_map, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return result
+
+    if four_role_inputs is None:
+        raise ValueError(
+            "run_four_role_seam: PG_FOUR_ROLE_MODE is on and a transport was injected, but "
+            "neither a four_role_input_builder nor static four_role_inputs was supplied; the "
+            "sweep does not synthesize them (fail-closed)."
+        )
+
+    # Static path (no builder): use the caller-supplied inputs as-is (no audit_map to persist).
+    return run_four_role_evaluation(
+        transport,
+        claims=four_role_inputs.claims,
+        run_dir=run_dir,
+        timestamp=timestamp,
+        coverage_ledger=four_role_inputs.coverage_ledger,
+        required_s0_categories=four_role_inputs.required_s0_categories,
+        model_slugs=four_role_inputs.model_slugs,
+        rewrite_already_attempted=four_role_inputs.rewrite_already_attempted,
     )
