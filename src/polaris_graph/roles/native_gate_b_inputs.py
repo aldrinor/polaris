@@ -75,6 +75,28 @@ _RECORD_TEXT_KEY = "text"
 _WHITESPACE_RE = re.compile(r"\s+")
 _CLAIM_HASH_HEX_LEN = 8
 
+# --- evidence-record normalization (M3b; LOAD-BEARING, deterministic, NO network) ---------
+# The raw evidence_pool.json row carries `source_url` + the evidence text under `direct_quote`
+# (the field strict_verify's ProvenanceToken spans index into — see provenance_generator.py)
+# with `statement` as a fallback. It carries NO doi/pmid/url keys. M3b NORMALIZES each row into
+# the builder's `{text, doi?, pmid?, url?}` record contract so coverage can match the entity's
+# canonical identifiers. EXACT-equality coverage (P2 #4) means the DOI/PMID must be the bare
+# canonical token (e.g. `10.1056/NEJMoa2107519`, `34170647`) — never a URL-embedded fragment.
+_RAW_TEXT_KEYS = ("direct_quote", "statement", "text")
+_RAW_SOURCE_URL_KEYS = ("source_url", "url")
+# Deterministic DOI: the canonical `10.<registrant>/<suffix>` form (CrossRef pattern).
+_DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+")
+# Publisher URL path-suffixes appended AFTER the DOI in a landing-page URL (e.g.
+# frontiersin.org/.../10.3389/fphar.2022.1016639/full). Trimmed so the extracted DOI is the
+# bare canonical token that EXACTLY equals the entity's `doi` (P2 #4). Order matters: longest
+# first. Trailing punctuation (a `.` or `;` lifted from prose) is also stripped.
+_DOI_URL_SUFFIXES = ("/full", "/abstract", "/pdf", "/meta", "/html", "/epdf")
+_DOI_TRAILING_PUNCT = ".,;)"
+# Deterministic PMID: a PubMed URL path id (`pubmed.ncbi.nlm.nih.gov/<id>` or `/pubmed/<id>`)
+# or an explicit `PMID: <id>` token. Bare numeric so it `==` the entity's `pmid` (int -> str).
+_PMID_URL_RE = re.compile(r"(?:ncbi\.nlm\.nih\.gov/(?:pubmed|m/pubmed)?/?|/pubmed/)(\d+)")
+_PMID_TOKEN_RE = re.compile(r"\bPMID:?\s*(\d+)", re.IGNORECASE)
+
 
 @dataclass
 class NativeGateBBundle:
@@ -92,6 +114,102 @@ class NativeGateBBundle:
 def _normalize_sentence(sentence: str) -> str:
     """Lowercase + collapse whitespace (the basis for the deterministic claim_id hash)."""
     return _WHITESPACE_RE.sub(" ", sentence.lower()).strip()
+
+
+def _row_text(row: Mapping[str, Any]) -> str:
+    """The evidence text the strict_verify spans were validated against (first non-empty).
+
+    Prefers `direct_quote` (the field ProvenanceToken char-spans index into), then `statement`,
+    then `text`. Empty text is NOT raised here — the builder's `_resolve_evidence` fails closed
+    on empty text at claim-resolution time (so an evidence row never cited stays harmless).
+    """
+    for key in _RAW_TEXT_KEYS:
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _row_source_url(row: Mapping[str, Any]) -> str:
+    """The record's full canonical source URL (verbatim), from `source_url` then `url`."""
+    for key in _RAW_SOURCE_URL_KEYS:
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _extract_doi(*texts: str) -> str | None:
+    """Deterministic bare-DOI extraction (`10.<reg>/<suffix>`) from the given strings.
+
+    The greedy DOI body can absorb a publisher landing-page suffix (`/full`, `/pdf`, ...) or a
+    trailing punctuation mark lifted from prose. Both are deterministically trimmed so the
+    returned DOI is the bare canonical token that EXACTLY equals the entity's `doi` (P2 #4);
+    coverage stays fail-closed (a mis-trim simply fails to match — never over-credits).
+    """
+    for text in texts:
+        if not text:
+            continue
+        match = _DOI_RE.search(text)
+        if not match:
+            continue
+        doi = match.group(0)
+        for suffix in _DOI_URL_SUFFIXES:
+            if doi.endswith(suffix):
+                doi = doi[: -len(suffix)]
+                break
+        return doi.rstrip(_DOI_TRAILING_PUNCT)
+    return None
+
+
+def _extract_pmid(*texts: str) -> str | None:
+    """Deterministic bare-PMID extraction from a PubMed URL or an explicit `PMID:` token."""
+    for text in texts:
+        if not text:
+            continue
+        url_match = _PMID_URL_RE.search(text)
+        if url_match:
+            return url_match.group(1)
+        token_match = _PMID_TOKEN_RE.search(text)
+        if token_match:
+            return token_match.group(1)
+    return None
+
+
+def normalize_evidence_pool_lookup(
+    ev_pool: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Build the builder's `evidence_id -> {text, doi?, pmid?, url?}` lookup from a raw pool.
+
+    DETERMINISTIC, NO NETWORK (M3b). Keys are preserved verbatim so they match the
+    ProvenanceToken.evidence_id space (the same `ev_pool` keyspace the generator used). For each
+    row: `url` = the record's `source_url` (full canonical URL, verbatim); `doi` = a bare DOI
+    extracted by regex from the source_url then text (absent if none); `pmid` = a bare PMID from
+    a PubMed URL or explicit token (absent if none); `text` = the evidence text strict_verify
+    validated against (`direct_quote`/`statement`/`text`). Optional identifiers are only added
+    when present so an absent identifier is genuinely absent (the builder treats `None`/`""` as
+    no-match, fail-closed). Never reads `outputs/dr_benchmark/`.
+    """
+    lookup: dict[str, dict[str, Any]] = {}
+    for evidence_id, row in ev_pool.items():
+        if not isinstance(row, Mapping):
+            raise ValueError(
+                f"normalize_evidence_pool_lookup: evidence row {evidence_id!r} is not a mapping "
+                f"({type(row).__name__}); cannot normalize a non-record (fail-closed)."
+            )
+        text = _row_text(row)
+        url = _row_source_url(row)
+        record: dict[str, Any] = {_RECORD_TEXT_KEY: text}
+        if url:
+            record["url"] = url
+        doi = _extract_doi(url, text)
+        if doi is not None:
+            record["doi"] = doi
+        pmid = _extract_pmid(url, text)
+        if pmid is not None:
+            record["pmid"] = pmid
+        lookup[evidence_id] = record
+    return lookup
 
 
 def load_required_entities(template: dict, slug: str) -> list[dict]:

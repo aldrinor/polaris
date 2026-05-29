@@ -65,8 +65,6 @@ _SERVED_ROLES = ("mirror", "sentinel", "judge")
 # Per-role env var stems: PG_<ROLE>_BASE_URL / PG_<ROLE>_API_KEY (LAW VI: zero hard-coding).
 _BASE_URL_ENV_TEMPLATE = "PG_{role}_BASE_URL"
 _API_KEY_ENV_TEMPLATE = "PG_{role}_API_KEY"
-# API-key fallback when a role does not set its own key.
-_API_KEY_FALLBACK_ENV = "OPENROUTER_API_KEY"
 
 # Body keys passed through from params as TOP-LEVEL request keys (explicit allowlist — NEVER
 # a blind dump of params, so POLARIS-internal keys like `pass2_input` / `citations` never
@@ -103,10 +101,16 @@ class RoleTransportError(RuntimeError):
 def role_endpoint(role: str) -> tuple[str, str, str]:
     """Resolve `(base_url, api_key, model_slug)` for a self-hosted verifier role.
 
-    Reads `PG_<ROLE>_BASE_URL` + `PG_<ROLE>_API_KEY` (falling back to OPENROUTER_API_KEY) and
-    sources the pinned `model_slug` from the runtime architecture lock. The generator is
-    HARD-EXCLUDED (it serves live on OpenRouter upstream of this transport): asking for it —
-    or any role not in `_SERVED_ROLES` — raises `ValueError`.
+    Reads `PG_<ROLE>_BASE_URL` + `PG_<ROLE>_API_KEY` ONLY and sources the pinned `model_slug`
+    from the runtime architecture lock. The generator is HARD-EXCLUDED (it serves live on
+    OpenRouter upstream of this transport): asking for it — or any role not in `_SERVED_ROLES`
+    — raises `ValueError`.
+
+    No-leak (Codex M3 key_handling_ruling = hard_require, P2 #3): there is NO
+    `OPENROUTER_API_KEY` fallback. A self-host verifier must never receive the OpenRouter key.
+    When `PG_<ROLE>_API_KEY` is unset, `api_key` is `""` and `complete()` OMITS the
+    Authorization header entirely (a keyless self-host vLLM needs none) — it never sends an
+    empty `Authorization: Bearer ` value. This mirrors the M2 `verify_serving_identity` probe.
 
     Fails loud (LAW II / LAW VI) when the role's `PG_<ROLE>_BASE_URL` is unset: a self-host
     role with no endpoint configured is a deployment error, never a silent default.
@@ -128,9 +132,9 @@ def role_endpoint(role: str) -> tuple[str, str, str]:
             f"{_BASE_URL_ENV_TEMPLATE.format(role=role_token)} is not set; the self-hosted "
             f"{role!r} endpoint must be configured (LAW VI)."
         )
-    api_key = os.getenv(
-        _API_KEY_ENV_TEMPLATE.format(role=role_token)
-    ) or os.getenv(_API_KEY_FALLBACK_ENV, "")
+    # No-leak (P2 #3): PG_<ROLE>_API_KEY ONLY — NEVER an OPENROUTER_API_KEY fallback. Unset
+    # -> "" -> complete() omits the Authorization header (keyless self-host vLLM is valid).
+    api_key = os.getenv(_API_KEY_ENV_TEMPLATE.format(role=role_token), "")
 
     model_slug = _lock_model_slug(role)
     return base_url.rstrip("/"), api_key, model_slug
@@ -334,10 +338,13 @@ class OpenAICompatibleRoleTransport:
         normalized_messages = _normalize_messages(request)
         body = _build_body(request, model_slug, normalized_messages)
         url = f"{base_url}{_CHAT_COMPLETIONS_PATH}"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
+        # No-leak (Codex M3 P2 #3): send Authorization ONLY when a per-role key is configured.
+        # A keyless self-host vLLM (launched without --api-key) needs none; we never send an
+        # empty `Authorization: Bearer ` value nor a foreign OpenRouter key. Mirrors the M2
+        # verify_serving_identity probe's keyless behavior exactly.
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
 
         with _pathb_capture.llm_role(request.role):
             try:

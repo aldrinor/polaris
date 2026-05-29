@@ -44,7 +44,11 @@ def _role_endpoints(monkeypatch):
     monkeypatch.setenv("PG_JUDGE_BASE_URL", _JUDGE_BASE)
     monkeypatch.setenv("PG_MIRROR_API_KEY", "mirror-key")
     monkeypatch.setenv("PG_SENTINEL_API_KEY", "sentinel-key")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "fallback-key")  # judge has no own key
+    # Judge sets NO own key. OPENROUTER_API_KEY is present in the env but (Codex M3 no-leak,
+    # P2 #3) the verifier transport must NEVER fall back to it — judge resolves to "" and
+    # complete() omits the Authorization header entirely.
+    monkeypatch.delenv("PG_JUDGE_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fallback-key")
     yield
 
 
@@ -94,11 +98,12 @@ def test_role_endpoint_resolves_per_role_base_url_and_lock_slug():
     assert slug == _SENTINEL_SLUG
 
 
-def test_role_endpoint_api_key_falls_back_to_openrouter():
-    # Judge sets no PG_JUDGE_API_KEY -> falls back to OPENROUTER_API_KEY.
+def test_role_endpoint_no_openrouter_fallback_when_key_unset():
+    # No-leak (Codex M3 P2 #3): judge sets no PG_JUDGE_API_KEY and OPENROUTER_API_KEY is
+    # present in env, but the verifier transport must NOT fall back to it — key resolves to "".
     base, key, slug = role_endpoint("judge")
     assert base == _JUDGE_BASE
-    assert key == "fallback-key"
+    assert key == ""
     assert slug == _JUDGE_SLUG
 
 
@@ -152,6 +157,30 @@ def test_per_role_base_url_routing():
         transport.complete(req)
         assert seen["url"] == f"{base}/v1/chat/completions"
         assert seen["body"]["model"] == slug
+
+
+# --------------------------------------------------------------------------------------
+# No-leak Authorization-header contract (Codex M3 key_handling_ruling=hard_require, P2 #3)
+# --------------------------------------------------------------------------------------
+def test_per_role_key_sets_bearer_authorization():
+    # A role with its own PG_<ROLE>_API_KEY sends `Authorization: Bearer <that key>`.
+    handler, seen = _recording_handler(served_model=_MIRROR_SLUG, content="ok")
+    transport = _make_transport(handler)
+    transport.complete(RoleRequest(role="mirror", model_slug=_MIRROR_SLUG, prompt="q"))
+    # httpx lowercases header keys when round-tripped through dict(request.headers).
+    assert seen["headers"].get("authorization") == "Bearer mirror-key"
+
+
+def test_unset_key_omits_authorization_and_does_not_use_openrouter():
+    # Judge has NO own key; OPENROUTER_API_KEY is present in env (autouse fixture) but must
+    # NOT be used. The Authorization header is OMITTED ENTIRELY — never `Bearer ` (empty) and
+    # never the OpenRouter fallback key.
+    handler, seen = _recording_handler(served_model=_JUDGE_SLUG, content="VERIFIED")
+    transport = _make_transport(handler)
+    transport.complete(RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="decide"))
+    assert "authorization" not in seen["headers"]
+    # Belt-and-suspenders: the OpenRouter fallback key never appears in ANY header value.
+    assert "fallback-key" not in json.dumps(seen["headers"])
 
 
 # --------------------------------------------------------------------------------------

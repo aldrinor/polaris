@@ -1209,6 +1209,7 @@ async def run_one_query(
     *,
     four_role_transport=None,
     four_role_inputs=None,
+    four_role_input_builder=None,
 ) -> dict:
     """Run the full honest pipeline on one query. Returns a summary dict.
 
@@ -1220,9 +1221,17 @@ async def run_one_query(
     caller-supplied ``FourRoleEvaluationInputs`` (claims with EXISTING ids, the canonical
     required-element coverage ledger, and the required-S0 set) — the sweep NEVER synthesizes
     them from the report (that extraction is Gate-B). When the branch fires it delegates entirely
-    to ``sweep_integration.run_four_role_evaluation`` (D8 is the single binding gate) and
+    to ``sweep_integration.run_four_role_seam`` (D8 is the single binding gate) and
     overrides BOTH ``manifest['release_allowed']`` AND ``manifest['status']`` from the D8
     decision, demoting the legacy evaluator_gate to ADVISORY metadata only.
+
+    I-meta-002 PR-9/M3b (Gate-B wiring): ``four_role_input_builder`` is an OPTIONAL no-argument
+    closure (wired by ``scripts/dr_benchmark/run_gate_b.py`` over the native
+    ``build_native_gate_b_inputs`` + evidence normalization). When supplied it WINS over a
+    static ``four_role_inputs``: it is called AFTER generation to PRODUCE the inputs+audit
+    bundle, and the seam writes the per-claim audit map to ``four_role_claim_audit.json`` next
+    to the run. The default (both None while the branch is OFF) leaves the legacy path
+    byte-unchanged.
     """
     reset_run_cost()
     # I-bug-111: reset synthesis-scrub alert + telemetry at run
@@ -3154,24 +3163,24 @@ async def run_one_query(
             "1", "true", "True",
         )
         if _four_role_on and four_role_transport is not None:
-            if four_role_inputs is None:
-                raise ValueError(
-                    "PG_FOUR_ROLE_MODE is on and a transport was injected, but "
-                    "four_role_inputs (caller-supplied claims + canonical coverage ledger + "
-                    "required-S0 set) is None; the sweep does not synthesize them (fail-closed)."
-                )
+            # M3b: the seam resolves inputs (builder WINS over static four_role_inputs; both
+            # None -> fail-closed), runs the SINGLE binding D8 gate, and persists the per-claim
+            # audit map next to the run. The builder closure is called HERE — AFTER generation —
+            # so it sees the finished `multi` report; the sweep still synthesizes nothing itself.
             from src.polaris_graph.roles.sweep_integration import (  # noqa: E402
-                run_four_role_evaluation,
+                run_four_role_seam,
             )
-            four_role_result = run_four_role_evaluation(
+            four_role_result = run_four_role_seam(
                 four_role_transport,
-                claims=four_role_inputs.claims,
                 run_dir=run_dir,
                 timestamp=_utc_now_iso(),
-                coverage_ledger=four_role_inputs.coverage_ledger,
-                required_s0_categories=four_role_inputs.required_s0_categories,
-                model_slugs=four_role_inputs.model_slugs,
-                rewrite_already_attempted=four_role_inputs.rewrite_already_attempted,
+                four_role_input_builder=four_role_input_builder,
+                four_role_inputs=four_role_inputs,
+                multi=multi,
+                template=_template,
+                slug=q["slug"],
+                domain=q["domain"],
+                ev_pool=ev_pool,
             )
             # Demote the legacy gate to ADVISORY metadata; D8 owns the headline decision.
             manifest["evaluator_gate_advisory"] = manifest.pop("evaluator_gate")

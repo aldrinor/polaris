@@ -268,9 +268,22 @@ per_query_report_contract:
       - Mechanism
       - Regulatory
 
+    # I-meta-002 PR-9/M3b — native Gate-B per-entity severity annotations
+    # (pre-registered, NATIVE, derived from each entity's clinical role; NOT
+    # from any benchmark rubric/competitor source). Consumed ONLY by the native
+    # 4-role builder (src/polaris_graph/roles/native_gate_b_inputs.py); the V30
+    # contract loader (nodes/report_contract.py) ignores these keys. Mapping
+    # rationale: pivotal efficacy/CVOT trials carry decision-relevant efficacy
+    # evidence -> S1; the mechanism clamp study is supporting context -> S2;
+    # the regulatory labels/HTAs carry the S0 safety categories (boxed warnings,
+    # contraindications, dosing limits, pregnancy/renal/hepatic cautions,
+    # regulatory status) -> S0 with a valid s0_category + non-blank
+    # coverage_content_requirements (an S0 category is credited only when a
+    # VERIFIED claim deterministically matches its content tokens).
     required_entities:
       - id: surpass_1_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-1
         doi: 10.1016/S0140-6736(21)01324-6
         pmid: 34186022
@@ -293,6 +306,7 @@ per_query_report_contract:
 
       - id: surpass_2_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-2
         doi: 10.1056/NEJMoa2107519
         pmid: 34170647
@@ -305,6 +319,7 @@ per_query_report_contract:
 
       - id: surpass_3_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-3
         doi: 10.1016/S0140-6736(21)01443-4
         pmid: 34370970
@@ -317,6 +332,7 @@ per_query_report_contract:
 
       - id: surpass_4_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-4
         doi: 10.1016/S0140-6736(21)02188-7
         pmid: 34672967
@@ -329,6 +345,7 @@ per_query_report_contract:
 
       - id: surpass_5_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-5
         doi: 10.1001/jama.2022.0078
         pmid: 35133415
@@ -341,6 +358,7 @@ per_query_report_contract:
 
       - id: surpass_6_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-6
         # M-69 Fix #1 (Codex run-9 audit): both DOI and PMID
         # were wrong — pointed at "Glioblastoma and Other
@@ -361,6 +379,7 @@ per_query_report_contract:
 
       - id: surpass_cvot_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-CVOT
         doi: 10.1056/NEJMoa2509079
         pmid: null
@@ -373,6 +392,7 @@ per_query_report_contract:
 
       - id: surmount_2_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURMOUNT-2
         doi: 10.1016/S0140-6736(23)01200-X
         pmid: 37385275
@@ -385,6 +405,7 @@ per_query_report_contract:
 
       - id: thomas_clamp_2022
         type: mechanism_primary
+        severity: S2
         anchor: Thomas-clamp
         doi: 10.1016/S2213-8587(22)00085-7
         pmid: 35468322
@@ -412,6 +433,13 @@ per_query_report_contract:
       # of relevant regulatory content.
       - id: fda_mounjaro_label
         type: regulatory
+        severity: S0
+        s0_category: black_box_warnings
+        # Deterministic tokens credited only when a VERIFIED claim cited to this
+        # label states the thyroid C-cell boxed warning (FDA Mounjaro PI Boxed Warning).
+        coverage_content_requirements:
+          - boxed warning
+          - thyroid
         jurisdiction: FDA
         label_name: Mounjaro
         url_pattern: https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d2d7da5d-ad07-4228-955f-cf7e355c8cc0
@@ -421,6 +449,13 @@ per_query_report_contract:
 
       - id: fda_zepbound_label
         type: regulatory
+        severity: S0
+        s0_category: contraindications
+        # Credited only when a VERIFIED claim cited to this label states the
+        # contraindication (medullary thyroid carcinoma history / MEN 2).
+        coverage_content_requirements:
+          - contraindicated
+          - medullary thyroid
         jurisdiction: FDA
         label_name: Zepbound
         url_pattern: https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf
@@ -430,6 +465,13 @@ per_query_report_contract:
 
       - id: ema_mounjaro_epar
         type: regulatory
+        severity: S0
+        s0_category: regulatory_status
+        # Credited only when a VERIFIED claim cited to the EPAR states the EMA
+        # marketing-authorisation status for Mounjaro.
+        coverage_content_requirements:
+          - marketing authorisation
+          - mounjaro
         jurisdiction: EMA
         label_name: Mounjaro
         url_pattern: https://www.ema.europa.eu/en/medicines/human/EPAR/mounjaro
@@ -439,6 +481,13 @@ per_query_report_contract:
 
       - id: nice_ta924_t2d
         type: regulatory
+        severity: S0
+        s0_category: regulatory_status
+        # Credited only when a VERIFIED claim cited to TA924 states the NICE
+        # recommendation status for tirzepatide in type 2 diabetes.
+        coverage_content_requirements:
+          - nice
+          - recommended
         jurisdiction: NICE
         label_name: TA924
         url_pattern: https://www.nice.org.uk/guidance/ta924
@@ -448,6 +497,13 @@ per_query_report_contract:
 
       - id: nice_ta1026_obesity
         type: regulatory
+        severity: S0
+        s0_category: regulatory_status
+        # Credited only when a VERIFIED claim cited to TA1026 states the NICE
+        # recommendation status for tirzepatide in obesity / weight management.
+        coverage_content_requirements:
+          - nice
+          - recommended
         jurisdiction: NICE
         label_name: TA1026
         url_pattern: https://www.nice.org.uk/guidance/ta1026
@@ -457,6 +513,13 @@ per_query_report_contract:
 
       - id: hc_mounjaro_monograph
         type: regulatory
+        severity: S0
+        s0_category: contraindications
+        # Credited only when a VERIFIED claim cited to the Canadian Product
+        # Monograph states the contraindication (hypersensitivity to tirzepatide).
+        coverage_content_requirements:
+          - contraindicated
+          - hypersensitivity
         jurisdiction: HC
         label_name: Mounjaro Canadian Product Monograph
         url_pattern: https://health-products.canada.ca/dpd-bdpp/dispatch-repartition?q=Mounjaro&type=prod
