@@ -104,6 +104,36 @@ def test_metadata_drops_missing_fields() -> None:
     assert pc.build_response_metadata(None) == {}
 
 
+def test_metadata_surfaces_endpoint_when_pathb_served_present() -> None:
+    # I-meta-002 PR-7/M1: a self-host vLLM verifier carries NO provider; its served identity
+    # for the M4 served==pinned check is the ENDPOINT, stashed under _pathb_served.endpoint.
+    self_host = {
+        "model": _EVAL,
+        "choices": [{"message": {"content": "..."}}],
+        "_pathb_served": {"endpoint": "http://sentinel.internal:8002", "model": _EVAL},
+    }
+    meta = pc.build_response_metadata(self_host)
+    assert meta == {"model": _EVAL, "endpoint": "http://sentinel.internal:8002"}
+    # No fabricated provider_name for vLLM.
+    assert "provider_name" not in meta
+
+
+def test_metadata_drops_endpoint_when_absent() -> None:
+    # Backward compatibility: an OpenRouter response (no endpoint) keeps its 3-key shape; the
+    # additive endpoint key is DROPPED, not present-as-None.
+    meta = pc.build_response_metadata(
+        {"provider": "deepinfra", "model": _GEN, "system_fingerprint": "fp_x"}
+    )
+    assert "endpoint" not in meta
+    assert meta == {"provider_name": "deepinfra", "model": _GEN, "system_fingerprint": "fp_x"}
+    # And a streaming served block with no endpoint also drops it.
+    streaming = {
+        "model": _GEN,
+        "_pathb_served": {"provider": "deepinfra", "model": _GEN, "system_fingerprint": "fp_sse"},
+    }
+    assert "endpoint" not in pc.build_response_metadata(streaming)
+
+
 def test_metadata_streaming_prefers_served_over_request_model() -> None:
     # streaming `data` has the REQUEST-derived model fallback at top level, and the
     # genuinely-SSE-served identity under _pathb_served. The served one must win.

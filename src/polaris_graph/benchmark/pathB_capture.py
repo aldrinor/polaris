@@ -176,7 +176,14 @@ def build_response_metadata(raw_response: dict | None) -> dict:
     Streaming responses synthesize ``data`` with a request-derived ``model`` fallback, so
     the client stashes the genuinely-SSE-served identity under ``_pathb_served``; when that
     key is present it is the authoritative source (request-derived ``data['model']`` is
-    never counted as served)."""
+    never counted as served).
+
+    Self-host endpoint (I-meta-002 PR-7/M1): a self-hosted vLLM verifier role (Mirror /
+    Sentinel / Judge) carries NO OpenRouter ``provider`` field — its served identity for the
+    M4 served==pinned check is the ENDPOINT it was served from. The transport stashes that
+    endpoint under ``_pathb_served['endpoint']``; this function surfaces it as an OPTIONAL
+    ``endpoint`` key. Backward-compatible: the key is DROPPED when ``_pathb_served`` does not
+    carry it (existing OpenRouter 3-key behaviour is unchanged when absent)."""
     raw = raw_response or {}
     served = raw.get("_pathb_served")
     src = served if isinstance(served, dict) else raw
@@ -184,6 +191,7 @@ def build_response_metadata(raw_response: dict | None) -> dict:
         "provider_name": src.get("provider"),
         "model": src.get("model"),
         "system_fingerprint": src.get("system_fingerprint"),
+        "endpoint": src.get("endpoint"),
     }
     return {k: v for k, v in meta.items() if v is not None}
 
