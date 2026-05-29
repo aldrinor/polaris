@@ -247,10 +247,13 @@ point to non-existent paths / deprecated concepts. Treat as stale:
 - `scripts/final_audit.py`, `scripts/run_ragas_v3.py` — referenced
   by `scripts/full_cycle.py` (pipeline C). Do not exist; pipeline C
   is broken until these are either restored or removed.
-- "Kimi K2.5 1T" — historical generator. The locked generator/evaluator
-  for the Carney demo is DeepSeek V4 Pro + Gemma 4 31B (see
-  `docs/polaris_locked_scope.md` §1); earlier pipelines used DeepSeek
-  V3.2-Exp + Qwen3-8B.
+- "Kimi K2.5 1T" — historical generator. The locked architecture for the
+  Carney demo is the 4-role stack in
+  `config/architecture/polaris_runtime_lock.yaml` (I-meta-001 #933):
+  Generator (DeepSeek V4 Pro) + Mirror (Cohere Command A+) + Sentinel (IBM
+  Granite Guardian 4.1 8B) + Judge (Qwen3.6-35B-A3B). The earlier 2-LLM
+  framing (DeepSeek V4 Pro generator + Gemma 4 31B evaluator) is superseded;
+  earlier pipelines used DeepSeek V3.2-Exp + Qwen3-8B.
 - "175 vectors exactly" — old invariant from P0-P12. Not applicable
   to any currently-active pipeline.
 
