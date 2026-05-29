@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Iterator
 
 from src.polaris_graph.benchmark import pathB_capture as _capture
+from src.polaris_graph.llm.openrouter_client import validate_role_families
+from scripts.architecture.verify_lock import load_lock
 from scripts.dr_benchmark.pathB_run_gate import (
     GateError,
     LLMCall,
@@ -33,39 +35,89 @@ from scripts.dr_benchmark.pathB_run_gate import (
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_GEN_SLUG = "deepseek/deepseek-v4-pro"
-_DEFAULT_EVAL_SLUG = "google/gemma-4-31b-it"
+# The four locked architecture roles (config/architecture/polaris_runtime_lock.yaml).
+# Order is generator -> mirror -> sentinel -> judge (the canonical pipeline order).
+_LOCKED_ROLES = ("generator", "mirror", "sentinel", "judge")
+
+# Per-role env-var OVERRIDE knobs, applied ON TOP of the lock-sourced default slug. Mirrors
+# config/architecture/polaris_runtime_lock.yaml:env_vars. The generator additionally honors
+# the legacy OPENROUTER_DEFAULT_MODEL fallback (documented honest_sweep override chain).
+_ROLE_ENV_OVERRIDE = {
+    "generator": "PG_GENERATOR_MODEL",
+    "mirror": "PG_MIRROR_MODEL",
+    "sentinel": "PG_SENTINEL_MODEL",
+    "judge": "PG_JUDGE_MODEL",
+}
+
+
+def _lock_default_slug(role: str) -> str:
+    """The role's default model_slug, SOURCED FROM the architecture lock so pins + lock cannot
+    drift (Codex P2, accepted). Reads lock['required_roles'][role]['model_slug']."""
+    lock = load_lock()
+    return str(lock["required_roles"][role]["model_slug"]).strip()
+
+
+def _resolve_role_slug(role: str) -> str:
+    """Resolve a role's effective slug: lock default, with the per-role PG_*_MODEL env override
+    applied on top. The generator preserves its documented PG_GENERATOR_MODEL >
+    OPENROUTER_DEFAULT_MODEL > lock-default precedence (regression: a sweep that exports only
+    OPENROUTER_DEFAULT_MODEL must still pin the right generator)."""
+    default = _lock_default_slug(role)
+    if role == "generator":
+        return (
+            os.getenv("PG_GENERATOR_MODEL")
+            or os.getenv("OPENROUTER_DEFAULT_MODEL")
+            or default
+        ).strip()
+    env_name = _ROLE_ENV_OVERRIDE[role]
+    return (os.getenv(env_name) or default).strip()
 
 
 def _role_pins() -> list[RolePin]:
-    """Build the per-role pins from the live env.
+    """Build the FOUR per-role pins (generator/mirror/sentinel/judge) from the lock + env.
 
-    Codex PR-2 diff iter-1 P1 #1: read PG_GENERATOR_MODEL first (the documented honest_sweep
-    override used by generate_multi_section_report); fall back to OPENROUTER_DEFAULT_MODEL,
-    then the static default. Pinning the wrong env var made every correct call fail the gate.
+    I-meta-002 sub-PR-5: the 2-role (generator+evaluator) pin set is replaced by the locked
+    4-role set. The post-run gate enforces completeness in BOTH directions — every pinned role
+    must be observed AND every observed call must be pinned (pathB_run_gate.assert_post_run
+    lines 471/479) — so the pin set must EXACTLY match the captured roles. The 4-role pipeline
+    emits generator/mirror/sentinel/judge calls; a leftover legacy 'evaluator' pin would
+    therefore gate-FAIL at runtime (no evaluator call is captured). No production caller pins
+    'evaluator' directly (only this function feeds preflight via gate_around_question), so the
+    role is dropped here cleanly.
 
-    Codex PR-2 diff iter-1 P1 #2: surrogate_fields MUST be only those PROVEN present in the
-    served response. assert_post_run treats a missing surrogate field as fatal, so requiring
-    system_fingerprint would fail any provider that omits it (entailment_judge often does).
-    Pin only the always-present surrogate (provider_name + model); build_response_metadata
-    still records system_fingerprint when present, but it is NOT a required surrogate."""
-    gen = (
-        os.getenv("PG_GENERATOR_MODEL")
-        or os.getenv("OPENROUTER_DEFAULT_MODEL")
-        or _DEFAULT_GEN_SLUG
-    ).strip()
-    ev = (os.getenv("PG_EVALUATOR_MODEL") or _DEFAULT_EVAL_SLUG).strip()
-    # I-bug-946 (#932): provider_name is no longer seeded from env's first entry. The
-    # OPENROUTER_PROVIDER_ORDER env is now a CANDIDATE LIST, and preflight() resolves the
-    # ACTUAL served provider per role via /api/v1/models/<id>/endpoints. Pre-seeding to
-    # the env first-entry was the Codex iter-1 diff P1 bypass: my preflight only resolved
-    # when provider_name was empty, so the bypass silently re-pointed both roles to the
-    # first env entry. Now: empty string here forces preflight to resolve per role.
+    Default slugs are LOCK-SOURCED via load_lock() (Codex P2, accepted) so the pins and the
+    architecture lock cannot drift; per-role PG_*_MODEL env vars override on top. The generator
+    keeps its PG_GENERATOR_MODEL > OPENROUTER_DEFAULT_MODEL > lock-default precedence.
+
+    validate_role_families() runs on the effective 4-role map so the N-way family invariant
+    (all 4 lineages distinct) holds at pin-build time — a same-family misconfiguration fails
+    LOUD here rather than silently at runtime.
+
+    Codex PR-2 diff iter-1 P1 #2: surrogate_fields are ONLY those PROVEN present in the served
+    response (provider_name + model). assert_post_run treats a missing surrogate field as
+    fatal; system_fingerprint is recorded when present but is NOT a required surrogate.
+
+    I-bug-946 (#932): provider_name is left empty here; preflight() resolves the ACTUAL served
+    provider per role via /api/v1/models/<id>/endpoints (the env is a candidate list)."""
+    slug_by_role = {role: _resolve_role_slug(role) for role in _LOCKED_ROLES}
+    # N-way family segregation on the effective 4-role map (raises RuntimeError on collision).
+    validate_role_families(slug_by_role)
     surrogate_fields = ("provider_name", "model")
     return [
-        RolePin("generator", gen, "", surrogate_fields),
-        RolePin("evaluator", ev, "", surrogate_fields),
+        RolePin(role, slug_by_role[role], "", surrogate_fields)
+        for role in _LOCKED_ROLES
     ]
+
+
+def role_tag(role: str):
+    """Path-B capture role-tag context manager for a role-pipeline LLM call.
+
+    Thin re-export of pathB_capture.llm_role so the 4-role call sites (Mirror/Sentinel/Judge)
+    can scope their served-identity capture with the correct role string WITHOUT each importing
+    pathB_capture directly. pathB_capture already accepts arbitrary role strings via its _ROLE
+    contextvar, so "mirror" / "sentinel" / "judge" are supported with no capture-side change.
+    Use as `with role_tag("sentinel"): ...`. The deep sweep call-site wiring is sub-PR-6."""
+    return _capture.llm_role(role)
 
 
 def _salt() -> bytes:
