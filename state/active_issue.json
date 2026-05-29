@@ -1,7 +1,17 @@
 {
-  "active_issue_id": "I-meta-001",
-  "active_issue_github": 933,
-  "current_step": "step_1_branch_hygiene_complete (now executing steps 2-12 of Codex APPROVE_FOR_IMPLEMENTATION plan; smokes FROZEN until polaris_runtime_lock.yaml lands in code)",
+  "active_issue_id": "I-meta-002",
+  "active_issue_github": 935,
+  "current_step": "design_feasibility (Codex iter-1 REQUEST_DEEPER_DESIGN flagged 2 of 4 locked models NOT on OpenRouter: Cohere Command A+ + Granite Guardian 4.1 8B. Operator routed serving to Vast.ai [token VALID, balance $0]. Workflow w14kaz9yw researching serving feasibility + sovereignty + D8 release policy with adversarial verification. D5 Qwen-slug-fix authorized. I-meta-001 PR #934 OPEN awaiting merge.)",
+  "i_meta_001_status": "PR #934 open on bot/I-meta-001-arch-drift-fix; investigation issue #933 CLOSED; lock at codex_approved_pending_operator_signature; smokes structurally frozen",
+  "i_meta_002_operator_decisions": {
+    "D5_qwen_slug_fix": "APPROVED — qwen/qwen-3.6-35b-a3b -> qwen/qwen3.6-35b-a3b (verified via OpenRouter /api/v1/models)",
+    "D6_mirror_serving": "Vast.ai (operator directive). Cohere Command A+ NOT on OpenRouter; self-host on rented GPU.",
+    "D7_sentinel_serving": "Vast.ai (operator directive). Granite Guardian 4.1 8B NOT on OpenRouter (only base granite-4.1-8b is); self-host on rented GPU.",
+    "D8_release_policy": "operator asked which is highest-quality; workflow w14kaz9yw analyzing verdict-specific policy table",
+    "vast_token": "VALID (account aldrin.or@c-polarbiotech.com id 423175), balance $0 — operator credit-load required",
+    "vast_eu_gpus_available": "A100 80GB in NL/IE/FI/UK $0.67-1.07/hr; A100 SXM4 80GB UAE — sovereign EU options confirmed"
+  },
+  "_legacy_i_meta_001_step": "step_1_branch_hygiene_complete (now executing steps 2-12 of Codex APPROVE_FOR_IMPLEMENTATION plan; smokes FROZEN until polaris_runtime_lock.yaml lands in code)",
   "assigned_by": "operator directive 2026-05-28T22:00 PDT: explicit authorization of all 12 steps + D1-D4 decisions confirmed (Step-B stack accepted as final architecture, split scope+runtime locks, commit all .codex/ history, operator authorized Claude to check GH branch protection via token)",
   "priority": true,
   "title": "Root-cause investigation + structural fix for 4-role architecture drift",
