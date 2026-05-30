@@ -29,6 +29,19 @@ from typing import Iterator
 
 logger = logging.getLogger(__name__)
 
+
+def corpus_truncated_from_manifest(manifest: dict) -> bool:
+    """#958 (S2): True iff a run's manifest records a truncated corpus (the
+    post-fetch loop budget broke mid-corpus, leaving later candidates
+    unclassified). Fail-safe False on absence/malformed input — a pre-#958
+    manifest (no flag) is not falsely rejected; the flag is the positive signal
+    a per-run consumer (Path-B gate + scorer) blocks on."""
+    try:
+        return bool(manifest.get("retrieval", {}).get("corpus_truncated", False))
+    except Exception:
+        return False
+
+
 # Run-scoped collectors. The contextvars hold REFERENCES to a shared list/set; capture
 # mutates them in place so appends inside asyncio child tasks (which copy the context by
 # reference) remain visible at the top level where the runner reads them.

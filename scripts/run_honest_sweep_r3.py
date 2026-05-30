@@ -234,6 +234,24 @@ def expected_str_for_abort(protocol: dict) -> str:
     return ", ".join(parts) or "per scope template"
 
 
+def _retrieval_manifest_section(retrieval) -> dict:
+    """#958 (S2): the SINGLE source of truth for a manifest's "retrieval"
+    section. Used by BOTH `_base_manifest_envelope` (abort paths) AND the
+    inline success-path manifest, so the corpus-truncation flag + counts can
+    never be omitted on one path. All getattr with defaults (backward
+    compatible with pre-#958 retrieval objects)."""
+    return {
+        "pre_filter": getattr(retrieval, "total_candidates_pre_filter", 0),
+        "fetched": getattr(retrieval, "candidates_fetched", 0),
+        "failed": getattr(retrieval, "candidates_failed_fetch", 0),
+        "api_calls": getattr(retrieval, "api_calls", {}),
+        # #958: fail-loud corpus-truncation signal (was log-only).
+        "corpus_truncated": bool(getattr(retrieval, "corpus_truncated", False)),
+        "candidates_total": getattr(retrieval, "candidates_total", 0),
+        "candidates_processed": getattr(retrieval, "candidates_processed", 0),
+    }
+
+
 def _base_manifest_envelope(
     *,
     run_id: str,
@@ -258,12 +276,7 @@ def _base_manifest_envelope(
         "budget_cap_usd": PG_MAX_COST_PER_RUN,
     }
     if retrieval is not None:
-        env["retrieval"] = {
-            "pre_filter": getattr(retrieval, "total_candidates_pre_filter", 0),
-            "fetched": getattr(retrieval, "candidates_fetched", 0),
-            "failed": getattr(retrieval, "candidates_failed_fetch", 0),
-            "api_calls": getattr(retrieval, "api_calls", {}),
-        }
+        env["retrieval"] = _retrieval_manifest_section(retrieval)
     return env
 
 
@@ -3345,12 +3358,10 @@ async def run_one_query(
             # BUG-M-201: generator-visible evidence provenance.
             "evidence_selection": evidence_selection.to_dict(),
             "protocol_sha256": scope.protocol_sha256,
-            "retrieval": {
-                "pre_filter": retrieval.total_candidates_pre_filter,
-                "fetched": retrieval.candidates_fetched,
-                "failed": retrieval.candidates_failed_fetch,
-                "api_calls": retrieval.api_calls,
-            },
+            # #958 (S2): use the shared retrieval-section writer so the
+            # corpus-truncation flag + counts land on the SUCCESS path too
+            # (this inline block previously bypassed _base_manifest_envelope).
+            "retrieval": _retrieval_manifest_section(retrieval),
             "corpus": {
                 "count": dist.total_sources,
                 "tier_fractions": dist.tier_fractions,

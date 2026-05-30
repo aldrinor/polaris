@@ -197,6 +197,22 @@ def gate_around_question(
         raise
 
     try:
+        # #958 (S2): a truncated corpus (post-fetch loop budget broke mid-corpus)
+        # is a fail-loud non-clean signal — block PASS BEFORE the assert/PASS write.
+        # Reuses the existing GateError handler below (→ FAIL result + INVALID sentinel).
+        try:
+            _manifest = json.loads(
+                (run_dir / "manifest.json").read_text(encoding="utf-8")
+            )
+        except Exception:
+            _manifest = {}
+        if _capture.corpus_truncated_from_manifest(_manifest):
+            _rt = _manifest.get("retrieval", {})
+            raise GateError(
+                "corpus truncated — post-fetch loop budget broke mid-corpus "
+                f"({_rt.get('candidates_processed')}/{_rt.get('candidates_total')} "
+                "candidates processed); run is partial, not full-power"
+            )
         calls = [LLMCall(**c) for c in _capture.collected_calls()]
         backends = _capture.attempted_backends()
         result = assert_post_run(

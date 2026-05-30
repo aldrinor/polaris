@@ -75,6 +75,12 @@ class LiveRetrievalResult:
     candidates_failed_fetch: int
     api_calls: dict[str, int] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    # #958 (S2): fail-loud corpus-truncation signal. True when the post-fetch
+    # loop budget (PG_POST_FETCH_LOOP_BUDGET) broke mid-corpus, leaving later
+    # candidates unclassified. Defaults keep existing constructors valid.
+    corpus_truncated: bool = False
+    candidates_total: int = 0
+    candidates_processed: int = 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1692,6 +1698,13 @@ def run_live_retrieval(
     _enrich_stats: dict[str, int] = {}
     _enrich_disabled = False
 
+    # #958 (S2): corpus-truncation counters. Initialized BEFORE the loop so the
+    # empty/no-break path does not depend on a loop-local `i` (Codex P2). Default
+    # = "processed all" / not truncated; the budget-break below overrides.
+    _corpus_truncated = False
+    _candidates_total = len(candidates)
+    _candidates_processed = len(candidates)
+
     for i, cand in enumerate(candidates):
         if time.monotonic() > _loop_deadline:
             logger.warning(
@@ -1699,6 +1712,11 @@ def run_live_retrieval(
                 "at candidate %d/%d (%d already classified)",
                 i, len(candidates), len(classified_sources),
             )
+            # #958: record the truncation as a fail-loud signal (was log-only).
+            # candidates_processed = the zero-based break index i = post-filter
+            # candidates whose loop iteration began before the cutoff (Codex P2).
+            _corpus_truncated = True
+            _candidates_processed = i
             break
         logger.info(
             "[live_retriever] post-fetch candidate %d/%d %s",
@@ -1838,4 +1856,7 @@ def run_live_retrieval(
         candidates_failed_fetch=failed_fetch,
         api_calls=api_calls,
         notes=notes,
+        corpus_truncated=_corpus_truncated,
+        candidates_total=_candidates_total,
+        candidates_processed=_candidates_processed,
     )
