@@ -14,6 +14,7 @@ exactly what the generator saw.
 """
 from __future__ import annotations
 
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -392,6 +393,112 @@ def _row_relevance(
     return len(overlap) / max(1, len(anchors))
 
 
+# ── #955 (S2, 2026-05-30): within-tier-band recency tiebreaker ──────────────
+# Semantic Scholar `year` is fetched (live_retriever.py) and lands on the row
+# (row["year"] or row["metadata"]["year"]) but the selector never used it, so a
+# 2014 review and a 2025 pivotal RCT in the same tier competed only on
+# tier + lexical relevance. This adds recency as a SOFT tiebreaker: relevance
+# stays primary (banded into widths of epsilon); within the SAME tier AND SAME
+# relevance band, a higher year sorts first. It NEVER crosses tiers, floor
+# priority classes, or higher relevance bands (band is monotonic in score), and
+# it NEVER hard-drops a row (only reorders within a band).
+#
+# Codex brief-gate APPROVE (#955) P2 note, documented here as required: because
+# same-tier/same-band rows are treated as near-ties, recency CAN change WHICH
+# same-band row fills a tier quota slot — a same-band OLDER row may lose its
+# slot to a same-band NEWER one. It can never cost a MORE-relevant (higher-band)
+# row its slot. That is the intended "soft floor, never hard-drop the more
+# relevant" semantics. Default epsilon 0.05 per Codex ruling (0.0 = exact-tie
+# only, too weak for the 2014-vs-2025 near-tie case).
+_RECENCY_MIN_YEAR = 1900
+_RECENCY_MAX_YEAR = 2100
+_RECENCY_EPSILON_DEFAULT = 0.05
+
+
+def _recency_enabled() -> bool:
+    """Kill-switch `PG_SELECT_RECENCY_TIEBREAK` (default ON). OFF →
+    byte-identical prior ordering AND no recency telemetry."""
+    raw = os.environ.get("PG_SELECT_RECENCY_TIEBREAK", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def _recency_epsilon() -> float:
+    """Relevance band width `PG_SELECT_RECENCY_EPSILON` (default 0.05).
+    epsilon <= 0 → exact-score-tie mode (band = raw score)."""
+    raw = os.environ.get("PG_SELECT_RECENCY_EPSILON", "").strip()
+    if not raw:
+        return _RECENCY_EPSILON_DEFAULT
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        return _RECENCY_EPSILON_DEFAULT
+
+
+def _row_year(row: dict[str, Any]) -> int | None:
+    """Publication year from `row['year']` or `row['metadata']['year']`.
+    Returns None if absent / non-numeric / outside [1900, 2100]. No network."""
+    val = row.get("year")
+    if val is None:
+        meta = row.get("metadata")
+        if isinstance(meta, dict):
+            val = meta.get("year")
+    if val is None:
+        return None
+    try:
+        year = int(val)
+    except (ValueError, TypeError):
+        return None
+    if year < _RECENCY_MIN_YEAR or year > _RECENCY_MAX_YEAR:
+        return None
+    return year
+
+
+def _relevance_band(score: float, epsilon: float) -> float:
+    """Bucket a relevance score into a band. Higher score → higher band.
+    epsilon <= 0 → exact score (only exact ties share a band)."""
+    if epsilon <= 0:
+        return score
+    return math.floor(score / epsilon)
+
+
+def _year_sort_value(row: dict[str, Any]) -> int:
+    """Ascending-sort value for 'newer first': negated year; a missing year
+    maps below any real year so undated rows sort LAST within a band (but are
+    never excluded)."""
+    year = _row_year(row)
+    return -(year if year is not None else _RECENCY_MIN_YEAR - 1)
+
+
+def _relevance_recency_key(
+    item: tuple[int, float, str, dict[str, Any]],
+    enabled: bool,
+    epsilon: float,
+) -> tuple:
+    """Sort fragment ranking by relevance then (soft) recency, or by raw
+    relevance when disabled. Callers append the original index for full
+    determinism. Disabled → `(-score,)`, byte-identical to the prior key."""
+    _idx, score, _tier, row = item
+    if not enabled:
+        return (-score,)
+    # Within a relevance band, newer year first; then EXACT score as the
+    # sub-tiebreaker. Because the band is monotonic in score and exact score
+    # breaks within-band ties, an all-undated corpus reproduces the prior
+    # pure-(-score) order EXACTLY — recency only reorders DATED same-band rows.
+    return (-_relevance_band(score, epsilon), _year_sort_value(row), -score)
+
+
+def _recency_telemetry_note(
+    scored: list[tuple[int, float, str, dict[str, Any]]],
+    epsilon: float,
+) -> str:
+    """Note emitted ONLY when the recency tiebreaker is enabled."""
+    dated = sum(1 for s in scored if _row_year(s[3]) is not None)
+    return (
+        f"recency_tiebreak enabled epsilon={epsilon} "
+        f"dated={dated}/{len(scored)}"
+    )
+
+
 def _m46_short_pool_ordered_selection(
     *,
     evidence_rows: list[dict[str, Any]],
@@ -563,15 +670,22 @@ def _m46_short_pool_ordered_selection(
             return 2
         return 3
 
+    # #955: recency is a SOFT tiebreaker AFTER priority-class + tier (both stay
+    # ahead, per Codex P2) and after the banded relevance — recency only orders
+    # within the same class/tier/relevance-band.
+    _rec_enabled = _recency_enabled()
+    _rec_eps = _recency_epsilon()
     ordered = sorted(
         scored,
         key=lambda item: (
             _priority_class(item),
             _TIER_PRIORITY.get(item[2], 9),
-            -item[1],
+            *_relevance_recency_key(item, _rec_enabled, _rec_eps),
             item[0],
         ),
     )
+    if _rec_enabled:
+        notes.append(_recency_telemetry_note(scored, _rec_eps))
     selected_rows = [item[3] for item in ordered]
     selected_counts = dict(full_counts)
 
@@ -752,8 +866,17 @@ def select_evidence_for_generation(
     by_tier: dict[str, list[tuple[int, float, str, dict[str, Any]]]] = {}
     for item in scored:
         by_tier.setdefault(item[2], []).append(item)
+    # #955: within-tier ranking gains a SOFT recency tiebreaker. Relevance
+    # (banded) stays primary; within a band, higher year first. Floors below
+    # still reserve their matched rows — recency only reorders same-band
+    # candidates (Codex P2: floor reservation priority is evaluated before
+    # recency). Kill-switch OFF → identical (-score, idx) ordering.
+    _rec_enabled = _recency_enabled()
+    _rec_eps = _recency_epsilon()
     for tier in by_tier:
-        by_tier[tier].sort(key=lambda x: (-x[1], x[0]))
+        by_tier[tier].sort(
+            key=lambda x: (*_relevance_recency_key(x, _rec_enabled, _rec_eps), x[0])
+        )
 
     # M-42e (2026-04-22): T1 named-trial primary floor. Compute
     # anchor-matched primary rows once so we can reserve their
@@ -1086,9 +1209,16 @@ def select_evidence_for_generation(
             selected = [item for i, item in enumerate(selected)
                         if i not in evict_ids]
 
-    # Sort final selection by (tier_priority, -score, original_idx) for
-    # deterministic output order.
-    selected.sort(key=lambda x: (_TIER_PRIORITY.get(x[2], 9), -x[1], x[0]))
+    # Sort final selection by (tier_priority, relevance/recency, original_idx)
+    # for deterministic output order. #955: recency is a soft tiebreaker after
+    # tier + banded relevance; kill-switch OFF → identical (tier, -score, idx).
+    selected.sort(
+        key=lambda x: (
+            _TIER_PRIORITY.get(x[2], 9),
+            *_relevance_recency_key(x, _rec_enabled, _rec_eps),
+            x[0],
+        )
+    )
 
     selected_rows = [item[3] for item in selected]
     selected_counts: dict[str, int] = {}

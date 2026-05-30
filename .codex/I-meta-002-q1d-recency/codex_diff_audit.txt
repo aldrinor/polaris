@@ -1,0 +1,473 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e79f2-e937-7c10-8fea-ca195f235495
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+- Read ONLY `.codex/I-meta-002-q1d-recency/codex_diff.patch`. Emit the YAML verdict block FIRST, then ≤6 sentences.
+
+## Output schema (emit FIRST)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+# DIFF gate — #955 (S2): within-tier recency tiebreaker. Patch: 2 files, +288/-5.
+
+You APPROVED the design at brief iter 1, with two P2 conditions: (P2a) document that same-tier/same-band
+recency can change which row fills a quota slot; (P2b) keep floor priority classes + tier AHEAD of recency.
+Epsilon default ruled = 0.05. Verify the patch honors these EXACTLY.
+
+## What the patch does (evidence_selector.py)
+1. Helpers: `_row_year` (row['year'] or row['metadata']['year']; int; None if absent/invalid/outside
+   [1900,2100]; no network). `_relevance_band(score, eps)` = `floor(score/eps)`, or raw score if eps<=0.
+   `_year_sort_value` = `-(year or 1899)` so newer sorts first, undated last. `_relevance_recency_key`:
+   disabled → `(-score,)` (byte-identical prior key); enabled → `(-band, year_sort, -score)`.
+   **Note the trailing `-score`**: within a band, after recency, EXACT score still breaks ties — so an
+   ALL-UNDATED corpus reproduces the prior pure-(-score) order EXACTLY (band is monotonic in score; the
+   `-score` sub-key restores exact order within a band). Recency ONLY reorders DATED same-band rows.
+2. Kill-switch `PG_SELECT_RECENCY_TIEBREAK` (default ON) + `PG_SELECT_RECENCY_EPSILON` (default 0.05).
+   OFF → `_relevance_recency_key` returns `(-score,)` and no telemetry note → byte-identical prior behavior.
+3. Applied at THREE sort sites, each keeping prior leading keys ahead (P2b):
+   - main within-tier sort: `(-score, idx)` → `(*key, idx)`.
+   - final sort: `(tier, -score, idx)` → `(tier, *key, idx)`.
+   - short-pool ordered: `(class, tier, -score, idx)` → `(class, tier, *key, idx)`.
+   The M-42e/M-51/M-42c/M-42d floor reservation passes are UNCHANGED — they still select their matched rows;
+   recency only reorders candidates WITHIN a tier/band (P2b satisfied).
+4. P2a documented in a code comment at the helper block (recency may change which same-band row fills a slot;
+   never costs a higher-band/more-relevant row its slot).
+5. Telemetry `recency_tiebreak enabled epsilon=.. dated=N/total` note emitted ONLY when enabled.
+
+## Tests (12 new, all pass; NO SPEND)
+Helpers (year sources/bounds, band monotonic + exact mode, year_sort newer-first/undated-last, disabled key =
+pure score, default eps 0.05); integration (same-band newer first; relevance gap beats recency; missing-year
+not dropped; truncation slot → newer same-band row [the P2a case]; kill-switch off = index order + no
+telemetry; kill-switch on emits telemetry; M-42e/M-51 primary floor still reserves a SURPASS-2 primary with
+recency on).
+
+## No-regression evidence (verified by Claude main-thread)
+- 12 new + 165 of the selector suite PASS (test_m201, test_m41, test_m42c/d/e, test_m46, test_m48, test_m51,
+  test_pass2_remediation).
+- 1 selector-suite test FAILS but it is PRE-EXISTING and NOT caused by this diff:
+  `test_m42_preservation.py::test_nice_count_at_or_above_v25_baseline` reads a STATIC working-tree artifact
+  (`outputs/full_scale_v26/.../bibliography`) — it does NOT call `select_evidence_for_generation`. PROVEN
+  independent: with this diff stashed (clean HEAD), the test fails identically (nice=0 < 4). The artifact has
+  drifted; out of scope for #955. (Filing it as a separate data-artifact issue is the correct follow-up, not
+  a change in this PR.)
+
+## The real risks to rule on
+1. Can recency cross a tier, floor priority class, or higher relevance band? (Claim: no — leading keys
+   unchanged; band monotonic in score.)
+2. Does the trailing `-score` truly make all-undated corpora byte-identical to the prior order? (Reason about
+   the key tuple.)
+3. Can recency hard-drop a row (remove from selected set) rather than just reorder? In the truncating path a
+   same-band newer row CAN take a same-band older row's quota slot — is that within the approved P2a "soft"
+   semantics (never drops a MORE-relevant row)?
+4. Kill-switch OFF = byte-identical (key `(-score,)`, telemetry suppressed)?
+5. Anything beyond the 2 files / beyond the approved design?
+
+APPROVE iff the diff implements the brief-approved soft tiebreaker (relevance-banded, recency only within
+band, floors + tiers ahead, never hard-drops a more-relevant row), kill-switch restores prior behavior, and
+the only failing suite test is the proven-pre-existing artifact test.
+
+codex
+I’ll read only the specified patch file and assess the implementation against the approved tiebreaker constraints.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath '.codex/I-meta-002-q1d-recency/codex_diff.patch'" in C:\POLARIS
+ succeeded in 797ms:
+diff --git a/src/polaris_graph/retrieval/evidence_selector.py b/src/polaris_graph/retrieval/evidence_selector.py
+index 17ab093e..737dea8b 100644
+--- a/src/polaris_graph/retrieval/evidence_selector.py
++++ b/src/polaris_graph/retrieval/evidence_selector.py
+@@ -14,6 +14,7 @@ exactly what the generator saw.
+ """
+ from __future__ import annotations
+ 
++import math
+ import os
+ import re
+ from dataclasses import dataclass, field
+@@ -392,6 +393,112 @@ def _row_relevance(
+     return len(overlap) / max(1, len(anchors))
+ 
+ 
++# ── #955 (S2, 2026-05-30): within-tier-band recency tiebreaker ──────────────
++# Semantic Scholar `year` is fetched (live_retriever.py) and lands on the row
++# (row["year"] or row["metadata"]["year"]) but the selector never used it, so a
++# 2014 review and a 2025 pivotal RCT in the same tier competed only on
++# tier + lexical relevance. This adds recency as a SOFT tiebreaker: relevance
++# stays primary (banded into widths of epsilon); within the SAME tier AND SAME
++# relevance band, a higher year sorts first. It NEVER crosses tiers, floor
++# priority classes, or higher relevance bands (band is monotonic in score), and
++# it NEVER hard-drops a row (only reorders within a band).
++#
++# Codex brief-gate APPROVE (#955) P2 note, documented here as required: because
++# same-tier/same-band rows are treated as near-ties, recency CAN change WHICH
++# same-band row fills a tier quota slot — a same-band OLDER row may lose its
++# slot to a same-band NEWER one. It can never cost a MORE-relevant (higher-band)
++# row its slot. That is the intended "soft floor, never hard-drop the more
++# relevant" semantics. Default epsilon 0.05 per Codex ruling (0.0 = exact-tie
++# only, too weak for the 2014-vs-2025 near-tie case).
++_RECENCY_MIN_YEAR = 1900
++_RECENCY_MAX_YEAR = 2100
++_RECENCY_EPSILON_DEFAULT = 0.05
++
++
++def _recency_enabled() -> bool:
++    """Kill-switch `PG_SELECT_RECENCY_TIEBREAK` (default ON). OFF →
++    byte-identical prior ordering AND no recency telemetry."""
++    raw = os.environ.get("PG_SELECT_RECENCY_TIEBREAK", "1").strip().lower()
++    return raw not in ("0", "false", "no", "off")
++
++
++def _recency_epsilon() -> float:
++    """Relevance band width `PG_SELECT_RECENCY_EPSILON` (default 0.05).
++    epsilon <= 0 → exact-score-tie mode (band = raw score)."""
++    raw = os.environ.get("PG_SELECT_RECENCY_EPSILON", "").strip()
++    if not raw:
++        return _RECENCY_EPSILON_DEFAULT
++    try:
++        return float(raw)
++    except (ValueError, TypeError):
++        return _RECENCY_EPSILON_DEFAULT
++
++
++def _row_year(row: dict[str, Any]) -> int | None:
++    """Publication year from `row['year']` or `row['metadata']['year']`.
++    Returns None if absent / non-numeric / outside [1900, 2100]. No network."""
++    val = row.get("year")
++    if val is None:
++        meta = row.get("metadata")
++        if isinstance(meta, dict):
++            val = meta.get("year")
++    if val is None:
++        return None
++    try:
++        year = int(val)
++    except (ValueError, TypeError):
++        return None
++    if year < _RECENCY_MIN_YEAR or year > _RECENCY_MAX_YEAR:
++        return None
++    return year
++
++
++def _relevance_band(score: float, epsilon: float) -> float:
++    """Bucket a relevance score into a band. Higher score → higher band.
++    epsilon <= 0 → exact score (only exact ties share a band)."""
++    if epsilon <= 0:
++        return score
++    return math.floor(score / epsilon)
++
++
++def _year_sort_value(row: dict[str, Any]) -> int:
++    """Ascending-sort value for 'newer first': negated year; a missing year
++    maps below any real year so undated rows sort LAST within a band (but are
++    never excluded)."""
++    year = _row_year(row)
++    return -(year if year is not None else _RECENCY_MIN_YEAR - 1)
++
++
++def _relevance_recency_key(
++    item: tuple[int, float, str, dict[str, Any]],
++    enabled: bool,
++    epsilon: float,
++) -> tuple:
++    """Sort fragment ranking by relevance then (soft) recency, or by raw
++    relevance when disabled. Callers append the original index for full
++    determinism. Disabled → `(-score,)`, byte-identical to the prior key."""
++    _idx, score, _tier, row = item
++    if not enabled:
++        return (-score,)
++    # Within a relevance band, newer year first; then EXACT score as the
++    # sub-tiebreaker. Because the band is monotonic in score and exact score
++    # breaks within-band ties, an all-undated corpus reproduces the prior
++    # pure-(-score) order EXACTLY — recency only reorders DATED same-band rows.
++    return (-_relevance_band(score, epsilon), _year_sort_value(row), -score)
++
++
++def _recency_telemetry_note(
++    scored: list[tuple[int, float, str, dict[str, Any]]],
++    epsilon: float,
++) -> str:
++    """Note emitted ONLY when the recency tiebreaker is enabled."""
++    dated = sum(1 for s in scored if _row_year(s[3]) is not None)
++    return (
++        f"recency_tiebreak enabled epsilon={epsilon} "
++        f"dated={dated}/{len(scored)}"
++    )
++
++
+ def _m46_short_pool_ordered_selection(
+     *,
+     evidence_rows: list[dict[str, Any]],
+@@ -563,15 +670,22 @@ def _m46_short_pool_ordered_selection(
+             return 2
+         return 3
+ 
++    # #955: recency is a SOFT tiebreaker AFTER priority-class + tier (both stay
++    # ahead, per Codex P2) and after the banded relevance — recency only orders
++    # within the same class/tier/relevance-band.
++    _rec_enabled = _recency_enabled()
++    _rec_eps = _recency_epsilon()
+     ordered = sorted(
+         scored,
+         key=lambda item: (
+             _priority_class(item),
+             _TIER_PRIORITY.get(item[2], 9),
+-            -item[1],
++            *_relevance_recency_key(item, _rec_enabled, _rec_eps),
+             item[0],
+         ),
+     )
++    if _rec_enabled:
++        notes.append(_recency_telemetry_note(scored, _rec_eps))
+     selected_rows = [item[3] for item in ordered]
+     selected_counts = dict(full_counts)
+ 
+@@ -752,8 +866,17 @@ def select_evidence_for_generation(
+     by_tier: dict[str, list[tuple[int, float, str, dict[str, Any]]]] = {}
+     for item in scored:
+         by_tier.setdefault(item[2], []).append(item)
++    # #955: within-tier ranking gains a SOFT recency tiebreaker. Relevance
++    # (banded) stays primary; within a band, higher year first. Floors below
++    # still reserve their matched rows — recency only reorders same-band
++    # candidates (Codex P2: floor reservation priority is evaluated before
++    # recency). Kill-switch OFF → identical (-score, idx) ordering.
++    _rec_enabled = _recency_enabled()
++    _rec_eps = _recency_epsilon()
+     for tier in by_tier:
+-        by_tier[tier].sort(key=lambda x: (-x[1], x[0]))
++        by_tier[tier].sort(
++            key=lambda x: (*_relevance_recency_key(x, _rec_enabled, _rec_eps), x[0])
++        )
+ 
+     # M-42e (2026-04-22): T1 named-trial primary floor. Compute
+     # anchor-matched primary rows once so we can reserve their
+@@ -1086,9 +1209,16 @@ def select_evidence_for_generation(
+             selected = [item for i, item in enumerate(selected)
+                         if i not in evict_ids]
+ 
+-    # Sort final selection by (tier_priority, -score, original_idx) for
+-    # deterministic output order.
+-    selected.sort(key=lambda x: (_TIER_PRIORITY.get(x[2], 9), -x[1], x[0]))
++    # Sort final selection by (tier_priority, relevance/recency, original_idx)
++    # for deterministic output order. #955: recency is a soft tiebreaker after
++    # tier + banded relevance; kill-switch OFF → identical (tier, -score, idx).
++    selected.sort(
++        key=lambda x: (
++            _TIER_PRIORITY.get(x[2], 9),
++            *_relevance_recency_key(x, _rec_enabled, _rec_eps),
++            x[0],
++        )
++    )
+ 
+     selected_rows = [item[3] for item in selected]
+     selected_counts: dict[str, int] = {}
+diff --git a/tests/polaris_graph/test_recency_tiebreaker.py b/tests/polaris_graph/test_recency_tiebreaker.py
+new file mode 100644
+index 00000000..a28e0deb
+--- /dev/null
++++ b/tests/polaris_graph/test_recency_tiebreaker.py
+@@ -0,0 +1,153 @@
++"""Tests for the #955 within-tier recency tiebreaker in evidence_selector. NO network / NO spend.
++
++Asserts recency is a SOFT tiebreaker: within the same tier AND same relevance band a newer row sorts
++first, but recency NEVER crosses a higher relevance band (a more-relevant older row always wins), NEVER
++hard-drops a row (undated rows stay eligible), and the kill-switch restores byte-identical prior ordering.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++import src.polaris_graph.retrieval.evidence_selector as es
++from src.polaris_graph.retrieval.evidence_selector import (
++    _recency_epsilon,
++    _relevance_band,
++    _relevance_recency_key,
++    _row_year,
++    _year_sort_value,
++    select_evidence_for_generation,
++)
++
++_Q = "tirzepatide reduction outcome glucose"
++
++
++def _row(stmt, *, tier="T2", year=None, meta_year=None, ev_id, url=None):
++    r = {"statement": stmt, "direct_quote": stmt, "tier": tier,
++         "evidence_id": ev_id, "source_url": url or f"https://x/{ev_id}"}
++    if year is not None:
++        r["year"] = year
++    if meta_year is not None:
++        r["metadata"] = {"year": meta_year}
++    return r
++
++
++# ── helpers ────────────────────────────────────────────────────────────────
++def test_row_year_sources_and_bounds():
++    assert _row_year({"year": 2024}) == 2024
++    assert _row_year({"metadata": {"year": 2019}}) == 2019
++    assert _row_year({"year": "2021"}) == 2021          # coercible
++    assert _row_year({"year": None}) is None
++    assert _row_year({}) is None
++    assert _row_year({"year": "n/a"}) is None            # non-numeric
++    assert _row_year({"year": 1700}) is None             # out of range
++    assert _row_year({"year": 3000}) is None
++
++
++def test_relevance_band_monotonic_and_exact_mode():
++    # higher score -> higher (or equal) band
++    assert _relevance_band(0.9, 0.05) >= _relevance_band(0.1, 0.05)
++    # within one epsilon -> same band (near-tie)
++    assert _relevance_band(0.50, 0.05) == _relevance_band(0.52, 0.05)
++    # epsilon<=0 -> exact score (only exact ties share a band)
++    assert _relevance_band(0.5, 0.0) == 0.5
++    assert _relevance_band(0.5, 0.0) != _relevance_band(0.51, 0.0)
++
++
++def test_year_sort_value_newer_first_missing_last():
++    assert _year_sort_value({"year": 2024}) < _year_sort_value({"year": 2014})  # newer sorts first
++    assert _year_sort_value({"year": 2014}) < _year_sort_value({})              # dated before undated
++
++
++def test_relevance_recency_key_disabled_is_pure_score():
++    item = (3, 0.7, "T2", {"year": 2024})
++    assert _relevance_recency_key(item, False, 0.05) == (-0.7,)
++
++
++def test_default_epsilon_is_005():
++    assert _recency_epsilon() == 0.05
++
++
++# ── integration: ordering ────────────────────────────────────────────────────
++def test_same_band_newer_row_sorts_first(monkeypatch):
++    monkeypatch.delenv("PG_SELECT_RECENCY_TIEBREAK", raising=False)
++    rows = [_row(_Q, year=2014, ev_id="old"), _row(_Q, year=2024, ev_id="new")]
++    sel = select_evidence_for_generation(
++        research_question=_Q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=10,
++    )
++    order = [r["evidence_id"] for r in sel.selected_rows]
++    assert order.index("new") < order.index("old")  # newer first within the same band
++
++
++def test_relevance_gap_beats_recency(monkeypatch):
++    monkeypatch.delenv("PG_SELECT_RECENCY_TIEBREAK", raising=False)
++    high = _row(_Q, year=2010, ev_id="high")                         # all 4 anchors -> high band
++    low = _row("tirzepatide commentary", year=2025, ev_id="low")     # 1 anchor -> low band, newer
++    sel = select_evidence_for_generation(
++        research_question=_Q, protocol=None, classified_sources=[],
++        evidence_rows=[low, high], max_rows=10,
++    )
++    order = [r["evidence_id"] for r in sel.selected_rows]
++    assert order.index("high") < order.index("low")  # higher relevance band wins despite older
++
++
++def test_missing_year_not_dropped(monkeypatch):
++    monkeypatch.delenv("PG_SELECT_RECENCY_TIEBREAK", raising=False)
++    rows = [_row(_Q, year=2024, ev_id="dated"), _row(_Q, ev_id="undated")]
++    sel = select_evidence_for_generation(
++        research_question=_Q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=10,
++    )
++    ids = {r["evidence_id"] for r in sel.selected_rows}
++    assert ids == {"dated", "undated"}  # undated row is never hard-dropped
++
++
++def test_truncation_slot_goes_to_newer_in_same_band(monkeypatch):
++    """Codex P2: in the truncating path, a same-band newer row may take the quota slot."""
++    monkeypatch.delenv("PG_SELECT_RECENCY_TIEBREAK", raising=False)
++    rows = [_row(_Q, year=2014, ev_id="old"), _row(_Q, year=2024, ev_id="new")]
++    sel = select_evidence_for_generation(
++        research_question=_Q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=1,  # only one slot -> truncation path
++    )
++    assert [r["evidence_id"] for r in sel.selected_rows] == ["new"]
++
++
++# ── kill-switch ──────────────────────────────────────────────────────────────
++def test_killswitch_off_restores_index_order(monkeypatch):
++    monkeypatch.setenv("PG_SELECT_RECENCY_TIEBREAK", "0")
++    rows = [_row(_Q, year=2014, ev_id="old"), _row(_Q, year=2024, ev_id="new")]
++    sel = select_evidence_for_generation(
++        research_question=_Q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=10,
++    )
++    order = [r["evidence_id"] for r in sel.selected_rows]
++    assert order.index("old") < order.index("new")  # same score -> original index order
++    assert not any("recency_tiebreak" in n for n in sel.notes)  # telemetry suppressed when OFF
++
++
++def test_killswitch_on_emits_telemetry(monkeypatch):
++    monkeypatch.delenv("PG_SELECT_RECENCY_TIEBREAK", raising=False)
++    rows = [_row(_Q, year=2024, ev_id="a"), _row(_Q, year=2014, ev_id="b")]
++    sel = select_evidence_for_generation(
++        research_question=_Q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=10,
++    )
++    assert any("recency_tiebreak enabled" in n for n in sel.notes)
++
++
++# ── floors intact ────────────────────────────────────────────────────────────
++def test_primary_floor_still_reserved_with_recency(monkeypatch):
++    monkeypatch.delenv("PG_SELECT_RECENCY_TIEBREAK", raising=False)
++    primary = {"statement": "SURPASS-2 tirzepatide reduction outcome glucose",
++               "direct_quote": "primary results", "tier": "T1", "evidence_id": "surpass2",
++               "source_url": "https://nejm.org/10.1056/nejmoa2107519", "year": 2021}
++    filler = [_row(_Q, tier="T1", year=2024, ev_id=f"f{i}") for i in range(8)]
++    sel = select_evidence_for_generation(
++        research_question=_Q, protocol=None, classified_sources=[],
++        evidence_rows=[*filler, primary], max_rows=3,
++        primary_trial_anchors=["SURPASS-2"],
++    )
++    ids = {r["evidence_id"] for r in sel.selected_rows}
++    assert "surpass2" in ids  # named-trial primary reserved despite newer fillers
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+Reviewed only `.codex/I-meta-002-q1d-recency/codex_diff.patch`.  
+The changed sort keys keep floor priority class and tier before recency, and `-_relevance_band(...)` prevents recency from crossing a higher relevance band.  
+The trailing `-score` does make all-undated corpora preserve prior score ordering because `year_sort` is constant and bands remain monotonic.  
+Kill-switch OFF expands the patched tuples back to the prior `-score` forms and suppresses the new telemetry append.  
+Same-band truncation can change which row fills a slot, but that is exactly the approved P2a soft behavior and does not displace a higher-band row.  
+Patch scope is limited to the selector and its new tests; I found no blocker or design drift.
+tokens used
+16,848
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+Reviewed only `.codex/I-meta-002-q1d-recency/codex_diff.patch`.  
+The changed sort keys keep floor priority class and tier before recency, and `-_relevance_band(...)` prevents recency from crossing a higher relevance band.  
+The trailing `-score` does make all-undated corpora preserve prior score ordering because `year_sort` is constant and bands remain monotonic.  
+Kill-switch OFF expands the patched tuples back to the prior `-score` forms and suppresses the new telemetry append.  
+Same-band truncation can change which row fills a slot, but that is exactly the approved P2a soft behavior and does not displace a higher-band row.  
+Patch scope is limited to the selector and its new tests; I found no blocker or design drift.
