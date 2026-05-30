@@ -1,0 +1,15 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC non-benchmark fixture for the offline E2E harness (I-meta-002 PR-9). NOT the frozen DR gold rubric. NEVER read from outputs/dr_benchmark. The rubric_sha256 below is a synthetic pre-registration anchor string (NOT a hash of any real rubric); it exists only so score_run's stored-field equality check (rubric_doc.rubric_sha256 == ledger.rubric_sha256) can be exercised offline.",
+  "rubric_sha256": "synthetic-offline-e2e-rubric-sha256-do-not-use-for-scoring",
+  "questions": [
+    {
+      "question_id": "Q75",
+      "elements": [
+        {"element_id": "syn_element_covered_cited"},
+        {"element_id": "syn_element_covered_uncited"},
+        {"element_id": "syn_element_uncovered"}
+      ]
+    }
+  ]
+}

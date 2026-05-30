@@ -2,9 +2,13 @@
 Live judge — HONEST-REBUILD Phase 5 live wiring.
 
 Calls the REAL evaluator model via OpenRouter (model read from
-PG_EVALUATOR_MODEL at runtime; default Gemma 4 31B as of 2026-05-08
-per I-bug-087, previously Qwen3-8B per HONEST-REBUILD Phase 1c) to
-produce per-axis structured verdicts on a completed report.
+PG_EVALUATOR_MODEL at runtime). Under the LOCKED 4-role architecture
+(config/architecture/polaris_runtime_lock.yaml, I-meta-001 #933) the legacy
+PG_EVALUATOR_MODEL knob resolves to the Mirror role via the lock's
+legacy_compat map (PG_EVALUATOR_MODEL -> PG_MIRROR_MODEL) when unset.
+Historical defaults: Gemma 4 31B as of 2026-05-08 per I-bug-087, previously
+Qwen3-8B per HONEST-REBUILD Phase 1c. Produces per-axis structured verdicts
+on a completed report.
 
 This is the NON-SAME-FAMILY judge: the judge model must be from a
 different training family than the generator. `check_family_segregation()`

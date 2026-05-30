@@ -1,0 +1,12 @@
+codex
+1. ✓ §1 panel row is closed.
+2. △ §7 schema itself is fixed, but §4.2 still has stale roster wording: `{sme_id, domain, ..., coi_cleared (bool), screened_by, screened_at}`. It should align to §7: `domains_qualified`, `coi_cleared_per_domain`, `coi_screened_by`, `coi_screened_at`.
+3. ✓ §7 capacity gate is closed and matches §3.
+
+Fix §4.2 stale roster-schema reference before lock.
+8,092
+1. ✓ §1 panel row is closed.
+2. △ §7 schema itself is fixed, but §4.2 still has stale roster wording: `{sme_id, domain, ..., coi_cleared (bool), screened_by, screened_at}`. It should align to §7: `domains_qualified`, `coi_cleared_per_domain`, `coi_screened_by`, `coi_screened_at`.
+3. ✓ §7 capacity gate is closed and matches §3.
+
+Fix §4.2 stale roster-schema reference before lock.

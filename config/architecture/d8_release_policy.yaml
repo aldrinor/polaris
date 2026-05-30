@@ -1,0 +1,34 @@
+# POLARIS D8 production release-policy config — I-meta-002 sub-PR-3
+#
+# This is the PRODUCTION release gate config, a SEPARATE layer from the FROZEN
+# pre-registered benchmark scorer (src/polaris_graph/benchmark/claim_audit_scorer.py).
+# The benchmark's _COVERAGE_THRESHOLD=0.70 is frozen for the head-to-head; this
+# coverage_threshold mirrors that VALUE but is independent production config so the
+# benchmark semantics are never coupled to the live release decision.
+#
+# coverage_threshold:
+#   residual UNSUPPORTED/UNREACHABLE gate fires (after one rewrite attempt) only when the
+#   CoverageLedger fraction falls below this. The ledger denominator is the FIXED
+#   per-question required-element set, so dropping/refusing a claim LOWERS coverage rather
+#   than dodging the gate.
+#
+# material_severities:
+#   S0-S2 are decision-relevant ("material"). S3 is observe-only and never gates.
+#
+# s0_must_cover_categories:
+#   the DEFAULT clinical must-cover set. A required category is covered iff some D8ClaimRow
+#   carries that category in s0_categories AND its verdict==VERIFIED (PARTIAL/citation-only
+#   does NOT satisfy it). Any uncovered required category aborts release regardless of the
+#   overall coverage fraction (the "missing 30% includes contraindications" guard).
+#
+# NOTE: the PER-QUESTION required S0 set is passed in by the CALLER (sub-PR-5, extracted
+# from the scope protocol). This list is only the default clinical category vocabulary.
+
+coverage_threshold: 0.70
+material_severities: [S0, S1, S2]
+s0_must_cover_categories:
+  - contraindications
+  - dosing_limits
+  - black_box_warnings
+  - pregnancy_renal_hepatic_cautions
+  - regulatory_status

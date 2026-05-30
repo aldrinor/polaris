@@ -1,0 +1,2543 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e72d7-5a13-7923-8658-16d434d31868
+--------
+user
+# Codex DIFF-gate — I-meta-002 sub-PR-2 — iter 5 of 5 (FINAL before cap)
+
+HARD ITERATION CAP: 5 per document. This is iter 5 of 5 — the LAST iteration.
+- Reserve P0/P1 for real execution/safety risks; classify minor issues P2/P3.
+- If this iter-5 returns REQUEST_CHANGES, the document is force-APPROVE'd on remaining
+  non-P0/P1 findings per CLAUDE.md §8.3.1; any residual is captured as a follow-up issue.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+```
+
+## What changed since your iter-4 review
+Your iter-4 verdict was REQUEST_CHANGES, one P1 (zero P0):
+
+> sentinel_contract.py — `_STRICT_SCORE_RE` uses Unicode `re.IGNORECASE`, so Python accepts
+> U+017F LONG S as `s`. `<ſcore>no</ſcore>` returns `(GROUNDED, parsed_ok=True)`. Fix with
+> ASCII-only case matching (`re.IGNORECASE | re.ASCII`) and add the regression.
+
+**Fix applied (the ONLY code change this iter):** added `re.ASCII`:
+```python
+_STRICT_SCORE_RE = re.compile(r"\s*<score>\s*(yes|no)\s*</score>\s*", re.IGNORECASE | re.ASCII)
+```
+`re.ASCII` folds only a-z/A-Z and limits `\s` to ASCII whitespace, so the homoglyph envelope
+no longer matches. Verified empirically:
+- WITHOUT re.ASCII: `fullmatch('<ſcore>no</ſcore>')` -> matched (the old bug).
+- WITH re.ASCII: `fullmatch('<ſcore>no</ſcore>')` -> None -> `(UNGROUNDED, parsed_ok=False)`.
+- Clean `<score>no</score>` -> `(GROUNDED, parsed_ok=True)` (unchanged).
+
+**Regression test added** `test_unicode_homoglyph_tag_fails_closed_codex_p1_iter4_regression`
+covering `<ſcore>no</ſcore>`, mixed ASCII/homoglyph close, and the yes form — all fail closed.
+
+## Smoke (serialized, §8.4)
+- `pytest tests/roles tests/architecture tests/dr_benchmark -q` -> 206 passed, 0 failed.
+- `pytest tests/roles/test_sentinel_contract.py` -> 37 passed.
+- `verify_lock --consistency` -> exit 0.
+
+## Cumulative fail-closed property (sub-PR-2 Sentinel)
+After iters 1–4 the parser admits `parsed_ok=True` ONLY for a lone ASCII
+`<score>yes</score>` / `<score>no</score>` envelope (surrounding + inner ASCII whitespace
+tolerated). Every other input — duplicate/partial/extra tags, prose-wrap, off-enum body,
+Unicode homoglyph, missing tag, non-string — fails closed to `(UNGROUNDED, parsed_ok=False)`.
+Polarity is hard-locked yes->UNGROUNDED.
+
+## Unchanged (APPROVED in iter-1)
+Judge enum hard-fail, Mirror composite two-pass hash binding, source_missing->FABRICATED
+precedence, hygiene, no canonical-pipeline drift. Only sentinel_contract.py + its test file
+changed since iter-1.
+
+## Review ask
+Final adversarial probe: is there ANY input that returns `(GROUNDED, parsed_ok=True)` other
+than a lone ASCII `<score>no</score>` envelope? APPROVE iff the fail-closed property holds
+with zero P0/P1.
+
+## DIFF (full sub-PR-2 diff)
+diff --git a/src/polaris_graph/roles/__init__.py b/src/polaris_graph/roles/__init__.py
+new file mode 100644
+index 00000000..e85c68bf
+--- /dev/null
++++ b/src/polaris_graph/roles/__init__.py
+@@ -0,0 +1,16 @@
++"""Per-role output contracts for the POLARIS 4-role architecture (I-meta-002 sub-PR-2).
++
++Pure parsers/normalizers over a raw role-output string + minimal context, returning a
++typed result. NO network, NO spend — each role is exercised here ONLY via fixtures.
++
++Roles (operator-LOCKED, NOT consultable):
++- Generator: deepseek/deepseek-v4-pro
++- Mirror:    cohere/command-a-plus      -> mirror_contract
++- Sentinel:  ibm-granite/granite-guardian-4.1-8b -> sentinel_contract (fail-CLOSED)
++- Judge:     qwen/qwen3.6-35b-a3b       -> judge_contract (5-enum reuse, hard-fail)
++
++This is the contract layer only. Adapter wiring is sub-PR-4; spend is sub-PR-5; the
++release-gate wiring of the source_missing split is sub-PR-3.
++"""
++
++from __future__ import annotations
+diff --git a/src/polaris_graph/roles/judge_contract.py b/src/polaris_graph/roles/judge_contract.py
+new file mode 100644
+index 00000000..ff73dc13
+--- /dev/null
++++ b/src/polaris_graph/roles/judge_contract.py
+@@ -0,0 +1,95 @@
++"""Judge (Qwen3.6) verdict contract — hard-enum, NO silent default.
++
++Reuses the canonical 5-enum verdict shape from `claim_audit_scorer.Verdict`
++(VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE). It is IMPORTED, never
++redefined, so there is exactly one verdict vocabulary in the codebase.
++
++The Judge runs self-hosted under vLLM with a hard enum constraint
++(`structured_outputs.choice`, the correct spelling — `guided_choice` is deprecated, F4).
++`JUDGE_CHOICES` exposes the exact allowed token list for that constraint (PR4).
++
++This module also holds the `source_missing` split classifier (`classify_unreachable`),
++which separates a genuine artifact/fetch miss (UNREACHABLE) from a fabricated citation
++identity (FABRICATED). The wiring into the release gate is sub-PR-3.
++"""
++
++from __future__ import annotations
++
++from typing import Iterable, get_args
++
++from src.polaris_graph.benchmark.claim_audit_scorer import Verdict
++
++# The exact allowed verdict tokens, derived from the canonical Literal so the two can
++# never drift. Used by PR4 for the vLLM `structured_outputs.choice` constraint.
++JUDGE_CHOICES: list[str] = list(get_args(Verdict))
++
++# Fetch-miss subtypes: a real artifact/fetch failure for an IN-POOL source -> UNREACHABLE.
++_FETCH_MISS_SUBTYPES = ("paywall", "robots", "fetch_failure")
++
++# Classification outputs of classify_unreachable.
++_CLASS_UNREACHABLE = "UNREACHABLE"
++_CLASS_FABRICATED = "FABRICATED"
++
++
++class JudgeEnumError(ValueError):
++    """Raised when a raw Judge output is not exactly one of the 5 canonical verdicts.
++
++    There is NO silent default. A non-enum token is a hard failure (clinical safety):
++    the caller must treat it as a parse error and escalate, never coerce it to a verdict.
++    """
++
++
++def parse_judge_verdict(raw: str) -> Verdict:
++    """Parse a raw Judge output into the canonical 5-enum `Verdict`.
++
++    The match is exact against `JUDGE_CHOICES` after stripping surrounding whitespace.
++    Any non-enum token — garbage, empty, lowercase-unknown, partial — raises
++    `JudgeEnumError`. There is deliberately NO case-folding and NO fuzzy match: the Judge
++    is enum-constrained at decode time (vLLM), so anything off-enum signals a real fault.
++    """
++    if not isinstance(raw, str):
++        raise JudgeEnumError(f"Judge output is not a string: {type(raw)!r}")
++    token = raw.strip()
++    if token not in JUDGE_CHOICES:
++        raise JudgeEnumError(
++            f"Judge output {token!r} is not one of the {len(JUDGE_CHOICES)} canonical "
++            f"verdicts {JUDGE_CHOICES}"
++        )
++    # token is now a member of the Verdict Literal domain.
++    return token  # type: ignore[return-value]
++
++
++def classify_unreachable(
++    subtype: str | None,
++    citation_id: str | None,
++    evidence_pool_ids: Iterable[str],
++) -> str:
++    """Split a 'source could not be confirmed' case into UNREACHABLE vs FABRICATED.
++
++    LOCKED PRECEDENCE (I-meta-002 iter-2 P1-b) — fabricated identity wins FIRST:
++      (1) if `citation_id` is None/empty OR `citation_id` is NOT in `evidence_pool_ids`
++          -> FABRICATED, regardless of `subtype`. A fabricated/unknown citation identity
++          must NOT be laundered as a fetch failure.
++      (2) ELSE if `subtype` in {paywall, robots, fetch_failure} -> UNREACHABLE.
++
++    `evidence_pool_ids` contract: it is the set of CANONICAL PRE-FETCH evidence IDs — every
++    source the pipeline selected/attempted, INCLUDING records whose fetch later FAILED
++    (paywall/robots/fetch_failure). A genuine fetch failure therefore still has its
++    `citation_id` present in the pool -> correctly UNREACHABLE; only an id that was never a
++    selected source -> FABRICATED.
++
++    Anything else (an in-pool id whose subtype is not a known fetch-miss, e.g.
++    `source_missing`/None/unknown) is OUT of this contract's domain and is a programming
++    error, so it raises rather than silently defaulting (LAW II fail-loud).
++    """
++    pool = set(evidence_pool_ids)
++    # (1) fabricated identity check — evaluated BEFORE the subtype branch.
++    if not citation_id or citation_id not in pool:
++        return _CLASS_FABRICATED
++    # (2) in-pool id: a real fetch miss is UNREACHABLE.
++    if subtype in _FETCH_MISS_SUBTYPES:
++        return _CLASS_UNREACHABLE
++    raise ValueError(
++        f"classify_unreachable: in-pool citation {citation_id!r} with subtype {subtype!r} "
++        f"is outside the fetch-miss contract domain {_FETCH_MISS_SUBTYPES}"
++    )
+diff --git a/src/polaris_graph/roles/mirror_contract.py b/src/polaris_graph/roles/mirror_contract.py
+new file mode 100644
+index 00000000..540bda55
+--- /dev/null
++++ b/src/polaris_graph/roles/mirror_contract.py
+@@ -0,0 +1,147 @@
++"""Mirror (Cohere Command-A+) two-pass RAG/JSON contract.
++
++Cohere `response_format` (JSON mode) is NOT supported together with `documents`/`tools`
++(F2, confirmed in I-meta-002 iter-2 verdict). So the Mirror role is TWO-PASS:
++  pass-1: RAG-with-citations  -> grounded answer text + citation spans (each span its doc_id)
++  pass-2: JSON classification -> bound to pass-1 by a content_hash
++
++The pass-2 classification MUST be of the SAME artifact pass-1 produced, not a regenerated
++or normalized one. (iter-2 fix, Codex P1-a): the binding hash covers BOTH the answer text
++AND the ordered citation bindings `(span_start, span_end, doc_id)` — NOT the answer text
++alone — so identical answer text with swapped or missing citation bindings does NOT pass
++the hash check.
++
++Citation span format: self-host Cohere emits `<co>...</co:doc_ids>` spans (doc_ids is a
++comma-separated list). `parse_cohere_citations` parses that form and tolerates an empty
++input. There is no live Cohere in this PR; the `<co>` fixture IS the assumed self-host
++span shape, documented here rather than implied as verified output.
++"""
++
++from __future__ import annotations
++
++import hashlib
++import json
++import re
++from dataclasses import dataclass, field
++
++
++@dataclass(frozen=True)
++class CitationSpan:
++    """One grounded citation span: a [span_start, span_end) char range over the answer
++    text, attached to one or more source doc_ids."""
++
++    span_start: int
++    span_end: int
++    doc_ids: tuple[str, ...]
++
++
++@dataclass
++class MirrorPass1:
++    """Pass-1 output: the grounded answer text plus its citation spans."""
++
++    answer_text: str
++    citation_spans: list[CitationSpan] = field(default_factory=list)
++
++
++@dataclass
++class MirrorPass2:
++    """Pass-2 output: the JSON classification, bound to pass-1 by `content_hash`."""
++
++    content_hash: str
++    classification: str
++    rationale: str | None = None
++
++
++# Field key for the embedded binding hash in the pass-2 input dict.
++_CONTENT_HASH_KEY = "content_hash"
++_ANSWER_TEXT_KEY = "answer_text"
++
++# Self-host Cohere span: `<co>covered text</co:doc_a,doc_b>`. The doc_ids list is
++# captured from the closing tag. Whitespace-tolerant around the doc_ids.
++_CO_SPAN_RE = re.compile(r"<co>(.*?)</co:\s*([^>]*?)\s*>", re.DOTALL)
++
++
++def _canonical_binding(pass1: MirrorPass1) -> str:
++    """Deterministic canonical serialization of the pass-1 artifact for hashing.
++
++    Covers the answer text AND the ordered list of `(span_start, span_end, doc_id)` tuples.
++    Multi-doc spans are expanded to one tuple per doc_id, and the full tuple list is sorted,
++    so the serialization is independent of span/doc_id authoring order but still sensitive
++    to ANY change in the (start, end, doc_id) bindings. The exact same serializer is used
++    by both `build_pass2_input` and `verify_pass2_binding`.
++
++    INJECTIVITY: the answer text and the binding list are wrapped as the two elements of a
++    single JSON array. Because the answer is JSON-string-escaped, there is NO ambiguous
++    delimiter byte a crafted doc_id (which may legitimately contain spaces or brackets) could
++    inject to collide two distinct (answer, bindings) pairs onto the same serialization —
++    unlike a flat `answer + " " + bindings` concatenation. Resolves brief question 2 (P1-a).
++    """
++    binding_tuples: list[tuple[int, int, str]] = []
++    for span in pass1.citation_spans:
++        for doc_id in span.doc_ids:
++            binding_tuples.append((span.span_start, span.span_end, doc_id))
++    binding_tuples.sort()
++    return json.dumps([pass1.answer_text, binding_tuples], separators=(",", ":"))
++
++
++def _compute_content_hash(pass1: MirrorPass1) -> str:
++    """sha256 over the canonical (answer_text + citation bindings) serialization."""
++    canonical = _canonical_binding(pass1)
++    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
++
++
++def build_pass2_input(pass1: MirrorPass1) -> dict:
++    """Build the input dict handed to pass-2, embedding the composite `content_hash`.
++
++    The hash is computed over BOTH the answer text and the ordered citation bindings
++    (P1-a), so pass-2 can only validly classify the exact (answer + citations) artifact
++    pass-1 produced.
++    """
++    return {
++        _ANSWER_TEXT_KEY: pass1.answer_text,
++        _CONTENT_HASH_KEY: _compute_content_hash(pass1),
++    }
++
++
++def verify_pass2_binding(pass1: MirrorPass1, pass2: MirrorPass2) -> bool:
++    """True iff pass-2 classified the SAME (answer + citations) artifact as pass-1.
++
++    Recomputes the composite hash from pass-1 and compares it to `pass2.content_hash`.
++    Returns False if the answer text was regenerated/normalized OR if any citation binding
++    (span_start, span_end, doc_id) was swapped or dropped — even when the answer text is
++    byte-identical.
++    """
++    return _compute_content_hash(pass1) == pass2.content_hash
++
++
++def parse_cohere_citations(raw: str) -> list[CitationSpan]:
++    """Parse self-host Cohere `<co>...</co:doc_ids>` spans into CitationSpans.
++
++    `span_start`/`span_end` are the [start, end) char offsets of the covered text WITHIN
++    the cleaned answer (tags stripped), reconstructed as the spans are consumed left to
++    right. `doc_ids` is the comma-separated list from the closing tag (empty entries
++    dropped). Tolerates empty input (returns []) and tolerates a span with no doc_ids.
++
++    Managed-form tolerance: a managed Cohere `message.citations` offset payload contains no
++    `<co>` spans, so this parser returns [] for it BY DESIGN (it does not crash). Full
++    managed-offset parsing is sub-PR-4's adapter; this contract covers the self-host span
++    form only.
++    """
++    if not raw:
++        return []
++
++    spans: list[CitationSpan] = []
++    cleaned_len = 0  # running length of the answer text with tags removed
++    cursor = 0       # position in raw
++    for match in _CO_SPAN_RE.finditer(raw):
++        # Plain text before this span contributes to the cleaned-text offset.
++        cleaned_len += len(raw[cursor:match.start()])
++        covered_text = match.group(1)
++        doc_ids_raw = match.group(2)
++        doc_ids = tuple(d.strip() for d in doc_ids_raw.split(",") if d.strip())
++        span_start = cleaned_len
++        span_end = span_start + len(covered_text)
++        spans.append(CitationSpan(span_start=span_start, span_end=span_end, doc_ids=doc_ids))
++        cleaned_len = span_end
++        cursor = match.end()
++    return spans
+diff --git a/src/polaris_graph/roles/sentinel_contract.py b/src/polaris_graph/roles/sentinel_contract.py
+new file mode 100644
+index 00000000..dc6c93bc
+--- /dev/null
++++ b/src/polaris_graph/roles/sentinel_contract.py
+@@ -0,0 +1,105 @@
++"""Sentinel (IBM Granite Guardian 4.1) groundedness contract — FAIL CLOSED.
++
++Granite Guardian groundedness polarity (primary source: ibm.com/granite/docs/models/guardian,
++confirmed in I-meta-002 iter-2 verdict F3):
++    output is `<score>yes|no</score>` (NOT JSON), where
++      yes = risk present       -> the answer is UNGROUNDED
++      no  = risk not present    -> the answer is GROUNDED
++
++This is the LETHAL inversion guard. The two failure modes that hurt patients are:
++  (1) silently reading `yes` as GROUNDED (polarity inversion), and
++  (2) silently defaulting an unparseable/missing/ambiguous output to GROUNDED.
++Both are prevented here: the polarity is hard-coded yes->UNGROUNDED, and EVERY
++non-clean parse falls to the safe side (UNGROUNDED) with parsed_ok=False so the
++caller can escalate. There is NO code path that returns GROUNDED on bad input.
++
++Contrast with `entailment_judge.py`, which fails OPEN on transient error; Sentinel
++deliberately fails CLOSED, so it is a SEPARATE contract, not a reuse.
++"""
++
++from __future__ import annotations
++
++import re
++from enum import Enum
++from typing import NamedTuple
++
++
++class SentinelVerdict(Enum):
++    """Groundedness verdict for one Sentinel score."""
++
++    GROUNDED = "grounded"
++    UNGROUNDED = "ungrounded"
++
++
++class SentinelResult(NamedTuple):
++    """Result of parsing one Sentinel `<score>` output.
++
++    Returned on EVERY path. `parsed_ok` is True only on a clean, unambiguous parse;
++    on any malformed/missing/ambiguous input it is False and `verdict` is forced to the
++    safe (UNGROUNDED) side so the caller can escalate rather than trust a bad score.
++    """
++
++    verdict: SentinelVerdict
++    parsed_ok: bool
++
++
++# The canonical Granite Guardian score tokens (LOCKED polarity, F3).
++_SCORE_TOKEN_YES = "yes"
++_SCORE_TOKEN_NO = "no"
++
++# Map the canonical score token to its groundedness verdict. yes=risk=UNGROUNDED.
++_SCORE_TOKEN_TO_VERDICT = {
++    _SCORE_TOKEN_YES: SentinelVerdict.UNGROUNDED,
++    _SCORE_TOKEN_NO: SentinelVerdict.GROUNDED,
++}
++
++# STRICT ENVELOPE: the WHOLE output must be exactly one `<score>yes|no</score>` element,
++# with only surrounding whitespace allowed (and inner whitespace around the token). We
++# `fullmatch` the entire raw string, so ANY surrounding prose, a second (even malformed)
++# score tag, stray markup, or an off-enum body fails the match and falls to the safe side.
++# This single anchored rule subsumes the weaker "count the matches/tags" guards (which let
++# `<score>no</score><score>maybe` and `prefix <score>no</score> suffix` slip through as a
++# silent GROUNDED — Codex sub-PR-2 diff P0 iter-1/iter-2 + P1 iter-3). The token group is
++# constrained to yes|no so a clean match can never carry an off-enum body.
++#
++# NOTE for PR4 (adapter): if the SERVED Granite Guardian build emits an additional token
++# (e.g. a trailing `<confidence>...` line) alongside the score, this contract must be
++# EXTENDED with that exact verified format — never loosened to "tag present anywhere".
++# `re.ASCII` is REQUIRED alongside IGNORECASE: without it, Unicode case-folding accepts
++# homoglyphs like U+017F LONG S ('ſ') as 's', so `<ſcore>no</ſcore>` would match and return
++# a silent GROUNDED (Codex sub-PR-2 diff P1 iter-4). ASCII mode folds only a-z/A-Z and limits
++# `\s` to ASCII whitespace, so the envelope must be the verified ASCII `<score>yes|no</score>`.
++_STRICT_SCORE_RE = re.compile(
++    r"\s*<score>\s*(yes|no)\s*</score>\s*", re.IGNORECASE | re.ASCII
++)
++
++
++def parse_sentinel_score(raw: str) -> SentinelResult:
++    """Parse a raw Granite Guardian groundedness output into a SentinelResult.
++
++    Mapping (LOCKED, F3): `<score>yes</score>` -> UNGROUNDED, `<score>no</score>` -> GROUNDED.
++    Case- and whitespace-tolerant.
++
++    FAIL CLOSED: any output that is not EXACTLY one `<score>yes|no</score>` element
++    (surrounding whitespace aside) -> UNGROUNDED with parsed_ok=False. NEVER returns
++    GROUNDED on bad input. Surrounding prose, a second/partial score tag, off-enum body,
++    missing tag, or non-string are ALL treated as failed parses, not best-effort guesses.
++    parsed_ok=True is reserved for a single clean score envelope.
++    """
++    if not isinstance(raw, str):
++        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
++
++    # Anchor on the WHOLE output. fullmatch fails on any prefix/suffix/extra/partial markup,
++    # so the only parsed_ok=True paths are a lone `<score>yes</score>` or `<score>no</score>`.
++    match = _STRICT_SCORE_RE.fullmatch(raw)
++    if match is None:
++        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
++
++    token = match.group(1).lower()
++    verdict = _SCORE_TOKEN_TO_VERDICT.get(token)
++    if verdict is None:
++        # Defensive: the regex constrains the group to yes|no, so this is unreachable;
++        # keep the fail-closed branch so a future regex change cannot leak GROUNDED.
++        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
++
++    return SentinelResult(verdict, parsed_ok=True)
+diff --git a/tests/roles/__init__.py b/tests/roles/__init__.py
+new file mode 100644
+index 00000000..e69de29b
+diff --git a/tests/roles/fixtures/cohere_citations_golden.txt b/tests/roles/fixtures/cohere_citations_golden.txt
+new file mode 100644
+index 00000000..c446ca23
+--- /dev/null
++++ b/tests/roles/fixtures/cohere_citations_golden.txt
+@@ -0,0 +1 @@
++Tirzepatide reduced HbA1c by <co>2.3 percentage points</co:doc_surmount1> and was <co>well tolerated</co:doc_surmount1,doc_label2> in the trial.
+\ No newline at end of file
+diff --git a/tests/roles/fixtures/sentinel_no_grounded.txt b/tests/roles/fixtures/sentinel_no_grounded.txt
+new file mode 100644
+index 00000000..6078b4a3
+--- /dev/null
++++ b/tests/roles/fixtures/sentinel_no_grounded.txt
+@@ -0,0 +1 @@
++<score>no</score>
+\ No newline at end of file
+diff --git a/tests/roles/fixtures/sentinel_yes_ungrounded.txt b/tests/roles/fixtures/sentinel_yes_ungrounded.txt
+new file mode 100644
+index 00000000..0b50aef1
+--- /dev/null
++++ b/tests/roles/fixtures/sentinel_yes_ungrounded.txt
+@@ -0,0 +1 @@
++<score>yes</score>
+\ No newline at end of file
+diff --git a/tests/roles/test_judge_contract.py b/tests/roles/test_judge_contract.py
+new file mode 100644
+index 00000000..c98957e4
+--- /dev/null
++++ b/tests/roles/test_judge_contract.py
+@@ -0,0 +1,112 @@
++"""Contract tests for the Judge (Qwen3.6) verdict parser + source_missing split.
++
++Properties under test:
++- each of the 5 canonical verdicts parses to itself;
++- any non-enum token hard-FAILS (JudgeEnumError) with NO silent default;
++- classify_unreachable enforces the LOCKED precedence (fabricated identity first).
++Pure logic, no model, no network.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.benchmark.claim_audit_scorer import Verdict
++from src.polaris_graph.roles.judge_contract import (
++    JUDGE_CHOICES,
++    JudgeEnumError,
++    classify_unreachable,
++    parse_judge_verdict,
++)
++
++
++# --- the 5-enum reuse + parsing ----------------------------------------------------
++def test_judge_choices_is_the_canonical_five_enum() -> None:
++    from typing import get_args
++
++    assert JUDGE_CHOICES == list(get_args(Verdict))
++    assert JUDGE_CHOICES == [
++        "VERIFIED",
++        "PARTIAL",
++        "UNSUPPORTED",
++        "FABRICATED",
++        "UNREACHABLE",
++    ]
++
++
++@pytest.mark.parametrize(
++    "token",
++    ["VERIFIED", "PARTIAL", "UNSUPPORTED", "FABRICATED", "UNREACHABLE"],
++)
++def test_each_canonical_verdict_parses(token: str) -> None:
++    assert parse_judge_verdict(token) == token
++
++
++def test_surrounding_whitespace_tolerated() -> None:
++    assert parse_judge_verdict("  VERIFIED  ") == "VERIFIED"
++    assert parse_judge_verdict("\nFABRICATED\n") == "FABRICATED"
++
++
++# --- hard-fail on any non-enum token (NO silent default) ---------------------------
++@pytest.mark.parametrize(
++    "raw",
++    [
++        "",                 # empty
++        "   ",              # whitespace only
++        "verified",         # lowercase (deliberately NOT case-folded)
++        "Verified",         # mixed case
++        "GROUNDED",         # wrong vocabulary
++        "ENTAILED",         # entailment vocab, not judge vocab
++        "VERIFIED.",        # trailing punctuation
++        "yes",              # garbage
++        "VERIFIED PARTIAL", # two tokens
++        "the claim is verified",  # prose
++    ],
++)
++def test_non_enum_token_raises_judge_enum_error(raw: str) -> None:
++    with pytest.raises(JudgeEnumError):
++        parse_judge_verdict(raw)
++
++
++def test_non_string_raises_judge_enum_error() -> None:
++    with pytest.raises(JudgeEnumError):
++        parse_judge_verdict(None)  # type: ignore[arg-type]
++
++
++# --- classify_unreachable: LOCKED precedence (fabricated identity FIRST) ------------
++_POOL = ("doc_a", "doc_b", "doc_failed_fetch")
++
++
++def test_absent_id_with_fetch_failure_is_fabricated_precedence() -> None:
++    # P1-b precedence test: a fabricated id must NOT launder as a fetch failure.
++    assert classify_unreachable("fetch_failure", "doc_never_selected", _POOL) == "FABRICATED"
++
++
++def test_present_id_with_fetch_failure_is_unreachable() -> None:
++    # genuine fetch failure for an in-pool (pre-fetch-selected) source.
++    assert classify_unreachable("fetch_failure", "doc_failed_fetch", _POOL) == "UNREACHABLE"
++
++
++@pytest.mark.parametrize("subtype", ["paywall", "robots", "fetch_failure"])
++def test_present_id_each_fetch_miss_subtype_is_unreachable(subtype: str) -> None:
++    assert classify_unreachable(subtype, "doc_a", _POOL) == "UNREACHABLE"
++
++
++def test_none_citation_id_is_fabricated() -> None:
++    assert classify_unreachable("fetch_failure", None, _POOL) == "FABRICATED"
++
++
++def test_empty_citation_id_is_fabricated() -> None:
++    assert classify_unreachable("paywall", "", _POOL) == "FABRICATED"
++
++
++def test_in_pool_id_with_unknown_subtype_raises() -> None:
++    # CONSCIOUS CONTRACT PIN (D8 + LAW II): `source_missing` is the bucket this classifier
++    # SPLITS, not a verdict bucket — so feeding `source_missing` (or None/unknown) back in
++    # with an in-pool id is a programming error and must fail LOUD, not silently default.
++    # sub-PR-3's gate wiring must conform: it routes the fetch-miss subtypes here, never the
++    # already-split `source_missing` label.
++    with pytest.raises(ValueError):
++        classify_unreachable("source_missing", "doc_a", _POOL)
++    with pytest.raises(ValueError):
++        classify_unreachable(None, "doc_a", _POOL)
+diff --git a/tests/roles/test_mirror_contract.py b/tests/roles/test_mirror_contract.py
+new file mode 100644
+index 00000000..d0d671d7
+--- /dev/null
++++ b/tests/roles/test_mirror_contract.py
+@@ -0,0 +1,213 @@
++"""Contract tests for the Mirror (Cohere) two-pass binding + citation parse.
++
++Properties under test:
++- build_pass2_input embeds a content_hash that matches the pass-1 artifact;
++- verify_pass2_binding is True on the matching artifact, False on a regenerated answer
++  AND False on the SAME answer_text with swapped/missing citation bindings (the P1-a
++  composite-hash regression);
++- parse_cohere_citations parses the golden <co> span format and tolerates empty input.
++Pure logic, no model, no network.
++"""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++from src.polaris_graph.roles.mirror_contract import (
++    CitationSpan,
++    MirrorPass1,
++    MirrorPass2,
++    build_pass2_input,
++    parse_cohere_citations,
++    verify_pass2_binding,
++)
++
++_FIXTURES = Path(__file__).parent / "fixtures"
++
++
++def _read_fixture(name: str) -> str:
++    return (_FIXTURES / name).read_text(encoding="utf-8")
++
++
++def _pass1() -> MirrorPass1:
++    return MirrorPass1(
++        answer_text="Tirzepatide lowered HbA1c by 2.3 points.",
++        citation_spans=[
++            CitationSpan(span_start=0, span_end=11, doc_ids=("doc_surmount1",)),
++            CitationSpan(span_start=20, span_end=40, doc_ids=("doc_surmount1", "doc_label2")),
++        ],
++    )
++
++
++# --- composite hash binding --------------------------------------------------------
++def test_build_pass2_input_embeds_matching_hash() -> None:
++    pass1 = _pass1()
++    payload = build_pass2_input(pass1)
++    assert "content_hash" in payload
++    assert payload["answer_text"] == pass1.answer_text
++    pass2 = MirrorPass2(content_hash=payload["content_hash"], classification="grounded")
++    assert verify_pass2_binding(pass1, pass2) is True
++
++
++def test_binding_true_on_exact_match() -> None:
++    pass1 = _pass1()
++    pass2 = MirrorPass2(
++        content_hash=build_pass2_input(pass1)["content_hash"],
++        classification="grounded",
++    )
++    assert verify_pass2_binding(pass1, pass2) is True
++
++
++def test_binding_false_on_regenerated_answer_text() -> None:
++    pass1 = _pass1()
++    pass2 = MirrorPass2(
++        content_hash=build_pass2_input(pass1)["content_hash"],
++        classification="grounded",
++    )
++    regenerated = MirrorPass1(
++        answer_text="Tirzepatide lowered HbA1c by 2.3 points!",  # one char changed
++        citation_spans=pass1.citation_spans,
++    )
++    assert verify_pass2_binding(regenerated, pass2) is False
++
++
++# --- P1-a regression: same answer_text but different/missing citation bindings ------
++def test_binding_false_same_text_swapped_doc_ids() -> None:
++    pass1 = _pass1()
++    pass2 = MirrorPass2(
++        content_hash=build_pass2_input(pass1)["content_hash"],
++        classification="grounded",
++    )
++    swapped = MirrorPass1(
++        answer_text=pass1.answer_text,  # IDENTICAL text
++        citation_spans=[
++            CitationSpan(span_start=0, span_end=11, doc_ids=("doc_DIFFERENT",)),
++            CitationSpan(span_start=20, span_end=40, doc_ids=("doc_surmount1", "doc_label2")),
++        ],
++    )
++    assert verify_pass2_binding(swapped, pass2) is False
++
++
++def test_binding_false_same_text_missing_citation() -> None:
++    pass1 = _pass1()
++    pass2 = MirrorPass2(
++        content_hash=build_pass2_input(pass1)["content_hash"],
++        classification="grounded",
++    )
++    missing = MirrorPass1(
++        answer_text=pass1.answer_text,  # IDENTICAL text
++        citation_spans=[pass1.citation_spans[0]],  # second span dropped
++    )
++    assert verify_pass2_binding(missing, pass2) is False
++
++
++def test_binding_false_same_text_moved_span_offset() -> None:
++    pass1 = _pass1()
++    pass2 = MirrorPass2(
++        content_hash=build_pass2_input(pass1)["content_hash"],
++        classification="grounded",
++    )
++    moved = MirrorPass1(
++        answer_text=pass1.answer_text,
++        citation_spans=[
++            CitationSpan(span_start=1, span_end=11, doc_ids=("doc_surmount1",)),  # start moved
++            CitationSpan(span_start=20, span_end=40, doc_ids=("doc_surmount1", "doc_label2")),
++        ],
++    )
++    assert verify_pass2_binding(moved, pass2) is False
++
++
++def test_anti_proof_text_only_hash_would_collide() -> None:
++    """Anti-proof that the hash is COMPOSITE, not text-only: two pass-1 artifacts with
++    IDENTICAL answer_text but different citation bindings must produce DIFFERENT hashes.
++    A text-only sha256 would collide here; the composite hash must not."""
++    base = _pass1()
++    swapped = MirrorPass1(
++        answer_text=base.answer_text,
++        citation_spans=[
++            CitationSpan(span_start=0, span_end=11, doc_ids=("doc_DIFFERENT",)),
++            CitationSpan(span_start=20, span_end=40, doc_ids=("doc_surmount1", "doc_label2")),
++        ],
++    )
++    assert build_pass2_input(base)["content_hash"] != build_pass2_input(swapped)["content_hash"]
++
++
++def test_hash_injective_against_adversarial_doc_id_bytes() -> None:
++    """P1-a injectivity: a doc_id carrying spaces/brackets (legal per parse_cohere_citations,
++    which only forbids `>` and splits on `,`) must NOT let a crafted (answer, bindings) pair
++    collide with another. A flat `answer + " " + json(bindings)` concatenation has an
++    ambiguous boundary; the JSON-array canonical form does not. Distinct artifacts -> distinct
++    hashes, always."""
++    a = MirrorPass1(
++        answer_text="X",
++        citation_spans=[
++            CitationSpan(0, 1, ("a",)),
++            CitationSpan(2, 3, ("b",)),
++        ],
++    )
++    # Adversarial: answer text that embeds the serialized first binding, doc_id with brackets.
++    b = MirrorPass1(
++        answer_text='X [[0,1,"a"',
++        citation_spans=[CitationSpan(2, 3, ("b",))],
++    )
++    assert a.answer_text != b.answer_text or a.citation_spans != b.citation_spans
++    assert build_pass2_input(a)["content_hash"] != build_pass2_input(b)["content_hash"]
++
++    # doc_id literally containing a space and brackets is a distinct artifact, distinct hash.
++    c = MirrorPass1(answer_text="claim", citation_spans=[CitationSpan(0, 5, ("doc [[x]] y",))])
++    d = MirrorPass1(answer_text="claim", citation_spans=[CitationSpan(0, 5, ("doc",))])
++    assert build_pass2_input(c)["content_hash"] != build_pass2_input(d)["content_hash"]
++
++
++def test_binding_order_independent_for_identical_bindings() -> None:
++    """Authoring order of spans must not change the hash when the binding SET is identical."""
++    a = MirrorPass1(
++        answer_text="x",
++        citation_spans=[
++            CitationSpan(0, 1, ("doc_a",)),
++            CitationSpan(2, 3, ("doc_b",)),
++        ],
++    )
++    b = MirrorPass1(
++        answer_text="x",
++        citation_spans=[
++            CitationSpan(2, 3, ("doc_b",)),
++            CitationSpan(0, 1, ("doc_a",)),
++        ],
++    )
++    assert build_pass2_input(a)["content_hash"] == build_pass2_input(b)["content_hash"]
++
++
++# --- parse_cohere_citations --------------------------------------------------------
++def test_parse_cohere_citations_golden() -> None:
++    spans = parse_cohere_citations(_read_fixture("cohere_citations_golden.txt"))
++    assert len(spans) == 2
++    # first span: single doc_id
++    assert spans[0].doc_ids == ("doc_surmount1",)
++    # second span: two doc_ids
++    assert spans[1].doc_ids == ("doc_surmount1", "doc_label2")
++    # offsets are over the cleaned (tag-stripped) text, monotonic and non-overlapping
++    assert spans[0].span_start < spans[0].span_end <= spans[1].span_start < spans[1].span_end
++
++
++def test_parse_cohere_citations_offsets_match_cleaned_text() -> None:
++    raw = "A <co>bb</co:d1> C <co>dddd</co:d2,d3> E"
++    spans = parse_cohere_citations(raw)
++    # cleaned text = "A bb C dddd E"; "bb" at [2,4), "dddd" at [7,11)
++    assert (spans[0].span_start, spans[0].span_end) == (2, 4)
++    assert (spans[1].span_start, spans[1].span_end) == (7, 11)
++    assert spans[1].doc_ids == ("d2", "d3")
++
++
++def test_parse_cohere_citations_empty_returns_empty_list() -> None:
++    assert parse_cohere_citations("") == []
++
++
++def test_parse_cohere_citations_no_spans_returns_empty_list() -> None:
++    assert parse_cohere_citations("plain answer with no co spans at all") == []
++
++
++def test_parse_cohere_citations_tolerates_span_without_doc_ids() -> None:
++    spans = parse_cohere_citations("text <co>covered</co:>")
++    assert len(spans) == 1
++    assert spans[0].doc_ids == ()
+diff --git a/tests/roles/test_sentinel_contract.py b/tests/roles/test_sentinel_contract.py
+new file mode 100644
+index 00000000..afd607b9
+--- /dev/null
++++ b/tests/roles/test_sentinel_contract.py
+@@ -0,0 +1,193 @@
++"""Contract tests for the Sentinel (Granite Guardian) groundedness parser.
++
++The LETHAL property under test: polarity is yes->UNGROUNDED / no->GROUNDED, and EVERY
++malformed input fails CLOSED to UNGROUNDED. There is NO input that yields a silent
++GROUNDED. Pure logic, no model, no network.
++"""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++import pytest
++
++from src.polaris_graph.roles.sentinel_contract import (
++    SentinelResult,
++    SentinelVerdict,
++    parse_sentinel_score,
++)
++
++_FIXTURES = Path(__file__).parent / "fixtures"
++
++
++def _read_fixture(name: str) -> str:
++    return (_FIXTURES / name).read_text(encoding="utf-8")
++
++
++# --- golden polarity ---------------------------------------------------------------
++def test_yes_maps_to_ungrounded_golden_fixture() -> None:
++    result = parse_sentinel_score(_read_fixture("sentinel_yes_ungrounded.txt"))
++    assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
++
++
++def test_no_maps_to_grounded_golden_fixture() -> None:
++    result = parse_sentinel_score(_read_fixture("sentinel_no_grounded.txt"))
++    assert result == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
++
++
++@pytest.mark.parametrize(
++    "raw",
++    [
++        "<score>yes</score>",
++        "<score>YES</score>",
++        "  <score>  Yes  </score>  ",
++        "<SCORE>yes</SCORE>",
++        "\n<score>yes</score>\n",
++    ],
++)
++def test_yes_variants_all_ungrounded(raw: str) -> None:
++    result = parse_sentinel_score(raw)
++    assert result.verdict is SentinelVerdict.UNGROUNDED
++    assert result.parsed_ok is True
++
++
++@pytest.mark.parametrize(
++    "raw",
++    [
++        "<score>no</score>",
++        "<score>NO</score>",
++        "  <score> No </score> ",
++    ],
++)
++def test_no_variants_all_grounded(raw: str) -> None:
++    result = parse_sentinel_score(raw)
++    assert result.verdict is SentinelVerdict.GROUNDED
++    assert result.parsed_ok is True
++
++
++# --- fail CLOSED on malformed/missing/ambiguous ------------------------------------
++@pytest.mark.parametrize(
++    "raw",
++    [
++        "",                              # empty
++        "   ",                           # whitespace only
++        "yes",                           # no tag at all
++        "<score></score>",              # empty body
++        "<score>maybe</score>",         # off-enum body
++        "<score>yes",                    # unclosed tag
++        "the model refused to answer",  # prose, no tag
++        "<score>yes</score><score>no</score>",  # ambiguous: disagreeing tags
++        "<score>no</score><score>no</score>",   # P0: duplicate AGREEING tags (was GROUNDED)
++        "<score>yes</score><score>yes</score>", # P0: duplicate agreeing tags
++        "<score>no</score>\n<score>no</score>", # P0: duplicate across newline
++        "<score>no</score><score>maybe",         # P0 iter-2: clean no + malformed 2nd tag (no close)
++        "<score>no</score><score>",              # P0 iter-2: clean no + stray open tag
++        "<score>yes</score><score>",             # P0 iter-2: clean yes + stray open tag
++        "<score>no< /score>",                    # malformed close (stray whitespace)
++        "<score>no</score></score>",             # extra stray close tag
++        "Reasoning: risk detected.\n<score>yes</score>",  # P1 iter-3: prose-wrapped (yes)
++        "prefix <score>no</score> suffix",                # P1 iter-3: prose-wrapped (no)
++        "<score>no</score> trailing rationale",           # P1 iter-3: trailing prose
++        "Reasoning: unsafe\n<score>no</score>",           # P1 iter-3: leading prose
++    ],
++)
++def test_malformed_fails_closed_to_ungrounded_with_flag(raw: str) -> None:
++    result = parse_sentinel_score(raw)
++    assert result.verdict is SentinelVerdict.UNGROUNDED
++    assert result.parsed_ok is False
++
++
++def test_duplicate_score_tags_fail_closed_codex_p0_regression() -> None:
++    """Codex sub-PR-2 diff iter-1 P0: more than one `<score>` tag MUST fail closed,
++    even when the tags agree. A set-of-distinct-values guard let two identical `no`
++    tags collapse to one and return GROUNDED with parsed_ok=True — a silent
++    grounded-on-bad-input path. Count occurrences, not distinct values.
++    """
++    for raw in (
++        "<score>no</score><score>no</score>",
++        "<score>NO</score>\n<score>no</score>",
++        "<score>yes</score><score>yes</score>",
++        "<score>no</score><score>no</score><score>no</score>",
++    ):
++        result = parse_sentinel_score(raw)
++        assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), raw
++
++
++def test_clean_tag_then_malformed_tag_fails_closed_codex_p0_iter2_regression() -> None:
++    """Codex sub-PR-2 diff iter-2 continuing P0: a clean `<score>no</score>` followed by
++    MALFORMED score markup (a second tag with no close, or a stray `<score>`) left exactly
++    one complete regex match and returned GROUNDED, parsed_ok=True. Counting raw opening/
++    closing tag occurrences closes it: any extra/partial score markup fails closed.
++    Codex's exact probes:
++    """
++    for raw in (
++        "<score>no</score><score>maybe",   # Codex probe 1
++        "<score>no</score><score>",        # Codex probe 2
++        "<score>yes</score><score>",
++        "<score>no< /score>",              # malformed close
++        "<score>no</score></score>",       # extra close
++    ):
++        result = parse_sentinel_score(raw)
++        assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), raw
++
++
++def test_prose_wrapped_score_fails_closed_codex_p1_iter3_regression() -> None:
++    """Codex sub-PR-2 diff iter-3 P1: a single clean `no` tag wrapped in arbitrary prose
++    returned (GROUNDED, parsed_ok=True). The strict full-match envelope means parsed_ok=True
++    is reserved for a lone `<score>yes|no</score>` (surrounding whitespace aside); any prose
++    fails closed to UNGROUNDED. Codex's exact probes:
++    """
++    for raw in (
++        "Reasoning: unsafe\n<score>no</score>",
++        "<score>no</score> trailing rationale",
++        "prefix <score>no</score> suffix",
++        "Reasoning: risk detected.\n<score>yes</score>",
++    ):
++        result = parse_sentinel_score(raw)
++        assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), raw
++
++
++def test_unicode_homoglyph_tag_fails_closed_codex_p1_iter4_regression() -> None:
++    """Codex sub-PR-2 diff iter-4 P1: Unicode case-folding under bare re.IGNORECASE accepted
++    homoglyphs (U+017F LONG S 'ſ' folds to 's'), so `<ſcore>no</ſcore>` returned
++    (GROUNDED, parsed_ok=True). re.ASCII restricts folding to a-z/A-Z so only the verified
++    ASCII envelope is trusted. Probes (all must fail closed to UNGROUNDED):
++    """
++    for raw in (
++        "<ſcore>no</ſcore>",   # Codex probe: <ſcore>no</ſcore>
++        "<score>no</ſcore>",        # mixed: ASCII open, homoglyph close
++        "<ſcore>yes</ſcore>",
++        "<ſcore>no</ſcore>",             # literal long-s (same as ſ)
++    ):
++        result = parse_sentinel_score(raw)
++        assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), repr(raw)
++
++
++def test_non_string_input_fails_closed() -> None:
++    # Defensive: a non-string (e.g. None from an upstream bug) must NOT crash into a
++    # silent GROUNDED. It fails closed.
++    result = parse_sentinel_score(None)  # type: ignore[arg-type]
++    assert result.verdict is SentinelVerdict.UNGROUNDED
++    assert result.parsed_ok is False
++
++
++# --- explicit anti-inversion guard (the lethal property) ---------------------------
++def test_yes_is_never_grounded_anti_inversion() -> None:
++    """`yes` (risk present) must NEVER, under any spelling/spacing, map to GROUNDED."""
++    for raw in (
++        "<score>yes</score>",
++        "<score>YES</score>",
++        "<score>  yes  </score>",
++        "<SCORE>Yes</SCORE>",
++    ):
++        result = parse_sentinel_score(raw)
++        assert result.verdict is not SentinelVerdict.GROUNDED, raw
++        assert result.verdict is SentinelVerdict.UNGROUNDED, raw
++
++
++def test_no_malformed_input_ever_returns_grounded() -> None:
++    """No malformed input may produce GROUNDED — the only safe failure side is UNGROUNDED."""
++    for raw in ("", "yes", "<score>maybe</score>", "garbage", "<score>no", None):
++        result = parse_sentinel_score(raw)  # type: ignore[arg-type]
++        if not result.parsed_ok:
++            assert result.verdict is SentinelVerdict.UNGROUNDED, repr(raw)
+
+codex
+I’m going to treat this as a final diff-gate review: focus only on execution/safety risks and specifically probe the Sentinel parse surface that previously leaked `GROUNDED`.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/roles/test_sentinel_contract.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/roles/sentinel_contract.py' in C:\POLARIS
+ succeeded in 950ms:
+"""Contract tests for the Sentinel (Granite Guardian) groundedness parser.
+
+The LETHAL property under test: polarity is yes->UNGROUNDED / no->GROUNDED, and EVERY
+malformed input fails CLOSED to UNGROUNDED. There is NO input that yields a silent
+GROUNDED. Pure logic, no model, no network.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from src.polaris_graph.roles.sentinel_contract import (
+    SentinelResult,
+    SentinelVerdict,
+    parse_sentinel_score,
+)
+
+_FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _read_fixture(name: str) -> str:
+    return (_FIXTURES / name).read_text(encoding="utf-8")
+
+
+# --- golden polarity ---------------------------------------------------------------
+def test_yes_maps_to_ungrounded_golden_fixture() -> None:
+    result = parse_sentinel_score(_read_fixture("sentinel_yes_ungrounded.txt"))
+    assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+
+
+def test_no_maps_to_grounded_golden_fixture() -> None:
+    result = parse_sentinel_score(_read_fixture("sentinel_no_grounded.txt"))
+    assert result == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "<score>yes</score>",
+        "<score>YES</score>",
+        "  <score>  Yes  </score>  ",
+        "<SCORE>yes</SCORE>",
+        "\n<score>yes</score>\n",
+    ],
+)
+def test_yes_variants_all_ungrounded(raw: str) -> None:
+    result = parse_sentinel_score(raw)
+    assert result.verdict is SentinelVerdict.UNGROUNDED
+    assert result.parsed_ok is True
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "<score>no</score>",
+        "<score>NO</score>",
+        "  <score> No </score> ",
+    ],
+)
+def test_no_variants_all_grounded(raw: str) -> None:
+    result = parse_sentinel_score(raw)
+    assert result.verdict is SentinelVerdict.GROUNDED
+    assert result.parsed_ok is True
+
+
+# --- fail CLOSED on malformed/missing/ambiguous ------------------------------------
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "",                              # empty
+        "   ",                           # whitespace only
+        "yes",                           # no tag at all
+        "<score></score>",              # empty body
+        "<score>maybe</score>",         # off-enum body
+        "<score>yes",                    # unclosed tag
+        "the model refused to answer",  # prose, no tag
+        "<score>yes</score><score>no</score>",  # ambiguous: disagreeing tags
+        "<score>no</score><score>no</score>",   # P0: duplicate AGREEING tags (was GROUNDED)
+        "<score>yes</score><score>yes</score>", # P0: duplicate agreeing tags
+        "<score>no</score>\n<score>no</score>", # P0: duplicate across newline
+        "<score>no</score><score>maybe",         # P0 iter-2: clean no + malformed 2nd tag (no close)
+        "<score>no</score><score>",              # P0 iter-2: clean no + stray open tag
+        "<score>yes</score><score>",             # P0 iter-2: clean yes + stray open tag
+        "<score>no< /score>",                    # malformed close (stray whitespace)
+        "<score>no</score></score>",             # extra stray close tag
+        "Reasoning: risk detected.\n<score>yes</score>",  # P1 iter-3: prose-wrapped (yes)
+        "prefix <score>no</score> suffix",                # P1 iter-3: prose-wrapped (no)
+        "<score>no</score> trailing rationale",           # P1 iter-3: trailing prose
+        "Reasoning: unsafe\n<score>no</score>",           # P1 iter-3: leading prose
+    ],
+)
+def test_malformed_fails_closed_to_ungrounded_with_flag(raw: str) -> None:
+    result = parse_sentinel_score(raw)
+    assert result.verdict is SentinelVerdict.UNGROUNDED
+    assert result.parsed_ok is False
+
+
+def test_duplicate_score_tags_fail_closed_codex_p0_regression() -> None:
+    """Codex sub-PR-2 diff iter-1 P0: more than one `<score>` tag MUST fail closed,
+    even when the tags agree. A set-of-distinct-values guard let two identical `no`
+    tags collapse to one and return GROUNDED with parsed_ok=True — a silent
+    grounded-on-bad-input path. Count occurrences, not distinct values.
+    """
+    for raw in (
+        "<score>no</score><score>no</score>",
+        "<score>NO</score>\n<score>no</score>",
+        "<score>yes</score><score>yes</score>",
+        "<score>no</score><score>no</score><score>no</score>",
+    ):
+        result = parse_sentinel_score(raw)
+        assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), raw
+
+
+def test_clean_tag_then_malformed_tag_fails_closed_codex_p0_iter2_regression() -> None:
+    """Codex sub-PR-2 diff iter-2 continuing P0: a clean `<score>no</score>` followed by
+    MALFORMED score markup (a second tag with no close, or a stray `<score>`) left exactly
+    one complete regex match and returned GROUNDED, parsed_ok=True. Counting raw opening/
+    closing tag occurrences closes it: any extra/partial score markup fails closed.
+    Codex's exact probes:
+    """
+    for raw in (
+        "<score>no</score><score>maybe",   # Codex probe 1
+        "<score>no</score><score>",        # Codex probe 2
+        "<score>yes</score><score>",
+        "<score>no< /score>",              # malformed close
+        "<score>no</score></score>",       # extra close
+    ):
+        result = parse_sentinel_score(raw)
+        assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), raw
+
+
+def test_prose_wrapped_score_fails_closed_codex_p1_iter3_regression() -> None:
+    """Codex sub-PR-2 diff iter-3 P1: a single clean `no` tag wrapped in arbitrary prose
+    returned (GROUNDED, parsed_ok=True). The strict full-match envelope means parsed_ok=True
+    is reserved for a lone `<score>yes|no</score>` (surrounding whitespace aside); any prose
+    fails closed to UNGROUNDED. Codex's exact probes:
+    """
+    for raw in (
+        "Reasoning: unsafe\n<score>no</score>",
+        "<score>no</score> trailing rationale",
+        "prefix <score>no</score> suffix",
+        "Reasoning: risk detected.\n<score>yes</score>",
+    ):
+        result = parse_sentinel_score(raw)
+        assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), raw
+
+
+def test_unicode_homoglyph_tag_fails_closed_codex_p1_iter4_regression() -> None:
+    """Codex sub-PR-2 diff iter-4 P1: Unicode case-folding under bare re.IGNORECASE accepted
+    homoglyphs (U+017F LONG S 'ſ' folds to 's'), so `<ſcore>no</ſcore>` returned
+    (GROUNDED, parsed_ok=True). re.ASCII restricts folding to a-z/A-Z so only the verified
+    ASCII envelope is trusted. Probes (all must fail closed to UNGROUNDED):
+    """
+    for raw in (
+        "<ſcore>no</ſcore>",   # Codex probe: <ſcore>no</ſcore>
+        "<score>no</ſcore>",        # mixed: ASCII open, homoglyph close
+        "<ſcore>yes</ſcore>",
+        "<ſcore>no</ſcore>",             # literal long-s (same as ſ)
+    ):
+        result = parse_sentinel_score(raw)
+        assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), repr(raw)
+
+
+def test_non_string_input_fails_closed() -> None:
+    # Defensive: a non-string (e.g. None from an upstream bug) must NOT crash into a
+    # silent GROUNDED. It fails closed.
+    result = parse_sentinel_score(None)  # type: ignore[arg-type]
+    assert result.verdict is SentinelVerdict.UNGROUNDED
+    assert result.parsed_ok is False
+
+
+# --- explicit anti-inversion guard (the lethal property) ---------------------------
+def test_yes_is_never_grounded_anti_inversion() -> None:
+    """`yes` (risk present) must NEVER, under any spelling/spacing, map to GROUNDED."""
+    for raw in (
+        "<score>yes</score>",
+        "<score>YES</score>",
+        "<score>  yes  </score>",
+        "<SCORE>Yes</SCORE>",
+    ):
+        result = parse_sentinel_score(raw)
+        assert result.verdict is not SentinelVerdict.GROUNDED, raw
+        assert result.verdict is SentinelVerdict.UNGROUNDED, raw
+
+
+def test_no_malformed_input_ever_returns_grounded() -> None:
+    """No malformed input may produce GROUNDED — the only safe failure side is UNGROUNDED."""
+    for raw in ("", "yes", "<score>maybe</score>", "garbage", "<score>no", None):
+        result = parse_sentinel_score(raw)  # type: ignore[arg-type]
+        if not result.parsed_ok:
+            assert result.verdict is SentinelVerdict.UNGROUNDED, repr(raw)
+
+ succeeded in 981ms:
+"""Sentinel (IBM Granite Guardian 4.1) groundedness contract — FAIL CLOSED.
+
+Granite Guardian groundedness polarity (primary source: ibm.com/granite/docs/models/guardian,
+confirmed in I-meta-002 iter-2 verdict F3):
+    output is `<score>yes|no</score>` (NOT JSON), where
+      yes = risk present       -> the answer is UNGROUNDED
+      no  = risk not present    -> the answer is GROUNDED
+
+This is the LETHAL inversion guard. The two failure modes that hurt patients are:
+  (1) silently reading `yes` as GROUNDED (polarity inversion), and
+  (2) silently defaulting an unparseable/missing/ambiguous output to GROUNDED.
+Both are prevented here: the polarity is hard-coded yes->UNGROUNDED, and EVERY
+non-clean parse falls to the safe side (UNGROUNDED) with parsed_ok=False so the
+caller can escalate. There is NO code path that returns GROUNDED on bad input.
+
+Contrast with `entailment_judge.py`, which fails OPEN on transient error; Sentinel
+deliberately fails CLOSED, so it is a SEPARATE contract, not a reuse.
+"""
+
+from __future__ import annotations
+
+import re
+from enum import Enum
+from typing import NamedTuple
+
+
+class SentinelVerdict(Enum):
+    """Groundedness verdict for one Sentinel score."""
+
+    GROUNDED = "grounded"
+    UNGROUNDED = "ungrounded"
+
+
+class SentinelResult(NamedTuple):
+    """Result of parsing one Sentinel `<score>` output.
+
+    Returned on EVERY path. `parsed_ok` is True only on a clean, unambiguous parse;
+    on any malformed/missing/ambiguous input it is False and `verdict` is forced to the
+    safe (UNGROUNDED) side so the caller can escalate rather than trust a bad score.
+    """
+
+    verdict: SentinelVerdict
+    parsed_ok: bool
+
+
+# The canonical Granite Guardian score tokens (LOCKED polarity, F3).
+_SCORE_TOKEN_YES = "yes"
+_SCORE_TOKEN_NO = "no"
+
+# Map the canonical score token to its groundedness verdict. yes=risk=UNGROUNDED.
+_SCORE_TOKEN_TO_VERDICT = {
+    _SCORE_TOKEN_YES: SentinelVerdict.UNGROUNDED,
+    _SCORE_TOKEN_NO: SentinelVerdict.GROUNDED,
+}
+
+# STRICT ENVELOPE: the WHOLE output must be exactly one `<score>yes|no</score>` element,
+# with only surrounding whitespace allowed (and inner whitespace around the token). We
+# `fullmatch` the entire raw string, so ANY surrounding prose, a second (even malformed)
+# score tag, stray markup, or an off-enum body fails the match and falls to the safe side.
+# This single anchored rule subsumes the weaker "count the matches/tags" guards (which let
+# `<score>no</score><score>maybe` and `prefix <score>no</score> suffix` slip through as a
+# silent GROUNDED — Codex sub-PR-2 diff P0 iter-1/iter-2 + P1 iter-3). The token group is
+# constrained to yes|no so a clean match can never carry an off-enum body.
+#
+# NOTE for PR4 (adapter): if the SERVED Granite Guardian build emits an additional token
+# (e.g. a trailing `<confidence>...` line) alongside the score, this contract must be
+# EXTENDED with that exact verified format — never loosened to "tag present anywhere".
+# `re.ASCII` is REQUIRED alongside IGNORECASE: without it, Unicode case-folding accepts
+# homoglyphs like U+017F LONG S ('ſ') as 's', so `<ſcore>no</ſcore>` would match and return
+# a silent GROUNDED (Codex sub-PR-2 diff P1 iter-4). ASCII mode folds only a-z/A-Z and limits
+# `\s` to ASCII whitespace, so the envelope must be the verified ASCII `<score>yes|no</score>`.
+_STRICT_SCORE_RE = re.compile(
+    r"\s*<score>\s*(yes|no)\s*</score>\s*", re.IGNORECASE | re.ASCII
+)
+
+
+def parse_sentinel_score(raw: str) -> SentinelResult:
+    """Parse a raw Granite Guardian groundedness output into a SentinelResult.
+
+    Mapping (LOCKED, F3): `<score>yes</score>` -> UNGROUNDED, `<score>no</score>` -> GROUNDED.
+    Case- and whitespace-tolerant.
+
+    FAIL CLOSED: any output that is not EXACTLY one `<score>yes|no</score>` element
+    (surrounding whitespace aside) -> UNGROUNDED with parsed_ok=False. NEVER returns
+    GROUNDED on bad input. Surrounding prose, a second/partial score tag, off-enum body,
+    missing tag, or non-string are ALL treated as failed parses, not best-effort guesses.
+    parsed_ok=True is reserved for a single clean score envelope.
+    """
+    if not isinstance(raw, str):
+        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
+
+    # Anchor on the WHOLE output. fullmatch fails on any prefix/suffix/extra/partial markup,
+    # so the only parsed_ok=True paths are a lone `<score>yes</score>` or `<score>no</score>`.
+    match = _STRICT_SCORE_RE.fullmatch(raw)
+    if match is None:
+        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
+
+    token = match.group(1).lower()
+    verdict = _SCORE_TOKEN_TO_VERDICT.get(token)
+    if verdict is None:
+        # Defensive: the regex constrains the group to yes|no, so this is unreachable;
+        # keep the fail-closed branch so a future regex change cannot leak GROUNDED.
+        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
+
+    return SentinelResult(verdict, parsed_ok=True)
+
+codex
+The actual parser in the workspace matches the pasted diff: it is a single `fullmatch` over an ASCII-flagged, case-insensitive envelope. That makes the accepting language very small; I’m checking the edge cases where Python regex flags can be surprising.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+import re
+from src.polaris_graph.roles.sentinel_contract import parse_sentinel_score, SentinelVerdict
+probes = [
+    '<ſcore>no</ſcore>', '<score>no</ſcore>', '<ſcore>yes</ſcore>',
+    '<score>no</score>', '<SCORE>NO</SCORE>', '\\u00a0<score>no</score>',
+    '<score>n\\u00f2</score>', '<score>no</score>\\u00a0', '<score> no </score>',
+]
+for p in probes:
+    r = parse_sentinel_score(p)
+    print(repr(p), r.verdict.value, r.parsed_ok)
+'@ | python -" in C:\POLARIS
+2026-05-29T08:26:52.377121Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.7 seconds
+Output:
+Traceback (most recent call last):
+  File "<stdin>", line 10, in <module>
+  File "C:\Python313\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u017f' in position 2: character maps to <undefined>
+
+ exited 1 in 1711ms:
+Traceback (most recent call last):
+  File "<stdin>", line 10, in <module>
+  File "C:\Python313\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u017f' in position 2: character maps to <undefined>
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONIOENCODING='"'utf-8'; @'
+from src.polaris_graph.roles.sentinel_contract import parse_sentinel_score
+probes = [
+    '<ſcore>no</ſcore>', '<score>no</ſcore>', '<ſcore>yes</ſcore>',
+    '<score>no</score>', '<SCORE>NO</SCORE>', '\\u00a0<score>no</score>',
+    '<score>n\\u00f2</score>', '<score>no</score>\\u00a0', '<score> no </score>',
+]
+for p in probes:
+    r = parse_sentinel_score(p)
+    print(p.encode('unicode_escape').decode('ascii'), r.verdict.value, r.parsed_ok)
+'@ | python -" in C:\POLARIS
+ succeeded in 1737ms:
+<\u017fcore>no</\u017fcore> ungrounded False
+<score>no</\u017fcore> ungrounded False
+<\u017fcore>yes</\u017fcore> ungrounded False
+<score>no</score> grounded True
+<SCORE>NO</SCORE> grounded True
+\xa0<score>no</score> ungrounded False
+<score>n\xf2</score> ungrounded False
+<score>no</score>\xa0 ungrounded False
+<score> no </score> grounded True
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest tests/roles/test_sentinel_contract.py -q' in C:\POLARIS
+2026-05-29T08:27:04.158033Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.5 seconds
+Output:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/roles/test_sentinel_contract.py -q[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ exited 1 in 2464ms:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/roles/test_sentinel_contract.py -q[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+codex
+A direct `pytest` invocation is not on this shell’s PATH, so I’m using the interpreter module form for local verification instead of treating the PATH issue as a code failure.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/roles/test_sentinel_contract.py -q' in C:\POLARIS
+ succeeded in 3842ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 37 items
+
+tests\roles\test_sentinel_contract.py .................................. [ 91%]
+...                                                                      [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 37 passed, 1 warning in 0.55s ========================
+
+codex
+The Sentinel regression suite passes under `python -m pytest`. I’m running the broader reported smoke once as a final consistency check because this is the last review iteration.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/roles tests/architecture tests/dr_benchmark -q' in C:\POLARIS
+2026-05-29T08:27:23.365320Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 7.4 seconds
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 206 items
+
+tests\roles\test_judge_contract.py ..........................            [ 12%]
+tests\roles\test_mirror_contract.py ..............                       [ 19%]
+tests\roles\test_sentinel_contract.py .................................. [ 35%]
+...                                                                      [ 37%]
+tests\architecture\test_runtime_lock.py ..............                   [ 44%]
+tests\dr_benchmark\test_claim_audit_scorer.py ............               [ 50%]
+tests\dr_benchmark\test_medhallu_adapter.py ............                 [ 55%]
+tests\dr_benchmark\test_pathB_capture.py .............                   [ 62%]
+tests\dr_benchmark\test_pathB_run_gate.py .............................. [ 76%]
+...............                                                          [ 83%]
+tests\dr_benchmark\test_pathB_runner.py EEE.EEEEE                        [ 88%]
+tests\dr_benchmark\test_pr3_pipeline.py ....E.....EEEEEEE...EEEE         [100%]
+
+=================================== ERRORS ====================================
+___________________ ERROR at setup of test_disabled_is_noop ___________________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+__________ ERROR at setup of test_enabled_pass_writes_pin_and_result __________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_______ ERROR at setup of test_enabled_fails_when_backend_not_attempted _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+________ ERROR at setup of test_gate_passes_without_system_fingerprint ________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_______________ ERROR at setup of test_salt_is_redacted_in_pin ________________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+______ ERROR at setup of test_preflight_fail_writes_result_and_sentinel _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+________ ERROR at setup of test_post_run_fail_writes_invalid_sentinel _________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_______ ERROR at setup of test_body_exception_propagates_without_assert _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+______________ ERROR at setup of test_ledger_dump_load_roundtrip ______________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_____ ERROR at setup of test_score_polaris_refuses_when_invalid_sentinel ______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+______ ERROR at setup of test_score_polaris_refuses_when_no_gate_result _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_________ ERROR at setup of test_score_polaris_refuses_when_gate_fail _________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_________ ERROR at setup of test_score_polaris_passes_with_gate_pass __________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+________ ERROR at setup of test_score_competitor_no_gate_check_needed _________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_______ ERROR at setup of test_score_rubric_ledger_sha_mismatch_raises ________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_____ ERROR at setup of test_p1_1_score_run_rejects_single_auditor_ledger _____
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+__ ERROR at setup of test_p2_3_build_rubric_json_deterministic_no_timestamp ___
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_____ ERROR at setup of test_p2_4_build_rubric_json_fails_closed_on_drift _____
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+________ ERROR at setup of test_p3_2_aggregate_escapes_pipe_in_reasons ________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+______ ERROR at setup of test_aggregate_renders_clinical_3_and_overall_5 ______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_disabled_is_noop - Permis...
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_enabled_pass_writes_pin_and_result
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_enabled_fails_when_backend_not_attempted
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_gate_passes_without_system_fingerprint
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_salt_is_redacted_in_pin
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_preflight_fail_writes_result_and_sentinel
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_post_run_fail_writes_invalid_sentinel
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_body_exception_propagates_without_assert
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_ledger_dump_load_roundtrip
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_refuses_when_invalid_sentinel
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_refuses_when_no_gate_result
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_refuses_when_gate_fail
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_passes_with_gate_pass
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_competitor_no_gate_check_needed
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_rubric_ledger_sha_mismatch_raises
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p1_1_score_run_rejects_single_auditor_ledger
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p2_3_build_rubric_json_deterministic_no_timestamp
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p2_4_build_rubric_json_fails_closed_on_drift
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p3_2_aggregate_escapes_pipe_in_reasons
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_aggregate_renders_clinical_3_and_overall_5
+================= 186 passed, 2 warnings, 20 errors in 3.89s ==================
+
+ exited 1 in 7401ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 206 items
+
+tests\roles\test_judge_contract.py ..........................            [ 12%]
+tests\roles\test_mirror_contract.py ..............                       [ 19%]
+tests\roles\test_sentinel_contract.py .................................. [ 35%]
+...                                                                      [ 37%]
+tests\architecture\test_runtime_lock.py ..............                   [ 44%]
+tests\dr_benchmark\test_claim_audit_scorer.py ............               [ 50%]
+tests\dr_benchmark\test_medhallu_adapter.py ............                 [ 55%]
+tests\dr_benchmark\test_pathB_capture.py .............                   [ 62%]
+tests\dr_benchmark\test_pathB_run_gate.py .............................. [ 76%]
+...............                                                          [ 83%]
+tests\dr_benchmark\test_pathB_runner.py EEE.EEEEE                        [ 88%]
+tests\dr_benchmark\test_pr3_pipeline.py ....E.....EEEEEEE...EEEE         [100%]
+
+=================================== ERRORS ====================================
+___________________ ERROR at setup of test_disabled_is_noop ___________________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+__________ ERROR at setup of test_enabled_pass_writes_pin_and_result __________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_______ ERROR at setup of test_enabled_fails_when_backend_not_attempted _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+________ ERROR at setup of test_gate_passes_without_system_fingerprint ________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_______________ ERROR at setup of test_salt_is_redacted_in_pin ________________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+______ ERROR at setup of test_preflight_fail_writes_result_and_sentinel _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+________ ERROR at setup of test_post_run_fail_writes_invalid_sentinel _________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_______ ERROR at setup of test_body_exception_propagates_without_assert _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+______________ ERROR at setup of test_ledger_dump_load_roundtrip ______________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_____ ERROR at setup of test_score_polaris_refuses_when_invalid_sentinel ______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+______ ERROR at setup of test_score_polaris_refuses_when_no_gate_result _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_________ ERROR at setup of test_score_polaris_refuses_when_gate_fail _________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_________ ERROR at setup of test_score_polaris_passes_with_gate_pass __________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+________ ERROR at setup of test_score_competitor_no_gate_check_needed _________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_______ ERROR at setup of test_score_rubric_ledger_sha_mismatch_raises ________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_____ ERROR at setup of test_p1_1_score_run_rejects_single_auditor_ledger _____
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+__ ERROR at setup of test_p2_3_build_rubric_json_deterministic_no_timestamp ___
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+_____ ERROR at setup of test_p2_4_build_rubric_json_fails_closed_on_drift _____
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+________ ERROR at setup of test_p3_2_aggregate_escapes_pipe_in_reasons ________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+______ ERROR at setup of test_aggregate_renders_clinical_3_and_overall_5 ______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'C:\\Users\\msn\\AppData\\Local\\Temp\\claude\\pytest-of-msn'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_disabled_is_noop - Permis...
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_enabled_pass_writes_pin_and_result
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_enabled_fails_when_backend_not_attempted
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_gate_passes_without_system_fingerprint
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_salt_is_redacted_in_pin
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_preflight_fail_writes_result_and_sentinel
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_post_run_fail_writes_invalid_sentinel
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_body_exception_propagates_without_assert
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_ledger_dump_load_roundtrip
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_refuses_when_invalid_sentinel
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_refuses_when_no_gate_result
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_refuses_when_gate_fail
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_passes_with_gate_pass
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_competitor_no_gate_check_needed
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_rubric_ledger_sha_mismatch_raises
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p1_1_score_run_rejects_single_auditor_ledger
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p2_3_build_rubric_json_deterministic_no_timestamp
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p2_4_build_rubric_json_fails_closed_on_drift
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p3_2_aggregate_escapes_pipe_in_reasons
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_aggregate_renders_clinical_3_and_overall_5
+================= 186 passed, 2 warnings, 20 errors in 3.89s ==================
+
+codex
+The broader smoke hit an environment temp-directory permission problem before the relevant tests executed, not an assertion failure. I’m rerouting pytest’s temp base to `C:\tmp` to separate environment noise from review signal.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:TMP='"'C:\\tmp'; "'$env:TEMP='"'C:\\tmp'; python -m pytest tests/roles tests/architecture tests/dr_benchmark -q --basetemp C:\\tmp\\polaris-pytest-codex" in C:\POLARIS
+2026-05-29T08:27:35.386031Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 7 seconds
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 206 items
+
+tests\roles\test_judge_contract.py ..........................            [ 12%]
+tests\roles\test_mirror_contract.py ..............                       [ 19%]
+tests\roles\test_sentinel_contract.py .................................. [ 35%]
+...                                                                      [ 37%]
+tests\architecture\test_runtime_lock.py ..............                   [ 44%]
+tests\dr_benchmark\test_claim_audit_scorer.py ............               [ 50%]
+tests\dr_benchmark\test_medhallu_adapter.py ............                 [ 55%]
+tests\dr_benchmark\test_pathB_capture.py .............                   [ 62%]
+tests\dr_benchmark\test_pathB_run_gate.py .............................. [ 76%]
+...............                                                          [ 83%]
+tests\dr_benchmark\test_pathB_runner.py EEE.EEEEE                        [ 88%]
+tests\dr_benchmark\test_pr3_pipeline.py ....E.....EEEEEEE...EEEE         [100%]
+
+=================================== ERRORS ====================================
+___________________ ERROR at setup of test_disabled_is_noop ___________________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+__________ ERROR at setup of test_enabled_pass_writes_pin_and_result __________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_______ ERROR at setup of test_enabled_fails_when_backend_not_attempted _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+________ ERROR at setup of test_gate_passes_without_system_fingerprint ________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_______________ ERROR at setup of test_salt_is_redacted_in_pin ________________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+______ ERROR at setup of test_preflight_fail_writes_result_and_sentinel _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+________ ERROR at setup of test_post_run_fail_writes_invalid_sentinel _________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_______ ERROR at setup of test_body_exception_propagates_without_assert _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+______________ ERROR at setup of test_ledger_dump_load_roundtrip ______________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_____ ERROR at setup of test_score_polaris_refuses_when_invalid_sentinel ______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+______ ERROR at setup of test_score_polaris_refuses_when_no_gate_result _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_________ ERROR at setup of test_score_polaris_refuses_when_gate_fail _________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_________ ERROR at setup of test_score_polaris_passes_with_gate_pass __________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+________ ERROR at setup of test_score_competitor_no_gate_check_needed _________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_______ ERROR at setup of test_score_rubric_ledger_sha_mismatch_raises ________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_____ ERROR at setup of test_p1_1_score_run_rejects_single_auditor_ledger _____
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+__ ERROR at setup of test_p2_3_build_rubric_json_deterministic_no_timestamp ___
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_____ ERROR at setup of test_p2_4_build_rubric_json_fails_closed_on_drift _____
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+________ ERROR at setup of test_p3_2_aggregate_escapes_pipe_in_reasons ________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+______ ERROR at setup of test_aggregate_renders_clinical_3_and_overall_5 ______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_disabled_is_noop - Permis...
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_enabled_pass_writes_pin_and_result
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_enabled_fails_when_backend_not_attempted
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_gate_passes_without_system_fingerprint
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_salt_is_redacted_in_pin
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_preflight_fail_writes_result_and_sentinel
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_post_run_fail_writes_invalid_sentinel
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_body_exception_propagates_without_assert
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_ledger_dump_load_roundtrip
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_refuses_when_invalid_sentinel
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_refuses_when_no_gate_result
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_refuses_when_gate_fail
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_passes_with_gate_pass
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_competitor_no_gate_check_needed
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_rubric_ledger_sha_mismatch_raises
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p1_1_score_run_rejects_single_auditor_ledger
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p2_3_build_rubric_json_deterministic_no_timestamp
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p2_4_build_rubric_json_fails_closed_on_drift
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p3_2_aggregate_escapes_pipe_in_reasons
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_aggregate_renders_clinical_3_and_overall_5
+================= 186 passed, 2 warnings, 20 errors in 3.68s ==================
+
+ exited 1 in 7046ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 206 items
+
+tests\roles\test_judge_contract.py ..........................            [ 12%]
+tests\roles\test_mirror_contract.py ..............                       [ 19%]
+tests\roles\test_sentinel_contract.py .................................. [ 35%]
+...                                                                      [ 37%]
+tests\architecture\test_runtime_lock.py ..............                   [ 44%]
+tests\dr_benchmark\test_claim_audit_scorer.py ............               [ 50%]
+tests\dr_benchmark\test_medhallu_adapter.py ............                 [ 55%]
+tests\dr_benchmark\test_pathB_capture.py .............                   [ 62%]
+tests\dr_benchmark\test_pathB_run_gate.py .............................. [ 76%]
+...............                                                          [ 83%]
+tests\dr_benchmark\test_pathB_runner.py EEE.EEEEE                        [ 88%]
+tests\dr_benchmark\test_pr3_pipeline.py ....E.....EEEEEEE...EEEE         [100%]
+
+=================================== ERRORS ====================================
+___________________ ERROR at setup of test_disabled_is_noop ___________________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+__________ ERROR at setup of test_enabled_pass_writes_pin_and_result __________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_______ ERROR at setup of test_enabled_fails_when_backend_not_attempted _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+________ ERROR at setup of test_gate_passes_without_system_fingerprint ________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_______________ ERROR at setup of test_salt_is_redacted_in_pin ________________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+______ ERROR at setup of test_preflight_fail_writes_result_and_sentinel _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+________ ERROR at setup of test_post_run_fail_writes_invalid_sentinel _________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_______ ERROR at setup of test_body_exception_propagates_without_assert _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+______________ ERROR at setup of test_ledger_dump_load_roundtrip ______________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_____ ERROR at setup of test_score_polaris_refuses_when_invalid_sentinel ______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+______ ERROR at setup of test_score_polaris_refuses_when_no_gate_result _______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_________ ERROR at setup of test_score_polaris_refuses_when_gate_fail _________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_________ ERROR at setup of test_score_polaris_passes_with_gate_pass __________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+________ ERROR at setup of test_score_competitor_no_gate_check_needed _________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_______ ERROR at setup of test_score_rubric_ledger_sha_mismatch_raises ________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_____ ERROR at setup of test_p1_1_score_run_rejects_single_auditor_ledger _____
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+__ ERROR at setup of test_p2_3_build_rubric_json_deterministic_no_timestamp ___
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+_____ ERROR at setup of test_p2_4_build_rubric_json_fails_closed_on_drift _____
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+________ ERROR at setup of test_p3_2_aggregate_escapes_pipe_in_reasons ________
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+______ ERROR at setup of test_aggregate_renders_clinical_3_and_overall_5 ______
+C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\pytest_asyncio\plugin.py:681: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+C:\Python313\Lib\pathlib\_local.py:722: in mkdir
+    os.mkdir(self, mode)
+E   PermissionError: [WinError 5] Access is denied: 'C:\\tmp\\polaris-pytest-codex'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_disabled_is_noop - Permis...
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_enabled_pass_writes_pin_and_result
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_enabled_fails_when_backend_not_attempted
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_gate_passes_without_system_fingerprint
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_salt_is_redacted_in_pin
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_preflight_fail_writes_result_and_sentinel
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_post_run_fail_writes_invalid_sentinel
+ERROR tests/dr_benchmark/test_pathB_runner.py::test_body_exception_propagates_without_assert
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_ledger_dump_load_roundtrip
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_refuses_when_invalid_sentinel
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_refuses_when_no_gate_result
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_refuses_when_gate_fail
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_polaris_passes_with_gate_pass
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_competitor_no_gate_check_needed
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_score_rubric_ledger_sha_mismatch_raises
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p1_1_score_run_rejects_single_auditor_ledger
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p2_3_build_rubric_json_deterministic_no_timestamp
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p2_4_build_rubric_json_fails_closed_on_drift
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_p3_2_aggregate_escapes_pipe_in_reasons
+ERROR tests/dr_benchmark/test_pr3_pipeline.py::test_aggregate_renders_clinical_3_and_overall_5
+================= 186 passed, 2 warnings, 20 errors in 3.68s ==================
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Force C:\\tmp | Select-Object -First 20 | Format-Table -AutoSize" in C:\POLARIS
+ succeeded in 769ms:
+
+    Directory: C:\tmp
+
+[32;1mMode [0m[32;1m       LastWriteTime[0m [32;1;3m  Length[0m[32;1m Name[0m
+[32;1m---- [0m [32;1m      -------------[0m [32;1m  ------[0m [32;1m----[0m
+d---- 2026-05-11  2:23 PM          [44;1m__pycache__[0m
+d---- 2026-02-23 12:10 AM          [44;1mclaude[0m
+d---- 2026-04-10 11:33 PM          [44;1mocr_C-POLAR_Effectiveness_Virus_Bacteria_Molds[0m
+d---- 2026-04-10 11:33 PM          [44;1mocr_C-POLAR_for_Wildfire_Smoke[0m
+d---- 2026-04-10 11:33 PM          [44;1mocr_C-POLAR_Indoor_Airborne_Threats[0m
+d---- 2026-04-11 12:06 AM          [44;1mpdf_downloads[0m
+d---- 2026-03-25 11:31 AM          [44;1mpdf_images_1[0m
+d---- 2026-03-25 11:32 AM          [44;1mpdf_pages[0m
+d---- 2026-05-06  3:37 PM          [44;1mwe_control_neuron_session_archive_2026-05-05[0m
+d---- 2026-05-09 12:31 AM          [44;1mwec_vault_tls[0m
+-a--- 2026-04-18  1:45 PM     1960 _orphan_scripts.txt
+-a--- 2026-05-13  2:22 AM    43631 a.pdf
+-a--- 2025-10-29  7:35 AM     7298 [32;1mapply_all_fixes.py[0m
+-a--- 2026-03-24 11:51 AM   639178 atccr_p2.png
+-a--- 2026-03-24 11:51 AM  1231994 atccr_p3.png
+-a--- 2026-03-24 11:52 AM  1445106 atccr_p4.png
+-a--- 2026-02-21 11:24 PM    25010 audit_results.txt
+-a--- 2026-05-08  5:17 PM    41425 auto_proof.json
+-a--- 2026-05-20 12:44 AM 16886539 aws_f12_audit_requests.json
+-a--- 2026-05-23 12:02 AM      632 axe_summary.json
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'C:\\tmp\\codex_write_probe_' + [guid]::NewGuid().ToString('N'); New-Item -ItemType Directory -Path "'$p | Out-Null; Write-Output $p; Remove-Item -LiteralPath $p' in C:\POLARIS
+2026-05-29T08:27:43.101050Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.8 seconds
+Output:
+C:\tmp\codex_write_probe_ca5b4ba7fb7e441ba9f92f150666c2a9
+[31;1mNew-Item: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … ewGuid().ToString('N'); [36;1mNew-Item -ItemType Directory -Path $p[0m | Out-N …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAccess to the path 'C:\tmp\codex_write_probe_ca5b4ba7fb7e441ba9f92f150666c2a9' is denied.[0m
+[31;1mRemove-Item: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … ory -Path $p | Out-Null; Write-Output $p; [36;1mRemove-Item -LiteralPath $p[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\tmp\codex_write_probe_ca5b4ba7fb7e441ba9f92f150666c2a9' because it does not exist.[0m
+
+ exited 1 in 819ms:
+C:\tmp\codex_write_probe_ca5b4ba7fb7e441ba9f92f150666c2a9
+[31;1mNew-Item: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … ewGuid().ToString('N'); [36;1mNew-Item -ItemType Directory -Path $p[0m | Out-N …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAccess to the path 'C:\tmp\codex_write_probe_ca5b4ba7fb7e441ba9f92f150666c2a9' is denied.[0m
+[31;1mRemove-Item: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … ory -Path $p | Out-Null; Write-Output $p; [36;1mRemove-Item -LiteralPath $p[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\tmp\codex_write_probe_ca5b4ba7fb7e441ba9f92f150666c2a9' because it does not exist.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- src/polaris_graph/roles/sentinel_contract.py tests/roles/test_sentinel_contract.py' in C:\POLARIS
+ succeeded in 666ms:
+diff --git a/src/polaris_graph/roles/sentinel_contract.py b/src/polaris_graph/roles/sentinel_contract.py
+new file mode 100644
+index 00000000..dc6c93bc
+--- /dev/null
++++ b/src/polaris_graph/roles/sentinel_contract.py
+@@ -0,0 +1,105 @@
++"""Sentinel (IBM Granite Guardian 4.1) groundedness contract — FAIL CLOSED.
++
++Granite Guardian groundedness polarity (primary source: ibm.com/granite/docs/models/guardian,
++confirmed in I-meta-002 iter-2 verdict F3):
++    output is `<score>yes|no</score>` (NOT JSON), where
++      yes = risk present       -> the answer is UNGROUNDED
++      no  = risk not present    -> the answer is GROUNDED
++
++This is the LETHAL inversion guard. The two failure modes that hurt patients are:
++  (1) silently reading `yes` as GROUNDED (polarity inversion), and
++  (2) silently defaulting an unparseable/missing/ambiguous output to GROUNDED.
++Both are prevented here: the polarity is hard-coded yes->UNGROUNDED, and EVERY
++non-clean parse falls to the safe side (UNGROUNDED) with parsed_ok=False so the
++caller can escalate. There is NO code path that returns GROUNDED on bad input.
++
++Contrast with `entailment_judge.py`, which fails OPEN on transient error; Sentinel
++deliberately fails CLOSED, so it is a SEPARATE contract, not a reuse.
++"""
++
++from __future__ import annotations
++
++import re
++from enum import Enum
++from typing import NamedTuple
++
++
++class SentinelVerdict(Enum):
++    """Groundedness verdict for one Sentinel score."""
++
++    GROUNDED = "grounded"
++    UNGROUNDED = "ungrounded"
++
++
++class SentinelResult(NamedTuple):
++    """Result of parsing one Sentinel `<score>` output.
++
++    Returned on EVERY path. `parsed_ok` is True only on a clean, unambiguous parse;
++    on any malformed/missing/ambiguous input it is False and `verdict` is forced to the
++    safe (UNGROUNDED) side so the caller can escalate rather than trust a bad score.
++    """
++
++    verdict: SentinelVerdict
++    parsed_ok: bool
++
++
++# The canonical Granite Guardian score tokens (LOCKED polarity, F3).
++_SCORE_TOKEN_YES = "yes"
++_SCORE_TOKEN_NO = "no"
++
++# Map the canonical score token to its groundedness verdict. yes=risk=UNGROUNDED.
++_SCORE_TOKEN_TO_VERDICT = {
++    _SCORE_TOKEN_YES: SentinelVerdict.UNGROUNDED,
++    _SCORE_TOKEN_NO: SentinelVerdict.GROUNDED,
++}
++
++# STRICT ENVELOPE: the WHOLE output must be exactly one `<score>yes|no</score>` element,
++# with only surrounding whitespace allowed (and inner whitespace around the token). We
++# `fullmatch` the entire raw string, so ANY surrounding prose, a second (even malformed)
++# score tag, stray markup, or an off-enum body fails the match and falls to the safe side.
++# This single anchored rule subsumes the weaker "count the matches/tags" guards (which let
++# `<score>no</score><score>maybe` and `prefix <score>no</score> suffix` slip through as a
++# silent GROUNDED — Codex sub-PR-2 diff P0 iter-1/iter-2 + P1 iter-3). The token group is
++# constrained to yes|no so a clean match can never carry an off-enum body.
++#
++# NOTE for PR4 (adapter): if the SERVED Granite Guardian build emits an additional token
++# (e.g. a trailing `<confidence>...` line) alongside the score, this contract must be
++# EXTENDED with that exact verified format — never loosened to "tag present anywhere".
++# `re.ASCII` is REQUIRED alongside IGNORECASE: without it, Unicode case-folding accepts
++# homoglyphs like U+017F LONG S ('ſ') as 's', so `<ſcore>no</ſcore>` would match and return
++# a silent GROUNDED (Codex sub-PR-2 diff P1 iter-4). ASCII mode folds only a-z/A-Z and limits
++# `\s` to ASCII whitespace, so the envelope must be the verified ASCII `<score>yes|no</score>`.
++_STRICT_SCORE_RE = re.compile(
++    r"\s*<score>\s*(yes|no)\s*</score>\s*", re.IGNORECASE | re.ASCII
++)
++
++
++def parse_sentinel_score(raw: str) -> SentinelResult:
++    """Parse a raw Granite Guardian groundedness output into a SentinelResult.
++
++    Mapping (LOCKED, F3): `<score>yes</score>` -> UNGROUNDED, `<score>no</score>` -> GROUNDED.
++    Case- and whitespace-tolerant.
++
++    FAIL CLOSED: any output that is not EXACTLY one `<score>yes|no</score>` element
++    (surrounding whitespace aside) -> UNGROUNDED with parsed_ok=False. NEVER returns
++    GROUNDED on bad input. Surrounding prose, a second/partial score tag, off-enum body,
++    missing tag, or non-string are ALL treated as failed parses, not best-effort guesses.
++    parsed_ok=True is reserved for a single clean score envelope.
++    """
++    if not isinstance(raw, str):
++        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
++
++    # Anchor on the WHOLE output. fullmatch fails on any prefix/suffix/extra/partial markup,
++    # so the only parsed_ok=True paths are a lone `<score>yes</score>` or `<score>no</score>`.
++    match = _STRICT_SCORE_RE.fullmatch(raw)
++    if match is None:
++        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
++
++    token = match.group(1).lower()
++    verdict = _SCORE_TOKEN_TO_VERDICT.get(token)
++    if verdict is None:
++        # Defensive: the regex constrains the group to yes|no, so this is unreachable;
++        # keep the fail-closed branch so a future regex change cannot leak GROUNDED.
++        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
++
++    return SentinelResult(verdict, parsed_ok=True)
+diff --git a/tests/roles/test_sentinel_contract.py b/tests/roles/test_sentinel_contract.py
+new file mode 100644
+index 00000000..afd607b9
+--- /dev/null
++++ b/tests/roles/test_sentinel_contract.py
+@@ -0,0 +1,193 @@
++"""Contract tests for the Sentinel (Granite Guardian) groundedness parser.
++
++The LETHAL property under test: polarity is yes->UNGROUNDED / no->GROUNDED, and EVERY
++malformed input fails CLOSED to UNGROUNDED. There is NO input that yields a silent
++GROUNDED. Pure logic, no model, no network.
++"""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++import pytest
++
++from src.polaris_graph.roles.sentinel_contract import (
++    SentinelResult,
++    SentinelVerdict,
++    parse_sentinel_score,
++)
++
++_FIXTURES = Path(__file__).parent / "fixtures"
++
++
++def _read_fixture(name: str) -> str:
++    return (_FIXTURES / name).read_text(encoding="utf-8")
++
++
++# --- golden polarity ---------------------------------------------------------------
++def test_yes_maps_to_ungrounded_golden_fixture() -> None:
++    result = parse_sentinel_score(_read_fixture("sentinel_yes_ungrounded.txt"))
++    assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
++
++
++def test_no_maps_to_grounded_golden_fixture() -> None:
++    result = parse_sentinel_score(_read_fixture("sentinel_no_grounded.txt"))
++    assert result == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
++
++
++@pytest.mark.parametrize(
++    "raw",
++    [
++        "<score>yes</score>",
++        "<score>YES</score>",
++        "  <score>  Yes  </score>  ",
++        "<SCORE>yes</SCORE>",
++        "\n<score>yes</score>\n",
++    ],
++)
++def test_yes_variants_all_ungrounded(raw: str) -> None:
++    result = parse_sentinel_score(raw)
++    assert result.verdict is SentinelVerdict.UNGROUNDED
++    assert result.parsed_ok is True
++
++
++@pytest.mark.parametrize(
++    "raw",
++    [
++        "<score>no</score>",
++        "<score>NO</score>",
++        "  <score> No </score> ",
++    ],
++)
++def test_no_variants_all_grounded(raw: str) -> None:
++    result = parse_sentinel_score(raw)
++    assert result.verdict is SentinelVerdict.GROUNDED
++    assert result.parsed_ok is True
++
++
++# --- fail CLOSED on malformed/missing/ambiguous ------------------------------------
++@pytest.mark.parametrize(
++    "raw",
++    [
++        "",                              # empty
++        "   ",                           # whitespace only
++        "yes",                           # no tag at all
++        "<score></score>",              # empty body
++        "<score>maybe</score>",         # off-enum body
++        "<score>yes",                    # unclosed tag
++        "the model refused to answer",  # prose, no tag
++        "<score>yes</score><score>no</score>",  # ambiguous: disagreeing tags
++        "<score>no</score><score>no</score>",   # P0: duplicate AGREEING tags (was GROUNDED)
++        "<score>yes</score><score>yes</score>", # P0: duplicate agreeing tags
++        "<score>no</score>\n<score>no</score>", # P0: duplicate across newline
++        "<score>no</score><score>maybe",         # P0 iter-2: clean no + malformed 2nd tag (no close)
++        "<score>no</score><score>",              # P0 iter-2: clean no + stray open tag
++        "<score>yes</score><score>",             # P0 iter-2: clean yes + stray open tag
++        "<score>no< /score>",                    # malformed close (stray whitespace)
++        "<score>no</score></score>",             # extra stray close tag
++        "Reasoning: risk detected.\n<score>yes</score>",  # P1 iter-3: prose-wrapped (yes)
++        "prefix <score>no</score> suffix",                # P1 iter-3: prose-wrapped (no)
++        "<score>no</score> trailing rationale",           # P1 iter-3: trailing prose
++        "Reasoning: unsafe\n<score>no</score>",           # P1 iter-3: leading prose
++    ],
++)
++def test_malformed_fails_closed_to_ungrounded_with_flag(raw: str) -> None:
++    result = parse_sentinel_score(raw)
++    assert result.verdict is SentinelVerdict.UNGROUNDED
++    assert result.parsed_ok is False
++
++
++def test_duplicate_score_tags_fail_closed_codex_p0_regression() -> None:
++    """Codex sub-PR-2 diff iter-1 P0: more than one `<score>` tag MUST fail closed,
++    even when the tags agree. A set-of-distinct-values guard let two identical `no`
++    tags collapse to one and return GROUNDED with parsed_ok=True — a silent
++    grounded-on-bad-input path. Count occurrences, not distinct values.
++    """
++    for raw in (
++        "<score>no</score><score>no</score>",
++        "<score>NO</score>\n<score>no</score>",
++        "<score>yes</score><score>yes</score>",
++        "<score>no</score><score>no</score><score>no</score>",
++    ):
++        result = parse_sentinel_score(raw)
++        assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), raw
++
++
++def test_clean_tag_then_malformed_tag_fails_closed_codex_p0_iter2_regression() -> None:
++    """Codex sub-PR-2 diff iter-2 continuing P0: a clean `<score>no</score>` followed by
++    MALFORMED score markup (a second tag with no close, or a stray `<score>`) left exactly
++    one complete regex match and returned GROUNDED, parsed_ok=True. Counting raw opening/
++    closing tag occurrences closes it: any extra/partial score markup fails closed.
++    Codex's exact probes:
++    """
++    for raw in (
++        "<score>no</score><score>maybe",   # Codex probe 1
++        "<score>no</score><score>",        # Codex probe 2
++        "<score>yes</score><score>",
++        "<score>no< /score>",              # malformed close
++        "<score>no</score></score>",       # extra close
++    ):
++        result = parse_sentinel_score(raw)
++        assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), raw
++
++
++def test_prose_wrapped_score_fails_closed_codex_p1_iter3_regression() -> None:
++    """Codex sub-PR-2 diff iter-3 P1: a single clean `no` tag wrapped in arbitrary prose
++    returned (GROUNDED, parsed_ok=True). The strict full-match envelope means parsed_ok=True
++    is reserved for a lone `<score>yes|no</score>` (surrounding whitespace aside); any prose
++    fails closed to UNGROUNDED. Codex's exact probes:
++    """
++    for raw in (
++        "Reasoning: unsafe\n<score>no</score>",
++        "<score>no</score> trailing rationale",
++        "prefix <score>no</score> suffix",
++        "Reasoning: risk detected.\n<score>yes</score>",
++    ):
++        result = parse_sentinel_score(raw)
++        assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), raw
++
++
++def test_unicode_homoglyph_tag_fails_closed_codex_p1_iter4_regression() -> None:
++    """Codex sub-PR-2 diff iter-4 P1: Unicode case-folding under bare re.IGNORECASE accepted
++    homoglyphs (U+017F LONG S 'ſ' folds to 's'), so `<ſcore>no</ſcore>` returned
++    (GROUNDED, parsed_ok=True). re.ASCII restricts folding to a-z/A-Z so only the verified
++    ASCII envelope is trusted. Probes (all must fail closed to UNGROUNDED):
++    """
++    for raw in (
++        "<ſcore>no</ſcore>",   # Codex probe: <ſcore>no</ſcore>
++        "<score>no</ſcore>",        # mixed: ASCII open, homoglyph close
++        "<ſcore>yes</ſcore>",
++        "<ſcore>no</ſcore>",             # literal long-s (same as ſ)
++    ):
++        result = parse_sentinel_score(raw)
++        assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), repr(raw)
++
++
++def test_non_string_input_fails_closed() -> None:
++    # Defensive: a non-string (e.g. None from an upstream bug) must NOT crash into a
++    # silent GROUNDED. It fails closed.
++    result = parse_sentinel_score(None)  # type: ignore[arg-type]
++    assert result.verdict is SentinelVerdict.UNGROUNDED
++    assert result.parsed_ok is False
++
++
++# --- explicit anti-inversion guard (the lethal property) ---------------------------
++def test_yes_is_never_grounded_anti_inversion() -> None:
++    """`yes` (risk present) must NEVER, under any spelling/spacing, map to GROUNDED."""
++    for raw in (
++        "<score>yes</score>",
++        "<score>YES</score>",
++        "<score>  yes  </score>",
++        "<SCORE>Yes</SCORE>",
++    ):
++        result = parse_sentinel_score(raw)
++        assert result.verdict is not SentinelVerdict.GROUNDED, raw
++        assert result.verdict is SentinelVerdict.UNGROUNDED, raw
++
++
++def test_no_malformed_input_ever_returns_grounded() -> None:
++    """No malformed input may produce GROUNDED — the only safe failure side is UNGROUNDED."""
++    for raw in ("", "yes", "<score>maybe</score>", "garbage", "<score>no", None):
++        result = parse_sentinel_score(raw)  # type: ignore[arg-type]
++        if not result.parsed_ok:
++            assert result.verdict is SentinelVerdict.UNGROUNDED, repr(raw)
+warning: in the working copy of 'src/polaris_graph/roles/sentinel_contract.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/roles/test_sentinel_contract.py', LF will be replaced by CRLF the next time Git touches it
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+```
+tokens used
+59,357
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+```
