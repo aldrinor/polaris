@@ -52,7 +52,9 @@ from scripts.dr_benchmark.pathB_run_gate import (
 from scripts.dr_benchmark.reconcile import reconcile
 from scripts.dr_benchmark.run_gate_b import make_gate_b_input_builder
 from scripts.dr_benchmark.score_run import score_one
+from src.polaris_graph.nodes.scope_gate import load_scope_template
 from src.polaris_graph.roles.mirror_contract import CitationSpan
+from src.polaris_graph.roles.native_gate_b_inputs import load_required_entities
 from src.polaris_graph.roles.role_transport import (
     RoleRequest,
     RoleResponse,
@@ -68,9 +70,25 @@ from src.polaris_graph.roles.sweep_integration import (
 DEFAULT_TIMESTAMP = "2026-05-29T00:00:00Z"
 
 # The annotated NON-benchmark contract this E2E runs the seam over (operator-locked native
-# config; NOT a benchmark gold rubric).
-CLINICAL_TEMPLATE_PATH = "config/scope_templates/clinical.yaml"
+# config; NOT a benchmark gold rubric). Resolved by domain through scope_gate.load_scope_template.
 TIRZEPATIDE_SLUG = "clinical_tirzepatide_t2dm"
+# The native CLINICAL domain key the tirzepatide contract lives under. The harness now resolves
+# templates through the SAME production path SWEEP_QUERIES uses — `load_scope_template(domain)` —
+# so the tirzepatide default routes through the identical seam as the 5 benchmark questions.
+TIRZEPATIDE_DOMAIN = "clinical"
+
+# I-meta-002 PR-11b: the 5 wired benchmark slugs and the EXACT required-element COUNT each one's
+# frozen PR-10 native contract declares (the right denominator per question — proven against the
+# template, not hardcoded into the builder). The slug->domain ROUTING is NOT hardcoded here: it is
+# looked up from the SWEEP_QUERIES registration (`lookup_benchmark_query`) so a routing typo in the
+# registration fails the test. Counts: drb_75=6, drb_76=5, drb_78=5, drb_72=7, drb_90=6.
+BENCHMARK_SLUG_EXPECTED_ENTITY_COUNT = {
+    "drb_75_metal_ions_cvd": 6,
+    "drb_76_gut_microbiota_crc": 5,
+    "drb_78_parkinsons_dbs": 5,
+    "drb_72_ai_labor": 7,
+    "drb_90_adas_liability": 6,
+}
 
 # Canonical 5-enum verdict tokens the fake Judge may emit (mirror judge_contract.JUDGE_CHOICES;
 # the harness only needs the two polarities the §-1.1 evaluator_agrees rule distinguishes).
@@ -87,6 +105,83 @@ FABRICATED_CLAIM_MARKER = "[[offline-e2e-fabricated]]"
 # logic offline, exactly as tests/dr_benchmark/test_pathB_run_gate.py does.
 MIRROR_SLUG = "cohere/command-a-plus"
 SELF_HOST_BASE_URL = "http://10.0.0.5:8000"
+
+
+# ---------------------------------------------------------------------------------------------
+# Benchmark routing — resolve a slug -> its SWEEP_QUERIES domain -> its native contract.
+# This is the WIRING proof: the same path production uses (SWEEP_QUERIES registration -> the
+# question's domain -> load_scope_template(domain) -> load_required_entities(template, slug)).
+# ---------------------------------------------------------------------------------------------
+def lookup_benchmark_query(slug: str) -> dict:
+    """Return the SWEEP_QUERIES registration entry for `slug` (fail closed if unregistered).
+
+    Imported LAZILY (inside the call) so this module stays import-safe: importing
+    `scripts.dr_benchmark.offline_e2e` performs NO I/O and pulls no big sweep file at module
+    load. A slug that is not registered — or a registration that lost its `domain` — fails LOUD
+    here (a missing/typo'd registration must fail the wiring proof, never silently default).
+    """
+    from scripts.run_honest_sweep_r3 import SWEEP_QUERIES
+
+    matches = [q for q in SWEEP_QUERIES if q.get("slug") == slug]
+    if not matches:
+        raise ValueError(
+            f"lookup_benchmark_query: slug {slug!r} is not registered in SWEEP_QUERIES; the "
+            f"4-role wiring proof requires the question to be routed by its registration "
+            f"(fail-closed, no hardcoded slug->domain fallback)."
+        )
+    if len(matches) > 1:
+        raise ValueError(
+            f"lookup_benchmark_query: slug {slug!r} is registered {len(matches)} times in "
+            f"SWEEP_QUERIES; a benchmark slug must route to exactly one domain (fail-closed)."
+        )
+    entry = matches[0]
+    if not entry.get("domain"):
+        raise ValueError(
+            f"lookup_benchmark_query: SWEEP_QUERIES entry for slug {slug!r} has no domain; the "
+            f"4-role builder keys the frozen contract by (domain template, slug) — a domain-less "
+            f"registration cannot route (fail-closed)."
+        )
+    return entry
+
+
+def resolve_benchmark_required_element_ids(slug: str) -> list[str]:
+    """Resolve `slug`'s native required-element ids through the FULL production routing path.
+
+    SWEEP_QUERIES[slug].domain -> `load_scope_template(domain)` (scope_gate, the same loader the
+    sweep uses) -> `native_gate_b_inputs.load_required_entities(template, slug)`. Returns the
+    ordered entity-id list (the coverage DENOMINATOR for that question). NON-EMPTY by contract
+    (`load_required_entities` raises on a missing/empty contract). NO network, NO spend — pure
+    YAML reads. This is the routing leg (build-spec item 1): the question's registered domain
+    must load the template that actually holds that slug's contract.
+    """
+    entry = lookup_benchmark_query(slug)
+    template = load_scope_template(entry["domain"])
+    entities = load_required_entities(template, slug)
+    return [entity["id"] for entity in entities]
+
+
+def build_benchmark_denominator(slug: str) -> list[str]:
+    """Build `slug`'s 4-role coverage denominator via the PRODUCTION M3a builder closure.
+
+    Drives `make_gate_b_input_builder()` (the exact closure `run_gate_b` wires into the sweep)
+    with the shared canned report + ev_pool over THAT slug's domain-routed native contract, and
+    returns `bundle.inputs.coverage_ledger.required_element_ids`. This is build-spec item 2 (the
+    robustness core): it proves the M3a builder, given THIS question, builds the denominator from
+    THIS slug's contract — not from a hardcoded value and not from another question's contract.
+    NO network, NO spend (the builder is a pure function; no transport is invoked here).
+    """
+    entry = lookup_benchmark_query(slug)
+    domain = entry["domain"]
+    template = load_scope_template(domain)
+    builder = make_gate_b_input_builder()
+    bundle = builder(
+        multi=build_canned_report(),
+        template=template,
+        slug=slug,
+        domain=domain,
+        ev_pool=build_canned_ev_pool(),
+    )
+    return list(bundle.inputs.coverage_ledger.required_element_ids)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -228,20 +323,23 @@ def run_four_role_leg(
     *,
     run_dir: Path,
     timestamp: str = DEFAULT_TIMESTAMP,
-    template_path: str = CLINICAL_TEMPLATE_PATH,
+    domain: str = TIRZEPATIDE_DOMAIN,
     slug: str = TIRZEPATIDE_SLUG,
 ) -> FourRoleLegResult:
-    """Leg A: run the REAL M3a/M3b 4-role seam offline over the native tirzepatide contract.
+    """Leg A: run the REAL M3a/M3b 4-role seam offline over a NATIVE scope contract.
 
-    Reuses the production builder closure (`make_gate_b_input_builder`) + `run_four_role_seam`
-    with the INJECTED fake transport and the canned report/ev_pool. Then assembles the manifest
-    `four_role_evaluation` block EXACTLY as `scripts/run_honest_sweep_r3.py` does (including the
-    M5 `evaluator_agrees` map via `build_evaluator_agrees_map`), and reads back the
-    `four_role_claim_audit.json` the seam wrote next to the run. NO network, NO spend.
+    Resolves the template through the SAME production loader the sweep uses
+    (`scope_gate.load_scope_template(domain)`) — NOT a hardcoded file path — so this leg proves
+    the WIRING (the question's domain loads the template that holds its slug's contract), then
+    reuses the production builder closure (`make_gate_b_input_builder`) + `run_four_role_seam`
+    with the INJECTED fake transport and the shared canned report/ev_pool. Defaults route the
+    annotated non-benchmark tirzepatide contract (clinical); the 5 benchmark questions pass their
+    own (domain, slug). Then assembles the manifest `four_role_evaluation` block EXACTLY as
+    `scripts/run_honest_sweep_r3.py` does (including the M5 `evaluator_agrees` map via
+    `build_evaluator_agrees_map`), and reads back the `four_role_claim_audit.json` the seam wrote
+    next to the run. NO network, NO spend.
     """
-    import yaml
-
-    template = yaml.safe_load(Path(template_path).read_text(encoding="utf-8"))
+    template = load_scope_template(domain)
     builder = make_gate_b_input_builder()
     result = run_four_role_seam(
         transport,
@@ -251,7 +349,7 @@ def run_four_role_leg(
         multi=build_canned_report(),
         template=template,
         slug=slug,
-        domain="clinical",
+        domain=domain,
         ev_pool=build_canned_ev_pool(),
     )
 

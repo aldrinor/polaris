@@ -34,11 +34,15 @@ import socket
 import pytest
 
 from scripts.dr_benchmark.offline_e2e import (
+    BENCHMARK_SLUG_EXPECTED_ENTITY_COUNT,
     FABRICATED_CLAIM_MARKER,
     JUDGE_FABRICATED,
     JUDGE_VERIFIED,
     PerClaimFakeRoleTransport,
+    build_benchmark_denominator,
     build_wrong_model_gate_call,
+    lookup_benchmark_query,
+    resolve_benchmark_required_element_ids,
     run_external_scorer_leg,
     run_four_role_leg,
     run_m4_gate_pass,
@@ -220,6 +224,144 @@ def test_external_scorer_leg_emits_scored_and_summary(tmp_path):
     # P2 #1 isolation: every written artifact lives under the tmp out-dir (NEVER outputs/dr_benchmark).
     for path in (leg.reconciled_ledger_path, leg.scored_json_path, leg.systems_summary_path):
         assert tmp_path in path.parents or path.parent == tmp_path or tmp_path in path.resolve().parents
+
+
+# ---------------------------------------------------------------------------------------------
+# I-meta-002 PR-11b — all 5 wired benchmark questions route to their OWN native contract.
+#
+# The robustness gate the operator asked for ("truly, robustly test e2e, confirm it is wired,
+# functional and good to launch"): for EACH of the 5 SWEEP_QUERIES-registered benchmark
+# questions, prove OFFLINE (1) ROUTING through the registration, (2) the RIGHT DENOMINATOR (exact
+# entity ids + count + cross-question distinctness), and (3) the FULL CHAIN flows under the
+# no-network socket block. Built per the PR-11b build_spec; Codex-gated separately.
+#
+# The slug->domain ROUTING is NOT hardcoded in the test — it is read from the SWEEP_QUERIES
+# registration via `lookup_benchmark_query`, so a routing typo / missing registration FAILS the
+# test (that is the wiring proof). The expected entity ids come from the frozen template, resolved
+# by the production loader; only the COUNT per slug is pinned in the source-of-truth map.
+# ---------------------------------------------------------------------------------------------
+_BENCHMARK_SLUGS = sorted(BENCHMARK_SLUG_EXPECTED_ENTITY_COUNT)
+
+
+@pytest.mark.parametrize("slug", _BENCHMARK_SLUGS)
+def test_all_5_benchmark_questions_route_to_their_own_contract(slug, tmp_path):
+    """Per-question robustness proof (parametrized over the 5 wired benchmark slugs).
+
+    (1) ROUTING: the SWEEP_QUERIES registration's domain loads the template that holds THIS
+        slug's contract; the native required-element set resolves NON-EMPTY.
+    (2) RIGHT DENOMINATOR: the production M3a builder, given THIS question, builds its coverage
+        denominator from THIS slug's required_entities — exactly that slug's contract entity ids,
+        the right COUNT (75=6/76=5/78=5/72=7/90=6). (Cross-question distinctness is proven
+        globally in test_benchmark_denominators_are_distinct.)
+    (3) FULL CHAIN OFFLINE: the 4-role seam over THIS contract with the INJECTED fake transport
+        produces a manifest four_role_evaluation block + a NON-EMPTY evaluator_agrees map obeying
+        the §-1.1 safe rule + a parseable four_role_claim_audit.json; the M4 pathB gate PASSES on a
+        matching served-meta fixture and FAILS CLOSED on a wrong-model fixture; and the external
+        scorer leg emits a scored ledger + systems summary. All under the module socket block (4).
+    """
+    expected_count = BENCHMARK_SLUG_EXPECTED_ENTITY_COUNT[slug]
+
+    # (1) ROUTING — through the registration (a typo'd / missing registration fails here).
+    entry = lookup_benchmark_query(slug)
+    assert entry["slug"] == slug
+    routed_ids = resolve_benchmark_required_element_ids(slug)
+    assert routed_ids, f"{slug}: native required-element set must be NON-EMPTY (fail-closed)"
+
+    # (2) RIGHT DENOMINATOR — the production builder resolves EXACTLY this slug's contract.
+    built_ids = build_benchmark_denominator(slug)
+    assert built_ids == routed_ids, (
+        f"{slug}: the M3a builder's denominator must equal the contract's required-element ids "
+        f"resolved through routing (no drift between routing and the builder)."
+    )
+    assert len(built_ids) == expected_count, (
+        f"{slug}: expected {expected_count} required elements, got {len(built_ids)} "
+        f"({built_ids}) — wrong denominator means a cross-wired contract."
+    )
+    # Ids are unique within the contract (no duplicate inflates the denominator).
+    assert len(set(built_ids)) == len(built_ids), f"{slug}: duplicate required-element id"
+
+    # (3) FULL CHAIN OFFLINE — leg A: 4-role seam over THIS question's contract.
+    transport = PerClaimFakeRoleTransport()
+    leg = run_four_role_leg(transport, run_dir=tmp_path / "run", domain=entry["domain"], slug=slug)
+    block = leg.manifest["four_role_evaluation"]
+    final_verdicts = block["final_verdicts"]
+    agrees = block["evaluator_agrees"]
+
+    # NON-EMPTY evaluator_agrees with keys == final_verdicts (joinable to the audit map).
+    assert agrees, f"{slug}: evaluator_agrees map must be non-empty"
+    assert set(agrees.keys()) == set(final_verdicts.keys())
+    # The shared canned report carries one VERIFIED + one FABRICATED claim regardless of contract
+    # (the per-claim pipeline is contract-independent); the §-1.1 safe rule must hold for both.
+    verified_ids = [cid for cid, v in final_verdicts.items() if v == JUDGE_VERIFIED]
+    fabricated_ids = [cid for cid, v in final_verdicts.items() if v == JUDGE_FABRICATED]
+    assert len(verified_ids) == 1, f"{slug}: expected one VERIFIED claim, got {final_verdicts}"
+    assert len(fabricated_ids) == 1, f"{slug}: expected one FABRICATED claim, got {final_verdicts}"
+    assert agrees[verified_ids[0]] is True
+    assert agrees[fabricated_ids[0]] is False
+    assert all(
+        agrees[cid] is False for cid, v in final_verdicts.items() if v != JUDGE_VERIFIED
+    ), f"{slug}: no non-VERIFIED verdict may ever read as evaluator_agrees=True (clinical-safety)"
+
+    # four_role_claim_audit.json written + parseable, keys == final_verdicts keys.
+    audit_path = tmp_path / "run" / "four_role_claim_audit.json"
+    assert audit_path.exists(), f"{slug}: seam must write four_role_claim_audit.json"
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert set(audit.keys()) == set(final_verdicts.keys())
+
+    # The verifier roles actually ran in-process (NEVER an HTTP POST — see the socket block).
+    assert transport.completions > 0
+
+    # Fail-closed is correct over a real contract the shared canned report does not cover: the
+    # canned evidence DOIs never match THIS question's entities, so coverage is 0 and the
+    # FABRICATED claim latches an unsupported-residual hold. Assert release HELD + a held reason
+    # — NOT a question-specific S0 string (72/90 have NO S0 entity, so that reason never appears).
+    assert block["release_allowed"] is False, f"{slug}: uncovered contract must HOLD release"
+    assert block["held_reasons"], f"{slug}: a held release must record a held reason"
+
+    # Leg B — M4 pathB served==pinned gate (question-agnostic: the verifier pins do not vary by
+    # question; run it inside the per-question chain so 'full chain offline' is literally proven
+    # for every question). PASS on a matching served-meta fixture; fail-closed on a wrong model.
+    gate_result = run_m4_gate_pass(salt=_SALT)
+    assert "mirror" in gate_result["served_identity_by_role"]
+    pins, wrong_call = build_wrong_model_gate_call()
+    pin = preflight([], pins, _SALT, offline=True, enforce_architecture_coverage=False)
+    with pytest.raises(GateError):
+        assert_post_run(pin, [], _SALT, [wrong_call], {"serper", "semantic_scholar"})
+
+    # Leg C — external scorer over the SYNTHETIC isolated fixtures (question-agnostic data; the
+    # scorer mechanics are identical per system/question). Emits a scored ledger + systems summary.
+    leg_c = run_external_scorer_leg(out_dir=tmp_path / "scorer")
+    assert leg_c.scored_json_path.exists()
+    assert leg_c.systems_summary_path.exists()
+
+
+def test_benchmark_denominators_are_distinct():
+    """Cross-question DISTINCTNESS (no cross-contamination of contracts between questions).
+
+    Each of the 5 questions must resolve its OWN required-element denominator. The entity ids are
+    globally unique across the 5 frozen contracts, so the strongest no-cross-contamination proof
+    is that the 5 denominators are PAIRWISE DISJOINT (a stronger claim than mere inequality):
+    drb_75's elements share NOTHING with drb_76's, etc. A regression that cross-wired two
+    questions to the same contract would surface here as a non-empty intersection.
+    """
+    denominators = {
+        slug: set(build_benchmark_denominator(slug))
+        for slug in _BENCHMARK_SLUGS
+    }
+    # Every denominator is non-empty and the right size (guards against an all-empty 'disjoint').
+    for slug, ids in denominators.items():
+        assert ids, f"{slug}: denominator must be non-empty"
+        assert len(ids) == BENCHMARK_SLUG_EXPECTED_ENTITY_COUNT[slug]
+
+    slugs = _BENCHMARK_SLUGS
+    for i in range(len(slugs)):
+        for j in range(i + 1, len(slugs)):
+            a, b = slugs[i], slugs[j]
+            overlap = denominators[a] & denominators[b]
+            assert not overlap, (
+                f"cross-contamination: {a} and {b} share required-element ids {overlap}; each "
+                f"benchmark question MUST route to its OWN native contract."
+            )
 
 
 # ---------------------------------------------------------------------------------------------
