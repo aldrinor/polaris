@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 import os
 import re
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -499,6 +500,187 @@ def _recency_telemetry_note(
     )
 
 
+# ── #956 (S2, 2026-05-30): source-diversity passes ──────────────────────────
+# Tier quota != topical diversity: 20 T1 RCTs all on ONE sub-topic satisfy the
+# T1 quota while starving the other sub-topics, tanking per-sub-topic coverage.
+# Two SOFT post-selection passes operate ONLY on post-floor slack and ALWAYS
+# preserve tier minimums (Codex brief-gate P2). Because the selected set sits
+# exactly at the tier quotas, every quota-preserving swap is SAME-TIER: a
+# diversity swap replaces a same-tier NON-reserved relevance-fill row with a
+# same-tier pool row, so no tier ever drops below quota and no floor-reserved
+# (M-42e/M-51/M-42c/M-42d) or sub-query-reserved row is ever evicted. Both
+# passes run on the truncating main path only (short-pool keeps every row, so
+# diversity is already maximal there). Codex rulings: k=1, cap_frac=0.5,
+# reservation BEFORE domain cap.
+_SUBQUERY_K_DEFAULT = 1
+_DOMAIN_CAP_FRAC_DEFAULT = 0.5
+
+
+def _env_flag_on(name: str) -> bool:
+    return os.environ.get(name, "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _subquery_reserve_config() -> tuple[bool, int]:
+    enabled = _env_flag_on("PG_SELECT_SUBQUERY_RESERVE")
+    raw = os.environ.get("PG_SELECT_SUBQUERY_K", "").strip()
+    try:
+        k = int(raw) if raw else _SUBQUERY_K_DEFAULT
+    except (ValueError, TypeError):
+        k = _SUBQUERY_K_DEFAULT
+    return enabled, max(1, k)
+
+
+def _domain_cap_config() -> tuple[bool, float]:
+    enabled = _env_flag_on("PG_SELECT_DOMAIN_CAP")
+    raw = os.environ.get("PG_SELECT_DOMAIN_CAP_FRAC", "").strip()
+    try:
+        frac = float(raw) if raw else _DOMAIN_CAP_FRAC_DEFAULT
+    except (ValueError, TypeError):
+        frac = _DOMAIN_CAP_FRAC_DEFAULT
+    return enabled, frac
+
+
+def _row_query_origin(row: dict[str, Any]) -> str:
+    """The sub-query that surfaced the row (`query_origin`), or `_unlabeled`."""
+    return str(row.get("query_origin") or "") or "_unlabeled"
+
+
+def _row_domain(row: dict[str, Any]) -> str:
+    """Registrable-ish domain (last two host labels) for the per-domain cap."""
+    url = (row.get("source_url") or row.get("url") or "").lower()
+    if not url:
+        return ""
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(url if "://" in url else f"http://{url}").hostname or "").lower()
+    except (ValueError, AttributeError):
+        return ""
+    parts = host.split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else host
+
+
+def _priority_sort_key(
+    item: tuple[int, float, str, dict[str, Any]],
+    rec_enabled: bool,
+    rec_eps: float,
+) -> tuple:
+    """Within-tier priority for diversity swap decisions — same ordering the
+    selector uses (banded relevance + #955 recency, then original index).
+    Ascending = best first; max(...) of this key = worst (lowest priority)."""
+    return (*_relevance_recency_key(item, rec_enabled, rec_eps), item[0])
+
+
+def _reserve_subqueries(
+    selected: list[tuple[int, float, str, dict[str, Any]]],
+    scored: list[tuple[int, float, str, dict[str, Any]]],
+    protected_ids: set[int],
+    k: int,
+    rec_enabled: bool,
+    rec_eps: float,
+) -> tuple[int, set[int]]:
+    """Same-tier swap so each sub-query origin present in a tier's pool reaches
+    >= k selected rows in that tier, evicting only NON-protected slack rows whose
+    origin is OVER-represented (count > k). Returns (swaps, brought_in_ids)."""
+    selected_ids = {id(it) for it in selected}
+    pool_by_tier: dict[str, list] = defaultdict(list)
+    for it in scored:
+        if id(it) not in selected_ids:
+            pool_by_tier[it[2]].append(it)
+    brought_in: set[int] = set()
+    swaps = 0
+    for tier in {it[2] for it in selected}:
+        sel_pos = [i for i, it in enumerate(selected) if it[2] == tier]
+        origin_count = Counter(_row_query_origin(selected[i][3]) for i in sel_pos)
+        cand_by_origin: dict[str, list] = defaultdict(list)
+        for it in pool_by_tier.get(tier, []):
+            cand_by_origin[_row_query_origin(it[3])].append(it)
+        missing = sorted(
+            [o for o in cand_by_origin if origin_count.get(o, 0) < k],
+            key=lambda o: (-max(c[1] for c in cand_by_origin[o]), o),
+        )
+        for origin in missing:
+            cands = sorted(
+                cand_by_origin[origin],
+                key=lambda c: _priority_sort_key(c, rec_enabled, rec_eps),
+            )
+            ci = 0
+            while origin_count.get(origin, 0) < k and ci < len(cands):
+                evictable = [
+                    i for i in sel_pos
+                    if id(selected[i]) not in protected_ids
+                    and id(selected[i]) not in brought_in
+                    and origin_count[_row_query_origin(selected[i][3])] > k
+                    and _row_query_origin(selected[i][3]) != origin
+                ]
+                if not evictable:
+                    break
+                evict_i = max(
+                    evictable,
+                    key=lambda i: _priority_sort_key(selected[i], rec_enabled, rec_eps),
+                )
+                bring = cands[ci]
+                ci += 1
+                old_origin = _row_query_origin(selected[evict_i][3])
+                selected[evict_i] = bring
+                brought_in.add(id(bring))
+                origin_count[old_origin] -= 1
+                origin_count[origin] = origin_count.get(origin, 0) + 1
+                swaps += 1
+    return swaps, brought_in
+
+
+def _apply_domain_cap(
+    selected: list[tuple[int, float, str, dict[str, Any]]],
+    scored: list[tuple[int, float, str, dict[str, Any]]],
+    protected_ids: set[int],
+    cap: int,
+    rec_enabled: bool,
+    rec_eps: float,
+) -> int:
+    """Soft per-domain cap via same-tier swaps. An over-cap domain's NON-protected
+    slack rows (worst-priority first) are replaced by the best same-tier pool row
+    of an under-cap domain. YIELDS (stops) when no valid same-tier replacement
+    exists — never leaves a slot empty, drops a tier below quota, or evicts a
+    protected/reserved row. Returns the number of rows moved."""
+    moved = 0
+    selected_ids = {id(it) for it in selected}
+    domain_count = Counter(_row_domain(it[3]) for it in selected)
+    over = [d for d, c in domain_count.items() if d and c > cap]
+    for dom in over:
+        while domain_count[dom] > cap:
+            evict_positions = sorted(
+                [i for i, it in enumerate(selected)
+                 if _row_domain(it[3]) == dom and id(it) not in protected_ids],
+                key=lambda i: _priority_sort_key(selected[i], rec_enabled, rec_eps),
+                reverse=True,  # worst-priority first
+            )
+            swapped = False
+            for ei in evict_positions:
+                tier = selected[ei][2]
+                repls = [
+                    it for it in scored
+                    if id(it) not in selected_ids
+                    and it[2] == tier
+                    and _row_domain(it[3]) != dom
+                    and domain_count.get(_row_domain(it[3]), 0) < cap
+                ]
+                if not repls:
+                    continue
+                best = min(repls, key=lambda it: _priority_sort_key(it, rec_enabled, rec_eps))
+                old = selected[ei]
+                selected[ei] = best
+                selected_ids.discard(id(old))
+                selected_ids.add(id(best))
+                domain_count[dom] -= 1
+                domain_count[_row_domain(best[3])] = domain_count.get(_row_domain(best[3]), 0) + 1
+                moved += 1
+                swapped = True
+                break
+            if not swapped:
+                break  # yield: no same-tier under-cap replacement available
+    return moved
+
+
 def _m46_short_pool_ordered_selection(
     *,
     evidence_rows: list[dict[str, Any]],
@@ -960,6 +1142,10 @@ def select_evidence_for_generation(
     # M-42d: telemetry notes populated inside the T3 block (HC expansion).
     # Collected here and flushed to `notes` after the main tier loop.
     _m42d_pending_notes: list[str] = []
+    # #956: ids of T3 jurisdiction/HC floor-reserved rows, so the diversity
+    # passes never evict a regulatory-floor row (the m42e/m42c/m51 floors are
+    # already tracked by their own id sets).
+    _t3_floor_protected_ids: set[int] = set()
     for tier, quota in quotas.items():
         # M-42e + M-42c: for T1 tier, reserve named-trial primary
         # slots (M-42e) AND mechanism-evidence slots (M-42c) before
@@ -1080,6 +1266,10 @@ def select_evidence_for_generation(
                         slots_left -= 1
                         extras_remaining -= 1
                         m42d_hc_extras += 1
+            # #956: at this point reserved_ids holds ONLY the jurisdiction +
+            # HC floor slots (the relevance-fill below is NOT a floor). Capture
+            # them so the diversity passes treat them as protected.
+            _t3_floor_protected_ids |= set(reserved_ids)
             # Fill remaining slots from the tier's global score order,
             # skipping already-reserved items.
             for item in tier_items:
@@ -1209,6 +1399,38 @@ def select_evidence_for_generation(
             selected = [item for i, item in enumerate(selected)
                         if i not in evict_ids]
 
+    # ── #956 (S2): source-diversity passes (main truncating path only) ──────
+    # Operate on post-floor slack via SAME-TIER swaps: reservation first, then
+    # the per-domain soft cap. protected_ids = every floor-reserved row
+    # (M-42e primary, M-42c mechanism, M-51 anchor custody, T3 jurisdiction/HC).
+    # Both kill-switchable; OFF → no swaps, no telemetry (byte-identical).
+    _diversity_notes: list[str] = []
+    protected_ids = (
+        set(m42e_primary_ids) | set(m42c_mech_ids)
+        | set(m51_inserted_ids) | set(_t3_floor_protected_ids)
+    )
+    _subq_enabled, _subq_k = _subquery_reserve_config()
+    if _subq_enabled:
+        _subq_swaps, _subq_brought = _reserve_subqueries(
+            selected, scored, protected_ids, _subq_k, _rec_enabled, _rec_eps,
+        )
+        if _subq_swaps:
+            _diversity_notes.append(
+                f"subquery_reservation k={_subq_k} swaps={_subq_swaps}"
+            )
+        # Don't let the domain cap undo a sub-query reservation.
+        protected_ids |= _subq_brought
+    _dom_enabled, _dom_frac = _domain_cap_config()
+    if _dom_enabled:
+        _dom_cap = max(1, math.ceil(_dom_frac * max_rows))
+        _dom_moved = _apply_domain_cap(
+            selected, scored, protected_ids, _dom_cap, _rec_enabled, _rec_eps,
+        )
+        if _dom_moved:
+            _diversity_notes.append(
+                f"domain_soft_cap cap={_dom_cap} moved={_dom_moved}"
+            )
+
     # Sort final selection by (tier_priority, relevance/recency, original_idx)
     # for deterministic output order. #955: recency is a soft tiebreaker after
     # tier + banded relevance; kill-switch OFF → identical (tier, -score, idx).
@@ -1226,6 +1448,8 @@ def select_evidence_for_generation(
         selected_counts[tier] = selected_counts.get(tier, 0) + 1
 
     notes: list[str] = []
+    # #956: source-diversity telemetry (empty unless a pass fired).
+    notes.extend(_diversity_notes)
     # M-42e pass-2: surface the primary-floor telemetry so sweep
     # audits can see which anchors reserved slots and whether the
     # cap truncated reservations.

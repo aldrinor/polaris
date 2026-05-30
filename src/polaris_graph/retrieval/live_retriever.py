@@ -1821,6 +1821,10 @@ def run_live_retrieval(
                     "tier": tier_result.tier.value,
                     "source": cand.source,
                     "full_content_length": len(content),
+                    # #956 (S2): the sub-query that surfaced this candidate, so
+                    # the evidence selector can reserve per-sub-topic diversity.
+                    # Additive only; absent/empty for seed-lane or legacy rows.
+                    "query_origin": getattr(cand, "query_origin", "") or "",
                 })
                 _trace_kept(cand.url, cand.source)
 

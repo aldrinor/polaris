@@ -1,0 +1,433 @@
+diff --git a/src/polaris_graph/retrieval/evidence_selector.py b/src/polaris_graph/retrieval/evidence_selector.py
+index 737dea8b..c25df449 100644
+--- a/src/polaris_graph/retrieval/evidence_selector.py
++++ b/src/polaris_graph/retrieval/evidence_selector.py
+@@ -17,6 +17,7 @@ from __future__ import annotations
+ import math
+ import os
+ import re
++from collections import Counter, defaultdict
+ from dataclasses import dataclass, field
+ from typing import Any
+ 
+@@ -499,6 +500,187 @@ def _recency_telemetry_note(
+     )
+ 
+ 
++# ── #956 (S2, 2026-05-30): source-diversity passes ──────────────────────────
++# Tier quota != topical diversity: 20 T1 RCTs all on ONE sub-topic satisfy the
++# T1 quota while starving the other sub-topics, tanking per-sub-topic coverage.
++# Two SOFT post-selection passes operate ONLY on post-floor slack and ALWAYS
++# preserve tier minimums (Codex brief-gate P2). Because the selected set sits
++# exactly at the tier quotas, every quota-preserving swap is SAME-TIER: a
++# diversity swap replaces a same-tier NON-reserved relevance-fill row with a
++# same-tier pool row, so no tier ever drops below quota and no floor-reserved
++# (M-42e/M-51/M-42c/M-42d) or sub-query-reserved row is ever evicted. Both
++# passes run on the truncating main path only (short-pool keeps every row, so
++# diversity is already maximal there). Codex rulings: k=1, cap_frac=0.5,
++# reservation BEFORE domain cap.
++_SUBQUERY_K_DEFAULT = 1
++_DOMAIN_CAP_FRAC_DEFAULT = 0.5
++
++
++def _env_flag_on(name: str) -> bool:
++    return os.environ.get(name, "1").strip().lower() not in ("0", "false", "no", "off")
++
++
++def _subquery_reserve_config() -> tuple[bool, int]:
++    enabled = _env_flag_on("PG_SELECT_SUBQUERY_RESERVE")
++    raw = os.environ.get("PG_SELECT_SUBQUERY_K", "").strip()
++    try:
++        k = int(raw) if raw else _SUBQUERY_K_DEFAULT
++    except (ValueError, TypeError):
++        k = _SUBQUERY_K_DEFAULT
++    return enabled, max(1, k)
++
++
++def _domain_cap_config() -> tuple[bool, float]:
++    enabled = _env_flag_on("PG_SELECT_DOMAIN_CAP")
++    raw = os.environ.get("PG_SELECT_DOMAIN_CAP_FRAC", "").strip()
++    try:
++        frac = float(raw) if raw else _DOMAIN_CAP_FRAC_DEFAULT
++    except (ValueError, TypeError):
++        frac = _DOMAIN_CAP_FRAC_DEFAULT
++    return enabled, frac
++
++
++def _row_query_origin(row: dict[str, Any]) -> str:
++    """The sub-query that surfaced the row (`query_origin`), or `_unlabeled`."""
++    return str(row.get("query_origin") or "") or "_unlabeled"
++
++
++def _row_domain(row: dict[str, Any]) -> str:
++    """Registrable-ish domain (last two host labels) for the per-domain cap."""
++    url = (row.get("source_url") or row.get("url") or "").lower()
++    if not url:
++        return ""
++    try:
++        from urllib.parse import urlparse
++        host = (urlparse(url if "://" in url else f"http://{url}").hostname or "").lower()
++    except (ValueError, AttributeError):
++        return ""
++    parts = host.split(".")
++    return ".".join(parts[-2:]) if len(parts) >= 2 else host
++
++
++def _priority_sort_key(
++    item: tuple[int, float, str, dict[str, Any]],
++    rec_enabled: bool,
++    rec_eps: float,
++) -> tuple:
++    """Within-tier priority for diversity swap decisions — same ordering the
++    selector uses (banded relevance + #955 recency, then original index).
++    Ascending = best first; max(...) of this key = worst (lowest priority)."""
++    return (*_relevance_recency_key(item, rec_enabled, rec_eps), item[0])
++
++
++def _reserve_subqueries(
++    selected: list[tuple[int, float, str, dict[str, Any]]],
++    scored: list[tuple[int, float, str, dict[str, Any]]],
++    protected_ids: set[int],
++    k: int,
++    rec_enabled: bool,
++    rec_eps: float,
++) -> tuple[int, set[int]]:
++    """Same-tier swap so each sub-query origin present in a tier's pool reaches
++    >= k selected rows in that tier, evicting only NON-protected slack rows whose
++    origin is OVER-represented (count > k). Returns (swaps, brought_in_ids)."""
++    selected_ids = {id(it) for it in selected}
++    pool_by_tier: dict[str, list] = defaultdict(list)
++    for it in scored:
++        if id(it) not in selected_ids:
++            pool_by_tier[it[2]].append(it)
++    brought_in: set[int] = set()
++    swaps = 0
++    for tier in {it[2] for it in selected}:
++        sel_pos = [i for i, it in enumerate(selected) if it[2] == tier]
++        origin_count = Counter(_row_query_origin(selected[i][3]) for i in sel_pos)
++        cand_by_origin: dict[str, list] = defaultdict(list)
++        for it in pool_by_tier.get(tier, []):
++            cand_by_origin[_row_query_origin(it[3])].append(it)
++        missing = sorted(
++            [o for o in cand_by_origin if origin_count.get(o, 0) < k],
++            key=lambda o: (-max(c[1] for c in cand_by_origin[o]), o),
++        )
++        for origin in missing:
++            cands = sorted(
++                cand_by_origin[origin],
++                key=lambda c: _priority_sort_key(c, rec_enabled, rec_eps),
++            )
++            ci = 0
++            while origin_count.get(origin, 0) < k and ci < len(cands):
++                evictable = [
++                    i for i in sel_pos
++                    if id(selected[i]) not in protected_ids
++                    and id(selected[i]) not in brought_in
++                    and origin_count[_row_query_origin(selected[i][3])] > k
++                    and _row_query_origin(selected[i][3]) != origin
++                ]
++                if not evictable:
++                    break
++                evict_i = max(
++                    evictable,
++                    key=lambda i: _priority_sort_key(selected[i], rec_enabled, rec_eps),
++                )
++                bring = cands[ci]
++                ci += 1
++                old_origin = _row_query_origin(selected[evict_i][3])
++                selected[evict_i] = bring
++                brought_in.add(id(bring))
++                origin_count[old_origin] -= 1
++                origin_count[origin] = origin_count.get(origin, 0) + 1
++                swaps += 1
++    return swaps, brought_in
++
++
++def _apply_domain_cap(
++    selected: list[tuple[int, float, str, dict[str, Any]]],
++    scored: list[tuple[int, float, str, dict[str, Any]]],
++    protected_ids: set[int],
++    cap: int,
++    rec_enabled: bool,
++    rec_eps: float,
++) -> int:
++    """Soft per-domain cap via same-tier swaps. An over-cap domain's NON-protected
++    slack rows (worst-priority first) are replaced by the best same-tier pool row
++    of an under-cap domain. YIELDS (stops) when no valid same-tier replacement
++    exists — never leaves a slot empty, drops a tier below quota, or evicts a
++    protected/reserved row. Returns the number of rows moved."""
++    moved = 0
++    selected_ids = {id(it) for it in selected}
++    domain_count = Counter(_row_domain(it[3]) for it in selected)
++    over = [d for d, c in domain_count.items() if d and c > cap]
++    for dom in over:
++        while domain_count[dom] > cap:
++            evict_positions = sorted(
++                [i for i, it in enumerate(selected)
++                 if _row_domain(it[3]) == dom and id(it) not in protected_ids],
++                key=lambda i: _priority_sort_key(selected[i], rec_enabled, rec_eps),
++                reverse=True,  # worst-priority first
++            )
++            swapped = False
++            for ei in evict_positions:
++                tier = selected[ei][2]
++                repls = [
++                    it for it in scored
++                    if id(it) not in selected_ids
++                    and it[2] == tier
++                    and _row_domain(it[3]) != dom
++                    and domain_count.get(_row_domain(it[3]), 0) < cap
++                ]
++                if not repls:
++                    continue
++                best = min(repls, key=lambda it: _priority_sort_key(it, rec_enabled, rec_eps))
++                old = selected[ei]
++                selected[ei] = best
++                selected_ids.discard(id(old))
++                selected_ids.add(id(best))
++                domain_count[dom] -= 1
++                domain_count[_row_domain(best[3])] = domain_count.get(_row_domain(best[3]), 0) + 1
++                moved += 1
++                swapped = True
++                break
++            if not swapped:
++                break  # yield: no same-tier under-cap replacement available
++    return moved
++
++
+ def _m46_short_pool_ordered_selection(
+     *,
+     evidence_rows: list[dict[str, Any]],
+@@ -960,6 +1142,10 @@ def select_evidence_for_generation(
+     # M-42d: telemetry notes populated inside the T3 block (HC expansion).
+     # Collected here and flushed to `notes` after the main tier loop.
+     _m42d_pending_notes: list[str] = []
++    # #956: ids of T3 jurisdiction/HC floor-reserved rows, so the diversity
++    # passes never evict a regulatory-floor row (the m42e/m42c/m51 floors are
++    # already tracked by their own id sets).
++    _t3_floor_protected_ids: set[int] = set()
+     for tier, quota in quotas.items():
+         # M-42e + M-42c: for T1 tier, reserve named-trial primary
+         # slots (M-42e) AND mechanism-evidence slots (M-42c) before
+@@ -1080,6 +1266,10 @@ def select_evidence_for_generation(
+                         slots_left -= 1
+                         extras_remaining -= 1
+                         m42d_hc_extras += 1
++            # #956: at this point reserved_ids holds ONLY the jurisdiction +
++            # HC floor slots (the relevance-fill below is NOT a floor). Capture
++            # them so the diversity passes treat them as protected.
++            _t3_floor_protected_ids |= set(reserved_ids)
+             # Fill remaining slots from the tier's global score order,
+             # skipping already-reserved items.
+             for item in tier_items:
+@@ -1209,6 +1399,38 @@ def select_evidence_for_generation(
+             selected = [item for i, item in enumerate(selected)
+                         if i not in evict_ids]
+ 
++    # ── #956 (S2): source-diversity passes (main truncating path only) ──────
++    # Operate on post-floor slack via SAME-TIER swaps: reservation first, then
++    # the per-domain soft cap. protected_ids = every floor-reserved row
++    # (M-42e primary, M-42c mechanism, M-51 anchor custody, T3 jurisdiction/HC).
++    # Both kill-switchable; OFF → no swaps, no telemetry (byte-identical).
++    _diversity_notes: list[str] = []
++    protected_ids = (
++        set(m42e_primary_ids) | set(m42c_mech_ids)
++        | set(m51_inserted_ids) | set(_t3_floor_protected_ids)
++    )
++    _subq_enabled, _subq_k = _subquery_reserve_config()
++    if _subq_enabled:
++        _subq_swaps, _subq_brought = _reserve_subqueries(
++            selected, scored, protected_ids, _subq_k, _rec_enabled, _rec_eps,
++        )
++        if _subq_swaps:
++            _diversity_notes.append(
++                f"subquery_reservation k={_subq_k} swaps={_subq_swaps}"
++            )
++        # Don't let the domain cap undo a sub-query reservation.
++        protected_ids |= _subq_brought
++    _dom_enabled, _dom_frac = _domain_cap_config()
++    if _dom_enabled:
++        _dom_cap = max(1, math.ceil(_dom_frac * max_rows))
++        _dom_moved = _apply_domain_cap(
++            selected, scored, protected_ids, _dom_cap, _rec_enabled, _rec_eps,
++        )
++        if _dom_moved:
++            _diversity_notes.append(
++                f"domain_soft_cap cap={_dom_cap} moved={_dom_moved}"
++            )
++
+     # Sort final selection by (tier_priority, relevance/recency, original_idx)
+     # for deterministic output order. #955: recency is a soft tiebreaker after
+     # tier + banded relevance; kill-switch OFF → identical (tier, -score, idx).
+@@ -1226,6 +1448,8 @@ def select_evidence_for_generation(
+         selected_counts[tier] = selected_counts.get(tier, 0) + 1
+ 
+     notes: list[str] = []
++    # #956: source-diversity telemetry (empty unless a pass fired).
++    notes.extend(_diversity_notes)
+     # M-42e pass-2: surface the primary-floor telemetry so sweep
+     # audits can see which anchors reserved slots and whether the
+     # cap truncated reservations.
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index 88e2b83a..93b9a0f2 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -1821,6 +1821,10 @@ def run_live_retrieval(
+                     "tier": tier_result.tier.value,
+                     "source": cand.source,
+                     "full_content_length": len(content),
++                    # #956 (S2): the sub-query that surfaced this candidate, so
++                    # the evidence selector can reserve per-sub-topic diversity.
++                    # Additive only; absent/empty for seed-lane or legacy rows.
++                    "query_origin": getattr(cand, "query_origin", "") or "",
+                 })
+                 _trace_kept(cand.url, cand.source)
+ 
+diff --git a/tests/polaris_graph/test_source_diversity.py b/tests/polaris_graph/test_source_diversity.py
+new file mode 100644
+index 00000000..d43f683f
+--- /dev/null
++++ b/tests/polaris_graph/test_source_diversity.py
+@@ -0,0 +1,142 @@
++"""Tests for the #956 source-diversity passes in evidence_selector. NO network / NO spend.
++
++Asserts both passes are SOFT same-tier swaps on post-floor slack: a sub-query origin present in a tier's
++pool reaches the selection (round-robin reservation), one domain cannot dominate beyond the soft cap, floors
++are never evicted, tier minimums (per-tier counts) are preserved, and the kill-switches restore the prior
++non-diverse selection exactly.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.retrieval.evidence_selector import (
++    _row_domain,
++    _row_query_origin,
++    select_evidence_for_generation,
++)
++
++_Q = "alpha beta gamma delta"
++
++
++def _row(ev_id, *, tier="T2", origin="A", host="x.com", stmt=_Q):
++    return {
++        "evidence_id": ev_id,
++        "source_url": f"https://{host}/{ev_id}",
++        "statement": stmt,
++        "direct_quote": stmt,
++        "tier": tier,
++        "query_origin": origin,
++    }
++
++
++def _off(monkeypatch):
++    monkeypatch.setenv("PG_SELECT_SUBQUERY_RESERVE", "0")
++    monkeypatch.setenv("PG_SELECT_DOMAIN_CAP", "0")
++
++
++def _on(monkeypatch):
++    monkeypatch.delenv("PG_SELECT_SUBQUERY_RESERVE", raising=False)
++    monkeypatch.delenv("PG_SELECT_DOMAIN_CAP", raising=False)
++
++
++def _select(rows, max_rows, anchors=None):
++    return select_evidence_for_generation(
++        research_question=_Q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=max_rows, primary_trial_anchors=anchors,
++    )
++
++
++# ── helpers ──────────────────────────────────────────────────────────────
++def test_row_query_origin_and_domain():
++    assert _row_query_origin({"query_origin": "X"}) == "X"
++    assert _row_query_origin({}) == "_unlabeled"
++    assert _row_domain({"source_url": "https://www.fda.gov/drugs"}) == "fda.gov"
++    assert _row_domain({}) == ""
++
++
++# ── sub-query reservation ──────────────────────────────────────────────────
++def test_underrepresented_subquery_reaches_selection(monkeypatch):
++    _on(monkeypatch)
++    # 4 origin-A rows + 1 origin-B row, all T2 same relevance; only 3 slots.
++    rows = [_row(f"a{i}", origin="A") for i in range(4)] + [_row("b0", origin="B")]
++    sel = _select(rows, max_rows=3)
++    origins = {_row_query_origin(r) for r in sel.selected_rows}
++    assert "B" in origins  # the lone sub-topic is not starved
++
++
++def test_killswitch_off_lets_one_origin_dominate(monkeypatch):
++    _off(monkeypatch)
++    rows = [_row(f"a{i}", origin="A") for i in range(4)] + [_row("b0", origin="B")]
++    sel = _select(rows, max_rows=3)
++    origins = [_row_query_origin(r) for r in sel.selected_rows]
++    assert origins == ["A", "A", "A"]  # prior non-diverse behavior (by index)
++    assert not any("subquery_reservation" in n for n in sel.notes)
++
++
++# ── per-domain soft cap ─────────────────────────────────────────────────────
++def test_domain_soft_cap_limits_dominance(monkeypatch):
++    _on(monkeypatch)
++    # 4 rows on x.com + 2 on y.com, all T2 same origin/relevance; 4 slots, cap=ceil(0.5*4)=2.
++    rows = [_row(f"x{i}", host="x.com") for i in range(4)] + [_row(f"y{i}", host="y.com") for i in range(2)]
++    sel = _select(rows, max_rows=4)
++    doms = [_row_domain(r) for r in sel.selected_rows]
++    assert doms.count("x.com") <= 2  # capped
++    assert "y.com" in doms          # under-represented domain pulled in
++    assert len(sel.selected_rows) == 4  # no slot left empty
++
++
++def test_killswitch_off_lets_one_domain_dominate(monkeypatch):
++    _off(monkeypatch)
++    rows = [_row(f"x{i}", host="x.com") for i in range(4)] + [_row(f"y{i}", host="y.com") for i in range(2)]
++    sel = _select(rows, max_rows=4)
++    doms = [_row_domain(r) for r in sel.selected_rows]
++    assert doms.count("x.com") == 4  # prior behavior (by index, no cap)
++    assert not any("domain_soft_cap" in n for n in sel.notes)
++
++
++# ── invariants: tier minimums + floors ──────────────────────────────────────
++def test_tier_minimums_preserved(monkeypatch):
++    # mixed-tier pool: diversity must not change per-tier counts (same-tier swaps).
++    rows = (
++        [_row(f"t1_{i}", tier="T1", origin="A") for i in range(3)]
++        + [_row(f"t2_{i}", tier="T2", origin="A") for i in range(3)]
++        + [_row("t2_b", tier="T2", origin="B")]
++    )
++    _off(monkeypatch)
++    base = _select(rows, max_rows=4).selected_counts
++    _on(monkeypatch)
++    div = _select(rows, max_rows=4).selected_counts
++    assert base == div  # per-tier counts identical → no tier dropped below quota
++
++
++def test_floor_primary_not_evicted_by_diversity(monkeypatch):
++    _on(monkeypatch)
++    primary = {
++        "evidence_id": "surpass2", "tier": "T1",
++        "source_url": "https://nejm.org/10.1056/nejmoa2107519",
++        "statement": "SURPASS-2 alpha beta gamma delta", "direct_quote": "primary",
++        "query_origin": "A",
++    }
++    # many same-origin/same-domain T1 fillers that the diversity passes would otherwise churn
++    fillers = [_row(f"f{i}", tier="T1", origin="A", host="x.com") for i in range(8)]
++    sel = _select([*fillers, primary], max_rows=3, anchors=["SURPASS-2"])
++    ids = {r["evidence_id"] for r in sel.selected_rows}
++    assert "surpass2" in ids  # named-trial primary floor survives diversity
++
++
++def test_domain_cap_yields_when_no_same_tier_replacement(monkeypatch):
++    _on(monkeypatch)
++    # all rows same domain + same tier → cap cannot swap (no other-domain same-tier row); must yield, not crash
++    rows = [_row(f"x{i}", host="x.com", origin="A") for i in range(6)]
++    sel = _select(rows, max_rows=4)
++    assert len(sel.selected_rows) == 4  # full, no empty slot
++    assert all(_row_domain(r) == "x.com" for r in sel.selected_rows)  # yielded
++
++
++def test_short_pool_path_unaffected(monkeypatch):
++    _on(monkeypatch)
++    # pool <= max_rows → short-pool path keeps everything; diversity is moot there.
++    rows = [_row(f"a{i}", origin="A") for i in range(2)] + [_row("b0", origin="B")]
++    sel = _select(rows, max_rows=10)
++    assert len(sel.selected_rows) == 3  # all kept, no churn
