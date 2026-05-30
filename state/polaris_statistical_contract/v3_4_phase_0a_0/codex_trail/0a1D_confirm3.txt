@@ -1,0 +1,4 @@
+codex
+Fix line 12: it still defines the “per-domain ADMISSIBILITY table” as “what sources may enter a packet”; make it “summary” and point packet admission to `scope_templates`.
+9,021
+Fix line 12: it still defines the “per-domain ADMISSIBILITY table” as “what sources may enter a packet”; make it “summary” and point packet admission to `scope_templates`.

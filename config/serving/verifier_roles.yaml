@@ -1,0 +1,120 @@
+# POLARIS verifier-role self-host serving config — I-meta-002 PR-8 / M2
+#
+# Declarative, per-role vLLM serving spec for the THREE self-hosted verifier
+# roles (mirror / sentinel / judge). The generator is NOT here: it runs live on
+# OpenRouter (serving_route: openrouter in the runtime lock) and is upstream of
+# the per-claim verifier path.
+#
+# SINGLE SOURCE OF TRUTH for slugs: config/architecture/polaris_runtime_lock.yaml.
+#   - `model_slug` below MUST equal the lock's required_roles.<role>.model_slug.
+#   - `vllm_args.served_model_name` MUST equal that same slug — this is the
+#     identity the M4 served==pinned gate trusts and the identity probe
+#     (scripts/dr_benchmark/verify_serving_identity.py) asserts against /v1/models.
+#   - The probe + the config-shape test fail loud if any role drifts from the lock.
+#
+# Codex brief-gate ruling (P2, 2026-05-29): keep `model_source` (the HF repo /
+# local path vLLM LOADS) DISTINCT from `served_model_name` (the public id vLLM
+# ADVERTISES). Only `served_model_name` must equal the lock slug; `model_source`
+# is the weights location and is intentionally free of the lock-equality rule.
+#
+# NO SECRETS in this file (LAW VI): API keys arrive only via the per-role
+# `api_key_env` environment variable at runtime; base URLs via `base_url_env`.
+# This file declares WHICH env var each role reads, never the value.
+#
+# Env convention (mirrors src/polaris_graph/roles/openai_compatible_transport.py
+# role_endpoint): PG_<ROLE>_BASE_URL + PG_<ROLE>_API_KEY, ROLE upper-cased.
+#
+# The actual paid Vast GPU rental + vLLM launch is the later operator-triggered
+# ONE-QUESTION CANARY (docs/serving/verifier_serving_runbook.md) — NOT executed
+# by this PR. This file is config + the probe consumes it; nothing here spends.
+
+schema_version: 1
+source_of_truth: config/architecture/polaris_runtime_lock.yaml
+
+roles:
+  mirror:
+    # Calibration auditor — native <co> citation grounding, served as PLAIN chat
+    # (no structured-output constraint): the Mirror emits free-form prose with
+    # inline <co>covered text</co:doc_id> spans that mirror_adapter parses.
+    model_slug: cohere/command-a-plus
+    serving_route: vast_self_host_bf16
+    # model_source = the HF repo / weights path vLLM LOADS (--model). DISTINCT from
+    # served_model_name: ONLY served_model_name is bound to the lock slug.
+    # model_source must be confirmed against the lock's codex_cross_validation_sources
+    # before launch — it is NOT lock-equality checked.
+    model_source: CohereLabs/command-a-plus-05-2026-bf16
+    base_url_env: PG_MIRROR_BASE_URL
+    api_key_env: PG_MIRROR_API_KEY
+    gpu:
+      # Full-precision bf16 — Command A+ (218B total / 25B active sparse MoE),
+      # ~438 GB weights (docs/vast_ai_budget_i_meta_002.md §1.1).
+      count: 8
+      kind: H100
+      vram_gb_each: 80
+      box_note: "8xH100 bf16 (~438 GB weights); proves sovereign production path"
+    vllm_args:
+      # served-model-name == the locked slug (M4 served==pinned identity surface).
+      served_model_name: cohere/command-a-plus
+      tensor_parallel_size: 8
+      dtype: bfloat16
+      quantization: null            # bf16 full precision; Mirror's job IS calibration
+      max_model_len: 32768
+      # Plain chat for <co> citations — NO guided/structured-output constraint.
+      structured_outputs: false
+      guided_decoding: false
+
+  sentinel:
+    # Purpose-built RAG hallucination detector — Granite Guardian 4.1 8B (dense,
+    # ~16 GB). Emits a <score> element (NOT JSON), so NO structured-output spec.
+    model_slug: ibm-granite/granite-guardian-4.1-8b
+    serving_route: vast_self_host
+    # model_source = the weights vLLM LOADS; only served_model_name is lock-bound.
+    # Confirm against the lock's codex_cross_validation_sources before launch.
+    model_source: ibm-granite/granite-guardian-4.1-8b
+    base_url_env: PG_SENTINEL_BASE_URL
+    api_key_env: PG_SENTINEL_API_KEY
+    gpu:
+      # 1xA100 80GB — ample VRAM, no KV bottleneck
+      # (docs/vast_ai_budget_i_meta_002.md §1.3).
+      count: 1
+      kind: A100
+      vram_gb_each: 80
+      box_note: "1xA100 80GB (EU/sovereignty-clean); dense 8B guardrail model"
+    vllm_args:
+      served_model_name: ibm-granite/granite-guardian-4.1-8b
+      tensor_parallel_size: 1
+      dtype: bfloat16
+      quantization: null
+      max_model_len: 16384
+      structured_outputs: false     # Granite emits <score>, not JSON
+      guided_decoding: false
+
+  judge:
+    # Terminal arbiter — Qwen3.6-35B-A3B (MoE, 3B active). MUST emit a stable
+    # parseable verdict from the 5-enum domain, so the Judge server is launched
+    # WITH structured-outputs / choice constrained decoding enabled.
+    model_slug: qwen/qwen3.6-35b-a3b
+    serving_route: vast_self_host_fp8
+    # model_source = the weights vLLM LOADS; only served_model_name is lock-bound.
+    # Confirm against the lock's codex_cross_validation_sources before launch.
+    model_source: Qwen/Qwen3.6-35B-A3B
+    base_url_env: PG_JUDGE_BASE_URL
+    api_key_env: PG_JUDGE_API_KEY
+    gpu:
+      # 1xH100 FP8 — near-lossless, half the download, fastest time-to-result
+      # (docs/vast_ai_budget_i_meta_002.md §1.2, recommended).
+      count: 1
+      kind: H100
+      vram_gb_each: 80
+      box_note: "1xH100 fp8 (~35 GB weights); near-lossless, recommended"
+    vllm_args:
+      served_model_name: qwen/qwen3.6-35b-a3b
+      tensor_parallel_size: 1
+      dtype: auto
+      quantization: fp8            # fp8 weight quantization on the H100
+      max_model_len: 32768
+      # Judge needs hard-enum verdicts at decode time. The adapter sends
+      # structured_outputs.choice == JUDGE_CHOICES per request; the SERVER must
+      # be launched with guided/structured decoding ENABLED for that to bind.
+      structured_outputs: true
+      guided_decoding: true

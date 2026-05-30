@@ -1077,3 +1077,97 @@ up 4 progressive P1 layers that the offline smoke would have hidden:
   approval_to_proceed_to_step_3b_pr: YES
   Step 3b roadmap per Codex: separate PR, logging-only flag initial, 
     pass-through catalog (not rebuild), strip atom_NNN before strict_verify
+
+## I-safety-002b gold-rubric freeze — Codex independent §-1.1 verification
+- **iter 1** (2026-05-28): doc = gold_rubrics_pathB.md (5 golden-Q answer key). verdict REQUEST_CHANGES. 1 NOVEL P0 + 1 P2. fabrication_firewall FAIL. ~124k tokens.
+  - P0 (#90 El5): blanket "exclude Tesla civil verdicts" was WRONG — Benavides v. Tesla (S.D. Fla. 1:21-cv-21940, ~$243M, Tesla 33%, upheld Feb 2026) is a REAL nonprecedential district-court civil verdict. Claude independently confirmed (WebSearch: CNBC, JDJournal). FIXED: Benavides now included with nonprecedential caveat.
+  - P2 (#72 El8): "A&R 2018/2019 AER" venue error — Automation and New Tasks is JEP 2019 not AER. FIXED.
+  - Codex CONFIRMED the other 7 v2 changelog edits (TACT/TACT2, calcium, #76 El8 split, ISAPP defs, #78 device-safety, #90 statutes/cases, #72 generative-AI journal forms).
+  - Both fixes verified-real → resubmitting iter 2 for APPROVE.
+- **iter 2** (2026-05-28): verdict APPROVE. 0 P0/P1/P2. benavides_fix_confirmed true; venue_fix_confirmed true; fabrication_firewall PASS; accept_remaining. ~81k tokens. -> answer key FROZEN + hash-pinned (freeze_pin.txt). Dual §-1.1 rubric audit closed at iter 2 (well under 5-cap).
+
+## I-safety-002b gate-wiring BRIEF (step-3 P1-3 approach) — Codex design review
+- **iter 1** (2026-05-28): doc = codex_gate_wiring_brief.md. verdict REQUEST_CHANGES. 0 P0, 3 P1, 3 P2. convergence continue. ~131k tokens. The brief-first review caught 3 real design errors BEFORE any diff:
+  - P1: capture seam must be at `_call_impl`/provider-completion boundary (not just generate/generate_structured) — else retries/superseded-attempts/reason() are missed.
+  - P1: the strict-verify ENTAILMENT JUDGE (evaluator family) uses direct httpx to /chat/completions, BYPASSING OpenRouterClient — my hook would miss all evaluator calls (two-family enforcement = silent no-op). Must capture or reroute.
+  - P1: streaming responses synthesize raw_response WITHOUT provider + with request-derived model=self.model — assert_post_run requires served provider_name+model; would fail or false-pass. Fix served-metadata provenance (read served provider+model from the actual response/SSE final chunk).
+  - P2: scoped role tagging via context-manager token/restore (not sticky set_llm_role); post-run assert on ALL exits incl. early abort, before any scorer; lazy gate-flagged import (no hard src->scripts import on the hot path).
+  - Answers: A explicit scoped role attribution (not model inference); B per-role preflight probe OK but must use the SAME capture/metadata path + not count request-derived fields as response-proven; C provider_name+model surrogate OK when system_fingerprint absent; D SPLIT into PR-1 (capture primitives + _call_impl + direct-judge capture tests) / PR-2 (retrieval hooks + runner gate lifecycle) / PR-3 (live/operator smoke + scoring); E YES run one supervised #72/#90 smoke AFTER wiring, BEFORE the 5 full runs (confirm non-clinical scope/corpus behavior).
+  - NEXT: investigate _call_impl boundary + streaming served-metadata + the direct entailment-judge call site; revise brief to v2; resubmit iter 2. Live run = operator-gated.
+- **iter 2** (2026-05-28): verdict APPROVE. 0 P0/P1/P2. seam_confirmations all ok (call_impl_capture, entailment_judge_capture, served_metadata_provenance). convergence continue. ~148k tokens. Gate-wiring DESIGN approved -> author diffs PR-1/2/3.
+  - PR-1: src/polaris_graph/benchmark/pathB_capture.py (contextvar sink + `llm_role` ctx-mgr + record_retrieval_attempt + build_response_metadata[drop None] + request_hash) + `_call_impl` hook (openrouter_client.py:1242) + entailment_judge.py capture hook + pure tests (fake direct-judge proving evaluator capture; streaming-shape fake proving served-provider provenance).
+  - PR-2: retrieval-attempt hooks (live_retriever/domain_backends serper+s2) + runner `--pathB-gate` lifecycle in run_honest_sweep_r3.py (preflight + per-role surrogate probe + register sink + assert_post_run on ALL exits + persist pin).
+  - PR-3: operator-supervised smoke (#72/#90) + scoring integration (claim_audit_scorer consumes only gate-PASS runs).
+
+### PR-1 seam map (confirmed, ready to author)
+- **Unified completion hook**: `src/polaris_graph/llm/openrouter_client.py:1657` — immediately after `_capture_reasoning_trace(result, content, reasoning)` (where `result=LLMResponse(...)` is built from served `data` at 1643-1652; `data.get("model")` is the SERVED model). Add the best-effort pathB capture here (mirrors the reasoning-sink pattern) → one LLMCall per provider completion (stream + non-stream converge here).
+- **Streaming provider provenance**: ensure `data["provider"]` is populated from the SSE final/usage chunk for streaming calls (Codex P1 #3 — streaming currently synthesizes `data` without `provider`). build_response_metadata excludes None fields; provider MUST be the served value, never request-derived. If provider truly absent for a path, that path FAILS the gate (loud), never request-filled.
+- **Evaluator judge hook**: `src/polaris_graph/llm/entailment_judge.py` (invoked via provenance_generator `_get_judge().judge()` ~1161/1220) posts direct httpx to /chat/completions, bypassing OpenRouterClient — add the SAME capture inside its request method, role="evaluator", metadata from ITS response JSON.
+- **Module**: `src/polaris_graph/benchmark/pathB_capture.py` — contextvar sink + `llm_role` ctx-mgr (token/restore) + record_retrieval_attempt + build_response_metadata(drop None) + request_hash. Lazy, gate-flagged (zero hot-path cost when gate off).
+- Tests: tests/dr_benchmark/test_pathB_capture.py (pure): fake direct-judge proves evaluator capture; streaming-shape fake proves served-provider provenance; role ctx-mgr restore; None-field drop; request_hash stable.
+
+### PR-2 design fork (role-tagging vs real honest_sweep LLM topology) — discovered 2026-05-28
+PR-1 (capture + completion hook) is Codex-APPROVE'd + committed (731e022b). Authoring PR-2 surfaced
+that honest_sweep's LLM topology is richer than the gate-wiring brief assumed:
+- REPORT GENERATOR (deepseek): generator/multi_section_generator.generate_multi_section_report +
+  generator/analyst_synthesis.py:346-352 (sets reasoning_call_context @349).
+- EVALUATORS (gemma): evaluator/live_judge.judge_report (PG_EVALUATOR_MODEL, default gemma-4-31b,
+  OpenRouterClient @139/151); evaluator/external_evaluator.run_external_evaluation; the strict_verify
+  entailment judge (entailment_judge.py, role="evaluator" hooked in PR-1).
+- AUXILIARY (model = OPENROUTER_MODEL default = deepseek unless overridden): audit_ir/
+  scope_classifier_llm.py:584-589 (OpenRouterClient(model=model)); auto_induction/llm_inductor.py:332.
+PR-1 hook defaults untagged calls to role="generator" -> auxiliary calls bucket as generator; if any
+serves a non-deepseek/gemma model, assert_post_run false-fails ("served model"). FORK:
+- Option A (capture-all, default generator): stronger ("every generator-family call served deepseek")
+  but false-fails on any auxiliary serving a 3rd model.
+- Option B (capture-ONLY-explicitly-tagged): robust; change PR-1 hook `or "generator"` -> require
+  explicit role (skip untagged); tag report-generator + live_judge + external_evaluator as their roles
+  (entailment judge already role="evaluator"); auxiliary scope/inductor skipped. Matches the benchmark
+  purpose (police the report generator + evaluator). RECOMMENDED.
+Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list before authoring PR-2.
+
+### PR-2 diff audit Codex iter1 -> iter2
+- **iter 1** REQUEST_CHANGES (0 P0, 2 P1, 2 P2, 1 P3). All real bugs caught pre-merge:
+  - P1: pin used OPENROUTER_DEFAULT_MODEL but generator reads PG_GENERATOR_MODEL (every correct call would have failed).
+  - P1: surrogate hard-required system_fingerprint -> every response that omits it would have failed.
+  - P2: PG_PATHB_GATE_SALT not classified secret -> HMAC key plaintext in pin file.
+  - P2: assert_post_run runs after per-run artifacts written (manifest/judge) — added pathB_gate_INVALID sentinel so PR-3 scoring can skip stale artifacts.
+  - P3: preflight FAIL writes no result file — fixed; now writes FAIL result + sentinel before re-raising.
+- All 5 fixed, 67/67 dr_benchmark tests green (+5 regression tests); committed 0bc2c805. Resubmitting iter 2.
+- **iter 2** sandbox-env failure (Windows tmp_path PermissionError); 1 regression test successfully ran + PASSED. Budget exhausted on retries; no verdict YAML.
+- **iter 3** verdict APPROVE. 0 P0/P1/P2/P3. All 5 iter-1 findings closed (P1_generator_env_var, P1_surrogate_no_sysfp, P2_salt_redacted, P2_invalid_sentinel_for_downstream_skip, P3_preflight_fail_writes_result all true). All 4 verification flags true (role_tag_chokepoints_correct, per_question_lifecycle_correct, retrieval_hooks_complete, exception_propagation_correct). accept_remaining. ~12k tokens.
+- PR-2 SHIPS at 0bc2c805. -> author PR-3 design (scoring integration + smoke runbook + final report) -> Codex review -> PR-3 code.
+
+### PR-3 diff audit Codex iter1 -> iter2
+- **iter 1** REQUEST_CHANGES (0 P0, 2 P1, 4 P2, 2 P3). All real:
+  - P1 #1: score_run accepts single-auditor ledger -> bypass conservative-MAX. Fix: require auditor=='reconciled'.
+  - P1 #2: silent-auditor escalation crashes on UNREACHABLE present rows (subtype on non-UNREACHABLE). Fix: branch on UNREACHABLE-vs-other.
+  - P2 #1: Coverage accepts non-bool (string 'false' truthy). Fix: isinstance bool check.
+  - P2 #2: identity pins block missing pathB_gate served-identity. Fix: surface from score_run + render in aggregate.
+  - P2 #3: dual-pin discipline incomplete + nondeterministic JSON. Fix: drop timestamp + bytes write + require markdown pin + check JSON pin.
+  - P2 #4: parser silently under-parses. Fix: fail closed on element-count drift.
+  - P3 #1: _carry_evidence note not appended. Fix: concatenate both auditors' notes with ' || '.
+  - P3 #2: cells don't escape | or \n. Fix: _cell() helper applied everywhere.
+  All 8 fixed; 91/91 dr_benchmark tests green (+7 regression tests). Resubmitting iter 2.
+- **iter 2** verdict APPROVE. 0 P0/P1/P2. 1 cosmetic P3 (silent_side label reversed in audit note; scoring unaffected) — fixed. accept_remaining. ~80k tokens. All 8 iter1 findings true. -> PR-3 SHIPS at 312783d6 + cosmetic fix.
+
+## I-safety-002b end-to-end gate-wiring milestone (2026-05-28)
+- Frozen gold-rubric answer key (dual §-1.1 audit; Codex APPROVE iter2; 3bcd839a). 38 elements, 0 fabrications.
+- Competitor side stored: 10/10 reports (GPT 5.5 Pro + Gemini 3.1 Pro), sha256-pinned.
+- PR-1 (capture primitives + completion hooks + streaming served-identity, 731e022b): Codex APPROVE iter2.
+- PR-2 (role tags + retrieval hooks + --pathB-gate lifecycle + INVALID sentinel, 0bc2c805): Codex APPROVE iter3 (caught 2 real P1 bugs pre-merge).
+- PR-3 (ledger + reconciler + score CLI + frozen-rubric JSON + final-report aggregator + smoke runbook, 2894f617+f38df40d+312783d6): Codex APPROVE iter2 (caught 2 real P1 + 4 P2 + 2 P3 bugs pre-merge).
+- 91/91 dr_benchmark tests green; 20+ touched-area smoke tests green.
+- Operator authorization needed: single-question smoke run on #72 (smoke.md) -> 5 full POLARIS runs through --pathB-gate -> dual §-1.1 line-by-line audit vs frozen rubric -> final_report.md.
+
+### I-safety-002b smoke run #72 — HARD STOP at OpenRouter 402 (account billing)
+- Smoke runs #1-#10 (2026-05-28 10:39-11:27 UTC) progressively unblocked layers via the path-B gate:
+  - #1-#2: env config (ALLOW_FALLBACKS, PROVIDER_ORDER) — operator override.
+  - #3: S2 reachability — transient, cleared on retry.
+  - #4-#6: OpenRouter 404 (real, not transient) → I-bug-940 (#926) transient-404 retry + I-bug-941 (#927) max_tokens cap 20000→16384.
+  - #7: abort_corpus_inadequate (T1=1 < threshold 2) → I-bug-942 (#928) journal-targeted site: queries.
+  - #8-#9: 429 mid-section-generation → I-bug-943 (#929) bump 429 floor 14s→15-60s + PG_MAX_PARALLEL_SECTIONS env.
+  - **#10: ONE generator section completed successfully** ($0.021, V4 Pro, 1590 in / 7433 out / 7010 reasoning tokens, 429s wall). Then OpenRouter returned **402 Payment Required** (account-level billing exhausted, not POLARIS PG_MAX_COST_PER_RUN budget).
+- **Pipeline end-to-end functional**: preflight ✓, retrieval ✓, corpus adequacy ✓, generator ✓ (one section), evaluator never reached.
+- **Operator action required**: top up the OpenRouter account billing. The $40 PG_MAX_COST_PER_RUN cap isn't the wall; OpenRouter's account-level 402 is.
+- Total real cost on this smoke (#10 only): $0.021. Total this campaign: $0.021 + $0.015 (#9) + $0.010 (#8) = ~$0.046.

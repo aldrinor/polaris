@@ -1,0 +1,8 @@
+PR-11 (#937) benchmark-routing SMOKE (Claude main-thread)
+OVERALL: PASS. NO network/spend (registration stubs; routing test loads templates from disk only).
+- import scripts.run_honest_sweep_r3: OK (18 queries: 14 original + drb_72 + 4 new).
+- pytest tests/dr_benchmark tests/roles tests/architecture -q: 413 passed (incl. test_benchmark_routing 12).
+- test_benchmark_routing: 12 passed (5 slug+domain, 5 contract-reachable, 1 registration invariant, 1 wrong-slug fail-closed).
+- verify_lock --consistency: rc0 (lock NOT promoted). gate_a_dry_run: OVERALL PASS.
+- tests/polaris_graph (PYTHONPATH=src, demo_smoke ignored): see counts above — the ~49 failures are PRE-EXISTING baseline; none benchmark-routing-related.
+- Per-slug required_entities resolved at runtime via load_scope_template(domain)+load_required_entities(template,slug): drb_75=6, drb_76=5, drb_78=5 (clinical); drb_72=7 (workforce); drb_90=6 (policy).

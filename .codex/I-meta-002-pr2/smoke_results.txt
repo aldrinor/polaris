@@ -1,0 +1,35 @@
+POLARIS sub-PR-2 SMOKE RESULTS
+Agent: SMOKE
+cwd: C:/POLARIS
+Run mode: serialized, in order (no parallel, per CLAUDE.md §8.4)
+
+================================================================
+Command 1:
+  python -m pytest tests/roles tests/architecture tests/dr_benchmark -q
+  Exit code: 0
+  Result: PASS
+  Pytest summary line: 190 passed in 4.85s
+  Counts: 190 passed, 0 failed, 0 errored, 0 skipped
+  Collected: 190 items
+  Breakdown observed:
+    tests/roles/test_judge_contract.py        26 passed
+    tests/roles/test_mirror_contract.py       14 passed
+    tests/roles/test_sentinel_contract.py     21 passed
+    tests/architecture/test_runtime_lock.py   14 passed
+    tests/dr_benchmark/test_claim_audit_scorer.py  12 passed
+    tests/dr_benchmark/test_medhallu_adapter.py    12 passed
+    tests/dr_benchmark/test_pathB_capture.py       13 passed
+    tests/dr_benchmark/test_pathB_run_gate.py      44 passed
+    tests/dr_benchmark/test_pathB_runner.py         9 passed
+    tests/dr_benchmark/test_pr3_pipeline.py        24 passed
+
+================================================================
+Command 2:
+  python -m scripts.architecture.verify_lock --consistency
+  Exit code: 0  (expected 0)
+  Result: PASS
+  Output: Consistency: OK - families registered, family_policy holds,
+          code defaults match lock, canonical_pin includes lock file
+
+================================================================
+OVERALL: BOTH PASSED

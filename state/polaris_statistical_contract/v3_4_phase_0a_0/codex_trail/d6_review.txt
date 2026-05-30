@@ -1,0 +1,64 @@
+codex
+**Verdict**
+
+Do not lock D6 as written. The core design is directionally correct, especially criterion-3 semantics, but the format is not yet fail-closed enough to be a locked construction substrate.
+
+The largest issue is enforcement. [D6](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D6_sme_template_format.md:66) says enum violations are construction errors, but I found no D6 template schema or validator. Existing `construction_manifest` schema only requires `sme_template_id` to be a non-empty string; it does not validate the semantic ID, template existence, template hash, ID-component consistency, or target-count invariants. The relation-builder correctly fails closed on relation inputs, but it is not a D6 template validator.
+
+The second blocker is `evidence_pool_bin`. D6 correctly distinguishes template target from packet-realized bin, but it does not say what happens when they differ. D3 makes the bin a packet property assigned from the locked packet source count. If a template ID says `E3` but the realized packet is `E2`, accepted construction would split the semantic template ID from the actual stratum cell. That should fail closed or force reconstruction/reassignment before `construction_manifest` acceptance.
+
+The third blocker is S3. D6 includes `S3` in `severity_distribution_target`, which matches the severity rubric, but the approved `severity_stratum_manifest`, pairwise schema, and relation-builder accept only `S0`, `S1`, `S2`, and `SUPPORTED`. Gate A is also only for `S ∈ {S0,S1,S2}`. D6 must either exclude S3 from Gate-A gold-set construction templates, define it as non-Gate/calibration-only, or require an approved 0a.-1.C/relation-builder extension.
+
+On the audit questions:
+
+1. The semantic ID scheme is criterion-3-correct. Byte-equal `sme_template_id` plus same claim constructor plus `<=24h` matches 0a.-1.C §2.1. A version bump causing non-match is intended. But D6 should spell the literal regex/parser, because domains like `due_diligence` and L2s like `safety_signal` contain underscores.
+
+2. The schema carries targets, not claims, which is right. But it needs hard invariants: target counts are non-negative integers, severity counts sum to `claim_count_target`, fabrication-type counts sum to fabricated target count, `version` matches the `vN` suffix, and protocol refs resolve to locked artifact/hash IDs.
+
+3. Target bin vs realized bin is conceptually right, but unresolved on mismatch. Accepted claims should have `construction_manifest.evidence_pool_bin` equal the realized D3 packet bin and also match the template’s target bin, or be rejected/reconstructed/reassigned before acceptance.
+
+4. The complexity invariant is right. A per-cell template should not legitimately produce mixed C1/C2/C3 claims. If a recipe can do that, it is too broad and should be split or applied only after D2 assignment to the matching tier.
+
+5. Criterion-3 semantics are correctly deferred to 0a.-1.C: same template ID, same `constructor_sme_id`, within 24h. The `created_by` rule is also correct: template author is not the claim constructor. Minor citation issue: local 0a.-1.A §6 is tiebreak workflow, not a template sketch.
+
+6. Lifecycle governance is consistent with D4/0a.-1.E: hash-pinned, deprecate-not-mutate, old claims keep old IDs, post-structural changes are §P4 Category-3/4. Good.
+
+7. Fail-closed is currently prose, not enforcement. Add a D6 template-set schema/validator and a construction-manifest acceptance check that resolves every `sme_template_id` to an active hash-pinned template and checks parsed ID components against template fields and claim metadata.
+
+8. Format-vs-content split is right, but it needs a hard gate like D4-seed: template CONTENT set authored, validator-passed, hash-pinned before SME construction, construction-manifest acceptance, D8 allocation, relation-builder dry-run, or pilot.
+
+9. Nothing else is architecturally unbuildable. The relation-builder side is aligned; D6 just needs the missing validator/gate and mismatch rules.
+
+Fix the D6 template-set validator/gate, target-vs-actual evidence-bin invariant, S3 stratum handling, explicit ID/version/count invariants, and stale §6 citation, then lock.
+147,455
+**Verdict**
+
+Do not lock D6 as written. The core design is directionally correct, especially criterion-3 semantics, but the format is not yet fail-closed enough to be a locked construction substrate.
+
+The largest issue is enforcement. [D6](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D6_sme_template_format.md:66) says enum violations are construction errors, but I found no D6 template schema or validator. Existing `construction_manifest` schema only requires `sme_template_id` to be a non-empty string; it does not validate the semantic ID, template existence, template hash, ID-component consistency, or target-count invariants. The relation-builder correctly fails closed on relation inputs, but it is not a D6 template validator.
+
+The second blocker is `evidence_pool_bin`. D6 correctly distinguishes template target from packet-realized bin, but it does not say what happens when they differ. D3 makes the bin a packet property assigned from the locked packet source count. If a template ID says `E3` but the realized packet is `E2`, accepted construction would split the semantic template ID from the actual stratum cell. That should fail closed or force reconstruction/reassignment before `construction_manifest` acceptance.
+
+The third blocker is S3. D6 includes `S3` in `severity_distribution_target`, which matches the severity rubric, but the approved `severity_stratum_manifest`, pairwise schema, and relation-builder accept only `S0`, `S1`, `S2`, and `SUPPORTED`. Gate A is also only for `S ∈ {S0,S1,S2}`. D6 must either exclude S3 from Gate-A gold-set construction templates, define it as non-Gate/calibration-only, or require an approved 0a.-1.C/relation-builder extension.
+
+On the audit questions:
+
+1. The semantic ID scheme is criterion-3-correct. Byte-equal `sme_template_id` plus same claim constructor plus `<=24h` matches 0a.-1.C §2.1. A version bump causing non-match is intended. But D6 should spell the literal regex/parser, because domains like `due_diligence` and L2s like `safety_signal` contain underscores.
+
+2. The schema carries targets, not claims, which is right. But it needs hard invariants: target counts are non-negative integers, severity counts sum to `claim_count_target`, fabrication-type counts sum to fabricated target count, `version` matches the `vN` suffix, and protocol refs resolve to locked artifact/hash IDs.
+
+3. Target bin vs realized bin is conceptually right, but unresolved on mismatch. Accepted claims should have `construction_manifest.evidence_pool_bin` equal the realized D3 packet bin and also match the template’s target bin, or be rejected/reconstructed/reassigned before acceptance.
+
+4. The complexity invariant is right. A per-cell template should not legitimately produce mixed C1/C2/C3 claims. If a recipe can do that, it is too broad and should be split or applied only after D2 assignment to the matching tier.
+
+5. Criterion-3 semantics are correctly deferred to 0a.-1.C: same template ID, same `constructor_sme_id`, within 24h. The `created_by` rule is also correct: template author is not the claim constructor. Minor citation issue: local 0a.-1.A §6 is tiebreak workflow, not a template sketch.
+
+6. Lifecycle governance is consistent with D4/0a.-1.E: hash-pinned, deprecate-not-mutate, old claims keep old IDs, post-structural changes are §P4 Category-3/4. Good.
+
+7. Fail-closed is currently prose, not enforcement. Add a D6 template-set schema/validator and a construction-manifest acceptance check that resolves every `sme_template_id` to an active hash-pinned template and checks parsed ID components against template fields and claim metadata.
+
+8. Format-vs-content split is right, but it needs a hard gate like D4-seed: template CONTENT set authored, validator-passed, hash-pinned before SME construction, construction-manifest acceptance, D8 allocation, relation-builder dry-run, or pilot.
+
+9. Nothing else is architecturally unbuildable. The relation-builder side is aligned; D6 just needs the missing validator/gate and mismatch rules.
+
+Fix the D6 template-set validator/gate, target-vs-actual evidence-bin invariant, S3 stratum handling, explicit ID/version/count invariants, and stale §6 citation, then lock.

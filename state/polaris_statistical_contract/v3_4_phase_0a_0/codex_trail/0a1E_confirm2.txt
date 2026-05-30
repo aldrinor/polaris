@@ -1,0 +1,20 @@
+codex
+§6↔§9 are consistent now.
+
+§6 has the broker decision fields needed for §9’s “emit every allow AND every deny” rule, and it correctly separates actual exposure from blocked attempts:
+
+- `decision=allow` + `action=read` + `exposure_class=outcome` drives amendment eligibility.
+- `decision=deny` rows are retained audit events, not exposure.
+- §9’s deny-by-default broker now has an explicit target schema in §6.
+
+Lock 0a.-1.E
+27,748
+§6↔§9 are consistent now.
+
+§6 has the broker decision fields needed for §9’s “emit every allow AND every deny” rule, and it correctly separates actual exposure from blocked attempts:
+
+- `decision=allow` + `action=read` + `exposure_class=outcome` drives amendment eligibility.
+- `decision=deny` rows are retained audit events, not exposure.
+- §9’s deny-by-default broker now has an explicit target schema in §6.
+
+Lock 0a.-1.E

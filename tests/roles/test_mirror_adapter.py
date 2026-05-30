@@ -1,0 +1,239 @@
+"""Tests for the Mirror (Cohere) two-pass adapter — citation normalization + binding.
+
+Properties:
+- run_mirror makes TWO transport calls and returns a 2-element RoleCallRecord list with
+  BOTH pass-1 and pass-2 asserted;
+- the pass-2 request embeds the pass-1 composite content_hash;
+- a pass-2 whose hash does not bind -> MirrorBindingError (fail closed);
+- citation normalization: the structured RoleResponse.citations path is parsed, the <co>
+  raw_text path is parsed, and the empty-both case raises MirrorCitationError (no silent
+  empty MirrorPass1 that trivially passes the binding);
+- citation-binding (iter-4): an empty-doc_id span is rejected, a span citing a doc_id NOT
+  in evidence_documents is rejected, a MIXED real+hallucinated span is rejected whole, a
+  claim left with no valid grounded citation raises MirrorCitationError, and a span citing a
+  real supplied doc_id is accepted.
+All with a mock transport. No network.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from src.polaris_graph.roles.mirror_adapter import (
+    MirrorBindingError,
+    MirrorCitationError,
+    build_mirror_pass2_request,
+    run_mirror,
+)
+from src.polaris_graph.roles.mirror_contract import (
+    CitationSpan,
+    MirrorPass1,
+    build_pass2_input,
+)
+from src.polaris_graph.roles.role_transport import (
+    EvidenceDocument,
+    RoleRequest,
+    RoleResponse,
+)
+
+_MODEL = "cohere/command-a-plus"
+_CLAIM = "Summarize the HbA1c effect."
+_DOCS = [
+    EvidenceDocument(doc_id="doc_surmount1", text="HbA1c fell 2.3 points."),
+    EvidenceDocument(doc_id="doc_label2", text="Indicated for T2DM."),
+]
+_VALID_IDS = {d.doc_id for d in _DOCS}
+
+
+class _SequencedTransport:
+    """Mock transport returning queued RoleResponses in order, recording each request."""
+
+    def __init__(self, responses: list[RoleResponse]) -> None:
+        self._responses = list(responses)
+        self.requests: list[RoleRequest] = []
+
+    def complete(self, request: RoleRequest) -> RoleResponse:
+        self.requests.append(request)
+        return self._responses.pop(0)
+
+
+def _pass2_hash_for(pass1: MirrorPass1) -> str:
+    """The composite content_hash the adapter will compute for `pass1`."""
+    return build_pass2_input(pass1)["content_hash"]
+
+
+def _pass2_response_for(pass1: MirrorPass1, classification: str = "grounded") -> RoleResponse:
+    """A canned pass-2 JSON response that binds to `pass1`."""
+    payload = {
+        "content_hash": _pass2_hash_for(pass1),
+        "classification": classification,
+        "rationale": "ok",
+    }
+    return RoleResponse(raw_text=json.dumps(payload), served_model=_MODEL)
+
+
+# --- structured-citation path ------------------------------------------------------
+def test_structured_citations_two_calls_two_records_and_binding() -> None:
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(
+        raw_text="HbA1c fell 2.3 points.",
+        served_model=_MODEL,
+        citations=spans,
+    )
+    # On the structured path answer_text is the raw_text verbatim.
+    expected_pass1 = MirrorPass1(answer_text="HbA1c fell 2.3 points.", citation_spans=spans)
+    transport = _SequencedTransport(
+        [pass1_response, _pass2_response_for(expected_pass1)]
+    )
+
+    pass2, records = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+    # TWO transport calls.
+    assert len(transport.requests) == 2
+    # 2-element record list, BOTH passes asserted.
+    assert len(records) == 2
+    assert records[0].role == "mirror"
+    assert records[0].parsed.answer_text == "HbA1c fell 2.3 points."
+    assert records[0].parsed.citation_spans == spans
+    assert records[1].parsed is pass2
+    assert pass2.classification == "grounded"
+
+    # pass-2 request embeds the pass-1 composite hash.
+    pass2_request = transport.requests[1]
+    assert pass2_request.params["pass2_input"]["content_hash"] == _pass2_hash_for(
+        expected_pass1
+    )
+
+
+# --- self-host <co> path -----------------------------------------------------------
+def test_co_span_path_parsed_and_answer_text_stripped() -> None:
+    # raw_text carries a <co> span; offsets index the TAG-STRIPPED text.
+    pass1_raw = "<co>HbA1c fell 2.3</co:doc_surmount1> overall."
+    cleaned = "HbA1c fell 2.3 overall."
+    expected_spans = [CitationSpan(span_start=0, span_end=14, doc_ids=("doc_surmount1",))]
+    expected_pass1 = MirrorPass1(answer_text=cleaned, citation_spans=expected_spans)
+
+    pass1_response = RoleResponse(raw_text=pass1_raw, served_model=_MODEL)
+    transport = _SequencedTransport(
+        [pass1_response, _pass2_response_for(expected_pass1)]
+    )
+
+    pass2, records = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+    # answer_text is the cleaned (tag-stripped) text so span offsets align.
+    assert records[0].parsed.answer_text == cleaned
+    assert records[0].parsed.citation_spans == expected_spans
+    assert pass2.classification == "grounded"
+
+
+# --- binding mismatch --------------------------------------------------------------
+def test_binding_mismatch_raises_mirror_binding_error() -> None:
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(
+        raw_text="HbA1c fell 2.3 points.", served_model=_MODEL, citations=spans
+    )
+    # pass-2 carries a hash that does NOT bind to pass-1.
+    bad_pass2 = RoleResponse(
+        raw_text=json.dumps(
+            {"content_hash": "deadbeef", "classification": "grounded"}
+        ),
+        served_model=_MODEL,
+    )
+    transport = _SequencedTransport([pass1_response, bad_pass2])
+    with pytest.raises(MirrorBindingError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+
+# --- empty-both: no silent empty MirrorPass1 ---------------------------------------
+def test_empty_both_citation_sources_raises_mirror_citation_error() -> None:
+    # No structured citations AND no <co> spans -> no grounded citation -> fail closed.
+    pass1_response = RoleResponse(raw_text="A bare answer with no citations.", served_model=_MODEL)
+    # Only pass-1 should be consumed; pass-2 should never be reached.
+    transport = _SequencedTransport([pass1_response])
+    with pytest.raises(MirrorCitationError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+    assert len(transport.requests) == 1  # pass-2 never called
+
+
+# --- iter-4 citation-binding guard -------------------------------------------------
+def test_empty_doc_id_span_is_rejected() -> None:
+    # <co>covered</co:> -> a span with empty doc_ids; rejected -> no grounded citation.
+    pass1_response = RoleResponse(raw_text="<co>covered</co:>", served_model=_MODEL)
+    transport = _SequencedTransport([pass1_response])
+    with pytest.raises(MirrorCitationError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+
+def test_unknown_doc_id_span_is_rejected() -> None:
+    # span cites a doc_id never supplied -> hallucinated identity -> rejected.
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_phantom",))]
+    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
+    transport = _SequencedTransport([pass1_response])
+    with pytest.raises(MirrorCitationError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+
+def test_mixed_real_and_hallucinated_doc_ids_rejected_whole() -> None:
+    # One real + one hallucinated doc_id in the SAME span -> reject the whole span.
+    spans = [
+        CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1", "doc_phantom")),
+    ]
+    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
+    transport = _SequencedTransport([pass1_response])
+    with pytest.raises(MirrorCitationError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+
+def test_real_doc_id_span_is_accepted() -> None:
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
+    expected_pass1 = MirrorPass1(answer_text="answer", citation_spans=spans)
+    transport = _SequencedTransport(
+        [pass1_response, _pass2_response_for(expected_pass1)]
+    )
+    pass2, records = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+    assert len(records) == 2
+    assert records[0].parsed.citation_spans == spans
+    assert pass2.classification == "grounded"
+
+
+def test_empty_doc_id_in_evidence_set_does_not_launder_empty_citation_codex_diff_p1() -> None:
+    """Codex diff iter-1 P1: if the supplied evidence set itself contains an
+    EvidenceDocument with an empty doc_id, a citation span with doc_ids=("",) must STILL be
+    rejected. valid_doc_ids excludes empty ids AND the validator rejects empty-doc_id spans,
+    so an empty doc_id can never bind — leaving no grounded citation -> MirrorCitationError."""
+    docs_with_empty = [
+        EvidenceDocument(doc_id="", text="a document that was given an empty id"),
+        EvidenceDocument(doc_id="doc_real", text="HbA1c fell."),
+    ]
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("",))]
+    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
+    transport = _SequencedTransport([pass1_response])
+    with pytest.raises(MirrorCitationError):
+        run_mirror(transport, _CLAIM, docs_with_empty, model_slug=_MODEL)
+    assert len(transport.requests) == 1  # pass-2 never reached
+
+
+def test_whitespace_doc_id_span_is_rejected() -> None:
+    # A whitespace-only doc_id is not a real identity even if echoed in the evidence set.
+    docs = [EvidenceDocument(doc_id="   ", text="whitespace id"), *_DOCS]
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("   ",))]
+    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
+    transport = _SequencedTransport([pass1_response])
+    with pytest.raises(MirrorCitationError):
+        run_mirror(transport, _CLAIM, docs, model_slug=_MODEL)
+
+
+# --- build_mirror_pass2_request shape ----------------------------------------------
+def test_pass2_request_has_response_format_and_no_documents() -> None:
+    pass1 = MirrorPass1(
+        answer_text="answer",
+        citation_spans=[CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))],
+    )
+    request = build_mirror_pass2_request(pass1, model_slug=_MODEL)
+    assert request.role == "mirror"
+    assert request.params["response_format"]["type"] == "json_object"
+    assert "documents" not in request.params
+    assert request.params["pass2_input"]["content_hash"] == _pass2_hash_for(pass1)

@@ -1,10 +1,17 @@
 """
 polaris graph — clean-room research pipeline.
 
-Uses DeepSeek V4 Pro generator + Gemma 4 31B-it evaluator via OpenRouter
-(Carney demo lock per I-cd-009 / GH#624). Two-family segregation enforced
-by `openrouter_client.check_family_segregation` returning ('deepseek',
-'gemma'). Reuses battle-tested search/fetch infrastructure from src/tools/.
+Runs the LOCKED 4-role architecture per
+``config/architecture/polaris_runtime_lock.yaml`` (I-meta-001 #933):
+Generator (DeepSeek V4 Pro, OpenRouter) + Mirror (Cohere Command A+) +
+Sentinel (IBM Granite Guardian 4.1 8B) + Judge (Qwen3.6-35B-A3B), plus the
+deterministic python validators and the §-1.1 Codex audit layer. Family
+segregation is enforced two ways: the legacy pairwise generator/evaluator
+check ``openrouter_client.check_family_segregation`` (the two-family
+invariant of CLAUDE.md §9.1), and the 4-role all-distinct-lineage check
+``validate_role_families`` (Mirror, Sentinel, and Judge must each be a
+distinct family from the Generator and from each other).
+Reuses battle-tested search/fetch infrastructure from src/tools/.
 """
 
 __all__ = [
