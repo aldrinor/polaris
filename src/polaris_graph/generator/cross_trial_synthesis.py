@@ -61,6 +61,7 @@ inferences survive.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -119,6 +120,144 @@ def _aggregate_trial_frames(
                 fields=extracted,
             ))
     return frames
+
+
+# ─────────────────────────────────────────────────────────────────────
+# #957 (S2, 2026-05-30): domain-agnostic entity→attribute comparison
+# ─────────────────────────────────────────────────────────────────────
+# The trial detectors above are SURPASS/tirzepatide-bound. For golden Qs
+# with no trial contract (microbiota/CRC chains, metal-ion→CVD pathways,
+# ADAS liability) the cross-source layer was simply absent. This adds a
+# generic detector that runs on NON-trial contract entities only (so
+# existing trial runs are byte-identical) and emits a NEUTRAL RESTATEMENT
+# of already-extracted slot values — never a synthesized comparative
+# conclusion. Three guards (Codex brief-gate #957 iter-2 P1) keep it from
+# opening a fabrication surface:
+#   1. comparability: field-name not narrative; value ATOMIC (short, single-clause)
+#   2. provenance: >= 2 contributing entities with DISTINCT bound_ev_id
+#   3. wording: plain "Extracted {field} values" — no "across sources" claim
+# The downstream strict_verify still guards the LLM's integrated sentence.
+_GENERIC_COMPARATIVE_SECTION = "Comparative"
+_ATOMIC_VALUE_MAX_CHARS = 160
+# Field-name substrings that denote narrative/interpretive (non-atomic) slots.
+_NARRATIVE_FIELD_TOKENS = (
+    "rationale", "interpretation", "limitation", "narrative", "summary",
+    "conclusion", "discussion", "context", "note", "comment", "caveat",
+    "assessment", "background", "overview",
+)
+# Sentence-ending punctuation: . ? ! followed by whitespace or end-of-string.
+# A decimal point ("2.1") is NOT followed by whitespace, so it is not counted.
+_SENTENCE_END_RE = re.compile(r"[.?!](?:\s|$)")
+
+
+@dataclass(frozen=True)
+class _EntityFrame:
+    """One contract entity's extracted fields + their source ev ids, for
+    domain-agnostic comparison. `fields` maps field_name -> (value, bound_ev_id)."""
+    entity_id: str
+    display_name: str
+    is_trial: bool
+    fields: dict[str, tuple[str, str]]
+
+
+def _generic_comparative_enabled() -> bool:
+    """Kill-switch `PG_SYNTH_GENERIC_COMPARATIVE` (default ON). OFF → no
+    generic aggregation, no generic patterns; trial behavior byte-identical."""
+    raw = os.environ.get("PG_SYNTH_GENERIC_COMPARATIVE", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def _is_comparable_field_name(field_name: str) -> bool:
+    """A field name is comparable iff it is not a narrative/interpretive slot."""
+    low = field_name.lower()
+    return not any(tok in low for tok in _NARRATIVE_FIELD_TOKENS)
+
+
+def _is_atomic_value(value: str) -> bool:
+    """Atomic = a short, single-clause factual datum (not free-text narrative).
+    Excludes multi-line values and values with >1 sentence-ending punctuation."""
+    if not value or len(value) > _ATOMIC_VALUE_MAX_CHARS:
+        return False
+    if "\n" in value or "\r" in value:
+        return False
+    return len(_SENTENCE_END_RE.findall(value)) <= 1
+
+
+def _aggregate_entity_frames(
+    payloads: list[SlotFillPayload],
+) -> list[_EntityFrame]:
+    """Collect EVERY contract entity (trial and non-trial) with >=1 extracted
+    field, tagging is_trial and keeping each field's (value, bound_ev_id)."""
+    frames: list[_EntityFrame] = []
+    for p in payloads:
+        eid = p.entity_id
+        m = re.match(r"^([a-z0-9_]+?)_(primary|secondary|cvot)$", eid)
+        is_trial = m is not None
+        display = eid
+        if is_trial:
+            display = m.group(1).upper().replace("_", "-")
+        extracted: dict[str, tuple[str, str]] = {}
+        for f in p.fields:
+            if f.status == "extracted" and f.value:
+                ev = getattr(f, "bound_ev_id", "") or p.bound_ev_id or ""
+                extracted[f.field_name] = (f.value, ev)
+        if extracted:
+            frames.append(_EntityFrame(
+                entity_id=eid, display_name=display,
+                is_trial=is_trial, fields=extracted,
+            ))
+    return frames
+
+
+def _detect_shared_attribute_patterns(
+    entity_frames: list[_EntityFrame],
+) -> list[_CrossTrialPattern]:
+    """Domain-agnostic: for a COMPARABLE field shared by >=2 NON-trial entities
+    with DISTINCT bound_ev_id, emit a neutral restatement of the extracted
+    values. No synthesized comparative conclusion; the guards keep it from
+    routing narrative slots or same-source pairs into the synthesis prompt."""
+    generic = [f for f in entity_frames if not f.is_trial]
+    if len({f.entity_id for f in generic}) < 2:
+        return []
+    # field_name -> list of (entity_id, display_name, value, ev_id) passing the guards
+    by_field: dict[str, list[tuple[str, str, str, str]]] = {}
+    for fr in generic:
+        for field_name, (value, ev) in fr.fields.items():
+            if not _is_comparable_field_name(field_name):
+                continue
+            if not _is_atomic_value(value):
+                continue
+            by_field.setdefault(field_name, []).append(
+                (fr.entity_id, fr.display_name, value, ev)
+            )
+    patterns: list[_CrossTrialPattern] = []
+    for field_name in sorted(by_field):
+        # Dedup to ONE contrib per distinct entity_id (deterministic by
+        # display_name, value) — Codex diff-gate P1: distinct provenance is NOT
+        # the same as distinct compared entities; one entity reporting a field
+        # across two of its own sources is NOT a cross-entity comparison.
+        per_entity: dict[str, tuple[str, str, str, str]] = {}
+        for c in sorted(by_field[field_name], key=lambda c: (c[1], c[2])):
+            per_entity.setdefault(c[0], c)
+        contribs = sorted(per_entity.values(), key=lambda c: (c[1], c[2]))
+        if len(contribs) < 2:  # < 2 DISTINCT entities
+            continue
+        # Provenance guard: require >= 2 DISTINCT bound_ev_id among them.
+        distinct_evs = {c[3] for c in contribs if c[3]}
+        if len(distinct_evs) < 2:
+            continue
+        restatement = "; ".join(
+            f"{name}: {val}" for _eid, name, val, _ev in contribs
+        )
+        summary = f"Extracted {field_name} values — {restatement}."
+        patterns.append(_CrossTrialPattern(
+            section=_GENERIC_COMPARATIVE_SECTION,
+            pattern_type="generic_attribute_comparison",
+            summary=summary,
+            contributing_anchors=tuple(c[1] for c in contribs),
+            contributing_evidence_ids=tuple(sorted(distinct_evs)),
+        ))
+    return patterns
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -291,21 +430,32 @@ def build_cross_trial_synthesis(
     extracted content. Caller treats empty block as "no synthesis
     suggestions for this run".
     """
+    section_to_patterns: dict[str, list[_CrossTrialPattern]] = {}
+
+    # Trial path (UNCHANGED): SURPASS/tirzepatide detectors on trial frames.
     frames = _aggregate_trial_frames(payloads)
-    if len(frames) < 2:
+    if len(frames) >= 2:
+        for detector in (
+            _detect_dose_response_patterns,
+            _detect_comparator_class_patterns,
+            _detect_safety_class_patterns,
+        ):
+            for pat in detector(frames):
+                key = pat.section.strip().lower()
+                section_to_patterns.setdefault(key, []).append(pat)
+    else:
         logger.info(
             "[m72] only %d trial frames with extracted fields — "
-            "skipping cross-trial synthesis", len(frames),
+            "skipping trial detectors", len(frames),
         )
-        return CrossTrialSynthesisBlock()
 
-    section_to_patterns: dict[str, list[_CrossTrialPattern]] = {}
-    for detector in (
-        _detect_dose_response_patterns,
-        _detect_comparator_class_patterns,
-        _detect_safety_class_patterns,
-    ):
-        for pat in detector(frames):
+    # #957 (S2): domain-agnostic generic comparison on NON-trial entities.
+    # Runs regardless of trial-frame count (gated by kill-switch). In a
+    # pure-trial run there are no non-trial entities, so this is a no-op and
+    # trial output is byte-identical. OFF → skipped entirely.
+    if _generic_comparative_enabled():
+        entity_frames = _aggregate_entity_frames(payloads)
+        for pat in _detect_shared_attribute_patterns(entity_frames):
             key = pat.section.strip().lower()
             section_to_patterns.setdefault(key, []).append(pat)
 
