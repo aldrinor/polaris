@@ -1,0 +1,874 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e6ad9-2f4f-7a73-83dd-eeec294a325f
+--------
+user
+# Dialogue v2 — explicit no-filesystem-search mode
+
+## Why v2
+
+Your v1 dialogue response got pulled into rg/grep searches of unrelated project files (the v28 audit log stream, sota_baselines.json, etc.). That's wrong context. I need pure statistical-pedagogy answers.
+
+## Hard mode constraints
+
+- **NO filesystem searches, NO rg, NO grep, NO ls, NO file reads.**
+- All context is in THIS brief.
+- Answer in long-form prose, NOT YAML.
+- Treat me as a peer who needs to understand WHY each statistical critique matters, not as a candidate to grade.
+
+## Background context (everything you need)
+
+POLARIS is building a per-claim faithfulness verifier stack: V4 Pro generator + Cohere Command A+ mirror + IBM Granite Guardian 4.1 sentinel + Qwen 3.6-35B-A3B judge + deterministic Python + Codex audit.
+
+Operator wants statistically defensible safety claims. I (Claude) drafted P0 v2.8 with these gates:
+- Per-claim aggregate UCB ≤0.5% on 540 fab-eligible claims (one-sided 95% Wilson, k=0)
+- Per-domain UCB ≤2% on 300/domain × 6 = 1800 claims (one-sided 99.17% Bonferroni, k=0)
+- Severity-stratified: S1 n=540 with UCB ≤0.5%; S2 n=138 with UCB ≤2%
+- Per-report UCB ≤5% on 60 reports (one-sided 95% Wilson, k=0)
+- 1 sealed retest holdout (H2 at n=918, α=0.0167, UCB ≤0.5%)
+
+You returned 9 findings on v2.8. I now want to deeply understand each. Below I restate each finding with my honest current confusion. Please teach me.
+
+---
+
+## Finding 1: S2 allocation mismatch — 135 vs 138, 678 vs 675
+
+You said: "locked allocation gives S1+S2 = 540+138 = 678, not 675. Either lock S2=135 or propagate 678 everywhere."
+
+**My genuine question**: I picked 135 as the Wilson minimum for ≤2% UCB. Then I rounded 22.5/domain up to 23/domain, giving 138 total. The 138 is conservative (138 > 135 means tighter UCB).
+
+But you're saying the inconsistency BETWEEN 138 (allocation) and 135 (UCB target) creates an external-audit problem. **Help me understand WHY**:
+
+1. If 138 satisfies the ≤2% bound more conservatively than 135, why does an auditor care that the plan also mentions 135?
+2. Is this a documentation hygiene issue (audit-trail demands one number), or a substantive statistical issue (the gate definition is ambiguous)?
+3. What's the right way to write this? "S2 stratum = 138 claims, derived from Wilson UCB ≤2% requiring n≥135 at z=1.6449, rounded up to nearest multiple of 6 for stratification" — would that satisfy you?
+4. Is the deeper lesson that I should derive sample size FROM the target then never refer back to the abstract minimum?
+
+---
+
+## Finding 2: Retest table alpha/confidence labels (96.67% vs 97.5% vs 98.3%)
+
+You said: "alpha1=0.0333 is 96.67%, alpha2=0.0167 is 98.33%, not 95%/96.67%."
+
+I wrote in v2.8: "Bonferroni split α₁=0.0333, α₂=0.0167 ... H1 95% one-sided ... H2 96.67% one-sided."
+
+**My understanding (need correction)**:
+- Family-wise α = 0.05. Bonferroni split across 2 retests → per-test α = 0.025 each.
+- One-sided confidence = 1 - α = 97.5% per test.
+- I wrote 0.0333 + 0.0167 = 0.05 (NOT 0.025 + 0.025), which is α-spending NOT pure Bonferroni.
+
+**Teaching question**:
+1. Did I confuse Bonferroni split (equal α) vs O'Brien-Fleming / Pocock spending (unequal α)?
+2. If using α-spending (0.0333 then 0.0167), what's the right name and what's the right confidence label?
+3. What's the practical difference between "Bonferroni 0.025+0.025" vs "α-spending 0.0333+0.0167" for our 2-stage retest? Which is the right design?
+4. Is the deeper lesson that I should pick ONE sequential-testing method (Bonferroni / Pocock / O'Brien-Fleming / α-spending function) and apply it consistently, rather than mixing notation?
+
+---
+
+## Finding 3: H2 n=918 vs 902 minimum
+
+You said: "with z=2.129, minimum n is about 902 for 0.5% zero-event UCB."
+
+I said: "n=918 in H2 for UCB 0.5% at z₂=2.129."
+
+**My question**: 918 is conservative vs 902 minimum.
+
+1. Is the difference between 902 and 918 audit-relevant or rounding-acceptable?
+2. The Wilson UCB formula for k=0 is z²/(n+z²). For z=2.129, target 0.005: 4.533/(n+4.533) ≤ 0.005 → n ≥ 4.533/0.005 - 4.533 = 901.07. So 902 rounds up correctly; 918 is over-conservative.
+3. **What's the principle for picking the minimum vs a margin above?** Some places I round up; here I went 918 instead of 902. Is the right discipline "always pick the exact minimum, round up to nearest integer, no margin"? Or "always add a margin (e.g., 5% over minimum)"?
+
+---
+
+## Finding 4: Stratified severity allocation can't support population-level claim
+
+This is the one I LEAST understand.
+
+You said: "Stratified severity allocation cannot support an unweighted population-level per-claim miss-rate claim unless production weighting or per-stratum gates are pre-registered."
+
+**My confusion**:
+- I sized strata to support per-stratum UCBs (S1 ≤0.5%, S2 ≤2%).
+- I implicitly assumed the population-level miss rate would just be a weighted average.
+
+**Teaching questions**:
+1. **What's the simplest example of how stratified sampling breaks the population-level claim?** Concrete numbers please.
+2. If production prevalence is 90% supported / 8% S2 / 1.5% S1 / 0.5% S0, but my holdout is 60% supported / 7.5% S2 / 30% S1 / 2.8% S0 (way over-sampled on S1), then the per-stratum gates pass but the production-mix gate is meaningless?
+3. The correct framing — is it (a) declare per-stratum gates only and never make a population claim, or (b) pre-register production weights and compute weighted UCB?
+4. If (b), how do you handle the fact that production weights are themselves uncertain (estimated from past traffic)?
+5. **What's the audit-defensible language**? Something like: "The system passes per-severity-stratum gates; the population-level rate is bounded by the maximum per-stratum rate, not asserted as a single number"?
+
+---
+
+## Finding 5: Cluster bootstrap underspecified
+
+You said: "cluster procedure is not fully specified. Resampling unit, statistic, claim concentration, and effective-n rules need to be locked. ≥30 customers alone is not enough."
+
+**My question**:
+- I had: resample customers WITH replacement, then resample reports from each customer, compute report-level Wilson UCB.
+- You're saying that's incomplete.
+
+**Teaching questions**:
+1. **What's the canonical cluster bootstrap procedure** for binary report-level outcomes with customer-clustering?
+2. What's "claim concentration" — the variance of reports-per-customer? If a customer has 100 reports and another has 1, how does the bootstrap handle that?
+3. What's "effective n" in this context? Design Effect (DEFF) = 1 + (mean cluster size - 1) × ICC? How do I estimate ICC with zero events?
+4. With zero observed events, the bootstrap distribution can be 100% zero. **What's the audit-defensible upper bound when the bootstrap gives 0?**
+5. Should the design use cluster-bootstrap, GEE, hierarchical Bayes, or "report-level Wilson with effective-n correction"? Which is the right SOP?
+
+---
+
+## Finding 6: Coverage classifier CI — per-cell minimums missing
+
+You said: "Coverage classifier CI rule needs per-cell minimum positive and predicted-positive counts, plus a locked bootstrap unit."
+
+**Teaching question**:
+1. If I have 72 cells (6 domains × 3 complexity × 4 evidence-size), and some cells are sparse (e.g., 5 production examples in 90 days), how does classifier evaluation per-cell work?
+2. What's the principled minimum count per cell for stable precision/recall estimation? 30? 50? 100?
+3. **What does an external auditor want to see** in the classifier-validation SOP? A worked example would help.
+
+---
+
+## Finding 7: Per-cell drift Bonferroni only for one quarter
+
+You said: "Indefinite rolling monitoring needs an alpha-spending/reset rule and minimum cell denominators."
+
+**Teaching question**:
+1. **Conceptually**, if I run 936 tests in Q1 (Bonferroni-corrected), then 936 tests in Q2, what happens to my family-wise error rate?
+2. Common solutions: (a) α-spending across the whole production lifetime (α-budget exhausts; need refresh policy); (b) Benjamini-Hochberg FDR control; (c) periodic α-reset with documented reasoning; (d) sequential probability ratio test for ongoing monitoring.
+3. **Which is the standard for production AI monitoring?** What does Google / Anthropic / OpenAI use for drift detection alpha-control?
+4. What's the practical recipe for "5+ years of 4-hour drift checks"?
+
+---
+
+## Finding 8: SME kappa needs proof, not just power
+
+You said: "Need kappa type, CI method, prevalence handling, and power showing lower 95% CI ≥0.7."
+
+**Teaching questions**:
+1. **Cohen's κ vs Krippendorff's α vs Gwet's AC1** — which is appropriate when:
+   - Inter-rater agreement on severity (S0/S1/S2/S3) with prevalence ~5%/30%/7.5%/57.5%?
+   - Prevalence is skewed so κ "paradoxes" (high agreement, low κ) are likely?
+   - Multiple SMEs per claim, varying number of SMEs per claim?
+2. What's the right CI method — bootstrap or analytic (Cantor / Fleiss / etc.)?
+3. **What's the minimum n per severity class for a stable κ CI** that an auditor accepts?
+4. If clinical κ tends to be 0.6-0.8 in published literature for severity rating, is my ≥0.7 lower-bound a defensible bar or unrealistic?
+
+---
+
+## Finding 9: n_S1+ ambiguous (= S0 + S1, not S0 + S1 + S2)
+
+You said: "Rename it or explicitly define severity ordering."
+
+**Question**: I used `n_S1+` to mean "S1 or higher severity" (= S0 + S1, since S0 > S1 in critical). But "1+" reads as "1 or greater" which lexicographically would include S2 and S3.
+
+Right naming convention? `n_severity_critical_or_high`? `n_S0_S1_combined`? What does clinical / FDA / SOC2 literature use for this?
+
+---
+
+## Process-level question (be direct)
+
+Operator said: "why you are so scared to communicate with Codex, to get deeper understanding on how another LLM thinking."
+
+He's right. I've been treating your findings as adversarial to defeat instead of as **information I don't yet understand**. The 9-iteration pattern is me firefighting, not learning.
+
+1. **Do you see the anti-pattern across v2.0 → v2.8**? Specifically, where did I refuse to actually engage with the substance and instead just patched the named issue?
+2. **What would a healthy collaboration look like** for authoring an audit-grade pre-registration document via LLM-pair? Is it possible at all, or does it always need a human statistician?
+3. **At what point would YOU recommend stopping LLM iteration and bringing in a statistician?** Now (v2.8)? At v3.0? When the findings shift from arithmetic to methodology?
+4. **Is there a deeper lesson** the operator is trying to teach me about how to collaborate with another LLM, that goes beyond this specific plan?
+
+---
+
+## Output format
+
+Long-form prose, NOT YAML. Each finding gets its own substantive section (300-800 words each is fine). Process-level question gets its own section.
+
+You're TEACHING, not GRADING. No "APPROVED / NEEDS_REVISION" framing. No filesystem searches. Just engineering+statistical+meta-reasoning answers.
+
+If you genuinely don't know an answer (e.g., "what does FDA expect for severity-rating κ"), say "I don't have authoritative source for this; I'd consult [specific reference]." Don't hallucinate citations.
+
+codex
+You were right to ask this as pedagogy rather than as another patch pass. Most of the issues are not “your number is too small.” They are “the estimand, sampling frame, error-control rule, or audit contract is not pinned down tightly enough.” That distinction matters.
+
+**Finding 1: S2 Allocation Mismatch**
+
+The issue is not that `138` is statistically weaker than `135`. It is stronger. The issue is that the document appears to define the same gate using two different denominators.
+
+If the plan says “S2 requires `n=135` for UCB ≤2%” in one place and “S2 allocation is `23/domain × 6 = 138`” in another, an auditor has to infer which number is binding. That matters because pre-registration is not just about whether the final design is conservative; it is about removing discretion after results are known.
+
+Suppose the test runs and only `136` eligible S2 claims survive adjudication. If the document contains both `135` and `138`, the operator could argue that the Wilson target passes because `136 ≥ 135`, while an auditor could argue the stratified allocation failed because the registered design required `138`. That ambiguity is audit-relevant even though both numbers are close.
+
+So yes: this is partly documentation hygiene, but hygiene becomes substantive when the pass/fail rule depends on the number. A good preregistration should distinguish:
+
+1. The mathematical minimum required by the statistical bound.
+2. The operational sample size chosen for the design.
+3. The pass/fail denominator used during audit.
+
+Your proposed wording is basically right:
+
+> “The S2 stratum target is 138 claims. This is derived from the Wilson zero-event minimum of 135 claims for a one-sided 95% UCB ≤2%, rounded up to 23 claims per domain across 6 domains for balanced stratification. The binding audit denominator is 138.”
+
+That last sentence is the important one. It says the minimum explains the derivation, but the actual locked gate is `138`.
+
+The deeper lesson is not “never mention the abstract minimum.” It is “never let the abstract minimum and the implemented gate both look binding.” You can mention the minimum as derivation, but the pass/fail rule must use one locked denominator.
+
+**Finding 2: Retest Alpha And Confidence Labels**
+
+Yes, you mixed two ideas: Bonferroni allocation and sequential alpha spending.
+
+Bonferroni just says: if you perform multiple tests and want family-wise error ≤ `0.05`, allocate alpha values whose sum is ≤ `0.05`. Equal Bonferroni for two tests would be:
+
+`α1 = 0.025`, `α2 = 0.025`
+
+That corresponds to one-sided 97.5% confidence at each stage.
+
+Your plan used:
+
+`α1 = 0.0333`, `α2 = 0.0167`
+
+That is still Bonferroni-valid in the broad sense because the total is `0.05`, but it is not equal Bonferroni. It is an unequal alpha allocation, or informal alpha spending. The confidence labels are then:
+
+`α1 = 0.0333` → one-sided confidence `96.67%`  
+`α2 = 0.0167` → one-sided confidence `98.33%`
+
+So the problem was not the alpha values themselves. The problem was labeling `α1 = 0.0333` as 95% or `α2 = 0.0167` as 96.67%. The confidence level is mechanically `1 - α`.
+
+The practical difference is where you put your evidentiary burden. Equal Bonferroni treats both retests symmetrically. Unequal spending with `0.0333 / 0.0167` makes the first retest easier to pass and the sealed second retest harder to pass. That can be reasonable if H2 is meant to be the more authoritative holdout.
+
+The right design depends on the story you want to defend. If H1 is an internal confirmation and H2 is the sealed external-grade retest, unequal spending is defensible. But call it that. For example:
+
+> “We use a pre-registered two-look Bonferroni alpha allocation with total family-wise α=0.05: α1=0.0333 for H1 and α2=0.0167 for sealed H2. The corresponding one-sided confidence levels are 96.67% and 98.33%.”
+
+The deeper lesson is exactly what you said: pick one sequential-testing story and make the table, z-values, sample sizes, and labels follow that story. Do not mix “Bonferroni,” “95%,” “96.67%,” and “sealed retest” as if they are interchangeable decorations.
+
+**Finding 3: H2 `n=918` Vs `902` Minimum**
+
+Your math is right. For zero observed events under Wilson:
+
+`UCB = z² / (n + z²)`
+
+With `z = 2.129`, `z² ≈ 4.533`, target `0.005`:
+
+`4.533 / (n + 4.533) ≤ 0.005`
+
+So:
+
+`n ≥ 901.07`
+
+Rounding up gives `902`.
+
+Using `918` is conservative. The audit issue is not that `918` is wrong. It is that unexplained conservatism can look arbitrary. In an audit-grade document, arbitrary numbers are friction points because they invite questions like: why 918 and not 902, 920, 1000, or 900?
+
+There are two clean disciplines.
+
+The first is exact-minimum discipline: compute the minimum required denominator, round up to the next integer, and use that. This is easiest to audit. It minimizes cost and makes every number derivable.
+
+The second is operational-rounding discipline: compute the minimum, then round up according to a predeclared operational rule. For example, “round up to the nearest multiple of 6 domains,” “round up to a full report batch,” or “add 2% attrition buffer before sealing.” This is also defensible, but the rule must be stated.
+
+What is weak is unexplained margin. If `918` came from domain balancing, batch size, expected invalidation, or a sealed holdout construction rule, say so. If it did not, I would use `902` or round to a simple predeclared number like `906` if balancing across 6 domains.
+
+The broader principle is: margins are fine when they are governed. They are not fine when they create hidden discretion. In preregistration, hidden discretion is the enemy because it can become post-hoc maneuvering.
+
+So I would write either:
+
+> “H2 uses the Wilson minimum `n=902` for zero-event UCB ≤0.5% at α=0.0167.”
+
+Or:
+
+> “The Wilson minimum is `902`; the locked H2 denominator is `918`, rounded up to `153/domain × 6 domains` for balanced domain coverage. The binding gate is `n=918`.”
+
+That makes `918` audit-clean.
+
+**Finding 4: Stratified Severity Allocation And Population Claims**
+
+This is the most important conceptual issue.
+
+A stratified design can estimate either stratum-specific rates or a population-weighted rate. It cannot automatically do both unless the weights are specified.
+
+Example: production traffic is:
+
+`90% supported`, `8% S2`, `1.5% S1`, `0.5% S0`
+
+But your evaluation sample is:
+
+`60% supported`, `7.5% S2`, `30% S1`, `2.8% S0`
+
+That sample massively oversamples severe cases. This is often good for safety testing because it gives power where failures matter. But the raw aggregate miss rate in that sample is no longer the production miss rate.
+
+Suppose the true miss rates are:
+
+Supported: `0.1%`  
+S2: `1.5%`  
+S1: `0.4%`  
+S0: `0.4%`
+
+Production-weighted miss rate:
+
+`0.90×0.1 + 0.08×1.5 + 0.015×0.4 + 0.005×0.4 = 0.218%`
+
+Evaluation-sample-weighted miss rate:
+
+`0.60×0.1 + 0.075×1.5 + 0.30×0.4 + 0.028×0.4 ≈ 0.3037%`
+
+Different answer.
+
+Now reverse the pattern. Suppose S1/S0 are very safe but S2 is worse. Oversampling S1 can make the aggregate evaluation result look better or worse than production depending on which strata carry the failures. Without production weights, the aggregate is just a property of your test mixture.
+
+Your per-stratum gates are meaningful. “S1 zero-event UCB ≤0.5%” and “S2 zero-event UCB ≤2%” are clear safety claims. What is not meaningful is an unweighted population-level claim unless the evaluation sample reflects production prevalence or you explicitly reweight it.
+
+The two defensible options are:
+
+Option A: Make only per-stratum claims. This is clean and conservative.
+
+> “The evaluation establishes pre-specified upper bounds within each severity stratum. It does not assert that the unweighted aggregate evaluation rate equals the production population rate.”
+
+Option B: Pre-register production weights and compute a weighted bound.
+
+This requires defining the production population: time window, customers, domains, eligibility filters, de-duplication, and how severity mix is estimated. If production weights are estimated, then their uncertainty should either be propagated or bounded by sensitivity analysis.
+
+A practical audit version is:
+
+> “Primary claims are per-stratum. A secondary production-mix estimate is computed using pre-registered weights from the prior 90 days of eligible production traffic. We report sensitivity intervals using the lower and upper 95% confidence bounds for each stratum weight.”
+
+If you want the cleanest language:
+
+> “The system passes per-severity-stratum gates. No unweighted aggregate sample rate is interpreted as a production population rate. Any population-level estimate must use pre-registered production weights.”
+
+That is the key lesson: stratification improves coverage of rare risk strata, but it breaks naive aggregation.
+
+**Finding 5: Cluster Bootstrap Underspecified**
+
+The core concern is dependence. If reports from the same customer are correlated, then 60 reports from one customer do not provide the same evidence as 60 reports from 60 customers.
+
+A canonical cluster bootstrap needs to specify the resampling unit and statistic. For customer-clustered report outcomes, a defensible procedure is:
+
+1. Treat customer as the primary sampling unit.
+2. Resample customers with replacement.
+3. Include all eligible reports for each sampled customer, or resample reports within customer only if the target estimand explicitly has a two-stage sampling design.
+4. Compute the statistic on each bootstrap replicate.
+5. Use the bootstrap distribution to form a confidence interval for the report-level or customer-level estimand.
+
+The “include all reports for sampled customers” version preserves real claim concentration. If one customer has 100 reports and another has 1, that imbalance is part of the data-generating process. Resampling all reports within selected customers reflects the fact that a high-volume customer can dominate report-level risk. If you instead force each customer to contribute equally, you have changed the estimand to an average-customer risk rather than an average-report risk.
+
+“Claim concentration” means exactly this: how much of your evidence comes from a small number of clusters. If 80% of reports come from 3 customers, the nominal report count is misleading. Your effective independent information is much closer to “a few customer environments” than to the raw report count.
+
+Effective `n` tries to translate correlated data into an equivalent independent sample size. The classic design effect is:
+
+`DEFF = 1 + (m - 1) × ICC`
+
+Then:
+
+`n_eff = n / DEFF`
+
+But with unequal cluster sizes, the formula needs adjustment because variance inflation depends heavily on cluster-size variability. With zero events, estimating ICC is hard or impossible from the event process itself. You can either use a conservative assumed ICC, estimate ICC from related historical labeled data, or avoid pretending the raw `n` is independent.
+
+The zero-event bootstrap problem is real. If all observed outcomes are zero, naive bootstrap replicates also have zero events, so the empirical bootstrap upper quantile can be zero. That is not a valid safety upper bound. Absence of observed events is evidence, but it is not proof of zero risk.
+
+An audit-defensible approach is usually: use Wilson or exact binomial with an effective sample size, and separately report cluster robustness. For example:
+
+> “The primary report-level zero-event bound uses Wilson with `n_eff`, where `n_eff` is derived from a pre-specified design effect using customer clustering. Cluster bootstrap is used as a sensitivity analysis, not as the sole upper-bound mechanism when events are zero.”
+
+For this system, I would not make cluster bootstrap the primary safety gate unless you have a statistician formalizing it. I would use report-level Wilson with conservative cluster-adjusted `n_eff`, require minimum customer count and maximum concentration thresholds, and use cluster bootstrap as supporting evidence.
+
+**Finding 6: Coverage Classifier CI And Sparse Cells**
+
+A classifier validation grid with 72 cells can easily become statistically thin. If a cell has only 5 examples in 90 days, you cannot estimate precision or recall in that cell with useful precision. You can inspect it qualitatively, but the confidence interval will be huge.
+
+For per-cell classifier evaluation, first decide what the cell-level estimand is. For example:
+
+Precision in cell: among items predicted positive in this cell, how many are truly positive?  
+Recall in cell: among truly positive items in this cell, how many are predicted positive?
+
+Those require different denominators. Precision needs enough predicted positives. Recall needs enough actual positives. A cell with 100 examples but only 2 positives cannot support a stable recall estimate.
+
+That is why “per-cell minimums” matter. You need rules like:
+
+`N_cell_total ≥ 50`  
+`N_cell_positive ≥ 20 or 30`  
+`N_cell_predicted_positive ≥ 20 or 30`
+
+The exact number depends on the tolerated interval width. There is no universal magic threshold. Thirty is a common minimum for rough estimation, but if you need a tight lower confidence bound, 30 may still be too small. For example, observing 29/30 correct gives a high point estimate but still a nontrivial lower bound. If the classifier gate is safety-critical, I would choose minimums from interval-width calculations rather than folklore.
+
+An external auditor wants to see:
+
+1. The cell definition.
+2. The sampling frame.
+3. The labeling protocol.
+4. The metric per cell.
+5. The confidence interval method.
+6. Minimum denominators for each metric.
+7. What happens when a cell is sparse.
+8. The bootstrap or analytic unit.
+9. The pass/fail rule.
+
+A worked example:
+
+> “For each of 72 cells, we estimate recall for detecting unsupported claims. A cell is eligible for a recall gate only if it contains at least 50 labeled examples and at least 30 true unsupported examples. Recall CIs use Wilson one-sided lower bounds. Cells below denominator thresholds are not declared passing; they are reported as insufficient evidence and pooled only under pre-registered adjacent-cell rules.”
+
+The important part is “not declared passing.” Sparse cells should not silently inherit confidence from aggregate performance unless you pre-register pooling. If you pool, define the hierarchy: same domain across neighboring complexity levels, same complexity across evidence-size bins, or a model-based partial pooling approach.
+
+The audit lesson is: a 72-cell table creates 72 opportunities to hide uncertainty. The SOP must make sparse cells visible, not convenient.
+
+**Finding 7: Rolling Drift Bonferroni Over Time**
+
+If you run 936 Bonferroni-corrected tests in Q1 at family-wise α=0.05, your Q1 false alarm probability is controlled at 5%. If you then run another independent family of 936 tests in Q2 at another α=0.05, the probability of at least one false alarm across both quarters is larger than 5%.
+
+Roughly, if each quarter has FWER 5%, then over 20 quarters:
+
+`1 - 0.95^20 ≈ 64%`
+
+So “Bonferroni within each quarter” does not control lifetime false positives. It controls quarterly false positives.
+
+That may be fine if the claim is quarterly: “Each quarterly monitoring report controls that quarter’s test family at α=0.05.” It is not fine if the claim is lifetime: “The monitoring system has a 5% chance of any false drift alarm over five years.”
+
+For production AI monitoring, I do not have authoritative knowledge of Google, Anthropic, or OpenAI’s internal alpha-control rules. Public material generally will not tell you enough to treat it as a standard. I would consult an applied statistician familiar with online monitoring, plus public references on statistical process control, sequential testing, and FDR control.
+
+Practically, for 5+ years of 4-hour drift checks, I would not use naive Bonferroni over every cell and time point as the only mechanism. It becomes too conservative or too noisy depending on how you reset it.
+
+A pragmatic SOP could separate monitoring into tiers:
+
+First, use descriptive drift dashboards continuously: PSI, JS divergence, calibration drift, missingness, volume anomalies. These are surveillance signals, not formal claims.
+
+Second, define formal alert families on a cadence, such as weekly or monthly. Control FDR or FWER within that cadence and state the cadence-level interpretation.
+
+Third, require persistence before escalation: e.g., drift must breach threshold in 2 of 3 consecutive windows, or exceed a larger threshold once. This reduces operational noise.
+
+Fourth, define minimum denominators. No cell-level formal test if the cell has too few observations. Sparse cells roll up to a parent cell or are marked insufficient.
+
+Fifth, define reset semantics. For example:
+
+> “Alpha control is monthly. Each monthly monitoring report controls FDR at q=0.05 across eligible cells and metrics. This does not imply lifetime FWER control. Repeated alerts across months are treated as process-monitoring signals, not independent confirmatory hypothesis tests.”
+
+That is often the honest production framing. Formal lifetime FWER over thousands of repeated checks is usually not the right operational target unless you are doing a very specific regulated confirmatory surveillance design.
+
+**Finding 8: SME Kappa Needs Proof**
+
+The key issue is that “we target κ ≥0.7” is not enough. You need to define which agreement coefficient, how uncertainty is computed, and how skewed prevalence is handled.
+
+For two raters and nominal categories, Cohen’s κ is standard. For multiple raters with varying raters per item, Cohen’s κ is not enough. You would look at Fleiss’ κ, Krippendorff’s α, or a model-based agreement approach. For ordinal severity classes, weighted κ or ordinal versions of agreement are often better because confusing S0 with S1 is not the same as confusing S0 with S3.
+
+Your severity distribution is skewed. In skewed settings, Cohen’s κ can behave unintuitively: very high raw agreement can still produce modest κ if one category dominates. That is the so-called prevalence problem. Gwet’s AC1/AC2 is often used because it is less prevalence-sensitive. Krippendorff’s α is flexible for missingness and multiple raters.
+
+For your case, I would probably report more than one measure:
+
+Primary: ordinal weighted agreement measure aligned to the severity scale.  
+Secondary: raw agreement and per-class confusion matrix.  
+Sensitivity: Gwet’s AC2 or Krippendorff’s α if prevalence skew is material.
+
+The CI method can be bootstrap if the unit is claim and resampling preserves the rater structure. Analytic methods exist, but bootstrap is easier to explain and more flexible when raters vary by item. The SOP must specify whether resampling is by claim, by rater, or both. Usually claim-level bootstrap is the clean starting point.
+
+Minimum `n` per severity class is not governed by a universal auditor-approved number. But if S0 or S2 has tiny counts, the agreement estimate for those classes will be unstable. I would want enough examples per class to make the confusion matrix meaningful, likely at least dozens per class, and more for rare severe classes if they drive safety claims. A single aggregate κ can hide terrible agreement on rare but important classes.
+
+Your proposed lower-bound bar, “lower 95% CI ≥0.7,” is strict. It may be defensible for a safety-critical adjudication process, but it may be unrealistic if severity labels are inherently subjective. If published clinical severity ratings often land around 0.6-0.8, then requiring the lower confidence bound to exceed 0.7 means the point estimate may need to be substantially above 0.7, especially at modest sample sizes.
+
+The better audit position may be:
+
+> “We require lower 95% CI ≥0.7 for the primary binary safety-critical distinction, and separately report ordinal severity agreement with per-class confusion.”
+
+That avoids making the hardest subjective 4-class severity rating carry the entire validation burden.
+
+**Finding 9: `n_S1+` Ambiguity**
+
+You identified the problem correctly. `S1+` is ambiguous because many readers interpret “plus” as numerically greater: S1, S2, S3. But your severity ordering is inverted: S0 is more critical than S1, and S3 is less critical.
+
+Do not rely on readers internalizing that ordering. Use names that encode meaning, not arithmetic.
+
+Good options:
+
+`n_S0_S1_combined`  
+`n_critical_high`  
+`n_high_or_critical`  
+`n_severity_S0_or_S1`  
+`n_safety_critical_strata`
+
+My preference is `n_S0_S1_combined` in tables and formulas, because it is unambiguous. In prose, say “critical/high severity claims.”
+
+Clinical and safety literature often uses terms like “serious,” “severe,” “life-threatening,” “grade 3+,” or “high severity,” but the exact convention depends on the grading system. FDA-style language would not rescue an inverted S0/S1/S2/S3 scheme unless you define it explicitly.
+
+So write:
+
+> “Severity ordering is S0 = critical, S1 = high, S2 = medium, S3 = low/supported. The combined critical/high stratum is denoted `S0_S1`, never `S1+`.”
+
+This is small but important. Ambiguous notation causes real audit failures because people will compute different denominators while believing they followed the document.
+
+**Process-Level Lesson**
+
+Yes, I see the anti-pattern. The repeated failure mode is local patching instead of model repair.
+
+A finding says, “This gate is ambiguous because the estimand is not defined.” The patch changes a number. A finding says, “Sequential testing language is inconsistent.” The patch changes a confidence label. A finding says, “Stratification breaks aggregate interpretation.” The patch adds another aggregate row. That kind of iteration can make the document look more complex while not making it more defensible.
+
+The healthy pattern is different. For each critique, ask:
+
+What is the estimand?  
+What is the sampling frame?  
+What is the unit of independence?  
+What is the error-control claim?  
+What is the binding pass/fail rule?  
+What discretion remains after seeing data?
+
+That turns the document from a pile of gates into a statistical contract.
+
+LLM-pairing can absolutely help author an audit-grade preregistration draft. It is good for finding inconsistencies, forcing definitions, stress-testing claims, and converting vague safety goals into operational language. But it should not be the final authority for methodology when the claims are externally material.
+
+I would bring in a statistician now, not because the work is bad, but because the findings have moved from arithmetic to design: stratified estimands, clustered dependence, sequential monitoring, sparse-cell classifier validation, and inter-rater reliability. Those are methodology choices, not copy edits.
+
+The right use of the statistician is not “please bless this.” It is:
+
+> “Here are the safety claims we want to make. Here are the proposed estimands, sampling frames, denominators, alpha rules, and clustering adjustments. Which claims are valid, which need reframing, and where are we underpowered?”
+
+The deeper lesson from the operator is probably that another model’s critique is not an adversary to defeat. It is a lossy signal pointing at places where your internal model is incomplete. If you only patch the named surface issue, you train yourself to pass the last review instead of understanding the system.
+
+The more productive collaboration loop is:
+
+1. Ask the critic to explain the underlying failure mode.
+2. Restate the principle in your own words.
+3. Revise the design principle, not just the sentence.
+4. Apply that principle globally.
+5. Ask for the next-level critique.
+
+That is how you move from firefighting to design maturity.
+tokens used
+10,178
+You were right to ask this as pedagogy rather than as another patch pass. Most of the issues are not “your number is too small.” They are “the estimand, sampling frame, error-control rule, or audit contract is not pinned down tightly enough.” That distinction matters.
+
+**Finding 1: S2 Allocation Mismatch**
+
+The issue is not that `138` is statistically weaker than `135`. It is stronger. The issue is that the document appears to define the same gate using two different denominators.
+
+If the plan says “S2 requires `n=135` for UCB ≤2%” in one place and “S2 allocation is `23/domain × 6 = 138`” in another, an auditor has to infer which number is binding. That matters because pre-registration is not just about whether the final design is conservative; it is about removing discretion after results are known.
+
+Suppose the test runs and only `136` eligible S2 claims survive adjudication. If the document contains both `135` and `138`, the operator could argue that the Wilson target passes because `136 ≥ 135`, while an auditor could argue the stratified allocation failed because the registered design required `138`. That ambiguity is audit-relevant even though both numbers are close.
+
+So yes: this is partly documentation hygiene, but hygiene becomes substantive when the pass/fail rule depends on the number. A good preregistration should distinguish:
+
+1. The mathematical minimum required by the statistical bound.
+2. The operational sample size chosen for the design.
+3. The pass/fail denominator used during audit.
+
+Your proposed wording is basically right:
+
+> “The S2 stratum target is 138 claims. This is derived from the Wilson zero-event minimum of 135 claims for a one-sided 95% UCB ≤2%, rounded up to 23 claims per domain across 6 domains for balanced stratification. The binding audit denominator is 138.”
+
+That last sentence is the important one. It says the minimum explains the derivation, but the actual locked gate is `138`.
+
+The deeper lesson is not “never mention the abstract minimum.” It is “never let the abstract minimum and the implemented gate both look binding.” You can mention the minimum as derivation, but the pass/fail rule must use one locked denominator.
+
+**Finding 2: Retest Alpha And Confidence Labels**
+
+Yes, you mixed two ideas: Bonferroni allocation and sequential alpha spending.
+
+Bonferroni just says: if you perform multiple tests and want family-wise error ≤ `0.05`, allocate alpha values whose sum is ≤ `0.05`. Equal Bonferroni for two tests would be:
+
+`α1 = 0.025`, `α2 = 0.025`
+
+That corresponds to one-sided 97.5% confidence at each stage.
+
+Your plan used:
+
+`α1 = 0.0333`, `α2 = 0.0167`
+
+That is still Bonferroni-valid in the broad sense because the total is `0.05`, but it is not equal Bonferroni. It is an unequal alpha allocation, or informal alpha spending. The confidence labels are then:
+
+`α1 = 0.0333` → one-sided confidence `96.67%`  
+`α2 = 0.0167` → one-sided confidence `98.33%`
+
+So the problem was not the alpha values themselves. The problem was labeling `α1 = 0.0333` as 95% or `α2 = 0.0167` as 96.67%. The confidence level is mechanically `1 - α`.
+
+The practical difference is where you put your evidentiary burden. Equal Bonferroni treats both retests symmetrically. Unequal spending with `0.0333 / 0.0167` makes the first retest easier to pass and the sealed second retest harder to pass. That can be reasonable if H2 is meant to be the more authoritative holdout.
+
+The right design depends on the story you want to defend. If H1 is an internal confirmation and H2 is the sealed external-grade retest, unequal spending is defensible. But call it that. For example:
+
+> “We use a pre-registered two-look Bonferroni alpha allocation with total family-wise α=0.05: α1=0.0333 for H1 and α2=0.0167 for sealed H2. The corresponding one-sided confidence levels are 96.67% and 98.33%.”
+
+The deeper lesson is exactly what you said: pick one sequential-testing story and make the table, z-values, sample sizes, and labels follow that story. Do not mix “Bonferroni,” “95%,” “96.67%,” and “sealed retest” as if they are interchangeable decorations.
+
+**Finding 3: H2 `n=918` Vs `902` Minimum**
+
+Your math is right. For zero observed events under Wilson:
+
+`UCB = z² / (n + z²)`
+
+With `z = 2.129`, `z² ≈ 4.533`, target `0.005`:
+
+`4.533 / (n + 4.533) ≤ 0.005`
+
+So:
+
+`n ≥ 901.07`
+
+Rounding up gives `902`.
+
+Using `918` is conservative. The audit issue is not that `918` is wrong. It is that unexplained conservatism can look arbitrary. In an audit-grade document, arbitrary numbers are friction points because they invite questions like: why 918 and not 902, 920, 1000, or 900?
+
+There are two clean disciplines.
+
+The first is exact-minimum discipline: compute the minimum required denominator, round up to the next integer, and use that. This is easiest to audit. It minimizes cost and makes every number derivable.
+
+The second is operational-rounding discipline: compute the minimum, then round up according to a predeclared operational rule. For example, “round up to the nearest multiple of 6 domains,” “round up to a full report batch,” or “add 2% attrition buffer before sealing.” This is also defensible, but the rule must be stated.
+
+What is weak is unexplained margin. If `918` came from domain balancing, batch size, expected invalidation, or a sealed holdout construction rule, say so. If it did not, I would use `902` or round to a simple predeclared number like `906` if balancing across 6 domains.
+
+The broader principle is: margins are fine when they are governed. They are not fine when they create hidden discretion. In preregistration, hidden discretion is the enemy because it can become post-hoc maneuvering.
+
+So I would write either:
+
+> “H2 uses the Wilson minimum `n=902` for zero-event UCB ≤0.5% at α=0.0167.”
+
+Or:
+
+> “The Wilson minimum is `902`; the locked H2 denominator is `918`, rounded up to `153/domain × 6 domains` for balanced domain coverage. The binding gate is `n=918`.”
+
+That makes `918` audit-clean.
+
+**Finding 4: Stratified Severity Allocation And Population Claims**
+
+This is the most important conceptual issue.
+
+A stratified design can estimate either stratum-specific rates or a population-weighted rate. It cannot automatically do both unless the weights are specified.
+
+Example: production traffic is:
+
+`90% supported`, `8% S2`, `1.5% S1`, `0.5% S0`
+
+But your evaluation sample is:
+
+`60% supported`, `7.5% S2`, `30% S1`, `2.8% S0`
+
+That sample massively oversamples severe cases. This is often good for safety testing because it gives power where failures matter. But the raw aggregate miss rate in that sample is no longer the production miss rate.
+
+Suppose the true miss rates are:
+
+Supported: `0.1%`  
+S2: `1.5%`  
+S1: `0.4%`  
+S0: `0.4%`
+
+Production-weighted miss rate:
+
+`0.90×0.1 + 0.08×1.5 + 0.015×0.4 + 0.005×0.4 = 0.218%`
+
+Evaluation-sample-weighted miss rate:
+
+`0.60×0.1 + 0.075×1.5 + 0.30×0.4 + 0.028×0.4 ≈ 0.3037%`
+
+Different answer.
+
+Now reverse the pattern. Suppose S1/S0 are very safe but S2 is worse. Oversampling S1 can make the aggregate evaluation result look better or worse than production depending on which strata carry the failures. Without production weights, the aggregate is just a property of your test mixture.
+
+Your per-stratum gates are meaningful. “S1 zero-event UCB ≤0.5%” and “S2 zero-event UCB ≤2%” are clear safety claims. What is not meaningful is an unweighted population-level claim unless the evaluation sample reflects production prevalence or you explicitly reweight it.
+
+The two defensible options are:
+
+Option A: Make only per-stratum claims. This is clean and conservative.
+
+> “The evaluation establishes pre-specified upper bounds within each severity stratum. It does not assert that the unweighted aggregate evaluation rate equals the production population rate.”
+
+Option B: Pre-register production weights and compute a weighted bound.
+
+This requires defining the production population: time window, customers, domains, eligibility filters, de-duplication, and how severity mix is estimated. If production weights are estimated, then their uncertainty should either be propagated or bounded by sensitivity analysis.
+
+A practical audit version is:
+
+> “Primary claims are per-stratum. A secondary production-mix estimate is computed using pre-registered weights from the prior 90 days of eligible production traffic. We report sensitivity intervals using the lower and upper 95% confidence bounds for each stratum weight.”
+
+If you want the cleanest language:
+
+> “The system passes per-severity-stratum gates. No unweighted aggregate sample rate is interpreted as a production population rate. Any population-level estimate must use pre-registered production weights.”
+
+That is the key lesson: stratification improves coverage of rare risk strata, but it breaks naive aggregation.
+
+**Finding 5: Cluster Bootstrap Underspecified**
+
+The core concern is dependence. If reports from the same customer are correlated, then 60 reports from one customer do not provide the same evidence as 60 reports from 60 customers.
+
+A canonical cluster bootstrap needs to specify the resampling unit and statistic. For customer-clustered report outcomes, a defensible procedure is:
+
+1. Treat customer as the primary sampling unit.
+2. Resample customers with replacement.
+3. Include all eligible reports for each sampled customer, or resample reports within customer only if the target estimand explicitly has a two-stage sampling design.
+4. Compute the statistic on each bootstrap replicate.
+5. Use the bootstrap distribution to form a confidence interval for the report-level or customer-level estimand.
+
+The “include all reports for sampled customers” version preserves real claim concentration. If one customer has 100 reports and another has 1, that imbalance is part of the data-generating process. Resampling all reports within selected customers reflects the fact that a high-volume customer can dominate report-level risk. If you instead force each customer to contribute equally, you have changed the estimand to an average-customer risk rather than an average-report risk.
+
+“Claim concentration” means exactly this: how much of your evidence comes from a small number of clusters. If 80% of reports come from 3 customers, the nominal report count is misleading. Your effective independent information is much closer to “a few customer environments” than to the raw report count.
+
+Effective `n` tries to translate correlated data into an equivalent independent sample size. The classic design effect is:
+
+`DEFF = 1 + (m - 1) × ICC`
+
+Then:
+
+`n_eff = n / DEFF`
+
+But with unequal cluster sizes, the formula needs adjustment because variance inflation depends heavily on cluster-size variability. With zero events, estimating ICC is hard or impossible from the event process itself. You can either use a conservative assumed ICC, estimate ICC from related historical labeled data, or avoid pretending the raw `n` is independent.
+
+The zero-event bootstrap problem is real. If all observed outcomes are zero, naive bootstrap replicates also have zero events, so the empirical bootstrap upper quantile can be zero. That is not a valid safety upper bound. Absence of observed events is evidence, but it is not proof of zero risk.
+
+An audit-defensible approach is usually: use Wilson or exact binomial with an effective sample size, and separately report cluster robustness. For example:
+
+> “The primary report-level zero-event bound uses Wilson with `n_eff`, where `n_eff` is derived from a pre-specified design effect using customer clustering. Cluster bootstrap is used as a sensitivity analysis, not as the sole upper-bound mechanism when events are zero.”
+
+For this system, I would not make cluster bootstrap the primary safety gate unless you have a statistician formalizing it. I would use report-level Wilson with conservative cluster-adjusted `n_eff`, require minimum customer count and maximum concentration thresholds, and use cluster bootstrap as supporting evidence.
+
+**Finding 6: Coverage Classifier CI And Sparse Cells**
+
+A classifier validation grid with 72 cells can easily become statistically thin. If a cell has only 5 examples in 90 days, you cannot estimate precision or recall in that cell with useful precision. You can inspect it qualitatively, but the confidence interval will be huge.
+
+For per-cell classifier evaluation, first decide what the cell-level estimand is. For example:
+
+Precision in cell: among items predicted positive in this cell, how many are truly positive?  
+Recall in cell: among truly positive items in this cell, how many are predicted positive?
+
+Those require different denominators. Precision needs enough predicted positives. Recall needs enough actual positives. A cell with 100 examples but only 2 positives cannot support a stable recall estimate.
+
+That is why “per-cell minimums” matter. You need rules like:
+
+`N_cell_total ≥ 50`  
+`N_cell_positive ≥ 20 or 30`  
+`N_cell_predicted_positive ≥ 20 or 30`
+
+The exact number depends on the tolerated interval width. There is no universal magic threshold. Thirty is a common minimum for rough estimation, but if you need a tight lower confidence bound, 30 may still be too small. For example, observing 29/30 correct gives a high point estimate but still a nontrivial lower bound. If the classifier gate is safety-critical, I would choose minimums from interval-width calculations rather than folklore.
+
+An external auditor wants to see:
+
+1. The cell definition.
+2. The sampling frame.
+3. The labeling protocol.
+4. The metric per cell.
+5. The confidence interval method.
+6. Minimum denominators for each metric.
+7. What happens when a cell is sparse.
+8. The bootstrap or analytic unit.
+9. The pass/fail rule.
+
+A worked example:
+
+> “For each of 72 cells, we estimate recall for detecting unsupported claims. A cell is eligible for a recall gate only if it contains at least 50 labeled examples and at least 30 true unsupported examples. Recall CIs use Wilson one-sided lower bounds. Cells below denominator thresholds are not declared passing; they are reported as insufficient evidence and pooled only under pre-registered adjacent-cell rules.”
+
+The important part is “not declared passing.” Sparse cells should not silently inherit confidence from aggregate performance unless you pre-register pooling. If you pool, define the hierarchy: same domain across neighboring complexity levels, same complexity across evidence-size bins, or a model-based partial pooling approach.
+
+The audit lesson is: a 72-cell table creates 72 opportunities to hide uncertainty. The SOP must make sparse cells visible, not convenient.
+
+**Finding 7: Rolling Drift Bonferroni Over Time**
+
+If you run 936 Bonferroni-corrected tests in Q1 at family-wise α=0.05, your Q1 false alarm probability is controlled at 5%. If you then run another independent family of 936 tests in Q2 at another α=0.05, the probability of at least one false alarm across both quarters is larger than 5%.
+
+Roughly, if each quarter has FWER 5%, then over 20 quarters:
+
+`1 - 0.95^20 ≈ 64%`
+
+So “Bonferroni within each quarter” does not control lifetime false positives. It controls quarterly false positives.
+
+That may be fine if the claim is quarterly: “Each quarterly monitoring report controls that quarter’s test family at α=0.05.” It is not fine if the claim is lifetime: “The monitoring system has a 5% chance of any false drift alarm over five years.”
+
+For production AI monitoring, I do not have authoritative knowledge of Google, Anthropic, or OpenAI’s internal alpha-control rules. Public material generally will not tell you enough to treat it as a standard. I would consult an applied statistician familiar with online monitoring, plus public references on statistical process control, sequential testing, and FDR control.
+
+Practically, for 5+ years of 4-hour drift checks, I would not use naive Bonferroni over every cell and time point as the only mechanism. It becomes too conservative or too noisy depending on how you reset it.
+
+A pragmatic SOP could separate monitoring into tiers:
+
+First, use descriptive drift dashboards continuously: PSI, JS divergence, calibration drift, missingness, volume anomalies. These are surveillance signals, not formal claims.
+
+Second, define formal alert families on a cadence, such as weekly or monthly. Control FDR or FWER within that cadence and state the cadence-level interpretation.
+
+Third, require persistence before escalation: e.g., drift must breach threshold in 2 of 3 consecutive windows, or exceed a larger threshold once. This reduces operational noise.
+
+Fourth, define minimum denominators. No cell-level formal test if the cell has too few observations. Sparse cells roll up to a parent cell or are marked insufficient.
+
+Fifth, define reset semantics. For example:
+
+> “Alpha control is monthly. Each monthly monitoring report controls FDR at q=0.05 across eligible cells and metrics. This does not imply lifetime FWER control. Repeated alerts across months are treated as process-monitoring signals, not independent confirmatory hypothesis tests.”
+
+That is often the honest production framing. Formal lifetime FWER over thousands of repeated checks is usually not the right operational target unless you are doing a very specific regulated confirmatory surveillance design.
+
+**Finding 8: SME Kappa Needs Proof**
+
+The key issue is that “we target κ ≥0.7” is not enough. You need to define which agreement coefficient, how uncertainty is computed, and how skewed prevalence is handled.
+
+For two raters and nominal categories, Cohen’s κ is standard. For multiple raters with varying raters per item, Cohen’s κ is not enough. You would look at Fleiss’ κ, Krippendorff’s α, or a model-based agreement approach. For ordinal severity classes, weighted κ or ordinal versions of agreement are often better because confusing S0 with S1 is not the same as confusing S0 with S3.
+
+Your severity distribution is skewed. In skewed settings, Cohen’s κ can behave unintuitively: very high raw agreement can still produce modest κ if one category dominates. That is the so-called prevalence problem. Gwet’s AC1/AC2 is often used because it is less prevalence-sensitive. Krippendorff’s α is flexible for missingness and multiple raters.
+
+For your case, I would probably report more than one measure:
+
+Primary: ordinal weighted agreement measure aligned to the severity scale.  
+Secondary: raw agreement and per-class confusion matrix.  
+Sensitivity: Gwet’s AC2 or Krippendorff’s α if prevalence skew is material.
+
+The CI method can be bootstrap if the unit is claim and resampling preserves the rater structure. Analytic methods exist, but bootstrap is easier to explain and more flexible when raters vary by item. The SOP must specify whether resampling is by claim, by rater, or both. Usually claim-level bootstrap is the clean starting point.
+
+Minimum `n` per severity class is not governed by a universal auditor-approved number. But if S0 or S2 has tiny counts, the agreement estimate for those classes will be unstable. I would want enough examples per class to make the confusion matrix meaningful, likely at least dozens per class, and more for rare severe classes if they drive safety claims. A single aggregate κ can hide terrible agreement on rare but important classes.
+
+Your proposed lower-bound bar, “lower 95% CI ≥0.7,” is strict. It may be defensible for a safety-critical adjudication process, but it may be unrealistic if severity labels are inherently subjective. If published clinical severity ratings often land around 0.6-0.8, then requiring the lower confidence bound to exceed 0.7 means the point estimate may need to be substantially above 0.7, especially at modest sample sizes.
+
+The better audit position may be:
+
+> “We require lower 95% CI ≥0.7 for the primary binary safety-critical distinction, and separately report ordinal severity agreement with per-class confusion.”
+
+That avoids making the hardest subjective 4-class severity rating carry the entire validation burden.
+
+**Finding 9: `n_S1+` Ambiguity**
+
+You identified the problem correctly. `S1+` is ambiguous because many readers interpret “plus” as numerically greater: S1, S2, S3. But your severity ordering is inverted: S0 is more critical than S1, and S3 is less critical.
+
+Do not rely on readers internalizing that ordering. Use names that encode meaning, not arithmetic.
+
+Good options:
+
+`n_S0_S1_combined`  
+`n_critical_high`  
+`n_high_or_critical`  
+`n_severity_S0_or_S1`  
+`n_safety_critical_strata`
+
+My preference is `n_S0_S1_combined` in tables and formulas, because it is unambiguous. In prose, say “critical/high severity claims.”
+
+Clinical and safety literature often uses terms like “serious,” “severe,” “life-threatening,” “grade 3+,” or “high severity,” but the exact convention depends on the grading system. FDA-style language would not rescue an inverted S0/S1/S2/S3 scheme unless you define it explicitly.
+
+So write:
+
+> “Severity ordering is S0 = critical, S1 = high, S2 = medium, S3 = low/supported. The combined critical/high stratum is denoted `S0_S1`, never `S1+`.”
+
+This is small but important. Ambiguous notation causes real audit failures because people will compute different denominators while believing they followed the document.
+
+**Process-Level Lesson**
+
+Yes, I see the anti-pattern. The repeated failure mode is local patching instead of model repair.
+
+A finding says, “This gate is ambiguous because the estimand is not defined.” The patch changes a number. A finding says, “Sequential testing language is inconsistent.” The patch changes a confidence label. A finding says, “Stratification breaks aggregate interpretation.” The patch adds another aggregate row. That kind of iteration can make the document look more complex while not making it more defensible.
+
+The healthy pattern is different. For each critique, ask:
+
+What is the estimand?  
+What is the sampling frame?  
+What is the unit of independence?  
+What is the error-control claim?  
+What is the binding pass/fail rule?  
+What discretion remains after seeing data?
+
+That turns the document from a pile of gates into a statistical contract.
+
+LLM-pairing can absolutely help author an audit-grade preregistration draft. It is good for finding inconsistencies, forcing definitions, stress-testing claims, and converting vague safety goals into operational language. But it should not be the final authority for methodology when the claims are externally material.
+
+I would bring in a statistician now, not because the work is bad, but because the findings have moved from arithmetic to design: stratified estimands, clustered dependence, sequential monitoring, sparse-cell classifier validation, and inter-rater reliability. Those are methodology choices, not copy edits.
+
+The right use of the statistician is not “please bless this.” It is:
+
+> “Here are the safety claims we want to make. Here are the proposed estimands, sampling frames, denominators, alpha rules, and clustering adjustments. Which claims are valid, which need reframing, and where are we underpowered?”
+
+The deeper lesson from the operator is probably that another model’s critique is not an adversary to defeat. It is a lossy signal pointing at places where your internal model is incomplete. If you only patch the named surface issue, you train yourself to pass the last review instead of understanding the system.
+
+The more productive collaboration loop is:
+
+1. Ask the critic to explain the underlying failure mode.
+2. Restate the principle in your own words.
+3. Revise the design principle, not just the sentence.
+4. Apply that principle globally.
+5. Ask for the next-level critique.
+
+That is how you move from firefighting to design maturity.

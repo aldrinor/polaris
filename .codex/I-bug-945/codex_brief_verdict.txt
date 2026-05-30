@@ -1,0 +1,1476 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e7050-6abb-7773-9ae4-879f0037ac1e
+--------
+user
+## Codex review brief — I-bug-945 (GH#931) Path-B gate model identity check
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (bound)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+choice: A | B | C
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Context (LOCKED — do not relitigate)
+
+- Clinical-grade DR benchmark POLARIS vs ChatGPT 5.5 Pro vs Gemini 3.1 Pro on 5 frozen DRB-EN questions (#925).
+- §-1.1 audit standard binding: claim-by-claim against fetched cited spans; STRICTLY BANNED = pattern/metadata/string-presence audits.
+- Generator pinned to `deepseek/deepseek-v4-pro` (locked, do not propose alternative).
+- Path-B gate is the integrity surface — it must catch real drift and not false-fail on identity-equivalent surface.
+- Smoke #14 pipeline ran fully (manifest status=success, 144 calls, $0.40); only the gate's post_run_assert failed on model slug compare.
+
+## The decision
+
+OpenRouter API confirms:
+```
+GET /api/v1/models
+{"id": "deepseek/deepseek-v4-pro", "canonical_slug": "deepseek/deepseek-v4-pro-20260423"}
+```
+
+Chat-completions returns `model="deepseek/deepseek-v4-pro-20260423"` (the canonical_slug).
+Our pin is sourced from `PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro` (the alias).
+
+The compare at `scripts/dr_benchmark/pathB_run_gate.py:301-302` raises GateError on strict `!=`.
+
+### Three honest paths
+
+**A** — Pin env to dated snapshot `PG_GENERATOR_MODEL=deepseek/deepseek-v4-pro-20260423`.
+- Implementation: operator-side env change. Zero code diff.
+- Pros: Strictest possible identity — env literally names the dated weights.
+- Cons: (i) Every DeepSeek refresh requires env edit + memory/CLAUDE.md update + risk of stale-pin-in-docs. (ii) The alias→snapshot translation lives in operator's head, not in the codebase. (iii) The principle "always pin V4 Pro" lives in `feedback_top_tier_model_only_2026_05_25.md` as a model-family directive, NOT a dated-snapshot directive — A inverts that semantics.
+
+**B** — Relax compare to base-prefix tolerance: accept `<base>-<date>` ≡ `<base>` (strip suffix-after-base).
+- Implementation: ~3 LOC in pathB_run_gate.py compare.
+- Pros: Minimal diff, matches the I-bug-944 case-insensitive-provider precedent.
+- Cons: **BREAKS PRE-REGISTRATION INTEGRITY.** If DeepSeek silently rolls `<base>` to a new snapshot mid-run, the gate would not catch it — that's exactly the drift the gate exists to catch. Inverts the gate's purpose.
+
+**C (Claude's recommendation)** — Preflight resolves pin via `GET /api/v1/models/<id>`, stores BOTH `id` and `canonical_slug` in the RolePin record. assert_post_run accepts served `model` matching EITHER field.
+- Implementation: ~25 LOC. preflight() does one extra API call per role (cheap, runs once); RolePin gains a `canonical_slug: str | None` field; assert_post_run compares served model against `(id, canonical_slug)` tuple. Pin record (`pathB_gate_pin.json`) records BOTH — that artifact IS the pre-registration anchor.
+- Pros: (i) Env stays human-friendly (alias). (ii) Pin record captures the actual dated snapshot at preflight time — strict identity preserved IN THE ARTIFACT. (iii) Catches the real drift case: if DeepSeek rolls `<base>` to `-20260601` between preflight and a later call, served model differs from BOTH pinned values → gate FAILs correctly. (iv) Reproducibility: re-running with the same `pathB_gate_pin.json` requires the exact `-20260423` snapshot, even if `<base>` has since moved.
+- Cons: (i) One extra HTTPS call per role at preflight (~100ms). (ii) Adds API dependency to preflight (already there for reachability ping). (iii) If `/api/v1/models/<id>` returns no canonical_slug for some model, fallback path needed.
+
+## Claude's choice
+
+**C**. The pin record is the right pre-registration anchor — that's what gets archived alongside the run for audit. Env-as-pin (A) is fragile to docs drift; prefix-tolerance (B) defeats the gate's purpose. C captures the actual served identity at preflight while keeping the env human-readable.
+
+## Files to be touched (under C)
+
+- `scripts/dr_benchmark/pathB_run_gate.py` — add `canonical_slug: str | None` to RolePin dataclass; preflight() resolves via OpenRouter; assert_post_run accepts EITHER `model_slug` OR `canonical_slug`.
+- `src/polaris_graph/benchmark/pathB_runner.py` — no change to _role_pins() shape (canonical_slug gets populated by preflight, not env).
+- `tests/dr_benchmark/test_pathB_run_gate.py` — regression: `test_post_run_passes_when_served_model_is_canonical_slug` (served `<base>-<date>` while pin is `<base>` + canonical_slug `<base>-<date>` → PASS); `test_post_run_fails_when_served_model_differs_from_both` (served `<different-base>-<date>` → FAIL).
+- `scripts/dr_benchmark/score_run.py:51` and `scripts/dr_benchmark/aggregate_systems.py:149,153` — already consume RolePin record; will surface canonical_slug if Claude opts to expose it in the final report (low-priority).
+
+## Files checked clean (Claude verified pre-brief)
+
+- `scripts/dr_benchmark/score_run.py:51` — pin consumer, no compare logic.
+- `scripts/dr_benchmark/aggregate_systems.py:149,153` — final-report rendering only.
+- `src/polaris_graph/llm/openrouter_client.py` — already records `model` from served response correctly; no compare.
+- No other strict-slug-compare sites outside pathB_run_gate.py:301-302.
+
+## Required from Codex
+
+1. Verdict APPROVE/REQUEST_CHANGES on Claude's choice C (or counter-propose A or B with rationale).
+2. If APPROVE on C: any P0/P1 implementation concerns Claude should address before diff (e.g., fallback when canonical_slug absent, caching, telemetry surface).
+3. If counter-propose A or B: full rationale tied to §-1.1 pre-registration integrity, not just diff-size.
+
+Question: A, B, or C?
+
+codex
+I’ll inspect the gate and nearby consumers before giving the bounded verdict, focusing on whether choice C preserves the pre-registration invariant and whether any implementation detail would create a real P0/P1 execution risk.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/dr_benchmark/test_pathB_run_gate.py -TotalCount 420' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class RolePin|RolePin|assert_post_run|post_run|model_slug|canonical_slug|api/v1/models|strict|GateError" scripts/dr_benchmark/pathB_run_gate.py tests/dr_benchmark/test_pathB_run_gate.py src/polaris_graph/benchmark/pathB_runner.py scripts/dr_benchmark/score_run.py scripts/dr_benchmark/aggregate_systems.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/dr_benchmark/pathB_run_gate.py -TotalCount 380' in C:\POLARIS
+ succeeded in 1311ms:
+"""Path-B run gate: fatal preflight + post-run enforcement for the DR head-to-head.
+
+I-safety-002b (#925), Codex-APPROVE'd plan v5 (5 review rounds). The existing
+`model_pin.json` is non-gating telemetry, `OPENROUTER_ALLOW_FALLBACKS` defaults true, and
+"full power" silently degrades if a retrieval key is missing. This gate makes the run
+full-power + correctly-modeled + drift-free + secret-safe, ENFORCED not asserted-in-prose.
+
+Pure-logic core (this module) is fixture-tested with NO live system. The runner wiring
+(prompt-capture at the LLM call boundary) consumes these functions.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import os
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+# Env-var name patterns the runner+client read (Codex: enumerate, do not handpick).
+_CONTROL_PREFIXES = ("PG_", "OPENROUTER_")
+# A var name is a SECRET (redact value) iff it looks like a credential. NOTE: exclude the
+# many *_MAX_TOKENS / *_TOKEN_BUDGET knobs — those are config, not secrets.
+_SECRET_SUFFIXES = ("_API_KEY", "_SECRET", "_ACCESS_TOKEN", "_AUTH_TOKEN")
+_SECRET_EXPLICIT = {
+    "OPENROUTER_API_KEY", "SERPER_API_KEY", "SEMANTIC_SCHOLAR_API_KEY",
+    "EXA_API_KEY", "OPEN_PAGERANK_API_KEY",
+    # Codex PR-2 diff iter-1 P2: PG_PATHB_GATE_SALT is the HMAC salt used by
+    # build_effective_config to redact secrets — it MUST not be persisted in the pin.
+    "PG_PATHB_GATE_SALT",
+}
+_REQUIRED_RETRIEVAL_CREDS = ("SERPER_API_KEY", "SEMANTIC_SCHOLAR_API_KEY")
+# Run-affecting env that is NOT PG_*/OPENROUTER_* prefixed — must still be in the config hash
+# (Codex P1: retrieval creds/knobs were missing from the whole-surface enumeration).
+_EXTRA_CONTROL_ENV = (
+    "SERPER_API_KEY", "SEMANTIC_SCHOLAR_API_KEY", "EXA_API_KEY", "OPEN_PAGERANK_API_KEY",
+)
+
+
+def full_control_surface(roots: list[Path]) -> list[str]:
+    """Complete run-affecting env set = enumerated PG_*/OPENROUTER_* UNION the extra
+    retrieval/credential env (Codex P1 — these affect the run but aren't prefix-matched)."""
+    return sorted(set(enumerate_control_surface(roots)) | set(_EXTRA_CONTROL_ENV))
+
+
+def control_surface_sources(roots: list[Path]) -> dict[str, list[str]]:
+    """name -> sorted ['<relpath>:<lineno>', ...] provenance for each control var (Codex P2)."""
+    extra = "|".join(re.escape(n) for n in _EXTRA_CONTROL_ENV)
+    pat = re.compile(
+        rf"os\.(?:getenv|environ\.get)\(\s*['\"]((?:PG_|OPENROUTER_)[A-Z0-9_]+|{extra})['\"]"
+        rf"|os\.environ\[\s*['\"]((?:PG_|OPENROUTER_)[A-Z0-9_]+|{extra})['\"]"
+    )
+    out: dict[str, set[str]] = {}
+    for root in roots:
+        for py in root.rglob("*.py"):
+            try:
+                lines = py.read_text(encoding="utf-8", errors="ignore").splitlines()
+            except OSError:
+                continue
+            for i, line in enumerate(lines, 1):
+                for m in pat.finditer(line):
+                    name = m.group(1) or m.group(2)
+                    out.setdefault(name, set()).add(f"{py.as_posix()}:{i}")
+    return {k: sorted(v) for k, v in out.items()}
+
+# Volatile response fields EXCLUDED from the served-identity surrogate (Codex iter-5 P2).
+_VOLATILE_METADATA_FIELDS = frozenset(
+    {"id", "request_id", "created", "timestamp", "usage", "prompt_tokens",
+     "completion_tokens", "total_tokens", "latency", "latency_ms", "cost", "x-request-id"}
+)
+
+
+class GateError(RuntimeError):
+    """Fatal gate violation — the run is INVALID and must be discarded, never scored."""
+
+
+def is_secret_var(name: str) -> bool:
+    """True iff `name` is a credential whose VALUE must be redacted (not a *_TOKENS knob)."""
+    if name in _SECRET_EXPLICIT:
+        return True
+    if name.endswith(("_MAX_TOKENS", "_TOKENS", "_TOKEN_BUDGET")):
+        return False
+    return name.endswith(_SECRET_SUFFIXES)
+
+
+def enumerate_control_surface(roots: list[Path]) -> list[str]:
+    """Scan source for every PG_*/OPENROUTER_* env var actually read (Codex: complete set).
+
+    Greps os.getenv / os.environ.get / os.environ[...] reads — NOT a handpicked list.
+    """
+    pat = re.compile(
+        r"os\.(?:getenv|environ\.get)\(\s*['\"]((?:PG_|OPENROUTER_)[A-Z0-9_]+)['\"]"
+        r"|os\.environ\[\s*['\"]((?:PG_|OPENROUTER_)[A-Z0-9_]+)['\"]"
+    )
+    found: set[str] = set()
+    for root in roots:
+        for py in root.rglob("*.py"):
+            try:
+                text = py.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for m in pat.finditer(text):
+                found.add(m.group(1) or m.group(2))
+    return sorted(found)
+
+
+def _redact(name: str, value: str | None, salt: bytes) -> dict:
+    """Secret presence record: present/length/salted-HMAC only — never the value (Codex P1)."""
+    if value is None:
+        return {"present": False, "length": 0, "salted_hmac": None}
+    digest = hmac.new(salt, value.encode("utf-8"), hashlib.sha256).hexdigest()
+    return {"present": True, "length": len(value), "salted_hmac": digest}
+
+
+def build_effective_config(control_vars: list[str], salt: bytes) -> dict:
+    """Snapshot the full control surface; secret VALUES redacted (Codex P1)."""
+    cfg: dict[str, dict] = {}
+    for name in control_vars:
+        val = os.environ.get(name)
+        if is_secret_var(name):
+            cfg[name] = {"secret": True, **_redact(name, val, salt)}
+        else:
+            cfg[name] = {"secret": False, "value": val, "set": val is not None}
+    return cfg
+
+
+def effective_config_hash(cfg: dict) -> str:
+    return hashlib.sha256(json.dumps(cfg, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def served_identity(call_metadata: dict) -> str:
+    """Stable per-role served-identity surrogate (Codex iter-4 P1 + iter-5 P2).
+
+    OpenRouter has no stable `model_version`; use provider_name + model + system_fingerprint
+    (+ any stable router metadata), EXCLUDING volatile fields. Missing the agreed surrogate
+    fields is caught by the caller (fatal), not silently hashed to a constant here.
+    """
+    stable = {
+        k: v for k, v in call_metadata.items()
+        if k not in _VOLATILE_METADATA_FIELDS
+    }
+    return hashlib.sha256(json.dumps(stable, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+@dataclass
+class RolePin:
+    role: str            # "generator" | "evaluator"
+    model_slug: str      # FULL OpenRouter slug, e.g. "deepseek/deepseek-v4-pro" — EXACT match
+    provider_name: str
+    surrogate_fields: tuple[str, ...]   # the metadata fields PROVEN present at preflight
+
+
+def _role_surrogate(metadata: dict, surrogate_fields: tuple[str, ...] | list) -> str:
+    """The served-identity surrogate over the PINNED fields only (Codex P1 — exact pin)."""
+    picked = {f: metadata.get(f) for f in surrogate_fields}
+    return hashlib.sha256(json.dumps(picked, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def preflight(
+    control_vars: list[str],
+    role_pins: list[RolePin],
+    salt: bytes,
+    reachability_prober=None,
+    source_map: dict[str, list[str]] | None = None,
+    roots: list[Path] | None = None,
+    offline: bool = False,
+) -> dict:
+    """Fatal preflight. Returns the pin record to hash-pin BEFORE the run.
+
+    The gate FORCES the complete control surface (Codex iter-2 P1): it always unions the
+    retrieval/credential env into `control_vars`, and if `roots` is given it also unions the
+    grepped PG_*/OPENROUTER_* surface — so a caller passing `[]` cannot produce an empty config.
+
+    Reachability is enforce-by-default for real runs (Codex iter-2 P1): if `offline` is False
+    and no prober is given, `real_retrieval_prober` is used (live ping). Tests pass
+    `offline=True` to skip the network. `reachability_checked=False` is therefore only
+    possible in an explicitly-offline (test) run, never a real run gate.
+    """
+    # FORCE the complete control surface (retrieval creds always; grepped surface if roots given)
+    surface = set(control_vars or [])
+    if roots:
+        surface |= set(full_control_surface(roots))
+    surface |= set(_EXTRA_CONTROL_ENV)
+    control_vars = sorted(surface)
+    # reachability: enforce-by-default for real runs
+    if not offline and reachability_prober is None:
+        reachability_prober = real_retrieval_prober
+    # 1. fallbacks OFF
+    if os.environ.get("OPENROUTER_ALLOW_FALLBACKS", "true").strip().lower() not in ("false", "0", "no"):
+        raise GateError("OPENROUTER_ALLOW_FALLBACKS must be false (it defaults TRUE)")
+    # 2. singleton provider routing (served backend known a priori)
+    order = (os.environ.get("OPENROUTER_PROVIDER_ORDER") or "").strip()
+    if not order or len([p for p in order.split(",") if p.strip()]) != 1:
+        raise GateError("OPENROUTER_PROVIDER_ORDER must pin exactly ONE provider (singleton routing)")
+    # 3. required retrieval capability — PRESENCE *and* REACHABILITY (Codex P1)
+    missing = [c for c in _REQUIRED_RETRIEVAL_CREDS if not os.environ.get(c)]
+    if missing:
+        raise GateError(f"required retrieval credentials absent — not full-power: {missing}")
+    if reachability_prober is not None:
+        for cred, backend in _REQUIRED_RETRIEVAL_CREDS_TO_BACKENDS.items():
+            if not reachability_prober(backend):
+                raise GateError(f"retrieval backend {backend!r} unreachable/invalid-key — not full-power")
+    # 4. each role pin must declare which surrogate fields it PROVED present + a full slug
+    for rp in role_pins:
+        if not rp.surrogate_fields:
+            raise GateError(f"role {rp.role}: no served-identity surrogate fields proven present")
+        if "/" not in rp.model_slug:
+            raise GateError(f"role {rp.role}: model_slug must be the FULL slug (provider/model), got {rp.model_slug!r}")
+    cfg = build_effective_config(control_vars, salt)
+    return {
+        "effective_config": cfg,
+        "effective_config_hash": effective_config_hash(cfg),
+        "control_vars": control_vars,             # the RESOLVED surface (post-run rebuilds from this)
+        "control_source_map": source_map or {},   # name -> [file:line, ...] provenance (Codex P2)
+        "role_pins": [vars(rp) | {"surrogate_fields": list(rp.surrogate_fields)} for rp in role_pins],
+        "reachability_checked": reachability_prober is not None,
+        "openrouter_allow_fallbacks": False,
+        "openrouter_provider_order": order,
+    }
+
+
+def real_retrieval_prober(backend: str) -> bool:
+    """Minimal live reachability ping per backend (Codex P1). Returns True iff a valid
+    response. Cheap; runs once at preflight. Imported lazily to keep the module light."""
+    import requests
+    try:
+        if backend == "serper":
+            r = requests.post(
+                "https://google.serper.dev/search",
+                headers={"X-API-KEY": os.environ["SERPER_API_KEY"], "Content-Type": "application/json"},
+                json={"q": "metformin"}, timeout=15,
+            )
+            return r.status_code == 200
+        if backend == "semantic_scholar":
+            r = requests.get(
+                "https://api.semanticscholar.org/graph/v1/paper/search",
+                headers={"x-api-key": os.environ["SEMANTIC_SCHOLAR_API_KEY"]},
+                params={"query": "metformin", "limit": 1}, timeout=20,
+            )
+            return r.status_code == 200
+    except Exception:
+        return False
+    return False
+
+
+@dataclass
+class LLMCall:
+    call_id: str
+    role: str
+    prompt_messages_present: bool
+    request_hash: str | None
+    response_metadata: dict   # served {model, provider_name, system_fingerprint, ...}
+
+
+def assert_post_run(
+    pin: dict,
+    control_vars: list[str],
+    salt: bytes,
+    calls: list[LLMCall],
+    retrieval_backends_attempted: set[str],
+) -> dict:
+    """Fatal post-run gate (Codex). Any violation ⇒ run INVALID, discard + re-run.
+
+    Returns the established per-role served-identity surrogates on success."""
+    # config no-drift — rebuild from the SAME resolved surface preflight pinned (not a
+    # caller-passed list, which could differ / bypass; Codex iter-2).
+    pinned_vars = pin.get("control_vars", control_vars)
+    cfg_now = effective_config_hash(build_effective_config(pinned_vars, salt))
+    if cfg_now != pin["effective_config_hash"]:
+        raise GateError("effective_config drifted between preflight and post-run")
+    pins_by_role = {rp["role"]: rp for rp in pin["role_pins"]}
+    if not calls:
+        raise GateError("no LLM calls captured — completeness check cannot pass")
+    # COMPLETENESS: every pinned role must appear (Codex P1 — uncaptured evaluator/judge invisible)
+    roles_seen = {c.role for c in calls}
+    missing_roles = set(pins_by_role) - roles_seen
+    if missing_roles:
+        raise GateError(f"completeness: pinned role(s) with no captured LLM call: {missing_roles}")
+    surrogate_by_role: dict[str, set[str]] = {}
+    for c in calls:
+        if not (c.prompt_messages_present and c.request_hash and c.response_metadata):
+            raise GateError(f"call {c.call_id}: incomplete capture (prompt/request_hash/metadata)")
+        rp = pins_by_role.get(c.role)
+        if rp is None:
+            raise GateError(f"call {c.call_id}: role {c.role!r} not pinned")
+        for fld in rp["surrogate_fields"]:
+            if fld not in c.response_metadata:
+                raise GateError(f"call {c.call_id}: served metadata missing surrogate field {fld!r}")
+        # EXACT provider + EXACT full-slug model match (Codex P1 — no loose substring).
+        # I-bug-944 (#925 smoke #13): provider comparison is case-insensitive (OpenRouter
+        # returns "Fireworks" / "DeepInfra" with title case while the pin env var
+        # OPENROUTER_PROVIDER_ORDER is documented lower-case; case-mismatch is identity-
+        # equivalent and must not gate-fail an otherwise full-power run). Model slug stays
+        # case-sensitive — slugs are canonical.
+        served_provider = (c.response_metadata.get("provider_name") or "").strip().lower()
+        pinned_provider = (rp["provider_name"] or "").strip().lower()
+        if served_provider != pinned_provider:
+            raise GateError(f"call {c.call_id}: served provider {c.response_metadata.get('provider_name')!r} != pinned {rp['provider_name']!r}")
+        if c.response_metadata.get("model") != rp["model_slug"]:
+            raise GateError(f"call {c.call_id}: served model {c.response_metadata.get('model')!r} != pinned {rp['model_slug']!r}")
+        # accumulate the per-role served-identity surrogate (over the pinned fields)
+        surrogate_by_role.setdefault(c.role, set()).add(_role_surrogate(c.response_metadata, rp["surrogate_fields"]))
+    # per-role served identity must be SINGLE-VALUED across the run (no mid-run drift, Codex P1)
+    for role, ids in surrogate_by_role.items():
+        if len(ids) != 1:
+            raise GateError(f"role {role}: served-identity surrogate drifted across calls ({len(ids)} distinct)")
+    # required retrieval backends were ACTUALLY attempted (Codex iter-5 P2)
+    required = set(_REQUIRED_RETRIEVAL_CREDS_TO_BACKENDS.values())
+    not_attempted = required - retrieval_backends_attempted
+    if not_attempted:
+        raise GateError(f"required retrieval backends never attempted this run: {not_attempted}")
+    return {"served_identity_by_role": {r: next(iter(ids)) for r, ids in surrogate_by_role.items()}}
+
+
+_REQUIRED_RETRIEVAL_CREDS_TO_BACKENDS = {
+    "SERPER_API_KEY": "serper",
+    "SEMANTIC_SCHOLAR_API_KEY": "semantic_scholar",
+}
+
+ succeeded in 1682ms:
+scripts/dr_benchmark/aggregate_systems.py:149:                f"{gen.get('provider_name', '?')}/{gen.get('model_slug', '?')} "
+scripts/dr_benchmark/aggregate_systems.py:153:                f"{ev.get('provider_name', '?')}/{ev.get('model_slug', '?')} "
+src/polaris_graph/benchmark/pathB_runner.py:4:assert_post_run before any scoring. Persists the pin record to the run dir. Self-contained
+src/polaris_graph/benchmark/pathB_runner.py:27:    GateError,
+src/polaris_graph/benchmark/pathB_runner.py:29:    RolePin,
+src/polaris_graph/benchmark/pathB_runner.py:30:    assert_post_run,
+src/polaris_graph/benchmark/pathB_runner.py:40:def _role_pins() -> list[RolePin]:
+src/polaris_graph/benchmark/pathB_runner.py:48:    served response. assert_post_run treats a missing surrogate field as fatal, so requiring
+src/polaris_graph/benchmark/pathB_runner.py:62:        RolePin("generator", gen, provider, surrogate_fields),
+src/polaris_graph/benchmark/pathB_runner.py:63:        RolePin("evaluator", ev, provider, surrogate_fields),
+src/polaris_graph/benchmark/pathB_runner.py:80:            # On normal exit, assert_post_run runs (raises GateError if not full-power).
+src/polaris_graph/benchmark/pathB_runner.py:84:    - enabled=True: preflight (raises GateError if not full-power); register_pathB_capture;
+src/polaris_graph/benchmark/pathB_runner.py:85:      yield; on normal exit, assert_post_run; persist pin + result to ``run_dir``. On
+src/polaris_graph/benchmark/pathB_runner.py:108:    except GateError as exc:
+src/polaris_graph/benchmark/pathB_runner.py:127:        # Propagate; do not run assert_post_run on a failed run (it would mask the cause).
+src/polaris_graph/benchmark/pathB_runner.py:134:        result = assert_post_run(
+src/polaris_graph/benchmark/pathB_runner.py:146:    except GateError as exc:
+src/polaris_graph/benchmark/pathB_runner.py:149:                {"verdict": "FAIL", "stage": "post_run_assert", "reason": str(exc)},
+tests/dr_benchmark/test_pathB_run_gate.py:10:    GateError,
+tests/dr_benchmark/test_pathB_run_gate.py:12:    RolePin,
+tests/dr_benchmark/test_pathB_run_gate.py:13:    assert_post_run,
+tests/dr_benchmark/test_pathB_run_gate.py:74:def _pins() -> list[RolePin]:
+tests/dr_benchmark/test_pathB_run_gate.py:76:        RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model")),
+tests/dr_benchmark/test_pathB_run_gate.py:77:        RolePin("evaluator", _EVAL_SLUG, "deepinfra", ("provider_name", "model")),
+tests/dr_benchmark/test_pathB_run_gate.py:81:def _gen_pin() -> list[RolePin]:
+tests/dr_benchmark/test_pathB_run_gate.py:83:    return [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model"))]
+tests/dr_benchmark/test_pathB_run_gate.py:96:    with pytest.raises(GateError, match="ALLOW_FALLBACKS"):
+tests/dr_benchmark/test_pathB_run_gate.py:103:    with pytest.raises(GateError, match="singleton"):
+tests/dr_benchmark/test_pathB_run_gate.py:110:    with pytest.raises(GateError, match="retrieval credentials"):
+tests/dr_benchmark/test_pathB_run_gate.py:116:    bad = [RolePin("generator", _GEN_SLUG, "deepinfra", ())]
+tests/dr_benchmark/test_pathB_run_gate.py:117:    with pytest.raises(GateError, match="surrogate"):
+tests/dr_benchmark/test_pathB_run_gate.py:121:def test_preflight_fatal_on_short_model_slug(monkeypatch) -> None:
+tests/dr_benchmark/test_pathB_run_gate.py:123:    bad = [RolePin("generator", "deepseek-v4-pro", "deepinfra", ("model",))]  # no provider/ prefix
+tests/dr_benchmark/test_pathB_run_gate.py:124:    with pytest.raises(GateError, match="FULL slug"):
+tests/dr_benchmark/test_pathB_run_gate.py:130:    with pytest.raises(GateError, match="unreachable"):
+tests/dr_benchmark/test_pathB_run_gate.py:149:def test_post_run_passes(monkeypatch) -> None:
+tests/dr_benchmark/test_pathB_run_gate.py:152:    res = assert_post_run(pin, ["PG_V30_ENABLED"], _SALT,
+tests/dr_benchmark/test_pathB_run_gate.py:157:def test_post_run_fatal_on_missing_role(monkeypatch) -> None:
+tests/dr_benchmark/test_pathB_run_gate.py:160:    with pytest.raises(GateError, match="no captured LLM call"):
+tests/dr_benchmark/test_pathB_run_gate.py:161:        assert_post_run(pin, [], _SALT, [_good_call("generator")], {"serper", "semantic_scholar"})  # evaluator missing
+tests/dr_benchmark/test_pathB_run_gate.py:164:def test_post_run_fatal_on_incomplete_capture(monkeypatch) -> None:
+tests/dr_benchmark/test_pathB_run_gate.py:168:    with pytest.raises(GateError, match="incomplete capture"):
+tests/dr_benchmark/test_pathB_run_gate.py:169:        assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+tests/dr_benchmark/test_pathB_run_gate.py:172:def test_post_run_fatal_on_missing_surrogate_field(monkeypatch) -> None:
+tests/dr_benchmark/test_pathB_run_gate.py:174:    pins = [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model", "system_fingerprint"))]
+tests/dr_benchmark/test_pathB_run_gate.py:177:    with pytest.raises(GateError, match="surrogate field"):
+tests/dr_benchmark/test_pathB_run_gate.py:178:        assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+tests/dr_benchmark/test_pathB_run_gate.py:181:def test_post_run_fatal_on_provider_drift(monkeypatch) -> None:
+tests/dr_benchmark/test_pathB_run_gate.py:185:    with pytest.raises(GateError, match="served provider"):
+tests/dr_benchmark/test_pathB_run_gate.py:186:        assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+tests/dr_benchmark/test_pathB_run_gate.py:191:def test_post_run_passes_on_provider_case_difference(monkeypatch) -> None:
+tests/dr_benchmark/test_pathB_run_gate.py:196:    res = assert_post_run(pin, [], _SALT, good, {"serper", "semantic_scholar"})
+tests/dr_benchmark/test_pathB_run_gate.py:200:def test_post_run_fatal_on_model_drift(monkeypatch) -> None:
+tests/dr_benchmark/test_pathB_run_gate.py:204:    with pytest.raises(GateError, match="served model"):
+tests/dr_benchmark/test_pathB_run_gate.py:205:        assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+tests/dr_benchmark/test_pathB_run_gate.py:208:def test_post_run_fatal_on_served_identity_drift(monkeypatch) -> None:
+tests/dr_benchmark/test_pathB_run_gate.py:210:    pins = [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model", "system_fingerprint"))]
+tests/dr_benchmark/test_pathB_run_gate.py:217:    with pytest.raises(GateError, match="surrogate drifted"):
+tests/dr_benchmark/test_pathB_run_gate.py:218:        assert_post_run(pin, [], _SALT, calls, {"serper", "semantic_scholar"})
+tests/dr_benchmark/test_pathB_run_gate.py:221:def test_post_run_fatal_on_backend_not_attempted(monkeypatch) -> None:
+tests/dr_benchmark/test_pathB_run_gate.py:225:    with pytest.raises(GateError, match="never attempted"):
+tests/dr_benchmark/test_pathB_run_gate.py:226:        assert_post_run(pin, [], _SALT, calls, {"serper"})  # missing semantic_scholar
+tests/dr_benchmark/test_pathB_run_gate.py:229:def test_post_run_fatal_on_config_drift(monkeypatch) -> None:
+tests/dr_benchmark/test_pathB_run_gate.py:235:    with pytest.raises(GateError, match="drift"):
+tests/dr_benchmark/test_pathB_run_gate.py:236:        assert_post_run(pin, ["PG_V30_ENABLED"], _SALT, calls, {"serper", "semantic_scholar"})
+scripts/dr_benchmark/score_run.py:51:            {"role": rp.get("role"), "model_slug": rp.get("model_slug"),
+scripts/dr_benchmark/pathB_run_gate.py:75:class GateError(RuntimeError):
+scripts/dr_benchmark/pathB_run_gate.py:148:class RolePin:
+scripts/dr_benchmark/pathB_run_gate.py:150:    model_slug: str      # FULL OpenRouter slug, e.g. "deepseek/deepseek-v4-pro" — EXACT match
+scripts/dr_benchmark/pathB_run_gate.py:163:    role_pins: list[RolePin],
+scripts/dr_benchmark/pathB_run_gate.py:192:        raise GateError("OPENROUTER_ALLOW_FALLBACKS must be false (it defaults TRUE)")
+scripts/dr_benchmark/pathB_run_gate.py:196:        raise GateError("OPENROUTER_PROVIDER_ORDER must pin exactly ONE provider (singleton routing)")
+scripts/dr_benchmark/pathB_run_gate.py:200:        raise GateError(f"required retrieval credentials absent — not full-power: {missing}")
+scripts/dr_benchmark/pathB_run_gate.py:204:                raise GateError(f"retrieval backend {backend!r} unreachable/invalid-key — not full-power")
+scripts/dr_benchmark/pathB_run_gate.py:208:            raise GateError(f"role {rp.role}: no served-identity surrogate fields proven present")
+scripts/dr_benchmark/pathB_run_gate.py:209:        if "/" not in rp.model_slug:
+scripts/dr_benchmark/pathB_run_gate.py:210:            raise GateError(f"role {rp.role}: model_slug must be the FULL slug (provider/model), got {rp.model_slug!r}")
+scripts/dr_benchmark/pathB_run_gate.py:257:def assert_post_run(
+scripts/dr_benchmark/pathB_run_gate.py:272:        raise GateError("effective_config drifted between preflight and post-run")
+scripts/dr_benchmark/pathB_run_gate.py:275:        raise GateError("no LLM calls captured — completeness check cannot pass")
+scripts/dr_benchmark/pathB_run_gate.py:280:        raise GateError(f"completeness: pinned role(s) with no captured LLM call: {missing_roles}")
+scripts/dr_benchmark/pathB_run_gate.py:284:            raise GateError(f"call {c.call_id}: incomplete capture (prompt/request_hash/metadata)")
+scripts/dr_benchmark/pathB_run_gate.py:287:            raise GateError(f"call {c.call_id}: role {c.role!r} not pinned")
+scripts/dr_benchmark/pathB_run_gate.py:290:                raise GateError(f"call {c.call_id}: served metadata missing surrogate field {fld!r}")
+scripts/dr_benchmark/pathB_run_gate.py:300:            raise GateError(f"call {c.call_id}: served provider {c.response_metadata.get('provider_name')!r} != pinned {rp['provider_name']!r}")
+scripts/dr_benchmark/pathB_run_gate.py:301:        if c.response_metadata.get("model") != rp["model_slug"]:
+scripts/dr_benchmark/pathB_run_gate.py:302:            raise GateError(f"call {c.call_id}: served model {c.response_metadata.get('model')!r} != pinned {rp['model_slug']!r}")
+scripts/dr_benchmark/pathB_run_gate.py:308:            raise GateError(f"role {role}: served-identity surrogate drifted across calls ({len(ids)} distinct)")
+scripts/dr_benchmark/pathB_run_gate.py:313:        raise GateError(f"required retrieval backends never attempted this run: {not_attempted}")
+
+ succeeded in 1944ms:
+"""Fixtures for the Path-B run gate (I-safety-002b / #925). Pure logic, no live system."""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+
+from scripts.dr_benchmark.pathB_run_gate import (
+    GateError,
+    LLMCall,
+    RolePin,
+    assert_post_run,
+    build_effective_config,
+    effective_config_hash,
+    is_secret_var,
+    preflight,
+    served_identity,
+)
+
+_SALT = b"pathB-test-salt"
+
+
+# --- secret detection: credentials redacted, *_MAX_TOKENS knobs are NOT secrets ---
+def test_is_secret_var() -> None:
+    assert is_secret_var("OPENROUTER_API_KEY") is True
+    assert is_secret_var("SERPER_API_KEY") is True
+    assert is_secret_var("SEMANTIC_SCHOLAR_API_KEY") is True
+    # the trap: many PG_*_MAX_TOKENS knobs must NOT be treated as secrets
+    assert is_secret_var("PG_SECTION_MAX_TOKENS") is False
+    assert is_secret_var("PG_VERIFY_MAX_TOKENS") is False
+    assert is_secret_var("PG_SECTION_TOKEN_BUDGET") is False
+    assert is_secret_var("PG_V30_ENABLED") is False
+
+
+def test_effective_config_redacts_secret_values(monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-super-secret-value-123")
+    monkeypatch.setenv("PG_V30_ENABLED", "1")
+    cfg = build_effective_config(["OPENROUTER_API_KEY", "PG_V30_ENABLED"], _SALT)
+    # secret: NO value, only presence + length + salted hmac
+    assert cfg["OPENROUTER_API_KEY"]["secret"] is True
+    assert "value" not in cfg["OPENROUTER_API_KEY"]
+    assert cfg["OPENROUTER_API_KEY"]["present"] is True
+    assert cfg["OPENROUTER_API_KEY"]["length"] == len("sk-super-secret-value-123")
+    assert "sk-super-secret" not in str(cfg["OPENROUTER_API_KEY"])
+    # non-secret: value retained
+    assert cfg["PG_V30_ENABLED"]["value"] == "1"
+
+
+# --- served-identity surrogate: stable, excludes volatile fields ---
+def test_served_identity_excludes_volatile() -> None:
+    base = {"provider_name": "deepinfra", "model": "deepseek-v4-pro", "system_fingerprint": "fp_abc"}
+    a = dict(base, id="req-1", created=111, usage={"total_tokens": 10}, latency_ms=900, cost=0.02)
+    b = dict(base, id="req-2", created=222, usage={"total_tokens": 99}, latency_ms=50, cost=0.5)
+    # same stable identity despite different volatile metadata
+    assert served_identity(a) == served_identity(b)
+    # different provider -> different identity
+    c = dict(base, provider_name="other")
+    assert served_identity(c) != served_identity(a)
+
+
+# --- preflight fatal assertions ---
+def _full_power_env(monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_ALLOW_FALLBACKS", "false")
+    monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "deepinfra")
+    monkeypatch.setenv("SERPER_API_KEY", "x")
+    monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "y")
+
+
+_GEN_SLUG = "deepseek/deepseek-v4-pro"
+_EVAL_SLUG = "google/gemma-4-31b-it"
+
+
+def _pins() -> list[RolePin]:
+    return [
+        RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model")),
+        RolePin("evaluator", _EVAL_SLUG, "deepinfra", ("provider_name", "model")),
+    ]
+
+
+def _gen_pin() -> list[RolePin]:
+    """Single-role pin for targeted failure tests (avoids the all-roles-present check masking)."""
+    return [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model"))]
+
+
+def test_preflight_passes_full_power(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pin = preflight(["PG_V30_ENABLED"], _pins(), _SALT, offline=True)
+    assert pin["openrouter_allow_fallbacks"] is False
+    assert pin["effective_config_hash"]
+
+
+def test_preflight_fatal_on_fallbacks_true(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_ALLOW_FALLBACKS", "true")
+    with pytest.raises(GateError, match="ALLOW_FALLBACKS"):
+        preflight([], _pins(), _SALT, offline=True)
+
+
+def test_preflight_fatal_on_multi_provider(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "deepinfra,fireworks")
+    with pytest.raises(GateError, match="singleton"):
+        preflight([], _pins(), _SALT, offline=True)
+
+
+def test_preflight_fatal_on_missing_retrieval_cred(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    monkeypatch.delenv("SERPER_API_KEY", raising=False)
+    with pytest.raises(GateError, match="retrieval credentials"):
+        preflight([], _pins(), _SALT, offline=True)
+
+
+def test_preflight_fatal_on_no_surrogate_fields(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    bad = [RolePin("generator", _GEN_SLUG, "deepinfra", ())]
+    with pytest.raises(GateError, match="surrogate"):
+        preflight([], bad, _SALT, offline=True)
+
+
+def test_preflight_fatal_on_short_model_slug(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    bad = [RolePin("generator", "deepseek-v4-pro", "deepinfra", ("model",))]  # no provider/ prefix
+    with pytest.raises(GateError, match="FULL slug"):
+        preflight([], bad, _SALT, offline=True)
+
+
+def test_preflight_fatal_on_unreachable_backend(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    with pytest.raises(GateError, match="unreachable"):
+        preflight([], _gen_pin(), _SALT, reachability_prober=lambda b: b != "serper")
+
+
+def test_preflight_passes_with_reachable_prober(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pin = preflight([], _gen_pin(), _SALT, reachability_prober=lambda b: True)
+    assert pin["reachability_checked"] is True
+
+
+# --- post-run fatal assertions ---
+def _good_call(role: str) -> LLMCall:
+    model = _GEN_SLUG if role == "generator" else _EVAL_SLUG
+    return LLMCall(
+        call_id=f"c-{role}", role=role, prompt_messages_present=True, request_hash="h",
+        response_metadata={"provider_name": "deepinfra", "model": model},
+    )
+
+
+def test_post_run_passes(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pin = preflight(["PG_V30_ENABLED"], _pins(), _SALT, offline=True)
+    res = assert_post_run(pin, ["PG_V30_ENABLED"], _SALT,
+                          [_good_call("generator"), _good_call("evaluator")], {"serper", "semantic_scholar"})
+    assert set(res["served_identity_by_role"]) == {"generator", "evaluator"}
+
+
+def test_post_run_fatal_on_missing_role(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pin = preflight([], _pins(), _SALT, offline=True)  # pins generator+evaluator
+    with pytest.raises(GateError, match="no captured LLM call"):
+        assert_post_run(pin, [], _SALT, [_good_call("generator")], {"serper", "semantic_scholar"})  # evaluator missing
+
+
+def test_post_run_fatal_on_incomplete_capture(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pin = preflight([], _gen_pin(), _SALT, offline=True)
+    bad = [LLMCall("c1", "generator", True, None, {"provider_name": "deepinfra", "model": _GEN_SLUG})]
+    with pytest.raises(GateError, match="incomplete capture"):
+        assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+
+
+def test_post_run_fatal_on_missing_surrogate_field(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pins = [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model", "system_fingerprint"))]
+    pin = preflight([], pins, _SALT, offline=True)
+    bad = [LLMCall("c1", "generator", True, "h", {"provider_name": "deepinfra", "model": _GEN_SLUG})]
+    with pytest.raises(GateError, match="surrogate field"):
+        assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+
+
+def test_post_run_fatal_on_provider_drift(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pin = preflight([], _gen_pin(), _SALT, offline=True)
+    bad = [LLMCall("c1", "generator", True, "h", {"provider_name": "FALLBACK", "model": _GEN_SLUG})]
+    with pytest.raises(GateError, match="served provider"):
+        assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+
+
+# I-bug-944 (#925 smoke #13): provider compare is case-insensitive (OpenRouter returns
+# "Fireworks" / "DeepInfra" with title case; the pin env var is lower-case by convention).
+def test_post_run_passes_on_provider_case_difference(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pin = preflight([], _gen_pin(), _SALT, offline=True)
+    # Pinned "deepinfra" (lower); served "DeepInfra" (title) — same identity, must pass.
+    good = [LLMCall("c1", "generator", True, "h", {"provider_name": "DeepInfra", "model": _GEN_SLUG})]
+    res = assert_post_run(pin, [], _SALT, good, {"serper", "semantic_scholar"})
+    assert "generator" in res["served_identity_by_role"]
+
+
+def test_post_run_fatal_on_model_drift(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pin = preflight([], _gen_pin(), _SALT, offline=True)
+    bad = [LLMCall("c1", "generator", True, "h", {"provider_name": "deepinfra", "model": "deepseek/deepseek-v3.2"})]
+    with pytest.raises(GateError, match="served model"):
+        assert_post_run(pin, [], _SALT, bad, {"serper", "semantic_scholar"})
+
+
+def test_post_run_fatal_on_served_identity_drift(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pins = [RolePin("generator", _GEN_SLUG, "deepinfra", ("provider_name", "model", "system_fingerprint"))]
+    pin = preflight([], pins, _SALT, offline=True)
+    # two generator calls with DIFFERENT system_fingerprint -> surrogate drift
+    calls = [
+        LLMCall("c1", "generator", True, "h", {"provider_name": "deepinfra", "model": _GEN_SLUG, "system_fingerprint": "fp_a"}),
+        LLMCall("c2", "generator", True, "h", {"provider_name": "deepinfra", "model": _GEN_SLUG, "system_fingerprint": "fp_b"}),
+    ]
+    with pytest.raises(GateError, match="surrogate drifted"):
+        assert_post_run(pin, [], _SALT, calls, {"serper", "semantic_scholar"})
+
+
+def test_post_run_fatal_on_backend_not_attempted(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    pin = preflight([], _pins(), _SALT, offline=True)
+    calls = [_good_call("generator"), _good_call("evaluator")]
+    with pytest.raises(GateError, match="never attempted"):
+        assert_post_run(pin, [], _SALT, calls, {"serper"})  # missing semantic_scholar
+
+
+def test_post_run_fatal_on_config_drift(monkeypatch) -> None:
+    _full_power_env(monkeypatch)
+    monkeypatch.setenv("PG_V30_ENABLED", "1")
+    pin = preflight(["PG_V30_ENABLED"], _pins(), _SALT, offline=True)
+    monkeypatch.setenv("PG_V30_ENABLED", "0")  # drift
+    calls = [_good_call("generator"), _good_call("evaluator")]
+    with pytest.raises(GateError, match="drift"):
+        assert_post_run(pin, ["PG_V30_ENABLED"], _SALT, calls, {"serper", "semantic_scholar"})
+
+
+def test_full_control_surface_includes_retrieval_creds() -> None:
+    from pathlib import Path
+    from scripts.dr_benchmark.pathB_run_gate import full_control_surface
+    surface = full_control_surface([Path("scripts/dr_benchmark")])
+    assert "SERPER_API_KEY" in surface and "SEMANTIC_SCHOLAR_API_KEY" in surface
+
+codex
+The current code has only the strict model comparison in `assert_post_run`, and `RolePin` is serialized directly into `role_pins`. I’m checking the runner wiring now because the key risk in C is whether `canonical_slug` is resolved before the artifact is written, not merely accepted later.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/benchmark/pathB_runner.py -TotalCount 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/llm/openrouter_client.py -TotalCount 260' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"pathB_gate_pin|role_pins|assert_post_run|preflight\\(|register_pathB_capture|OPENROUTER|response_metadata|model\\\"\" src scripts tests -g \"*.py\"" in C:\POLARIS
+ succeeded in 1252ms:
+"""Path-B gate lifecycle helper for the honest_sweep runner (I-safety-002b #925).
+
+Wraps each benchmark question with the gate: preflight + register capture sink + run +
+assert_post_run before any scoring. Persists the pin record to the run dir. Self-contained
+so the runner diff is minimal (1 import + 1 ``with`` per question).
+
+Gate-off by default: the helper is a no-op context manager when ``--pathB-gate`` is not set,
+so the existing honest_sweep pipeline is untouched outside the benchmark.
+
+Per the Codex-APPROVED brief v2 (call_impl_capture + entailment_judge_capture +
+served_metadata_provenance) and the Codex-APPROVED PR-2 role-tag fork (Option B: capture
+only explicitly-tagged report-generator + report-evaluator calls; auxiliary scope/inductor
+LLMs are not gated).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import logging
+import os
+from pathlib import Path
+from typing import Iterator
+
+from src.polaris_graph.benchmark import pathB_capture as _capture
+from scripts.dr_benchmark.pathB_run_gate import (
+    GateError,
+    LLMCall,
+    RolePin,
+    assert_post_run,
+    preflight,
+)
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_GEN_SLUG = "deepseek/deepseek-v4-pro"
+_DEFAULT_EVAL_SLUG = "google/gemma-4-31b-it"
+
+
+def _role_pins() -> list[RolePin]:
+    """Build the per-role pins from the live env.
+
+    Codex PR-2 diff iter-1 P1 #1: read PG_GENERATOR_MODEL first (the documented honest_sweep
+    override used by generate_multi_section_report); fall back to OPENROUTER_DEFAULT_MODEL,
+    then the static default. Pinning the wrong env var made every correct call fail the gate.
+
+    Codex PR-2 diff iter-1 P1 #2: surrogate_fields MUST be only those PROVEN present in the
+    served response. assert_post_run treats a missing surrogate field as fatal, so requiring
+    system_fingerprint would fail any provider that omits it (entailment_judge often does).
+    Pin only the always-present surrogate (provider_name + model); build_response_metadata
+    still records system_fingerprint when present, but it is NOT a required surrogate."""
+    gen = (
+        os.getenv("PG_GENERATOR_MODEL")
+        or os.getenv("OPENROUTER_DEFAULT_MODEL")
+        or _DEFAULT_GEN_SLUG
+    ).strip()
+    ev = (os.getenv("PG_EVALUATOR_MODEL") or _DEFAULT_EVAL_SLUG).strip()
+    provider_order = (os.getenv("OPENROUTER_PROVIDER_ORDER") or "").strip()
+    provider = provider_order.split(",")[0].strip() if provider_order else ""
+    surrogate_fields = ("provider_name", "model")
+    return [
+        RolePin("generator", gen, provider, surrogate_fields),
+        RolePin("evaluator", ev, provider, surrogate_fields),
+    ]
+
+
+def _salt() -> bytes:
+    return (os.getenv("PG_PATHB_GATE_SALT") or "pathB-default-unsalted").encode("utf-8")
+
+
+@contextlib.contextmanager
+def gate_around_question(
+    *, enabled: bool, run_dir: Path, control_vars: list[str] | None = None,
+) -> Iterator[None]:
+    """Wrap one benchmark question's run with preflight + post-run assertion.
+
+    Usage in the runner:
+        with gate_around_question(enabled=args.pathB_gate, run_dir=run_dir):
+            ... process_query body, including the role-tagged LLM calls ...
+            # On normal exit, assert_post_run runs (raises GateError if not full-power).
+
+    Behavior:
+    - enabled=False: no-op (yields immediately, no capture, no preflight).
+    - enabled=True: preflight (raises GateError if not full-power); register_pathB_capture;
+      yield; on normal exit, assert_post_run; persist pin + result to ``run_dir``. On
+      exception inside the body, capture is cleared but the exception propagates.
+    """
+    if not enabled:
+        yield
+        return
+
+    pin_path = run_dir / "pathB_gate_pin.json"
+    result_path = run_dir / "pathB_gate_result.json"
+    invalid_sentinel = run_dir / "pathB_gate_INVALID"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Codex PR-2 diff iter-1 P3: write a FAIL result file even when preflight raises,
+    # so a missing-credential / unreachable-backend failure has an explicit per-run record
+    # (otherwise the only artifact is a stderr exception, no traceable artifact).
+    try:
+        pin = preflight(
+            control_vars=list(control_vars or []),
+            role_pins=_role_pins(),
+            salt=_salt(),
+            roots=[Path("src/polaris_graph"), Path("scripts")],
+            offline=False,  # real run = real reachability ping (gate enforce-by-default).
+        )
+    except GateError as exc:
+        result_path.write_text(
+            json.dumps(
+                {"verdict": "FAIL", "stage": "preflight", "reason": str(exc)},
+                indent=2, sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        invalid_sentinel.write_text(
+            f"preflight FAIL: {exc}\n", encoding="utf-8",
+        )
+        logger.error("[pathB] preflight FAIL: %s", exc)
+        raise
+    pin_path.write_text(json.dumps(pin, indent=2, sort_keys=True, default=str),
+                        encoding="utf-8")
+    _capture.register_pathB_capture()
+    try:
+        yield
+    except Exception:
+        # Propagate; do not run assert_post_run on a failed run (it would mask the cause).
+        _capture.clear_pathB_capture()
+        raise
+
+    try:
+        calls = [LLMCall(**c) for c in _capture.collected_calls()]
+        backends = _capture.attempted_backends()
+        result = assert_post_run(
+            pin=pin,
+            control_vars=list(control_vars or []),
+            salt=_salt(),
+            calls=calls,
+            retrieval_backends_attempted=backends,
+        )
+        result_path.write_text(
+            json.dumps({"verdict": "PASS", **result}, indent=2, sort_keys=True, default=str),
+            encoding="utf-8",
+        )
+        logger.info("[pathB] gate PASS for run_dir=%s", run_dir)
+    except GateError as exc:
+        result_path.write_text(
+            json.dumps(
+                {"verdict": "FAIL", "stage": "post_run_assert", "reason": str(exc)},
+                indent=2, sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        # Codex PR-2 diff iter-1 P2 #2: write an INVALID sentinel so downstream scoring
+        # (PR-3 claim_audit_scorer) can skip the run_dir's per-run artifacts even though
+        # they were written during the run (manifest/judge/etc.). The gate is the source
+        # of truth for run validity; the sentinel makes that machine-readable.
+        invalid_sentinel.write_text(
+            f"post-run gate FAIL: {exc}\n", encoding="utf-8",
+        )
+        logger.error("[pathB] gate FAIL for run_dir=%s: %s", run_dir, exc)
+        raise
+    finally:
+        _capture.clear_pathB_capture()
+
+ succeeded in 1409ms:
+"""
+OpenRouter LLM Client for polaris graph.
+
+Single gateway via OpenRouter. Default model = OPENROUTER_DEFAULT_MODEL
+(default deepseek/deepseek-v4-pro per I-cd-009 / GH#624 Carney demo lock).
+Two call modes:
+- reason(): reasoning ON, returned separately in reasoning_details
+- generate(): reasoning OFF, clean prose output only
+
+No CoT scrubbing. No regex filters. No post-processing hacks.
+The API handles separation at the protocol level.
+"""
+
+import asyncio
+import json
+import logging
+import os
+import re
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional, Type, TypeVar
+
+import httpx
+from dotenv import load_dotenv
+from pydantic import BaseModel, ValidationError
+
+from src.polaris_graph.tracing import _current_tracer
+# I-safety-002b (#925): Path-B benchmark gate capture (stdlib-only, no circular import;
+# all calls are gate-flagged via is_active() so the hot path pays one contextvar read).
+from src.polaris_graph.benchmark import pathB_capture as _pathb_capture
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+# FIX-305: Persistent cost ledger
+_COST_LEDGER_PATH = Path(os.getenv("PG_COST_LEDGER_PATH", "logs/pg_cost_ledger.jsonl"))
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = os.getenv(
+    "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+)
+OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "deepseek/deepseek-v4-pro")
+OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
+
+# R-2 (readiness gate): hard per-run cost cap — a RUNAWAY-LOOP GUARD,
+# not an economic limit. Measured by cumulative cost across ALL
+# OpenRouterClient instances within a single run.
+#
+# I-gen-003 (2026-05-14): raised the default from $0.10 to $10.00.
+# The $0.10 default was tuned for the V3.2-Exp generator
+# ($0.005-$0.01/run). DeepSeek V4 Pro is reasoning-first — it emits
+# ~3x the tokens (huge reasoning traces: ~5000 reasoning tokens/call
+# observed) and the I-gen-003 CoT-recovery regen loop adds up to 3
+# extra section calls. Under the stale $0.10 cap a normal V4 Pro run
+# trips BudgetExceededError before it can finish — i.e. the guard
+# false-fires on the new generator's NORMAL cost profile. $10.00
+# matches the honest_sweep_job_runner.py default and still catches a genuine
+# infinite loop / recursive-outline runaway. Override per-run via the
+# PG_MAX_COST_PER_RUN env var if a tighter ceiling is wanted.
+PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "10.00"))
+
+# BUG-B-201 fix (pass 2 remediation): per-task ambient state via
+# contextvars so concurrent async run_one_query() calls don't stomp
+# each other's run_id + cost accumulator.
+#
+# Pre-fix (commit f632ee5), `_CURRENT_RUN_ID` and `_RUN_COST_USD` were
+# module-level globals. Pass 2 showed that under `asyncio.gather`,
+# a later run_one_query overwrote the earlier run's ambient id before
+# downstream OpenRouterClient() construction — tagging the first run's
+# LLM calls with the second run's id.
+#
+# Post-fix: ContextVar scopes per asyncio Task. Each task sees its own
+# run_id + cost without threading explicit kwargs through the call graph.
+# Synchronous / serial callers still work because ContextVar defaults
+# to the module-default if no set_* has run in the current task.
+import contextvars
+
+_RUN_COST_LOCK = __import__("threading").Lock()
+_RUN_COST_CTX: contextvars.ContextVar[float] = contextvars.ContextVar(
+    "_RUN_COST_USD", default=0.0,
+)
+_CURRENT_RUN_ID_CTX: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_CURRENT_RUN_ID", default=None,
+)
+
+
+def set_current_run_id(run_id: str | None) -> None:
+    """Set the ambient run-id for the current async task. Each
+    asyncio.Task has its own context, so concurrent runs don't stomp.
+    """
+    _CURRENT_RUN_ID_CTX.set(run_id)
+
+
+def current_run_id() -> str | None:
+    return _CURRENT_RUN_ID_CTX.get()
+
+
+# I-gen-004 (#496): run-scoped reasoning-trace capture. The generator wires a
+# ReasoningTraceCollector as the sink (set_reasoning_sink); the client records
+# each raw completed provider response to it (_capture_reasoning_trace) BEFORE
+# any caller-level promotion / </think> extraction / retry / truncation raise.
+# Layering: the sink is duck-typed (the client never imports the generator).
+# The per-call generator context (section, call_type, attempt_n, ...) is
+# supplied separately by the caller via set_reasoning_call_context; capture is
+# a no-op unless BOTH a sink and a call-context are present, which scopes it
+# to generator calls (evaluator / retrieval LLM calls set no context).
+_REASONING_SINK_CTX: contextvars.ContextVar[object | None] = contextvars.ContextVar(
+    "_REASONING_SINK", default=None,
+)
+_REASONING_CALL_CTX: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "_REASONING_CALL_CTX", default=None,
+)
+
+
+def set_reasoning_sink(sink: object | None) -> None:
+    """Register (or clear, with None) the run-scoped reasoning-trace sink — a
+    duck-typed object exposing ``record(**fields) -> call_id``. Set at run
+    start, cleared at run end."""
+    _REASONING_SINK_CTX.set(sink)
+
+
+def current_reasoning_sink() -> object | None:
+    return _REASONING_SINK_CTX.get()
+
+
+def set_reasoning_call_context(**ctx: object) -> None:
+    """Set the per-call generator context (section, call_type, attempt_n,
+    parent_call_id, regen_reason) for the next captured provider response.
+    Generator call sites set this immediately before each LLM call; passing
+    no kwargs clears it (a non-generator call records nothing)."""
+    _REASONING_CALL_CTX.set(dict(ctx) if ctx else None)
+
+
+def current_reasoning_call_context() -> dict | None:
+    return _REASONING_CALL_CTX.get()
+
+
+def _capture_reasoning_trace(
+    result: "LLMResponse",
+    content: str,
+    reasoning: Optional[str],
+    *,
+    status: str = "ok",
+) -> None:
+    """Record one raw completed provider response to the run-scoped
+    reasoning-trace sink, if one is registered AND the caller set a generator
+    call-context. ``content_source`` is recorded as ``direct`` here;
+    generate()/reason() finalize it (promoted_from_reasoning /
+    extracted_from_reasoning) via the sink's update() using
+    ``result.trace_call_id``. Best-effort observability — a sink failure is
+    logged loud but never breaks the LLM call (reasoning trace is process
+    transparency, not the generation path)."""
+    sink = current_reasoning_sink()
+    ctx = current_reasoning_call_context()
+    if sink is None or not ctx:
+        return
+    try:
+        result.trace_call_id = sink.record(
+            section=str(ctx.get("section", "")),
+            call_type=str(ctx.get("call_type", "section")),
+            model=result.model or "",
+            status=status,
+            content_source="direct",
+            parent_call_id=ctx.get("parent_call_id"),
+            regen_reason=ctx.get("regen_reason"),
+            attempt_n=int(ctx.get("attempt_n", 1) or 1),
+            reasoning_text=reasoning or "",
+            content_text=content or "",
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            reasoning_tokens=result.reasoning_tokens,
+        )
+    except Exception as exc:  # noqa: BLE001 — observability must not break generation
+        logger.warning(
+            "[polaris graph] I-gen-004: reasoning-trace capture failed "
+            "(%s: %s) — generation continues, this record dropped",
+            type(exc).__name__,
+            exc,
+        )
+
+
+def _finalize_reasoning_trace(call_id: Optional[str], **patch: object) -> None:
+    """I-gen-004 (#496): patch an already-captured reasoning-trace record once
+    the caller (generate()/reason()) has resolved promotion / `</think>`
+    extraction / retry / truncation — e.g. content_source=promoted_from_reasoning
+    or status=retry|truncated|error. No-op if no sink or no call_id.
+    Best-effort: a sink failure is logged, never raised."""
+    if not call_id:
+        return
+    sink = current_reasoning_sink()
+    if sink is None:
+        return
+    try:
+        sink.update(call_id, **patch)
+    except Exception as exc:  # noqa: BLE001 — observability must not break generation
+        logger.warning(
+            "[polaris graph] I-gen-004: reasoning-trace finalize failed "
+            "(%s: %s) — generation continues",
+            type(exc).__name__,
+            exc,
+        )
+
+
+class BudgetExceededError(RuntimeError):
+    """Raised when PG_MAX_COST_PER_RUN is breached mid-run."""
+
+
+class ReasoningFirstTruncationError(RuntimeError):
+    """I-bug-089 / I-gen-003: a reasoning-first model (DeepSeek V4 Pro/
+    Flash) ran out of token budget while still planning — content is
+    empty and reasoning_content has no provenance markers and ends
+    mid-sentence. Typed (not bare RuntimeError) so the multi_section
+    generator's _call_section can catch *only* this case and let the
+    bounded regen loop retry with a larger budget, while every other
+    RuntimeError still propagates as a real fault."""
+
+
+def reset_run_cost() -> None:
+    """Reset the current task's run-cost accumulator to 0. Call at the
+    start of a run. Uses ContextVar so concurrent async tasks each get
+    their own zero-start."""
+    _RUN_COST_CTX.set(0.0)
+
+
+def current_run_cost() -> float:
+    """Return the cumulative cost of the current run (USD), scoped to
+    the current asyncio task via ContextVar."""
+    return _RUN_COST_CTX.get()
+
+
+def _add_run_cost(delta: float) -> None:
+    # BUG-B-201: ContextVar-scoped cost accumulator. Each async task has
+    # its own run-cost; concurrent gather() of run_one_query() no longer
+    # stomps each other.
+    _RUN_COST_CTX.set(_RUN_COST_CTX.get() + float(delta))
+
+
+# Codex round 1 B-4: conservative per-model prices used when OpenRouter
+# omits usage.cost. Prices are $/M tokens and represent the UPPER END of
+# published rates for each provider family (if a cheaper provider is used
+# we overcharge the run cost, which is the safe direction for a budget
+# guard). When the model is unknown we use OPUS-tier defaults.
+_PRICE_TABLE_USD_PER_M: dict[str, tuple[float, float]] = {
+    # model prefix  :  (input $/M, output $/M)
+    # IMPORTANT: longer/more-specific prefixes first. Dict insertion order
+    # = iteration order = first-match-wins per _impute_cost_from_tokens.
+    # I-cd-010 / GH#625: qwen/qwen3-8b + z-ai/glm-5.1 entries are
+    # INTENTIONAL pricing-table coverage for env-overridden models (set
+    # PG_GENERATOR_MODEL / OPENROUTER_DEFAULT_MODEL); not the active
+    # Carney demo lock defaults.
+    "deepseek/deepseek-v4-pro":   (0.435, 0.87),
+
+2026-05-28T20:40:01.660167Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.6 seconds
+Output:
+
+ exited 1 in 1630ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/benchmark/pathB_capture.py -TotalCount 240' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"build_response_metadata|response_metadata|provider_name|result\\.model|model=|LLMResponse|choices|system_fingerprint\" src/polaris_graph/llm/openrouter_client.py src/polaris_graph/benchmark -g \"*.py\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"_role_pins\\(|RolePin\\(\" -g \"*.py\"" in C:\POLARIS
+ succeeded in 1281ms:
+"""Path-B benchmark run capture (I-safety-002b #925).
+
+Run-scoped capture of every LLM provider completion (all roles) + retrieval-backend
+attempts, for the DR head-to-head gate. This module stores PLAIN DICTS; the runner
+converts them to ``scripts.dr_benchmark.pathB_run_gate.LLMCall`` when calling
+``assert_post_run`` — so this module has ZERO dependency on the gate / scripts package
+and the production hot path never imports ``scripts`` from ``src``.
+
+Best-effort + gate-flagged: nothing is captured unless ``register_pathB_capture()`` has
+been called for the current run, so when the benchmark gate is OFF the hot path pays only
+one contextvar read. Capture NEVER raises (it must not break generation), mirroring the
+I-gen-004 reasoning-sink pattern.
+
+Served-identity provenance: ``build_response_metadata`` reads ONLY genuinely-served fields
+from the provider response (OpenRouter ``provider`` / served ``model`` / ``system_fingerprint``)
+and DROPS missing fields. Request-derived values are never substituted, so a response that
+fails to report its served provider/model makes the gate fail loud (in ``assert_post_run``)
+rather than silently pass on request-derived data.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import contextvars
+import hashlib
+import json
+import logging
+from typing import Iterator
+
+logger = logging.getLogger(__name__)
+
+# Run-scoped collectors. The contextvars hold REFERENCES to a shared list/set; capture
+# mutates them in place so appends inside asyncio child tasks (which copy the context by
+# reference) remain visible at the top level where the runner reads them.
+_SINK: contextvars.ContextVar[list | None] = contextvars.ContextVar("_PATHB_SINK", default=None)
+_ROLE: contextvars.ContextVar[str | None] = contextvars.ContextVar("_PATHB_ROLE", default=None)
+_RETRIEVAL: contextvars.ContextVar[set | None] = contextvars.ContextVar("_PATHB_RETRIEVAL", default=None)
+
+
+def register_pathB_capture() -> None:
+    """Begin capture for the current run (fresh collectors). Call once at run start."""
+    _SINK.set([])
+    _RETRIEVAL.set(set())
+
+
+def clear_pathB_capture() -> None:
+    """End capture (gate off again). Call at run end."""
+    _SINK.set(None)
+    _ROLE.set(None)
+    _RETRIEVAL.set(None)
+
+
+def is_active() -> bool:
+    return _SINK.get() is not None
+
+
+@contextlib.contextmanager
+def llm_role(role: str) -> Iterator[None]:
+    """Scope the role tag for LLM calls made inside the block (token set + restore).
+
+    Use a context manager (not a sticky setter) so a role never leaks to later calls."""
+    token = _ROLE.set(role)
+    try:
+        yield
+    finally:
+        _ROLE.reset(token)
+
+
+def set_role(role: str):
+    """Set the role tag and return a token to restore on. Pair with reset_role(token)
+    inside a try/finally — equivalent guarantee to llm_role() ctx-mgr, used where
+    re-indenting a large multi-line call block under `with` would be invasive."""
+    return _ROLE.set(role)
+
+
+def reset_role(token) -> None:
+    _ROLE.reset(token)
+
+
+def current_llm_role() -> str | None:
+    return _ROLE.get()
+
+
+def record_retrieval_attempt(backend: str) -> None:
+    """Record that a required retrieval backend ('serper'|'semantic_scholar') was attempted."""
+    backends = _RETRIEVAL.get()
+    if backends is not None:
+        backends.add(backend)
+
+
+def attempted_backends() -> set:
+    backends = _RETRIEVAL.get()
+    return set(backends) if backends is not None else set()
+
+
+def collected_calls() -> list[dict]:
+    sink = _SINK.get()
+    return list(sink) if sink is not None else []
+
+
+def request_hash(messages) -> str:
+    """Stable hash of the prompt messages (presence/integrity, not content storage)."""
+    try:
+        payload = json.dumps(messages, sort_keys=True, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        payload = repr(messages)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def build_response_metadata(raw_response: dict | None) -> dict:
+    """Served-identity metadata from the provider response — PROVEN-present fields only.
+
+    provider_name <- raw['provider'] (OpenRouter), model <- served raw['model'],
+    system_fingerprint <- raw['system_fingerprint']. None/missing fields are DROPPED
+    (never request-filled), so an unreported served provider/model surfaces as a gate
+    failure rather than a false pass.
+
+    Streaming responses synthesize ``data`` with a request-derived ``model`` fallback, so
+    the client stashes the genuinely-SSE-served identity under ``_pathb_served``; when that
+    key is present it is the authoritative source (request-derived ``data['model']`` is
+    never counted as served)."""
+    raw = raw_response or {}
+    served = raw.get("_pathb_served")
+    src = served if isinstance(served, dict) else raw
+    meta = {
+        "provider_name": src.get("provider"),
+        "model": src.get("model"),
+        "system_fingerprint": src.get("system_fingerprint"),
+    }
+    return {k: v for k, v in meta.items() if v is not None}
+
+
+def capture_llm_call(*, role: str, messages, raw_response: dict | None) -> None:
+    """Best-effort: append one captured provider completion. Never raises; no-op when off."""
+    sink = _SINK.get()
+    if sink is None:
+        return
+    try:
+        sink.append(
+            {
+                "call_id": f"{role}-{len(sink)}",
+                "role": role,
+                "prompt_messages_present": bool(messages),
+                "request_hash": request_hash(messages),
+                "response_metadata": build_response_metadata(raw_response),
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 — capture must never break generation
+        logger.warning("[pathB] capture_llm_call failed (%s) — call not recorded", exc)
+
+ succeeded in 1529ms:
+src/polaris_graph/llm/openrouter_client.py:148:    result: "LLMResponse",
+src/polaris_graph/llm/openrouter_client.py:170:            model=result.model or "",
+src/polaris_graph/llm/openrouter_client.py:662:class LLMResponse:
+src/polaris_graph/llm/openrouter_client.py:993:            "OpenRouter client initialized: model=%s, budget=$%.2f",
+src/polaris_graph/llm/openrouter_client.py:1012:        served_identity holds the genuinely-served provider/model/system_fingerprint
+src/polaris_graph/llm/openrouter_client.py:1028:        # system_fingerprint). OpenRouter reports these per-chunk; keep the last
+src/polaris_graph/llm/openrouter_client.py:1062:                for _sk in ("provider", "model", "system_fingerprint"):
+src/polaris_graph/llm/openrouter_client.py:1068:            # FIX-QWEN-1: Also detect top-level errors with empty choices
+src/polaris_graph/llm/openrouter_client.py:1069:            # (Alibaba provider returns 502 as {"choices":[], "error":{...}})
+src/polaris_graph/llm/openrouter_client.py:1071:            choices = chunk.get("choices", [])
+src/polaris_graph/llm/openrouter_client.py:1072:            if chunk_error and not choices:
+src/polaris_graph/llm/openrouter_client.py:1081:            if choices:
+src/polaris_graph/llm/openrouter_client.py:1082:                finish_reason = choices[0].get("finish_reason")
+src/polaris_graph/llm/openrouter_client.py:1093:                delta = choices[0].get("delta", {})
+src/polaris_graph/llm/openrouter_client.py:1203:                for _k in ("provider", "model", "system_fingerprint")
+src/polaris_graph/llm/openrouter_client.py:1206:            choices = data.get("choices", [])
+src/polaris_graph/llm/openrouter_client.py:1207:            if not choices:
+src/polaris_graph/llm/openrouter_client.py:1210:            message = choices[0].get("message", {})
+src/polaris_graph/llm/openrouter_client.py:1251:    ) -> LLMResponse:
+src/polaris_graph/llm/openrouter_client.py:1280:    ) -> LLMResponse:
+src/polaris_graph/llm/openrouter_client.py:1426:                        "choices": [{
+src/polaris_graph/llm/openrouter_client.py:1454:                    if data.get("error") and not data.get("choices"):
+src/polaris_graph/llm/openrouter_client.py:1587:        # SF-16: Check for empty choices before indexing
+src/polaris_graph/llm/openrouter_client.py:1588:        choices = data.get("choices", [])
+src/polaris_graph/llm/openrouter_client.py:1589:        if not choices:
+src/polaris_graph/llm/openrouter_client.py:1592:                f"API returned no choices in response for {call_type} "
+src/polaris_graph/llm/openrouter_client.py:1593:                f"(model={data.get('model', '?')})"
+src/polaris_graph/llm/openrouter_client.py:1595:        choice = choices[0]
+src/polaris_graph/llm/openrouter_client.py:1652:                    "for model=%r; imputed cost=$%.6f from tokens "
+src/polaris_graph/llm/openrouter_client.py:1684:                "reasoning_content for %s (model=%s, %d input tokens)",
+src/polaris_graph/llm/openrouter_client.py:1691:                f"(model={data.get('model', '?')}, input_tokens={input_tokens})"
+src/polaris_graph/llm/openrouter_client.py:1705:        result = LLMResponse(
+src/polaris_graph/llm/openrouter_client.py:1711:            model=data.get("model", self.model),
+src/polaris_graph/llm/openrouter_client.py:1769:                model=self.model[:50],
+src/polaris_graph/llm/openrouter_client.py:1834:    ) -> LLMResponse:
+src/polaris_graph/llm/openrouter_client.py:1888:                result = LLMResponse(
+src/polaris_graph/llm/openrouter_client.py:1894:                    model=result.model,
+src/polaris_graph/llm/openrouter_client.py:1945:                result = LLMResponse(
+src/polaris_graph/llm/openrouter_client.py:1951:                    model=result.model,
+src/polaris_graph/llm/openrouter_client.py:1979:                        result = LLMResponse(
+src/polaris_graph/llm/openrouter_client.py:1985:                            model=result.model,
+src/polaris_graph/llm/openrouter_client.py:2001:                        result = LLMResponse(
+src/polaris_graph/llm/openrouter_client.py:2007:                            model=result.model,
+src/polaris_graph/llm/openrouter_client.py:2024:                            result = LLMResponse(
+src/polaris_graph/llm/openrouter_client.py:2030:                                model=result.model,
+src/polaris_graph/llm/openrouter_client.py:2089:    ) -> LLMResponse:
+src/polaris_graph/llm/openrouter_client.py:2124:    ) -> LLMResponse:
+src/polaris_graph/llm/openrouter_client.py:2177:                result = LLMResponse(
+src/polaris_graph/llm/openrouter_client.py:2183:                    model=result.model,
+src/polaris_graph/llm/openrouter_client.py:2242:                result = LLMResponse(
+src/polaris_graph/llm/openrouter_client.py:2248:                    model=result.model,
+src/polaris_graph/llm/openrouter_client.py:2293:                result = LLMResponse(
+src/polaris_graph/llm/openrouter_client.py:2299:                    model=result.model,
+src/polaris_graph/llm/openrouter_client.py:2339:                        result = LLMResponse(
+src/polaris_graph/llm/openrouter_client.py:2345:                            model=result.model,
+src/polaris_graph/llm/openrouter_client.py:2363:                        result = LLMResponse(
+src/polaris_graph/llm/openrouter_client.py:2369:                            model=result.model,
+src/polaris_graph/benchmark\pathB_capture.py:14:Served-identity provenance: ``build_response_metadata`` reads ONLY genuinely-served fields
+src/polaris_graph/benchmark\pathB_capture.py:15:from the provider response (OpenRouter ``provider`` / served ``model`` / ``system_fingerprint``)
+src/polaris_graph/benchmark\pathB_capture.py:110:def build_response_metadata(raw_response: dict | None) -> dict:
+src/polaris_graph/benchmark\pathB_capture.py:113:    provider_name <- raw['provider'] (OpenRouter), model <- served raw['model'],
+src/polaris_graph/benchmark\pathB_capture.py:114:    system_fingerprint <- raw['system_fingerprint']. None/missing fields are DROPPED
+src/polaris_graph/benchmark\pathB_capture.py:126:        "provider_name": src.get("provider"),
+src/polaris_graph/benchmark\pathB_capture.py:128:        "system_fingerprint": src.get("system_fingerprint"),
+src/polaris_graph/benchmark\pathB_capture.py:145:                "response_metadata": build_response_metadata(raw_response),
+src/polaris_graph/benchmark\pathB_runner.py:49:    system_fingerprint would fail any provider that omits it (entailment_judge often does).
+src/polaris_graph/benchmark\pathB_runner.py:50:    Pin only the always-present surrogate (provider_name + model); build_response_metadata
+src/polaris_graph/benchmark\pathB_runner.py:51:    still records system_fingerprint when present, but it is NOT a required surrogate."""
+src/polaris_graph/benchmark\pathB_runner.py:60:    surrogate_fields = ("provider_name", "model")
+
+2026-05-28T20:40:11.122997Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.8 seconds
+Output:
+
+ exited 1 in 1753ms:
+web search: 
+web search: OpenRouter API models endpoint canonical_slug GET /api/v1/models/{id}
+web search: 
+web search: https://openrouter.ai/docs/api/api-reference/models/get-models
+codex
+The runner persists the preflight pin immediately before capture starts, so C’s integrity story works if the resolver mutates/returns the enriched `RolePin` before that write. I also checked current OpenRouter docs: the documented canonical data source is `GET /api/v1/models`, with `canonical_slug` in each model object; the per-model documented endpoint is `/models/:author/:slug/endpoints`, not a plain `/models/<id>`.
+codex
+```yaml
+verdict: APPROVE
+choice: C
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Implement resolver against the documented `GET /api/v1/models` list and exact-match `id`; current docs expose `canonical_slug` there, while the documented per-model route is `/models/:author/:slug/endpoints`, not plain `/models/<id>`. Source: https://openrouter.ai/docs/api/api-reference/models/get-models"
+  - "Fail closed if the configured slug is not found in the models response. If the record exists but `canonical_slug` is absent/null, persist `canonical_slug: null` and compare only against `model_slug`."
+  - "Add `canonical_slug` as a trailing/defaulted `RolePin` field or update all constructor call sites, so existing positional tests/helpers do not break mechanically."
+  - "Consider normalizing the accepted model value before `_role_surrogate`; otherwise a same-role mix of alias and canonical slug could pass the explicit model check but still fail surrogate drift on raw `model`."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+37,382
+```yaml
+verdict: APPROVE
+choice: C
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Implement resolver against the documented `GET /api/v1/models` list and exact-match `id`; current docs expose `canonical_slug` there, while the documented per-model route is `/models/:author/:slug/endpoints`, not plain `/models/<id>`. Source: https://openrouter.ai/docs/api/api-reference/models/get-models"
+  - "Fail closed if the configured slug is not found in the models response. If the record exists but `canonical_slug` is absent/null, persist `canonical_slug: null` and compare only against `model_slug`."
+  - "Add `canonical_slug` as a trailing/defaulted `RolePin` field or update all constructor call sites, so existing positional tests/helpers do not break mechanically."
+  - "Consider normalizing the accepted model value before `_role_surrogate`; otherwise a same-role mix of alias and canonical slug could pass the explicit model check but still fail surrogate drift on raw `model`."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

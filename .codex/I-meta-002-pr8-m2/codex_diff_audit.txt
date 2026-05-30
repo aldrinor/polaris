@@ -1,0 +1,1994 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e74ff-3aa9-7013-8473-d5085c58ea7f
+--------
+user
+# Codex DIFF-gate — I-meta-002 PR-8 (M2): self-host serving artifacts for the 3 verifier roles — NO SPEND
+
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (REQUIRED — loose prose is rejected)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## HARD CONSTRAINTS (operator-locked, NOT consultable — do not reopen)
+- **M2 is NO-SPEND / NO real network.** This PR ships serving CONFIG + a health/identity PROBE + a launch runbook + tests — all offline. The probe's HTTP client is DEPENDENCY-INJECTED; every test passes an `httpx.Client(transport=httpx.MockTransport(...))` returning canned `/v1/models` bodies — NO socket is opened in any code path pytest exercises. **Nothing is deployed to Vast.** The actual paid Vast GPU rental + vLLM launch is the later operator-triggered ONE-QUESTION CANARY (Codex full-readiness ruling c), explicitly OUT OF SCOPE here — that is the paid deploy, not this PR.
+- The frozen scorer (`scripts/dr_benchmark/claim_audit_scorer.py`), the runtime lock (`config/architecture/polaris_runtime_lock.yaml` — do NOT promote `status: locked`), and the canonical pipeline MUST NOT drift. This diff must not touch any of them.
+- 4-role architecture LOCKED (generator on OpenRouter; mirror/sentinel/judge self-hosted).
+- Operator is BLIND — crisp verdict, no tables.
+
+## EMPHASIS FOR THIS DIFF REVIEW (what to check hardest)
+1. **served-model == locked-slug identity check is FAIL-LOUD.** This is the identity the M4 `served==pinned` gate trusts. Verify the probe RAISES (never silently degrades to a "reachable-but-unknown" success) on: served id != locked slug, unset `PG_<ROLE>_BASE_URL`, unreachable endpoint, non-200 status, malformed/empty `/v1/models` body. Verify the lock slugs are read from the single source of truth (`load_lock`) so probe expectations can never drift from the lock.
+2. **Per-role vLLM args match the lock.** Mirror = bf16 plain-chat (NO structured/guided decoding) so it can emit inline `<co>` citation spans; Judge = fp8 WITH structured-outputs/guided-decoding ENABLED for hard-enum verdicts; Sentinel = 1xA100 dense, plain chat (emits `<score>`, not JSON). Verify `served_model_name` per role == the lock's `required_roles.<role>.model_slug`, and GPU specs (Mirror 8xH100 bf16; Sentinel 1xA100; Judge 1xH100 fp8).
+3. **No secrets in the config.** Keys arrive only via per-role env vars (`api_key_env`); the YAML declares WHICH env var each role reads, never a value. Confirm no `api_key:` value and no `bearer ` literal.
+4. **NO network in tests.** Confirm there is no code path the tests exercise that opens a real socket. The `__main__`/`main()` real-`httpx.Client()` path is operator-only (the canary), never reached by pytest.
+5. **The paid deploy is deferred to the canary — not in this PR.** Confirm nothing in the diff forces real spend or a real network call.
+
+## Context — Codex full-readiness ruling (2026-05-29), ordered work item 2
+Codex (decision-maker) ruled NOT_READY for spend and gave the ordered no-spend work. Item 1 (Gate-A green) reconfirmed. This is item 2 (M2). Codex rulings that bind M2: verifier roles are LOCKED to `vast_self_host*` (no OpenRouter-verifier shortcut); generator stays OpenRouter unchanged; only the 3 verifier roles need new self-host serving. M1 `openai_compatible_transport.role_endpoint` reads env `PG_<ROLE>_BASE_URL` + `PG_<ROLE>_API_KEY`; the served `model` must equal the locked slug (M4 served==pinned). Lock slugs: mirror=cohere/command-a-plus (vast_self_host_bf16); sentinel=ibm-granite/granite-guardian-4.1-8b (vast_self_host); judge=qwen/qwen3.6-35b-a3b (vast_self_host_fp8).
+
+## Scope of PR-8/M2 (acceptance criteria — from .codex/I-meta-002-pr8-m2/brief.md)
+1. **Per-role serving config** `config/serving/verifier_roles.yaml` (declarative, LAW VI): one block per verifier role (mirror/sentinel/judge) with: model_slug (lock-sourced), gpu spec (Mirror 8xH100 bf16; Sentinel 1xA100; Judge 1xH100 fp8), the vLLM launch args (served-model-name == the locked slug, tensor-parallel-size, quantization, max-model-len bounded — Judge needs structured-outputs/choice support per the lock; Mirror serves plain chat for `<co>` citations), and the env var it populates (`PG_MIRROR_BASE_URL` etc.). NO secrets in the file (keys via env).
+2. **Health / identity probe** `scripts/dr_benchmark/verify_serving_identity.py`: given the 3 role base URLs (from env), query each endpoint's `/v1/models` (and optionally a 1-token completion) and assert the SERVED model id == the locked slug for that role. FAIL LOUD on mismatch / unreachable / wrong model (this is what M4 served==pinned will trust). The HTTP client is INJECTED so tests use a stub — NO real network. Emits a structured report (per-role: reachable, served_model, matches_lock).
+3. **Launch runbook** `docs/serving/verifier_serving_runbook.md`: the exact operator steps to rent the Vast boxes + launch vLLM per role + set the env vars + run the identity probe — clearly marked as the PAID step (the one-question canary), NOT executed here.
+4. **Tests** `tests/dr_benchmark/test_verify_serving_identity.py` (+ a config-shape test): the config parses + has all 3 roles with lock-matching slugs; the probe (injected stub) PASSES when served==slug for all 3, FAILS LOUD when a served model != the locked slug, when an endpoint is unreachable, and when a role base_url env is unset. NO network.
+5. Hygiene: snake_case, explicit imports, named constants, no `except: pass`, no unittest.mock in src/ /scripts (stub in tests), no real network anywhere, no `datetime.now()` in library code.
+
+## Smoke results (from .codex/I-meta-002-pr8-m2/smoke_results.txt)
+```
+POLARIS PR-8 / M2 SMOKE RESULTS
+================================
+Run timestamp (UTC approx): 2026-05-29
+Execution: serialized, NO parallel runs (per CLAUDE.md §8.4). Exit codes captured per step.
+
+OVERALL: ALL THREE STEPS PASSED.
+
+STEP 1 - pytest (single run)
+  Command: python -m pytest tests/roles tests/architecture tests/dr_benchmark -q
+  Result:  PASS — 330 passed, 0 failed, 0 skipped, 0 errors (collected 330 items), 4.97s, exit 0
+  (includes tests/dr_benchmark/test_verify_serving_identity.py 12)
+
+STEP 2 - architecture lock consistency
+  Command: python -m scripts.architecture.verify_lock --consistency
+  Result:  PASS exit 0 — "Consistency: OK - families registered, family_policy holds,
+            code defaults match lock, canonical_pin includes lock file"
+
+STEP 3 - DR benchmark Gate-A no-spend dry run
+  Command: python -m scripts.dr_benchmark.gate_a_dry_run
+  Result:  OVERALL: PASS (no-spend, offline), exit 0
+  Sub-checks: [PASS] pytest_suites, [PASS] lock_consistency, [PASS] frozen_lock_coverage
+    (4 roles pinned + all-distinct families), [PASS] role_contracts
+  Note: "Gate-A PASS does NOT authorize spend."
+
+NETWORK / SPEND CONFIRMATION (no bluffing)
+  CONFIRMED: NO real network call happened. Evidence:
+  - probe_serving_identity(*, http_client: httpx.Client) REQUIRES an injected client; no internal default opens a socket.
+  - Every test builds its client via httpx.Client(transport=httpx.MockTransport(handler)); MockTransport returns canned /v1/models bodies and raises httpx.ConnectError for unreachable simulation — no socket opened.
+  - Base URLs are fake .internal hosts set via monkeypatch env in an autouse fixture.
+  - Gate-A dry run does NOT invoke the live probe; pytest + lock-consistency + lock-coverage + in-process role contracts only.
+  - M2 deploys nothing.
+```
+
+## DIFF
+
+```diff
+diff --git a/config/serving/verifier_roles.yaml b/config/serving/verifier_roles.yaml
+new file mode 100644
+index 00000000..fc9ca2b7
+--- /dev/null
++++ b/config/serving/verifier_roles.yaml
+@@ -0,0 +1,109 @@
++# POLARIS verifier-role self-host serving config — I-meta-002 PR-8 / M2
++#
++# Declarative, per-role vLLM serving spec for the THREE self-hosted verifier
++# roles (mirror / sentinel / judge). The generator is NOT here: it runs live on
++# OpenRouter (serving_route: openrouter in the runtime lock) and is upstream of
++# the per-claim verifier path.
++#
++# SINGLE SOURCE OF TRUTH for slugs: config/architecture/polaris_runtime_lock.yaml.
++#   - `model_slug` below MUST equal the lock's required_roles.<role>.model_slug.
++#   - `vllm_args.served_model_name` MUST equal that same slug — this is the
++#     identity the M4 served==pinned gate trusts and the identity probe
++#     (scripts/dr_benchmark/verify_serving_identity.py) asserts against /v1/models.
++#   - The probe + the config-shape test fail loud if any role drifts from the lock.
++#
++# Codex brief-gate ruling (P2, 2026-05-29): keep `model_source` (the HF repo /
++# local path vLLM LOADS) DISTINCT from `served_model_name` (the public id vLLM
++# ADVERTISES). Only `served_model_name` must equal the lock slug; `model_source`
++# is the weights location and is intentionally free of the lock-equality rule.
++#
++# NO SECRETS in this file (LAW VI): API keys arrive only via the per-role
++# `api_key_env` environment variable at runtime; base URLs via `base_url_env`.
++# This file declares WHICH env var each role reads, never the value.
++#
++# Env convention (mirrors src/polaris_graph/roles/openai_compatible_transport.py
++# role_endpoint): PG_<ROLE>_BASE_URL + PG_<ROLE>_API_KEY, ROLE upper-cased.
++#
++# The actual paid Vast GPU rental + vLLM launch is the later operator-triggered
++# ONE-QUESTION CANARY (docs/serving/verifier_serving_runbook.md) — NOT executed
++# by this PR. This file is config + the probe consumes it; nothing here spends.
++
++schema_version: 1
++source_of_truth: config/architecture/polaris_runtime_lock.yaml
++
++roles:
++  mirror:
++    # Calibration auditor — native <co> citation grounding, served as PLAIN chat
++    # (no structured-output constraint): the Mirror emits free-form prose with
++    # inline <co>covered text</co:doc_id> spans that mirror_adapter parses.
++    model_slug: cohere/command-a-plus
++    serving_route: vast_self_host_bf16
++    base_url_env: PG_MIRROR_BASE_URL
++    api_key_env: PG_MIRROR_API_KEY
++    gpu:
++      # Full-precision bf16 — Command A+ (218B total / 25B active sparse MoE),
++      # ~438 GB weights (docs/vast_ai_budget_i_meta_002.md §1.1).
++      count: 8
++      kind: H100
++      vram_gb_each: 80
++      box_note: "8xH100 bf16 (~438 GB weights); proves sovereign production path"
++    vllm_args:
++      # served-model-name == the locked slug (M4 served==pinned identity surface).
++      served_model_name: cohere/command-a-plus
++      tensor_parallel_size: 8
++      dtype: bfloat16
++      quantization: null            # bf16 full precision; Mirror's job IS calibration
++      max_model_len: 32768
++      # Plain chat for <co> citations — NO guided/structured-output constraint.
++      structured_outputs: false
++      guided_decoding: false
++
++  sentinel:
++    # Purpose-built RAG hallucination detector — Granite Guardian 4.1 8B (dense,
++    # ~16 GB). Emits a <score> element (NOT JSON), so NO structured-output spec.
++    model_slug: ibm-granite/granite-guardian-4.1-8b
++    serving_route: vast_self_host
++    base_url_env: PG_SENTINEL_BASE_URL
++    api_key_env: PG_SENTINEL_API_KEY
++    gpu:
++      # 1xA100 80GB — ample VRAM, no KV bottleneck
++      # (docs/vast_ai_budget_i_meta_002.md §1.3).
++      count: 1
++      kind: A100
++      vram_gb_each: 80
++      box_note: "1xA100 80GB (EU/sovereignty-clean); dense 8B guardrail model"
++    vllm_args:
++      served_model_name: ibm-granite/granite-guardian-4.1-8b
++      tensor_parallel_size: 1
++      dtype: bfloat16
++      quantization: null
++      max_model_len: 16384
++      structured_outputs: false     # Granite emits <score>, not JSON
++      guided_decoding: false
++
++  judge:
++    # Terminal arbiter — Qwen3.6-35B-A3B (MoE, 3B active). MUST emit a stable
++    # parseable verdict from the 5-enum domain, so the Judge server is launched
++    # WITH structured-outputs / choice constrained decoding enabled.
++    model_slug: qwen/qwen3.6-35b-a3b
++    serving_route: vast_self_host_fp8
++    base_url_env: PG_JUDGE_BASE_URL
++    api_key_env: PG_JUDGE_API_KEY
++    gpu:
++      # 1xH100 FP8 — near-lossless, half the download, fastest time-to-result
++      # (docs/vast_ai_budget_i_meta_002.md §1.2, recommended).
++      count: 1
++      kind: H100
++      vram_gb_each: 80
++      box_note: "1xH100 fp8 (~35 GB weights); near-lossless, recommended"
++    vllm_args:
++      served_model_name: qwen/qwen3.6-35b-a3b
++      tensor_parallel_size: 1
++      dtype: auto
++      quantization: fp8            # fp8 weight quantization on the H100
++      max_model_len: 32768
++      # Judge needs hard-enum verdicts at decode time. The adapter sends
++      # structured_outputs.choice == JUDGE_CHOICES per request; the SERVER must
++      # be launched with guided/structured decoding ENABLED for that to bind.
++      structured_outputs: true
++      guided_decoding: true
+diff --git a/docs/serving/verifier_serving_runbook.md b/docs/serving/verifier_serving_runbook.md
+new file mode 100644
+index 00000000..67802b77
+--- /dev/null
++++ b/docs/serving/verifier_serving_runbook.md
+@@ -0,0 +1,187 @@
++# Verifier self-host serving runbook — I-meta-002 PR-8 / M2
++
++> **⚠ PAID STEP — the one-question canary. NOT executed by this PR.**
++> Every command below rents real Vast.ai GPU boxes and bills per second. Nothing
++> in PR-8/M2 runs these steps. They are the exact operator procedure for the
++> later, operator-triggered, single-question canary deploy. Until the operator
++> explicitly launches the canary, the three boxes do NOT exist and `PG_*_BASE_URL`
++> are unset.
++
++## What this runbook does
++
++Brings up the **three self-hosted verifier roles** on Vast.ai, each serving the
++EXACT model pinned in `config/architecture/polaris_runtime_lock.yaml`, then runs
++the offline-tested identity probe (`scripts/dr_benchmark/verify_serving_identity.py`)
++against the live boxes to confirm `served == pinned` before any benchmark question
++is asked.
++
++The **generator (DeepSeek V4 Pro) is NOT here** — it stays on OpenRouter
++(`serving_route: openrouter`) across every benchmark scenario. Only Mirror,
++Sentinel, and Judge are self-hosted.
++
++Per-role serving spec is declared in `config/serving/verifier_roles.yaml`. This
++runbook is the human procedure that realizes that config on rented hardware.
++
++## Roles, boxes, and launch args (from `config/serving/verifier_roles.yaml`)
++
++- **Mirror** — `cohere/command-a-plus`, bf16 full precision, **8×H100** box
++  (~438 GB weights). Plain chat serving (no structured-output constraint) so the
++  model emits inline `<co>covered text</co:doc_id>` citation spans.
++- **Sentinel** — `ibm-granite/granite-guardian-4.1-8b`, **1×A100 80GB** box
++  (dense ~16 GB). Plain chat (emits a `<score>` element, not JSON).
++- **Judge** — `qwen/qwen3.6-35b-a3b`, fp8, **1×H100** box (~35 GB). Structured /
++  guided decoding ENABLED so the verdict is hard-enum constrained at decode time.
++
++> The cost arithmetic and scenario choice (A full-self-host vs B Cohere-managed
++> Mirror vs C W4A4) live in `docs/vast_ai_budget_i_meta_002.md`. This runbook
++> assumes the operator has chosen the full-self-host path (Scenario A) for the
++> sovereign-proof canary. For Scenario B, skip the Mirror box and point
++> `PG_MIRROR_BASE_URL` at the Cohere-managed endpoint instead.
++
++## Step 0 — preconditions (operator)
++
++1. Vast.ai account funded (see `docs/vast_ai_budget_i_meta_002.md` for the credit
++   to load per scenario).
++2. `vastai` CLI installed and logged in (`vastai set api-key <KEY>`).
++3. An SSH key registered with Vast for box access.
++4. **Sovereignty note:** Vast H100/H200 inventory is US-only — acceptable ONLY
++   because the DRB-EN benchmark uses PUBLIC data, no clinical data. Do NOT serve
++   clinical/patient data from a Vast box (production clinical = direct-EU
++   procurement, separate decision — `docs/vast_ai_budget_i_meta_002.md` §4).
++
++## Step 1 — rent the three boxes (PAID)
++
++Search for offers, then `vastai create instance` per role. Example shape (replace
++`<offer_id>` with a matching offer from `vastai search offers`):
++
++```bash
++# Mirror — 8xH100 bf16
++vastai search offers 'num_gpus=8 gpu_name=H100 inet_down>1000' --order 'dph'
++vastai create instance <mirror_offer_id> \
++  --image vllm/vllm-openai:latest \
++  --disk 600 \
++  --env '-p 8000:8000'
++
++# Sentinel — 1xA100 80GB
++vastai search offers 'num_gpus=1 gpu_name=A100_SXM4 gpu_ram>=80'
++vastai create instance <sentinel_offer_id> \
++  --image vllm/vllm-openai:latest \
++  --disk 60 \
++  --env '-p 8000:8000'
++
++# Judge — 1xH100 fp8
++vastai search offers 'num_gpus=1 gpu_name=H100'
++vastai create instance <judge_offer_id> \
++  --image vllm/vllm-openai:latest \
++  --disk 80 \
++  --env '-p 8000:8000'
++```
++
++> **Storage bills even when STOPPED — only DESTROY halts it.** Per §8.4
++> resource discipline + `docs/vast_ai_budget_i_meta_002.md` §0.3, the dominant
++> cost is hold-hours. Destroy each box the moment its session ends.
++
++## Step 2 — launch vLLM per role (PAID, on each box)
++
++SSH into each box and start the OpenAI-compatible vLLM server. The
++`--served-model-name` MUST equal the locked slug — it is the identity the probe
++and the M4 `served==pinned` gate trust. The `model` argument is the weights
++SOURCE (HF repo or local path) and is intentionally DISTINCT from the served name
++(Codex P2): vLLM advertises `--served-model-name` at `/v1/models`, not the source.
++
++```bash
++# Mirror — 8xH100 bf16, PLAIN chat (no guided decoding) for <co> citations
++python -m vllm.entrypoints.openai.api_server \
++  --model CohereLabs/command-a-plus-05-2026-bf16 \
++  --served-model-name cohere/command-a-plus \
++  --tensor-parallel-size 8 \
++  --dtype bfloat16 \
++  --max-model-len 32768 \
++  --host 0.0.0.0 --port 8000
++
++# Sentinel — 1xA100, PLAIN chat (Granite emits <score>, not JSON)
++python -m vllm.entrypoints.openai.api_server \
++  --model ibm-granite/granite-guardian-4.1-8b \
++  --served-model-name ibm-granite/granite-guardian-4.1-8b \
++  --tensor-parallel-size 1 \
++  --dtype bfloat16 \
++  --max-model-len 16384 \
++  --host 0.0.0.0 --port 8000
++
++# Judge — 1xH100 fp8, STRUCTURED/guided decoding ENABLED for hard-enum verdicts
++python -m vllm.entrypoints.openai.api_server \
++  --model Qwen/Qwen3.6-35B-A3B \
++  --served-model-name qwen/qwen3.6-35b-a3b \
++  --quantization fp8 \
++  --tensor-parallel-size 1 \
++  --max-model-len 32768 \
++  --guided-decoding-backend xgrammar \
++  --host 0.0.0.0 --port 8000
++```
++
++> `--model` (the weights source) above is illustrative — confirm the exact HF
++> repo id / revision against the lock's `codex_cross_validation_sources` before
++> launching. Only `--served-model-name` is bound to the lock slug.
++
++## Step 3 — set the per-role env vars (operator shell)
++
++The probe and the runtime transport read `PG_<ROLE>_BASE_URL` / `PG_<ROLE>_API_KEY`
++(LAW VI — never hard-coded). Use each box's public address + mapped port:
++
++```bash
++export PG_MIRROR_BASE_URL="http://<mirror_box_ip>:<port>"
++export PG_SENTINEL_BASE_URL="http://<sentinel_box_ip>:<port>"
++export PG_JUDGE_BASE_URL="http://<judge_box_ip>:<port>"
++
++# Optional per-role API key if the box requires --api-key; else the probe falls
++# back to OPENROUTER_API_KEY. A self-hosted vLLM without auth needs no key.
++export PG_MIRROR_API_KEY="<key-if-any>"
++export PG_SENTINEL_API_KEY="<key-if-any>"
++export PG_JUDGE_API_KEY="<key-if-any>"
++```
++
++## Step 4 — run the identity probe (cheap; confirms served == pinned)
++
++```bash
++python -m scripts.dr_benchmark.verify_serving_identity
++```
++
++Expected output on success (exit 0):
++
++```
++serving-identity probe — per role:
++  mirror: reachable=True served_model='cohere/command-a-plus' expected='cohere/command-a-plus' matches_lock=True
++  sentinel: reachable=True served_model='ibm-granite/granite-guardian-4.1-8b' expected='ibm-granite/granite-guardian-4.1-8b' matches_lock=True
++  judge: reachable=True served_model='qwen/qwen3.6-35b-a3b' expected='qwen/qwen3.6-35b-a3b' matches_lock=True
++OK — all 3 verifier roles serve their locked slugs.
++```
++
++The probe **fails loud** (exit 1, printed error) if any role: has an unset
++`PG_<ROLE>_BASE_URL`, is unreachable, returns a malformed `/v1/models` body, or
++serves a model id that is not its locked slug. Do NOT proceed to the benchmark
++until the probe is green for all three roles.
++
++## Step 5 — the canary question, then DESTROY (PAID)
++
++Once the probe is green, run the single-question canary per the benchmark runbook,
++then **immediately destroy every box** (storage bills until destroy):
++
++```bash
++vastai destroy instance <mirror_instance_id>
++vastai destroy instance <sentinel_instance_id>
++vastai destroy instance <judge_instance_id>
++```
++
++Unset the env vars when done so a later session does not accidentally probe a
++torn-down box:
++
++```bash
++unset PG_MIRROR_BASE_URL PG_SENTINEL_BASE_URL PG_JUDGE_BASE_URL
++unset PG_MIRROR_API_KEY PG_SENTINEL_API_KEY PG_JUDGE_API_KEY
++```
++
++## Teardown checklist (§8.4 resource discipline)
++
++- [ ] All three Vast instances **destroyed** (not just stopped — storage bills on stop).
++- [ ] `PG_*_BASE_URL` / `PG_*_API_KEY` env vars unset.
++- [ ] Spend recorded against the `docs/vast_ai_budget_i_meta_002.md` scenario estimate.
+diff --git a/scripts/dr_benchmark/verify_serving_identity.py b/scripts/dr_benchmark/verify_serving_identity.py
+new file mode 100644
+index 00000000..907fb79e
+--- /dev/null
++++ b/scripts/dr_benchmark/verify_serving_identity.py
+@@ -0,0 +1,246 @@
++"""Serving-identity probe for the 3 self-hosted verifier roles — I-meta-002 PR-8 / M2.
++
++Given the three role base URLs (resolved from env via the SAME convention as
++`openai_compatible_transport.role_endpoint`: ``PG_<ROLE>_BASE_URL`` /
++``PG_<ROLE>_API_KEY``), this probe queries each vLLM server's ``/v1/models`` and
++asserts that the SERVED model id equals the role's locked ``model_slug`` from
++``config/architecture/polaris_runtime_lock.yaml``.
++
++This is the deterministic identity check the M4 ``served==pinned`` gate trusts:
++before a paid benchmark run, the operator runs this probe to confirm each box is
++serving the EXACT pinned model. ``/v1/models`` is the right primary vLLM identity
++surface (Codex brief-gate P2): vLLM advertises its ``--served-model-name`` as the
++``id`` of the single entry in ``data``. An optional 1-token chat completion is a
++readiness-only nicety and is intentionally NOT performed here (it would spend).
++
++No-spend / no-network-in-tests boundary (LAW II): the HTTP client is
++DEPENDENCY-INJECTED via ``probe_serving_identity(http_client=...)``. Tests pass an
++``httpx.Client(transport=httpx.MockTransport(...))`` returning canned ``/v1/models``
++bodies — there is NO network in any code path pytest exercises. The ``__main__``
++entrypoint builds a real ``httpx.Client``; that path is run ONLY by the operator
++during the paid canary, never by tests.
++
++Fail loud (LAW II): a served id that does not match the lock, an unreachable
++endpoint, a malformed ``/v1/models`` body, or an UNSET ``PG_<ROLE>_BASE_URL``
++all raise ``ServingIdentityError`` (the probe never returns a silently-degraded
++"reachable but unknown" success).
++"""
++
++from __future__ import annotations
++
++import os
++import sys
++from dataclasses import dataclass
++
++import httpx
++
++from scripts.architecture.verify_lock import load_lock
++
++# The three self-hosted verifier roles this probe covers. The generator runs on
++# OpenRouter (serving_route: openrouter) and is HARD-EXCLUDED — it is never probed.
++SELF_HOST_ROLES = ("mirror", "sentinel", "judge")
++
++# OpenAI-compatible model-listing path appended to each role's base_url. This is
++# the vLLM identity surface: data[0].id == the launched --served-model-name.
++_MODELS_PATH = "/v1/models"
++
++# Per-role env var stems (LAW VI), identical to openai_compatible_transport.
++_BASE_URL_ENV_TEMPLATE = "PG_{role}_BASE_URL"
++_API_KEY_ENV_TEMPLATE = "PG_{role}_API_KEY"
++_API_KEY_FALLBACK_ENV = "OPENROUTER_API_KEY"
++
++# Reuse the shared LLM timeout knob (LAW VI): same env var, same fallback as the
++# transport, so a probe and a real completion share one configured timeout.
++_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_TIMEOUT_SECONDS", "90"))
++
++
++class ServingIdentityError(RuntimeError):
++    """A self-host serving-identity check failed loudly.
++
++    Raised on an unset base-url env, an unreachable / non-200 endpoint, a
++    malformed ``/v1/models`` body, or a served model id that does not equal the
++    locked slug. The probe NEVER returns a silently-degraded success.
++    """
++
++
++@dataclass(frozen=True)
++class RoleIdentityReport:
++    """Structured per-role result of the serving-identity probe.
++
++    ``served_model`` is the id vLLM advertises at ``/v1/models`` (its
++    ``--served-model-name``); ``expected_slug`` is the lock-pinned ``model_slug``;
++    ``matches_lock`` is True iff they are equal. ``reachable`` is True iff the
++    endpoint answered HTTP 200 with a parseable ``/v1/models`` body.
++    """
++
++    role: str
++    base_url: str
++    expected_slug: str
++    reachable: bool
++    served_model: str | None
++    matches_lock: bool
++
++
++def _expected_slugs() -> dict[str, str]:
++    """Lock-pinned ``model_slug`` per self-host role (the expected served ids).
++
++    Sourced from the single machine-readable runtime lock via ``load_lock`` so the
++    probe's expectations can never drift from the architecture lock (LAW VI).
++    """
++    lock = load_lock()
++    required_roles = lock["required_roles"]
++    return {role: required_roles[role]["model_slug"] for role in SELF_HOST_ROLES}
++
++
++def _resolve_base_url(role: str) -> str:
++    """Resolve ``PG_<ROLE>_BASE_URL`` for a self-host role; fail loud if unset.
++
++    Mirrors ``openai_compatible_transport.role_endpoint``: a self-host role with no
++    configured endpoint is a deployment error, never a silent default (LAW VI).
++    """
++    env_name = _BASE_URL_ENV_TEMPLATE.format(role=role.upper())
++    base_url = os.getenv(env_name)
++    if not base_url:
++        raise ServingIdentityError(
++            f"{env_name} is not set; the self-hosted {role!r} endpoint must be "
++            f"configured before the identity probe can run (LAW VI)."
++        )
++    return base_url.rstrip("/")
++
++
++def _resolve_api_key(role: str) -> str:
++    """Resolve ``PG_<ROLE>_API_KEY`` (falling back to OPENROUTER_API_KEY)."""
++    return os.getenv(
++        _API_KEY_ENV_TEMPLATE.format(role=role.upper())
++    ) or os.getenv(_API_KEY_FALLBACK_ENV, "")
++
++
++def _served_model_id(raw: dict, *, role: str, base_url: str) -> str:
++    """Extract the served model id from a vLLM ``/v1/models`` body. Fail loud.
++
++    vLLM returns ``{"object": "list", "data": [{"id": "<served-model-name>", ...}]}``.
++    A missing/empty ``data`` array, a non-dict first entry, or an absent ``id``
++    is a malformed identity surface and raises rather than returning a guess.
++    """
++    data = raw.get("data")
++    if not isinstance(data, list) or not data:
++        raise ServingIdentityError(
++            f"{role!r} {base_url}{_MODELS_PATH} returned no model list "
++            f"(data={data!r}); cannot confirm served identity."
++        )
++    first = data[0]
++    if not isinstance(first, dict):
++        raise ServingIdentityError(
++            f"{role!r} {base_url}{_MODELS_PATH} first model entry was not an object "
++            f"({first!r})."
++        )
++    served = first.get("id")
++    if not isinstance(served, str) or not served.strip():
++        raise ServingIdentityError(
++            f"{role!r} {base_url}{_MODELS_PATH} model entry carried no id "
++            f"({first!r})."
++        )
++    return served.strip()
++
++
++def probe_role_identity(
++    role: str, *, http_client: httpx.Client, expected_slug: str
++) -> RoleIdentityReport:
++    """Probe ONE role's ``/v1/models`` and check served id == ``expected_slug``.
++
++    Fails loud (``ServingIdentityError``) on unset base-url env, transport error,
++    non-200 status, malformed body, or a served id that differs from the locked
++    slug. The ``http_client`` is INJECTED (tests pass a MockTransport stub).
++    """
++    base_url = _resolve_base_url(role)
++    api_key = _resolve_api_key(role)
++    url = f"{base_url}{_MODELS_PATH}"
++    headers = {"Authorization": f"Bearer {api_key}"}
++
++    try:
++        response = http_client.get(url, headers=headers, timeout=_TIMEOUT_SECONDS)
++    except httpx.HTTPError as exc:
++        raise ServingIdentityError(
++            f"{role!r} endpoint unreachable at {url}: {exc}"
++        ) from exc
++
++    if response.status_code != httpx.codes.OK:
++        raise ServingIdentityError(
++            f"{role!r} endpoint returned HTTP {response.status_code} at {url}"
++        )
++
++    try:
++        raw = response.json()
++    except (ValueError, httpx.DecodingError) as exc:
++        raise ServingIdentityError(
++            f"{role!r} endpoint returned a non-JSON body at {url}: {exc}"
++        ) from exc
++
++    served_model = _served_model_id(raw, role=role, base_url=base_url)
++    matches_lock = served_model == expected_slug
++    if not matches_lock:
++        raise ServingIdentityError(
++            f"{role!r} served model {served_model!r} does NOT match the locked "
++            f"slug {expected_slug!r} at {url}; the box is serving the wrong model."
++        )
++    return RoleIdentityReport(
++        role=role,
++        base_url=base_url,
++        expected_slug=expected_slug,
++        reachable=True,
++        served_model=served_model,
++        matches_lock=True,
++    )
++
++
++def probe_serving_identity(*, http_client: httpx.Client) -> list[RoleIdentityReport]:
++    """Probe ALL 3 self-host roles. Raises on the FIRST failure (fail loud).
++
++    Returns one ``RoleIdentityReport`` per role when every served id matches its
++    locked slug. The ``http_client`` is INJECTED so tests run with no network.
++    """
++    expected = _expected_slugs()
++    reports: list[RoleIdentityReport] = []
++    for role in SELF_HOST_ROLES:
++        reports.append(
++            probe_role_identity(
++                role, http_client=http_client, expected_slug=expected[role]
++            )
++        )
++    return reports
++
++
++def _format_report(reports: list[RoleIdentityReport]) -> str:
++    """Render a structured per-role identity report for the operator."""
++    lines = ["serving-identity probe — per role:"]
++    for report in reports:
++        lines.append(
++            f"  {report.role}: reachable={report.reachable} "
++            f"served_model={report.served_model!r} "
++            f"expected={report.expected_slug!r} "
++            f"matches_lock={report.matches_lock}"
++        )
++    return "\n".join(lines)
++
++
++def main(stream=sys.stdout) -> int:
++    """Operator entrypoint — builds a REAL httpx.Client and probes all 3 roles.
++
++    Run ONLY during the paid canary (the boxes must be up). Exit 0 iff every
++    role's served id matches its locked slug; non-zero (and a printed error) on
++    any failure. NOT exercised by tests — tests call ``probe_serving_identity``
++    with an injected stub.
++    """
++    with httpx.Client() as client:
++        try:
++            reports = probe_serving_identity(http_client=client)
++        except ServingIdentityError as exc:
++            print(f"FAIL: {exc}", file=stream)
++            return 1
++    print(_format_report(reports), file=stream)
++    print("OK — all 3 verifier roles serve their locked slugs.", file=stream)
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/tests/dr_benchmark/test_verify_serving_identity.py b/tests/dr_benchmark/test_verify_serving_identity.py
+new file mode 100644
+index 00000000..b7bdcce9
+--- /dev/null
++++ b/tests/dr_benchmark/test_verify_serving_identity.py
+@@ -0,0 +1,224 @@
++"""Tests for the verifier serving config + identity probe (I-meta-002 PR-8 / M2).
++
++NO network, NO spend: the probe's HTTP client is INJECTED, so every test passes an
++``httpx.Client(transport=httpx.MockTransport(...))`` returning canned ``/v1/models``
++bodies. Two surfaces are covered:
++
++1. Config shape — ``config/serving/verifier_roles.yaml`` parses, declares exactly the
++   3 self-host roles, every ``model_slug`` AND ``vllm_args.served_model_name`` equals
++   the lock-pinned slug, the Judge has structured/guided decoding enabled, and the
++   Mirror serves plain chat (no structured output).
++2. Probe — PASSES when served == slug for all 3 roles; FAILS LOUD when a served
++   model != the locked slug, when an endpoint is unreachable, and when a role's
++   base_url env is unset.
++"""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++import httpx
++import pytest
++import yaml
++
++from scripts.architecture.verify_lock import load_lock
++from scripts.dr_benchmark.verify_serving_identity import (
++    SELF_HOST_ROLES,
++    RoleIdentityReport,
++    ServingIdentityError,
++    probe_serving_identity,
++)
++
++_REPO_ROOT = Path(__file__).resolve().parents[2]
++_SERVING_CONFIG_PATH = _REPO_ROOT / "config" / "serving" / "verifier_roles.yaml"
++
++_MIRROR_BASE = "http://mirror.internal:8001"
++_SENTINEL_BASE = "http://sentinel.internal:8002"
++_JUDGE_BASE = "http://judge.internal:8003"
++
++
++@pytest.fixture
++def _expected_slugs() -> dict[str, str]:
++    """Lock-pinned model_slug per self-host role (the single source of truth)."""
++    lock = load_lock()
++    return {role: lock["required_roles"][role]["model_slug"] for role in SELF_HOST_ROLES}
++
++
++@pytest.fixture(autouse=True)
++def _role_endpoints(monkeypatch):
++    """Configure per-role base_url + api_key env for every test (LAW VI)."""
++    monkeypatch.setenv("PG_MIRROR_BASE_URL", _MIRROR_BASE)
++    monkeypatch.setenv("PG_SENTINEL_BASE_URL", _SENTINEL_BASE)
++    monkeypatch.setenv("PG_JUDGE_BASE_URL", _JUDGE_BASE)
++    monkeypatch.setenv("PG_MIRROR_API_KEY", "mirror-key")
++    monkeypatch.setenv("PG_SENTINEL_API_KEY", "sentinel-key")
++    monkeypatch.setenv("OPENROUTER_API_KEY", "fallback-key")  # judge has no own key
++    yield
++
++
++def _load_serving_config() -> dict:
++    return yaml.safe_load(_SERVING_CONFIG_PATH.read_text(encoding="utf-8"))
++
++
++def _base_for_role(role: str) -> str:
++    return {"mirror": _MIRROR_BASE, "sentinel": _SENTINEL_BASE, "judge": _JUDGE_BASE}[role]
++
++
++def _models_handler(served_by_base: dict[str, str], *, status_code: int = 200):
++    """MockTransport handler answering /v1/models per base URL (served id by host).
++
++    ``served_by_base`` maps a base URL -> the served model id that host advertises.
++    A base URL absent from the map yields a connect error (simulates unreachable).
++    """
++
++    def handler(request: httpx.Request) -> httpx.Response:
++        base = f"{request.url.scheme}://{request.url.host}:{request.url.port}"
++        if base not in served_by_base:
++            raise httpx.ConnectError("connection refused", request=request)
++        payload = {
++            "object": "list",
++            "data": [{"id": served_by_base[base], "object": "model", "owned_by": "vllm"}],
++        }
++        return httpx.Response(status_code, json=payload)
++
++    return handler
++
++
++def _make_client(handler) -> httpx.Client:
++    """Build an INJECTED MockTransport client (no network)."""
++    return httpx.Client(transport=httpx.MockTransport(handler))
++
++
++# ======================================================================================
++# Config-shape tests
++# ======================================================================================
++def test_serving_config_parses_and_has_exactly_the_three_roles():
++    config = _load_serving_config()
++    assert "roles" in config
++    assert sorted(config["roles"]) == sorted(SELF_HOST_ROLES)
++    # The generator must NOT be served here (it runs on OpenRouter).
++    assert "generator" not in config["roles"]
++
++
++def test_serving_config_slugs_match_lock(_expected_slugs):
++    config = _load_serving_config()
++    for role, expected in _expected_slugs.items():
++        block = config["roles"][role]
++        assert block["model_slug"] == expected, role
++        # served-model-name == locked slug is the M4 served==pinned identity surface.
++        assert block["vllm_args"]["served_model_name"] == expected, role
++
++
++def test_serving_config_env_var_convention_matches_transport():
++    config = _load_serving_config()
++    for role in SELF_HOST_ROLES:
++        block = config["roles"][role]
++        assert block["base_url_env"] == f"PG_{role.upper()}_BASE_URL"
++        assert block["api_key_env"] == f"PG_{role.upper()}_API_KEY"
++
++
++def test_serving_config_judge_structured_outputs_enabled_mirror_plain_chat():
++    config = _load_serving_config()
++    judge_args = config["roles"]["judge"]["vllm_args"]
++    assert judge_args["structured_outputs"] is True
++    assert judge_args["guided_decoding"] is True
++    # Mirror serves plain chat for <co> citations — NO structured-output constraint.
++    mirror_args = config["roles"]["mirror"]["vllm_args"]
++    assert mirror_args["structured_outputs"] is False
++    # Sentinel emits a <score> element, not JSON — also plain chat.
++    sentinel_args = config["roles"]["sentinel"]["vllm_args"]
++    assert sentinel_args["structured_outputs"] is False
++
++
++def test_serving_config_gpu_specs_per_role():
++    config = _load_serving_config()
++    mirror_gpu = config["roles"]["mirror"]["gpu"]
++    assert mirror_gpu["count"] == 8 and mirror_gpu["kind"] == "H100"
++    sentinel_gpu = config["roles"]["sentinel"]["gpu"]
++    assert sentinel_gpu["count"] == 1 and sentinel_gpu["kind"] == "A100"
++    judge_gpu = config["roles"]["judge"]["gpu"]
++    assert judge_gpu["count"] == 1 and judge_gpu["kind"] == "H100"
++    # Judge runs fp8 (the lock's vast_self_host_fp8 route).
++    assert config["roles"]["judge"]["vllm_args"]["quantization"] == "fp8"
++
++
++def test_serving_config_has_no_secrets():
++    # No API key values in the file — only the NAME of the env var each role reads.
++    raw = _SERVING_CONFIG_PATH.read_text(encoding="utf-8")
++    lowered = raw.lower()
++    assert "api_key:" not in lowered  # only api_key_env: <NAME> is allowed
++    assert "bearer " not in lowered
++
++
++# ======================================================================================
++# Probe PASS — served == slug for all 3 roles (injected stub, no network)
++# ======================================================================================
++def test_probe_passes_when_all_served_match_lock(_expected_slugs):
++    served_by_base = {_base_for_role(role): _expected_slugs[role] for role in SELF_HOST_ROLES}
++    client = _make_client(_models_handler(served_by_base))
++
++    reports = probe_serving_identity(http_client=client)
++
++    assert len(reports) == len(SELF_HOST_ROLES)
++    by_role = {r.role: r for r in reports}
++    for role, expected in _expected_slugs.items():
++        report = by_role[role]
++        assert isinstance(report, RoleIdentityReport)
++        assert report.reachable is True
++        assert report.served_model == expected
++        assert report.matches_lock is True
++
++
++# ======================================================================================
++# Probe FAIL LOUD — wrong served model
++# ======================================================================================
++def test_probe_fails_loud_when_a_served_model_mismatches_lock(_expected_slugs):
++    served_by_base = {_base_for_role(role): _expected_slugs[role] for role in SELF_HOST_ROLES}
++    # Sentinel box serves the WRONG model.
++    served_by_base[_SENTINEL_BASE] = "some/other-model"
++    client = _make_client(_models_handler(served_by_base))
++
++    with pytest.raises(ServingIdentityError, match="does NOT match the locked slug"):
++        probe_serving_identity(http_client=client)
++
++
++# ======================================================================================
++# Probe FAIL LOUD — unreachable endpoint
++# ======================================================================================
++def test_probe_fails_loud_when_endpoint_unreachable(_expected_slugs):
++    served_by_base = {_base_for_role(role): _expected_slugs[role] for role in SELF_HOST_ROLES}
++    # Judge box is absent from the map -> the handler raises a ConnectError.
++    del served_by_base[_JUDGE_BASE]
++    client = _make_client(_models_handler(served_by_base))
++
++    with pytest.raises(ServingIdentityError, match="unreachable"):
++        probe_serving_identity(http_client=client)
++
++
++def test_probe_fails_loud_on_non_200_status(_expected_slugs):
++    served_by_base = {_base_for_role(role): _expected_slugs[role] for role in SELF_HOST_ROLES}
++    client = _make_client(_models_handler(served_by_base, status_code=503))
++
++    with pytest.raises(ServingIdentityError, match="HTTP 503"):
++        probe_serving_identity(http_client=client)
++
++
++def test_probe_fails_loud_on_malformed_models_body():
++    def handler(request: httpx.Request) -> httpx.Response:
++        return httpx.Response(200, json={"object": "list", "data": []})
++
++    client = _make_client(handler)
++    with pytest.raises(ServingIdentityError, match="no model list"):
++        probe_serving_identity(http_client=client)
++
++
++# ======================================================================================
++# Probe FAIL LOUD — unset base_url env
++# ======================================================================================
++def test_probe_fails_loud_when_role_base_url_env_unset(monkeypatch, _expected_slugs):
++    monkeypatch.delenv("PG_MIRROR_BASE_URL", raising=False)
++    served_by_base = {_base_for_role(role): _expected_slugs[role] for role in SELF_HOST_ROLES}
++    client = _make_client(_models_handler(served_by_base))
++
++    with pytest.raises(ServingIdentityError, match="PG_MIRROR_BASE_URL is not set"):
++        probe_serving_identity(http_client=client)
+
+```
+
+codex
+I’m checking the diff against the existing lock and transport contract so the verdict is based on the repo’s actual conventions, not just the patch text.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\roles\\openai_compatible_transport.py -TotalCount 240" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path scripts\\architecture\\verify_lock.py -TotalCount 220" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path config\\architecture\\polaris_runtime_lock.yaml -TotalCount 260" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path config\\serving,scripts\\dr_benchmark,tests\\dr_benchmark,docs\\serving -Force -ErrorAction SilentlyContinue | Select-Object FullName,Length,LastWriteTime" in C:\POLARIS
+ succeeded in 855ms:
+"""Real `RoleTransport` for the 3 self-hosted verifier roles (I-meta-002 PR-7 / M1).
+
+This is the first LIVE serving piece of the 4-role architecture. It implements the
+sub-PR-4 `RoleTransport` Protocol for the Mirror / Sentinel / Judge roles, which the lock
+serves on self-hosted vLLM (`serving_route: vast_self_host*`). It POSTs an OpenAI-compatible
+`/v1/chat/completions` to a PER-ROLE `base_url`.
+
+The GENERATOR is HARD-EXCLUDED: it already runs live on OpenRouter via the async
+`openrouter_client.py` path and is upstream of the per-claim pipeline, so it is never routed
+through this transport. `role_endpoint('generator')` raises.
+
+No-spend / no-network-in-tests boundary: the HTTP client is DEPENDENCY-INJECTED via the
+constructor (an `httpx.Client`). Tests pass `httpx.Client(transport=httpx.MockTransport(...))`
+returning canned responses — there is NO network in any code path pytest exercises. The
+SAME `httpx` library `openrouter_client.py` uses is reused here (sync `httpx.Client` mirrors
+the per-axis synchronous `live_judge.py` shape the Protocol was designed against).
+
+Plain-vLLM model-visibility contract (iter-3/iter-4, Codex P1): a plain vLLM
+`/v1/chat/completions` model reads ONLY `messages`; a top-level `documents` / `pass2_input` /
+`citations` key is NOT guaranteed model-visible. So during normalization the transport
+RENDERS the role's full model-visible serving contract INTO the normalized messages —
+the evidence documents, the Mirror pass-2 binding (`pass2_input` = pass-1 answer +
+`content_hash`), AND (for Mirror pass-1) the explicit `<co>covered text</co:doc_id>`
+citation-output instruction. The same allowlisted params are ALSO kept as top-level body keys
+(for a managed server that consumes them + for contract/test introspection), but the messages
+are the source of truth for what the model reads. The SAME normalized messages go to the HTTP
+body AND to `capture_llm_call`, so a prompt-only role never sends/captures an empty payload.
+
+Citation invariant (iter-2, Codex P1): for the self-host path the transport returns
+`raw_text` AS-IS (any `<co>` tags intact) with `citations=None`. `mirror_adapter` owns the
+`<co>` parse + tag-strip + offset alignment — returning parsed citations alongside
+un-stripped `raw_text` would break the Mirror offset contract.
+
+Fail loud (LAW II): a non-200 HTTP status or a malformed body raises `RoleTransportError` —
+never a silent empty `RoleResponse` a downstream fail-closed parser would mis-handle.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from typing import Any
+
+import httpx
+
+from src.polaris_graph.benchmark import pathB_capture as _pathb_capture
+from src.polaris_graph.roles.role_transport import (
+    RoleRequest,
+    RoleResponse,
+)
+
+# The OpenAI-compatible chat-completions path appended to each role's base_url.
+_CHAT_COMPLETIONS_PATH = "/v1/chat/completions"
+
+# Reuse the openrouter_client timeout default knob (LAW VI): same env var, same fallback.
+_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_TIMEOUT_SECONDS", "90"))
+
+# The generator is NOT served here — it runs live on OpenRouter, upstream of this transport.
+_EXCLUDED_ROLE = "generator"
+
+# Roles this transport serves. Sourced from the lock at resolve time; this is the static
+# guard set so an unknown / excluded role fails before any endpoint lookup.
+_SERVED_ROLES = ("mirror", "sentinel", "judge")
+
+# Per-role env var stems: PG_<ROLE>_BASE_URL / PG_<ROLE>_API_KEY (LAW VI: zero hard-coding).
+_BASE_URL_ENV_TEMPLATE = "PG_{role}_BASE_URL"
+_API_KEY_ENV_TEMPLATE = "PG_{role}_API_KEY"
+# API-key fallback when a role does not set its own key.
+_API_KEY_FALLBACK_ENV = "OPENROUTER_API_KEY"
+
+# Body keys passed through from params as TOP-LEVEL request keys (explicit allowlist — NEVER
+# a blind dump of params, so POLARIS-internal keys like `pass2_input` / `citations` never
+# reach the vLLM body). `documents` rides at top level for a managed server AND is rendered
+# into messages for a plain vLLM model.
+_PASSTHROUGH_PARAM_KEYS = (
+    "structured_outputs",
+    "response_format",
+    "documents",
+    "max_tokens",
+)
+
+# Param keys consumed by message-rendering (model-visibility), NOT sent as body keys.
+_DOCUMENTS_KEY = "documents"
+_PASS2_INPUT_KEY = "pass2_input"
+_CITATIONS_KEY = "citations"
+_SYSTEM_KEY = "system"
+
+# pass2_input field keys (mirror_contract.build_pass2_input shape).
+_ANSWER_TEXT_KEY = "answer_text"
+_CONTENT_HASH_KEY = "content_hash"
+
+
+class RoleTransportError(RuntimeError):
+    """A self-host verifier completion failed loudly.
+
+    Raised on a non-200 HTTP status, a transport-layer error, or a malformed response body
+    (no `choices` / no assistant content). The Sentinel adapter converts this to a fail-CLOSED
+    `SentinelResult(UNGROUNDED)`; the Judge adapter lets it propagate (fail LOUD). Either way
+    a downstream parser never sees a fabricated empty success.
+    """
+
+
+def role_endpoint(role: str) -> tuple[str, str, str]:
+    """Resolve `(base_url, api_key, model_slug)` for a self-hosted verifier role.
+
+    Reads `PG_<ROLE>_BASE_URL` + `PG_<ROLE>_API_KEY` (falling back to OPENROUTER_API_KEY) and
+    sources the pinned `model_slug` from the runtime architecture lock. The generator is
+    HARD-EXCLUDED (it serves live on OpenRouter upstream of this transport): asking for it —
+    or any role not in `_SERVED_ROLES` — raises `ValueError`.
+
+    Fails loud (LAW II / LAW VI) when the role's `PG_<ROLE>_BASE_URL` is unset: a self-host
+    role with no endpoint configured is a deployment error, never a silent default.
+    """
+    if role == _EXCLUDED_ROLE:
+        raise ValueError(
+            f"role {role!r} is not served by this transport — the generator runs live on "
+            "OpenRouter (openrouter_client.py), upstream of the per-claim verifier path."
+        )
+    if role not in _SERVED_ROLES:
+        raise ValueError(
+            f"role {role!r} is not a self-hosted verifier role {_SERVED_ROLES}"
+        )
+
+    role_token = role.upper()
+    base_url = os.getenv(_BASE_URL_ENV_TEMPLATE.format(role=role_token))
+    if not base_url:
+        raise ValueError(
+            f"{_BASE_URL_ENV_TEMPLATE.format(role=role_token)} is not set; the self-hosted "
+            f"{role!r} endpoint must be configured (LAW VI)."
+        )
+    api_key = os.getenv(
+        _API_KEY_ENV_TEMPLATE.format(role=role_token)
+    ) or os.getenv(_API_KEY_FALLBACK_ENV, "")
+
+    model_slug = _lock_model_slug(role)
+    return base_url.rstrip("/"), api_key, model_slug
+
+
+def _lock_model_slug(role: str) -> str:
+    """Pinned `model_slug` for `role` from the runtime architecture lock.
+
+    Imported lazily so importing this module never forces the lock loader (and its yaml read)
+    at import time. The lock is the single machine-readable source of truth (LAW VI).
+    """
+    from scripts.architecture.verify_lock import load_lock
+
+    lock = load_lock()
+    return lock["required_roles"][role]["model_slug"]
+
+
+def _render_documents_message(documents: list[dict]) -> dict | None:
+    """Render `params['documents']` as an explicit, model-visible evidence message.
+
+    Each document is serialized as `doc_id` + its text so a plain vLLM model actually reads
+    the evidence (a top-level `documents` body key is not guaranteed model-visible). Returns
+    None when there are no documents (nothing to render).
+    """
+    if not documents:
+        return None
+    lines = ["EVIDENCE DOCUMENTS (cite ONLY these doc_ids):"]
+    for doc in documents:
+        doc_id = doc.get("doc_id", "")
+        text = doc.get("text", "")
+        lines.append(f"[{doc_id}] {text}")
+    return {"role": "user", "content": "\n".join(lines)}
+
+
+def _render_citation_instruction(documents: list[dict]) -> dict:
+    """Render the Mirror pass-1 `<co>` citation-OUTPUT contract as a model-visible message.
+
+    A plain vLLM model treats `params['citations']=True` as nothing — it returns plain prose,
+    `parse_cohere_citations` finds no spans, and `MirrorCitationError` fails closed on every
+    claim. So when citations are requested the transport explicitly INSTRUCTS the model to
+    cite supported spans in the EXACT self-host form `<co>covered text</co:doc_id>` using ONLY
+    the supplied doc_ids (iter-4, Codex P1).
+    """
+    doc_ids = [doc.get("doc_id", "") for doc in documents]
+    doc_ids_rendered = ", ".join(doc_id for doc_id in doc_ids if doc_id)
+    instruction = (
+        "CITATION OUTPUT FORMAT (required): for every supported claim, wrap the covered "
+        "text in the EXACT form <co>covered text</co:doc_id>, where doc_id is one of the "
+        f"supplied evidence doc_ids ({doc_ids_rendered}). Cite ONLY these doc_ids; do not "
+        "invent identifiers. Text that is not grounded in a supplied document must NOT be "
+        "wrapped in a <co> span."
+    )
+    return {"role": "user", "content": instruction}
+
+
+def _render_pass2_input_message(pass2_input: dict) -> dict:
+    """Render the Mirror pass-2 binding (`pass2_input`) as a model-visible message.
+
+    The pass-2 model must classify the SAME artifact pass-1 produced; the binding is the
+    `content_hash` (over pass-1 answer + ordered citation bindings). A top-level `pass2_input`
+    key is not model-visible, so the answer text AND the literal `content_hash` value are
+    rendered into a message the model classifies (iter-3, Codex P1).
+    """
+    answer_text = pass2_input.get(_ANSWER_TEXT_KEY, "")
+    content_hash = pass2_input.get(_CONTENT_HASH_KEY, "")
+    content = (
+        "PASS-2 CLASSIFICATION INPUT — classify EXACTLY this bound pass-1 artifact.\n"
+        f"content_hash: {content_hash}\n"
+        f"answer_text:\n{answer_text}"
+    )
+    return {"role": "user", "content": content}
+
+
+def _normalize_messages(request: RoleRequest) -> list[dict]:
+    """Build the normalized message list that is the source of truth for the model.
+
+    Rules:
+      - Evidence documents (`params['documents']`) are rendered FIRST as a leading evidence
+        message so they are model-visible BEFORE the role's instruction/claim.
+      - If `request.messages` is set (Sentinel), the rendered evidence is PREPENDED and the
+        original messages follow UNCHANGED — so the final `<guardian>` user block stays LAST
+        (Codex P2: rendered context model-visible, guardian remains the last turn).
+      - Else build from `request.prompt`: optional system message (`params['system']`), the
+        rendered evidence, the Mirror pass-1 `<co>` citation instruction (when
+        `params['citations']` is true), the Mirror pass-2 binding message (when
+        `params['pass2_input']` is present), then the prompt as the final user message.
+    """
+    params = request.params or {}
+    documents = params.get(_DOCUMENTS_KEY) or []
+    evidence_message = _render_documents_message(documents)
+
+    if request.messages is not None:
+        # Sentinel path: evidence first (model-visible), original turns last (guardian last).
+        prefix = [evidence_message] if evidence_message is not None else []
+        return [*prefix, *request.messages]
+
+    # Prompt path (Judge, Mirror pass-1, Mirror pass-2).
+    if request.prompt is None:
+        raise RoleTransportError(
+            f"role {request.role!r} request carries neither messages nor prompt"
+        )
+
+    messages: list[dict] = []
+    system = params.get(_SYSTEM_KEY)
+    if system:
+        messages.append({"role": "system", "content": system})
+    if evidence_message is not None:
+
+ succeeded in 910ms:
+"""I-meta-001 (#933) — Architecture lock verifier + propagation manifest.
+
+This module is the runtime gate that asserts the running codebase honors the
+machine-readable architecture lock at ``config/architecture/polaris_runtime_lock.yaml``.
+
+Two surfaces:
+
+1. ``verify_lock_against_code()`` — preflight assertion. Loads the lock YAML,
+   compares declared model_slug/family/env_var triples against the actual code
+   defaults + family registry + env-var presence. Raises ``LockMismatch`` if
+   any role's declared truth differs from runtime truth.
+
+2. ``check_propagation_manifest()`` — promotes ``status: codex_approved_pending_operator_signature``
+   to ``locked`` once ALL checkpoints are true:
+     - this file committed (tracked by git)
+     - source_doc committed
+     - canonical_pin.txt includes this file's SHA
+     - code_defaults_match (calls verify_lock_against_code)
+     - tests_pass (called explicitly by CI; advisory in this module)
+
+The lock cannot grant the ``locked`` status until every checkpoint validates.
+Until then the gate refuses to PASS smokes that consume the lock.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml  # type: ignore[import-not-found]
+
+
+class LockMismatch(Exception):
+    """Raised when the runtime codebase does not honor the architecture lock."""
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+LOCK_PATH = REPO_ROOT / "config" / "architecture" / "polaris_runtime_lock.yaml"
+CANONICAL_PIN_PATH = REPO_ROOT / "docs" / "canonical_pin.txt"
+
+
+def load_lock() -> dict:
+    """Load and parse the runtime lock YAML. Raises if missing/malformed."""
+    if not LOCK_PATH.exists():
+        raise LockMismatch(f"architecture lock missing: {LOCK_PATH}")
+    return yaml.safe_load(LOCK_PATH.read_text(encoding="utf-8"))
+
+
+def sha256_of(path: Path) -> str:
+    """SHA256 of a file's contents, hex digest."""
+    h = hashlib.sha256()
+    h.update(path.read_bytes())
+    return h.hexdigest()
+
+
+def _git_tracked(rel_path: str) -> bool:
+    """True iff rel_path is tracked by git in the repo at REPO_ROOT."""
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", rel_path],
+            cwd=REPO_ROOT, capture_output=True, text=True,
+        )
+        return out.returncode == 0
+    except Exception:
+        return False
+
+
+def verify_lock_against_code() -> dict:
+    """Compare lock declarations against runtime code defaults + family registry + envs.
+
+    Returns a dict of {role: {ok: bool, mismatches: [...]}}. Raises LockMismatch
+    only if any role's defaults diverge in a way that breaks the architecture.
+    Family-registry coverage is checked separately (a missing family entry =
+    hard fail because family-segregation cannot validate the role).
+    """
+    lock = load_lock()
+    results: dict = {}
+
+    # Import the family registry lazily so this module stays import-safe at boot.
+    from src.polaris_graph.llm.openrouter_client import _FAMILY_PREFIXES
+
+    declared_families = {role: spec["family"] for role, spec in lock["required_roles"].items()}
+    missing_in_registry = [f for f in declared_families.values() if f not in _FAMILY_PREFIXES]
+    if missing_in_registry:
+        raise LockMismatch(
+            f"family registry lacks declared families {missing_in_registry!r}; "
+            f"add to src/polaris_graph/llm/openrouter_client.py:_FAMILY_PREFIXES"
+        )
+
+    # Family policy: all_distinct
+    if lock.get("family_policy", {}).get("default_policy") == "all_distinct":
+        seen: dict[str, str] = {}
+        for role, fam in declared_families.items():
+            if fam in seen:
+                raise LockMismatch(
+                    f"family policy violation: role {role!r} and role {seen[fam]!r} "
+                    f"share family {fam!r}; allowed_collisions is empty"
+                )
+            seen[fam] = role
+
+    # Slug check: each role's lock model_slug must equal its code default.
+    # Import lazily so this module stays import-safe at boot.
+    from src.polaris_graph.llm.openrouter_client import (
+        PG_GENERATOR_MODEL,
+        PG_JUDGE_MODEL,
+        PG_MIRROR_MODEL,
+        PG_SENTINEL_MODEL,
+    )
+
+    role_to_code_default = {
+        "generator": PG_GENERATOR_MODEL,
+        "mirror": PG_MIRROR_MODEL,
+        "sentinel": PG_SENTINEL_MODEL,
+        "judge": PG_JUDGE_MODEL,
+    }
+
+    for role, spec in lock["required_roles"].items():
+        code_default = role_to_code_default.get(role)
+        if code_default is None:
+            # No code-default constant for this role; skip the slug assertion.
+            continue
+        declared = spec["model_slug"]
+        if declared != code_default:
+            raise LockMismatch(
+                f"role {role!r} lock model_slug {declared!r} does not match "
+                f"code default {code_default!r}; reconcile "
+                f"config/architecture/polaris_runtime_lock.yaml with "
+                f"src/polaris_graph/llm/openrouter_client.py"
+            )
+
+    for role, spec in lock["required_roles"].items():
+        results[role] = {
+            "ok": True,
+            "declared_model": spec["model_slug"],
+            "declared_family": spec["family"],
+            "mismatches": [],
+        }
+
+    return results
+
+
+def check_propagation_manifest() -> dict:
+    """Run every propagation checkpoint. Returns {checkpoint: bool}.
+
+    The lock cannot graduate from codex_approved_pending_operator_signature to
+    locked until every checkpoint is True. Caller decides what to do with the
+    result (CI gate, pre-merge check, etc.)
+    """
+    lock = load_lock()
+    checkpoints = {
+        "this_file_committed": _git_tracked("config/architecture/polaris_runtime_lock.yaml"),
+        "source_doc_committed": _git_tracked(lock["source_doc"]),
+        "canonical_pin_includes_this_file": False,
+        "code_defaults_match": False,
+        "tests_pass": False,  # CI-set; not checked here
+    }
+
+    if CANONICAL_PIN_PATH.exists():
+        pin_content = CANONICAL_PIN_PATH.read_text(encoding="utf-8")
+        checkpoints["canonical_pin_includes_this_file"] = "config/architecture/polaris_runtime_lock.yaml" in pin_content
+
+    try:
+        verify_lock_against_code()
+        checkpoints["code_defaults_match"] = True
+    except LockMismatch:
+        pass
+
+    return checkpoints
+
+
+def report(stream=sys.stdout) -> int:
+    """Print a human-readable report. Exit-code semantics: 0 = all green; non-zero otherwise."""
+    try:
+        lock = load_lock()
+    except LockMismatch as exc:
+        print(f"FATAL: {exc}", file=stream)
+        return 2
+
+    print(f"POLARIS architecture lock — {LOCK_PATH}", file=stream)
+    print(f"  status: {lock.get('status')}", file=stream)
+    print(f"  source_doc: {lock.get('source_doc')}", file=stream)
+    print(f"  codex_verdict: {lock.get('codex_verdict')}", file=stream)
+    print("", file=stream)
+
+    print("Required roles:", file=stream)
+    for role, spec in lock["required_roles"].items():
+        print(f"  {role}: {spec['model_slug']} (family={spec['family']}, license={spec['license']})", file=stream)
+    print("", file=stream)
+
+    try:
+        verify_lock_against_code()
+        print("Code-defaults verification: OK", file=stream)
+    except LockMismatch as exc:
+        print(f"Code-defaults verification: FAIL — {exc}", file=stream)
+        return 1
+
+    checkpoints = check_propagation_manifest()
+    print("", file=stream)
+    print("Propagation manifest:", file=stream)
+    all_ok = True
+    for name, ok in checkpoints.items():
+        marker = "OK" if ok else "PENDING"
+        print(f"  [{marker}] {name}", file=stream)
+        if not ok:
+            all_ok = False
+
+    print("", file=stream)
+    if all_ok and lock.get("status") == "codex_approved_pending_operator_signature":
+        print("ALL CHECKPOINTS PASS — lock can be promoted to status: locked", file=stream)
+        return 0
+    elif all_ok and lock.get("status") == "locked":
+        print("Lock is LOCKED and all checkpoints validate.", file=stream)
+        return 0
+    else:
+        print("Lock NOT yet promotable; complete missing checkpoints.", file=stream)
+        return 1
+
+
+
+ succeeded in 971ms:
+
+[32;1mFullName                                                     [0m[32;1m Length[0m[32;1m LastWriteTime[0m
+[32;1m--------                                                     [0m [32;1m------[0m [32;1m-------------[0m
+C:\POLARIS\config\serving\verifier_roles.yaml                   5040 2026-05-29 11:23:11 AM
+C:\POLARIS\scripts\dr_benchmark\__pycache__                          2026-05-29 11:25:24 AM
+C:\POLARIS\scripts\dr_benchmark\__init__.py                        0 2026-05-28 12:58:41 AM
+C:\POLARIS\scripts\dr_benchmark\aggregate_systems.py            9320 2026-05-28 10:16:31 AM
+C:\POLARIS\scripts\dr_benchmark\build_rubric_json.py            7638 2026-05-28 10:18:34 AM
+C:\POLARIS\scripts\dr_benchmark\gate_a_dry_run.py              17162 2026-05-29 4:12:14 AM
+C:\POLARIS\scripts\dr_benchmark\ledger_schema.py                7477 2026-05-28 10:14:43 AM
+C:\POLARIS\scripts\dr_benchmark\medhallu_adapter.py             7778 2026-05-28 12:58:00 AM
+C:\POLARIS\scripts\dr_benchmark\medhallu_runner.py              6037 2026-05-28 1:01:15 AM
+C:\POLARIS\scripts\dr_benchmark\pathB_run_gate.py              27364 2026-05-28 4:04:11 PM
+C:\POLARIS\scripts\dr_benchmark\reconcile.py                   10552 2026-05-28 10:23:53 AM
+C:\POLARIS\scripts\dr_benchmark\score_run.py                    9328 2026-05-28 10:15:52 AM
+C:\POLARIS\scripts\dr_benchmark\smoke.md                        5202 2026-05-28 10:09:03 AM
+C:\POLARIS\scripts\dr_benchmark\verify_serving_identity.py      9749 2026-05-29 11:23:55 AM
+C:\POLARIS\tests\dr_benchmark\__pycache__                            2026-05-29 11:25:29 AM
+C:\POLARIS\tests\dr_benchmark\__init__.py                          0 2026-05-28 12:58:41 AM
+C:\POLARIS\tests\dr_benchmark\test_claim_audit_scorer.py        5963 2026-05-28 2:41:28 AM
+C:\POLARIS\tests\dr_benchmark\test_gate_a_dry_run.py            4452 2026-05-29 3:53:22 AM
+C:\POLARIS\tests\dr_benchmark\test_medhallu_adapter.py          6106 2026-05-28 12:58:37 AM
+C:\POLARIS\tests\dr_benchmark\test_pathB_capture.py            10120 2026-05-29 10:07:37 AM
+C:\POLARIS\tests\dr_benchmark\test_pathB_run_gate.py           28241 2026-05-28 4:05:08 PM
+C:\POLARIS\tests\dr_benchmark\test_pathB_runner.py             11656 2026-05-29 3:09:22 AM
+C:\POLARIS\tests\dr_benchmark\test_pr3_pipeline.py             18736 2026-05-28 10:18:02 AM
+C:\POLARIS\tests\dr_benchmark\test_verify_serving_identity.py   9804 2026-05-29 11:25:17 AM
+C:\POLARIS\docs\serving\verifier_serving_runbook.md             7995 2026-05-29 11:24:39 AM
+
+
+ succeeded in 1029ms:
+# POLARIS Runtime Architecture Lock — v1
+# I-meta-001 (#933) — Codex APPROVE_FOR_IMPLEMENTATION iter 2, operator D1 signed 2026-05-28T22:00 PDT
+#
+# This file is the SINGLE machine-readable source of truth for POLARIS's locked
+# LLM stack. Code defaults, gate checks, tests, deployment surfaces, and PR
+# attestations all derive their truth from this file.
+#
+# Mutation policy:
+#   - Edits require Codex APPROVE on a brief that names the superseding lock doc
+#   - Edits require operator commit signature (operator commits the change)
+#   - Edits invalidate the propagation manifest (must be re-completed)
+#   - canonical_pin.txt MUST track this file's SHA256
+#
+# Anti-drift gate: scripts/architecture/verify_lock.py asserts code defaults
+# match this file at preflight; pathB_run_gate.py refuses to PASS unless
+# every required_role is pinned AND observed in the captured LLM calls.
+
+version: 1
+schema_version: 1.0
+
+# Provenance — the decision authority + Codex cross-validation
+source_doc: docs/polaris_step_b_full_set_audit_2026_05_27.md
+source_doc_sha256: TO_BE_COMPUTED_AT_COMMIT  # propagation manifest fills this after commit
+codex_approval_artifact: .codex/I-meta-001/codex_brief_iter2_verdict.txt
+codex_verdict: APPROVE_FOR_IMPLEMENTATION
+codex_cross_validation_sources:
+  - https://huggingface.co/CohereLabs/command-a-plus-05-2026-bf16
+  - https://cohere.com/blog/command-a-plus
+  - https://huggingface.co/ibm-granite/granite-guardian-4.1-8b
+  - https://research.ibm.com/blog/granite-4-1-ai-foundation-models
+  - https://huggingface.co/Qwen/Qwen3.6-35B-A3B
+locked_at: 2026-05-27
+operator_d1_signature_utc: 2026-05-28T22:00:00Z
+
+# Lifecycle status — codex_approved_pending_operator_signature → locked
+# when the commit lands AND canonical_pin.txt + propagation manifest are complete
+status: codex_approved_pending_operator_signature
+promotion_to_locked_requires:
+  - this_file_committed
+  - source_doc_committed
+  - canonical_pin_includes_this_file
+  - propagation_manifest_all_checkpoints_true
+  - code_defaults_match
+  - tests_pass
+
+# === ARCHITECTURE: 4 LLM roles + 2 deterministic layers ===
+
+required_roles:
+  generator:
+    model_slug: deepseek/deepseek-v4-pro
+    family: deepseek
+    serving_route: openrouter
+    license: MIT
+    released: 2026-04-24
+    role_description: |
+      Recall-heavy synthesis. 1M context window. Top GDPval. Acknowledged 94%
+      non-abstention failure mode is mitigated by downstream Mirror/Sentinel/Judge layers.
+
+  mirror:
+    model_slug: cohere/command-a-plus
+    family: cohere
+    serving_route: vast_self_host_bf16
+    license: Apache 2.0
+    released: 2026-05-20
+    role_description: |
+      Calibration auditor. Best calibration in pool (14.1% AA-Omniscience).
+      Native citation grounding. Tests claims the Generator cannot self-verify.
+
+  sentinel:
+    model_slug: ibm-granite/granite-guardian-4.1-8b
+    family: ibm-granite
+    serving_route: vast_self_host
+    license: Apache 2.0
+    released: 2026
+    role_description: |
+      Purpose-built RAG hallucination detector. RAGTruth BAcc 0.841.
+      Broad guardrail coverage. Catches Mirror's misses.
+
+  judge:
+    model_slug: qwen/qwen3.6-35b-a3b
+    family: qwen
+    serving_route: vast_self_host_fp8
+    license: Apache 2.0
+    released: 2026-04-16
+    role_description: |
+      Native structured-output discipline. Terminal arbiter — must emit
+      stable parseable verdicts. Function-call adherence closer to Claude
+      than to most open models per AA benchmarks.
+
+deterministic_layers:
+  - name: python_validators
+    role_description: |
+      Citation existence (DOI / OpenAlex), numeric/date checks, span-overlap
+      and content-word overlap (strict_verify).
+    code_path: src/polaris_graph/clinical_generator/strict_verify.py
+
+  - name: codex_section_1_1_audit
+    role_description: |
+      Final human-equivalent gate. Claim-by-claim line-by-line audit against
+      fetched cited spans. PRISMA 2020 + AMSTAR-2 + GRADE per claim. Per
+      CLAUDE.md §-1.1. Manual + Codex-assisted; runs out-of-band of the
+      automated pipeline.
+    code_path: external_review
+
+# === FAMILY POLICY: all 4 roles must be distinct lineages ===
+
+family_policy:
+  default_policy: all_distinct
+  allowed_collisions: []          # empty = no collisions permitted
+  rationale: |
+    Two-family invariant (CLAUDE.md §9.1) extended to N-way. Each role's
+    family-lineage must differ from every other role. Closed-source family
+    fallbacks (openai, anthropic, google-closed) are FORBIDDEN at runtime
+    per the sovereignty threat model (feedback_sovereignty_threat_model).
+
+# === ENVIRONMENT VARIABLES (binding) ===
+# Each role's runtime configuration knob. Defaults pulled from required_roles.
+
+env_vars:
+  generator:
+    primary: PG_GENERATOR_MODEL
+    fallbacks: [OPENROUTER_DEFAULT_MODEL]
+  mirror:
+    primary: PG_MIRROR_MODEL
+    fallbacks: []
+  sentinel:
+    primary: PG_SENTINEL_MODEL
+    fallbacks: []
+  judge:
+    primary: PG_JUDGE_MODEL
+    fallbacks: []
+
+# Compatibility map — PG_EVALUATOR_MODEL is OVERLOADED in the 2-LLM-stub legacy
+# code paths. It is being retired. Map it to mirror to preserve back-compat
+# during transition; legacy code paths still see "evaluator" but the gate
+# treats it as the Mirror role.
+legacy_compat:
+  PG_EVALUATOR_MODEL:
+    maps_to_role: mirror
+    deprecated_after: 2026-09-06
+    deprecation_notice: |
+      PG_EVALUATOR_MODEL was overloaded (covered evaluator + judge +
+      entailment in one knob). Use PG_MIRROR_MODEL / PG_SENTINEL_MODEL /
+      PG_JUDGE_MODEL instead. After 2026-09-06 (Carney demo), this env var
+      will fail the gate at preflight.
+
+codex
+The core contract mostly lines up: the probe sources expected slugs from `load_lock`, the tests inject `MockTransport`, and the generator is not included. I’m doing one pass for edge-case blockers now, especially around malformed identity surfaces and key/env behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"httpx\\.Client\\(|MockTransport|probe_serving_identity|main\\(\" tests\\dr_benchmark scripts\\dr_benchmark\\verify_serving_identity.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"model_source|served_model_name|api_key|OPENROUTER_API_KEY|Bearer|structured_outputs|guided_decoding\" config\\serving\\verifier_roles.yaml docs\\serving\\verifier_serving_runbook.md scripts\\dr_benchmark\\verify_serving_identity.py tests\\dr_benchmark\\test_verify_serving_identity.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/dr_benchmark/test_verify_serving_identity.py -q' in C:\POLARIS
+ succeeded in 760ms:
+scripts\dr_benchmark\verify_serving_identity.py:17:DEPENDENCY-INJECTED via ``probe_serving_identity(http_client=...)``. Tests pass an
+scripts\dr_benchmark\verify_serving_identity.py:18:``httpx.Client(transport=httpx.MockTransport(...))`` returning canned ``/v1/models``
+scripts\dr_benchmark\verify_serving_identity.py:153:    slug. The ``http_client`` is INJECTED (tests pass a MockTransport stub).
+scripts\dr_benchmark\verify_serving_identity.py:196:def probe_serving_identity(*, http_client: httpx.Client) -> list[RoleIdentityReport]:
+scripts\dr_benchmark\verify_serving_identity.py:226:def main(stream=sys.stdout) -> int:
+scripts\dr_benchmark\verify_serving_identity.py:231:    any failure. NOT exercised by tests — tests call ``probe_serving_identity``
+scripts\dr_benchmark\verify_serving_identity.py:234:    with httpx.Client() as client:
+scripts\dr_benchmark\verify_serving_identity.py:236:            reports = probe_serving_identity(http_client=client)
+scripts\dr_benchmark\verify_serving_identity.py:246:    sys.exit(main())
+tests\dr_benchmark\test_verify_serving_identity.py:4:``httpx.Client(transport=httpx.MockTransport(...))`` returning canned ``/v1/models``
+tests\dr_benchmark\test_verify_serving_identity.py:29:    probe_serving_identity,
+tests\dr_benchmark\test_verify_serving_identity.py:68:    """MockTransport handler answering /v1/models per base URL (served id by host).
+tests\dr_benchmark\test_verify_serving_identity.py:88:    """Build an INJECTED MockTransport client (no network)."""
+tests\dr_benchmark\test_verify_serving_identity.py:89:    return httpx.Client(transport=httpx.MockTransport(handler))
+tests\dr_benchmark\test_verify_serving_identity.py:160:    reports = probe_serving_identity(http_client=client)
+tests\dr_benchmark\test_verify_serving_identity.py:182:        probe_serving_identity(http_client=client)
+tests\dr_benchmark\test_verify_serving_identity.py:195:        probe_serving_identity(http_client=client)
+tests\dr_benchmark\test_verify_serving_identity.py:203:        probe_serving_identity(http_client=client)
+tests\dr_benchmark\test_verify_serving_identity.py:212:        probe_serving_identity(http_client=client)
+tests\dr_benchmark\test_verify_serving_identity.py:224:        probe_serving_identity(http_client=client)
+
+ succeeded in 822ms:
+tests\dr_benchmark\test_verify_serving_identity.py:8:   3 self-host roles, every ``model_slug`` AND ``vllm_args.served_model_name`` equals
+tests\dr_benchmark\test_verify_serving_identity.py:49:    """Configure per-role base_url + api_key env for every test (LAW VI)."""
+tests\dr_benchmark\test_verify_serving_identity.py:55:    monkeypatch.setenv("OPENROUTER_API_KEY", "fallback-key")  # judge has no own key
+tests\dr_benchmark\test_verify_serving_identity.py:109:        assert block["vllm_args"]["served_model_name"] == expected, role
+tests\dr_benchmark\test_verify_serving_identity.py:117:        assert block["api_key_env"] == f"PG_{role.upper()}_API_KEY"
+tests\dr_benchmark\test_verify_serving_identity.py:120:def test_serving_config_judge_structured_outputs_enabled_mirror_plain_chat():
+tests\dr_benchmark\test_verify_serving_identity.py:123:    assert judge_args["structured_outputs"] is True
+tests\dr_benchmark\test_verify_serving_identity.py:124:    assert judge_args["guided_decoding"] is True
+tests\dr_benchmark\test_verify_serving_identity.py:127:    assert mirror_args["structured_outputs"] is False
+tests\dr_benchmark\test_verify_serving_identity.py:130:    assert sentinel_args["structured_outputs"] is False
+tests\dr_benchmark\test_verify_serving_identity.py:149:    assert "api_key:" not in lowered  # only api_key_env: <NAME> is allowed
+scripts\dr_benchmark\verify_serving_identity.py:50:_API_KEY_FALLBACK_ENV = "OPENROUTER_API_KEY"
+scripts\dr_benchmark\verify_serving_identity.py:111:def _resolve_api_key(role: str) -> str:
+scripts\dr_benchmark\verify_serving_identity.py:112:    """Resolve ``PG_<ROLE>_API_KEY`` (falling back to OPENROUTER_API_KEY)."""
+scripts\dr_benchmark\verify_serving_identity.py:156:    api_key = _resolve_api_key(role)
+scripts\dr_benchmark\verify_serving_identity.py:158:    headers = {"Authorization": f"Bearer {api_key}"}
+docs\serving\verifier_serving_runbook.md:137:# back to OPENROUTER_API_KEY. A self-hosted vLLM without auth needs no key.
+config\serving\verifier_roles.yaml:10:#   - `vllm_args.served_model_name` MUST equal that same slug — this is the
+config\serving\verifier_roles.yaml:15:# Codex brief-gate ruling (P2, 2026-05-29): keep `model_source` (the HF repo /
+config\serving\verifier_roles.yaml:16:# local path vLLM LOADS) DISTINCT from `served_model_name` (the public id vLLM
+config\serving\verifier_roles.yaml:17:# ADVERTISES). Only `served_model_name` must equal the lock slug; `model_source`
+config\serving\verifier_roles.yaml:21:# `api_key_env` environment variable at runtime; base URLs via `base_url_env`.
+config\serving\verifier_roles.yaml:42:    api_key_env: PG_MIRROR_API_KEY
+config\serving\verifier_roles.yaml:52:      served_model_name: cohere/command-a-plus
+config\serving\verifier_roles.yaml:58:      structured_outputs: false
+config\serving\verifier_roles.yaml:59:      guided_decoding: false
+config\serving\verifier_roles.yaml:67:    api_key_env: PG_SENTINEL_API_KEY
+config\serving\verifier_roles.yaml:76:      served_model_name: ibm-granite/granite-guardian-4.1-8b
+config\serving\verifier_roles.yaml:81:      structured_outputs: false     # Granite emits <score>, not JSON
+config\serving\verifier_roles.yaml:82:      guided_decoding: false
+config\serving\verifier_roles.yaml:91:    api_key_env: PG_JUDGE_API_KEY
+config\serving\verifier_roles.yaml:100:      served_model_name: qwen/qwen3.6-35b-a3b
+config\serving\verifier_roles.yaml:106:      # structured_outputs.choice == JUDGE_CHOICES per request; the SERVER must
+config\serving\verifier_roles.yaml:108:      structured_outputs: true
+config\serving\verifier_roles.yaml:109:      guided_decoding: true
+
+ succeeded in 3346ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 12 items
+
+tests\dr_benchmark\test_verify_serving_identity.py ............          [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 12 passed, 1 warning in 0.45s ========================
+
+codex
+Targeted tests pass locally, and the only warning is pytest cache write permission, not behavior. I don’t see test-exercised live networking; the only real client construction is the documented operator `main()` path.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content scripts'"\\dr_benchmark\\verify_serving_identity.py | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -Skip 100 -First 80' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content docs'"\\serving\\verifier_serving_runbook.md | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -Skip 95 -First 55' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content config'"\\serving\\verifier_roles.yaml | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -First 120' in C:\POLARIS
+ succeeded in 746ms:
+ 101:     env_name = _BASE_URL_ENV_TEMPLATE.format(role=role.upper())
+ 102:     base_url = os.getenv(env_name)
+ 103:     if not base_url:
+ 104:         raise ServingIdentityError(
+ 105:             f"{env_name} is not set; the self-hosted {role!r} endpoint must be "
+ 106:             f"configured before the identity probe can run (LAW VI)."
+ 107:         )
+ 108:     return base_url.rstrip("/")
+ 109: 
+ 110: 
+ 111: def _resolve_api_key(role: str) -> str:
+ 112:     """Resolve ``PG_<ROLE>_API_KEY`` (falling back to OPENROUTER_API_KEY)."""
+ 113:     return os.getenv(
+ 114:         _API_KEY_ENV_TEMPLATE.format(role=role.upper())
+ 115:     ) or os.getenv(_API_KEY_FALLBACK_ENV, "")
+ 116: 
+ 117: 
+ 118: def _served_model_id(raw: dict, *, role: str, base_url: str) -> str:
+ 119:     """Extract the served model id from a vLLM ``/v1/models`` body. Fail loud.
+ 120: 
+ 121:     vLLM returns ``{"object": "list", "data": [{"id": "<served-model-name>", ...}]}``.
+ 122:     A missing/empty ``data`` array, a non-dict first entry, or an absent ``id``
+ 123:     is a malformed identity surface and raises rather than returning a guess.
+ 124:     """
+ 125:     data = raw.get("data")
+ 126:     if not isinstance(data, list) or not data:
+ 127:         raise ServingIdentityError(
+ 128:             f"{role!r} {base_url}{_MODELS_PATH} returned no model list "
+ 129:             f"(data={data!r}); cannot confirm served identity."
+ 130:         )
+ 131:     first = data[0]
+ 132:     if not isinstance(first, dict):
+ 133:         raise ServingIdentityError(
+ 134:             f"{role!r} {base_url}{_MODELS_PATH} first model entry was not an object "
+ 135:             f"({first!r})."
+ 136:         )
+ 137:     served = first.get("id")
+ 138:     if not isinstance(served, str) or not served.strip():
+ 139:         raise ServingIdentityError(
+ 140:             f"{role!r} {base_url}{_MODELS_PATH} model entry carried no id "
+ 141:             f"({first!r})."
+ 142:         )
+ 143:     return served.strip()
+ 144: 
+ 145: 
+ 146: def probe_role_identity(
+ 147:     role: str, *, http_client: httpx.Client, expected_slug: str
+ 148: ) -> RoleIdentityReport:
+ 149:     """Probe ONE role's ``/v1/models`` and check served id == ``expected_slug``.
+ 150: 
+ 151:     Fails loud (``ServingIdentityError``) on unset base-url env, transport error,
+ 152:     non-200 status, malformed body, or a served id that differs from the locked
+ 153:     slug. The ``http_client`` is INJECTED (tests pass a MockTransport stub).
+ 154:     """
+ 155:     base_url = _resolve_base_url(role)
+ 156:     api_key = _resolve_api_key(role)
+ 157:     url = f"{base_url}{_MODELS_PATH}"
+ 158:     headers = {"Authorization": f"Bearer {api_key}"}
+ 159: 
+ 160:     try:
+ 161:         response = http_client.get(url, headers=headers, timeout=_TIMEOUT_SECONDS)
+ 162:     except httpx.HTTPError as exc:
+ 163:         raise ServingIdentityError(
+ 164:             f"{role!r} endpoint unreachable at {url}: {exc}"
+ 165:         ) from exc
+ 166: 
+ 167:     if response.status_code != httpx.codes.OK:
+ 168:         raise ServingIdentityError(
+ 169:             f"{role!r} endpoint returned HTTP {response.status_code} at {url}"
+ 170:         )
+ 171: 
+ 172:     try:
+ 173:         raw = response.json()
+ 174:     except (ValueError, httpx.DecodingError) as exc:
+ 175:         raise ServingIdentityError(
+ 176:             f"{role!r} endpoint returned a non-JSON body at {url}: {exc}"
+ 177:         ) from exc
+ 178: 
+ 179:     served_model = _served_model_id(raw, role=role, base_url=base_url)
+ 180:     matches_lock = served_model == expected_slug
+
+ succeeded in 739ms:
+   1: # POLARIS verifier-role self-host serving config — I-meta-002 PR-8 / M2
+   2: #
+   3: # Declarative, per-role vLLM serving spec for the THREE self-hosted verifier
+   4: # roles (mirror / sentinel / judge). The generator is NOT here: it runs live on
+   5: # OpenRouter (serving_route: openrouter in the runtime lock) and is upstream of
+   6: # the per-claim verifier path.
+   7: #
+   8: # SINGLE SOURCE OF TRUTH for slugs: config/architecture/polaris_runtime_lock.yaml.
+   9: #   - `model_slug` below MUST equal the lock's required_roles.<role>.model_slug.
+  10: #   - `vllm_args.served_model_name` MUST equal that same slug — this is the
+  11: #     identity the M4 served==pinned gate trusts and the identity probe
+  12: #     (scripts/dr_benchmark/verify_serving_identity.py) asserts against /v1/models.
+  13: #   - The probe + the config-shape test fail loud if any role drifts from the lock.
+  14: #
+  15: # Codex brief-gate ruling (P2, 2026-05-29): keep `model_source` (the HF repo /
+  16: # local path vLLM LOADS) DISTINCT from `served_model_name` (the public id vLLM
+  17: # ADVERTISES). Only `served_model_name` must equal the lock slug; `model_source`
+  18: # is the weights location and is intentionally free of the lock-equality rule.
+  19: #
+  20: # NO SECRETS in this file (LAW VI): API keys arrive only via the per-role
+  21: # `api_key_env` environment variable at runtime; base URLs via `base_url_env`.
+  22: # This file declares WHICH env var each role reads, never the value.
+  23: #
+  24: # Env convention (mirrors src/polaris_graph/roles/openai_compatible_transport.py
+  25: # role_endpoint): PG_<ROLE>_BASE_URL + PG_<ROLE>_API_KEY, ROLE upper-cased.
+  26: #
+  27: # The actual paid Vast GPU rental + vLLM launch is the later operator-triggered
+  28: # ONE-QUESTION CANARY (docs/serving/verifier_serving_runbook.md) — NOT executed
+  29: # by this PR. This file is config + the probe consumes it; nothing here spends.
+  30: 
+  31: schema_version: 1
+  32: source_of_truth: config/architecture/polaris_runtime_lock.yaml
+  33: 
+  34: roles:
+  35:   mirror:
+  36:     # Calibration auditor — native <co> citation grounding, served as PLAIN chat
+  37:     # (no structured-output constraint): the Mirror emits free-form prose with
+  38:     # inline <co>covered text</co:doc_id> spans that mirror_adapter parses.
+  39:     model_slug: cohere/command-a-plus
+  40:     serving_route: vast_self_host_bf16
+  41:     base_url_env: PG_MIRROR_BASE_URL
+  42:     api_key_env: PG_MIRROR_API_KEY
+  43:     gpu:
+  44:       # Full-precision bf16 — Command A+ (218B total / 25B active sparse MoE),
+  45:       # ~438 GB weights (docs/vast_ai_budget_i_meta_002.md §1.1).
+  46:       count: 8
+  47:       kind: H100
+  48:       vram_gb_each: 80
+  49:       box_note: "8xH100 bf16 (~438 GB weights); proves sovereign production path"
+  50:     vllm_args:
+  51:       # served-model-name == the locked slug (M4 served==pinned identity surface).
+  52:       served_model_name: cohere/command-a-plus
+  53:       tensor_parallel_size: 8
+  54:       dtype: bfloat16
+  55:       quantization: null            # bf16 full precision; Mirror's job IS calibration
+  56:       max_model_len: 32768
+  57:       # Plain chat for <co> citations — NO guided/structured-output constraint.
+  58:       structured_outputs: false
+  59:       guided_decoding: false
+  60: 
+  61:   sentinel:
+  62:     # Purpose-built RAG hallucination detector — Granite Guardian 4.1 8B (dense,
+  63:     # ~16 GB). Emits a <score> element (NOT JSON), so NO structured-output spec.
+  64:     model_slug: ibm-granite/granite-guardian-4.1-8b
+  65:     serving_route: vast_self_host
+  66:     base_url_env: PG_SENTINEL_BASE_URL
+  67:     api_key_env: PG_SENTINEL_API_KEY
+  68:     gpu:
+  69:       # 1xA100 80GB — ample VRAM, no KV bottleneck
+  70:       # (docs/vast_ai_budget_i_meta_002.md §1.3).
+  71:       count: 1
+  72:       kind: A100
+  73:       vram_gb_each: 80
+  74:       box_note: "1xA100 80GB (EU/sovereignty-clean); dense 8B guardrail model"
+  75:     vllm_args:
+  76:       served_model_name: ibm-granite/granite-guardian-4.1-8b
+  77:       tensor_parallel_size: 1
+  78:       dtype: bfloat16
+  79:       quantization: null
+  80:       max_model_len: 16384
+  81:       structured_outputs: false     # Granite emits <score>, not JSON
+  82:       guided_decoding: false
+  83: 
+  84:   judge:
+  85:     # Terminal arbiter — Qwen3.6-35B-A3B (MoE, 3B active). MUST emit a stable
+  86:     # parseable verdict from the 5-enum domain, so the Judge server is launched
+  87:     # WITH structured-outputs / choice constrained decoding enabled.
+  88:     model_slug: qwen/qwen3.6-35b-a3b
+  89:     serving_route: vast_self_host_fp8
+  90:     base_url_env: PG_JUDGE_BASE_URL
+  91:     api_key_env: PG_JUDGE_API_KEY
+  92:     gpu:
+  93:       # 1xH100 FP8 — near-lossless, half the download, fastest time-to-result
+  94:       # (docs/vast_ai_budget_i_meta_002.md §1.2, recommended).
+  95:       count: 1
+  96:       kind: H100
+  97:       vram_gb_each: 80
+  98:       box_note: "1xH100 fp8 (~35 GB weights); near-lossless, recommended"
+  99:     vllm_args:
+ 100:       served_model_name: qwen/qwen3.6-35b-a3b
+ 101:       tensor_parallel_size: 1
+ 102:       dtype: auto
+ 103:       quantization: fp8            # fp8 weight quantization on the H100
+ 104:       max_model_len: 32768
+ 105:       # Judge needs hard-enum verdicts at decode time. The adapter sends
+ 106:       # structured_outputs.choice == JUDGE_CHOICES per request; the SERVER must
+ 107:       # be launched with guided/structured decoding ENABLED for that to bind.
+ 108:       structured_outputs: true
+ 109:       guided_decoding: true
+
+ succeeded in 796ms:
+  96:   --served-model-name cohere/command-a-plus \
+  97:   --tensor-parallel-size 8 \
+  98:   --dtype bfloat16 \
+  99:   --max-model-len 32768 \
+ 100:   --host 0.0.0.0 --port 8000
+ 101: 
+ 102: # Sentinel — 1xA100, PLAIN chat (Granite emits <score>, not JSON)
+ 103: python -m vllm.entrypoints.openai.api_server \
+ 104:   --model ibm-granite/granite-guardian-4.1-8b \
+ 105:   --served-model-name ibm-granite/granite-guardian-4.1-8b \
+ 106:   --tensor-parallel-size 1 \
+ 107:   --dtype bfloat16 \
+ 108:   --max-model-len 16384 \
+ 109:   --host 0.0.0.0 --port 8000
+ 110: 
+ 111: # Judge — 1xH100 fp8, STRUCTURED/guided decoding ENABLED for hard-enum verdicts
+ 112: python -m vllm.entrypoints.openai.api_server \
+ 113:   --model Qwen/Qwen3.6-35B-A3B \
+ 114:   --served-model-name qwen/qwen3.6-35b-a3b \
+ 115:   --quantization fp8 \
+ 116:   --tensor-parallel-size 1 \
+ 117:   --max-model-len 32768 \
+ 118:   --guided-decoding-backend xgrammar \
+ 119:   --host 0.0.0.0 --port 8000
+ 120: ```
+ 121: 
+ 122: > `--model` (the weights source) above is illustrative — confirm the exact HF
+ 123: > repo id / revision against the lock's `codex_cross_validation_sources` before
+ 124: > launching. Only `--served-model-name` is bound to the lock slug.
+ 125: 
+ 126: ## Step 3 — set the per-role env vars (operator shell)
+ 127: 
+ 128: The probe and the runtime transport read `PG_<ROLE>_BASE_URL` / `PG_<ROLE>_API_KEY`
+ 129: (LAW VI — never hard-coded). Use each box's public address + mapped port:
+ 130: 
+ 131: ```bash
+ 132: export PG_MIRROR_BASE_URL="http://<mirror_box_ip>:<port>"
+ 133: export PG_SENTINEL_BASE_URL="http://<sentinel_box_ip>:<port>"
+ 134: export PG_JUDGE_BASE_URL="http://<judge_box_ip>:<port>"
+ 135: 
+ 136: # Optional per-role API key if the box requires --api-key; else the probe falls
+ 137: # back to OPENROUTER_API_KEY. A self-hosted vLLM without auth needs no key.
+ 138: export PG_MIRROR_API_KEY="<key-if-any>"
+ 139: export PG_SENTINEL_API_KEY="<key-if-any>"
+ 140: export PG_JUDGE_API_KEY="<key-if-any>"
+ 141: ```
+ 142: 
+ 143: ## Step 4 — run the identity probe (cheap; confirms served == pinned)
+ 144: 
+ 145: ```bash
+ 146: python -m scripts.dr_benchmark.verify_serving_identity
+ 147: ```
+ 148: 
+ 149: Expected output on success (exit 0):
+ 150: 
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content docs'"\\serving\\verifier_serving_runbook.md | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -Skip 78 -First 25' in C:\POLARIS
+ succeeded in 737ms:
+  79: 
+  80: > **Storage bills even when STOPPED — only DESTROY halts it.** Per §8.4
+  81: > resource discipline + `docs/vast_ai_budget_i_meta_002.md` §0.3, the dominant
+  82: > cost is hold-hours. Destroy each box the moment its session ends.
+  83: 
+  84: ## Step 2 — launch vLLM per role (PAID, on each box)
+  85: 
+  86: SSH into each box and start the OpenAI-compatible vLLM server. The
+  87: `--served-model-name` MUST equal the locked slug — it is the identity the probe
+  88: and the M4 `served==pinned` gate trust. The `model` argument is the weights
+  89: SOURCE (HF repo or local path) and is intentionally DISTINCT from the served name
+  90: (Codex P2): vLLM advertises `--served-model-name` at `/v1/models`, not the source.
+  91: 
+  92: ```bash
+  93: # Mirror — 8xH100 bf16, PLAIN chat (no guided decoding) for <co> citations
+  94: python -m vllm.entrypoints.openai.api_server \
+  95:   --model CohereLabs/command-a-plus-05-2026-bf16 \
+  96:   --served-model-name cohere/command-a-plus \
+  97:   --tensor-parallel-size 8 \
+  98:   --dtype bfloat16 \
+  99:   --max-model-len 32768 \
+ 100:   --host 0.0.0.0 --port 8000
+ 101: 
+ 102: # Sentinel — 1xA100, PLAIN chat (Granite emits <score>, not JSON)
+ 103: python -m vllm.entrypoints.openai.api_server \
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+import httpx
+from scripts.dr_benchmark.verify_serving_identity import probe_serving_identity, ServingIdentityError
+from tests.dr_benchmark.test_verify_serving_identity import _MIRROR_BASE, _SENTINEL_BASE, _JUDGE_BASE
+from scripts.architecture.verify_lock import load_lock
+import os
+os.environ['PG_MIRROR_BASE_URL']=_MIRROR_BASE
+os.environ['PG_SENTINEL_BASE_URL']=_SENTINEL_BASE
+os.environ['PG_JUDGE_BASE_URL']=_JUDGE_BASE
+
+def handler(request):
+    return httpx.Response(200, json=[])
+try:
+    probe_serving_identity(http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+except Exception as e:
+    print(type(e).__name__, str(e)[:120])
+'@ | python -" in C:\POLARIS
+ succeeded in 1809ms:
+AttributeError 'list' object has no attribute 'get'
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --name-only -- config scripts docs tests' in C:\POLARIS
+ succeeded in 800ms:
+config/serving/verifier_roles.yaml
+docs/serving/verifier_serving_runbook.md
+scripts/dr_benchmark/medhallu_runner.py
+scripts/dr_benchmark/verify_serving_identity.py
+tests/dr_benchmark/test_verify_serving_identity.py
+warning: in the working copy of 'scripts/dr_benchmark/medhallu_runner.py', LF will be replaced by CRLF the next time Git touches it
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content docs'"\\serving\\verifier_serving_runbook.md | ForEach-Object { '{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -Skip 30 -First 20' in C:\POLARIS
+ succeeded in 719ms:
+  31:   (dense ~16 GB). Plain chat (emits a `<score>` element, not JSON).
+  32: - **Judge** — `qwen/qwen3.6-35b-a3b`, fp8, **1×H100** box (~35 GB). Structured /
+  33:   guided decoding ENABLED so the verdict is hard-enum constrained at decode time.
+  34: 
+  35: > The cost arithmetic and scenario choice (A full-self-host vs B Cohere-managed
+  36: > Mirror vs C W4A4) live in `docs/vast_ai_budget_i_meta_002.md`. This runbook
+  37: > assumes the operator has chosen the full-self-host path (Scenario A) for the
+  38: > sovereign-proof canary. For Scenario B, skip the Mirror box and point
+  39: > `PG_MIRROR_BASE_URL` at the Cohere-managed endpoint instead.
+  40: 
+  41: ## Step 0 — preconditions (operator)
+  42: 
+  43: 1. Vast.ai account funded (see `docs/vast_ai_budget_i_meta_002.md` for the credit
+  44:    to load per scenario).
+  45: 2. `vastai` CLI installed and logged in (`vastai set api-key <KEY>`).
+  46: 3. An SSH key registered with Vast for box access.
+  47: 4. **Sovereignty note:** Vast H100/H200 inventory is US-only — acceptable ONLY
+  48:    because the DRB-EN benchmark uses PUBLIC data, no clinical data. Do NOT serve
+  49:    clinical/patient data from a Vast box (production clinical = direct-EU
+  50:    procurement, separate decision — `docs/vast_ai_budget_i_meta_002.md` §4).
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "docs/serving/verifier_serving_runbook.md:35-39: The runbook still offers Scenario B: skip the Mirror Vast box and point PG_MIRROR_BASE_URL at a Cohere-managed endpoint. That violates the locked M2 scope requiring mirror/sentinel/judge to be self-hosted via vast_self_host*. The identity probe only checks served slug, so this alternate route could pass served==pinned while running the wrong architecture."
+p2:
+  - "scripts/dr_benchmark/verify_serving_identity.py:111-158 and docs/serving/verifier_serving_runbook.md:136-137: The probe falls back to OPENROUTER_API_KEY and always sends an Authorization header. This matches existing transport behavior, but it conflicts with the per-role-key-only wording and can leak the OpenRouter key to a configured self-host URL."
+  - "scripts/dr_benchmark/verify_serving_identity.py:118-125: A top-level non-object JSON /v1/models body raises AttributeError instead of ServingIdentityError. It still fails loud, but not through the structured probe error path."
+  - "config/serving/verifier_roles.yaml:15-18 and docs/serving/verifier_serving_runbook.md:122-124: model_source is documented as distinct from served_model_name, but the YAML does not declare model_source and the runbook calls --model illustrative. Not a blocker for this no-spend PR, but it leaves launch source less declarative than intended."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Remove or explicitly mark the Cohere-managed Mirror Scenario B path as out of scope/invalid for PR-8/M2 and the one-question canary."
+tokens used
+45,447
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "docs/serving/verifier_serving_runbook.md:35-39: The runbook still offers Scenario B: skip the Mirror Vast box and point PG_MIRROR_BASE_URL at a Cohere-managed endpoint. That violates the locked M2 scope requiring mirror/sentinel/judge to be self-hosted via vast_self_host*. The identity probe only checks served slug, so this alternate route could pass served==pinned while running the wrong architecture."
+p2:
+  - "scripts/dr_benchmark/verify_serving_identity.py:111-158 and docs/serving/verifier_serving_runbook.md:136-137: The probe falls back to OPENROUTER_API_KEY and always sends an Authorization header. This matches existing transport behavior, but it conflicts with the per-role-key-only wording and can leak the OpenRouter key to a configured self-host URL."
+  - "scripts/dr_benchmark/verify_serving_identity.py:118-125: A top-level non-object JSON /v1/models body raises AttributeError instead of ServingIdentityError. It still fails loud, but not through the structured probe error path."
+  - "config/serving/verifier_roles.yaml:15-18 and docs/serving/verifier_serving_runbook.md:122-124: model_source is documented as distinct from served_model_name, but the YAML does not declare model_source and the runbook calls --model illustrative. Not a blocker for this no-spend PR, but it leaves launch source less declarative than intended."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Remove or explicitly mark the Cohere-managed Mirror Scenario B path as out of scope/invalid for PR-8/M2 and the one-question canary."

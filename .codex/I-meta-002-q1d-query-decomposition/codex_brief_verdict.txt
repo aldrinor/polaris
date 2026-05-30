@@ -1,0 +1,236 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e77a3-6abd-76f2-93cd-c6e599ac8508
+--------
+user
+RULE NOW — emit the YAML verdict block FIRST. APPROVE this CONCRETE plan or REQUEST_CHANGES with specifics. Read AT MOST the cited regions. NO SPEND / NO NETWORK / NO LLM in the decomposition.
+
+HARD ITERATION CAP: 5. Iter 1 of 5. Front-load all findings; reserve P0/P1 for real execution risks.
+
+## Output schema (emit FIRST)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+p0: [...]
+p1: [...]
+p2: [...]
+required_changes: [...]
+convergence_call: accept_remaining
+```
+
+# Codex brief-gate (iter 1) — PR2 query decomposition on the live path (#951 q1d-a, the S0). NO SPEND / NO NETWORK / NO LLM.
+
+Codex-verified S0 (#950): 4/5 golden Qs (drb_75/76/78/90) ship with no `amplified` list, so a 40-70-word
+multi-clause paragraph fires as ~ONE Serper/S2 query (Q76 ≈ 5 sub-questions in one). Keyword engines
+retrieve poorly on long paragraphs → low lane-2 coverage → POLARIS can fail a golden Q at 100%
+faithfulness. THE single highest-leverage depth gap. Lands on PR1's rerank+reservation base (#959, merged
+or queued) so the new sub-queries are NOT truncated by arrival order.
+
+## GROUNDED FACTS (do not re-explore)
+- `scripts/run_honest_sweep_r3.py:1639-1641`: `_amplified_effective = list(q.get("amplified", [])) +
+  _reg_queries + _trial_queries`, passed to `run_live_retrieval(research_question=q["question"],
+  amplified_queries=_amplified_effective, ...)` (:1656-1666). `run_live_retrieval` seeds queries with
+  `[research_question]` then extends with `amplified_queries` (`live_retriever.py:1200-1214`), and
+  validates them via `validate_amplified_queries(..., always_keep_anchor=True)` when a protocol is given.
+- A `_template` (`load_scope_template(q["domain"])`, :1602-1617) and a `scope`/`protocol` object exist in
+  scope. The PICO planner `clinical_retrieval/query_planner.plan_queries(decision: ScopeDecision)` is PURE
+  (no I/O/LLM/network) but requires a ScopeDecision carrying PICO interpretations — which the golden-Q
+  sweep entries may NOT populate. So a question-text clause splitter is the robust PRIMARY; plan_queries
+  is an optional augmentation only when a usable ScopeDecision is present.
+
+## CONCRETE PROPOSAL (APPROVE or correct)
+A. **New pure module `src/polaris_graph/retrieval/query_decomposer.py`** with
+   `decompose_question(question: str, *, max_subqueries: int = 6) -> list[str]`:
+   - Deterministic, NO network/LLM. Split the question paragraph into focused sub-query strings on
+     clause/sentence boundaries: sentence terminators (`. `, `? `, `; `), enumerations (`1.`/`2)`/`(a)`),
+     and top-level coordinating conjunctions (` and `, ` as well as `, ` versus `) — but only split a
+     conjunction when BOTH sides carry >=N content words (avoid shredding "safety and efficacy").
+   - Normalize each candidate: strip, collapse whitespace, drop fragments with < MIN_CONTENT_WORDS (e.g.
+     3) content tokens (reuse the stopword/content-token notion), dedup (case-insensitive / token-set
+     Jaccard like `query_planner._dedupe`).
+   - Cap at `max_subqueries`; preserve original order (most-leading clause first). Return [] for a short
+     single-clause question (no value) so the caller falls back to today's behavior.
+B. **Wire into the sweep** (`run_honest_sweep_r3.py`, right before `_amplified_effective`): flag-gated
+   (`PG_SWEEP_QUERY_DECOMPOSE`, default "1", env-overridable). When ON, compute
+   `_decomposed = decompose_question(q["question"])` and PREPEND it:
+   `_amplified_effective = q.get("amplified", []) + _decomposed + _reg_queries + _trial_queries`, then
+   DEDUP the combined list (so a hand-authored amplified query that equals a decomposed clause isn't
+   duplicated). The anchor full question is still seeded by run_live_retrieval (never lost). Log
+   `[q1d] query_decompose: +N sub-queries`.
+C. **Bounded:** the sub-queries fan to Serper+S2 (PR1 cap=40 total after dedup + rerank keeps the corpus
+   bounded; cost still under `PG_MAX_COST_PER_RUN`). `max_subqueries=6` keeps the per-question query count
+   sane. Sub-queries pass the SAME `validate_amplified_queries` scope gate as hand-authored ones.
+D. **Tests (offline, socket blocked):** (1) a real 40-70-word golden-style multi-clause question yields
+   multiple focused sub-queries (e.g. Q76's 5 sub-topics each appear); (2) "safety and efficacy" is NOT
+   split (conjunction guard); (3) a short single-clause question → [] (fallback); (4) dedup: identical
+   clauses collapse; (5) cap respected; (6) determinism: same input → same output; (7) the sweep wiring
+   prepends decomposed queries and dedups against an existing amplified list (unit-test the list-build
+   helper, not a live run).
+
+## Constraints / frozen
+- NO SPEND / NO NETWORK / NO LLM in `decompose_question` (pure string ops). snake_case; explicit imports;
+  no except:pass; ≤200 LOC. Untouched: strict_verify / D8 / runtime lock / the 5 PR-10 contracts /
+  evidence_selector. This only adds INPUT queries; verification semantics unchanged.
+- Must not drop the anchor question (run_live_retrieval seeds it) and must not bypass the scope validator.
+
+## The real risks to rule on
+1. Over-splitting risk: could the splitter shred a single clinical concept (e.g. "type 2 diabetes",
+   "safety and efficacy", "non-small cell lung cancer") into noise queries? Propose the exact conjunction/
+   boundary guard (BOTH sides >= N content words; never split inside a known multiword unit — or accept
+   the content-word-count guard as sufficient).
+2. Query explosion vs the cap: with decomposition + reg + trial queries, is `max_subqueries=6` + PR1's
+   total fetch_cap the right bound, or should the sub-query count be tied to the cap?
+3. Should plan_queries (PICO) be attempted when a ScopeDecision is available, or is the clause splitter
+   alone sufficient for PR2 (PICO as a later PR)?
+
+APPROVE iff the decomposition is pure/no-spend, robustly splits multi-clause golden Qs WITHOUT shredding
+single concepts, dedups + bounds the query set, preserves the anchor + scope gate, leaves strict_verify/D8
+untouched, and is test-proven.
+
+---
+
+## REVISED SPEC — Codex brief-gate iter-1 REQUEST_CHANGES adopted (binding for the build)
+1. **NO bare-comma split.** Split ONLY on: sentence terminators (`.`, `?`, `;`), explicit enumerators
+   (`1.`/`2)`/`(a)`), and top-level conjunction/connective boundaries (` and `, ` as well as `,
+   ` versus `, ` vs `). Bare commas and weak coordinators are NEVER split points.
+2. **Conjunction/connective + `versus`/`vs` splits require BOTH sides to have ≥4 content words.** This
+   preserves protected compounds like "safety and efficacy", "type 2 diabetes", "non-small cell lung
+   cancer" BY CONSTRUCTION (each side has <4 content words → not split). Same guard for `versus`/`vs`.
+3. **Pure list-builder helper** `build_amplified_query_list(*, hand_authored, decomposed, regulatory,
+   trial) -> list[str]`: deterministic prepend order (hand_authored + decomposed + regulatory + trial),
+   case-insensitive dedup, so the sweep wiring test asserts prepend order / dedup / cap / anchor
+   preservation WITHOUT invoking live retrieval.
+4. **Clause-splitter-only for PR2.** PICO `plan_queries` augmentation is deferred to a later PR (not in
+   the critical path here).
+5. Fragment filter ≥3 content words (drop noise); dedup; cap at max_subqueries=6; `[]` for a short
+   single-clause question (caller falls back to today's behavior).
+6. Tests additionally cover: `versus`/`vs` compact comparator NOT split unless both sides ≥4 content
+   words; the `build_amplified_query_list` helper (prepend order + dedup + anchor not in the amplified
+   list since run_live_retrieval seeds it separately).
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath '"'src/polaris_graph/retrieval/live_retriever.py'; for ("'$i=1200; $i -le 1214; $i++) { if ($i -le $lines.Length) { '"'{0}: {1}' -f "'$i, $lines[$i-1] } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath '"'scripts/run_honest_sweep_r3.py'; for ("'$i=1601; $i -le 1666; $i++) { if ($i -le $lines.Length) { '"'{0}: {1}' -f "'$i, $lines[$i-1] } }' in C:\POLARIS
+ succeeded in 782ms:
+1601:         # controls its own anchors. Empty/missing list = no-op.
+1602:         from src.polaris_graph.nodes.scope_gate import load_scope_template
+1603:         from src.polaris_graph.retrieval.regulatory_expander import (
+1604:             expand_regulatory_queries,
+1605:         )
+1606:         from src.polaris_graph.retrieval.primary_trial_expander import (
+1607:             expand_primary_trial_queries,
+1608:         )
+1609:         try:
+1610:             _template = load_scope_template(q["domain"])
+1611:         except Exception as _ex:
+1612:             _log(
+1613:                 f"[M-28/M-35 warn] could not load template for domain="
+1614:                 f"{q['domain']!r}: {_ex} — continuing without regulatory "
+1615:                 f"(M-28) OR primary-trial (M-35) expansion"
+1616:             )
+1617:             _template = None
+1618:         # I-arch-001b: v6 actor synthesizes a per_query_report_contract from
+1619:         # the v6 template's frame_manifest and passes it through q. Merge it
+1620:         # into the scope template so M-55 compile_frame and
+1621:         # load_report_contract_for_slug see the synthesized contract for this
+1622:         # query's slug. Non-v6 sweep calls don't set v30_contract_patch -> noop.
+1623:         _v30_patch = q.get("v30_contract_patch") if q.get("v6_mode") else None
+1624:         if _v30_patch and isinstance(_template, dict):
+1625:             _template.setdefault("per_query_report_contract", {}).update(_v30_patch)
+1626:         _reg_queries = expand_regulatory_queries(q["question"], _template)
+1627:         if _reg_queries:
+1628:             _log(f"[M-28]        regulatory_anchors: +{len(_reg_queries)} "
+1629:                  f"queries (domain={q['domain']})")
+1630:         # M-35 (2026-04-21): primary-trial anchor expansion. Keyed by
+1631:         # sweep slug (trial names are query-specific). Missing slug or
+1632:         # missing `per_query_primary_trial_anchors` key = no-op.
+1633:         _trial_queries = expand_primary_trial_queries(
+1634:             q["question"], _template, q["slug"]
+1635:         )
+1636:         if _trial_queries:
+1637:             _log(f"[M-35]        primary_trial_anchors: +{len(_trial_queries)} "
+1638:                  f"queries (slug={q['slug']})")
+1639:         # I-meta-002-q1d (#951 q1d-a): decompose the multi-clause question into focused
+1640:         # sub-queries (pure, no-network) so a 40-70-word golden question is not fired as
+1641:         # ~one keyword query. Flag-gated (default ON); falls back to [] for short questions.
+1642:         _decomposed: list[str] = []
+1643:         if os.getenv("PG_SWEEP_QUERY_DECOMPOSE", "1").strip() in ("1", "true", "True"):
+1644:             from src.polaris_graph.retrieval.query_decomposer import (
+1645:                 decompose_question,
+1646:             )
+1647:             _decomposed = decompose_question(q["question"])
+1648:             if _decomposed:
+1649:                 _log(f"[q1d]         query_decompose: +{len(_decomposed)} sub-queries "
+1650:                      f"(slug={q['slug']})")
+1651:         from src.polaris_graph.retrieval.query_decomposer import (
+1652:             build_amplified_query_list,
+1653:         )
+1654:         _amplified_effective = build_amplified_query_list(
+1655:             hand_authored=list(q.get("amplified", [])),
+1656:             decomposed=_decomposed,
+1657:             regulatory=_reg_queries,
+1658:             trial=_trial_queries,
+1659:         )
+1660: 
+1661:         # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI
+1662:         # seed candidates. Search-expansion (M-35 above) does not surface the
+1663:         # pivotal OA primaries for guideline-dominated questions, so inject the
+1664:         # anchored trials' known DOIs as DIRECT candidates. Slug-scoped no-op
+1665:         # when `per_query_primary_trial_dois` is absent for the slug.
+1666:         from src.polaris_graph.retrieval.primary_trial_expander import (
+
+ succeeded in 847ms:
+1200:     iter-1 required-changes).
+1201: 
+1202:     Seed lane (I-bug-776 #817): primary-trial DOI seeds carry empty title/snippet, so
+1203:     relevance scoring would drop them. They are SPLIT OUT by `source == "primary_trial_doi"`
+1204:     and prepended AFTER ranking — never ranked, never dropped, exactly additive as before.
+1205: 
+1206:     Reservation: group non-seeds by `query_origin`; sort each group by (-score, index);
+1207:     take at most ONE reserved item per origin while capacity remains (origins with the best
+1208:     candidate score reserved first when origins exceed cap); then fill the remaining slots
+1209:     by global (-score, index). The long full-paragraph/anchor query is not starved.
+1210: 
+1211:     Fail-open (never raise): on any error fall back to the previous arrival-order behavior
+1212:     `candidates[:fetch_cap + n_seed_injected]`.
+1213:     """
+1214:     try:
+
+codex
+```yaml
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+required_changes: []
+convergence_call: accept_remaining
+```
+
+Approved with the revised spec as binding.
+
+The no-bare-comma rule plus the >=4-content-word guard on `and` / `as well as` / `versus` / `vs` is the right execution-risk control for clinical compounds like “safety and efficacy” and compact comparators. Deferring PICO `plan_queries` is also correct for PR2; it avoids depending on partially populated `ScopeDecision` objects and keeps this change pure, deterministic, and on the live golden-Q path.
+
+The cited sweep region already preserves the anchor by keeping decomposition out of the anchor slot and passing only the amplified list into `run_live_retrieval`. The helper-based `hand_authored + decomposed + regulatory + trial` ordering, dedup, max-subquery cap, scope validation downstream, and offline tests are sufficient for this PR.
+tokens used
+11,933
+```yaml
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+required_changes: []
+convergence_call: accept_remaining
+```
+
+Approved with the revised spec as binding.
+
+The no-bare-comma rule plus the >=4-content-word guard on `and` / `as well as` / `versus` / `vs` is the right execution-risk control for clinical compounds like “safety and efficacy” and compact comparators. Deferring PICO `plan_queries` is also correct for PR2; it avoids depending on partially populated `ScopeDecision` objects and keeps this change pure, deterministic, and on the live golden-Q path.
+
+The cited sweep region already preserves the anchor by keeping decomposition out of the anchor slot and passing only the amplified list into `run_live_retrieval`. The helper-based `hand_authored + decomposed + regulatory + trial` ordering, dedup, max-subquery cap, scope validation downstream, and offline tests are sufficient for this PR.

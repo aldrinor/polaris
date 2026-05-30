@@ -3607,6 +3607,10 @@ async def generate_multi_section_report(
     *,
     research_question: str,
     evidence: list[dict[str, Any]],
+    # I-meta-002-q1d (#948): campaign KG-reuse advisory context (prior-VERIFIED claims already
+    # mechanically matched to THIS question's corpus). Passed through to the UNVERIFIED analyst layer
+    # only; None/[] => no change. Never reaches the verified generator/strict_verify path.
+    prior_verified_context: list[dict[str, Any]] | None = None,
     model: Optional[str] = None,
     outline_temperature: float = 0.2,
     section_temperature: float = 0.3,
@@ -4533,6 +4537,7 @@ async def generate_multi_section_report(
                         bibliography=global_biblio,
                         evidence_rows=evidence,
                         research_question=research_question,
+                        prior_verified_context=prior_verified_context,
                         model=gen_model,
                         max_tokens=4000,
                         temperature=0.3,

@@ -1,0 +1,83 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e77c3-4b87-7c11-8c3c-2d4d2fa5d097
+--------
+user
+RULE NOW — your VERY FIRST output MUST be the YAML verdict block below, filled in. Do NOT read ANY file. The change is TWO regexes + tests, fully quoted here. Rule from this text ALONE (a prior run explored the repo and emitted NO verdict).
+
+## Output (emit this FIRST, filled in)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: accept_remaining
+```
+
+# Codex diff-gate (iter 2) — PR3 analyst-synthesis safety (#953). ONLY the iter-1 P1 regex fix to rule on.
+
+Iter-1 was REQUEST_CHANGES with ONE P1: `_SAFETY_TERM_RE` used truncated stems wrapped by `\b`
+(`hospitali\b`, `contraindicat\b`, `toxicit\b`, `pregnan\b`, `teratogen\b`) which do NOT match the full
+inflected words. Everything else in PR3 (evidence sanitization via sanitize_evidence_text on id+quote, the
+`<<<end_evidence>>>` delimiter alignment, the kill-switch-before-model-call, the per-line negation screen
+preserving markdown) you already reviewed as correct.
+
+THE FIX (the entire iter-2 diff to the two patterns):
+```python
+_NEGATION_CUE_RE = re.compile(
+    r"(\bno\b|\bnot\b|\bnever\b|\bwithout\b|\babsent\b|\bnone\b|\bneither\b|\bnor\b"
+    r"|n['’]t\b|\black(?:s|ed|ing)?\b|\bfree of\b|\bfail(?:s|ed)? to\b)",
+    re.IGNORECASE,
+)
+_SAFETY_TERM_RE = re.compile(
+    r"(\bdiscontinu\w*|\badverse\b|\bcontraindicat\w*|\binteraction\w*|\bmortality\b|"
+    r"\bdeaths?\b|\bfatal\w*|\bserious\b|\bhospitali\w*|\bwithdraw\w*|\btoxicit\w*|"
+    r"\bside\s+effects?\b|\bharm\w*|\bwarning\w*|\bblack[-\s]?box\w*|\bpregnan\w*|"
+    r"\bteratogen\w*|\brenal\b|\bhepatic\b)",
+    re.IGNORECASE,
+)
+```
+
+Evidence: 39 tests PASS incl. the new `test_inflected_and_plural_safety_terms_dropped` proving "did not
+lead to hospitalization", "no toxicity", "not contraindicated", "no pregnancy risk", "no side effects",
+"did not increase teratogenic outcomes" are ALL dropped; and benign/positive ("discontinuation occurred in
+0.3%") + negation-without-safety are KEPT. Screen runs only on the UNVERIFIED analyst output; verified core
++ D8 untouched; pure/no-network.
+
+Rule on ONLY:
+1. Do `hospitali\w*`/`contraindicat\w*`/`toxicit\w*`/`pregnan\w*`/`teratogen\w*`/`side\s+effects?` now
+   match the full inflected forms? (Yes/no.)
+2. Does the broadened cue catch "not contraindicated" without an obvious catastrophic over-drop of the
+   verified core? (The screen never touches the verified core — only the unverified analyst text.)
+
+APPROVE iff the P1 regex under-match is resolved. This is a 2-regex change; do not re-litigate the
+already-approved parts.
+
+codex
+```yaml
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+```
+
+The P1 under-match is resolved. The `\w*` suffixes now match the full inflected forms listed, `side\s+effects?` covers singular/plural “side effect(s)”, and the broadened negation cue catches “not contraindicated”. Since the screen is limited to unverified analyst text, this does not create an obvious verified-core over-drop risk.
+tokens used
+7,316
+```yaml
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+```
+
+The P1 under-match is resolved. The `\w*` suffixes now match the full inflected forms listed, `side\s+effects?` covers singular/plural “side effect(s)”, and the broadened negation cue catches “not contraindicated”. Since the screen is limited to unverified analyst text, this does not create an obvious verified-core over-drop risk.

@@ -201,6 +201,19 @@ Every action must be appended to `logs/session_log.md` using this structure:
 - **User:** spec owner + merge gate. Reads `git log` in the morning as the after-the-fact human-at-merge surface (B1 pure auto-merge).
 - Claude has NO `gh pr merge --admin` authority. CI required check `polaris/codex-required` parses Codex's verdict file and gates merge.
 
+### §3.0.1 The "Claude Codex Workflow" named trigger (operator, 2026-05-29)
+
+**Invocation phrase:** when the operator says **"Claude Codex Workflow"** (or **"with Claude Codex Workflow"**) — and equivalently the keywords `exec:` / `task:` — it means: run the standing `polaris_task_cycle` loop (§3.0 above) **driven by the Anthropic Workflow function** as the engine, with **Codex as the only review gate**.
+
+**Behavior bound to the phrase:**
+1. Author a Workflow-function script that runs the loop in ordered phases: `BOOT → BRIEF → codex-gate(brief) → BUILD → SMOKE → codex-gate(diff) → CLOSE → NEXT`.
+2. Spawn per-phase agents inside that workflow (build / smoke / Codex review); Codex review agents shell out to `env -u OPENAI_API_KEY codex exec` and **write** the verdict; parse the verdict from the **written file's last `verdict:` line** (§8.3.9), never an agent self-report.
+3. Codex is the ONLY gate; two gates per issue (brief + diff), each 5-iter cap (§8.3.1).
+
+**Operator is BLIND — visibility rule (BINDING):** the Workflow function runs in the background and its live progress is only in the `/workflows` panel, which a screen reader cannot read. So whenever the Claude Codex Workflow fires, Claude MUST **announce each workflow launch in one plain spoken line** as it fires AND **read the key result inline** (verdict + counts) when it completes — never make the operator open the `/workflows` panel.
+
+**Canonical spec + recordings:** `.claude/workflows/polaris_task_cycle.md`; per-prompt enforcement + trigger detection in `.claude/hooks/polaris_task_cycle_reminder.py`; operator memory `feedback_claude_codex_workflow_named_trigger_2026_05_29.md`. Honest scope: it is a *process* run via the Workflow function, not one canned script — each task supplies its own brief/build/test content.
+
 ---
 
 ## §3. Mandatory Session Protocol (Startup/Restart)

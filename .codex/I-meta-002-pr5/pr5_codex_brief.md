@@ -1,0 +1,1456 @@
+# Codex DIFF-GATE — POLARIS I-meta-002 sub-PR-5: 4-role orchestration (per-claim pipeline + 4-role pins + verified-claim KG), mock-tested, NO SPEND
+
+> THIS IS A DIFF REVIEW. The brief was APPROVE'd at the brief-gate; you now review the ACTUAL committed diff against that approved brief. Review code correctness + clinical safety claim-by-claim.
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (REQUIRED — emit exactly this; a `verdict:` line is mandatory)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+```
+
+## HARD CONSTRAINTS (operator-locked, NOT consultable — do NOT reopen)
+- NO real network calls in `src/` OR `tests/`. The role pipeline takes an INJECTED `RoleTransport` (sub-PR-4); it is exercised ONLY with a mock transport in tests. The verified-claim KG writes to a TEMP/injected SQLite path in tests. No GPU, no Cohere, no Vast, no money this PR.
+- The benchmark scorer `claim_audit_scorer.py` stays FROZEN — it is NOT in this diff and MUST NOT drift.
+- The runtime lock `config/architecture/polaris_runtime_lock.yaml` stays at `codex_approved_pending_operator_signature` this PR (promotion to `locked` is sub-PR-6). Not in this diff.
+- The canonical pipeline (`docs/polaris_pipeline_canonical.md`: stage 14 Mirror / 15 Sentinel / 16 Judge / 17 snowball memory) must NOT be redefined by this diff.
+- **The deep call-site surgery inside the 3100-line `scripts/run_honest_sweep_r3.py` production sweep is INTENTIONALLY DEFERRED to sub-PR-6** (approved scope split — you accepted it at the brief gate). `run_honest_sweep_r3.py` is therefore NOT in this diff. **Do NOT flag the absence of the sweep wiring as a finding** — that is out of scope by design.
+- Operator is blind — keep the verdict crisp.
+
+## EMPHASIS — review these specific safety properties claim-by-claim (clinical-lethal if wrong)
+1. **LOCKED final_verdict override** (`role_pipeline.py:_compose_final_verdict`): a Sentinel UNGROUNDED (or `parsed_ok` False), and a Mirror fail-closed (MirrorCitationError/MirrorBindingError), can NEVER yield a final_verdict of VERIFIED. Verify: Mirror fail-closed -> UNSUPPORTED unconditionally; Sentinel unsafe + Judge VERIFIED|PARTIAL -> UNSUPPORTED; but Sentinel unsafe + Judge FABRICATED|UNREACHABLE|UNSUPPORTED -> PRESERVED (never upgraded to merely UNSUPPORTED). `D8ClaimRow.verdict` carries final_verdict; `raw_judge_verdict` preserved separately. Confirm there is no path where a hallucination reaches VERIFIED, AND no path where a worse Judge verdict is masked.
+2. **RecordingTransport captures served identity even on fail-closed paths** (`role_pipeline.py:RecordingTransport.complete`): the record is appended BEFORE the response is returned to the adapter, so a Mirror pass-1 that then raises still leaves its served-identity `RoleCallRecord`. Confirm the Path-B identity gate has no fail-closed blind spot, and that `wrapper.records` is harvested regardless of downstream raises.
+3. **query_related_claims is VERIFIED-only** (`verified_claim_graph.py`): anti-snowball-poisoning — only `reusable == 1` (verdict == VERIFIED) rows are returned for reuse; non-VERIFIED rows are persisted audit-only and EXCLUDED from reuse AND from the contradiction hook. Confirm a FABRICATED/UNSUPPORTED/PARTIAL/UNREACHABLE claim can never be recalled as prior knowledge.
+4. **claim_id is REQUIRED, never synthesized** (`role_pipeline.run_claim_pipeline`): caller supplies `claim_id`; it flows verbatim into `D8ClaimRow.claim_id`. Confirm it is never derived from claim text.
+5. **Pins are lock-sourced + validate_role_families** (`pathB_runner._role_pins`): default slugs read from `load_lock()` (no drift vs the lock); per-role `PG_*_MODEL` env override on top; `validate_role_families()` runs on the effective 4-role map (N-way family segregation fails LOUD at pin-build). Confirm the generator keeps its `PG_GENERATOR_MODEL > OPENROUTER_DEFAULT_MODEL > lock-default` precedence, and the legacy `evaluator` pin is correctly dropped (the gate enforces pinned==observed both directions).
+6. **No `datetime.now()` / random in library code** — timestamps are injected into both the pipeline and the KG store. Confirm.
+
+## Scope section (from the APPROVED brief .codex/I-meta-002-pr5/brief.md)
+## Scope of sub-PR-5 (acceptance criteria) — PROPOSED SCOPE
+This PR builds the COMPOSABLE 4-role orchestration + pins + KG store, all mock/offline-tested. It
+does NOT perform the deep call-site surgery inside the 3100-line `scripts/run_honest_sweep_r3.py`
+production sweep (see Question 1 — Claude proposes deferring that to sub-PR-6 where it is exercised
+live in Gate-B; the no-spend Gate-A does not run the full sweep).
+
+1. **4-role pins** — extend `pathB_runner.py:_role_pins()` to return FOUR `RolePin`s (generator,
+   mirror, sentinel, judge), reading `PG_MIRROR_MODEL`/`PG_SENTINEL_MODEL`/`PG_JUDGE_MODEL` (defaults
+   sourced from the lock via `load_lock()` so pins and lock cannot drift). Update its tests. The
+   architecture-coverage gate then sees all 4 (it already enforces this once the lock is `locked`).
+   Also call `validate_role_families()` (N-way) on the 4 pinned slugs so the family invariant holds.
+
+2. **Recording transport wrapper** (`roles/role_pipeline.py`, **iter-2 fix, Codex P1-4**): a
+   `RecordingTransport` that WRAPS the injected `RoleTransport` and appends a `RoleCallRecord` (role,
+   model_slug, served_model, raw_text) to a collected list on EVERY `complete()` call — BEFORE the
+   adapter parses or raises. This guarantees the Path-B identity gate sees every served completion
+   even on the highest-risk FAIL-CLOSED paths (a Mirror call that then raises MirrorCitationError/
+   MirrorBindingError still leaves its served-identity record). The pipeline drives the adapters
+   through this wrapper and harvests `wrapper.records` regardless of downstream raises.
+
+3. **Per-claim role pipeline** (`roles/role_pipeline.py`): a pure orchestration over the injected
+   (wrapped) `RoleTransport`:
+   - `run_claim_pipeline(transport, *, claim_id, claim, evidence_documents, severity, s0_categories,
+     model_slugs, timestamp) -> ClaimPipelineResult`. **(iter-2 fix, Codex P1-2)** `claim_id` is a
+     REQUIRED caller-supplied param used for `D8ClaimRow.claim_id` — NEVER synthesized from claim
+     text (duplicate/edited claims would break rewrite/gap traceability). Runs IN ORDER: Mirror →
+     Sentinel → Judge (Judge given the Mirror + Sentinel signals).
+   - **(iter-2 fix, Codex P1-1) Fail-closed composition — post-override final_verdict (LOCKED rule).**
+     The pipeline computes a `final_verdict` and writes THAT into `D8ClaimRow.verdict`, while
+     `ClaimPipelineResult` ALSO preserves `raw_judge_verdict` separately. Rule:
+       * Mirror raised MirrorCitationError OR MirrorBindingError -> `final_verdict = UNSUPPORTED`
+         (a claim with no grounded/bound citation can NEVER be VERIFIED), regardless of Judge.
+       * ELSE if Sentinel == UNGROUNDED OR Sentinel `parsed_ok` is False -> if raw Judge verdict is
+         VERIFIED or PARTIAL, OVERRIDE to `final_verdict = UNSUPPORTED`; but if raw Judge verdict is
+         FABRICATED / UNREACHABLE / UNSUPPORTED, PRESERVE it (never upgrade a worse verdict to merely
+         UNSUPPORTED).
+       * ELSE `final_verdict = raw_judge_verdict`.
+     A hallucination therefore cannot reach VERIFIED. Document the rule in the source.
+   - `ClaimPipelineResult` carries the `D8ClaimRow` (with final_verdict), `raw_judge_verdict`, the
+     `list[RoleCallRecord]` (from the RecordingTransport, so complete even on fail-closed paths), and
+     the raw Mirror/Sentinel/Judge sub-results for auditability.
+   - Mock-transport tests: ordering (Mirror→Sentinel→Judge); Sentinel UNGROUNDED overrides a Judge
+     VERIFIED to UNSUPPORTED but PRESERVES a Judge FABRICATED; Mirror fail-closed -> final UNSUPPORTED
+     AND its served-identity record is still present in records; claim_id flows into the D8ClaimRow;
+     no network.
+
+4. **Verified-claim KG store** (`src/polaris_graph/memory/verified_claim_graph.py`): the snowball
+   (canonical stage 17). A `VerifiedClaimGraphStore` (SQLite at an injected path, default under the
+   run dir) with `write_claim(claim_text, claim_id, verdict, role_verdicts, timestamp)`,
+   `query_related_claims(claim_text)`, and a cross-time **contradiction flag** hook
+   (`find_contradictions(claim) -> list[...]`). `timestamp` is PASSED IN (no `datetime.now()` in the
+   store). **(iter-2 fix, Codex P1-3) Anti-snowball-poisoning:** `query_related_claims` returns ONLY
+   prior claims whose stored verdict == VERIFIED (the reuse pool); `write_claim` MAY persist
+   non-VERIFIED rows but ONLY as audit-only records that are EXCLUDED from `query_related_claims`
+   reuse (a `reusable`/verdict filter). A FABRICATED/UNSUPPORTED/PARTIAL/UNREACHABLE claim can never
+   be reused as prior knowledge. Tests use a temp SQLite path; assert write+read; assert a
+   non-VERIFIED claim is NOT returned by query_related_claims; assert the contradiction flag; no network.
+
+5. **4-role pins** — extend `pathB_runner.py:_role_pins()` to return FOUR `RolePin`s (generator,
+   mirror, sentinel, judge). **(Codex P2, accepted)** Default slugs are LOCK-SOURCED via
+   `load_lock()` with PG_*_MODEL env OVERRIDES applied on top; `validate_role_families()` runs on the
+   effective 4-role map. Update its tests. The architecture-coverage gate then sees all 4.
+
+6. **Capture role tags** — thin helpers / document that Mirror/Sentinel/Judge calls are wrapped with
+   `llm_role("mirror"|"sentinel"|"judge")` so the Path-B capture records the right role. The judge
+   call site that currently mis-tags as "evaluator" is fixed in the sub-PR-6 sweep wiring (Codex P2
+   accepted the scope split), NOT touched here.
+
+7. Hygiene: snake_case, explicit imports, named constants, no `except: pass`, NO unittest.mock in
+   `src/` (mock transport/temp paths in tests/), no real network anywhere. No `datetime.now()` /
+   random in library code (inject timestamps).
+
+## Files I have ALSO checked and they are clean / relevant
+- `pathB_run_gate.py:_assert_architecture_coverage` — already enforces 4-role coverage + frozen-lock
+  refusal; sub-PR-5 does NOT change it (the 4 pins make it pass once the lock is `locked` in sub-PR-6).
+- `evaluator_gate.py:compute_evaluator_gate` — the existing manifest gate; D8 release_policy is a
+  sibling. Whether D8 REPLACES or AUGMENTS the evaluator_gate at the manifest seam is part of the
+  sweep wiring (Question 1) — NOT decided/changed in this PR.
+- sub-PR-4 adapters + sub-PR-3 D8 + sub-PR-2 contracts — consumed as-is, not modified.
+- `verified_report.py` (VerifiedSentence.evaluator_agrees) — populated during the sweep wiring
+  (sub-PR-6), not here.
+
+## SMOKE RESULTS (offline, no network — .codex/I-meta-002-pr5/smoke_results.txt)
+```
+SMOKE RESULTS — POLARIS sub-PR-5 (I-meta-002-pr5)
+Agent: SMOKE
+Date (UTC): 2026-05-29
+cwd: C:/POLARIS
+Execution: serialized, no parallel (per CLAUDE.md §8.4)
+
+==================================================================
+COMMAND 1: python -m pytest tests/roles tests/architecture tests/dr_benchmark -q
+==================================================================
+Result: PASS
+Collected: 275 items
+Passed:   275
+Failed:   0
+Errors:   0
+Skipped:  0
+Duration: 7.39s
+Exit code: 0
+
+Per-file breakdown:
+  tests/roles/test_judge_adapter.py ............... 9
+  tests/roles/test_judge_contract.py .............. 26
+  tests/roles/test_mirror_adapter.py .............. 11
+  tests/roles/test_mirror_contract.py ............. 14
+  tests/roles/test_release_policy.py ............... 17
+  tests/roles/test_role_pipeline.py ............... 10
+  tests/roles/test_role_transport.py .............. 5
+  tests/roles/test_sentinel_adapter.py ............ 6
+  tests/roles/test_sentinel_contract.py ........... 34 (+1 = 35 region)
+  tests/roles/test_verified_claim_graph.py ......... 8
+  tests/architecture/test_runtime_lock.py .......... 14
+  tests/dr_benchmark/test_claim_audit_scorer.py .... 12
+  tests/dr_benchmark/test_medhallu_adapter.py ...... 12
+  tests/dr_benchmark/test_pathB_capture.py ......... 13
+  tests/dr_benchmark/test_pathB_run_gate.py ........ 45 (30 + 15 region)
+  tests/dr_benchmark/test_pathB_runner.py .......... 12
+  tests/dr_benchmark/test_pr3_pipeline.py .......... 24
+
+==================================================================
+COMMAND 2: python -m scripts.architecture.verify_lock --consistency
+==================================================================
+Result: PASS
+Exit code: 0
+Output: Consistency: OK - families registered, family_policy holds,
+        code defaults match lock, canonical_pin includes lock file
+
+==================================================================
+OVERALL: BOTH PASSED
+  pytest: 275 passed / 0 failed (exit 0)
+  verify_lock --consistency: exit 0
+==================================================================
+```
+
+## DIFF
+```diff
+diff --git a/src/polaris_graph/benchmark/pathB_runner.py b/src/polaris_graph/benchmark/pathB_runner.py
+index d8894fb1..dd0d4062 100644
+--- a/src/polaris_graph/benchmark/pathB_runner.py
++++ b/src/polaris_graph/benchmark/pathB_runner.py
+@@ -23,6 +23,8 @@ from pathlib import Path
+ from typing import Iterator
+ 
+ from src.polaris_graph.benchmark import pathB_capture as _capture
++from src.polaris_graph.llm.openrouter_client import validate_role_families
++from scripts.architecture.verify_lock import load_lock
+ from scripts.dr_benchmark.pathB_run_gate import (
+     GateError,
+     LLMCall,
+@@ -33,41 +35,91 @@ from scripts.dr_benchmark.pathB_run_gate import (
+ 
+ logger = logging.getLogger(__name__)
+ 
+-_DEFAULT_GEN_SLUG = "deepseek/deepseek-v4-pro"
+-_DEFAULT_EVAL_SLUG = "google/gemma-4-31b-it"
++# The four locked architecture roles (config/architecture/polaris_runtime_lock.yaml).
++# Order is generator -> mirror -> sentinel -> judge (the canonical pipeline order).
++_LOCKED_ROLES = ("generator", "mirror", "sentinel", "judge")
++
++# Per-role env-var OVERRIDE knobs, applied ON TOP of the lock-sourced default slug. Mirrors
++# config/architecture/polaris_runtime_lock.yaml:env_vars. The generator additionally honors
++# the legacy OPENROUTER_DEFAULT_MODEL fallback (documented honest_sweep override chain).
++_ROLE_ENV_OVERRIDE = {
++    "generator": "PG_GENERATOR_MODEL",
++    "mirror": "PG_MIRROR_MODEL",
++    "sentinel": "PG_SENTINEL_MODEL",
++    "judge": "PG_JUDGE_MODEL",
++}
++
++
++def _lock_default_slug(role: str) -> str:
++    """The role's default model_slug, SOURCED FROM the architecture lock so pins + lock cannot
++    drift (Codex P2, accepted). Reads lock['required_roles'][role]['model_slug']."""
++    lock = load_lock()
++    return str(lock["required_roles"][role]["model_slug"]).strip()
++
++
++def _resolve_role_slug(role: str) -> str:
++    """Resolve a role's effective slug: lock default, with the per-role PG_*_MODEL env override
++    applied on top. The generator preserves its documented PG_GENERATOR_MODEL >
++    OPENROUTER_DEFAULT_MODEL > lock-default precedence (regression: a sweep that exports only
++    OPENROUTER_DEFAULT_MODEL must still pin the right generator)."""
++    default = _lock_default_slug(role)
++    if role == "generator":
++        return (
++            os.getenv("PG_GENERATOR_MODEL")
++            or os.getenv("OPENROUTER_DEFAULT_MODEL")
++            or default
++        ).strip()
++    env_name = _ROLE_ENV_OVERRIDE[role]
++    return (os.getenv(env_name) or default).strip()
+ 
+ 
+ def _role_pins() -> list[RolePin]:
+-    """Build the per-role pins from the live env.
+-
+-    Codex PR-2 diff iter-1 P1 #1: read PG_GENERATOR_MODEL first (the documented honest_sweep
+-    override used by generate_multi_section_report); fall back to OPENROUTER_DEFAULT_MODEL,
+-    then the static default. Pinning the wrong env var made every correct call fail the gate.
+-
+-    Codex PR-2 diff iter-1 P1 #2: surrogate_fields MUST be only those PROVEN present in the
+-    served response. assert_post_run treats a missing surrogate field as fatal, so requiring
+-    system_fingerprint would fail any provider that omits it (entailment_judge often does).
+-    Pin only the always-present surrogate (provider_name + model); build_response_metadata
+-    still records system_fingerprint when present, but it is NOT a required surrogate."""
+-    gen = (
+-        os.getenv("PG_GENERATOR_MODEL")
+-        or os.getenv("OPENROUTER_DEFAULT_MODEL")
+-        or _DEFAULT_GEN_SLUG
+-    ).strip()
+-    ev = (os.getenv("PG_EVALUATOR_MODEL") or _DEFAULT_EVAL_SLUG).strip()
+-    # I-bug-946 (#932): provider_name is no longer seeded from env's first entry. The
+-    # OPENROUTER_PROVIDER_ORDER env is now a CANDIDATE LIST, and preflight() resolves the
+-    # ACTUAL served provider per role via /api/v1/models/<id>/endpoints. Pre-seeding to
+-    # the env first-entry was the Codex iter-1 diff P1 bypass: my preflight only resolved
+-    # when provider_name was empty, so the bypass silently re-pointed both roles to the
+-    # first env entry. Now: empty string here forces preflight to resolve per role.
++    """Build the FOUR per-role pins (generator/mirror/sentinel/judge) from the lock + env.
++
++    I-meta-002 sub-PR-5: the 2-role (generator+evaluator) pin set is replaced by the locked
++    4-role set. The post-run gate enforces completeness in BOTH directions — every pinned role
++    must be observed AND every observed call must be pinned (pathB_run_gate.assert_post_run
++    lines 471/479) — so the pin set must EXACTLY match the captured roles. The 4-role pipeline
++    emits generator/mirror/sentinel/judge calls; a leftover legacy 'evaluator' pin would
++    therefore gate-FAIL at runtime (no evaluator call is captured). No production caller pins
++    'evaluator' directly (only this function feeds preflight via gate_around_question), so the
++    role is dropped here cleanly.
++
++    Default slugs are LOCK-SOURCED via load_lock() (Codex P2, accepted) so the pins and the
++    architecture lock cannot drift; per-role PG_*_MODEL env vars override on top. The generator
++    keeps its PG_GENERATOR_MODEL > OPENROUTER_DEFAULT_MODEL > lock-default precedence.
++
++    validate_role_families() runs on the effective 4-role map so the N-way family invariant
++    (all 4 lineages distinct) holds at pin-build time — a same-family misconfiguration fails
++    LOUD here rather than silently at runtime.
++
++    Codex PR-2 diff iter-1 P1 #2: surrogate_fields are ONLY those PROVEN present in the served
++    response (provider_name + model). assert_post_run treats a missing surrogate field as
++    fatal; system_fingerprint is recorded when present but is NOT a required surrogate.
++
++    I-bug-946 (#932): provider_name is left empty here; preflight() resolves the ACTUAL served
++    provider per role via /api/v1/models/<id>/endpoints (the env is a candidate list)."""
++    slug_by_role = {role: _resolve_role_slug(role) for role in _LOCKED_ROLES}
++    # N-way family segregation on the effective 4-role map (raises RuntimeError on collision).
++    validate_role_families(slug_by_role)
+     surrogate_fields = ("provider_name", "model")
+     return [
+-        RolePin("generator", gen, "", surrogate_fields),
+-        RolePin("evaluator", ev, "", surrogate_fields),
++        RolePin(role, slug_by_role[role], "", surrogate_fields)
++        for role in _LOCKED_ROLES
+     ]
+ 
+ 
++def role_tag(role: str):
++    """Path-B capture role-tag context manager for a role-pipeline LLM call.
++
++    Thin re-export of pathB_capture.llm_role so the 4-role call sites (Mirror/Sentinel/Judge)
++    can scope their served-identity capture with the correct role string WITHOUT each importing
++    pathB_capture directly. pathB_capture already accepts arbitrary role strings via its _ROLE
++    contextvar, so "mirror" / "sentinel" / "judge" are supported with no capture-side change.
++    Use as `with role_tag("sentinel"): ...`. The deep sweep call-site wiring is sub-PR-6."""
++    return _capture.llm_role(role)
++
++
+ def _salt() -> bytes:
+     return (os.getenv("PG_PATHB_GATE_SALT") or "pathB-default-unsalted").encode("utf-8")
+ 
+diff --git a/src/polaris_graph/memory/verified_claim_graph.py b/src/polaris_graph/memory/verified_claim_graph.py
+new file mode 100644
+index 00000000..9115fba2
+--- /dev/null
++++ b/src/polaris_graph/memory/verified_claim_graph.py
+@@ -0,0 +1,253 @@
++"""Verified-claim knowledge graph (the snowball, canonical stage 17) — SQLite store.
++
++I-meta-002 sub-PR-5. Persists every per-claim pipeline outcome and exposes a REUSE pool of
++prior knowledge for later claims/questions in the same campaign. There is NO network here.
++The store opens a SQLite file at an INJECTED path (default under a caller-supplied run dir),
++and EVERY timestamp is passed in by the caller — this module never calls `datetime.now()`
++(LAW VI: inject, do not self-source non-determinism).
++
++Anti-snowball-poisoning (Codex iter-2 P1-3). `write_claim` persists ALL rows (including
++FABRICATED / UNSUPPORTED / PARTIAL / UNREACHABLE) as AUDIT-ONLY records, but
++`query_related_claims` returns ONLY rows whose stored verdict == VERIFIED. A claim that did
++not clear the full Mirror -> Sentinel -> Judge fail-closed pipeline can therefore NEVER be
++reused as prior knowledge — a hallucination cannot poison a later claim by being recalled as
++"already established." The `reusable` column makes that filter explicit and machine-auditable.
++
++`find_contradictions` is a cross-time contradiction-flag HOOK over the reuse pool. The
++contract it owns is: surface prior VERIFIED claims that a new claim may contradict so a human
++/ Codex §-1.1 audit can adjudicate. The heuristic here is a documented STUB (shared keyword
++overlap + a negation-polarity mismatch OR a divergent numeric token); it intentionally
++over-flags rather than under-flags (clinical-safety: a missed contradiction is the lethal
++error). It is NOT a verdict — it is a flag for review.
++"""
++
++from __future__ import annotations
++
++import json
++import re
++import sqlite3
++from dataclasses import dataclass
++from pathlib import Path
++
++# --- canonical verdict tokens (string-constant pattern; never an Enum here) ---------------
++_VERDICT_VERIFIED = "VERIFIED"
++
++# Default SQLite filename created under the injected run dir.
++_DEFAULT_DB_FILENAME = "verified_claim_graph.sqlite"
++
++# Tokens shorter than this are dropped from keyword matching (stop-word-ish noise control).
++_MIN_KEYWORD_LEN = 4
++
++# Negation markers used by the contradiction heuristic (documented stub).
++_NEGATION_MARKERS = frozenset(
++    {"no", "not", "never", "without", "absent", "lacks", "fails", "cannot", "neither", "nor"}
++)
++
++# Word + number tokenizers for the simple substring/keyword reuse + contradiction heuristics.
++_WORD_RE = re.compile(r"[a-z0-9]+")
++_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
++
++
++@dataclass
++class VerifiedClaimRecord:
++    """One row of the verified-claim graph (a stored claim + its provenance)."""
++
++    claim_id: str
++    claim_text: str
++    verdict: str
++    reusable: bool
++    role_verdicts: dict
++    timestamp: str
++
++
++@dataclass
++class ContradictionFlag:
++    """A cross-time contradiction candidate flagged for human / Codex §-1.1 adjudication.
++
++    `reason` documents WHY the pair was flagged (negation-polarity mismatch and/or divergent
++    numeric tokens over a shared-keyword overlap). This is a REVIEW FLAG, not a verdict.
++    """
++
++    new_claim_text: str
++    prior_claim_id: str
++    prior_claim_text: str
++    reason: str
++
++
++def _keywords(text: str) -> set[str]:
++    """Content keywords (lower-cased word tokens at/above the min length)."""
++    return {tok for tok in _WORD_RE.findall(text.lower()) if len(tok) >= _MIN_KEYWORD_LEN}
++
++
++def _numbers(text: str) -> set[str]:
++    """Numeric tokens (as strings) appearing in the text."""
++    return set(_NUMBER_RE.findall(text))
++
++
++def _has_negation(text: str) -> bool:
++    """True iff the text carries a negation marker word."""
++    return bool(_NEGATION_MARKERS & set(_WORD_RE.findall(text.lower())))
++
++
++class VerifiedClaimGraphStore:
++    """SQLite-backed verified-claim graph (the snowball). Synchronous, offline, injected path.
++
++    Open with an explicit `db_path`, OR pass a `run_dir` and the store creates
++    `<run_dir>/verified_claim_graph.sqlite`. The connection is held open for the store's
++    lifetime; call `close()` when done (the store is also a context manager).
++    """
++
++    def __init__(
++        self,
++        *,
++        db_path: str | Path | None = None,
++        run_dir: str | Path | None = None,
++    ) -> None:
++        if db_path is not None and run_dir is not None:
++            raise ValueError("pass exactly one of db_path or run_dir, not both")
++        if db_path is not None:
++            resolved = Path(db_path)
++        elif run_dir is not None:
++            resolved = Path(run_dir) / _DEFAULT_DB_FILENAME
++        else:
++            raise ValueError("VerifiedClaimGraphStore requires db_path or run_dir")
++        resolved.parent.mkdir(parents=True, exist_ok=True)
++        self._db_path = resolved
++        self._conn = sqlite3.connect(str(resolved))
++        self._conn.row_factory = sqlite3.Row
++        self._ensure_table()
++
++    def __enter__(self) -> "VerifiedClaimGraphStore":
++        return self
++
++    def __exit__(self, exc_type, exc, tb) -> None:
++        self.close()
++
++    def close(self) -> None:
++        self._conn.close()
++
++    def _ensure_table(self) -> None:
++        self._conn.execute(
++            """
++            CREATE TABLE IF NOT EXISTS verified_claims (
++                row_id        INTEGER PRIMARY KEY AUTOINCREMENT,
++                claim_id      TEXT NOT NULL,
++                claim_text    TEXT NOT NULL,
++                verdict       TEXT NOT NULL,
++                reusable      INTEGER NOT NULL,
++                role_verdicts TEXT NOT NULL,
++                timestamp     TEXT NOT NULL
++            )
++            """
++        )
++        self._conn.commit()
++
++    def write_claim(
++        self,
++        *,
++        claim_text: str,
++        claim_id: str,
++        verdict: str,
++        role_verdicts: dict,
++        timestamp: str,
++    ) -> None:
++        """Persist one claim outcome. ALL verdicts are stored (audit), only VERIFIED is reusable.
++
++        `reusable` is derived solely from `verdict == "VERIFIED"` (anti-poisoning, Codex
++        iter-2 P1-3): a non-VERIFIED row lands in the table for the audit trail but is EXCLUDED
++        from `query_related_claims` reuse. `timestamp` is the caller-supplied audit time (this
++        store never sources its own clock). `role_verdicts` (the per-role Mirror/Sentinel/Judge
++        signals) is JSON-serialized for provenance.
++        """
++        reusable = 1 if verdict == _VERDICT_VERIFIED else 0
++        self._conn.execute(
++            """
++            INSERT INTO verified_claims
++                (claim_id, claim_text, verdict, reusable, role_verdicts, timestamp)
++            VALUES (?, ?, ?, ?, ?, ?)
++            """,
++            (
++                claim_id,
++                claim_text,
++                verdict,
++                reusable,
++                json.dumps(role_verdicts, sort_keys=True, default=str),
++                timestamp,
++            ),
++        )
++        self._conn.commit()
++
++    def query_related_claims(self, claim_text: str) -> list[VerifiedClaimRecord]:
++        """Return prior VERIFIED claims related to `claim_text` (the REUSE pool).
++
++        ONLY rows with `reusable == 1` (verdict == VERIFIED) are eligible (anti-poisoning).
++        Relatedness is a simple keyword-overlap match against the stored claim text (the
++        contract only requires substring/keyword matching for reuse); an empty query keyword
++        set returns nothing. Returns the eligible records ordered by recency (row_id desc).
++        """
++        query_keywords = _keywords(claim_text)
++        rows = self._conn.execute(
++            "SELECT * FROM verified_claims WHERE reusable = 1 ORDER BY row_id DESC"
++        ).fetchall()
++        related: list[VerifiedClaimRecord] = []
++        for row in rows:
++            stored_keywords = _keywords(row["claim_text"])
++            # Relate iff they share a content keyword OR one claim text contains the other.
++            shares_keyword = bool(query_keywords & stored_keywords)
++            substring_match = (
++                claim_text.lower() in row["claim_text"].lower()
++                or row["claim_text"].lower() in claim_text.lower()
++            )
++            if shares_keyword or substring_match:
++                related.append(self._to_record(row))
++        return related
++
++    def find_contradictions(self, claim_text: str) -> list[ContradictionFlag]:
++        """Flag prior VERIFIED claims that the new claim may CONTRADICT (cross-time hook).
++
++        Documented heuristic STUB (over-flags by design — a missed contradiction is the lethal
++        error in clinical context): among the related VERIFIED reuse pool, flag a pair when
++        they share content keywords AND EITHER their negation polarity differs (one negates,
++        the other does not) OR they carry divergent numeric tokens (a dose/percentage
++        mismatch). This is a REVIEW FLAG for the human / Codex §-1.1 audit, never a verdict.
++        """
++        new_keywords = _keywords(claim_text)
++        new_negated = _has_negation(claim_text)
++        new_numbers = _numbers(claim_text)
++        flags: list[ContradictionFlag] = []
++        for record in self.query_related_claims(claim_text):
++            prior_keywords = _keywords(record.claim_text)
++            shared = new_keywords & prior_keywords
++            if not shared:
++                continue
++            prior_negated = _has_negation(record.claim_text)
++            prior_numbers = _numbers(record.claim_text)
++            reasons: list[str] = []
++            if new_negated != prior_negated:
++                reasons.append("negation-polarity mismatch over shared keywords")
++            if new_numbers and prior_numbers and new_numbers != prior_numbers:
++                reasons.append(
++                    f"divergent numeric tokens new={sorted(new_numbers)} "
++                    f"prior={sorted(prior_numbers)}"
++                )
++            if reasons:
++                flags.append(
++                    ContradictionFlag(
++                        new_claim_text=claim_text,
++                        prior_claim_id=record.claim_id,
++                        prior_claim_text=record.claim_text,
++                        reason="; ".join(reasons),
++                    )
++                )
++        return flags
++
++    @staticmethod
++    def _to_record(row: sqlite3.Row) -> VerifiedClaimRecord:
++        return VerifiedClaimRecord(
++            claim_id=row["claim_id"],
++            claim_text=row["claim_text"],
++            verdict=row["verdict"],
++            reusable=bool(row["reusable"]),
++            role_verdicts=json.loads(row["role_verdicts"]),
++            timestamp=row["timestamp"],
++        )
+diff --git a/src/polaris_graph/roles/role_pipeline.py b/src/polaris_graph/roles/role_pipeline.py
+new file mode 100644
+index 00000000..89865627
+--- /dev/null
++++ b/src/polaris_graph/roles/role_pipeline.py
+@@ -0,0 +1,265 @@
++"""Per-claim 4-role orchestration — Mirror -> Sentinel -> Judge, fail-closed composition.
++
++I-meta-002 sub-PR-5. This is the COMPOSABLE orchestration layer that drives the three
++sub-PR-4 role adapters (Mirror, Sentinel, Judge) over ONE injected `RoleTransport` and
++produces a single `D8ClaimRow` (sub-PR-3) per claim, plus a complete per-call audit trail.
++
++There is NO network here and NO spend: the transport is DEPENDENCY-INJECTED. Tests inject a
++mock transport. The runtime transport that wraps `openrouter_client` is wired in the sweep
++surgery (sub-PR-6), NOT here.
++
++Two safety properties this module guarantees (both clinical-lethal if absent):
++
++1. RECORDING TRANSPORT (Codex iter-2 P1-4). `RecordingTransport` WRAPS the injected transport
++   and appends one `RoleCallRecord` to `self.records` on EVERY `complete()` — BEFORE returning
++   to the adapter, so the record exists even when the adapter later raises (Mirror fail-closed).
++   The Path-B identity gate therefore has no blind spot: every served completion is captured,
++   including the highest-risk fail-closed paths.
++
++2. FAIL-CLOSED FINAL VERDICT (Codex iter-2 P1-1, LOCKED rule). `run_claim_pipeline` computes a
++   `final_verdict` and writes THAT into `D8ClaimRow.verdict`, while preserving the
++   `raw_judge_verdict` separately on the result. The rule (documented inline below) makes it
++   impossible for a hallucination — a Mirror with no grounded citation, or a Sentinel
++   UNGROUNDED — to reach VERIFIED, while never UPGRADING a worse Judge verdict
++   (FABRICATED/UNREACHABLE) to merely UNSUPPORTED.
++
++`claim_id` is a REQUIRED caller-supplied param (Codex iter-2 P1-2): it is used verbatim for
++`D8ClaimRow.claim_id` and is NEVER synthesized from claim text (duplicate/edited claims would
++otherwise collide and break rewrite/gap traceability).
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++
++from src.polaris_graph.roles.judge_adapter import run_judge
++from src.polaris_graph.roles.judge_contract import Verdict
++from src.polaris_graph.roles.mirror_adapter import (
++    MirrorBindingError,
++    MirrorCitationError,
++    run_mirror,
++)
++from src.polaris_graph.roles.mirror_contract import MirrorPass1, MirrorPass2
++from src.polaris_graph.roles.release_policy import D8ClaimRow
++from src.polaris_graph.roles.role_transport import (
++    EvidenceDocument,
++    RoleCallRecord,
++    RoleRequest,
++    RoleResponse,
++    RoleTransport,
++)
++from src.polaris_graph.roles.sentinel_adapter import run_sentinel
++from src.polaris_graph.roles.sentinel_contract import SentinelResult, SentinelVerdict
++
++# --- canonical verdict tokens (Verdict is a Literal of plain strings, NOT an Enum) -------
++# Mirror release_policy.py's _VERDICT_* string-constant pattern; never write `Verdict.X`.
++_VERDICT_VERIFIED = "VERIFIED"
++_VERDICT_PARTIAL = "PARTIAL"
++_VERDICT_UNSUPPORTED = "UNSUPPORTED"
++_VERDICT_FABRICATED = "FABRICATED"
++_VERDICT_UNREACHABLE = "UNREACHABLE"
++
++# Judge verdicts that the Sentinel-override DOWNGRADES to UNSUPPORTED (an apparently-good
++# verdict on an UNGROUNDED claim). FABRICATED/UNREACHABLE/UNSUPPORTED are NEVER upgraded.
++_SENTINEL_OVERRIDE_DOWNGRADE_FROM = (_VERDICT_VERIFIED, _VERDICT_PARTIAL)
++
++
++class RecordingTransport:
++    """Wrap an injected `RoleTransport`; record EVERY completion before returning it.
++
++    On each `complete(request)` the wrapper appends a `RoleCallRecord(role, model_slug,
++    served_model, raw_text, parsed=None)` to `self.records` BEFORE returning the underlying
++    response (Codex iter-2 P1-4). Because the record is appended before the adapter sees the
++    response — and therefore before the adapter can parse or raise — the served-identity
++    record survives even on the fail-closed paths (a Mirror pass-1 that then raises
++    `MirrorCitationError`). `parsed` is left None here: it is the role contract that parses,
++    and the parsed sub-results are carried separately on `ClaimPipelineResult`.
++    """
++
++    def __init__(self, transport: RoleTransport) -> None:
++        self._transport = transport
++        self.records: list[RoleCallRecord] = []
++
++    def complete(self, request: RoleRequest) -> RoleResponse:
++        response = self._transport.complete(request)
++        # Append BEFORE returning so a downstream adapter raise cannot drop the record.
++        self.records.append(
++            RoleCallRecord(
++                role=request.role,
++                model_slug=request.model_slug,
++                served_model=response.served_model,
++                raw_text=response.raw_text,
++                parsed=None,
++            )
++        )
++        return response
++
++
++@dataclass
++class ClaimPipelineResult:
++    """The full per-claim orchestration result.
++
++    `d8_row` carries the POST-OVERRIDE `final_verdict` in `D8ClaimRow.verdict`.
++    `raw_judge_verdict` preserves the Judge's pre-override verdict (None if the Judge never
++    ran because Mirror failed closed). `records` is the complete served-identity audit trail
++    from the `RecordingTransport` (complete even on fail-closed paths). The raw
++    `mirror_result` / `sentinel_result` / `judge_result` are preserved for auditability and
++    are None where that stage failed closed / did not run.
++    """
++
++    d8_row: D8ClaimRow
++    raw_judge_verdict: Verdict | None
++    final_verdict: Verdict
++    records: list[RoleCallRecord]
++    mirror_result: MirrorPass2 | None
++    sentinel_result: SentinelResult | None
++    judge_result: Verdict | None
++
++
++def _first_grounded_citation_id(mirror_records: list[RoleCallRecord]) -> str | None:
++    """Extract a grounded citation doc_id from the Mirror pass-1 record, else None.
++
++    The grounded doc_ids live on the pass-1 `MirrorPass1.citation_spans` (the pass-2
++    `MirrorPass2` carries only a classification + hash, NOT doc_ids). `run_mirror` returns
++    its OWN record list whose pass-1 record's `parsed` is a `MirrorPass1`; the first grounded
++    span's first doc_id is used for D8 gap reporting. Returns None if no grounded span exists.
++    """
++    for record in mirror_records:
++        parsed = record.parsed
++        if isinstance(parsed, MirrorPass1) and parsed.citation_spans:
++            for span in parsed.citation_spans:
++                if span.doc_ids:
++                    return span.doc_ids[0]
++    return None
++
++
++def _compose_final_verdict(
++    *,
++    mirror_failed_closed: bool,
++    sentinel_result: SentinelResult | None,
++    raw_judge_verdict: Verdict | None,
++) -> Verdict:
++    """LOCKED fail-closed composition rule (Codex iter-2 P1-1).
++
++    A hallucination can NEVER reach VERIFIED; a worse Judge verdict is NEVER upgraded.
++
++      (1) Mirror raised MirrorCitationError/MirrorBindingError (no grounded/bound citation)
++          -> UNSUPPORTED, regardless of Judge. A claim with no grounded citation can never be
++          VERIFIED. (On this path the Judge never ran, so raw_judge_verdict is None.)
++      (2) ELSE if Sentinel == UNGROUNDED OR Sentinel.parsed_ok is False
++          -> if raw Judge verdict is VERIFIED/PARTIAL, OVERRIDE to UNSUPPORTED;
++             if raw Judge verdict is FABRICATED/UNREACHABLE/UNSUPPORTED, PRESERVE it
++             (never upgrade a worse verdict to merely UNSUPPORTED).
++      (3) ELSE -> raw_judge_verdict (Sentinel grounded + parsed_ok; trust the arbiter).
++    """
++    # (1) Mirror fail-closed -> UNSUPPORTED.
++    if mirror_failed_closed:
++        return _VERDICT_UNSUPPORTED
++
++    # raw_judge_verdict is non-None here: the Judge ran (Mirror succeeded). It fails LOUD on a
++    # non-enum token (JudgeEnumError propagates from run_judge), so it is a valid Verdict.
++    assert raw_judge_verdict is not None  # invariant: Judge ran iff Mirror succeeded.
++
++    # (2) Sentinel UNGROUNDED or unparsed -> downgrade an apparently-good Judge verdict.
++    sentinel_unsafe = sentinel_result is None or (
++        sentinel_result.verdict == SentinelVerdict.UNGROUNDED
++        or not sentinel_result.parsed_ok
++    )
++    if sentinel_unsafe:
++        if raw_judge_verdict in _SENTINEL_OVERRIDE_DOWNGRADE_FROM:
++            return _VERDICT_UNSUPPORTED
++        return raw_judge_verdict  # FABRICATED / UNREACHABLE / UNSUPPORTED preserved.
++
++    # (3) Sentinel grounded + parsed_ok -> the Judge's verdict stands.
++    return raw_judge_verdict
++
++
++def run_claim_pipeline(
++    transport: RoleTransport,
++    *,
++    claim_id: str,
++    claim: str,
++    evidence_documents: list[EvidenceDocument],
++    severity: str,
++    s0_categories: list[str],
++    model_slugs: dict[str, str],
++    timestamp: str,
++) -> ClaimPipelineResult:
++    """Run Mirror -> Sentinel -> Judge over the injected transport for ONE claim.
++
++    `model_slugs` maps role -> pinned slug (keys: "mirror", "sentinel", "judge"). `claim_id`
++    is REQUIRED and flows verbatim into `D8ClaimRow.claim_id` (never synthesized). `timestamp`
++    is passed through for the caller's audit record (this function does NOT call
++    datetime.now()).
++
++    Composition is FAIL-CLOSED per `_compose_final_verdict`. On a Mirror fail-closed
++    (MirrorCitationError/MirrorBindingError) the pipeline SHORT-CIRCUITS: Sentinel and Judge
++    do not run, `final_verdict = UNSUPPORTED`, and the raw sub-results are None — but the
++    RecordingTransport still holds the served-identity record for the Mirror call(s) that did
++    fire, so the identity gate sees them.
++    """
++    recording = RecordingTransport(transport)
++
++    mirror_slug = model_slugs["mirror"]
++    sentinel_slug = model_slugs["sentinel"]
++    judge_slug = model_slugs["judge"]
++
++    mirror_result: MirrorPass2 | None = None
++    sentinel_result: SentinelResult | None = None
++    judge_result: Verdict | None = None
++    raw_judge_verdict: Verdict | None = None
++    citation_id: str | None = None
++    mirror_failed_closed = False
++
++    # --- stage 14: Mirror (fail CLOSED) ----------------------------------------------
++    # Catch the two grounding/binding errors EXPLICITLY (NOT `except: pass`) so they drive the
++    # UNSUPPORTED override; any OTHER exception propagates (a transport fault is not a verdict).
++    try:
++        mirror_result, mirror_records = run_mirror(
++            recording, claim, evidence_documents, model_slug=mirror_slug
++        )
++        citation_id = _first_grounded_citation_id(mirror_records)
++    except (MirrorCitationError, MirrorBindingError):
++        mirror_failed_closed = True
++
++    # --- stage 15 + 16: Sentinel -> Judge (only if Mirror produced a grounded claim) -----
++    if not mirror_failed_closed:
++        sentinel_result, _sentinel_records = run_sentinel(
++            recording, claim, evidence_documents, model_slug=sentinel_slug
++        )
++        evidence_text = "\n\n".join(doc.text for doc in evidence_documents)
++        # Judge fails LOUD by design: a non-enum token raises JudgeEnumError, which we do NOT
++        # catch — a missing/garbage arbiter verdict must propagate, never coerce to a default.
++        raw_judge_verdict, _judge_records = run_judge(
++            recording,
++            claim,
++            evidence_text,
++            mirror_verdict=str(mirror_result.classification),
++            sentinel_verdict=sentinel_result.verdict.value,
++            model_slug=judge_slug,
++        )
++        judge_result = raw_judge_verdict
++
++    final_verdict = _compose_final_verdict(
++        mirror_failed_closed=mirror_failed_closed,
++        sentinel_result=sentinel_result,
++        raw_judge_verdict=raw_judge_verdict,
++    )
++
++    d8_row = D8ClaimRow(
++        claim_id=claim_id,
++        severity=severity,
++        verdict=final_verdict,
++        citation_id=citation_id,
++        s0_categories=list(s0_categories),
++    )
++
++    return ClaimPipelineResult(
++        d8_row=d8_row,
++        raw_judge_verdict=raw_judge_verdict,
++        final_verdict=final_verdict,
++        records=recording.records,
++        mirror_result=mirror_result,
++        sentinel_result=sentinel_result,
++        judge_result=judge_result,
++    )
+diff --git a/tests/dr_benchmark/test_pathB_runner.py b/tests/dr_benchmark/test_pathB_runner.py
+index 7d8b5d47..c36672db 100644
+--- a/tests/dr_benchmark/test_pathB_runner.py
++++ b/tests/dr_benchmark/test_pathB_runner.py
+@@ -12,6 +12,23 @@ from src.polaris_graph.benchmark.pathB_runner import gate_around_question
+ from scripts.dr_benchmark.pathB_run_gate import GateError
+ 
+ 
++# I-meta-002 sub-PR-5: the 4 locked architecture role slugs (config/architecture/
++# polaris_runtime_lock.yaml). _role_pins() now returns generator/mirror/sentinel/judge, and
++# the post-run gate enforces completeness in BOTH directions (every pinned role observed AND
++# every observed role pinned), so the captured calls must be exactly these four roles.
++_GEN_SLUG = "deepseek/deepseek-v4-pro"
++_MIRROR_SLUG = "cohere/command-a-plus"
++_SENTINEL_SLUG = "ibm-granite/granite-guardian-4.1-8b"
++_JUDGE_SLUG = "qwen/qwen3.6-35b-a3b"
++
++_FOUR_ROLE_SLUGS = {
++    "generator": _GEN_SLUG,
++    "mirror": _MIRROR_SLUG,
++    "sentinel": _SENTINEL_SLUG,
++    "judge": _JUDGE_SLUG,
++}
++
++
+ def _full_power_env(monkeypatch) -> None:
+     monkeypatch.setenv("OPENROUTER_ALLOW_FALLBACKS", "false")
+     monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "deepinfra")
+@@ -20,10 +37,28 @@ def _full_power_env(monkeypatch) -> None:
+     monkeypatch.setenv("PG_PATHB_GATE_SALT", "pathB-test-salt-VERY-secret")
+     # Codex PR-2 diff iter-1 P1 #1: PG_GENERATOR_MODEL is the documented honest_sweep
+     # override; the pin must read it first (not OPENROUTER_DEFAULT_MODEL).
+-    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
++    monkeypatch.setenv("PG_GENERATOR_MODEL", _GEN_SLUG)
++    # The preflight eff_entail==eff_eval invariant (pathB_run_gate) reads PG_EVALUATOR_MODEL;
++    # keep it equal to the default entailment model (gemma) so that gate stays satisfied. It
++    # is NOT a role pin anymore (the 4-role set is generator/mirror/sentinel/judge).
+     monkeypatch.setenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
+ 
+ 
++def _capture_four_roles(pc) -> None:
++    """Capture one served completion per locked role (generator/mirror/sentinel/judge).
++
++    The post-run gate requires every PINNED role to appear in captured calls; the 4-role pin
++    set therefore needs a capture for each. Provider is the offline-pinned 'deepinfra' (the
++    only entry in OPENROUTER_PROVIDER_ORDER), and each served model matches its role's pin.
++    """
++    for role, slug in _FOUR_ROLE_SLUGS.items():
++        pc.capture_llm_call(
++            role=role,
++            messages=[{"role": "user", "content": role}],
++            raw_response={"provider": "deepinfra", "model": slug},
++        )
++
++
+ def _patch_preflight_offline(monkeypatch):
+     """Force preflight(offline=True) so the lifecycle helper does not hit the network in tests."""
+     from src.polaris_graph.benchmark import pathB_runner
+@@ -53,35 +88,19 @@ def test_enabled_pass_writes_pin_and_result(tmp_path: Path, monkeypatch) -> None
+     _patch_preflight_offline(monkeypatch)
+     pc.clear_pathB_capture()
+     with gate_around_question(enabled=True, run_dir=tmp_path):
+-        tok = pc.set_role("generator")
+-        try:
+-            pc.capture_llm_call(
+-                role="generator",
+-                messages=[{"role": "user", "content": "q"}],
+-                raw_response={
+-                    "provider": "deepinfra",
+-                    "model": "deepseek/deepseek-v4-pro",
+-                    "system_fingerprint": "fp_g",
+-                },
+-            )
+-        finally:
+-            pc.reset_role(tok)
+-        pc.capture_llm_call(
+-            role="evaluator",
+-            messages=[{"role": "user", "content": "j"}],
+-            raw_response={
+-                "provider": "deepinfra",
+-                "model": "google/gemma-4-31b-it",
+-                "system_fingerprint": "fp_e",
+-            },
+-        )
++        _capture_four_roles(pc)
+         pc.record_retrieval_attempt("serper")
+         pc.record_retrieval_attempt("semantic_scholar")
+     pin = json.loads((tmp_path / "pathB_gate_pin.json").read_text(encoding="utf-8"))
+     result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
+     assert "effective_config_hash" in pin
+     assert result["verdict"] == "PASS"
+-    assert set(result["served_identity_by_role"]) == {"generator", "evaluator"}
++    assert set(result["served_identity_by_role"]) == {
++        "generator", "mirror", "sentinel", "judge",
++    }
++    # The pin now records the 4 locked roles, lock-sourced (config/architecture lock).
++    pinned_roles = {rp["role"] for rp in pin["role_pins"]}
++    assert pinned_roles == {"generator", "mirror", "sentinel", "judge"}
+ 
+ 
+ # --- gate enabled, but a required backend was never attempted -> GateError + result FAIL ---
+@@ -91,24 +110,7 @@ def test_enabled_fails_when_backend_not_attempted(tmp_path: Path, monkeypatch) -
+     pc.clear_pathB_capture()
+     with pytest.raises(GateError, match="never attempted"):
+         with gate_around_question(enabled=True, run_dir=tmp_path):
+-            pc.capture_llm_call(
+-                role="generator",
+-                messages=[{"role": "user", "content": "q"}],
+-                raw_response={
+-                    "provider": "deepinfra",
+-                    "model": "deepseek/deepseek-v4-pro",
+-                    "system_fingerprint": "fp_g",
+-                },
+-            )
+-            pc.capture_llm_call(
+-                role="evaluator",
+-                messages=[{"role": "user", "content": "j"}],
+-                raw_response={
+-                    "provider": "deepinfra",
+-                    "model": "google/gemma-4-31b-it",
+-                    "system_fingerprint": "fp_e",
+-                },
+-            )
++            _capture_four_roles(pc)
+             pc.record_retrieval_attempt("serper")
+             # semantic_scholar deliberately NOT attempted -> gate must FAIL
+     result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
+@@ -128,6 +130,42 @@ def test_pin_reads_pg_generator_model_first(monkeypatch) -> None:
+     assert pins["generator"].model_slug == "deepseek/deepseek-v4-pro"  # NOT "wrong/wrong-slug"
+ 
+ 
++# --- I-meta-002 sub-PR-5: _role_pins() returns the FOUR locked roles, lock-sourced slugs ---
++def test_role_pins_returns_four_locked_roles(monkeypatch) -> None:
++    # No PG_*_MODEL overrides set: defaults are sourced from the architecture lock.
++    monkeypatch.delenv("PG_GENERATOR_MODEL", raising=False)
++    monkeypatch.delenv("OPENROUTER_DEFAULT_MODEL", raising=False)
++    monkeypatch.delenv("PG_MIRROR_MODEL", raising=False)
++    monkeypatch.delenv("PG_SENTINEL_MODEL", raising=False)
++    monkeypatch.delenv("PG_JUDGE_MODEL", raising=False)
++    from src.polaris_graph.benchmark.pathB_runner import _role_pins
++    pins = {p.role: p.model_slug for p in _role_pins()}
++    assert pins == _FOUR_ROLE_SLUGS  # lock-sourced generator/mirror/sentinel/judge
++
++
++# --- per-role PG_*_MODEL env override is applied ON TOP of the lock default ---
++def test_role_pins_env_overrides_applied(monkeypatch) -> None:
++    monkeypatch.delenv("PG_GENERATOR_MODEL", raising=False)
++    monkeypatch.delenv("OPENROUTER_DEFAULT_MODEL", raising=False)
++    # Override mirror to another distinct-family slug (mistral) so all_distinct still holds.
++    monkeypatch.setenv("PG_MIRROR_MODEL", "mistralai/mistral-large")
++    from src.polaris_graph.benchmark.pathB_runner import _role_pins
++    pins = {p.role: p.model_slug for p in _role_pins()}
++    assert pins["mirror"] == "mistralai/mistral-large"
++    assert pins["generator"] == _GEN_SLUG  # untouched, lock-sourced
++
++
++# --- a same-family 4-role map fails LOUD at pin-build via validate_role_families ---
++def test_role_pins_rejects_family_collision(monkeypatch) -> None:
++    monkeypatch.delenv("PG_GENERATOR_MODEL", raising=False)
++    monkeypatch.delenv("OPENROUTER_DEFAULT_MODEL", raising=False)
++    # Force the judge into the deepseek family -> collides with the generator (deepseek).
++    monkeypatch.setenv("PG_JUDGE_MODEL", "deepseek/deepseek-v4-pro")
++    from src.polaris_graph.benchmark.pathB_runner import _role_pins
++    with pytest.raises(RuntimeError, match="family"):
++        _role_pins()
++
++
+ # --- Codex PR-2 iter-1 P1 #2: system_fingerprint must NOT be a required surrogate field;
+ # a valid response without it must pass the gate. Regression test.
+ def test_gate_passes_without_system_fingerprint(tmp_path: Path, monkeypatch) -> None:
+@@ -136,16 +174,7 @@ def test_gate_passes_without_system_fingerprint(tmp_path: Path, monkeypatch) ->
+     pc.clear_pathB_capture()
+     with gate_around_question(enabled=True, run_dir=tmp_path):
+         # responses deliberately OMIT system_fingerprint — must still pass
+-        pc.capture_llm_call(
+-            role="generator",
+-            messages=[{"role": "user", "content": "q"}],
+-            raw_response={"provider": "deepinfra", "model": "deepseek/deepseek-v4-pro"},
+-        )
+-        pc.capture_llm_call(
+-            role="evaluator",
+-            messages=[{"role": "user", "content": "j"}],
+-            raw_response={"provider": "deepinfra", "model": "google/gemma-4-31b-it"},
+-        )
++        _capture_four_roles(pc)
+         pc.record_retrieval_attempt("serper")
+         pc.record_retrieval_attempt("semantic_scholar")
+     result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
+@@ -159,14 +188,7 @@ def test_salt_is_redacted_in_pin(tmp_path: Path, monkeypatch) -> None:
+     pc.clear_pathB_capture()
+     try:
+         with gate_around_question(enabled=True, run_dir=tmp_path):
+-            pc.capture_llm_call(
+-                role="generator", messages=[{"role": "user", "content": "q"}],
+-                raw_response={"provider": "deepinfra", "model": "deepseek/deepseek-v4-pro"},
+-            )
+-            pc.capture_llm_call(
+-                role="evaluator", messages=[{"role": "user", "content": "j"}],
+-                raw_response={"provider": "deepinfra", "model": "google/gemma-4-31b-it"},
+-            )
++            _capture_four_roles(pc)
+             pc.record_retrieval_attempt("serper")
+             pc.record_retrieval_attempt("semantic_scholar")
+     except Exception:
+@@ -200,16 +222,9 @@ def test_post_run_fail_writes_invalid_sentinel(tmp_path: Path, monkeypatch) -> N
+     pc.clear_pathB_capture()
+     with pytest.raises(GateError):
+         with gate_around_question(enabled=True, run_dir=tmp_path):
+-            pc.capture_llm_call(
+-                role="generator", messages=[{"role": "user", "content": "q"}],
+-                raw_response={"provider": "deepinfra", "model": "deepseek/deepseek-v4-pro"},
+-            )
+-            pc.capture_llm_call(
+-                role="evaluator", messages=[{"role": "user", "content": "j"}],
+-                raw_response={"provider": "deepinfra", "model": "google/gemma-4-31b-it"},
+-            )
++            _capture_four_roles(pc)
+             pc.record_retrieval_attempt("serper")
+-            # semantic_scholar deliberately omitted
++            # semantic_scholar deliberately omitted -> post-run gate FAIL
+     assert (tmp_path / "pathB_gate_INVALID").exists()
+ 
+ 
+diff --git a/tests/roles/test_role_pipeline.py b/tests/roles/test_role_pipeline.py
+new file mode 100644
+index 00000000..3ee3c200
+--- /dev/null
++++ b/tests/roles/test_role_pipeline.py
+@@ -0,0 +1,223 @@
++"""Per-claim 4-role pipeline tests (I-meta-002 sub-PR-5). Offline, mock transport, NO network.
++
++Exercises the LOCKED fail-closed composition rule + the RecordingTransport audit capture with
++a configurable mock `RoleTransport`. There is NO real LLM call and NO spend: every completion
++is canned by `MockTransport`.
++"""
++
++from __future__ import annotations
++
++import json
++
++import pytest
++
++from src.polaris_graph.roles.mirror_contract import CitationSpan
++from src.polaris_graph.roles.role_pipeline import (
++    RecordingTransport,
++    run_claim_pipeline,
++)
++from src.polaris_graph.roles.role_transport import (
++    EvidenceDocument,
++    RoleRequest,
++    RoleResponse,
++)
++
++# Lock-sourced slugs (offline; the pipeline only uses them to tag records, never to call out).
++_MODEL_SLUGS = {
++    "mirror": "cohere/command-a-plus",
++    "sentinel": "ibm-granite/granite-guardian-4.1-8b",
++    "judge": "qwen/qwen3.6-35b-a3b",
++}
++_EVIDENCE = [EvidenceDocument(doc_id="doc1", text="The trial reported a 5.0 mg dose.")]
++_TIMESTAMP = "2026-05-29T00:00:00Z"
++
++
++class MockTransport:
++    """Configurable mock `RoleTransport` keyed on the request role + Mirror pass.
++
++    - Mirror pass-1 (no `pass2_input` in params): returns a managed-path grounded citation
++      span pointing at `doc1` (in the evidence), so `_extract_citations` yields a grounded span
++      and the Mirror does NOT fail closed. `mirror_fail_closed=True` flips pass-1 to an
++      ungrounded citation (doc_id not in evidence) so `run_mirror` raises MirrorCitationError.
++    - Mirror pass-2 (`pass2_input` present): echoes the embedded `content_hash` back in JSON so
++      `verify_pass2_binding` holds.
++    - Sentinel: returns `<score>yes</score>` (UNGROUNDED) or `<score>no</score>` (GROUNDED).
++    - Judge: returns the configured verdict token.
++
++    `seen_roles` records the ordered role sequence so tests can assert Mirror -> Sentinel ->
++    Judge ordering.
++    """
++
++    def __init__(
++        self,
++        *,
++        sentinel_grounded: bool = True,
++        judge_verdict: str = "VERIFIED",
++        mirror_fail_closed: bool = False,
++    ) -> None:
++        self._sentinel_grounded = sentinel_grounded
++        self._judge_verdict = judge_verdict
++        self._mirror_fail_closed = mirror_fail_closed
++        self.seen_roles: list[str] = []
++
++    def complete(self, request: RoleRequest) -> RoleResponse:
++        self.seen_roles.append(request.role)
++        if request.role == "mirror":
++            if "pass2_input" in request.params:
++                content_hash = request.params["pass2_input"]["content_hash"]
++                payload = {"content_hash": content_hash, "classification": "supported"}
++                return RoleResponse(
++                    raw_text=json.dumps(payload), served_model=request.model_slug
++                )
++            # pass-1: managed citation path. Grounded -> doc1 (in evidence); fail-closed ->
++            # a hallucinated doc_id never supplied, which the binding guard rejects whole.
++            doc_id = "ghost-doc" if self._mirror_fail_closed else "doc1"
++            return RoleResponse(
++                raw_text="grounded answer",
++                served_model=request.model_slug,
++                citations=[CitationSpan(span_start=0, span_end=8, doc_ids=(doc_id,))],
++            )
++        if request.role == "sentinel":
++            score = "no" if self._sentinel_grounded else "yes"
++            return RoleResponse(
++                raw_text=f"<score>{score}</score>", served_model=request.model_slug
++            )
++        if request.role == "judge":
++            return RoleResponse(
++                raw_text=self._judge_verdict, served_model=request.model_slug
++            )
++        raise AssertionError(f"unexpected role {request.role!r}")
++
++
++def _run(transport, *, claim_id="claim-1", severity="S0", s0_categories=None):
++    return run_claim_pipeline(
++        transport,
++        claim_id=claim_id,
++        claim="The dose is 5.0 mg.",
++        evidence_documents=_EVIDENCE,
++        severity=severity,
++        s0_categories=s0_categories or [],
++        model_slugs=_MODEL_SLUGS,
++        timestamp=_TIMESTAMP,
++    )
++
++
++# --- RecordingTransport: appends the served record BEFORE returning to the caller/adapter ---
++def test_recording_transport_records_before_returning() -> None:
++    # The wrapper must have appended the record by the time complete() returns, so a downstream
++    # adapter that parses/raises on the returned response cannot drop the served-identity record.
++    # (The end-to-end "record survives an adapter raise" guarantee is asserted by
++    # test_mirror_fail_closed_unsupported_and_record_present below.)
++    class _Inner:
++        def complete(self, request: RoleRequest) -> RoleResponse:
++            return RoleResponse(raw_text="x", served_model="served-x")
++
++    rec = RecordingTransport(_Inner())
++    resp = rec.complete(RoleRequest(role="mirror", model_slug="cohere/command-a-plus"))
++    assert resp.served_model == "served-x"
++    assert len(rec.records) == 1
++    assert rec.records[0].role == "mirror"
++    assert rec.records[0].served_model == "served-x"
++    assert rec.records[0].parsed is None  # wrapper does not parse
++
++
++# --- ordering: Mirror -> Sentinel -> Judge ---
++def test_ordering_mirror_sentinel_judge() -> None:
++    transport = MockTransport(sentinel_grounded=True, judge_verdict="VERIFIED")
++    _run(transport)
++    # Mirror is two passes; the first three DISTINCT roles in order must be mirror,sentinel,judge.
++    first_seen_order = []
++    for role in transport.seen_roles:
++        if role not in first_seen_order:
++            first_seen_order.append(role)
++    assert first_seen_order == ["mirror", "sentinel", "judge"]
++
++
++# --- happy path: Sentinel grounded + Judge VERIFIED -> final VERIFIED ---
++def test_grounded_verified_passes_through() -> None:
++    transport = MockTransport(sentinel_grounded=True, judge_verdict="VERIFIED")
++    result = _run(transport)
++    assert result.raw_judge_verdict == "VERIFIED"
++    assert result.final_verdict == "VERIFIED"
++    assert result.d8_row.verdict == "VERIFIED"
++
++
++# --- Sentinel UNGROUNDED overrides Judge VERIFIED -> UNSUPPORTED (raw preserved) ---
++def test_sentinel_ungrounded_overrides_judge_verified() -> None:
++    transport = MockTransport(sentinel_grounded=False, judge_verdict="VERIFIED")
++    result = _run(transport)
++    assert result.raw_judge_verdict == "VERIFIED"  # raw preserved
++    assert result.final_verdict == "UNSUPPORTED"   # overridden
++    assert result.d8_row.verdict == "UNSUPPORTED"
++
++
++# --- Sentinel UNGROUNDED PRESERVES a worse Judge FABRICATED (never upgraded to UNSUPPORTED) ---
++def test_sentinel_ungrounded_preserves_judge_fabricated() -> None:
++    transport = MockTransport(sentinel_grounded=False, judge_verdict="FABRICATED")
++    result = _run(transport)
++    assert result.raw_judge_verdict == "FABRICATED"
++    assert result.final_verdict == "FABRICATED"  # NOT upgraded to UNSUPPORTED
++    assert result.d8_row.verdict == "FABRICATED"
++
++
++# --- Mirror fail-closed -> final UNSUPPORTED AND its served record still present ---
++def test_mirror_fail_closed_unsupported_and_record_present() -> None:
++    transport = MockTransport(mirror_fail_closed=True, judge_verdict="VERIFIED")
++    result = _run(transport)
++    assert result.final_verdict == "UNSUPPORTED"
++    assert result.d8_row.verdict == "UNSUPPORTED"
++    # Judge never ran on the short-circuit path.
++    assert result.raw_judge_verdict is None
++    assert result.judge_result is None
++    assert result.mirror_result is None  # Mirror failed closed
++    assert result.sentinel_result is None  # short-circuited
++    # The Mirror pass-1 served-identity record is STILL captured (recorded before the raise).
++    mirror_records = [r for r in result.records if r.role == "mirror"]
++    assert mirror_records, "Mirror served-identity record must survive fail-closed"
++    assert mirror_records[0].served_model == "cohere/command-a-plus"
++    # And no sentinel/judge call was made (short-circuit).
++    assert "sentinel" not in {r.role for r in result.records}
++    assert "judge" not in {r.role for r in result.records}
++
++
++# --- claim_id flows VERBATIM into the D8 row (never synthesized) ---
++def test_claim_id_flows_into_d8_row() -> None:
++    transport = MockTransport(sentinel_grounded=True, judge_verdict="VERIFIED")
++    result = _run(transport, claim_id="custom-claim-id-xyz")
++    assert result.d8_row.claim_id == "custom-claim-id-xyz"
++
++
++# --- citation_id is harvested from the Mirror grounded span on the success path ---
++def test_citation_id_from_grounded_span() -> None:
++    transport = MockTransport(sentinel_grounded=True, judge_verdict="VERIFIED")
++    result = _run(transport)
++    assert result.d8_row.citation_id == "doc1"
++
++
++# --- records capture the full served-identity trail on the success path (no blind spot) ---
++def test_records_complete_on_success() -> None:
++    transport = MockTransport(sentinel_grounded=True, judge_verdict="VERIFIED")
++    result = _run(transport)
++    roles = [r.role for r in result.records]
++    # mirror pass-1 + pass-2 (2x) + sentinel (1x) + judge (1x) = 4 records.
++    assert roles.count("mirror") == 2
++    assert roles.count("sentinel") == 1
++    assert roles.count("judge") == 1
++    assert all(r.parsed is None for r in result.records)  # wrapper does not parse
++
++
++# --- Sentinel parse-failure (parsed_ok False) is treated as UNSAFE -> downgrade VERIFIED ---
++def test_sentinel_unparsed_is_unsafe_override() -> None:
++    class _BadSentinel(MockTransport):
++        def complete(self, request: RoleRequest) -> RoleResponse:
++            if request.role == "sentinel":
++                self.seen_roles.append(request.role)
++                # Malformed -> parse fails closed (parsed_ok False, UNGROUNDED).
++                return RoleResponse(raw_text="garbage", served_model=request.model_slug)
++            return super().complete(request)
++
++    transport = _BadSentinel(judge_verdict="VERIFIED")
++    result = _run(transport)
++    assert result.sentinel_result is not None
++    assert result.sentinel_result.parsed_ok is False
++    assert result.final_verdict == "UNSUPPORTED"  # unparsed sentinel downgrades VERIFIED
+diff --git a/tests/roles/test_verified_claim_graph.py b/tests/roles/test_verified_claim_graph.py
+new file mode 100644
+index 00000000..8f40a714
+--- /dev/null
++++ b/tests/roles/test_verified_claim_graph.py
+@@ -0,0 +1,155 @@
++"""Verified-claim graph store tests (I-meta-002 sub-PR-5). Temp SQLite, offline, NO network.
++
++Asserts write+read, the anti-snowball-poisoning VERIFIED-only reuse filter, and the
++cross-time contradiction flag. The store opens a temp SQLite path; no datetime.now() is used
++(the timestamp is passed in).
++"""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++from src.polaris_graph.memory.verified_claim_graph import VerifiedClaimGraphStore
++
++_TS = "2026-05-29T00:00:00Z"
++_ROLE_VERDICTS = {"mirror": "supported", "sentinel": "grounded", "judge": "VERIFIED"}
++
++
++def _open(tmp_path: Path) -> VerifiedClaimGraphStore:
++    return VerifiedClaimGraphStore(db_path=tmp_path / "graph.sqlite")
++
++
++# --- write + read back a VERIFIED claim via the reuse pool ---
++def test_write_and_query_verified_claim(tmp_path: Path) -> None:
++    with _open(tmp_path) as store:
++        store.write_claim(
++            claim_text="Tirzepatide 5 mg reduced HbA1c.",
++            claim_id="c1",
++            verdict="VERIFIED",
++            role_verdicts=_ROLE_VERDICTS,
++            timestamp=_TS,
++        )
++        related = store.query_related_claims("Tirzepatide HbA1c outcome data")
++    assert len(related) == 1
++    assert related[0].claim_id == "c1"
++    assert related[0].verdict == "VERIFIED"
++    assert related[0].reusable is True
++    assert related[0].role_verdicts == _ROLE_VERDICTS
++    assert related[0].timestamp == _TS
++
++
++# --- anti-poisoning: a non-VERIFIED claim is persisted but NOT returned for reuse ---
++def test_non_verified_claim_excluded_from_reuse(tmp_path: Path) -> None:
++    with _open(tmp_path) as store:
++        store.write_claim(
++            claim_text="Tirzepatide caused no adverse events.",
++            claim_id="bad-1",
++            verdict="FABRICATED",
++            role_verdicts={"judge": "FABRICATED"},
++            timestamp=_TS,
++        )
++        store.write_claim(
++            claim_text="Tirzepatide reduced body weight.",
++            claim_id="ok-1",
++            verdict="VERIFIED",
++            role_verdicts=_ROLE_VERDICTS,
++            timestamp=_TS,
++        )
++        related = store.query_related_claims("Tirzepatide effects")
++    returned_ids = {r.claim_id for r in related}
++    assert "bad-1" not in returned_ids  # FABRICATED can never be reused
++    assert "ok-1" in returned_ids
++
++
++def test_all_non_verified_verdicts_excluded(tmp_path: Path) -> None:
++    with _open(tmp_path) as store:
++        for verdict in ("FABRICATED", "UNSUPPORTED", "PARTIAL", "UNREACHABLE"):
++            store.write_claim(
++                claim_text=f"Tirzepatide claim {verdict}.",
++                claim_id=f"id-{verdict}",
++                verdict=verdict,
++                role_verdicts={"judge": verdict},
++                timestamp=_TS,
++            )
++        related = store.query_related_claims("Tirzepatide claim")
++    assert related == []  # none of the four non-VERIFIED verdicts is reusable
++
++
++# --- contradiction flag: a negation-polarity mismatch over shared keywords is flagged ---
++def test_contradiction_flag_negation_mismatch(tmp_path: Path) -> None:
++    with _open(tmp_path) as store:
++        store.write_claim(
++            claim_text="Constipation led to treatment discontinuation.",
++            claim_id="prior-1",
++            verdict="VERIFIED",
++            role_verdicts=_ROLE_VERDICTS,
++            timestamp=_TS,
++        )
++        flags = store.find_contradictions(
++            "Constipation did not lead to treatment discontinuation."
++        )
++    assert len(flags) == 1
++    assert flags[0].prior_claim_id == "prior-1"
++    assert "negation" in flags[0].reason
++
++
++# --- contradiction flag: divergent numeric tokens over shared keywords is flagged ---
++def test_contradiction_flag_numeric_mismatch(tmp_path: Path) -> None:
++    with _open(tmp_path) as store:
++        store.write_claim(
++            claim_text="The recommended maintenance dose is 5.0 mg weekly.",
++            claim_id="prior-dose",
++            verdict="VERIFIED",
++            role_verdicts=_ROLE_VERDICTS,
++            timestamp=_TS,
++        )
++        flags = store.find_contradictions(
++            "The recommended maintenance dose is 15.0 mg weekly."
++        )
++    assert len(flags) == 1
++    assert flags[0].prior_claim_id == "prior-dose"
++    assert "numeric" in flags[0].reason
++
++
++# --- contradiction flag does NOT fire on an agreeing claim (same polarity, same numbers) ---
++def test_no_contradiction_on_agreement(tmp_path: Path) -> None:
++    with _open(tmp_path) as store:
++        store.write_claim(
++            claim_text="The maintenance dose is 5.0 mg weekly.",
++            claim_id="prior-dose",
++            verdict="VERIFIED",
++            role_verdicts=_ROLE_VERDICTS,
++            timestamp=_TS,
++        )
++        flags = store.find_contradictions("The maintenance dose is 5.0 mg weekly.")
++    assert flags == []
++
++
++# --- contradiction hook only considers the VERIFIED reuse pool (never a poisoned prior) ---
++def test_contradiction_ignores_non_verified_prior(tmp_path: Path) -> None:
++    with _open(tmp_path) as store:
++        store.write_claim(
++            claim_text="Constipation led to treatment discontinuation.",
++            claim_id="poison-1",
++            verdict="UNSUPPORTED",  # not reusable -> not a contradiction source
++            role_verdicts={"judge": "UNSUPPORTED"},
++            timestamp=_TS,
++        )
++        flags = store.find_contradictions(
++            "Constipation did not lead to treatment discontinuation."
++        )
++    assert flags == []  # the non-VERIFIED prior is invisible to the contradiction hook
++
++
++# --- run_dir constructor variant creates the default-named DB under the run dir ---
++def test_run_dir_default_path(tmp_path: Path) -> None:
++    run_dir = tmp_path / "run123"
++    with VerifiedClaimGraphStore(run_dir=run_dir) as store:
++        store.write_claim(
++            claim_text="A verified claim.",
++            claim_id="c1",
++            verdict="VERIFIED",
++            role_verdicts=_ROLE_VERDICTS,
++            timestamp=_TS,
++        )
++    assert (run_dir / "verified_claim_graph.sqlite").is_file()
+
+```
+
+Hand me APPROVE iff the fail-closed final_verdict override, the recording-transport audit capture, the anti-poisoning VERIFIED-only KG reuse, the required claim_id, and the lock-sourced family-validated pins are correct and clinically safe. Remember the sweep wiring is sub-PR-6 by design — do NOT flag its absence.

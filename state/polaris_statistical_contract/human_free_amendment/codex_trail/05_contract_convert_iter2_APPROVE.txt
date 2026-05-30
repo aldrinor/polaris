@@ -1,0 +1,587 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e6d07-62fb-7f40-b200-4cbc0df8b037
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings. Same quality bar. Reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE'd; do not bank.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# Review: contract.md human-free conversion — ITER 2 (I-safety-001c / #922)
+
+## Your iter-1 verdict was REQUEST_CHANGES (2 P1, 3 P2). All addressed:
+
+**P1 CLAIM-LICENSE** — FIXED. §10 now has an explicit "Human-free claim-license rule for Gates A/B/D": every confirmatory A/B/D claim cites E1 PASS; severity-stratified claims cite E2 PASS; E2 FAIL → only severity-agnostic overall miss-rate confirmatory. §10.1-10.4 retitled to E1/E2 citations; generic "Gate E" citation retired. §10.6 cites E1 not Gate E.
+
+**P1 PREREQ-HUMAN** — FIXED. §P1/§P2 now has a "Human-free conversion" block: P1 recall denominator from mechanical-oracle source provenance (not SME-identified); P2 extraction set from mechanically-injected/known proposition set + deterministic field/span match + cross-family panel only where not deterministically checkable; "NO SME path remains reachable", no SME-review fallback.
+
+**P2 E2-GOV-XREF** — FIXED. §7.E.gov custodian log path → state/gate_e2_judge_agreement_audit.json (was icc_surrogates.json); v3.4 lock bullet coefficient ref → §7.E2; changelog table row → §7.E2 governance (machine custodian).
+
+**P2 CYCLE-NAME** — FIXED. "evaluation cycle (A/B/D/E)" → "A/B/D/E1/E2".
+
+**P2 CHANGELOG** — FIXED. Added "Diff from v3.3 (human-free amendment)" line acknowledging it IS an architectural change to the validity story; the v3.3→v3.4 "no architectural change" line now notes the human-free amendment is a separate already-applied architectural change.
+
+## Your task this iter
+Confirm the fixes are real + complete. Any remaining DANGLING "Gate E" cross-ref, any remaining live human-SME dependency, any internal inconsistency. APPROVE if zero P0/P1.
+
+## Output schema
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+
+## The converted contract.md
+# POLARIS Statistical Safety Contract — v3.3 (LOCKED PRE-REGISTRATION DRAFT)
+
+> **HUMAN-FREE AMENDMENT (2026-05-27, Codex APPROVE iter 3)**: operator HARD CONSTRAINT — no human SMEs, ever; only budget is API fees. The SME-dependent parts of this contract are SUPERSEDED by `state/polaris_statistical_contract/human_free_amendment/AMENDMENT_human_free_validation.md`. Where this document says "SME", "adjudicator", or "human label", read the human-free replacement: fabrication STATUS = mechanical oracle (never LLM-judged); SEVERITY = deterministic hazard scaffold + cross-family LLM panel; Gate E → **E1** (mechanical oracle integrity) + **E2** (machine severity stability). The sections below are amended in place; the amendment doc is authoritative on any residual conflict.
+
+**Status**: Codex round-3 verdict "lock as pre-registration draft pending Phase 0a numerical specification." v3.3 applies 10 local text patches from round 3. **Human-free amendment applied 2026-05-27 (Codex APPROVE).**
+
+**Diff from v3.2**: 10 local edits, no architectural change. Items 1, 4, 5 changed methodology details (logit-ANOVA → beta-binomial GLMM primary; Path 3 wording; mechanistic-judge leakage explicit). Items 2, 3, 6-10 are wording/tolerance/governance refinements.
+
+**Diff from v3.3 (human-free amendment, 2026-05-27)**: this IS an architectural change to the validity story — Gate E (human inter-rater reliability) is replaced by E1 (mechanical oracle integrity) + E2 (machine severity stability); all SME/human-adjudication paths are removed. See the banner above + `../human_free_amendment/`.
+
+**Numerical lock**: this contract locks formulas, methodology, and governance. Numbers (raw n per stratum, ICC ceiling if escalated, etc.) lock at v3.4 after Phase 0a outputs are observed.
+
+**Authors**: Claude (Opus 4.7) + Codex (5.5), co-designed across 3 rounds. NO external statistician — operator instruction 2026-05-27 ("Codex 5.5 + Claude 4.7 with max reasoning power... combine effort... only bill I can pay is your API fee").
+
+---
+
+## §1. Framework (unchanged from v3.0-v3.2)
+
+Six-question contract per gate. Intersection-union conjunctive release. No Bonferroni across gates. "All gates passed" ≠ "95% overall confidence."
+
+---
+
+## §2. Severity scale (unchanged)
+
+S0=critical > S1=high > S2=medium > S3=low; SUPPORTED = verified.
+
+---
+
+## §3. Gate A — Per-stratum claim-level fabrication safety
+
+### 3.1 Six-question contract (unchanged from v3.1-v3.2)
+
+| Question | Locked answer |
+|---|---|
+| **Estimand** | `P(verifier fails to flag/escalate a fabrication of severity S \| fabricated claim is in stratum S AND enters verifier)` for S ∈ {S0, S1, S2}. Fabrication STATUS is a mechanical-oracle label (deterministic injection, never LLM-judged); severity S is machine-adjudicated (Gate E2). |
+| **Sampling frame** | Confirmatory gold-set claims (mechanical-status-only; amendment §3.1), 6 domains × 3 complexity × 4 evidence-pool sizes, machine-adjudicated severity per Gate E2 (deterministic hazard scaffold + cross-family LLM panel) |
+| **Unit of independence** | Claim with cluster-adjusted binding analysis using pairwise scenario-family relations (§3.4) and ICC ceiling per §4.4 |
+| **Error-control** | Per-stratum cluster-adjusted Wilson one-sided 95% UCB. Per-domain = observability only. No unweighted population claim. |
+| **Binding rule** | See §3.2 |
+| **Discretion** | All hash-pinned pre-Phase-0b |
+
+### 3.2 Binding pass/fail rule
+
+**Locked UCB targets and corrected n_eff minimums** (S2 corrected to 133 per Codex round-2):
+
+| Stratum | UCB target | z | n_eff_required (Wilson zero-event, integer ceil) |
+|---|---|---|---|
+| S1 | ≤ 0.5% one-sided 95% | 1.6449 | `ceil(z²/0.005 − z²) = 539` |
+| S2 | ≤ 2.0% one-sided 95% | 1.6449 | `ceil(z²/0.02 − z²) = 133` |
+| S0 | n/a — policy sentinel | n/a | ≥50 stress-test items, 0 misses |
+
+**Locked formula**:
+
+```
+n_eff_required(S) = ceil(z²/UCB_target(S) − z²)
+Required raw n(S) = ceil(n_eff_required(S) × DEFF_binding)
+DEFF_binding = max(DEFF_Phase0a_pilot, DEFF_final_gold_set)  computed pre-unblinding
+DEFF = 1 + 2 × P × ρ / N  (pairwise DEFF formula, §3.4)
+```
+
+**Planning estimate** (P/N≈5, ρ=0.10): DEFF≈2.0 → raw n(S1)≈1078, raw n(S2)≈266.
+
+**Phase 0a outputs hash-pinned**: P_pilot, N_pilot, P_pilot/N_pilot + 95% bootstrap CI, DEFF_Phase0a_pilot.
+
+**Phase 0b lock hash-pinned**: P_final, N_final, DEFF_final_gold_set, DEFF_binding.
+
+If DEFF_binding > 2.5, §P4 Category-3 amendment required.
+
+**Phase 0a sees STRUCTURE only**, not outcomes — see §P4.2.
+
+### 3.3 Primary vs sensitivity reporting (unchanged from v3.1-v3.2)
+
+PRIMARY: cluster-adjusted Wilson UCB at n_eff = n_raw/DEFF_binding, ρ=ICC ceiling.
+DESCRIPTIVE: naive Wilson at raw n, labeled "unclustered descriptive — not the confirmatory gate."
+SENSITIVITY: ρ=0.20 stress, informational.
+
+### 3.4 Scenario-family pairwise relations + pairwise DEFF
+
+**Pairwise relation rules** (unchanged from v3.2; human-free: criterion 3's "SME" is now the deterministic/LLM **constructor** instance, not a human): two claims are scenario-family-related iff ANY of criteria 1-5 (same report, evidence Jaccard≥0.5, same template/constructor/24h, same prompt family, microtopic+stratum+correlation).
+
+**Pairwise DEFF formula**:
+
+```
+DEFF = 1 + 2 × P × ρ / N
+  N = total claims in stratum
+  P = total unordered pairs of related claims in stratum (deduplicated; see below)
+  ρ = ICC ceiling per §4.4
+
+Edge cases (Codex round-3 confirmed):
+  P=0 → DEFF=1
+  P=N(N-1)/2 (saturation) → DEFF = 1 + (N-1)ρ (exchangeable cluster)
+  saturation does not break the formula; it just collapses n_eff
+
+Mitigations:
+  - **Pair deduplication required** (NEW v3.3 per Codex round-3): if a pair
+    satisfies multiple criteria, it counts as ONE related pair, not multiple.
+    Implementation: deterministic OR over criteria, stored as boolean per pair.
+  - ρ=0.20 sensitivity retained (covers missed positive correlations among
+    "unrelated" pairs and true pair correlations above ICC ceiling).
+```
+
+**Audit prerequisite**: max claim degree, 95th-percentile degree — committed pre-Phase-0b. 95th-percentile > 25 triggers refinement.
+
+**Pairwise lookup table**: (claim_id_i, claim_id_j) → related? boolean, hash-pinned.
+
+### 3.5 What this gate does NOT claim (unchanged)
+
+---
+
+## §4. Gate B — Per-report safety-critical fabrication
+
+### 4.1-4.3 (unchanged from v3.1-v3.2)
+
+Customer is naturally partitioned → variable-cluster DEFF `1 + ((Σm_i²/Σm_i)−1)ρ` remains correct here (in contrast to Gate A's pairwise structure).
+
+```
+UCB(report, k=0, n_eff) ≤ 5%  one-sided 95% Wilson
+n_eff = n_raw / DEFF_customer
+DEFF_customer = 1 + ((Σ m_i²/Σ m_i) − 1) × ρ_customer
+Structural prerequisites: ≥30 customers, no customer >20% of reports.
+```
+
+### 4.4 ICC justification protocol (REVISED v3.3 per Codex round-3 §4)
+
+**Pre-designated surrogates** (unchanged from v3.2): 4 surrogates (source-disagreement primary; evidence-completeness, retrieval-tier, verifier escalation rate as secondaries).
+
+**ICC estimator** (REVISED v3.3 per Codex round-3 §4):
+
+```
+PRIMARY: beta-binomial / logistic-normal random-intercept GLMM where
+  denominators are available (statsmodels.BinomialBayesMixedGLM or
+  glmmTMB equivalent in R).
+  
+  ICC computed via Nakagawa-Schielzeth distribution-specific variance for
+  binomial GLMM (Nakagawa, Johnson, Schielzeth 2017).
+  
+  Locked random seed for any MCMC/variational inference.
+
+SENSITIVITY / CONVERGENCE FALLBACK: empirical-logit weighted ANOVA on
+  per-customer proportions with:
+    - Continuity correction +0.5/+1 for boundary proportions (Haldane-Anscombe)
+    - Inverse-variance weighting by denominator
+    - Zero-denominator customers dropped from ICC computation, reported separately
+    - Boundary ICC clipped to [0, 1]
+  
+  Used IFF GLMM fails to converge OR per pre-registered convergence diagnostics.
+
+CI: parametric bootstrap on logit-ICC (B=10000) for either estimator.
+```
+
+**Why beta-binomial GLMM primary** (per Codex round-3): canonical for count-over-denominator proportions with unequal denominators and overdispersion. Logit-ANOVA on raw proportions is heteroskedastic; viable as fallback only.
+
+**Escalation rule** (REVISED v3.3 per Codex round-3 §3 — added tolerance + cap):
+
+```
+If any surrogate ICC point estimate > 0.10 + 1e-12
+    OR any one-sided upper 95% CI > 0.15 + 1e-12:
+        Escalation triggered.
+        
+        Escalated ICC ceiling = min(
+            max(
+                round_up_to_nearest(max_observed_point_estimate, 0.05),
+                round_up_to_nearest(max_observed_upper_95_CI, 0.05),
+                0.15
+            ),
+            1.0   # capped at 1.0, NEW v3.3 per Codex round-3
+        )
+        
+        round_up_to_nearest(x, 0.05) = ceil(x / 0.05) × 0.05
+        Strict comparison after deterministic rounding (1e-12 tolerance)
+
+§P4 Category-3 amendment filed.
+```
+
+---
+
+## §5. Gate C — Continuous drift monitoring
+
+### 5.1-5.3 (unchanged from v3.1-v3.2)
+
+### 5.4 BY default + alternative-procedure paths (REVISED v3.3 per Codex round-3 §5)
+
+```
+Default: Benjamini-Yekutieli (BY) at q=0.05 monthly.
+  Conservative under arbitrary dependence (Benjamini-Yekutieli 2001).
+
+A LESS-CONSERVATIVE-THAN-BY BINDING PROCEDURE is allowed iff
+(REVISED v3.3 — was "BH allowed iff" in v3.2; corrected per Codex round-3
+because PATH 3 is its own procedure, not justification for BH):
+  
+  PATH 1 — Baseline-period null simulation supports BH:
+    1. Simulation preserves report/customer/cell structure
+    2. Estimates actual FDR under both global-null AND partial-null configurations
+    3. Demonstrates BH controls FDR ≤ q=0.05 in both
+    4. Hash-pinned BEFORE first monitoring cycle
+    → BH at q=0.05 becomes binding
+  
+  PATH 2 — Analytic proof of BH validity:
+    1. Formal proof of independence OR positive regression dependence on
+       subsets (PRDS) for locked test statistics
+    2. Proof reviewed under §-1.1 standard
+    3. Hash-pinned
+    → BH at q=0.05 becomes binding
+  
+  PATH 3 — Locked resampling FDR procedure (own alternative, NOT BH):
+    1. Permutation/bootstrap FDR procedure with provable validity under the
+       cell-test structure
+    2. Procedure hash-pinned BEFORE first monitoring cycle
+    → Locked resampling FDR at q=0.05 becomes binding (in lieu of BY)
+
+If none of paths 1-3 are satisfied, BY is binding.
+```
+
+### 5.5-5.6 (unchanged from v3.1-v3.2)
+
+---
+
+## §6. Gate D — Coverage classifier validity
+
+### 6.1-6.3 (unchanged from v3.1-v3.2)
+
+### 6.4 Prevalence-standardized precision + PPV CI (REVISED v3.3 per Codex round-3 §6)
+
+**Prevalence grid** (unchanged from v3.2): {0.1%, 0.5%, 1%, 2%, 5%, 10%, 30%} + canary observed + 95% CI.
+
+**PPV CI propagation** (REVISED v3.3 per Codex round-3 §6):
+
+```
+PPV = sens × prev / [sens × prev + (1 − spec) × (1 − prev)]
+
+Bootstrap method:
+  - If sens/spec and canary prevalence come from THE SAME sample units:
+      Joint cluster bootstrap (B=10000) preserving customer-cluster structure.
+      Compute PPV per replicate from joint (sens, spec, prev) realization.
+  
+  - If sens/spec and canary prevalence come from SEPARATE samples
+      (e.g., gold-set for sens/spec, canary for prev):
+      INDEPENDENT bootstrap of each source, then combine per replicate.
+      Preserve cluster structure within each source.
+
+To avoid impossible PPV values (>1 or <0):
+  Use logit-scale draws for sens/spec/prev, then back-transform; OR
+  Constrained beta/binomial draws with informative-conjugate priors at the
+  source-distribution scale (NOT for the PPV gate itself — keep frequentist).
+
+Random seeds hash-pinned per cycle.
+```
+
+**Binding gate**: production-canary prevalence ONLY; other prevalences are reporting-only with explicit non-safety labels.
+
+### 6.5 (unchanged)
+
+---
+
+## §7. Gate E → E1 + E2 (human-free amendment §5 — replaces "SME label quality")
+
+The human-free amendment splits the former Gate E (human inter-rater reliability) into TWO gates. Human inter-rater reliability no longer exists; the validity story is carried by E1 (the labels are mechanically KNOWN) and E2 (the machine judges are stable).
+
+### 7.E1 Gate E1 — Mechanical Oracle Integrity (the validity backbone)
+
+Checks the benchmark labels are actually KNOWN (NOT a human-agreement check):
+
+1. Source-fetch reproducibility; structured-field extraction correctness.
+2. Mutation audit logs; original-vs-mutated diff validity; deterministic expected-label regeneration; fixture hash stability.
+3. **No accidental unsupported ORIGINAL claims** (the SUPPORTED controls must genuinely be supported).
+4. **Packet-level "no-accidental-support" check** (amendment §3/§5): for every confirmatory item, deterministically verify NO source in the cited packet supports the mutated proposition. This is what promotes a citation_swap/scope_overreach item from exploratory to confirmatory.
+5. **LLM-extracted facts are NOT mechanical** unless backed by a deterministic structured field OR exact-span reproducibility.
+
+**Binding**: if E1 fails, the benchmark is INVALID (we do not actually know the labels) — Gates A/B/D are uninterpretable. E1 is the prerequisite that replaces the human-label-quality role.
+
+### 7.E2 Gate E2 — Machine Severity Stability (replaces inter-rater reliability)
+
+Cross-family LLM-judge agreement on severity (NOT human agreement):
+
+1. Coefficient choice unchanged in form: complete-panel binary → AC1; varying → Krippendorff α; ordinal → Krippendorff ordinal α or linearly-weighted κ (complete only). The "raters" are the ≥3 cross-family LLM judges (amendment §4).
+2. Per-stratum disagreement, family-specific bias checks, deterministic-guardrail override rates, consensus-vs-rule conflict rates.
+
+**Gate A/B/D survival under E2 failure** (amendment §5): severity stratification uses **machine-adjudicated** severity. E2 PASS → full severity-stratified Gate A/B/D results + UCB bounds are confirmatory. E2 FAIL → only the **severity-agnostic overall fabrication miss-rate** (E1-backed, mechanical labels) remains confirmatory; all per-stratum claims drop to exploratory and the claim license forbids stratified assertions.
+
+**Agreement-worship guard**: high LLM-judge AC1 can mean shared bias. E2 is a STABILITY signal, not a TRUTH signal.
+
+### 7.E.gov Coefficient-choice governance (human-free)
+
+Coefficient choice is deterministic from the pre-outcome missingness/prevalence/completeness audit. Attach:
+
+- Named **audit custodian** = the deterministic audit SCRIPT + its code-pin (no human; the "custodian" is the pinned tool run + its log in `state/gate_e2_judge_agreement_audit.json`).
+- Timestamp; hashes of all audit artifacts (missingness table, prevalence table, judge-completeness matrix).
+- Machine-emitted statement: the choice follows the §7.E2 rule deterministically; cross-family-judge agreement coefficient VALUES are outcome-blinded until gate analysis (§P4.2).
+
+**NOT an independent third-party audit.** Codex review remains for §-1.1 line-by-line (Codex is the reviewer tool, NOT an SME).
+
+### 7.3-7.4 (unchanged in form; "rater" = cross-family LLM judge)
+
+---
+
+## §P1 / §P2 (unchanged from v3.1-v3.2 in form — human-free conversion below)
+
+**Human-free conversion (amendment §8)**: the v3.1-v3.2 P1 (retrieval recall) and P2 (extraction recall) prerequisites referenced SME-era concepts (SME-identified assertions; an SME-review fallback path). Under the no-human constraint these are converted with **no human fallback**:
+- **P1 (retrieval recall)**: the recall denominator (the set of relevant sources that SHOULD be retrieved) is established from the **mechanical oracle's known source provenance** (the structured/exact-span sources used to construct each claim), NOT an SME-identified set. No SME-review fallback.
+- **P2 (extraction recall)**: the "assertions that should be extracted" set is the **mechanically-injected/known proposition set** (constructor_intent + structured fields), NOT SME-identified assertions. Adjudication of extraction correctness uses the deterministic field/span match (mechanical) + cross-family LLM panel only where a proposition is not deterministically checkable; NO SME path remains reachable.
+- Both prerequisites' pass/fail thresholds keep their v3.1-v3.2 numeric form; only the label SOURCE changes (machine, not human).
+
+---
+
+## §P3. Contamination control (EXPANDED v3.3 per Codex round-3 §8)
+
+### P3.1-P3.3 (unchanged from v3.1-v3.2 — 31-item list across direct / descendant / index / process / selection)
+
+### P3.4 LLM-as-judge / evaluator leakage (EXPANDED v3.3 per Codex round-3 §8)
+
+v3.2 had 9 items. v3.3 adds explicit mechanistic/hidden-state path:
+
+**Forbidden uses (v3.3 final list, items 32-41)**:
+
+32. Judge model selection informed by gold-set outcomes
+33. Judge prompt iteration informed by gold-set outcomes
+34. Judge rubric tuning on gold-set examples
+35. Judge exemplar/few-shot selection from gold-set
+36. Judge RAG index containing gold-set artifacts
+37. Judge persistent memory containing gold-set content
+38. Cached judge rationales from gold-set queries
+39. Evaluator traces (judge intermediate outputs) used to revise prompts before gate completion
+40. Judge outputs on Phase-0a pilot used to revise verifier prompts before Phase-0b gate
+41. **Judge hidden states, attention maps, logits/logprobs, embeddings, activation patches, mechanistic-interpretability outputs, or gradient-like traces from gold-set or Phase-0a queries used to revise judge/verifier prompts, judge selection, rubrics, exemplars, or model choice before gate completion** (NEW v3.3 per Codex round-3 §8)
+
+**Provider opt-out requirements** (unchanged from v3.2):
+
+- External judge API provider-side data-retention/training opt-out documented in `state/provider_opt_outs/`
+- Judge model snapshot frozen across entire gate evaluation; provider-side silent model updates invalidate the affected cycle
+
+### P3.5 Allowed: ordinary production retrieval (unchanged)
+
+---
+
+## §P4. Amendment governance (REVISED v3.3 per Codex round-3 §9)
+
+### P4.1 (unchanged from v3.1-v3.2 — 5 categories)
+
+### P4.2 Gate-specific exposure log — STRUCTURAL vs OUTCOME (REVISED v3.3)
+
+**Structural exposure events** (visible pre-outcome; v3.3 row additions per Codex round-3 §1, §9):
+
+| Event | Notes |
+|---|---|
+| Phase-0a pilot cluster size, P_pilot, N_pilot | Allowed; needed for Phase-0b DEFF lock |
+| **Per-stratum P_final, N_final, claim degree statistics, relation-table hash, DEFF_binding** (NEW v3.3 row per Codex round-3 §1) | Allowed pre-unblinding; needed for binding analysis. Stratum denominators implicitly exposed (acceptable since severity labels are locked and verifier-outcomes are not visible). |
+| Canary customer count, m_i distribution, concentration | Allowed; §4.2 prerequisite check |
+| Surrogate ICC values (4 surrogates) | Allowed; §4.4 escalation |
+| Canary observed prevalence | Allowed; §6.4 PPV propagation |
+| Eligibility-failure counts | Allowed; §4.2 prerequisite check |
+| Per-cell denominator counts | Allowed; §6.2 eligibility |
+| **Domain/stratum/cell denominator distributions + eligibility distributions** (NEW v3.3 explicit row per Codex round-3 §9) | Allowed pre-outcome |
+| Per-stratum severity label distributions (pre-outcome) | Allowed |
+| Missingness/prevalence/judge-completeness audit (Gate E1/E2) | Allowed |
+
+**Outcome exposure events** (must be blinded until gate analysis):
+
+| Event | Notes |
+|---|---|
+| Per-stratum / per-cell / per-domain miss counts | Outcome |
+| Severity-distribution AMONG MISSES | Outcome |
+| Customer-distribution of any affected reports | Outcome (vs aggregate customer count = structural) |
+| **Cross-family LLM-judge agreement coefficient values (Gate E2)** (human-free: replaces inter-rater; severity labels themselves are needed structurally for Gate A but the agreement VALUES are outcome) | Outcome |
+| Under-rating-rate confusion matrix | Outcome |
+| Retrieval recall numerators | Outcome |
+| Extraction recall numerators | Outcome |
+
+After structural exposure: amendments touching CLUSTERING/ELIGIBILITY/ICC/SAMPLE SIZE require §P4 Category-3 (pre-outcome design) treatment.
+
+After outcome exposure: amendments require §P4 Category-4 (post-outcome design) — analysis becomes exploratory.
+
+**Logging**: automatic, append-only, attached to all access channels (dashboards, notebooks, CI logs, stdout, exports, screenshots). Manual self-report insufficient. Lives at `state/data_lineage/exposure_log.jsonl`.
+
+### P4.3 (unchanged)
+
+---
+
+## §8. Pre-registration mechanics (unchanged from v3.1-v3.2; full hash-pin list)
+
+---
+
+## §9. v3.3 changes summary
+
+| Item | v3.2 | v3.3 |
+|---|---|---|
+| §3.4 pair deduplication | Implicit | Explicitly required: pairs satisfying multiple criteria count once |
+| §3.4 saturation note | Implicit | Confirmed math: P=0→DEFF=1; saturation→exchangeable cluster |
+| §4.4 ICC estimator | Logit-ANOVA primary | **Beta-binomial / logistic-normal GLMM primary** (Nakagawa-Schielzeth), empirical-logit ANOVA as convergence fallback |
+| §4.4 escalation cap | None | Capped at ICC ≤ 1.0 |
+| §4.4 tolerance | None | Strict comparison + 1e-12 tolerance after deterministic rounding |
+| §5.4 path naming | "BH allowed iff" | "A less-conservative-than-BY binding procedure is allowed iff" — Path 3 is its own alternative procedure |
+| §6.4 PPV bootstrap | Joint always | Joint if same sample, independent if separate-sample (clarified) + logit-scale OR constrained beta/binomial draws |
+| §7.E2 governance (human-free) | Audit alone | + lightweight blinded sign-off (deterministic audit SCRIPT as custodian + code-pin, timestamp, machine-emitted statement) |
+| §P3.4 LLM-as-judge | 9 items | 10 items (added hidden-state/mechanistic-interp explicit) |
+| §P4.2 structural exposure | Some rows implicit | + explicit: P_final/N_final/degree/relation-hash/DEFF_binding row; + explicit denominator-distribution row |
+| §P4.2 outcome exposure | Some rows implicit | + explicit note: agreement coefficient values are outcome (even though severity labels are structural) |
+| §10.0 anti-overclaim | 8 phrases | 18 phrases (added autonomy-implying terms) |
+
+---
+
+## §10. Claim license table (EXPANDED v3.3)
+
+### 10.0 Global anti-overclaim layer (EXPANDED v3.3 per Codex round-3 §10)
+
+**FORBIDDEN phrases** (any POLARIS output: audit, marketing, README, demo, customer comms, regulatory filing) without explicit qualifying language matched to actual gate scope:
+
+| Phrase | Reason |
+|---|---|
+| "Zero hallucinations" | The contract bounds rates with confidence intervals, never asserts zero |
+| "Clinically safe" | "Safe" is regulatory/clinical determination, not a POLARIS contract output |
+| "Production-wide bound" | Bounds are scoped to gold-set construction OR canary eligibility |
+| "95% overall confidence" | Intersection-union, not joint coverage |
+| "Regulatory-grade validation" | No regulatory body has reviewed POLARIS |
+| "All future versions" | Each version validated separately |
+| "All domains / all customers" | Gates A/B are scoped |
+| "Independently audited" | Codex audit ≠ regulatory or third-party |
+| **"AI-verified"** (NEW v3.3) | Verification is contractual, not autonomous |
+| **"Machine-checked"** (NEW v3.3) | Allowed ONLY if it refers to actual formal checker / deterministic test artifact, NOT an LLM judgment |
+| **"Auto-validated"** (NEW v3.3) | Implies autonomous self-validation; the contract requires an independent mechanical oracle + cross-family LLM panel (different lineages from the verifier) + Codex review — not the system validating itself |
+| **"Self-auditing"** (NEW v3.3) | The system does not self-audit; the contract specifies an independent mechanical oracle + cross-family judges (verifier-family ≠ judge-family) + Codex |
+| **"Certified"** (NEW v3.3) | No certification authority has reviewed |
+| **"Guaranteed safe"** (NEW v3.3) | The contract bounds rates with confidence intervals, never guarantees |
+| **"Hallucination-free"** (NEW v3.3) | Same as "zero hallucinations" |
+| **"Formally verified"** (NEW v3.3) | Formal verification is a mathematical proof technique not used here |
+| **"Validated for production"** (NEW v3.3) | Validation is per-cycle, not blanket; production state changes invalidate |
+| **"Human-equivalent review"** (NEW v3.3) | FORBIDDEN — there is NO human review layer. This is a reproducible bench safety stress test (mechanical oracle + machine judges), explicitly NOT clinical/expert validation (amendment §6 claim license) |
+| **"Expert-validated" / "clinically validated" / "physician-reviewed"** (NEW human-free) | FORBIDDEN as affirmative claims — no human clinician adjudicated. The mandatory negated disclaimer ("NOT expert-validated") is required and must pass the negation-aware linter (amendment §6) |
+
+**Every pass sentence MUST name**:
+
+- Model version (verifier, classifier, judge model snapshots — SHA256)
+- Prompt version (verifier, generator prompts — SHA256)
+- Retrieval index version (SHA256)
+- Monitoring window (Gate C) or evaluation cycle (A/B/D/E1/E2)
+
+**Human-free claim-license rule for Gates A/B/D (amendment §5 — replaces the single "Gate E" citation)**: every confirmatory A/B/D claim MUST cite **E1 PASS** (mechanical oracle integrity — without it the labels are not known and the claim is uninterpretable). Any **severity-stratified** A/B/D claim (per-S0/S1/S2 bound) MUST additionally cite **E2 PASS** (machine severity stability). If **E2 FAILS**, only the **severity-agnostic overall fabrication miss-rate** may be asserted as confirmatory — per-stratum claims drop to exploratory and the claim license forbids stratified assertions. The generic "Gate E" citation is retired; use "E1" (+ "E2" for stratified claims).
+
+### 10.1 Gate A pass / fail (human-free: E1+E2 citations)
+
+Pass and fail sentences unchanged in numeric form; ρ_binding parameterized; prerequisite citations (**E1 mandatory; E2 mandatory for severity-stratified claims**, P1, P2, P3) mandatory; downgrade-on-prerequisite-fail unchanged. E2-fail survival per the §10 rule above (overall miss-rate only).
+
+### 10.2 Gate B pass / fail (human-free: E1 mandatory; E2 for per-severity customer claims)
+
+### 10.3 Gate C pass / fail (unchanged from v3.2 — sparse-cell rollups already mentioned)
+
+### 10.4 Gate D pass / fail (human-free: E1 mandatory; coverage-classifier severity strata require E2)
+
+### 10.5 Gate E1 + E2 pass / fail (human-free amendment §5)
+
+- **E1 (mechanical oracle integrity)**: PASS iff all §7.E1 checks hold (fetch reproducibility, mutation-audit validity, deterministic expected-label regeneration, packet-level no-accidental-support, no LLM-extracted facts grounding confirmatory labels). FAIL → benchmark invalid, Gates A/B/D uninterpretable.
+- **E2 (machine severity stability)**: PASS iff cross-family LLM-judge agreement (§7.E2 coefficient) ≥ the pre-registered threshold. FAIL → only severity-agnostic overall miss-rate stays confirmatory; per-stratum claims drop to exploratory.
+- Pass sentence MUST name the ≥3 judge model snapshots (SHA256) + the deterministic-oracle code-pin, and MUST carry the amendment §6 disclaimer ("bench safety stress test, NOT clinical/expert validation").
+
+### 10.6 Prerequisites P1, P2, P3 (human-free: P1/P2 per §P1/§P2 conversion above; cite E1 not "Gate E")
+
+---
+
+## §11. Lock status (NEW v3.3)
+
+Codex round-3 verdict (2026-05-27): **"lock as pre-registration draft pending Phase 0a numerical specification."**
+
+v3.3 is the **methodology-locked draft**. Hash-signing this contract requires:
+
+1. Operator sign-off
+2. Hash-pin commit in `state/polaris_statistical_contract/v3_3/` 
+3. Notarized timestamp
+
+After v3.3 lock and Phase 0a execution, v3.4 will lock the numerical specification:
+
+- Final raw n per stratum (per §3.2 formula at Phase-0a-observed DEFF)
+- ICC ceiling (default 0.10 OR escalated per §4.4)
+- BY/alternative-procedure choice per §5.4
+- Coefficient choice per §7.E2 missingness/prevalence/judge-completeness audit
+- Pairwise relation lookup table hash (§3.4)
+
+NO architectural change between v3.3 and v3.4 — only numerical substitution within the locked formulas. (The human-free amendment of 2026-05-27 is a SEPARATE, already-applied architectural change to the validity story — distinct from the v3.3→v3.4 numerical substitution.)
+
+---
+
+## §12. Authorship and methodology trail
+
+**v3.0 → v3.3** authored 2026-05-27 in single working session by:
+
+- **Claude (Opus 4.7)**: drafted v3.0 architecture, applied Codex review findings, drafted v3.1/v3.2/v3.3 revisions
+- **Codex (gpt-5.5)**: design-partner reviewer with deep statistical research; identified architectural gaps and mechanical errors across 3 review rounds
+
+Authorship is paired-LLM, NO external statistician (per operator instruction 2026-05-27: "Codex 5.5 + Claude 4.7 with max reasoning power + super deep research skill on CLI beat 99.999% statisticians in the world... combine effort between Codex 5.5 + Claude 4.7 with max reasoning power, to work it out, stop asking me to reach out another person to help").
+
+**Trail of references in `.codex/I-gen-005-step5/`**:
+
+- `codex_deep_dialogue_v2_response.txt` — Codex's pedagogical response to 9 v2.8 findings (the prior failure mode that motivated v3.0)
+- `codex_design_partner_v1_response.txt` — Codex's round-0 design-partner review of v3.0 architecture
+- `polaris_safety_contract_v3_0_codex_review.txt` — Codex round-1 review
+- `polaris_safety_contract_v3_1_codex_review.txt` — Codex round-2 review  
+- `polaris_safety_contract_v3_2_codex_review.txt` — Codex round-3 review with lock verdict
+
+**Standing methodology references**: Wilson score interval (NIST), Cochrane Ch 23 cluster guidance, Benjamini-Hochberg 1995, Benjamini-Yekutieli 2001, Gwet 2008 AC1, Krippendorff α (BMC Methods 2016), Nakagawa-Schielzeth 2017 ICC for GLMM, Altman-Bland 1994 PPV-prevalence, RAGTruth (arXiv:2401.00396), SAFE (arXiv:2403.18802), HHEM (Vectara docs), ICH E6(R3) GCP, FDA Multiple Endpoints in Clinical Trials.
+
+---
+
+END OF v3.3 (LOCKED PRE-REGISTRATION DRAFT)
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+Findings: none at P0/P1/P2.
+
+The iter-1 blockers are resolved in the supplied text:
+
+- CLAIM-LICENSE: fixed. §10 now requires E1 PASS for confirmatory A/B/D claims and E2 PASS for severity-stratified claims; E2 failure correctly downgrades stratified assertions to exploratory.
+- PREREQ-HUMAN: fixed. §P1/§P2 now define mechanical provenance and mechanically injected/known proposition sets, with no SME fallback path.
+- E2-GOV-XREF: fixed. §7.E.gov points to `state/gate_e2_judge_agreement_audit.json`; §11 references §7.E2 coefficient choice.
+- CYCLE-NAME: fixed. The live cycle wording uses `A/B/D/E1/E2`.
+- CHANGELOG: fixed. The human-free amendment is explicitly acknowledged as an architectural change, separate from v3.3 to v3.4 numerical substitution.
+
+I found no dangling generic “Gate E” citation that still functions as a prerequisite, no reachable human-SME adjudication path, and no internal inconsistency that creates an execution blocker.
+tokens used
+10,741
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+Findings: none at P0/P1/P2.
+
+The iter-1 blockers are resolved in the supplied text:
+
+- CLAIM-LICENSE: fixed. §10 now requires E1 PASS for confirmatory A/B/D claims and E2 PASS for severity-stratified claims; E2 failure correctly downgrades stratified assertions to exploratory.
+- PREREQ-HUMAN: fixed. §P1/§P2 now define mechanical provenance and mechanically injected/known proposition sets, with no SME fallback path.
+- E2-GOV-XREF: fixed. §7.E.gov points to `state/gate_e2_judge_agreement_audit.json`; §11 references §7.E2 coefficient choice.
+- CYCLE-NAME: fixed. The live cycle wording uses `A/B/D/E1/E2`.
+- CHANGELOG: fixed. The human-free amendment is explicitly acknowledged as an architectural change, separate from v3.3 to v3.4 numerical substitution.
+
+I found no dangling generic “Gate E” citation that still functions as a prerequisite, no reachable human-SME adjudication path, and no internal inconsistency that creates an execution blocker.

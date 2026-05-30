@@ -1,0 +1,1435 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e75ab-c96c-7530-9500-e0b2ef047ed2
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of the item-7 DIFF gate.
+- Front-load ALL real findings; reserve P0/P1 for real risks.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+```
+
+# Codex DIFF-gate — I-meta-002 PR-9/item-7: reconcile stale 2-LLM docs/comments to 4-role (DOCS-ONLY)
+
+Codex-ordered no-spend item 7. This is a DOCSTRING/COMMENT/DOC-PROSE reconciliation ONLY — it updates
+stale text that described the OLD 2-LLM stack ("DeepSeek V4 Pro + Gemma 4 31B evaluator") to the LOCKED
+4-role architecture (Generator deepseek + Mirror cohere + Sentinel ibm-granite + Judge qwen), citing
+config/architecture/polaris_runtime_lock.yaml. NO code/behavior/symbol/value change. NO SPEND.
+
+## What to verify
+- The 4 edited files change ONLY docstrings/comments/doc prose — confirm via the diff there is NO code,
+  symbol, or value change (the build reported +33/-15 across 4 files).
+- The two-family generator/evaluator INVARIANT is NOT deleted or weakened anywhere (it still holds; the
+  4 roles respect family diversity). The edits must not claim the segregation check is gone.
+- NO pinned canonical file was edited (architecture.md, carney_delivery_plan_v6_2.md,
+  agent_architecture.md, polaris_pipeline_canonical.md, the runtime lock, etc. were correctly LEFT —
+  editing a pinned file would trip the §3.1 step-0 HARD STOP). docs/file_directory.md is non-pinned.
+- NO historical/dated record was rewritten (session logs, dated audit docs, memory, .codex verdicts,
+  carney_handover deliverables left as-is).
+- The lock was NOT promoted (status stays codex_approved_pending_operator_signature).
+
+## Conservatism notes the build surfaced (confirm these were the right calls)
+- entailment_judge.py:28 "Gemma 4 31B by default" LEFT — it's a REAL present default for the separate
+  PG_ENTAILMENT_MODEL knob (_DEFAULT_ENTAILMENT_MODEL = google/gemma-4-31b-it), never remapped by the
+  lock; rewording would assert a false claim.
+- carney_demo_runbook.md LEFT — dated deploy-state snapshot; the deployed VM code is ≥4 days stale and
+  may genuinely still run the 2-LLM stack, so editing would assert an untraced runtime fact.
+- Class-b two-family-invariant references LEFT (not expanded to N-way) to avoid over-edit.
+
+## SMOKE (build agent, this session)
+- pytest tests/roles tests/dr_benchmark tests/architecture -q -> 394 passed (no tests added/removed).
+- verify_lock --consistency -> exit 0 (code defaults match lock). gate_a_dry_run -> OVERALL PASS.
+- imports OK; no pinned/frozen file touched; lock not promoted.
+
+## Edited files: src/polaris_graph/__init__.py, src/polaris_graph/evaluator/__init__.py,
+## src/polaris_graph/evaluator/live_judge.py, docs/file_directory.md
+
+## DIFF (follows)
+
+diff --git a/docs/file_directory.md b/docs/file_directory.md
+index 6f5bb8eb..c7a2f1de 100644
+--- a/docs/file_directory.md
++++ b/docs/file_directory.md
+@@ -247,10 +247,13 @@ point to non-existent paths / deprecated concepts. Treat as stale:
+ - `scripts/final_audit.py`, `scripts/run_ragas_v3.py` — referenced
+   by `scripts/full_cycle.py` (pipeline C). Do not exist; pipeline C
+   is broken until these are either restored or removed.
+-- "Kimi K2.5 1T" — historical generator. The locked generator/evaluator
+-  for the Carney demo is DeepSeek V4 Pro + Gemma 4 31B (see
+-  `docs/polaris_locked_scope.md` §1); earlier pipelines used DeepSeek
+-  V3.2-Exp + Qwen3-8B.
++- "Kimi K2.5 1T" — historical generator. The locked architecture for the
++  Carney demo is the 4-role stack in
++  `config/architecture/polaris_runtime_lock.yaml` (I-meta-001 #933):
++  Generator (DeepSeek V4 Pro) + Mirror (Cohere Command A+) + Sentinel (IBM
++  Granite Guardian 4.1 8B) + Judge (Qwen3.6-35B-A3B). The earlier 2-LLM
++  framing (DeepSeek V4 Pro generator + Gemma 4 31B evaluator) is superseded;
++  earlier pipelines used DeepSeek V3.2-Exp + Qwen3-8B.
+ - "175 vectors exactly" — old invariant from P0-P12. Not applicable
+   to any currently-active pipeline.
+ 
+diff --git a/src/polaris_graph/__init__.py b/src/polaris_graph/__init__.py
+index 95779c85..60fc4800 100644
+--- a/src/polaris_graph/__init__.py
++++ b/src/polaris_graph/__init__.py
+@@ -1,10 +1,15 @@
+ """
+ polaris graph — clean-room research pipeline.
+ 
+-Uses DeepSeek V4 Pro generator + Gemma 4 31B-it evaluator via OpenRouter
+-(Carney demo lock per I-cd-009 / GH#624). Two-family segregation enforced
+-by `openrouter_client.check_family_segregation` returning ('deepseek',
+-'gemma'). Reuses battle-tested search/fetch infrastructure from src/tools/.
++Runs the LOCKED 4-role architecture per
++``config/architecture/polaris_runtime_lock.yaml`` (I-meta-001 #933):
++Generator (DeepSeek V4 Pro, OpenRouter) + Mirror (Cohere Command A+) +
++Sentinel (IBM Granite Guardian 4.1 8B) + Judge (Qwen3.6-35B-A3B), plus the
++deterministic python validators and the §-1.1 Codex audit layer. Family
++segregation across roles is enforced by
++``openrouter_client.check_family_segregation`` (all roles must be distinct
++lineages — the two-family invariant of CLAUDE.md §9.1 extended N-way).
++Reuses battle-tested search/fetch infrastructure from src/tools/.
+ """
+ 
+ __all__ = [
+diff --git a/src/polaris_graph/evaluator/__init__.py b/src/polaris_graph/evaluator/__init__.py
+index ab159059..56baa4b4 100644
+--- a/src/polaris_graph/evaluator/__init__.py
++++ b/src/polaris_graph/evaluator/__init__.py
+@@ -1,7 +1,13 @@
+ """POLARIS honest-rebuild external evaluator package (Phase 5).
+ 
+-Non-same-family evaluator (DeepSeek V4 Pro generator + Gemma 4 31B
+-evaluator by default; both swappable via PG_GENERATOR_MODEL /
+-PG_EVALUATOR_MODEL env vars) plus rule-based PRISMA-trAIce compliance
+-checks.
++Non-same-family evaluator: the generator (DeepSeek V4 Pro) and this
++evaluator role MUST be from distinct training lineages (CLAUDE.md §9.1
++two-family invariant). Under the LOCKED 4-role architecture
++(``config/architecture/polaris_runtime_lock.yaml``, I-meta-001 #933) the
++evaluator role maps to Mirror (Cohere Command A+); the legacy
++``PG_EVALUATOR_MODEL`` knob is compat-mapped to ``PG_MIRROR_MODEL`` per the
++lock's ``legacy_compat`` block. Both the generator and evaluator models are
++swappable via ``PG_GENERATOR_MODEL`` / ``PG_MIRROR_MODEL``
++(``PG_EVALUATOR_MODEL`` for back-compat) env vars, plus rule-based
++PRISMA-trAIce compliance checks.
+ """
+diff --git a/src/polaris_graph/evaluator/live_judge.py b/src/polaris_graph/evaluator/live_judge.py
+index abe23dfb..33942f05 100644
+--- a/src/polaris_graph/evaluator/live_judge.py
++++ b/src/polaris_graph/evaluator/live_judge.py
+@@ -2,9 +2,13 @@
+ Live judge — HONEST-REBUILD Phase 5 live wiring.
+ 
+ Calls the REAL evaluator model via OpenRouter (model read from
+-PG_EVALUATOR_MODEL at runtime; default Gemma 4 31B as of 2026-05-08
+-per I-bug-087, previously Qwen3-8B per HONEST-REBUILD Phase 1c) to
+-produce per-axis structured verdicts on a completed report.
++PG_EVALUATOR_MODEL at runtime). Under the LOCKED 4-role architecture
++(config/architecture/polaris_runtime_lock.yaml, I-meta-001 #933) the legacy
++PG_EVALUATOR_MODEL knob resolves to the Mirror role via the lock's
++legacy_compat map (PG_EVALUATOR_MODEL -> PG_MIRROR_MODEL) when unset.
++Historical defaults: Gemma 4 31B as of 2026-05-08 per I-bug-087, previously
++Qwen3-8B per HONEST-REBUILD Phase 1c. Produces per-axis structured verdicts
++on a completed report.
+ 
+ This is the NON-SAME-FAMILY judge: the judge model must be from a
+ different training family than the generator. `check_family_segregation()`
+
+codex
+I’m checking the actual worktree rather than relying only on the pasted diff, with focus on touched paths, pinned files, and whether the lock status stayed unchanged.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --name-only' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- docs/file_directory.md src/polaris_graph/__init__.py src/polaris_graph/evaluator/__init__.py src/polaris_graph/evaluator/live_judge.py' in C:\POLARIS
+ succeeded in 1027ms:
+diff --git a/docs/file_directory.md b/docs/file_directory.md
+index 6f5bb8eb..c7a2f1de 100644
+--- a/docs/file_directory.md
++++ b/docs/file_directory.md
+@@ -247,10 +247,13 @@ point to non-existent paths / deprecated concepts. Treat as stale:
+ - `scripts/final_audit.py`, `scripts/run_ragas_v3.py` — referenced
+   by `scripts/full_cycle.py` (pipeline C). Do not exist; pipeline C
+   is broken until these are either restored or removed.
+-- "Kimi K2.5 1T" — historical generator. The locked generator/evaluator
+-  for the Carney demo is DeepSeek V4 Pro + Gemma 4 31B (see
+-  `docs/polaris_locked_scope.md` §1); earlier pipelines used DeepSeek
+-  V3.2-Exp + Qwen3-8B.
++- "Kimi K2.5 1T" — historical generator. The locked architecture for the
++  Carney demo is the 4-role stack in
++  `config/architecture/polaris_runtime_lock.yaml` (I-meta-001 #933):
++  Generator (DeepSeek V4 Pro) + Mirror (Cohere Command A+) + Sentinel (IBM
++  Granite Guardian 4.1 8B) + Judge (Qwen3.6-35B-A3B). The earlier 2-LLM
++  framing (DeepSeek V4 Pro generator + Gemma 4 31B evaluator) is superseded;
++  earlier pipelines used DeepSeek V3.2-Exp + Qwen3-8B.
+ - "175 vectors exactly" — old invariant from P0-P12. Not applicable
+   to any currently-active pipeline.
+ 
+diff --git a/src/polaris_graph/__init__.py b/src/polaris_graph/__init__.py
+index 95779c85..60fc4800 100644
+--- a/src/polaris_graph/__init__.py
++++ b/src/polaris_graph/__init__.py
+@@ -1,10 +1,15 @@
+ """
+ polaris graph — clean-room research pipeline.
+ 
+-Uses DeepSeek V4 Pro generator + Gemma 4 31B-it evaluator via OpenRouter
+-(Carney demo lock per I-cd-009 / GH#624). Two-family segregation enforced
+-by `openrouter_client.check_family_segregation` returning ('deepseek',
+-'gemma'). Reuses battle-tested search/fetch infrastructure from src/tools/.
++Runs the LOCKED 4-role architecture per
++``config/architecture/polaris_runtime_lock.yaml`` (I-meta-001 #933):
++Generator (DeepSeek V4 Pro, OpenRouter) + Mirror (Cohere Command A+) +
++Sentinel (IBM Granite Guardian 4.1 8B) + Judge (Qwen3.6-35B-A3B), plus the
++deterministic python validators and the §-1.1 Codex audit layer. Family
++segregation across roles is enforced by
++``openrouter_client.check_family_segregation`` (all roles must be distinct
++lineages — the two-family invariant of CLAUDE.md §9.1 extended N-way).
++Reuses battle-tested search/fetch infrastructure from src/tools/.
+ """
+ 
+ __all__ = [
+diff --git a/src/polaris_graph/evaluator/__init__.py b/src/polaris_graph/evaluator/__init__.py
+index ab159059..56baa4b4 100644
+--- a/src/polaris_graph/evaluator/__init__.py
++++ b/src/polaris_graph/evaluator/__init__.py
+@@ -1,7 +1,13 @@
+ """POLARIS honest-rebuild external evaluator package (Phase 5).
+ 
+-Non-same-family evaluator (DeepSeek V4 Pro generator + Gemma 4 31B
+-evaluator by default; both swappable via PG_GENERATOR_MODEL /
+-PG_EVALUATOR_MODEL env vars) plus rule-based PRISMA-trAIce compliance
+-checks.
++Non-same-family evaluator: the generator (DeepSeek V4 Pro) and this
++evaluator role MUST be from distinct training lineages (CLAUDE.md §9.1
++two-family invariant). Under the LOCKED 4-role architecture
++(``config/architecture/polaris_runtime_lock.yaml``, I-meta-001 #933) the
++evaluator role maps to Mirror (Cohere Command A+); the legacy
++``PG_EVALUATOR_MODEL`` knob is compat-mapped to ``PG_MIRROR_MODEL`` per the
++lock's ``legacy_compat`` block. Both the generator and evaluator models are
++swappable via ``PG_GENERATOR_MODEL`` / ``PG_MIRROR_MODEL``
++(``PG_EVALUATOR_MODEL`` for back-compat) env vars, plus rule-based
++PRISMA-trAIce compliance checks.
+ """
+diff --git a/src/polaris_graph/evaluator/live_judge.py b/src/polaris_graph/evaluator/live_judge.py
+index abe23dfb..33942f05 100644
+--- a/src/polaris_graph/evaluator/live_judge.py
++++ b/src/polaris_graph/evaluator/live_judge.py
+@@ -2,9 +2,13 @@
+ Live judge — HONEST-REBUILD Phase 5 live wiring.
+ 
+ Calls the REAL evaluator model via OpenRouter (model read from
+-PG_EVALUATOR_MODEL at runtime; default Gemma 4 31B as of 2026-05-08
+-per I-bug-087, previously Qwen3-8B per HONEST-REBUILD Phase 1c) to
+-produce per-axis structured verdicts on a completed report.
++PG_EVALUATOR_MODEL at runtime). Under the LOCKED 4-role architecture
++(config/architecture/polaris_runtime_lock.yaml, I-meta-001 #933) the legacy
++PG_EVALUATOR_MODEL knob resolves to the Mirror role via the lock's
++legacy_compat map (PG_EVALUATOR_MODEL -> PG_MIRROR_MODEL) when unset.
++Historical defaults: Gemma 4 31B as of 2026-05-08 per I-bug-087, previously
++Qwen3-8B per HONEST-REBUILD Phase 1c. Produces per-axis structured verdicts
++on a completed report.
+ 
+ This is the NON-SAME-FAMILY judge: the judge model must be from a
+ different training family than the generator. `check_family_segregation()`
+
+ succeeded in 1244ms:
+.claude/settings.json
+.codex/I-meta-002-pr9-m3b/codex_diff_audit.txt
+.codex/I-safety-002b/codex_diff_pr2_brief.md
+.codex/I-safety-002b/codex_diff_pr2_iter2.txt
+docs/file_directory.md
+logs/session_log.md
+outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+outputs/honest_sweep_r3/sweep_summary.json
+outputs/honest_sweep_r3/sweep_summary.md
+scripts/dr_benchmark/medhallu_runner.py
+src/polaris_graph/__init__.py
+src/polaris_graph/evaluator/__init__.py
+src/polaris_graph/evaluator/live_judge.py
+state/active_issue.json
+warning: in the working copy of '.claude/settings.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.codex/I-meta-002-pr9-m3b/codex_diff_audit.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.codex/I-safety-002b/codex_diff_pr2_brief.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.codex/I-safety-002b/codex_diff_pr2_iter2.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'logs/session_log.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/dr_benchmark/medhallu_runner.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'state/active_issue.json', LF will be replaced by CRLF the next time Git touches it
+
+ succeeded in 1305ms:
+ M .claude/settings.json
+ M .codex/I-meta-002-pr9-m3b/codex_diff_audit.txt
+ M .codex/I-safety-002b/codex_diff_pr2_brief.md
+ M .codex/I-safety-002b/codex_diff_pr2_iter2.txt
+ M docs/file_directory.md
+ M logs/session_log.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/bibliography.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/contradictions.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/corpus_approval.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/evaluator_rule_checks.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/manifest.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/protocol.json
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/report.md
+ M outputs/honest_sweep_r3/clinical/clinical_tirzepatide_t2dm/run_log.txt
+ M outputs/honest_sweep_r3/sweep_summary.json
+ M outputs/honest_sweep_r3/sweep_summary.md
+ M scripts/dr_benchmark/medhallu_runner.py
+ M src/polaris_graph/__init__.py
+ M src/polaris_graph/evaluator/__init__.py
+ M src/polaris_graph/evaluator/live_judge.py
+ M state/active_issue.json
+?? .codex/I-meta-002-pr9-item7/
+?? .codex/I-meta-002-readiness/
+?? .codex/I-meta-002/codex_auto_merger_safest_design.md
+?? .codex/I-meta-002/codex_smallscale_budget_verdict.txt
+?? .codex/I-meta-002/deposit_budget_4role_smoke_fullrun.md
+?? .codex/I-meta-002/research_agentic_workflow_2026.md
+?? docs/process/polaris_task_cycle_proposal_v2_delta_2026_05_28.md
+?? live/
+?? m3b_manual_seam_tmp/
+?? m3b_review_direct_seam/
+?? manual_pr5_tmp/
+?? tmp_full_readiness_codex_brief.md
+?? tmp_full_readiness_codex_brief_final.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-pr5-pytest/': Permission denied
+warning: could not open directory '.codex-pr5-smoke/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-atom-review/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe2/': Permission denied
+warning: could not open directory 'codex_pr5_pytest/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-0mc8n_ea/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-p7o9a1r6/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest_base/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/gpg_script_check/polaris-ci-gpgv-juas0xsq/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-f0d_cibj/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-s_s5xq67/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest680-1779339720748/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_i_cd_680_review/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-klbvq3eb/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-xzjrn7w3/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_base/': Permission denied
+warning: could not open directory 'codex_review_tmp_pathb/': Permission denied
+warning: could not open directory 'codex_review_tmp_step3j/base/': Permission denied
+warning: could not open directory 'codex_step3j_iter5_tmp/': Permission denied
+warning: could not open directory 'm3b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'm3b_review_tmp_codex/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m15a_review/pytest_tmp/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m16_v2_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-eegx2llb/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-uie6gyp7/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-temp/': Permission denied
+warning: could not open directory 'probe-mfxdkp1r/': Permission denied
+warning: could not open directory 'zz_codex_pr8_tmp/pytest_base/': Permission denied
+
+codex
+The pasted four-file diff matches the local diff for those paths. I’m now checking the runtime lock and family-segregation code to make sure the revised prose does not overstate the architecture or weaken the invariant.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- config/architecture/polaris_runtime_lock.yaml docs/architecture.md docs/carney_delivery_plan_v6_2.md docs/agent_architecture.md docs/polaris_pipeline_canonical.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def check_family_segregation|check_family_segregation|family|lineage|PG_EVALUATOR_MODEL|PG_MIRROR_MODEL|DEFAULT|_DEFAULT" src/polaris_graph -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "status:|legacy_compat|PG_EVALUATOR_MODEL|PG_MIRROR_MODEL|Generator|Mirror|Sentinel|Judge|qwen|granite|cohere|deepseek" config/architecture/polaris_runtime_lock.yaml' in C:\POLARIS
+ succeeded in 968ms:
+28:  - https://cohere.com/blog/command-a-plus
+29:  - https://huggingface.co/ibm-granite/granite-guardian-4.1-8b
+30:  - https://research.ibm.com/blog/granite-4-1-ai-foundation-models
+37:status: codex_approved_pending_operator_signature
+50:    model_slug: deepseek/deepseek-v4-pro
+51:    family: deepseek
+57:      non-abstention failure mode is mitigated by downstream Mirror/Sentinel/Judge layers.
+60:    model_slug: cohere/command-a-plus
+61:    family: cohere
+67:      Native citation grounding. Tests claims the Generator cannot self-verify.
+70:    model_slug: ibm-granite/granite-guardian-4.1-8b
+71:    family: ibm-granite
+77:      Broad guardrail coverage. Catches Mirror's misses.
+80:    model_slug: qwen/qwen3.6-35b-a3b
+81:    family: qwen
+124:    primary: PG_MIRROR_MODEL
+133:# Compatibility map — PG_EVALUATOR_MODEL is OVERLOADED in the 2-LLM-stub legacy
+136:# treats it as the Mirror role.
+137:legacy_compat:
+138:  PG_EVALUATOR_MODEL:
+142:      PG_EVALUATOR_MODEL was overloaded (covered evaluator + judge +
+143:      entailment in one knob). Use PG_MIRROR_MODEL / PG_SENTINEL_MODEL /
+
+ succeeded in 1128ms:
+src/polaris_graph\agents\verifier.py:65:DEFAULT TO NOT_SUPPORTED when uncertain. False SUPPORTED is worse than false NOT_SUPPORTED.
+src/polaris_graph\agents\hallucination_detector.py:13:The detector itself used same-family self-grading (MiniCheck +
+src/polaris_graph\agents\hallucination_detector.py:14:generator-family LLM) which the field has documented as unreliable:
+src/polaris_graph\agents\hallucination_detector.py:23:src/polaris_graph/evaluator/external_evaluator.py — non-same-family
+src/polaris_graph\agents\hallucination_detector.py:61:        "Returning empty audit results. External non-same-family evaluator "
+src/polaris_graph\agents\hallucination_detector.py:88:    The replacement is the external non-same-family evaluator built in
+src/polaris_graph\agents\hallucination_detector.py:90:    evaluator runs on a different model family than the generator,
+src/polaris_graph\audit_bundle\conformance.py:39:- Pipeline-level invariants of the wrapped content (two-family
+src/polaris_graph\agents\analyzer.py:237:_DOMAIN_AUTHORITY_DEFAULT = float(os.getenv("PG_DEFAULT_DOMAIN_AUTHORITY", "0.5"))
+src/polaris_graph\agents\analyzer.py:247:    - TIER 4 (PG_DEFAULT_DOMAIN_AUTHORITY, default 0.5): Everything else
+src/polaris_graph\agents\analyzer.py:257:        return _DOMAIN_AUTHORITY_DEFAULT
+src/polaris_graph\agents\analyzer.py:265:        return _DOMAIN_AUTHORITY_DEFAULT
+src/polaris_graph\agents\analyzer.py:283:                    return _DOMAIN_AUTHORITY_DEFAULT  # 0.5 — below B3 gate 0.6
+src/polaris_graph\agents\analyzer.py:317:                return _DOMAIN_AUTHORITY_DEFAULT
+src/polaris_graph\agents\analyzer.py:331:    return _DOMAIN_AUTHORITY_DEFAULT
+src/polaris_graph\agents\analyzer.py:2598:    _sig5_default = float(os.getenv("PG_TIER_SIGNAL5_DEFAULT", "0.3"))
+src/polaris_graph\agents\analyzer.py:2658:        # FIX-058D: Configurable via PG_TIER_SIGNAL5_DEFAULT env var (LAW VI). Was 0.5 = inflated.
+src/polaris_graph\config_loader.py:27:_DEFAULT_CONFIG_PATH = Path("config/settings/domain_lists.yaml")
+src/polaris_graph\config_loader.py:57:    config_path = Path(os.getenv("PG_DOMAIN_CONFIG_PATH", str(_DEFAULT_CONFIG_PATH)))
+src/polaris_graph\audit_ir\auth_store.py:64:DEFAULT_BCRYPT_ROUNDS = 12
+src/polaris_graph\audit_ir\auth_store.py:65:DEFAULT_API_KEY_PREFIX = "polaris_"
+src/polaris_graph\audit_ir\auth_store.py:73:        return DEFAULT_BCRYPT_ROUNDS
+src/polaris_graph\audit_ir\auth_store.py:77:        return DEFAULT_BCRYPT_ROUNDS
+src/polaris_graph\audit_ir\auth_store.py:81:    return os.environ.get("PG_API_KEY_PREFIX", DEFAULT_API_KEY_PREFIX)
+src/polaris_graph\audit_ir\billing_quota_store.py:69:_PLAN_DEFAULTS: dict[PlanTier, dict[QuotaEventKind, int]] = {
+src/polaris_graph\audit_ir\billing_quota_store.py:173:    cost_units INTEGER NOT NULL DEFAULT 1,
+src/polaris_graph\audit_ir\billing_quota_store.py:275:        quotas = dict(_PLAN_DEFAULTS[tier])
+src/polaris_graph\clinical_generator\generator.py:56:DEFAULT_VERIFIER_PASS_THRESHOLD = 0.40
+src/polaris_graph\clinical_generator\generator.py:57:DEFAULT_GENERATOR_MODEL_LABEL = "stub-generator"
+src/polaris_graph\clinical_generator\generator.py:189:    verifier_pass_threshold: float = DEFAULT_VERIFIER_PASS_THRESHOLD,
+src/polaris_graph\clinical_generator\generator.py:191:    generator_model: str = DEFAULT_GENERATOR_MODEL_LABEL,
+src/polaris_graph\clinical_generator\generator.py:208:        # scope_class is preferred; falls back to DEFAULT_BLUEPRINT (efficacy)
+src/polaris_graph\clinical_generator\generator.py:218:    if generator_model == DEFAULT_GENERATOR_MODEL_LABEL:
+src/polaris_graph\clinical_generator\generator.py:305:        family_segregation_passed=True,
+src/polaris_graph\auto_induction\keyword_inductor.py:82:_DEFAULT_PROFILES: tuple[_SlugProfile, ...] = (
+src/polaris_graph\auto_induction\keyword_inductor.py:232:    profiles: tuple[_SlugProfile, ...] = _DEFAULT_PROFILES
+src/polaris_graph\clinical_generator\section_blueprint.py:164:DEFAULT_BLUEPRINT = CLINICAL_EFFICACY
+src/polaris_graph\clinical_generator\section_blueprint.py:174:    Unknown / None classes fall back to DEFAULT_BLUEPRINT (efficacy
+src/polaris_graph\clinical_generator\section_blueprint.py:179:        return DEFAULT_BLUEPRINT
+src/polaris_graph\clinical_generator\section_blueprint.py:180:    return _BLUEPRINTS.get(scope_class, DEFAULT_BLUEPRINT)
+src/polaris_graph\audit_ir\beat_both_scoring.py:651:_DEFAULT_TOLERANCES: dict[str, float] = {
+src/polaris_graph\audit_ir\beat_both_scoring.py:673:    Custom dimensions (not in `_DEFAULT_TOLERANCES`) default to
+src/polaris_graph\audit_ir\beat_both_scoring.py:683:    return _DEFAULT_TOLERANCES.get(dimension, 0.0)
+src/polaris_graph\benchmark\report_renderer.py:128:  body { font-family: system-ui, -apple-system, sans-serif; max-width: 1200px;
+src/polaris_graph\clinical_generator\real_completion.py:6:backend. Default model from OPENROUTER_DEFAULT_MODEL env var (e.g.
+src/polaris_graph\clinical_generator\real_completion.py:48:DEFAULT_TIMEOUT_S = 60.0
+src/polaris_graph\clinical_generator\real_completion.py:49:DEFAULT_TEMPERATURE = 0.2
+src/polaris_graph\clinical_generator\real_completion.py:50:DEFAULT_MAX_TOKENS = 800
+src/polaris_graph\clinical_generator\real_completion.py:62:    timeout_s: float = DEFAULT_TIMEOUT_S
+src/polaris_graph\clinical_generator\real_completion.py:63:    temperature: float = DEFAULT_TEMPERATURE
+src/polaris_graph\clinical_generator\real_completion.py:64:    max_tokens: int = DEFAULT_MAX_TOKENS
+src/polaris_graph\clinical_generator\real_completion.py:80:    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "deepseek/deepseek-v4-pro"
+src/polaris_graph\clinical_generator\verified_report.py:90:            "Two-family evaluator agreement per CLAUDE.md §9.1 invariant 1. "
+src/polaris_graph\clinical_generator\verified_report.py:94:            "real two-family LLM judge to populate this independently."
+src/polaris_graph\clinical_generator\verified_report.py:220:    """Two-family evaluator disagreement detail (I-f9-002).
+src/polaris_graph\clinical_generator\verified_report.py:427:            "Two-family evaluator identifier per CLAUDE.md §9.1 invariant 1. "
+src/polaris_graph\clinical_generator\verified_report.py:430:            "model id from a different training family than generator_model."
+src/polaris_graph\clinical_generator\verified_report.py:433:    family_segregation_passed: bool = Field(
+src/polaris_graph\clinical_generator\verified_report.py:437:            "different training lineages (rule-based always True; future "
+src/polaris_graph\clinical_generator\verified_report.py:438:            "two-family LLM judge invokes "
+src/polaris_graph\clinical_generator\verified_report.py:439:            "openrouter_client.check_family_segregation)."
+src/polaris_graph\benchmark\polaris_runner.py:34:DEFAULT_TIMEOUT_S = 600.0
+src/polaris_graph\benchmark\polaris_runner.py:82:        client = httpx.Client(timeout=DEFAULT_TIMEOUT_S)
+src/polaris_graph\audit_ir\corpus_brief.py:49:    DEFAULT_MIN_SCORE,
+src/polaris_graph\audit_ir\corpus_brief.py:50:    DEFAULT_TOP_K,
+src/polaris_graph\audit_ir\corpus_brief.py:180:    top_k: int = DEFAULT_TOP_K,
+src/polaris_graph\audit_ir\corpus_brief.py:181:    min_score: float = DEFAULT_MIN_SCORE,
+src/polaris_graph\audit_ir\corpus_brief.py:359:        # OpenRouter client family — keeps the dependency arrows
+src/polaris_graph\audit_ir\corpus_retriever.py:136:DEFAULT_TOP_K = 8
+src/polaris_graph\audit_ir\corpus_retriever.py:137:DEFAULT_MIN_SCORE = 0.5  # BM25 floor for inclusion
+src/polaris_graph\audit_ir\corpus_retriever.py:144:    top_k: int = DEFAULT_TOP_K,
+src/polaris_graph\audit_ir\corpus_retriever.py:145:    min_score: float = DEFAULT_MIN_SCORE,
+src/polaris_graph\audit_ir\contract_draft_store.py:286:    status TEXT NOT NULL DEFAULT 'draft',
+src/polaris_graph\audit_ir\contract_draft_store.py:332:    evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+src/polaris_graph\audit_ir\contract_draft_store.py:333:    claim_ids_json TEXT NOT NULL DEFAULT '[]',
+src/polaris_graph\audit_ir\contract_draft_store.py:334:    decision TEXT NOT NULL DEFAULT 'pending',
+src/polaris_graph\clinical_generator\strict_verify.py:39:                                        the two-family evaluator)
+src/polaris_graph\clinical_generator\strict_verify.py:69:DEFAULT_MIN_CONTENT_OVERLAP = 2
+src/polaris_graph\clinical_generator\strict_verify.py:95:        return DEFAULT_MIN_CONTENT_OVERLAP
+src/polaris_graph\clinical_generator\strict_verify.py:127:    _DEFAULT_ENTAILMENT_MODEL,
+src/polaris_graph\clinical_generator\strict_verify.py:173:_DEFAULT_MODE = "enforce"
+src/polaris_graph\clinical_generator\strict_verify.py:187:    raw = os.environ.get("PG_STRICT_VERIFY_ENTAILMENT", _DEFAULT_MODE).lower().strip()
+src/polaris_graph\clinical_generator\strict_verify.py:194:                raw, _DEFAULT_MODE,
+src/polaris_graph\clinical_generator\strict_verify.py:196:        return _DEFAULT_MODE
+src/polaris_graph\clinical_generator\strict_verify.py:197:    return raw or _DEFAULT_MODE
+src/polaris_graph\benchmark\pathB_runner.py:44:# the legacy OPENROUTER_DEFAULT_MODEL fallback (documented honest_sweep override chain).
+src/polaris_graph\benchmark\pathB_runner.py:47:    "mirror": "PG_MIRROR_MODEL",
+src/polaris_graph\benchmark\pathB_runner.py:63:    OPENROUTER_DEFAULT_MODEL > lock-default precedence (regression: a sweep that exports only
+src/polaris_graph\benchmark\pathB_runner.py:64:    OPENROUTER_DEFAULT_MODEL must still pin the right generator)."""
+src/polaris_graph\benchmark\pathB_runner.py:69:            or os.getenv("OPENROUTER_DEFAULT_MODEL")
+src/polaris_graph\benchmark\pathB_runner.py:90:    keeps its PG_GENERATOR_MODEL > OPENROUTER_DEFAULT_MODEL > lock-default precedence.
+src/polaris_graph\benchmark\pathB_runner.py:92:    validate_role_families() runs on the effective 4-role map so the N-way family invariant
+src/polaris_graph\benchmark\pathB_runner.py:93:    (all 4 lineages distinct) holds at pin-build time — a same-family misconfiguration fails
+src/polaris_graph\benchmark\pathB_runner.py:103:    # N-way family segregation on the effective 4-role map (raises RuntimeError on collision).
+src/polaris_graph\clinical_retrieval\corpus_adequacy_gate.py:55:CLINICAL_DEFAULT = ClinicalTemplate(
+src/polaris_graph\clinical_retrieval\corpus_adequacy_gate.py:99:    CLINICAL_DEFAULT.template_id: CLINICAL_DEFAULT,
+src/polaris_graph\clinical_retrieval\corpus_adequacy_gate.py:114:    return _REGISTRY.get(template_id, CLINICAL_DEFAULT)
+src/polaris_graph\clinical_retrieval\corpus_adequacy_gate.py:123:        return CLINICAL_DEFAULT
+src/polaris_graph\clinical_retrieval\corpus_adequacy_gate.py:130:    return mapping.get(scope_class, CLINICAL_DEFAULT)
+src/polaris_graph\clinical_retrieval\corpus_adequacy_gate.py:170:    template: ClinicalTemplate = CLINICAL_DEFAULT,
+src/polaris_graph\honest_pipeline.py:234:        PG_EVALUATOR_MODEL,
+src/polaris_graph\honest_pipeline.py:243:        f"Evaluator model: {PG_EVALUATOR_MODEL} (different family).\n"
+src/polaris_graph\clinical_retrieval\real_fetcher.py:45:DEFAULT_TIMEOUT_S = 10.0
+src/polaris_graph\clinical_retrieval\real_fetcher.py:57:    timeout_s: float = DEFAULT_TIMEOUT_S
+src/polaris_graph\pipeline_a_ui_adapter.py:7:delimiter sanitization, abort statuses, two-family evaluator).
+src/polaris_graph\audit_ir\job_queue.py:122:    pause_requested INTEGER NOT NULL DEFAULT 0,
+src/polaris_graph\audit_ir\job_queue.py:123:    cancel_requested INTEGER NOT NULL DEFAULT 0,
+src/polaris_graph\audit_ir\job_queue.py:124:    progress_pct REAL NOT NULL DEFAULT 0,
+src/polaris_graph\audit_ir\job_queue.py:125:    progress_message TEXT NOT NULL DEFAULT '',
+src/polaris_graph\audit_ir\job_queue.py:129:    org_id TEXT NOT NULL DEFAULT 'org_default',
+src/polaris_graph\audit_ir\job_queue.py:201:                        "DEFAULT 'org_default'"
+src/polaris_graph\audit_ir\inspector_router.py:776:            f"Generator family:   {eval_rules.get('generator_family', '—')}",
+src/polaris_graph\audit_ir\inspector_router.py:778:            f"Evaluator family:   {eval_rules.get('evaluator_family', '—')}",
+src/polaris_graph\memory\campaign_store.py:45:            description   TEXT NOT NULL DEFAULT '',
+src/polaris_graph\memory\campaign_store.py:46:            queries_json  TEXT NOT NULL DEFAULT '[]',
+src/polaris_graph\memory\campaign_store.py:47:            status        TEXT NOT NULL DEFAULT 'created',
+src/polaris_graph\memory\campaign_store.py:48:            results_json  TEXT NOT NULL DEFAULT '{}',
+src/polaris_graph\memory\campaign_store.py:51:            metadata_json TEXT NOT NULL DEFAULT '{}'
+src/polaris_graph\__init__.py:10:``openrouter_client.check_family_segregation`` (all roles must be distinct
+src/polaris_graph\__init__.py:11:lineages — the two-family invariant of CLAUDE.md §9.1 extended N-way).
+src/polaris_graph\llm\__init__.py:3:Default model = OPENROUTER_DEFAULT_MODEL (default deepseek/deepseek-v4-pro
+src/polaris_graph\audit_ir\parallel_fetch.py:226:DEFAULT_PER_BACKEND_LIMIT = 4
+src/polaris_graph\audit_ir\parallel_fetch.py:251:    `DEFAULT_PER_BACKEND_LIMIT`. Pass `{"semantic_scholar": 1,
+src/polaris_graph\audit_ir\parallel_fetch.py:339:                    backend_id, DEFAULT_PER_BACKEND_LIMIT,
+src/polaris_graph\llm\openrouter_client.py:4:Single gateway via OpenRouter. Default model = OPENROUTER_DEFAULT_MODEL
+src/polaris_graph\llm\openrouter_client.py:51:OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "deepseek/deepseek-v4-pro")
+src/polaris_graph\llm\openrouter_client.py:249:# published rates for each provider family (if a cheaper provider is used
+src/polaris_graph\llm\openrouter_client.py:258:    # PG_GENERATOR_MODEL / OPENROUTER_DEFAULT_MODEL); not the active
+src/polaris_graph\llm\openrouter_client.py:278:_DEFAULT_PRICE_PER_M = (3.00, 15.00)  # Opus-tier worst-case
+src/polaris_graph\llm\openrouter_client.py:305:    input_rate, output_rate = _DEFAULT_PRICE_PER_M
+src/polaris_graph\llm\openrouter_client.py:335:# Two-family architecture: generator and evaluator MUST be from different
+src/polaris_graph\llm\openrouter_client.py:336:# training lineages to avoid self-bias (Play Favorites arXiv:2508.06709 Aug
+src/polaris_graph\llm\openrouter_client.py:363:#       - Different family from generator (Google vs DeepSeek) —
+src/polaris_graph\llm\openrouter_client.py:364:#         check_family_segregation() allows this pair
+src/polaris_graph\llm\openrouter_client.py:369:#         Vectara HHEM 4.8%) — switch back via PG_EVALUATOR_MODEL env var
+src/polaris_graph\llm\openrouter_client.py:415:# the legacy PG_EVALUATOR_MODEL is compat-mapped to PG_MIRROR_MODEL until
+src/polaris_graph\llm\openrouter_client.py:417:PG_MIRROR_MODEL = os.getenv("PG_MIRROR_MODEL", "cohere/command-a-plus")
+src/polaris_graph\llm\openrouter_client.py:421:# Legacy 2-LLM stub env. Resolves to PG_MIRROR_MODEL when unset (the Mirror
+src/polaris_graph\llm\openrouter_client.py:422:# role subsumes the old "evaluator" responsibilities). When PG_EVALUATOR_MODEL
+src/polaris_graph\llm\openrouter_client.py:423:# IS set, it overrides PG_MIRROR_MODEL for the Mirror role (back-compat).
+src/polaris_graph\llm\openrouter_client.py:424:PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL") or PG_MIRROR_MODEL
+src/polaris_graph\llm\openrouter_client.py:426:# Explicit family overrides for the cases where the model-name prefix is
+src/polaris_graph\llm\openrouter_client.py:427:# not the true family (fine-tunes, licensed redistributions, etc.).
+src/polaris_graph\llm\openrouter_client.py:434:# Known family prefixes. The first prefix matched wins. Distinct families
+src/polaris_graph\llm\openrouter_client.py:435:# per the loopback/audit/_open_source_models_2026.md family-distance table.
+src/polaris_graph\llm\openrouter_client.py:438:# Codex iter-2 P1 — family registry must cover every role in the
+src/polaris_graph\llm\openrouter_client.py:439:# config/architecture/polaris_runtime_lock.yaml or family_segregation refuses
+src/polaris_graph\llm\openrouter_client.py:452:    # ever allowed via a closed-source fallback they get their own family).
+src/polaris_graph\llm\openrouter_client.py:459:def family_from_model(model_name: str, override: str = "") -> str:
+src/polaris_graph\llm\openrouter_client.py:460:    """Derive the training-lineage family from an OpenRouter model name.
+src/polaris_graph\llm\openrouter_client.py:462:    Returns the family label ("deepseek", "qwen", "glm", "llama", "gemma",
+src/polaris_graph\llm\openrouter_client.py:467:    has been renamed or when a fine-tune needs its base-family tag.
+src/polaris_graph\llm\openrouter_client.py:474:    for family, prefixes in _FAMILY_PREFIXES.items():
+src/polaris_graph\llm\openrouter_client.py:477:                return family
+src/polaris_graph\llm\openrouter_client.py:481:def check_family_segregation(
+src/polaris_graph\llm\openrouter_client.py:487:    """Fail fast if generator and evaluator are in the same family.
+src/polaris_graph\llm\openrouter_client.py:489:    Returns (generator_family, evaluator_family) on success.
+src/polaris_graph\llm\openrouter_client.py:490:    Raises RuntimeError if same family or if either is "unknown" without
+src/polaris_graph\llm\openrouter_client.py:496:    eval_model = evaluator_model or PG_EVALUATOR_MODEL
+src/polaris_graph\llm\openrouter_client.py:500:    gen_family = family_from_model(gen_model, gen_override)
+src/polaris_graph\llm\openrouter_client.py:501:    eval_family = family_from_model(eval_model, eval_override)
+src/polaris_graph\llm\openrouter_client.py:503:    if gen_family == "unknown" and not gen_override:
+src/polaris_graph\llm\openrouter_client.py:506:            f"match any known family prefix. Set PG_GENERATOR_FAMILY_OVERRIDE "
+src/polaris_graph\llm\openrouter_client.py:507:            f"to the training-lineage family (e.g. 'deepseek', 'qwen') so "
+src/polaris_graph\llm\openrouter_client.py:508:            f"family segregation can be checked. Family-distance from the "
+src/polaris_graph\llm\openrouter_client.py:513:    if eval_family == "unknown" and not eval_override:
+src/polaris_graph\llm\openrouter_client.py:516:            f"not match any known family prefix. Set PG_EVALUATOR_FAMILY_OVERRIDE."
+src/polaris_graph\llm\openrouter_client.py:518:    if gen_family == eval_family:
+src/polaris_graph\llm\openrouter_client.py:521:            f"same training-lineage family ('{gen_family}'). This defeats "
+src/polaris_graph\llm\openrouter_client.py:522:            f"the purpose of two-family architecture — same-family judges "
+src/polaris_graph\llm\openrouter_client.py:529:    return (gen_family, eval_family)
+src/polaris_graph\llm\openrouter_client.py:534:    """I-meta-001 (#933): N-way family segregation for the 4-role architecture.
+src/polaris_graph\llm\openrouter_client.py:536:    Extends the pairwise check_family_segregation to N roles per the locked
+src/polaris_graph\llm\openrouter_client.py:538:    be from distinct training lineages by default; allowed_collisions overrides
+src/polaris_graph\llm\openrouter_client.py:539:    specific pairs if the architecture lock's family_policy permits them.
+src/polaris_graph\llm\openrouter_client.py:550:        {role_name: family_label} on success.
+src/polaris_graph\llm\openrouter_client.py:553:        RuntimeError if any role's family is "unknown" or if two roles share
+src/polaris_graph\llm\openrouter_client.py:554:        a family outside allowed_collisions.
+src/polaris_graph\llm\openrouter_client.py:561:        family = family_from_model(model)
+src/polaris_graph\llm\openrouter_client.py:562:        if family == "unknown":
+src/polaris_graph\llm\openrouter_client.py:565:                f"family='unknown'. Add the family prefix to "
+src/polaris_graph\llm\openrouter_client.py:568:        role_families[role] = family
+src/polaris_graph\llm\openrouter_client.py:573:    # all_distinct (default policy): every family must be unique across roles
+src/polaris_graph\llm\openrouter_client.py:574:    family_to_role: dict[str, str] = {}
+src/polaris_graph\llm\openrouter_client.py:576:    for role, family in role_families.items():
+src/polaris_graph\llm\openrouter_client.py:577:        if family in family_to_role:
+src/polaris_graph\llm\openrouter_client.py:578:            other_role = family_to_role[family]
+src/polaris_graph\llm\openrouter_client.py:582:                f"validate_role_families: family {family!r} appears in both "
+src/polaris_graph\llm\openrouter_client.py:583:                f"role {role!r} and role {other_role!r}; family_policy="
+src/polaris_graph\llm\openrouter_client.py:587:        family_to_role[family] = role
+src/polaris_graph\llm\openrouter_client.py:630:DEFAULT_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_TIMEOUT_SECONDS", "90"))
+src/polaris_graph\llm\openrouter_client.py:1025:    All calls go through OPENROUTER_DEFAULT_MODEL via OpenRouter (default
+src/polaris_graph\llm\openrouter_client.py:1070:            timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
+src/polaris_graph\llm\openrouter_client.py:1509:                actual_timeout = timeout or DEFAULT_TIMEOUT_SECONDS
+src/polaris_graph\llm\openrouter_client.py:2239:            timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
+src/polaris_graph\llm\openrouter_client.py:2416:                    timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
+src/polaris_graph\llm\openrouter_client.py:2571:            timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
+src/polaris_graph\llm\openrouter_client.py:2776:                timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
+src/polaris_graph\llm\loopback_client.py:49:DEFAULT_TIMEOUT_SEC = float(os.getenv("PG_LOOPBACK_TIMEOUT_SEC", "7200"))  # 2h per call
+src/polaris_graph\llm\loopback_client.py:226:        timeout_sec = timeout or DEFAULT_TIMEOUT_SEC
+src/polaris_graph\audit_ir\model_pin.py:55:    See `DEFAULT_REPLAY_ENV_VARS` for the recommended capture set
+src/polaris_graph\audit_ir\model_pin.py:110:DEFAULT_REPLAY_ENV_VARS: tuple[str, ...] = (
+src/polaris_graph\audit_ir\model_pin.py:113:    "OPENROUTER_DEFAULT_MODEL",
+src/polaris_graph\audit_ir\model_pin.py:172:# `DEFAULT_ROUTING_ENV_VARS`; the name was narrowed in v3 to
+src/polaris_graph\audit_ir\model_pin.py:173:# `DEFAULT_REPLAY_ENV_VARS` (broader scope: routing + gates +
+src/polaris_graph\audit_ir\model_pin.py:175:DEFAULT_ROUTING_ENV_VARS: tuple[str, ...] = DEFAULT_REPLAY_ENV_VARS
+src/polaris_graph\audit_ir\model_pin.py:238:    names: Iterable[str] = DEFAULT_REPLAY_ENV_VARS,
+src/polaris_graph\memory\content_cache.py:24:DEFAULT_TTL_HOURS = int(os.getenv("PG_CONTENT_CACHE_TTL_HOURS", "168"))  # 7 days
+src/polaris_graph\memory\content_cache.py:73:            title TEXT DEFAULT '',
+src/polaris_graph\memory\content_cache.py:74:            content_length INTEGER DEFAULT 0,
+src/polaris_graph\memory\content_cache.py:75:            fetch_method TEXT DEFAULT 'direct',
+src/polaris_graph\memory\content_cache.py:77:            ttl_hours INTEGER DEFAULT 168,
+src/polaris_graph\memory\content_cache.py:78:            raw_html TEXT DEFAULT '',
+src/polaris_graph\memory\content_cache.py:79:            readability_html TEXT DEFAULT ''
+src/polaris_graph\memory\content_cache.py:86:            "ALTER TABLE url_cache ADD COLUMN raw_html TEXT DEFAULT ''"
+src/polaris_graph\memory\content_cache.py:93:            "ALTER TABLE url_cache ADD COLUMN readability_html TEXT DEFAULT ''"
+src/polaris_graph\memory\content_cache.py:120:            ttl_hours = row["ttl_hours"] or DEFAULT_TTL_HOURS
+src/polaris_graph\memory\content_cache.py:152:    ttl_hours: int = DEFAULT_TTL_HOURS,
+src/polaris_graph\llm\entailment_judge.py:28:The judge model is the two-family evaluator (Gemma 4 31B by default),
+src/polaris_graph\llm\entailment_judge.py:29:matching the §9.1.1 invariant — different lineage from the generator
+src/polaris_graph\llm\entailment_judge.py:44:  - _DEFAULT_MODE
+src/polaris_graph\llm\entailment_judge.py:79:_DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"
+src/polaris_graph\llm\entailment_judge.py:110:        # Lazy-import the family-segregation check so the off-mode path
+src/polaris_graph\llm\entailment_judge.py:113:        # generator family per CLAUDE.md §9.1.1 — fail at construction
+src/polaris_graph\llm\entailment_judge.py:114:        # if PG_ENTAILMENT_MODEL is in the same family as PG_GENERATOR_MODEL.
+src/polaris_graph\llm\entailment_judge.py:115:        from src.polaris_graph.llm.openrouter_client import check_family_segregation
+src/polaris_graph\llm\entailment_judge.py:132:            "PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL
+src/polaris_graph\llm\entailment_judge.py:134:        # Two-family invariant per §9.1.1: raises RuntimeError if the
+src/polaris_graph\llm\entailment_judge.py:135:        # entailment judge ends up in the same family as the generator
+src/polaris_graph\llm\entailment_judge.py:139:        # family from DeepSeek by construction.
+src/polaris_graph\llm\entailment_judge.py:140:        check_family_segregation(evaluator_model=self._model)
+src/polaris_graph\llm\entailment_judge.py:167:        # (where _ROLE=="generator"), but it posts the evaluator-family model — using the
+src/polaris_graph\llm\entailment_judge.py:200:            # evaluator-family LLM call that bypasses OpenRouterClient (direct httpx),
+src/polaris_graph\llm\entailment_judge.py:201:            # so without capturing here the gate's two-family completeness check would
+src/polaris_graph\memory\search_cache.py:25:DEFAULT_TTL_HOURS = int(os.getenv("PG_SEARCH_CACHE_TTL_HOURS", "24"))
+src/polaris_graph\memory\search_cache.py:41:            search_type TEXT DEFAULT '',
+src/polaris_graph\memory\search_cache.py:42:            result_count INTEGER DEFAULT 0,
+src/polaris_graph\memory\search_cache.py:44:            ttl_hours INTEGER DEFAULT 24
+src/polaris_graph\memory\search_cache.py:73:            ttl_hours = row["ttl_hours"] or DEFAULT_TTL_HOURS
+src/polaris_graph\memory\search_cache.py:91:    ttl_hours: int = DEFAULT_TTL_HOURS,
+src/polaris_graph\memory\source_content_store.py:48:            title TEXT DEFAULT '',
+src/polaris_graph\memory\source_content_store.py:49:            content_length INTEGER DEFAULT 0,
+src/polaris_graph\audit_ir\loader.py:231:      - evaluator_rule_checks.json: generator_family/model, evaluator_family/model,
+src/polaris_graph\audit_ir\loader.py:235:    The two-family invariant (generator and evaluator from different lineages)
+src/polaris_graph\audit_ir\loader.py:239:    generator_family: str
+src/polaris_graph\audit_ir\loader.py:241:    evaluator_family: str
+src/polaris_graph\audit_ir\loader.py:914:        generator_family=str(eval_rules_raw.get("generator_family", "")),
+src/polaris_graph\audit_ir\loader.py:916:        evaluator_family=str(eval_rules_raw.get("evaluator_family", "")),
+src/polaris_graph\memory\session_feedback.py:37:            search_type TEXT DEFAULT '',
+src/polaris_graph\memory\session_feedback.py:38:            source_url TEXT DEFAULT '',
+src/polaris_graph\memory\session_feedback.py:39:            evidence_count INTEGER DEFAULT 0,
+src/polaris_graph\memory\session_feedback.py:40:            avg_relevance REAL DEFAULT 0.0,
+src/polaris_graph\memory\session_feedback.py:41:            faithfulness_contribution REAL DEFAULT 0.0,
+src/polaris_graph\memory\evidence_hierarchy.py:36:            cluster_id TEXT DEFAULT '',
+src/polaris_graph\memory\evidence_hierarchy.py:37:            l0_summary TEXT DEFAULT '',
+src/polaris_graph\memory\evidence_hierarchy.py:38:            l1_overview TEXT DEFAULT '',
+src/polaris_graph\memory\evidence_hierarchy.py:39:            l2_full TEXT DEFAULT '{}',
+src/polaris_graph\memory\evidence_hierarchy.py:40:            perspective TEXT DEFAULT '',
+src/polaris_graph\memory\evidence_hierarchy.py:41:            quality_tier TEXT DEFAULT 'BRONZE',
+src/polaris_graph\memory\evidence_hierarchy.py:42:            relevance_score REAL DEFAULT 0.0,
+src/polaris_graph\memory\evidence_hierarchy.py:49:            "ALTER TABLE evidence_memory ADD COLUMN section_assignments TEXT DEFAULT ''"
+src/polaris_graph\memory\verified_claim_graph.py:36:_DEFAULT_DB_FILENAME = "verified_claim_graph.sqlite"
+src/polaris_graph\memory\verified_claim_graph.py:111:            resolved = Path(run_dir) / _DEFAULT_DB_FILENAME
+src/polaris_graph\audit_ir\pin_trends.py:177:DEFAULT_STABLE_THRESHOLD = 0.95
+src/polaris_graph\audit_ir\pin_trends.py:178:DEFAULT_UNSTABLE_THRESHOLD = 0.5
+src/polaris_graph\audit_ir\pin_trends.py:183:    return _coerce_threshold(raw, DEFAULT_STABLE_THRESHOLD)
+src/polaris_graph\audit_ir\pin_trends.py:188:    return _coerce_threshold(raw, DEFAULT_UNSTABLE_THRESHOLD)
+src/polaris_graph\audit_ir\parser_runner.py:69:    """One parser per file family. Stateless — instances can be
+src/polaris_graph\audit_ir\parser_runner.py:90:DEFAULT_TEXT_CHUNK_CHARS = 1500
+src/polaris_graph\audit_ir\parser_runner.py:125:            return DEFAULT_TEXT_CHUNK_CHARS
+src/polaris_graph\audit_ir\parser_runner.py:129:            return DEFAULT_TEXT_CHUNK_CHARS
+src/polaris_graph\audit_ir\parser_runner.py:202:_DEFAULT_PARSERS: tuple[ParserRunner, ...] = (TextParser(), PdfParser())
+src/polaris_graph\audit_ir\parser_runner.py:208:    parsers: tuple[ParserRunner, ...] = _DEFAULT_PARSERS,
+src/polaris_graph\audit_ir\progress_surfaces.py:99:_DEFAULT_QUEUE_SIZE = 64
+src/polaris_graph\audit_ir\progress_surfaces.py:109:_DEFAULT_TERMINAL_MARK_CAP = 1024
+src/polaris_graph\audit_ir\progress_surfaces.py:124:        queue_size: int = _DEFAULT_QUEUE_SIZE,
+src/polaris_graph\audit_ir\progress_surfaces.py:125:        terminal_cap: int = _DEFAULT_TERMINAL_MARK_CAP,
+src/polaris_graph\audit_ir\private_corpus_sync.py:156:    status TEXT NOT NULL DEFAULT 'pending',
+src/polaris_graph\audit_ir\private_corpus_sync.py:174:    doc_count INTEGER NOT NULL DEFAULT 0,
+src/polaris_graph\audit_ir\private_corpus_sync.py:175:    bytes_synced INTEGER NOT NULL DEFAULT 0,
+src/polaris_graph\audit_ir\security_audit_log.py:173:_DEFAULT_SEVERITY: dict[SecurityEventType, EventSeverity] = {
+src/polaris_graph\audit_ir\security_audit_log.py:272:        `severity` defaults from `_DEFAULT_SEVERITY` if not
+src/polaris_graph\audit_ir\security_audit_log.py:282:            severity = _DEFAULT_SEVERITY[event_type]
+src/polaris_graph\audit_ir\review_store.py:136:    version INTEGER NOT NULL DEFAULT 1,
+src/polaris_graph\audit_ir\scope_classifier.py:89:DEFAULT_CONFIDENCE_THRESHOLD = 0.70
+src/polaris_graph\audit_ir\scope_classifier.py:95:        return DEFAULT_CONFIDENCE_THRESHOLD
+src/polaris_graph\audit_ir\scope_classifier.py:99:        return DEFAULT_CONFIDENCE_THRESHOLD
+src/polaris_graph\audit_ir\scope_classifier.py:478:    "DEFAULT_CONFIDENCE_THRESHOLD",
+src/polaris_graph\audit_ir\scope_classifier_llm.py:143:_DEFAULT_MOCK_PROFILES: tuple[_DomainProfile, ...] = (
+src/polaris_graph\audit_ir\scope_classifier_llm.py:175:        profiles: tuple[_DomainProfile, ...] = _DEFAULT_MOCK_PROFILES,
+src/polaris_graph\audit_ir\slide_deck.py:153:_DEFAULT_MAX_BULLETS_PER_SLIDE = 5
+src/polaris_graph\audit_ir\slide_deck.py:154:_DEFAULT_MAX_SLIDES = 20
+src/polaris_graph\audit_ir\slide_deck.py:155:_DEFAULT_MIN_SLIDES = 4  # title + scope + at least one content + appendix
+src/polaris_graph\audit_ir\slide_deck.py:161:    max_bullets_per_slide: int = _DEFAULT_MAX_BULLETS_PER_SLIDE,
+src/polaris_graph\audit_ir\slide_deck.py:162:    max_slides: int = _DEFAULT_MAX_SLIDES,
+src/polaris_graph\audit_ir\slide_deck.py:180:    if max_slides < _DEFAULT_MIN_SLIDES:
+src/polaris_graph\audit_ir\slide_deck.py:182:            f"max_slides must be >= {_DEFAULT_MIN_SLIDES}; got {max_slides}"
+src/polaris_graph\audit_ir\slide_deck.py:765:    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+src/polaris_graph\audit_ir\slide_deck.py:812:.notes pre { white-space: pre-wrap; margin: 0; font-family: inherit; }
+src/polaris_graph\audit_ir\pin_replay.py:44:   `OPENROUTER_DEFAULT_MODEL` etc., but downstream clients may
+src/polaris_graph\audit_ir\pin_replay.py:84:    DEFAULT_REPLAY_ENV_VARS,
+src/polaris_graph\generator\sentence_repair.py:60:MAX_PER_SECTION_DEFAULT = 10  # Codex iter-1 brief
+src/polaris_graph\generator\sentence_repair.py:246:        "PG_REPAIR_LOOP_MAX_PER_SECTION", str(MAX_PER_SECTION_DEFAULT),
+src/polaris_graph\generator\sentence_repair.py:251:        return MAX_PER_SECTION_DEFAULT
+src/polaris_graph\audit_ir\template_classifier.py:61:DEFAULT_FLOOR_HIGH = 0.55
+src/polaris_graph\audit_ir\template_classifier.py:62:DEFAULT_FLOOR_REVIEW = 0.30
+src/polaris_graph\audit_ir\template_classifier.py:68:DEFAULT_TIE_MARGIN = 0.10
+src/polaris_graph\audit_ir\template_classifier.py:124:    floor_high: float = DEFAULT_FLOOR_HIGH
+src/polaris_graph\audit_ir\template_classifier.py:125:    floor_review: float = DEFAULT_FLOOR_REVIEW
+src/polaris_graph\audit_ir\template_classifier.py:126:    tie_margin: float = DEFAULT_TIE_MARGIN
+src/polaris_graph\audit_ir\template_classifier.py:131:            high = float(os.environ.get("PG_TEMPLATE_ROUTER_FLOOR_HIGH", DEFAULT_FLOOR_HIGH))
+src/polaris_graph\audit_ir\template_classifier.py:133:            high = DEFAULT_FLOOR_HIGH
+src/polaris_graph\audit_ir\template_classifier.py:135:            review = float(os.environ.get("PG_TEMPLATE_ROUTER_FLOOR_REVIEW", DEFAULT_FLOOR_REVIEW))
+src/polaris_graph\audit_ir\template_classifier.py:137:            review = DEFAULT_FLOOR_REVIEW
+src/polaris_graph\audit_ir\template_classifier.py:140:                "PG_TEMPLATE_ROUTER_TIE_MARGIN", DEFAULT_TIE_MARGIN,
+src/polaris_graph\audit_ir\template_classifier.py:143:            tie_margin = DEFAULT_TIE_MARGIN
+src/polaris_graph\nodes\corpus_approval_gate.py:178:    body { font-family: -apple-system, 'Segoe UI', sans-serif; max-width: 980px;
+src/polaris_graph\nodes\corpus_adequacy_gate.py:71:_DEFAULT_DOMAIN_THRESHOLDS: dict[str, AdequacyThresholds] = {
+src/polaris_graph\nodes\corpus_adequacy_gate.py:151:            base = _DEFAULT_DOMAIN_THRESHOLDS.get(domain, AdequacyThresholds())
+src/polaris_graph\nodes\corpus_adequacy_gate.py:164:    return _DEFAULT_DOMAIN_THRESHOLDS.get(domain, AdequacyThresholds())
+src/polaris_graph\evaluator\__init__.py:3:Non-same-family evaluator: the generator (DeepSeek V4 Pro) and this
+src/polaris_graph\evaluator\__init__.py:4:evaluator role MUST be from distinct training lineages (CLAUDE.md §9.1
+src/polaris_graph\evaluator\__init__.py:5:two-family invariant). Under the LOCKED 4-role architecture
+src/polaris_graph\evaluator\__init__.py:8:``PG_EVALUATOR_MODEL`` knob is compat-mapped to ``PG_MIRROR_MODEL`` per the
+src/polaris_graph\evaluator\__init__.py:10:swappable via ``PG_GENERATOR_MODEL`` / ``PG_MIRROR_MODEL``
+src/polaris_graph\evaluator\__init__.py:11:(``PG_EVALUATOR_MODEL`` for back-compat) env vars, plus rule-based
+src/polaris_graph\audit_ir\workspace_store.py:58:DEFAULT_MAX_DOCS_PER_WORKSPACE = 50
+src/polaris_graph\audit_ir\workspace_store.py:66:        return DEFAULT_MAX_DOCS_PER_WORKSPACE
+src/polaris_graph\audit_ir\workspace_store.py:70:        return DEFAULT_MAX_DOCS_PER_WORKSPACE
+src/polaris_graph\audit_ir\workspace_store.py:106:    sentinel `_DEFAULT_ORG_ID` (see store schema migration);
+src/polaris_graph\audit_ir\workspace_store.py:170:    org_id TEXT NOT NULL DEFAULT 'org_default'
+src/polaris_graph\audit_ir\workspace_store.py:182:    parser_status TEXT NOT NULL DEFAULT 'pending',
+src/polaris_graph\audit_ir\workspace_store.py:249:                "DEFAULT 'org_default'"
+src/polaris_graph\audit_ir\__init__.py:41:    DEFAULT_FLOOR_HIGH,
+src/polaris_graph\audit_ir\__init__.py:42:    DEFAULT_FLOOR_REVIEW,
+src/polaris_graph\audit_ir\__init__.py:59:    DEFAULT_MAX_DOCS_PER_WORKSPACE,
+src/polaris_graph\audit_ir\__init__.py:77:    DEFAULT_TOP_K,
+src/polaris_graph\audit_ir\__init__.py:78:    DEFAULT_MIN_SCORE,
+src/polaris_graph\audit_ir\__init__.py:126:    "DEFAULT_FLOOR_HIGH",
+src/polaris_graph\audit_ir\__init__.py:127:    "DEFAULT_FLOOR_REVIEW",
+src/polaris_graph\nodes\scope.py:67:_DEFAULT_PERSPECTIVES = [
+src/polaris_graph\nodes\scope.py:321:    perspectives = _DEFAULT_PERSPECTIVES[:5]
+src/polaris_graph\api\disambiguation_route.py:68:    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "deepseek/deepseek-v4-pro"
+src/polaris_graph\nodes\scope_gate.py:75:DEFAULT_DOMAIN = "clinical"
+src/polaris_graph\nodes\scope_gate.py:303:    domain: str = DEFAULT_DOMAIN,
+src/polaris_graph\nodes\scope_gate.py:337:    # to DEFAULT_DOMAIN ("clinical") — that's a silent category error
+src/polaris_graph\evaluator\live_judge.py:5:PG_EVALUATOR_MODEL at runtime). Under the LOCKED 4-role architecture
+src/polaris_graph\evaluator\live_judge.py:7:PG_EVALUATOR_MODEL knob resolves to the Mirror role via the lock's
+src/polaris_graph\evaluator\live_judge.py:8:legacy_compat map (PG_EVALUATOR_MODEL -> PG_MIRROR_MODEL) when unset.
+src/polaris_graph\evaluator\live_judge.py:14:different training family than the generator. `check_family_segregation()`
+src/polaris_graph\evaluator\live_judge.py:131:    check_family_segregation() is run BEFORE the call. If the configured
+src/polaris_graph\evaluator\live_judge.py:132:    generator/evaluator pair is same-family, this raises RuntimeError.
+src/polaris_graph\evaluator\live_judge.py:136:        PG_EVALUATOR_MODEL,
+src/polaris_graph\evaluator\live_judge.py:137:        check_family_segregation,
+src/polaris_graph\evaluator\live_judge.py:140:    check_family_segregation()   # raises if same family
+src/polaris_graph\evaluator\live_judge.py:142:    eval_model = model or PG_EVALUATOR_MODEL
+src/polaris_graph\roles\judge_adapter.py:33:_DEFAULT_MAX_TOKENS = 16
+src/polaris_graph\roles\judge_adapter.py:52:    max_tokens: int = _DEFAULT_MAX_TOKENS,
+src/polaris_graph\roles\judge_adapter.py:88:    max_tokens: int = _DEFAULT_MAX_TOKENS,
+src/polaris_graph\audit_ir\support_ticket_store.py:152:    priority TEXT NOT NULL DEFAULT 'normal',
+src/polaris_graph\audit_ir\support_ticket_store.py:153:    status TEXT NOT NULL DEFAULT 'open',
+src/polaris_graph\roles\sweep_integration.py:124:    """Map a composed final verdict to the two-family `evaluator_agrees` boolean.
+src/polaris_graph\roles\release_policy.py:75:_DEFAULT_CONFIG_PATH = (
+src/polaris_graph\roles\release_policy.py:164:    config_path = Path(path) if path is not None else _DEFAULT_CONFIG_PATH
+src/polaris_graph\roles\native_gate_b_inputs.py:54:_DEFAULT_OBSERVE_ONLY_SEVERITY = _SEVERITY_S3
+src/polaris_graph\roles\native_gate_b_inputs.py:425:            best_rank = _SEVERITY_RANK[_DEFAULT_OBSERVE_ONLY_SEVERITY]
+src/polaris_graph\generator\multi_section_generator.py:2971:      - '_weight' for weight-loss / obesity-focused trials (SURMOUNT family)
+src/polaris_graph\tools\react_agent.py:1483:        # MUST pass to generate() — otherwise DEFAULT_TIMEOUT_SECONDS=90
+src/polaris_graph\tools\react_agent.py:2272:            f"Do NOT rank subtypes of the same technology family as "
+src/polaris_graph\tools\react_agent.py:2358:                f"6. Do NOT rank subtypes of the same technology family "
+src/polaris_graph\tools\react_agent.py:2360:                f"high-pressure membrane — rank the family, note "
+src/polaris_graph\tools\react_agent.py:6650:            r'[^.]*(?:to comply with|technology family constraints|'
+src/polaris_graph\evaluator\external_evaluator.py:2:External non-same-family evaluator — HONEST-REBUILD Phase 5.
+src/polaris_graph\evaluator\external_evaluator.py:5:family than the one that generated the report. Combined with rule-
+src/polaris_graph\evaluator\external_evaluator.py:10:any evaluator in the same training lineage as the generator shares
+src/polaris_graph\evaluator\external_evaluator.py:28:2. LLM-JUDGE (non-same-family)
+src/polaris_graph\evaluator\external_evaluator.py:29:   - Uses PG_EVALUATOR_MODEL (default google/gemma-4-31b-it) against
+src/polaris_graph\evaluator\external_evaluator.py:31:   - check_family_segregation() FAILS FAST if both are in the
+src/polaris_graph\evaluator\external_evaluator.py:32:     same family.
+src/polaris_graph\evaluator\external_evaluator.py:393:    ("PT03", "Evaluator model name disclosed (separate family)", "methods"),
+src/polaris_graph\evaluator\external_evaluator.py:437:    generator_family: str
+src/polaris_graph\evaluator\external_evaluator.py:438:    evaluator_family: str
+src/polaris_graph\evaluator\external_evaluator.py:531:        "PT03", "Evaluator model disclosed (separate family)", bool(pt03),
+src/polaris_graph\evaluator\external_evaluator.py:748:    # Build a set of superlative-family words present in the research
+src/polaris_graph\evaluator\external_evaluator.py:839:    Raises RuntimeError if generator and evaluator are in the same family.
+src/polaris_graph\evaluator\external_evaluator.py:842:        PG_EVALUATOR_MODEL,
+src/polaris_graph\evaluator\external_evaluator.py:844:        check_family_segregation,
+src/polaris_graph\evaluator\external_evaluator.py:847:    gen_family, eval_family = check_family_segregation()
+src/polaris_graph\evaluator\external_evaluator.py:860:        evaluator_model=PG_EVALUATOR_MODEL,
+src/polaris_graph\evaluator\external_evaluator.py:867:        # hits PG_EVALUATOR_MODEL via OpenRouter with a fixed prompt
+src/polaris_graph\evaluator\external_evaluator.py:877:        evaluator_model=PG_EVALUATOR_MODEL,
+src/polaris_graph\evaluator\external_evaluator.py:878:        generator_family=gen_family,
+src/polaris_graph\evaluator\external_evaluator.py:879:        evaluator_family=eval_family,
+src/polaris_graph\tools\openalex_client.py:133:            " fetched_at TEXT DEFAULT CURRENT_TIMESTAMP,"
+src/polaris_graph\tools\openalex_client.py:134:            " miss INTEGER DEFAULT 0)"
+src/polaris_graph\tools\package_installer.py:19:_DEFAULT_WHITELIST = (
+src/polaris_graph\tools\package_installer.py:27:    os.getenv("PG_APPROVED_PACKAGES", _DEFAULT_WHITELIST).split(",")
+src/polaris_graph\generator\cross_jurisdiction_synthesizer.py:270:_DEFAULT_CONVERGENCE_FLOOR = 0.7
+src/polaris_graph\generator\cross_jurisdiction_synthesizer.py:646:    convergence_floor: float = _DEFAULT_CONVERGENCE_FLOOR,
+src/polaris_graph\generator\atom_refusal_validator.py:478:    # SAFE DEFAULT: any quantitative claim requires atom citation. If
+src/polaris_graph\retrieval\evidence_selector.py:122:_M42D_HC_QUOTA_DEFAULT = 2
+src/polaris_graph\retrieval\evidence_selector.py:135:        return _M42D_HC_QUOTA_DEFAULT
+src/polaris_graph\retrieval\evidence_selector.py:139:        return _M42D_HC_QUOTA_DEFAULT
+src/polaris_graph\retrieval\frame_fetcher.py:199:_DEFAULT_TIMEOUT = float(os.getenv("PG_FRAME_FETCHER_TIMEOUT", "15"))
+src/polaris_graph\retrieval\frame_fetcher.py:229:        family = (a.get("family") or "").strip()
+src/polaris_graph\retrieval\frame_fetcher.py:230:        if family and given:
+src/polaris_graph\retrieval\frame_fetcher.py:231:            authors.append(f"{family} {given[0]}".strip())
+src/polaris_graph\retrieval\frame_fetcher.py:232:        elif family:
+src/polaris_graph\retrieval\frame_fetcher.py:233:            authors.append(family)
+src/polaris_graph\retrieval\frame_fetcher.py:745:            a fresh client is created per call with _DEFAULT_TIMEOUT.
+src/polaris_graph\retrieval\frame_fetcher.py:757:        client = httpx.Client(timeout=_DEFAULT_TIMEOUT)
+src/polaris_graph\retrieval\frame_fetcher.py:1089:        client = httpx.Client(timeout=_DEFAULT_TIMEOUT)
+src/polaris_graph\retrieval\live_retriever.py:60:DEFAULT_MAX_SERPER = int(os.getenv("PG_LIVE_MAX_SERPER", "20"))
+src/polaris_graph\retrieval\live_retriever.py:61:DEFAULT_MAX_S2 = int(os.getenv("PG_LIVE_MAX_S2", "20"))
+src/polaris_graph\retrieval\live_retriever.py:62:DEFAULT_FETCH_CAP = int(os.getenv("PG_LIVE_FETCH_CAP", "40"))
+src/polaris_graph\retrieval\live_retriever.py:63:DEFAULT_CONTENT_MAX_CHARS = int(os.getenv("PG_LIVE_CONTENT_MAX", "25000"))
+src/polaris_graph\retrieval\live_retriever.py:64:DEFAULT_HTTP_TIMEOUT = float(os.getenv("PG_LIVE_HTTP_TIMEOUT", "20"))
+src/polaris_graph\retrieval\live_retriever.py:101:        with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
+src/polaris_graph\retrieval\live_retriever.py:142:        with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
+src/polaris_graph\retrieval\live_retriever.py:232:    # Nature family: "Article type: <Type>"
+src/polaris_graph\retrieval\live_retriever.py:545:        with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
+src/polaris_graph\retrieval\live_retriever.py:634:    `_openalex_enrich` issues `httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT)`
+src/polaris_graph\retrieval\live_retriever.py:709:            timeout=DEFAULT_HTTP_TIMEOUT,
+src/polaris_graph\retrieval\live_retriever.py:1169:    max_serper: int = DEFAULT_MAX_SERPER,
+src/polaris_graph\retrieval\live_retriever.py:1170:    max_s2: int = DEFAULT_MAX_S2,
+src/polaris_graph\retrieval\live_retriever.py:1171:    fetch_cap: int = DEFAULT_FETCH_CAP,
+src/polaris_graph\retrieval\live_retriever.py:1398:        fetcher = _LiveContentParallelFetcher(DEFAULT_CONTENT_MAX_CHARS)
+src/polaris_graph\retrieval\live_retriever.py:1460:                _fetch_content(cand.url, DEFAULT_CONTENT_MAX_CHARS)
+src/polaris_graph\retrieval\primary_trial_expander.py:55:_DEFAULT_MAX_ANCHORS = 15
+src/polaris_graph\retrieval\primary_trial_expander.py:63:        return _DEFAULT_MAX_ANCHORS
+src/polaris_graph\retrieval\primary_trial_expander.py:67:        return _DEFAULT_MAX_ANCHORS
+src/polaris_graph\retrieval\regulatory_expander.py:52:_DEFAULT_MAX_ANCHORS = 12
+src/polaris_graph\retrieval\regulatory_expander.py:60:        return _DEFAULT_MAX_ANCHORS
+src/polaris_graph\retrieval\regulatory_expander.py:64:        return _DEFAULT_MAX_ANCHORS
+src/polaris_graph\retrieval\tier_classifier.py:820:# "systematic review" family. Surfaces commentary-ish articles in
+
+ succeeded in 1188ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path config/architecture/polaris_runtime_lock.yaml | Select-Object -Skip 112 -First 40' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/llm/openrouter_client.py | Select-Object -Skip 470 -First 130' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/evaluator/live_judge.py | Select-Object -First 170' in C:\POLARIS
+ succeeded in 945ms:
+    if not model_name:
+        return "unknown"
+    m = model_name.strip().lower()
+    for family, prefixes in _FAMILY_PREFIXES.items():
+        for prefix in prefixes:
+            if m.startswith(prefix.lower()):
+                return family
+    return "unknown"
+
+
+def check_family_segregation(
+    generator_model: str | None = None,
+    evaluator_model: str | None = None,
+    generator_override: str | None = None,
+    evaluator_override: str | None = None,
+) -> tuple[str, str]:
+    """Fail fast if generator and evaluator are in the same family.
+
+    Returns (generator_family, evaluator_family) on success.
+    Raises RuntimeError if same family or if either is "unknown" without
+    an explicit override (so misconfiguration is visible at init time).
+
+    Defaults pull from the module-level env-var settings.
+    """
+    gen_model = generator_model or PG_GENERATOR_MODEL
+    eval_model = evaluator_model or PG_EVALUATOR_MODEL
+    gen_override = generator_override if generator_override is not None else PG_GENERATOR_FAMILY_OVERRIDE
+    eval_override = evaluator_override if evaluator_override is not None else PG_EVALUATOR_FAMILY_OVERRIDE
+
+    gen_family = family_from_model(gen_model, gen_override)
+    eval_family = family_from_model(eval_model, eval_override)
+
+    if gen_family == "unknown" and not gen_override:
+        raise RuntimeError(
+            f"HONEST-REBUILD Phase 1c: generator model '{gen_model}' does not "
+            f"match any known family prefix. Set PG_GENERATOR_FAMILY_OVERRIDE "
+            f"to the training-lineage family (e.g. 'deepseek', 'qwen') so "
+            f"family segregation can be checked. Family-distance from the "
+            f"evaluator is the primary mitigation for evaluator-generator "
+            f"self-bias (Play Favorites arXiv:2508.06709, DeepHalluBench "
+            f"arXiv:2601.22984)."
+        )
+    if eval_family == "unknown" and not eval_override:
+        raise RuntimeError(
+            f"HONEST-REBUILD Phase 1c: evaluator model '{eval_model}' does "
+            f"not match any known family prefix. Set PG_EVALUATOR_FAMILY_OVERRIDE."
+        )
+    if gen_family == eval_family:
+        raise RuntimeError(
+            f"HONEST-REBUILD Phase 1c: generator and evaluator are in the "
+            f"same training-lineage family ('{gen_family}'). This defeats "
+            f"the purpose of two-family architecture — same-family judges "
+            f"share blind spots and RLHF biases. Pick models from different "
+            f"families, or document the choice with explicit PG_*_FAMILY_OVERRIDE "
+            f"values to demonstrate you know the trade-off. Recommended pair: "
+            f"deepseek/deepseek-v4-pro (generator) + google/gemma-4-31b-it "
+            f"(evaluator) per loopback/audit/_open_source_models_2026.md."
+        )
+    return (gen_family, eval_family)
+
+
+def validate_role_families(role_map: dict[str, str], policy: str = "all_distinct",
+                           allowed_collisions: list[tuple[str, str]] | None = None) -> dict[str, str]:
+    """I-meta-001 (#933): N-way family segregation for the 4-role architecture.
+
+    Extends the pairwise check_family_segregation to N roles per the locked
+    architecture (Generator + Mirror + Sentinel + Judge). All four roles must
+    be from distinct training lineages by default; allowed_collisions overrides
+    specific pairs if the architecture lock's family_policy permits them.
+
+    Args:
+        role_map: {role_name: model_slug}, e.g. {"generator": "deepseek/...",
+                  "mirror": "cohere/...", "sentinel": "ibm-granite/...",
+                  "judge": "qwen/..."}
+        policy: "all_distinct" (default) or "permit_collisions".
+        allowed_collisions: list of [role_a, role_b] pairs whose families
+                  may collide. Ignored under all_distinct.
+
+    Returns:
+        {role_name: family_label} on success.
+
+    Raises:
+        RuntimeError if any role's family is "unknown" or if two roles share
+        a family outside allowed_collisions.
+
+    Codex APPROVE iter 2 — accept_remaining (see .codex/I-meta-001/codex_brief_iter2_verdict.txt).
+    """
+    allowed_collisions = allowed_collisions or []
+    role_families: dict[str, str] = {}
+    for role, model in role_map.items():
+        family = family_from_model(model)
+        if family == "unknown":
+            raise RuntimeError(
+                f"validate_role_families: role {role!r} model {model!r} returns "
+                f"family='unknown'. Add the family prefix to "
+                f"_FAMILY_PREFIXES in openrouter_client.py."
+            )
+        role_families[role] = family
+
+    if policy == "permit_collisions":
+        return role_families
+
+    # all_distinct (default policy): every family must be unique across roles
+    family_to_role: dict[str, str] = {}
+    allowed_set = {tuple(sorted([a, b])) for a, b in allowed_collisions}
+    for role, family in role_families.items():
+        if family in family_to_role:
+            other_role = family_to_role[family]
+            if tuple(sorted([role, other_role])) in allowed_set:
+                continue
+            raise RuntimeError(
+                f"validate_role_families: family {family!r} appears in both "
+                f"role {role!r} and role {other_role!r}; family_policy="
+                f"all_distinct forbids this. If intentional, add the pair to "
+                f"allowed_collisions in config/architecture/polaris_runtime_lock.yaml."
+            )
+        family_to_role[family] = role
+    return role_families
+
+
+# FIX-GLM5: Models that always route output to reasoning_content.
+# These need reasoning_enabled=True for all calls, and generate() must
+# use reasoning as content directly (no </think> tag extraction).
+#
+# FIX-GLM51: z-ai/glm-5.1 added 2026-04-12. Smoke test confirmed it
+# routes generate() and reason() output into reasoning_content (content
+# empty). The previous COT-1/COT-2 fallback recovery logic worked but
+# wasted tokens via retries. Adding to this set makes the handling
+# direct instead of fallback-based.
+#
+
+ succeeded in 1061ms:
+    fallbacks (openai, anthropic, google-closed) are FORBIDDEN at runtime
+    per the sovereignty threat model (feedback_sovereignty_threat_model).
+
+# === ENVIRONMENT VARIABLES (binding) ===
+# Each role's runtime configuration knob. Defaults pulled from required_roles.
+
+env_vars:
+  generator:
+    primary: PG_GENERATOR_MODEL
+    fallbacks: [OPENROUTER_DEFAULT_MODEL]
+  mirror:
+    primary: PG_MIRROR_MODEL
+    fallbacks: []
+  sentinel:
+    primary: PG_SENTINEL_MODEL
+    fallbacks: []
+  judge:
+    primary: PG_JUDGE_MODEL
+    fallbacks: []
+
+# Compatibility map — PG_EVALUATOR_MODEL is OVERLOADED in the 2-LLM-stub legacy
+# code paths. It is being retired. Map it to mirror to preserve back-compat
+# during transition; legacy code paths still see "evaluator" but the gate
+# treats it as the Mirror role.
+legacy_compat:
+  PG_EVALUATOR_MODEL:
+    maps_to_role: mirror
+    deprecated_after: 2026-09-06
+    deprecation_notice: |
+      PG_EVALUATOR_MODEL was overloaded (covered evaluator + judge +
+      entailment in one knob). Use PG_MIRROR_MODEL / PG_SENTINEL_MODEL /
+      PG_JUDGE_MODEL instead. After 2026-09-06 (Carney demo), this env var
+      will fail the gate at preflight.
+
+ succeeded in 1143ms:
+"""
+Live judge — HONEST-REBUILD Phase 5 live wiring.
+
+Calls the REAL evaluator model via OpenRouter (model read from
+PG_EVALUATOR_MODEL at runtime). Under the LOCKED 4-role architecture
+(config/architecture/polaris_runtime_lock.yaml, I-meta-001 #933) the legacy
+PG_EVALUATOR_MODEL knob resolves to the Mirror role via the lock's
+legacy_compat map (PG_EVALUATOR_MODEL -> PG_MIRROR_MODEL) when unset.
+Historical defaults: Gemma 4 31B as of 2026-05-08 per I-bug-087, previously
+Qwen3-8B per HONEST-REBUILD Phase 1c. Produces per-axis structured verdicts
+on a completed report.
+
+This is the NON-SAME-FAMILY judge: the judge model must be from a
+different training family than the generator. `check_family_segregation()`
+must succeed before this is called.
+
+DESIGN
+------
+We do NOT ask the judge for a single "faithfulness %". Per Phase 5
+plan, that single number is the exact pattern that cooked Run #17.
+Instead the judge produces per-axis verdicts:
+  - citation_tightness: does each claim have an evidence citation?
+  - hedging_appropriateness: does the prose hedge when evidence disagrees?
+  - tone_consistency: is the tone evidence-grounded vs promotional?
+  - flow: are the sentences logically ordered?
+  - completeness: are major evidence rows touched on?
+
+For each axis, the judge returns verdict ∈ {good, acceptable, needs_revision}
+and a 1-2 sentence note. No aggregate "score".
+"""
+from __future__ import annotations
+
+import json
+import logging
+import re
+from dataclasses import dataclass
+from typing import Any, Optional
+
+logger = logging.getLogger("polaris_graph.live_judge")
+
+
+SYSTEM_PROMPT = """You are a quality auditor for research summaries. You grade along distinct axes, you do NOT produce a single score.
+
+Return your verdict as a JSON object with exactly these keys:
+{
+  "citation_tightness": {"verdict": "good|acceptable|needs_revision", "note": "..."},
+  "hedging_appropriateness": {"verdict": "good|acceptable|needs_revision", "note": "..."},
+  "tone_consistency": {"verdict": "good|acceptable|needs_revision", "note": "..."},
+  "flow": {"verdict": "good|acceptable|needs_revision", "note": "..."},
+  "completeness": {"verdict": "good|acceptable|needs_revision", "note": "..."}
+}
+
+Rules for each axis:
+- citation_tightness: Does every factual claim have an adjacent citation marker [1] or [#ev:...]? Missing citations = needs_revision.
+- hedging_appropriateness: Does the prose flag disagreement where the evidence shows disagreement? Overconfident = needs_revision.
+- tone_consistency: Is tone evidence-grounded (not promotional)? Marketing language = needs_revision.
+- flow: Do sentences follow a logical order (context -> mechanism -> evidence -> limitations)?
+- completeness: Are the MAJOR evidence rows touched on (primary trials, regulatory status, key safety)? Missing core evidence = needs_revision.
+
+Do NOT return anything other than the JSON object. No preamble, no sign-off, no markdown code fence."""
+
+
+@dataclass
+class LiveJudgeResult:
+    verdicts: dict[str, dict[str, str]]   # axis -> {verdict, note}
+    model: str
+    raw_response: str
+    parse_ok: bool
+    input_tokens: int
+    output_tokens: int
+    error: str = ""
+
+
+def _parse_judge_json(text: str) -> tuple[Optional[dict], str]:
+    """Extract JSON from judge response. Returns (parsed, error_msg)."""
+    if not text or not text.strip():
+        return None, "empty response"
+    # Strip common markdown fences
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        # Remove leading fence
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
+        # Remove trailing fence
+        stripped = re.sub(r"\s*```\s*$", "", stripped)
+    # Find first { and last } — fault-tolerant to any leading prose
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return None, "no JSON object found"
+    try:
+        parsed = json.loads(stripped[start:end + 1])
+        return parsed, ""
+    except json.JSONDecodeError as exc:
+        return None, f"JSON decode error: {exc}"
+
+
+def _validate_verdicts(parsed: dict) -> tuple[dict[str, dict[str, str]], list[str]]:
+    """Ensure each axis has the expected shape. Returns (verdicts, warnings)."""
+    required_axes = {
+        "citation_tightness", "hedging_appropriateness",
+        "tone_consistency", "flow", "completeness",
+    }
+    allowed_verdicts = {"good", "acceptable", "needs_revision"}
+    verdicts: dict[str, dict[str, str]] = {}
+    warnings: list[str] = []
+    for axis in required_axes:
+        val = parsed.get(axis)
+        if not isinstance(val, dict):
+            warnings.append(f"axis {axis!r}: missing or not a dict")
+            verdicts[axis] = {"verdict": "unknown", "note": "missing from response"}
+            continue
+        verdict = str(val.get("verdict", "unknown")).strip().lower()
+        if verdict not in allowed_verdicts:
+            warnings.append(f"axis {axis!r}: verdict {verdict!r} not in allowed set")
+            verdict = "unknown"
+        note = str(val.get("note", "")).strip()[:500]
+        verdicts[axis] = {"verdict": verdict, "note": note}
+    return verdicts, warnings
+
+
+async def judge_report(
+    *,
+    report_text: str,
+    research_question: str,
+    model: Optional[str] = None,
+    max_tokens: int = 800,
+    temperature: float = 0.2,
+) -> LiveJudgeResult:
+    """Call the evaluator model via OpenRouter for a structured per-axis verdict.
+
+    check_family_segregation() is run BEFORE the call. If the configured
+    generator/evaluator pair is same-family, this raises RuntimeError.
+    """
+    from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
+        OpenRouterClient,
+        PG_EVALUATOR_MODEL,
+        check_family_segregation,
+    )
+
+    check_family_segregation()   # raises if same family
+
+    eval_model = model or PG_EVALUATOR_MODEL
+    client = OpenRouterClient(model=eval_model)
+
+    prompt = (
+        f"Research question: {research_question}\n\n"
+        f"Report to audit:\n\n{report_text}\n\n"
+        f"Return the JSON object as specified in the system prompt."
+    )
+
+    logger.info("[live_judge] calling %s, report_chars=%d",
+                eval_model, len(report_text))
+
+    try:
+        response = await client.generate(
+            prompt=prompt,
+            system=SYSTEM_PROMPT,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+    finally:
+        if hasattr(client, "close"):
+            try:
+                await client.close()
+            except Exception:
+                pass
+    raw = (response.content or "").strip()
+    parsed, parse_err = _parse_judge_json(raw)
+
+    if parsed is None:
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/llm/openrouter_client.py | Select-Object -Skip 405 -First 35' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path config/architecture/polaris_runtime_lock.yaml | Select-Object -First 100' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"validate_role_families\\(|role_map|PG_MIRROR_MODEL|PG_SENTINEL_MODEL|PG_JUDGE_MODEL\" src/polaris_graph tests scripts config -S" in C:\POLARIS
+ succeeded in 901ms:
+    #     so a truncation degrades to an honest abort_no_verified_sections
+    #     rather than a hard error_unexpected.
+    # V4 Pro's report-layer citation tightness vs the evaluator gate is
+    # tracked separately (I-gen-003 PT11 / normalization work). V3.2-Exp
+    # is obsolete — NOT a fallback.
+    "deepseek/deepseek-v4-pro",
+)
+# I-meta-001 (#933): 4-role architecture env vars per the locked stack
+# (config/architecture/polaris_runtime_lock.yaml). Each role has its own knob;
+# the legacy PG_EVALUATOR_MODEL is compat-mapped to PG_MIRROR_MODEL until
+# 2026-09-06 (Carney demo) after which it fails the gate at preflight.
+PG_MIRROR_MODEL = os.getenv("PG_MIRROR_MODEL", "cohere/command-a-plus")
+PG_SENTINEL_MODEL = os.getenv("PG_SENTINEL_MODEL", "ibm-granite/granite-guardian-4.1-8b")
+PG_JUDGE_MODEL = os.getenv("PG_JUDGE_MODEL", "qwen/qwen3.6-35b-a3b")
+
+# Legacy 2-LLM stub env. Resolves to PG_MIRROR_MODEL when unset (the Mirror
+# role subsumes the old "evaluator" responsibilities). When PG_EVALUATOR_MODEL
+# IS set, it overrides PG_MIRROR_MODEL for the Mirror role (back-compat).
+PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL") or PG_MIRROR_MODEL
+
+# Explicit family overrides for the cases where the model-name prefix is
+# not the true family (fine-tunes, licensed redistributions, etc.).
+PG_GENERATOR_FAMILY_OVERRIDE = os.getenv("PG_GENERATOR_FAMILY_OVERRIDE", "")
+PG_EVALUATOR_FAMILY_OVERRIDE = os.getenv("PG_EVALUATOR_FAMILY_OVERRIDE", "")
+PG_MIRROR_FAMILY_OVERRIDE = os.getenv("PG_MIRROR_FAMILY_OVERRIDE", "")
+PG_SENTINEL_FAMILY_OVERRIDE = os.getenv("PG_SENTINEL_FAMILY_OVERRIDE", "")
+PG_JUDGE_FAMILY_OVERRIDE = os.getenv("PG_JUDGE_FAMILY_OVERRIDE", "")
+
+# Known family prefixes. The first prefix matched wins. Distinct families
+# per the loopback/audit/_open_source_models_2026.md family-distance table.
+# I-meta-001 (#933): cohere + ibm-granite added for the locked 4-role architecture
+# (Generator deepseek + Mirror cohere + Sentinel ibm-granite + Judge qwen).
+# Codex iter-2 P1 — family registry must cover every role in the
+# config/architecture/polaris_runtime_lock.yaml or family_segregation refuses
+# to construct the client.
+
+ succeeded in 979ms:
+# POLARIS Runtime Architecture Lock — v1
+# I-meta-001 (#933) — Codex APPROVE_FOR_IMPLEMENTATION iter 2, operator D1 signed 2026-05-28T22:00 PDT
+#
+# This file is the SINGLE machine-readable source of truth for POLARIS's locked
+# LLM stack. Code defaults, gate checks, tests, deployment surfaces, and PR
+# attestations all derive their truth from this file.
+#
+# Mutation policy:
+#   - Edits require Codex APPROVE on a brief that names the superseding lock doc
+#   - Edits require operator commit signature (operator commits the change)
+#   - Edits invalidate the propagation manifest (must be re-completed)
+#   - canonical_pin.txt MUST track this file's SHA256
+#
+# Anti-drift gate: scripts/architecture/verify_lock.py asserts code defaults
+# match this file at preflight; pathB_run_gate.py refuses to PASS unless
+# every required_role is pinned AND observed in the captured LLM calls.
+
+version: 1
+schema_version: 1.0
+
+# Provenance — the decision authority + Codex cross-validation
+source_doc: docs/polaris_step_b_full_set_audit_2026_05_27.md
+source_doc_sha256: TO_BE_COMPUTED_AT_COMMIT  # propagation manifest fills this after commit
+codex_approval_artifact: .codex/I-meta-001/codex_brief_iter2_verdict.txt
+codex_verdict: APPROVE_FOR_IMPLEMENTATION
+codex_cross_validation_sources:
+  - https://huggingface.co/CohereLabs/command-a-plus-05-2026-bf16
+  - https://cohere.com/blog/command-a-plus
+  - https://huggingface.co/ibm-granite/granite-guardian-4.1-8b
+  - https://research.ibm.com/blog/granite-4-1-ai-foundation-models
+  - https://huggingface.co/Qwen/Qwen3.6-35B-A3B
+locked_at: 2026-05-27
+operator_d1_signature_utc: 2026-05-28T22:00:00Z
+
+# Lifecycle status — codex_approved_pending_operator_signature → locked
+# when the commit lands AND canonical_pin.txt + propagation manifest are complete
+status: codex_approved_pending_operator_signature
+promotion_to_locked_requires:
+  - this_file_committed
+  - source_doc_committed
+  - canonical_pin_includes_this_file
+  - propagation_manifest_all_checkpoints_true
+  - code_defaults_match
+  - tests_pass
+
+# === ARCHITECTURE: 4 LLM roles + 2 deterministic layers ===
+
+required_roles:
+  generator:
+    model_slug: deepseek/deepseek-v4-pro
+    family: deepseek
+    serving_route: openrouter
+    license: MIT
+    released: 2026-04-24
+    role_description: |
+      Recall-heavy synthesis. 1M context window. Top GDPval. Acknowledged 94%
+      non-abstention failure mode is mitigated by downstream Mirror/Sentinel/Judge layers.
+
+  mirror:
+    model_slug: cohere/command-a-plus
+    family: cohere
+    serving_route: vast_self_host_bf16
+    license: Apache 2.0
+    released: 2026-05-20
+    role_description: |
+      Calibration auditor. Best calibration in pool (14.1% AA-Omniscience).
+      Native citation grounding. Tests claims the Generator cannot self-verify.
+
+  sentinel:
+    model_slug: ibm-granite/granite-guardian-4.1-8b
+    family: ibm-granite
+    serving_route: vast_self_host
+    license: Apache 2.0
+    released: 2026
+    role_description: |
+      Purpose-built RAG hallucination detector. RAGTruth BAcc 0.841.
+      Broad guardrail coverage. Catches Mirror's misses.
+
+  judge:
+    model_slug: qwen/qwen3.6-35b-a3b
+    family: qwen
+    serving_route: vast_self_host_fp8
+    license: Apache 2.0
+    released: 2026-04-16
+    role_description: |
+      Native structured-output discipline. Terminal arbiter — must emit
+      stable parseable verdicts. Function-call adherence closer to Claude
+      than to most open models per AA benchmarks.
+
+deterministic_layers:
+  - name: python_validators
+    role_description: |
+      Citation existence (DOI / OpenAlex), numeric/date checks, span-overlap
+      and content-word overlap (strict_verify).
+    code_path: src/polaris_graph/clinical_generator/strict_verify.py
+
+  - name: codex_section_1_1_audit
+    role_description: |
+      Final human-equivalent gate. Claim-by-claim line-by-line audit against
+      fetched cited spans. PRISMA 2020 + AMSTAR-2 + GRADE per claim. Per
+
+ succeeded in 1016ms:
+config\architecture\polaris_runtime_lock.yaml:124:    primary: PG_MIRROR_MODEL
+config\architecture\polaris_runtime_lock.yaml:127:    primary: PG_SENTINEL_MODEL
+config\architecture\polaris_runtime_lock.yaml:130:    primary: PG_JUDGE_MODEL
+config\architecture\polaris_runtime_lock.yaml:143:      entailment in one knob). Use PG_MIRROR_MODEL / PG_SENTINEL_MODEL /
+config\architecture\polaris_runtime_lock.yaml:144:      PG_JUDGE_MODEL instead. After 2026-09-06 (Carney demo), this env var
+scripts\architecture\verify_lock.py:107:        PG_JUDGE_MODEL,
+scripts\architecture\verify_lock.py:108:        PG_MIRROR_MODEL,
+scripts\architecture\verify_lock.py:109:        PG_SENTINEL_MODEL,
+scripts\architecture\verify_lock.py:114:        "mirror": PG_MIRROR_MODEL,
+scripts\architecture\verify_lock.py:115:        "sentinel": PG_SENTINEL_MODEL,
+scripts\architecture\verify_lock.py:116:        "judge": PG_JUDGE_MODEL,
+scripts\dr_benchmark\gate_a_dry_run.py:170:    role_families = validate_role_families(effective_map)
+tests\dr_benchmark\test_pathB_runner.py:167:    monkeypatch.delenv("PG_MIRROR_MODEL", raising=False)
+tests\dr_benchmark\test_pathB_runner.py:168:    monkeypatch.delenv("PG_SENTINEL_MODEL", raising=False)
+tests\dr_benchmark\test_pathB_runner.py:169:    monkeypatch.delenv("PG_JUDGE_MODEL", raising=False)
+tests\dr_benchmark\test_pathB_runner.py:180:    monkeypatch.setenv("PG_MIRROR_MODEL", "mistralai/mistral-large")
+tests\dr_benchmark\test_pathB_runner.py:192:    monkeypatch.setenv("PG_JUDGE_MODEL", "deepseek/deepseek-v4-pro")
+tests\architecture\test_runtime_lock.py:52:    out = validate_role_families(_LOCKED_4_ROLE_MAP)
+tests\architecture\test_runtime_lock.py:64:        validate_role_families({"generator": "made-up/model"})
+tests\architecture\test_runtime_lock.py:70:        validate_role_families({
+tests\architecture\test_runtime_lock.py:78:    out = validate_role_families({
+tests\architecture\test_runtime_lock.py:88:    out = validate_role_families({
+tests\architecture\test_runtime_lock.py:142:    monkeypatch.setattr(openrouter_client, "PG_JUDGE_MODEL", "qwen/wrong-slug")
+src/polaris_graph\evaluator\__init__.py:8:``PG_EVALUATOR_MODEL`` knob is compat-mapped to ``PG_MIRROR_MODEL`` per the
+src/polaris_graph\evaluator\__init__.py:10:swappable via ``PG_GENERATOR_MODEL`` / ``PG_MIRROR_MODEL``
+src/polaris_graph\evaluator\live_judge.py:8:legacy_compat map (PG_EVALUATOR_MODEL -> PG_MIRROR_MODEL) when unset.
+src/polaris_graph\benchmark\pathB_runner.py:47:    "mirror": "PG_MIRROR_MODEL",
+src/polaris_graph\benchmark\pathB_runner.py:48:    "sentinel": "PG_SENTINEL_MODEL",
+src/polaris_graph\benchmark\pathB_runner.py:49:    "judge": "PG_JUDGE_MODEL",
+src/polaris_graph\benchmark\pathB_runner.py:92:    validate_role_families() runs on the effective 4-role map so the N-way family invariant
+src/polaris_graph\benchmark\pathB_runner.py:104:    validate_role_families(slug_by_role)
+src/polaris_graph\llm\openrouter_client.py:415:# the legacy PG_EVALUATOR_MODEL is compat-mapped to PG_MIRROR_MODEL until
+src/polaris_graph\llm\openrouter_client.py:417:PG_MIRROR_MODEL = os.getenv("PG_MIRROR_MODEL", "cohere/command-a-plus")
+src/polaris_graph\llm\openrouter_client.py:418:PG_SENTINEL_MODEL = os.getenv("PG_SENTINEL_MODEL", "ibm-granite/granite-guardian-4.1-8b")
+src/polaris_graph\llm\openrouter_client.py:419:PG_JUDGE_MODEL = os.getenv("PG_JUDGE_MODEL", "qwen/qwen3.6-35b-a3b")
+src/polaris_graph\llm\openrouter_client.py:421:# Legacy 2-LLM stub env. Resolves to PG_MIRROR_MODEL when unset (the Mirror
+src/polaris_graph\llm\openrouter_client.py:423:# IS set, it overrides PG_MIRROR_MODEL for the Mirror role (back-compat).
+src/polaris_graph\llm\openrouter_client.py:424:PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL") or PG_MIRROR_MODEL
+src/polaris_graph\llm\openrouter_client.py:532:def validate_role_families(role_map: dict[str, str], policy: str = "all_distinct",
+src/polaris_graph\llm\openrouter_client.py:542:        role_map: {role_name: model_slug}, e.g. {"generator": "deepseek/...",
+src/polaris_graph\llm\openrouter_client.py:560:    for role, model in role_map.items():
+
+codex
+One material mismatch is emerging: the updated top-level docstring names `check_family_segregation()` as the N-way 4-role enforcement point, but the code’s N-way check is `validate_role_families()`. I’m getting exact line references before forming the gate verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "Family segregation across roles|check_family_segregation|validate_role_families|all roles must be distinct" src/polaris_graph/__init__.py src/polaris_graph/llm/openrouter_client.py src/polaris_graph/benchmark/pathB_runner.py scripts/architecture/verify_lock.py scripts/dr_benchmark/gate_a_dry_run.py tests/architecture/test_runtime_lock.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --numstat -- docs/file_directory.md src/polaris_graph/__init__.py src/polaris_graph/evaluator/__init__.py src/polaris_graph/evaluator/live_judge.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --name-only -- docs/architecture.md docs/carney_delivery_plan_v6_2.md docs/agent_architecture.md docs/polaris_pipeline_canonical.md config/architecture/polaris_runtime_lock.yaml docs/polaris_locked_scope.md' in C:\POLARIS
+ succeeded in 800ms:
+7	4	docs/file_directory.md
+9	4	src/polaris_graph/__init__.py
+10	4	src/polaris_graph/evaluator/__init__.py
+7	3	src/polaris_graph/evaluator/live_judge.py
+
+ succeeded in 841ms:
+tests/architecture/test_runtime_lock.py:13:    validate_role_families,
+tests/architecture/test_runtime_lock.py:50:def test_validate_role_families_passes_for_locked_stack():
+tests/architecture/test_runtime_lock.py:52:    out = validate_role_families(_LOCKED_4_ROLE_MAP)
+tests/architecture/test_runtime_lock.py:61:def test_validate_role_families_fails_on_unknown_model():
+tests/architecture/test_runtime_lock.py:64:        validate_role_families({"generator": "made-up/model"})
+tests/architecture/test_runtime_lock.py:67:def test_validate_role_families_fails_on_same_family_collision():
+tests/architecture/test_runtime_lock.py:70:        validate_role_families({
+tests/architecture/test_runtime_lock.py:76:def test_validate_role_families_permit_collisions_policy():
+tests/architecture/test_runtime_lock.py:78:    out = validate_role_families({
+tests/architecture/test_runtime_lock.py:86:def test_validate_role_families_allowed_collisions_specific_pair():
+tests/architecture/test_runtime_lock.py:88:    out = validate_role_families({
+scripts/dr_benchmark/gate_a_dry_run.py:16:      lock-sourced ``pathB_runner._role_pins()`` and run ``validate_role_families`` on the
+scripts/dr_benchmark/gate_a_dry_run.py:141:    """Build the 4 role pins from the lock + run validate_role_families on the effective map.
+scripts/dr_benchmark/gate_a_dry_run.py:144:    ``openrouter_client.validate_role_families`` DIRECTLY. Assert the four roles
+scripts/dr_benchmark/gate_a_dry_run.py:151:    from src.polaris_graph.llm.openrouter_client import validate_role_families
+scripts/dr_benchmark/gate_a_dry_run.py:170:    role_families = validate_role_families(effective_map)
+src/polaris_graph/benchmark/pathB_runner.py:26:from src.polaris_graph.llm.openrouter_client import validate_role_families
+src/polaris_graph/benchmark/pathB_runner.py:92:    validate_role_families() runs on the effective 4-role map so the N-way family invariant
+src/polaris_graph/benchmark/pathB_runner.py:104:    validate_role_families(slug_by_role)
+src/polaris_graph/__init__.py:10:``openrouter_client.check_family_segregation`` (all roles must be distinct
+src/polaris_graph/llm/openrouter_client.py:364:#         check_family_segregation() allows this pair
+src/polaris_graph/llm/openrouter_client.py:481:def check_family_segregation(
+src/polaris_graph/llm/openrouter_client.py:532:def validate_role_families(role_map: dict[str, str], policy: str = "all_distinct",
+src/polaris_graph/llm/openrouter_client.py:536:    Extends the pairwise check_family_segregation to N roles per the locked
+src/polaris_graph/llm/openrouter_client.py:564:                f"validate_role_families: role {role!r} model {model!r} returns "
+src/polaris_graph/llm/openrouter_client.py:582:                f"validate_role_families: family {family!r} appears in both "
+
+ succeeded in 853ms:
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - file: "src/polaris_graph/__init__.py:9"
+    finding: "The new docstring says N-way role-family segregation is enforced by openrouter_client.check_family_segregation(), but that function only checks the generator/evaluator pair. The actual 4-role all-distinct check is validate_role_families()."
+    impact: "This creates a novel architecture-doc falsehood and can lead future callers to skip Sentinel/Judge family validation."
+    required_change: "Cite validate_role_families() for 4-role N-way enforcement; reserve check_family_segregation() for the legacy/pairwise generator/evaluator check."
+p2: []
+convergence_call: continue
+tokens used
+34,226
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - file: "src/polaris_graph/__init__.py:9"
+    finding: "The new docstring says N-way role-family segregation is enforced by openrouter_client.check_family_segregation(), but that function only checks the generator/evaluator pair. The actual 4-role all-distinct check is validate_role_families()."
+    impact: "This creates a novel architecture-doc falsehood and can lead future callers to skip Sentinel/Judge family validation."
+    required_change: "Cite validate_role_families() for 4-role N-way enforcement; reserve check_family_segregation() for the legacy/pairwise generator/evaluator check."
+p2: []
+convergence_call: continue
