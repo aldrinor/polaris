@@ -121,3 +121,25 @@ def test_lexical_relevance_score_edges():
     assert _lexical_relevance_score(_cand("https://x", title=""), {"tirzepatide"}) == 0.0
     score = _lexical_relevance_score(_cand("https://x", title="tirzepatide hba1c"), {"tirzepatide", "hba1c", "diabetes"})
     assert 0.0 < score <= 1.0
+
+
+# --- I-meta-002-q1d (#942-deepener, Codex diff-gate iter-2 P1): seed_only skips search + domain ----
+def test_seed_only_skips_serper_s2_and_domain_backends(monkeypatch):
+    """run_live_retrieval(seed_only=True) must NOT fan out to Serper/S2 or run domain backends — it
+    processes ONLY the injected seed_urls (used by the deepener pass)."""
+    import src.polaris_graph.retrieval.live_retriever as lr
+    import src.polaris_graph.retrieval.domain_backends as db
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("seed_only must not trigger search/domain retrieval")
+
+    monkeypatch.setattr(lr, "_serper_search", _boom)
+    monkeypatch.setattr(lr, "_s2_bulk_search", _boom)
+    monkeypatch.setattr(db, "run_domain_backends", _boom)
+
+    # No seed urls + seed_only → zero candidates, zero search/domain calls, no raise.
+    result = lr.run_live_retrieval(
+        research_question="anything", seed_only=True, seed_urls=[], fetch_cap=5, domain="clinical",
+    )
+    assert result.candidates_fetched == 0
+    assert result.total_candidates_pre_filter == 0

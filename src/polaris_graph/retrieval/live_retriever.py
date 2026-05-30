@@ -1280,6 +1280,7 @@ def run_live_retrieval(
     enable_prefetch_filter: bool = False,
     domain: Optional[str] = None,
     seed_urls: Optional[list[str]] = None,
+    seed_only: bool = False,
 ) -> LiveRetrievalResult:
     """Execute live retrieval and classify the corpus.
 
@@ -1346,7 +1347,10 @@ def run_live_retrieval(
             _n_seed_injected,
         )
 
-    for q in effective_queries:
+    # I-meta-002-q1d (#942-deepener, Codex diff-gate iter-2 P1): seed_only processes ONLY the injected
+    # seed_urls — no Serper/S2 fan-out and no domain backends. Used by the deepener pass so it fetches
+    # exactly the citation-snowball-discovered URLs (and nothing else) through the same chokepoint.
+    for q in ([] if seed_only else effective_queries):
         logger.info("[live_retriever] SERPER q=%r", q[:80])
         serper_hits = _serper_search(q, num=max_serper)
         api_calls["serper"] += 1
@@ -1383,7 +1387,8 @@ def run_live_retrieval(
     # ── Step 2a: R-6 Gap-2 domain-routed backends ──────────────────
     # arXiv for tech, SEC EDGAR for due-diligence, policy-site Serper
     # for policy. Fail-open: any backend exception yields 0 new hits.
-    if domain:
+    # Skipped on the seed_only deepener pass (no extra retrieval).
+    if domain and not seed_only:
         try:
             from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
                 run_domain_backends,

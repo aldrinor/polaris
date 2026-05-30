@@ -1919,6 +1919,92 @@ async def run_one_query(
             except Exception as exc:
                 _log(f"[expansion]   FAILED: {exc}")
 
+        # I-meta-002-q1d (#942-deepener): Stop-RAG-gated citation-snowball deepening. Default OFF (it
+        # SPENDS). Fires only on a BORDERLINE corpus (Codex brief-gate predicate). Every discovered
+        # paper URL is fed back through the SAME run_live_retrieval(seed_urls=...) fetch/tier/strict_
+        # verify chokepoint — a deepened paper earns its tier only from fetched content; a thin/
+        # abstract-only paper is DROPPED fail-closed (no laundering). Fail-open: any error leaves the
+        # post-R6 corpus untouched.
+        from src.polaris_graph.retrieval.deepener_sweep_adapter import (
+            build_deepener_state,
+            discovered_urls,
+            run_deepener_sync,
+            should_trigger_deepener,
+        )
+        if should_trigger_deepener(
+            flag_on=os.getenv("PG_SWEEP_EVIDENCE_DEEPENER", "0").strip() in ("1", "true", "True"),
+            has_s2_key=bool(os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()),
+            has_seed_evidence=len(retrieval.evidence_rows) > 0,
+            adequacy_decision=adequacy.decision,
+            total_uncovered=completeness.total_uncovered,
+        ):
+            try:
+                _deep_state = build_deepener_state(retrieval.evidence_rows, q["question"])
+                _deep_out = run_deepener_sync(_deep_state)
+                _url_cap = max(0, int(os.getenv("PG_SWEEP_DEEPENER_URL_CAP", "20")))
+                _deep_urls = discovered_urls(_deep_out, cap=_url_cap)
+                _log(f"[deepener]    discovered "
+                     f"{len((_deep_out or {}).get('deepened_papers', []))} papers; seeding "
+                     f"{len(_deep_urls)} urls (cap={_url_cap}); "
+                     f"stats={(_deep_out or {}).get('deepener_stats', {})}")
+                if _deep_urls:
+                    deep_retrieval = run_live_retrieval(
+                        research_question=q["question"],
+                        amplified_queries=[],
+                        protocol=protocol,
+                        fetch_cap=min(len(_deep_urls), _url_cap),
+                        enable_openalex_enrich=True,
+                        enable_prefetch_filter=False,
+                        seed_urls=_deep_urls,
+                        seed_only=True,     # ONLY the deepener URLs — no Serper/S2/domain fan-out
+                    )
+                    # ATOMIC merge (Codex diff-gate iter-1 P1): stage everything in LOCAL copies,
+                    # recompute dist/completeness/adequacy over the staged corpus, and COMMIT all
+                    # assignments only after every recompute succeeds — so a recompute error leaves the
+                    # post-R6 corpus untouched (the outer except is fail-open). Dedup by URL with the
+                    # seen-set updated as sources are accepted; only deep evidence rows whose source URL
+                    # was an ACCEPTED non-duplicate source are appended (no evidence_row_count inflation).
+                    _staged_sources = list(retrieval.classified_sources)
+                    _seen_urls = {s.url for s in _staged_sources}
+                    _accepted_src_urls: set[str] = set()
+                    for src in deep_retrieval.classified_sources:
+                        if src.url and src.url not in _seen_urls:
+                            _seen_urls.add(src.url)
+                            _staged_sources.append(src)
+                            _accepted_src_urls.add(src.url)
+                    _staged_rows = list(retrieval.evidence_rows)
+                    _base = len(_staged_rows)
+                    _accepted = 0
+                    for ev in deep_retrieval.evidence_rows:
+                        _ev_url = (ev.get("source_url") or ev.get("url") or "").strip()
+                        if not _ev_url or _ev_url not in _accepted_src_urls:
+                            continue  # duplicate / not an accepted source — skip (no inflation)
+                        ev["evidence_id"] = f"ev_{_base + _accepted:03d}"
+                        _staged_rows.append(ev)
+                        _accepted += 1
+                    _staged_dist = compute_tier_distribution(_staged_sources, protocol)
+                    _staged_completeness = check_completeness(
+                        domain=q["domain"],
+                        research_question=q["question"],
+                        evidence_rows=_staged_rows,
+                    )
+                    _staged_adequacy = assess_corpus_adequacy(
+                        tier_counts=_staged_dist.tier_counts,
+                        evidence_row_count=len(_staged_rows),
+                        domain=q["domain"],
+                        protocol=protocol,
+                    )
+                    # Commit atomically (all recomputes succeeded).
+                    retrieval.classified_sources = _staged_sources
+                    retrieval.evidence_rows = _staged_rows
+                    dist = _staged_dist
+                    completeness = _staged_completeness
+                    adequacy = _staged_adequacy
+                    _log(f"[deepener]    merged +{_accepted} evidence rows (post-chokepoint); "
+                         f"adequacy={adequacy.decision} uncovered={completeness.total_uncovered}")
+            except Exception as exc:
+                _log(f"[deepener]    FAILED (fail-open): {exc}")
+
         # R-6 Gap-1: if adequacy still says ABORT after optional
         # expansion, refuse to synthesize — emit a short "corpus
         # inadequate" manifest and return status=abort_corpus_inadequate.
