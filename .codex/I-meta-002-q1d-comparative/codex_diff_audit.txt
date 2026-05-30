@@ -1,0 +1,465 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e7a0d-f0ef-7273-95c6-7307eb41893d
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+
+## iter-1 → iter-2 changelog (Codex diff-gate P1 ADOPTED)
+iter-1 P1: the detector checked `len(contribs) >= 2` + distinct bound_ev_id but NOT distinct entity identity,
+so two payloads for the SAME non-trial entity (distinct ev) could emit a "comparison" of one entity against
+itself. FIXED in `_detect_shared_attribute_patterns`: contribs now carry entity_id; the pool is deduped to
+ONE contrib per distinct entity_id (deterministic by display_name,value); the gate now requires ≥2 DISTINCT
+ENTITIES (`len(contribs) < 2` after dedup → skip) AND ≥2 distinct bound_ev_id. The early pre-filter is also
+`len({f.entity_id for f in generic}) < 2`. New regression test `test_same_entity_two_sources_does_not_emit`
+(same entity_id, 2 sources → no pattern). 10 #957 tests + 14 M-72 tests pass. Re-verify the regenerated patch.
+
+
+- Front-load ALL findings. Reserve P0/P1 for real execution risks.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+- Read ONLY `.codex/I-meta-002-q1d-comparative/codex_diff.patch`. Emit the YAML verdict block FIRST, then ≤6 sentences.
+
+## Output schema (emit FIRST)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+# DIFF gate — #957 (S2): generalize comparative synthesis. Patch: 1 src + 1 test, +283/-10 (src +154).
+
+You APPROVED the brief at iter 2 with the 3-part guard (comparability + atomic-value + distinct-bound_ev_id),
+non-trial-frames-only containment, neutral wording (no "across sources"), and kill-switch
+`PG_SYNTH_GENERIC_COMPARATIVE` default ON → OFF byte-identical. Verify the patch implements EXACTLY that.
+
+## What the patch does (cross_trial_synthesis.py)
+1. `_EntityFrame` (entity_id, display_name, is_trial, fields: name→(value, bound_ev_id)).
+2. Guards: `_is_comparable_field_name` (denylist: rationale/interpretation/limitation/narrative/summary/
+   conclusion/discussion/context/note/comment/caveat/assessment/background/overview);
+   `_is_atomic_value` (len ≤160, no newline, ≤1 sentence-ending `[.?!](?:\s|$)` — a decimal "2.1" is NOT a
+   sentence end so atomic numbers pass).
+3. `_aggregate_entity_frames`: keeps EVERY entity with ≥1 extracted field; is_trial via the existing
+   `^([a-z0-9_]+?)_(primary|secondary|cvot)$` regex; stores each field's (value, bound_ev_id).
+4. `_detect_shared_attribute_patterns`: NON-trial entities only; for a field that passes the comparability
+   guard and is shared by ≥2 entities with ≥2 DISTINCT bound_ev_id, emits a `_CrossTrialPattern`
+   (pattern_type "generic_attribute_comparison", section "Comparative") whose summary is
+   "Extracted {field} values — {A}: {vA}; {B}: {vB}." (deterministic sort; ev markers = the distinct ids).
+5. `build_cross_trial_synthesis` restructured: trial detectors run when ≥2 trial frames (UNCHANGED path);
+   the generic detector runs regardless behind the kill-switch. In a pure-trial run there are no non-trial
+   entities → generic is a no-op → trial output byte-identical. OFF → generic skipped entirely.
+   `render_cross_trial_synthesis_block` is UNCHANGED.
+
+## Evidence (verified by Claude main-thread, NO SPEND)
+- 9 new tests pass: comparable-field-name guard; atomic-value guard (incl. "2.1%" atomic, multi-sentence /
+  long / multi-line rejected); generic emitted for a comparable field across 2 non-trial entities with
+  distinct ev (neutral wording, both values, no "across sources", ev markers = both ids); NARRATIVE field →
+  none; non-atomic value → none; SAME bound_ev_id pair → none; single entity → none; TRIAL entities excluded
+  from generic; kill-switch OFF → none.
+- 14 existing M-72 cross-trial tests PASS (trial path unchanged). `py_compile` OK.
+
+## The real risks to rule on
+1. Can the generic detector emit a comparison without distinct provenance? (Claim: no — `len(distinct_evs) < 2`
+   → skip.)
+2. Can a narrative/free-text slot reach the synthesis prompt? (Claim: no — comparability guard rejects
+   narrative field-names AND non-atomic values; both checked.)
+3. Is the trial path byte-identical (≥2 trial frames → same detectors; non-trial entities absent → generic
+   no-op)? Verify the restructured build() didn't change trial behavior.
+4. Kill-switch OFF → no aggregation, no patterns, no behavior change?
+5. Does it synthesize any comparative CONCLUSION, or only restate extracted values? (Must be restatement only;
+   downstream strict_verify guards the LLM's integrated sentence as today.)
+6. Anything beyond the 1 src + 1 test file / beyond the approved design?
+
+APPROVE iff the diff implements the iter-2-approved guarded restatement (comparability + atomic + distinct
+provenance, non-trial only, neutral wording), keeps the trial path byte-identical, kill-switch restores prior
+behavior, and introduces no comparative-inference fabrication surface.
+
+codex
+I’ll inspect only the requested diff file and judge the implementation against the approved guardrails.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath .codex/I-meta-002-q1d-comparative/codex_diff.patch' in C:\POLARIS
+ succeeded in 850ms:
+diff --git a/src/polaris_graph/generator/cross_trial_synthesis.py b/src/polaris_graph/generator/cross_trial_synthesis.py
+index d7b0d83d..a58ca0ca 100644
+--- a/src/polaris_graph/generator/cross_trial_synthesis.py
++++ b/src/polaris_graph/generator/cross_trial_synthesis.py
+@@ -61,6 +61,7 @@ inferences survive.
+ from __future__ import annotations
+ 
+ import logging
++import os
+ import re
+ from dataclasses import dataclass, field
+ from typing import Any
+@@ -121,6 +122,144 @@ def _aggregate_trial_frames(
+     return frames
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────
++# #957 (S2, 2026-05-30): domain-agnostic entity→attribute comparison
++# ─────────────────────────────────────────────────────────────────────
++# The trial detectors above are SURPASS/tirzepatide-bound. For golden Qs
++# with no trial contract (microbiota/CRC chains, metal-ion→CVD pathways,
++# ADAS liability) the cross-source layer was simply absent. This adds a
++# generic detector that runs on NON-trial contract entities only (so
++# existing trial runs are byte-identical) and emits a NEUTRAL RESTATEMENT
++# of already-extracted slot values — never a synthesized comparative
++# conclusion. Three guards (Codex brief-gate #957 iter-2 P1) keep it from
++# opening a fabrication surface:
++#   1. comparability: field-name not narrative; value ATOMIC (short, single-clause)
++#   2. provenance: >= 2 contributing entities with DISTINCT bound_ev_id
++#   3. wording: plain "Extracted {field} values" — no "across sources" claim
++# The downstream strict_verify still guards the LLM's integrated sentence.
++_GENERIC_COMPARATIVE_SECTION = "Comparative"
++_ATOMIC_VALUE_MAX_CHARS = 160
++# Field-name substrings that denote narrative/interpretive (non-atomic) slots.
++_NARRATIVE_FIELD_TOKENS = (
++    "rationale", "interpretation", "limitation", "narrative", "summary",
++    "conclusion", "discussion", "context", "note", "comment", "caveat",
++    "assessment", "background", "overview",
++)
++# Sentence-ending punctuation: . ? ! followed by whitespace or end-of-string.
++# A decimal point ("2.1") is NOT followed by whitespace, so it is not counted.
++_SENTENCE_END_RE = re.compile(r"[.?!](?:\s|$)")
++
++
++@dataclass(frozen=True)
++class _EntityFrame:
++    """One contract entity's extracted fields + their source ev ids, for
++    domain-agnostic comparison. `fields` maps field_name -> (value, bound_ev_id)."""
++    entity_id: str
++    display_name: str
++    is_trial: bool
++    fields: dict[str, tuple[str, str]]
++
++
++def _generic_comparative_enabled() -> bool:
++    """Kill-switch `PG_SYNTH_GENERIC_COMPARATIVE` (default ON). OFF → no
++    generic aggregation, no generic patterns; trial behavior byte-identical."""
++    raw = os.environ.get("PG_SYNTH_GENERIC_COMPARATIVE", "1").strip().lower()
++    return raw not in ("0", "false", "no", "off")
++
++
++def _is_comparable_field_name(field_name: str) -> bool:
++    """A field name is comparable iff it is not a narrative/interpretive slot."""
++    low = field_name.lower()
++    return not any(tok in low for tok in _NARRATIVE_FIELD_TOKENS)
++
++
++def _is_atomic_value(value: str) -> bool:
++    """Atomic = a short, single-clause factual datum (not free-text narrative).
++    Excludes multi-line values and values with >1 sentence-ending punctuation."""
++    if not value or len(value) > _ATOMIC_VALUE_MAX_CHARS:
++        return False
++    if "\n" in value or "\r" in value:
++        return False
++    return len(_SENTENCE_END_RE.findall(value)) <= 1
++
++
++def _aggregate_entity_frames(
++    payloads: list[SlotFillPayload],
++) -> list[_EntityFrame]:
++    """Collect EVERY contract entity (trial and non-trial) with >=1 extracted
++    field, tagging is_trial and keeping each field's (value, bound_ev_id)."""
++    frames: list[_EntityFrame] = []
++    for p in payloads:
++        eid = p.entity_id
++        m = re.match(r"^([a-z0-9_]+?)_(primary|secondary|cvot)$", eid)
++        is_trial = m is not None
++        display = eid
++        if is_trial:
++            display = m.group(1).upper().replace("_", "-")
++        extracted: dict[str, tuple[str, str]] = {}
++        for f in p.fields:
++            if f.status == "extracted" and f.value:
++                ev = getattr(f, "bound_ev_id", "") or p.bound_ev_id or ""
++                extracted[f.field_name] = (f.value, ev)
++        if extracted:
++            frames.append(_EntityFrame(
++                entity_id=eid, display_name=display,
++                is_trial=is_trial, fields=extracted,
++            ))
++    return frames
++
++
++def _detect_shared_attribute_patterns(
++    entity_frames: list[_EntityFrame],
++) -> list[_CrossTrialPattern]:
++    """Domain-agnostic: for a COMPARABLE field shared by >=2 NON-trial entities
++    with DISTINCT bound_ev_id, emit a neutral restatement of the extracted
++    values. No synthesized comparative conclusion; the guards keep it from
++    routing narrative slots or same-source pairs into the synthesis prompt."""
++    generic = [f for f in entity_frames if not f.is_trial]
++    if len({f.entity_id for f in generic}) < 2:
++        return []
++    # field_name -> list of (entity_id, display_name, value, ev_id) passing the guards
++    by_field: dict[str, list[tuple[str, str, str, str]]] = {}
++    for fr in generic:
++        for field_name, (value, ev) in fr.fields.items():
++            if not _is_comparable_field_name(field_name):
++                continue
++            if not _is_atomic_value(value):
++                continue
++            by_field.setdefault(field_name, []).append(
++                (fr.entity_id, fr.display_name, value, ev)
++            )
++    patterns: list[_CrossTrialPattern] = []
++    for field_name in sorted(by_field):
++        # Dedup to ONE contrib per distinct entity_id (deterministic by
++        # display_name, value) — Codex diff-gate P1: distinct provenance is NOT
++        # the same as distinct compared entities; one entity reporting a field
++        # across two of its own sources is NOT a cross-entity comparison.
++        per_entity: dict[str, tuple[str, str, str, str]] = {}
++        for c in sorted(by_field[field_name], key=lambda c: (c[1], c[2])):
++            per_entity.setdefault(c[0], c)
++        contribs = sorted(per_entity.values(), key=lambda c: (c[1], c[2]))
++        if len(contribs) < 2:  # < 2 DISTINCT entities
++            continue
++        # Provenance guard: require >= 2 DISTINCT bound_ev_id among them.
++        distinct_evs = {c[3] for c in contribs if c[3]}
++        if len(distinct_evs) < 2:
++            continue
++        restatement = "; ".join(
++            f"{name}: {val}" for _eid, name, val, _ev in contribs
++        )
++        summary = f"Extracted {field_name} values — {restatement}."
++        patterns.append(_CrossTrialPattern(
++            section=_GENERIC_COMPARATIVE_SECTION,
++            pattern_type="generic_attribute_comparison",
++            summary=summary,
++            contributing_anchors=tuple(c[1] for c in contribs),
++            contributing_evidence_ids=tuple(sorted(distinct_evs)),
++        ))
++    return patterns
++
++
+ # ─────────────────────────────────────────────────────────────────────
+ # Shape-match patterns
+ # ─────────────────────────────────────────────────────────────────────
+@@ -291,21 +430,32 @@ def build_cross_trial_synthesis(
+     extracted content. Caller treats empty block as "no synthesis
+     suggestions for this run".
+     """
++    section_to_patterns: dict[str, list[_CrossTrialPattern]] = {}
++
++    # Trial path (UNCHANGED): SURPASS/tirzepatide detectors on trial frames.
+     frames = _aggregate_trial_frames(payloads)
+-    if len(frames) < 2:
++    if len(frames) >= 2:
++        for detector in (
++            _detect_dose_response_patterns,
++            _detect_comparator_class_patterns,
++            _detect_safety_class_patterns,
++        ):
++            for pat in detector(frames):
++                key = pat.section.strip().lower()
++                section_to_patterns.setdefault(key, []).append(pat)
++    else:
+         logger.info(
+             "[m72] only %d trial frames with extracted fields — "
+-            "skipping cross-trial synthesis", len(frames),
++            "skipping trial detectors", len(frames),
+         )
+-        return CrossTrialSynthesisBlock()
+ 
+-    section_to_patterns: dict[str, list[_CrossTrialPattern]] = {}
+-    for detector in (
+-        _detect_dose_response_patterns,
+-        _detect_comparator_class_patterns,
+-        _detect_safety_class_patterns,
+-    ):
+-        for pat in detector(frames):
++    # #957 (S2): domain-agnostic generic comparison on NON-trial entities.
++    # Runs regardless of trial-frame count (gated by kill-switch). In a
++    # pure-trial run there are no non-trial entities, so this is a no-op and
++    # trial output is byte-identical. OFF → skipped entirely.
++    if _generic_comparative_enabled():
++        entity_frames = _aggregate_entity_frames(payloads)
++        for pat in _detect_shared_attribute_patterns(entity_frames):
+             key = pat.section.strip().lower()
+             section_to_patterns.setdefault(key, []).append(pat)
+ 
+diff --git a/tests/polaris_graph/test_generic_comparative_synthesis.py b/tests/polaris_graph/test_generic_comparative_synthesis.py
+new file mode 100644
+index 00000000..710195a5
+--- /dev/null
++++ b/tests/polaris_graph/test_generic_comparative_synthesis.py
+@@ -0,0 +1,142 @@
++"""Tests for the #957 domain-agnostic comparative synthesis. NO network / NO spend.
++
++Asserts the generic detector is a SOFT, guarded restatement: it fires only for a COMPARABLE field
++(not narrative-named, atomic value) shared by >=2 NON-trial entities with DISTINCT bound_ev_id, emits a
++neutral "Extracted {field} values — ..." restatement (no fabricated comparison, no "across sources"), runs
++only on non-trial frames (trial runs unaffected), and is fully disabled by the kill-switch.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++import src.polaris_graph.generator.cross_trial_synthesis as cts
++from src.polaris_graph.generator.cross_trial_synthesis import (
++    _is_atomic_value,
++    _is_comparable_field_name,
++    build_cross_trial_synthesis,
++)
++from src.polaris_graph.generator.slot_fill import SlotFieldFill, SlotFillPayload
++
++
++def _payload(entity_id, fields):
++    """fields: list of (field_name, value, bound_ev_id)."""
++    sff = tuple(
++        SlotFieldFill(field_name=n, status="extracted", value=v, bound_ev_id=e, source_span=v)
++        for n, v, e in fields
++    )
++    return SlotFillPayload(
++        slot_id=f"slot_{entity_id}", entity_id=entity_id, subsection_title="X",
++        bound_ev_id=(fields[0][2] if fields else "ev_000"), fields=sff,
++        provenance_class="primary",
++    )
++
++
++def _generic_patterns(block):
++    out = []
++    for pats in block.section_to_patterns.values():
++        out.extend(p for p in pats if p.pattern_type == "generic_attribute_comparison")
++    return out
++
++
++def _on(monkeypatch):
++    monkeypatch.delenv("PG_SYNTH_GENERIC_COMPARATIVE", raising=False)
++
++
++# ── helper guards ────────────────────────────────────────────────────────
++def test_comparable_field_name_excludes_narrative():
++    assert _is_comparable_field_name("effect_size")
++    assert not _is_comparable_field_name("interpretation")
++    assert not _is_comparable_field_name("study_limitations")
++    assert not _is_comparable_field_name("clinical_rationale")
++
++
++def test_atomic_value_guard():
++    assert _is_atomic_value("2.1%")                       # decimal point not a sentence end
++    assert _is_atomic_value("HR 0.78 (0.65-0.93)")
++    assert not _is_atomic_value("x" * 200)                # too long
++    assert not _is_atomic_value("First finding. Second finding.")  # multi-sentence
++    assert not _is_atomic_value("line one\nline two")     # multi-line
++
++
++# ── generic detector ────────────────────────────────────────────────────
++def test_generic_comparison_emitted_for_comparable_field(monkeypatch):
++    _on(monkeypatch)
++    payloads = [
++        _payload("microbiota_butyrate", [("effect_size", "OR 1.8", "ev_001")]),
++        _payload("microbiota_fusobacterium", [("effect_size", "OR 2.4", "ev_002")]),
++    ]
++    pats = _generic_patterns(build_cross_trial_synthesis(payloads))
++    assert len(pats) == 1
++    p = pats[0]
++    assert p.section == "Comparative"
++    assert "OR 1.8" in p.summary and "OR 2.4" in p.summary
++    assert "Extracted effect_size values" in p.summary
++    assert "across sources" not in p.summary.lower()   # no unverified provenance framing
++    assert set(p.contributing_evidence_ids) == {"ev_001", "ev_002"}
++
++
++def test_narrative_field_does_not_emit(monkeypatch):
++    _on(monkeypatch)
++    payloads = [
++        _payload("entity_a", [("interpretation", "the mechanism is plausible", "ev_001")]),
++        _payload("entity_b", [("interpretation", "the mechanism is uncertain", "ev_002")]),
++    ]
++    assert _generic_patterns(build_cross_trial_synthesis(payloads)) == []
++
++
++def test_nonatomic_value_does_not_emit(monkeypatch):
++    _on(monkeypatch)
++    payloads = [
++        _payload("entity_a", [("finding", "First claim. Second claim. Third claim.", "ev_001")]),
++        _payload("entity_b", [("finding", "Another. And another. And more.", "ev_002")]),
++    ]
++    assert _generic_patterns(build_cross_trial_synthesis(payloads)) == []
++
++
++def test_same_source_pair_does_not_emit(monkeypatch):
++    _on(monkeypatch)
++    # both values share bound_ev_id ev_001 → not a real cross-source comparison
++    payloads = [
++        _payload("entity_a", [("effect_size", "OR 1.8", "ev_001")]),
++        _payload("entity_b", [("effect_size", "OR 2.4", "ev_001")]),
++    ]
++    assert _generic_patterns(build_cross_trial_synthesis(payloads)) == []
++
++
++def test_single_entity_does_not_emit(monkeypatch):
++    _on(monkeypatch)
++    payloads = [_payload("entity_a", [("effect_size", "OR 1.8", "ev_001")])]
++    assert _generic_patterns(build_cross_trial_synthesis(payloads)) == []
++
++
++def test_trial_entities_excluded_from_generic(monkeypatch):
++    _on(monkeypatch)
++    # trial entity_ids (match the <anchor>_(primary|secondary|cvot) pattern) are NOT
++    # routed to the generic detector — trial runs stay on the trial path.
++    payloads = [
++        _payload("surpass_2_primary", [("effect_size", "ETD -1.9", "ev_001")]),
++        _payload("surpass_3_primary", [("effect_size", "ETD -2.1", "ev_002")]),
++    ]
++    assert _generic_patterns(build_cross_trial_synthesis(payloads)) == []
++
++
++def test_same_entity_two_sources_does_not_emit(monkeypatch):
++    """Codex diff-gate P1: two payloads for the SAME entity_id (distinct
++    bound_ev_id) is one entity compared to itself — NOT a cross-entity
++    comparison. Distinct provenance is not enough; distinct entities required."""
++    _on(monkeypatch)
++    payloads = [
++        _payload("microbiota_butyrate", [("effect_size", "OR 1.8", "ev_001")]),
++        _payload("microbiota_butyrate", [("effect_size", "OR 2.4", "ev_002")]),
++    ]
++    assert _generic_patterns(build_cross_trial_synthesis(payloads)) == []
++
++
++def test_killswitch_off_disables_generic(monkeypatch):
++    monkeypatch.setenv("PG_SYNTH_GENERIC_COMPARATIVE", "0")
++    payloads = [
++        _payload("entity_a", [("effect_size", "OR 1.8", "ev_001")]),
++        _payload("entity_b", [("effect_size", "OR 2.4", "ev_002")]),
++    ]
++    assert _generic_patterns(build_cross_trial_synthesis(payloads)) == []
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+The iter-2 P1 is closed: the generic detector dedups to one contribution per `entity_id` before requiring at least two compared entities, and still requires at least two distinct nonempty `bound_ev_id` values. The patch matches the approved guard set: comparable field-name denylist, atomic value check, non-trial-only generic detection, neutral extracted-value restatement, and no “across sources” wording. The trial detector path remains structurally unchanged for `len(frames) >= 2`, and the kill-switch skips generic aggregation and patterns entirely when off. No files beyond the one source file and one new test file are changed in this diff.
+tokens used
+9,171
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+The iter-2 P1 is closed: the generic detector dedups to one contribution per `entity_id` before requiring at least two compared entities, and still requires at least two distinct nonempty `bound_ev_id` values. The patch matches the approved guard set: comparable field-name denylist, atomic value check, non-trial-only generic detection, neutral extracted-value restatement, and no “across sources” wording. The trial detector path remains structurally unchanged for `len(frames) >= 2`, and the kill-switch skips generic aggregation and patterns entirely when off. No files beyond the one source file and one new test file are changed in this diff.
