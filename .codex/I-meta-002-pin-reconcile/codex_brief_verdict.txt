@@ -1,0 +1,164 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e79df-5839-7741-b1c6-fe96642c25c3
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+
+## iter-1 → iter-2 changelog (Codex P1 ADOPTED)
+iter-1 REQUEST_CHANGES raised ONE P1: the proposed `replace(b"\r\n",b"\n").replace(b"\r",b"\n")` is broader
+than git's LF normalization (git collapses only `\r\n`; it does NOT reinterpret a lone bare `\r`), so it
+could MASK a future bare-CR mutation. ADOPTED verbatim: the verifier now normalizes `\r\n`→`\n` ONLY, then
+HARD-FAILS if any bare `\r` remains in a pinned file (a stray CR in docs/yaml/py is suspicious → stop the
+ritual rather than hash clean). This makes the basis exactly git-text-normalization + a bare-CR tripwire.
+Re-verify the corrected design below.
+
+
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (emit FIRST, then ≤6 sentences)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+# BRIEF gate — I-meta-002 #973: reconcile canonical_pin.txt onto a stable git-normalized LF basis
+
+You are reviewing the ACCEPTANCE CRITERIA + DESIGN of this brief (not a diff yet). Rule on whether the
+plan, if implemented exactly, correctly and safely resolves the finding without introducing a new
+trust-anchor risk. This touches the boot-ritual trust anchor (docs/canonical_pin.txt + CLAUDE.md §3.1),
+so be adversarial about correctness and about any way the fix could MASK a future real mutation.
+
+## LOCKED CONSTRAINTS (not up for debate — do not reopen)
+- Claude does NOT auto-merge this. It is queued for operator-signed merge per CLAUDE.md §3.1 ("user-signed
+  reconciliation commit"). The CI codex-required gate + operator are the merge authority.
+- No spend. Pure git + hashlib. No models, no network.
+- The basis MUST be cross-platform stable (same result on Windows autocrlf=true and Linux/CI).
+
+## The finding (already diagnosed, grounded in HEAD facts)
+docs/canonical_pin.txt pins SHA256 of 14 canonical files, verified at every session boot (CLAUDE.md §3.1
+step 0) and described there as "compute SHA256 of working tree + `git show HEAD:<path>` SHA; ALL three
+(pin / working-tree / HEAD) must match."
+
+PROBLEM: on a Windows autocrlf=true checkout, working-tree text files are CRLF while git stores LF, so
+`sha256sum <working-tree-file>` (CRLF bytes) can NEVER equal a sha computed on LF content. The pin file is
+ALSO internally inconsistent: past reconciliation commits computed some entries on CRLF working-tree bytes
+(architecture.md, REVIEW_BRIEF_FORMAT.md, CLAUDE.md) and some on LF git content (carney_delivery_plan_v6_2.md,
+blockers.md, etc.). Net effect at origin/polaris HEAD, computing the LF basis CI uses
+(`git show HEAD:<path> | sha256sum`): 4 of 14 mismatch — architecture.md, docs/task_acceptance_matrix.yaml,
+.codex/REVIEW_BRIEF_FORMAT.md, CLAUDE.md.
+
+Per-file basis test proves 3 of those 4 are pure CRLF/LF representation artifacts (content matches the pin
+under the CRLF basis), and exactly ONE — docs/task_acceptance_matrix.yaml — matches NEITHER basis: it was
+legitimately edited 2026-05-19 (commit 6ecbcd27, reviewed) and the pin was never refreshed. That file is
+HISTORICAL / scheduled-for-decommission per CLAUDE.md §2.1. No unauthorized mutation anywhere; the local
+pre-commit hook is stubbed (`exit 0` since 2026-05-04) so nothing caught it locally.
+
+Git blobs for these files contain 0 CR bytes (pure LF) — confirmed.
+
+## The fix (what the diff will do)
+1. Add `scripts/verify_canonical_pin.py` — a deterministic verifier with NO OS dependence: for each
+   `<sha>  <path>` line in docs/canonical_pin.txt, read the working-tree file bytes, normalize CRLF→LF
+   **`\r\n`→`\n` ONLY** (`data.replace(b"\r\n", b"\n")` — NOT a bare-`\r` replace), THEN **hard-fail if any
+   bare `\r` (0x0D) remains** in the normalized bytes (a stray CR in a pinned text file is suspicious and
+   must STOP the ritual, not hash clean — this is the trust-anchor tripwire). Then sha256 the normalized
+   bytes and compare to pin. Exit non-zero listing mismatches AND any bare-CR rejections. This matches git's
+   text normalization exactly (git blobs for the 14 files are pure LF, confirmed), so it is identical on
+   Windows and Linux. `--regenerate` mode rewrites canonical_pin.txt from the current normalized content
+   (and itself hard-fails / refuses to regenerate if any pinned file contains a bare `\r`); used once to
+   reconcile, then normal mode is verify-only.
+2. Edit CLAUDE.md §3.1 step 0: replace the "compute SHA256 of working tree + `git show HEAD`" wording with
+   "compute SHA256 over the **git-normalized (LF) content** of each pinned file (see
+   scripts/verify_canonical_pin.py); the working-tree-CRLF and HEAD shas are equal under this normalization
+   so the gate is stable on Windows and Linux." One-line clarification; does NOT weaken the gate.
+3. Regenerate docs/canonical_pin.txt AFTER the CLAUDE.md edit, so all 14 entries (including CLAUDE.md's new
+   content) are the LF-normalized sha256. Verify: `python scripts/verify_canonical_pin.py` → 0 mismatches.
+4. Unit test `tests/.../test_verify_canonical_pin.py`: (a) a file with CRLF and the same file with LF hash
+   identically; (b) a real content change is detected as a mismatch (the gate still catches mutation);
+   (c) every entry in the committed pin verifies clean.
+
+## The real risks to rule on
+1. Does normalizing CRLF→LF before hashing MASK any real mutation? (Claim: no — it collapses ONLY `\r\n`
+   pairs, identical to git text normalization; any byte change to actual content still changes the
+   LF-normalized sha. A bare `\r` is NOT normalized away — it triggers a hard-fail (iter-1 P1 fix). Tests
+   (b) and (e) pin this.)
+2. Is regenerating the pin from current content "laundering" an un-reviewed change? (Claim: no for 13/14 —
+   their content already matches the pin under some basis, i.e. is the intended content; and for the 1
+   real-stale historical file (task_acceptance_matrix.yaml) the new content is commit 6ecbcd27 which WAS
+   reviewed/merged — regeneration just records the already-merged reviewed content. The PR diff will show
+   the matrix SHA changing; call it out explicitly so the operator sees it at merge.)
+3. Could a file legitimately NEED CR bytes (binary / CRLF-significant)? All 14 are text docs/yaml/py; none
+   are binary; none depend on CRLF. (If you think any does, flag it.)
+4. Does the CLAUDE.md wording change weaken the §3.1 hard-stop? (Claim: no — it specifies the computation
+   basis only; mismatch is still a hard stop.)
+
+## Files I have ALSO checked and they're clean
+- `.git/hooks/pre-commit` — stubbed `exit 0` (enforcement is server-side CI), so no local pin gate to update.
+- `.github/workflows/` — grep for `canonical_pin` returns architecture-conformance.yml, codex_verdict_check.yml,
+  protection_drift_check.yml, codex-visual-required.yml, web_ci.yml; none computes a per-file canonical-pin
+  SHA today (they matched the word "drift"/"canonical" loosely). If a CI canonical-pin SHA gate is later
+  added it should call scripts/verify_canonical_pin.py so CI and boot use ONE basis. (Out of scope here;
+  note as follow-up, not a blocker.)
+- `scripts/architecture/verify_lock.py` — does a substring-presence check that the lock file PATH is listed
+  in canonical_pin.txt; it does NOT compute the SHA, so it is unaffected by the value change.
+- `state/polaris_restart/charter_sha_pin.txt` — CHARTER/PLAN pins, separate mechanism, not touched.
+
+## Acceptance criteria
+A. `scripts/verify_canonical_pin.py` exists, normalizes `\r\n`→`\n` ONLY, HARD-FAILS on any residual bare
+   `\r` in a pinned file, then sha256s and compares; exits non-zero on mismatch OR bare-CR; has a
+   `--regenerate` mode that also refuses to regenerate when a pinned file has a bare `\r`; OS-independent
+   (no `git` subprocess; pure file read + hashlib).
+B. docs/canonical_pin.txt regenerated so all 14 entries verify clean under the LF basis.
+C. CLAUDE.md §3.1 step 0 states the canonical basis is git-normalized LF (`\r\n`→`\n`, bare-CR rejected) and
+   points to the verifier.
+D. Tests prove: (a) CRLF==LF hash equality; (b) a real content change is still detected as mismatch;
+   (c) committed pin verifies clean; (e) a bare `\r` injected into a pinned file triggers hard-fail (NOT a
+   clean hash) — the iter-1 P1 tripwire.
+E. The one substantive value change (task_acceptance_matrix.yaml) is called out in the PR body for the
+   operator, with the reviewed commit (6ecbcd27) that produced it.
+F. No spend; queued for operator-signed merge; trust anchor not weakened.
+
+Is this design correct, safe, and sufficient to clear the §3.1 hard stop without masking real mutation?
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+The corrected design is safe: normalizing only `\r\n` to `\n` aligns with the intended git text basis, and the residual bare-CR hard-fail closes the masking risk from iter 1. Regenerating from current normalized content is acceptable because the one real content delta is already reviewed history and is explicitly required to be called out for operator review. The verifier being pure file-read plus `hashlib` is sufficient for the stated pinned set of text docs/yaml/py, assuming no future pin expansion to CR-significant or filtered/encoded files without revisiting the rule. CLAUDE.md’s wording change clarifies the hash basis and does not weaken the hard-stop semantics. Tests cover the important failure modes, including real mutation and bare-CR rejection.
+tokens used
+4,593
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+The corrected design is safe: normalizing only `\r\n` to `\n` aligns with the intended git text basis, and the residual bare-CR hard-fail closes the masking risk from iter 1. Regenerating from current normalized content is acceptable because the one real content delta is already reviewed history and is explicitly required to be called out for operator review. The verifier being pure file-read plus `hashlib` is sufficient for the stated pinned set of text docs/yaml/py, assuming no future pin expansion to CR-significant or filtered/encoded files without revisiting the rule. CLAUDE.md’s wording change clarifies the hash basis and does not weaken the hard-stop semantics. Tests cover the important failure modes, including real mutation and bare-CR rejection.

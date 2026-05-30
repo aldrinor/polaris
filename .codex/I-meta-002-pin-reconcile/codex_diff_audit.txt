@@ -1,0 +1,412 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e79e5-a088-77b1-935c-f317d67337d1
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+- Read ONLY the patch file `.codex/I-meta-002-pin-reconcile/codex_diff.patch`. Emit the YAML verdict block FIRST, then ≤6 sentences.
+
+## Output schema (emit FIRST)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+# DIFF gate — I-meta-002 #973: reconcile canonical_pin.txt onto a stable git-normalized LF basis
+
+You APPROVED the brief/design at iter 2 (CRLF→LF-only normalization + bare-CR hard-fail tripwire). Verify
+the patch implements EXACTLY that design and nothing else. Patch: 4 files, +262/-7.
+
+## What the patch contains
+1. `scripts/verify_canonical_pin.py` (NEW) — `normalized_sha256(path)` reads bytes, `data.replace(b"\r\n", b"\n")`
+   ONLY, then `if b"\r" in normalized: raise BareCarriageReturnError` (the iter-1 P1 tripwire), then
+   sha256. `verify()` returns problem list (MISSING / BARE-CR / DRIFT); `regenerate()` rewrites the pin from
+   current normalized content preserving path set + order, and itself raises on bare CR. `main()` exits 1 on
+   any problem. Pure file read + hashlib; no git subprocess; OS-independent.
+2. `tests/test_verify_canonical_pin.py` (NEW, 7 tests, all pass) — CRLF==LF hash equality; real content
+   change still detected; bare-CR raises; bare-CR surfaces as a verify problem; regenerate preserves
+   path set/order; regenerate refuses on bare CR; the committed pin verifies clean.
+3. `CLAUDE.md` §3.1 step 0 (1 line) — states the basis is git-normalized LF via the verifier, bare-CR
+   rejected; preserves the HARD STOP + halt-marker + CHARTER/PLAN checks; removes a stale "10 files" count.
+4. `docs/canonical_pin.txt` — 6 of 14 SHA entries change to the LF basis (regenerated). No paths added/removed.
+
+## Classification of the 6 changed pin entries (verified by Claude main-thread, NO SPEND)
+- PURE CRLF→LF REPRESENTATION (file content UNCHANGED; old pin was the CRLF-bytes sha): architecture.md,
+  docs/agent_architecture.md, docs/polaris_step_b_full_set_audit_2026_05_27.md.
+- THIS PR's edit: CLAUDE.md (the §3.1 wording change above) — new pin = LF sha of edited content.
+- GENUINE STALE PIN (old pin matched NEITHER CRLF nor LF basis — content was changed by a prior reviewed
+  commit and the pin was never refreshed; regeneration records the already-merged reviewed content):
+  - docs/task_acceptance_matrix.yaml — reviewed commit 6ecbcd27 (2026-05-19, "I-cd-010 stale model-ref
+    cleanup"); HISTORICAL / decommission-scheduled file per CLAUDE.md §2.1.
+  - .codex/REVIEW_BRIEF_FORMAT.md — reviewed commit 2d13e8bc (2026-05-29, "#935 canonical 20-stage pipeline
+    doc + pin + Codex reminder").
+  Both are called out in the PR body for operator review at merge.
+
+## The real risks to rule on
+1. Does the implemented `normalized_sha256` match the APPROVED design EXACTLY — `\r\n`→`\n` only (no bare-`\r`
+   replace) and hard-fail on residual `\r`? (Confirm the code, not the prose.)
+2. Could `regenerate()` drop or reorder a pinned path, or silently add one? (Claim: it iterates the parsed
+   existing entries in order and rewrites only SHAs.)
+3. Does `verify()` cleanly catch a real mutation (DRIFT) and a bare CR (BARE-CR) and a missing file (MISSING),
+   each as non-zero exit? (Tests b/e/c + missing-path branch.)
+4. Does the CLAUDE.md wording now EXACTLY match the verifier's behavior (so the ritual prose can't drift from
+   the code), and does it preserve the HARD STOP semantics?
+5. Anything in the patch beyond these 4 files / beyond the approved design? (Should be nothing.)
+
+## NOT in scope (locked / out of scope, do not require here)
+- A CI canonical-pin gate that calls this verifier — noted as a follow-up in the brief, not this PR.
+- The two genuine-stale-pin content deltas are pre-existing reviewed commits, not introduced here.
+- No spend; queued for operator-signed merge (CODEOWNERS requires @aldrinor on both changed canonical files).
+
+APPROVE iff the diff implements the iter-2-approved design exactly (CRLF→LF-only + bare-CR hard-fail),
+regenerates the pin without adding/removing/reordering paths, keeps the §3.1 hard-stop intact, and contains
+nothing beyond the 4 files.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw -LiteralPath '.codex/I-meta-002-pin-reconcile/codex_diff.patch'" in C:\POLARIS
+ succeeded in 780ms:
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 80870fa3..91f8ff8e 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -224,7 +224,7 @@ This protocol MUST be executed automatically at the start of every session and a
+ 
+ **CRITICAL: Step 0 (canonical-pin verification) is non-negotiable. Mismatch = HARD STOP per Plan v13 §A.**
+ 
+-0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
++0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1; basis fixed per I-meta-002 #973):** Run `python scripts/verify_canonical_pin.py` (exit 0 = clean). It reads `docs/canonical_pin.txt` and, for each pinned canonical file, computes SHA256 over the **git-normalized (LF) content** — normalizing `\r\n`→`\n` ONLY and HARD-FAILING on any residual bare `\r` (a stray CR must stop the ritual, not hash clean) — so the result is identical on Windows (autocrlf=true) and Linux/CI. Any pin mismatch, bare-CR, or missing file = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without a user-signed reconciliation commit (regenerate via `python scripts/verify_canonical_pin.py --regenerate`). **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+ 
+ 1. **Read CLAUDE.md:** This file completely.
+ 2. **Read full canonical (per polaris-restart Plan §9.1 issue-driven workflow + Plan-v13 §J 7-step retained for non-Issue context):**
+diff --git a/docs/canonical_pin.txt b/docs/canonical_pin.txt
+index 8cee3fbc..ca99470c 100644
+--- a/docs/canonical_pin.txt
++++ b/docs/canonical_pin.txt
+@@ -1,14 +1,14 @@
+ 9471a3967fda558c4507fcac83dac8e317fb5c2bd2ad8013d9f70a6ae257f694  docs/carney_delivery_plan_v6_2.md
+-31d483cc37b257094b7b9e50f50f2a038d221cdd05109e7c24088a0025d12b7b  architecture.md
++8bea9588b57cf1e671fe410998e394e6d681055bd8897960a1ac9123e3f4db9f  architecture.md
+ 5d97dddba498c4dd50550f29b46f22dc8b6d26cd10532caa4405a0229d770199  docs/blockers.md
+-911c53b0645d4fe07e46b88d8a28ce5c5f13ba3db91a638a78c3a97d07664109  docs/task_acceptance_matrix.yaml
+-b93b98718f8e64ef9e9bcf31d33d4c538cbc322992925ed28ef0df2c8b25bf3a  docs/agent_architecture.md
++ba402c8d8af98e157a3157869adb31c3d0e290b6106835ac4e5d2b98432617ec  docs/task_acceptance_matrix.yaml
++fe7a7420f4f79268d7cbf65a5ea00cb837d3b05f29106973dca7b6d3d6620fd5  docs/agent_architecture.md
+ 0ba71ca0ed94aac749b02e668b72f86af7ebfda6ee058e4319cb5953d0014617  docs/substrate_audit_2026-05-01.md
+ 92d9e650daad50d69b418979593801aef756473f28173af2f5fff7c78bec787f  .codex/codex_red_team_checklist.md
+-ab396f133a0a5c53036a89629a53869dfec8a207f93e092b8f79deb924ad8886  .codex/REVIEW_BRIEF_FORMAT.md
++15950af84dbccd6bb51b2eb7ecbf152f2ed33ea7e15b51a0341b3eb5e3bda6f7  .codex/REVIEW_BRIEF_FORMAT.md
+ 2ec2f10bb4726ff658dc1e89cf72c7c86f392838a76f98811b031def2edefa4c  .codex/AUDIT_CYCLE_PROTOCOL.md
+-69306b4a2b17d26c8ea0a5f84319b223c4c08755b30bbf882fa41520cf1d50aa  CLAUDE.md
++7b50a3caeec731eb2260fb66bcc5bbb9b13147d9e9539644f47142f87e774362  CLAUDE.md
+ 7f3f12a24464047db3273485813feee160d1f9c173e47b193435de4548b504ef  config/architecture/polaris_runtime_lock.yaml
+-9b4e8935d945a7f96c9be575db32bc3515f9ba3a8bc44cac93f3d1c8cc72aa7d  docs/polaris_step_b_full_set_audit_2026_05_27.md
++ed050788e2ec2dd46ca016f8ccb7f2125f5b1be3f42e746e9d2a6eecd626f4ea  docs/polaris_step_b_full_set_audit_2026_05_27.md
+ 60c7fb58119ef53004cb95d1d4558ac4977317c5ca3423d0f162102d705608ef  scripts/architecture/verify_lock.py
+ dbb4311828ea1fb0d626519577551dd77639fb121e82887d9568f3a19ff38d34  docs/polaris_pipeline_canonical.md
+diff --git a/scripts/verify_canonical_pin.py b/scripts/verify_canonical_pin.py
+new file mode 100644
+index 00000000..50645307
+--- /dev/null
++++ b/scripts/verify_canonical_pin.py
+@@ -0,0 +1,145 @@
++#!/usr/bin/env python3
++"""Deterministic verifier for ``docs/canonical_pin.txt`` (I-meta-002 #973).
++
++The canonical pin records ``<sha256>  <path>`` for each file that the §3.1 boot
++ritual must confirm has not drifted. Historically the pin was reconciled with
++``sha256sum`` over the working-tree bytes on a Windows ``autocrlf=true`` checkout
++for some entries and over git-normalized (LF) content for others, so a single
++``sha256sum`` could never match all entries on both Windows and Linux/CI.
++
++This verifier uses ONE stable basis that matches git's text normalization:
++
++  * normalize ``\\r\\n`` -> ``\\n`` ONLY (git collapses CRLF pairs; it does NOT
++    reinterpret a lone carriage return), then
++  * HARD-FAIL if any bare ``\\r`` (0x0D) remains. A stray CR in a pinned text
++    file is suspicious and must STOP the boot ritual rather than hash clean --
++    this is the trust-anchor tripwire (Codex brief-gate iter-1 P1). Without it,
++    ``\\r\\n -> \\n`` followed by ``\\r -> \\n`` would let a bare-CR mutation hash
++    identically to a newline and silently pass.
++
++Because git stores the 14 pinned files as pure LF (verified), the LF-normalized
++sha256 computed here equals the git blob content sha on every platform. The
++verifier is OS-independent: pure file read + ``hashlib``, no ``git`` subprocess.
++
++Usage::
++
++    python scripts/verify_canonical_pin.py              # verify; exit 1 on any mismatch / bare-CR / missing
++    python scripts/verify_canonical_pin.py --regenerate  # rewrite the pin from current normalized content, then verify
++
++``--regenerate`` is the one-time reconciliation path; it also refuses (raises) if
++any pinned file contains a bare CR, so a regenerate can never bake in a masked CR.
++"""
++
++from __future__ import annotations
++
++import argparse
++import hashlib
++import sys
++from pathlib import Path
++
++REPO_ROOT = Path(__file__).resolve().parent.parent
++PIN_PATH = REPO_ROOT / "docs" / "canonical_pin.txt"
++
++# Two-space separator, matching the existing ``sha256sum``-style pin format.
++_PIN_SEP = "  "
++
++
++class BareCarriageReturnError(ValueError):
++    """A pinned file contains a bare CR (0x0D) after CRLF->LF normalization."""
++
++
++def normalized_sha256(path: Path) -> str:
++    """Return the SHA256 hex of ``path``'s git-normalized (LF) content.
++
++    Collapses ``\\r\\n`` to ``\\n`` only -- identical to git text normalization --
++    then raises :class:`BareCarriageReturnError` if any bare ``\\r`` remains, so a
++    lone CR can never be normalized away and mask a real mutation.
++    """
++    data = path.read_bytes()
++    normalized = data.replace(b"\r\n", b"\n")
++    if b"\r" in normalized:
++        raise BareCarriageReturnError(f"bare CR (0x0D) present in {path}")
++    return hashlib.sha256(normalized).hexdigest()
++
++
++def parse_pin(pin_text: str) -> list[tuple[str, str]]:
++    """Parse ``<sha>  <path>`` lines; skip blanks and ``#`` comments."""
++    entries: list[tuple[str, str]] = []
++    for raw in pin_text.splitlines():  # splitlines() handles CRLF or LF line endings
++        line = raw.strip()
++        if not line or line.startswith("#"):
++            continue
++        parts = line.split()
++        if len(parts) != 2:
++            raise ValueError(f"malformed canonical_pin line: {raw!r}")
++        sha, rel = parts
++        entries.append((sha, rel))
++    return entries
++
++
++def verify(pin_path: Path = PIN_PATH) -> list[str]:
++    """Return a list of human-readable problems; an empty list means all clean."""
++    problems: list[str] = []
++    entries = parse_pin(pin_path.read_text(encoding="utf-8"))
++    for pinned_sha, rel in entries:
++        target = REPO_ROOT / rel
++        if not target.is_file():
++            problems.append(f"MISSING: {rel}")
++            continue
++        try:
++            actual = normalized_sha256(target)
++        except BareCarriageReturnError as exc:
++            problems.append(f"BARE-CR: {rel} ({exc})")
++            continue
++        if actual != pinned_sha:
++            problems.append(f"DRIFT: {rel}\n   pin={pinned_sha}\n   got={actual}")
++    return problems
++
++
++def regenerate(pin_path: Path = PIN_PATH) -> int:
++    """Rewrite ``pin_path`` from current normalized content. Return entry count.
++
++    Preserves the existing pinned path set and order; only the SHA values change.
++    Raises if a pinned file is missing or contains a bare CR (so regenerate can
++    never bake in a masked carriage return).
++    """
++    entries = parse_pin(pin_path.read_text(encoding="utf-8"))
++    new_lines: list[str] = []
++    for _old_sha, rel in entries:
++        target = REPO_ROOT / rel
++        if not target.is_file():
++            raise FileNotFoundError(f"cannot regenerate: pinned file missing: {rel}")
++        actual = normalized_sha256(target)  # raises BareCarriageReturnError on bare CR
++        new_lines.append(f"{actual}{_PIN_SEP}{rel}")
++    pin_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
++    return len(new_lines)
++
++
++def main(argv: list[str] | None = None) -> int:
++    parser = argparse.ArgumentParser(
++        description="Verify or regenerate docs/canonical_pin.txt on a git-normalized (LF) basis."
++    )
++    parser.add_argument(
++        "--regenerate",
++        action="store_true",
++        help="rewrite the pin from current normalized content (one-time reconciliation), then verify",
++    )
++    parser.add_argument("--pin", type=Path, default=PIN_PATH, help="path to canonical_pin.txt")
++    args = parser.parse_args(argv)
++
++    if args.regenerate:
++        count = regenerate(args.pin)
++        print(f"regenerated {args.pin} ({count} entries, git-normalized LF basis)")
++
++    problems = verify(args.pin)
++    if problems:
++        print("CANONICAL PIN VERIFY FAILED:", file=sys.stderr)
++        for problem in problems:
++            print(f"  {problem}", file=sys.stderr)
++        return 1
++    print("canonical pin OK: all entries match (git-normalized LF basis, bare-CR rejected)")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/test_verify_canonical_pin.py b/tests/test_verify_canonical_pin.py
+new file mode 100644
+index 00000000..959133e2
+--- /dev/null
++++ b/tests/test_verify_canonical_pin.py
+@@ -0,0 +1,110 @@
++"""Tests for scripts/verify_canonical_pin.py (I-meta-002 #973). NO network / NO spend.
++
++Asserts the canonical-pin verifier uses a stable git-normalized (LF) basis:
++- a CRLF file and the same file with LF hash identically (cross-platform stability);
++- a real content change is still detected as a mismatch (the gate still catches mutation);
++- the committed docs/canonical_pin.txt verifies clean;
++- a bare CR injected into a pinned file HARD-FAILS instead of hashing clean
++  (Codex brief-gate iter-1 P1 tripwire) — a lone \\r must stop the ritual, not be
++  normalized away;
++- --regenerate refuses when a file has a bare CR, and preserves the pinned path set/order.
++"""
++
++from __future__ import annotations
++
++import hashlib
++
++import pytest
++
++import scripts.verify_canonical_pin as vcp
++
++
++def _write(path, data: bytes) -> None:
++    path.write_bytes(data)
++
++
++def test_crlf_and_lf_hash_identically(tmp_path):
++    crlf = tmp_path / "crlf.md"
++    lf = tmp_path / "lf.md"
++    _write(crlf, b"line one\r\nline two\r\n")
++    _write(lf, b"line one\nline two\n")
++    assert vcp.normalized_sha256(crlf) == vcp.normalized_sha256(lf)
++    # and it equals the plain sha256 of the LF content (the git blob basis)
++    assert vcp.normalized_sha256(crlf) == hashlib.sha256(b"line one\nline two\n").hexdigest()
++
++
++def test_real_content_change_is_detected(tmp_path):
++    original = tmp_path / "doc.md"
++    _write(original, b"dose is 2.1 percent\n")
++    pinned = vcp.normalized_sha256(original)
++    # a genuine content change must change the hash (gate still catches mutation)
++    _write(original, b"dose is 9.9 percent\n")
++    assert vcp.normalized_sha256(original) != pinned
++
++
++def test_bare_cr_hard_fails(tmp_path):
++    """A lone \\r (not part of \\r\\n) must raise, never hash clean."""
++    sneaky = tmp_path / "bare_cr.md"
++    _write(sneaky, b"first half\rsecond half\n")  # bare CR, no following LF
++    with pytest.raises(vcp.BareCarriageReturnError):
++        vcp.normalized_sha256(sneaky)
++
++
++def test_bare_cr_surfaces_as_verify_problem(tmp_path):
++    target = tmp_path / "x.md"
++    _write(target, b"ok line\n")
++    good_sha = vcp.normalized_sha256(target)
++    pin = tmp_path / "pin.txt"
++    pin.write_text(f"{good_sha}  x.md\n", encoding="utf-8")
++    # repoint REPO_ROOT at tmp so the relative path resolves
++    orig_root = vcp.REPO_ROOT
++    vcp.REPO_ROOT = tmp_path
++    try:
++        assert vcp.verify(pin) == []  # clean first
++        _write(target, b"ok line\rinjected\n")  # bare CR mutation
++        problems = vcp.verify(pin)
++        assert len(problems) == 1
++        assert problems[0].startswith("BARE-CR:")
++    finally:
++        vcp.REPO_ROOT = orig_root
++
++
++def test_regenerate_preserves_path_set_and_order(tmp_path):
++    a = tmp_path / "a.md"
++    b = tmp_path / "b.md"
++    _write(a, b"alpha\r\n")
++    _write(b, b"beta\n")
++    pin = tmp_path / "pin.txt"
++    pin.write_text("0000  a.md\n1111  b.md\n", encoding="utf-8")  # stale shas
++    orig_root = vcp.REPO_ROOT
++    vcp.REPO_ROOT = tmp_path
++    try:
++        count = vcp.regenerate(pin)
++        assert count == 2
++        entries = vcp.parse_pin(pin.read_text(encoding="utf-8"))
++        assert [rel for _sha, rel in entries] == ["a.md", "b.md"]  # order + set preserved
++        assert vcp.verify(pin) == []  # regenerated pin verifies clean
++        # CRLF file 'a' was normalized to LF before hashing
++        assert entries[0][0] == hashlib.sha256(b"alpha\n").hexdigest()
++    finally:
++        vcp.REPO_ROOT = orig_root
++
++
++def test_regenerate_refuses_on_bare_cr(tmp_path):
++    a = tmp_path / "a.md"
++    _write(a, b"has\rbare cr\n")
++    pin = tmp_path / "pin.txt"
++    pin.write_text("0000  a.md\n", encoding="utf-8")
++    orig_root = vcp.REPO_ROOT
++    vcp.REPO_ROOT = tmp_path
++    try:
++        with pytest.raises(vcp.BareCarriageReturnError):
++            vcp.regenerate(pin)
++    finally:
++        vcp.REPO_ROOT = orig_root
++
++
++def test_committed_canonical_pin_verifies_clean():
++    """The real docs/canonical_pin.txt must verify clean under the LF basis."""
++    problems = vcp.verify(vcp.PIN_PATH)
++    assert problems == [], f"canonical pin has unresolved drift: {problems}"
+
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+Reviewed only `.codex/I-meta-002-pin-reconcile/codex_diff.patch`. The verifier implements `\r\n` to `\n` normalization only, then hard-fails on residual bare `\r`. `regenerate()` iterates parsed pin entries in existing order and rewrites only SHA values, with no path addition/removal behavior in the patch. `verify()` reports `MISSING`, `BARE-CR`, and `DRIFT`, and `main()` returns non-zero on reported problems. The `CLAUDE.md` wording matches the verifier behavior and preserves the HARD STOP / halt-marker semantics. No changes beyond the four scoped files are present in the diff.
+tokens used
+9,897
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+Reviewed only `.codex/I-meta-002-pin-reconcile/codex_diff.patch`. The verifier implements `\r\n` to `\n` normalization only, then hard-fails on residual bare `\r`. `regenerate()` iterates parsed pin entries in existing order and rewrites only SHA values, with no path addition/removal behavior in the patch. `verify()` reports `MISSING`, `BARE-CR`, and `DRIFT`, and `main()` returns non-zero on reported problems. The `CLAUDE.md` wording matches the verifier behavior and preserves the HARD STOP / halt-marker semantics. No changes beyond the four scoped files are present in the diff.
