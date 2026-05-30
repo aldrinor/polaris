@@ -1342,6 +1342,26 @@ async def run_one_query(
     _reasoning_collector.flush(run_dir)
     set_reasoning_sink(_reasoning_collector)
 
+    # I-meta-002-q1d (#945): per-call retrieval_trace.jsonl (mirror of reasoning_trace.jsonl for the
+    # search/fetch half — the operator's §-1.1 line-by-line audit requirement). Start a FRESH per-query
+    # trace and materialize the (possibly empty) file now so an early abort still produces it. The
+    # recorders are best-effort no-ops; the §9.1 retrieval/verify chokepoint is never altered.
+    from src.polaris_graph.benchmark.pathB_capture import (
+        retrieval_trace_records as _retrieval_trace_records,
+        start_retrieval_trace as _start_retrieval_trace,
+    )
+    _start_retrieval_trace()
+
+    def _flush_retrieval_trace() -> None:
+        try:
+            with (run_dir / "retrieval_trace.jsonl").open("w", encoding="utf-8") as _rt:
+                for _rec in _retrieval_trace_records():
+                    _rt.write(json.dumps(_rec, ensure_ascii=False) + "\n")
+        except Exception as _exc:  # noqa: BLE001 — best-effort observability, never abort the run
+            print(f"[retrieval_trace] flush error (skipped): {_exc}")
+
+    _flush_retrieval_trace()
+
     log_path = run_dir / "run_log.txt"
     log_f = log_path.open("w", encoding="utf-8")
 
@@ -2005,6 +2025,10 @@ async def run_one_query(
             except Exception as exc:
                 _log(f"[deepener]    FAILED (fail-open): {exc}")
 
+        # I-meta-002-q1d (#945): all retrieval (base + R-6 + deepener) is complete here — flush the
+        # retrieval_trace.jsonl now so EVERY exit path below (abort_corpus_inadequate, approval-denied,
+        # and the success path) ships the full per-call search/fetch trace for line-by-line audit.
+        _flush_retrieval_trace()
         # R-6 Gap-1: if adequacy still says ABORT after optional
         # expansion, refuse to synthesize — emit a short "corpus
         # inadequate" manifest and return status=abort_corpus_inadequate.

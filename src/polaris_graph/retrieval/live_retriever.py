@@ -78,6 +78,35 @@ class LiveRetrievalResult:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# I-meta-002-q1d (#945): per-call retrieval-trace helpers. Best-effort, lazy-import, no-op when the
+# trace is not started — PURELY OBSERVATIONAL (the retrieval/verify chokepoint is never altered).
+# Mirrors the existing record_retrieval_attempt idiom (lazy import + swallow any error).
+# ─────────────────────────────────────────────────────────────────────────────
+def _trace_query(backend: str, query: str, urls: list[str]) -> None:
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_query(backend, query, urls)
+    except Exception:
+        pass
+
+
+def _trace_kept(url: str, backend: str) -> None:
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_kept(url, backend)
+    except Exception:
+        pass
+
+
+def _trace_drop(url: str, reason: str) -> None:
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_drop(url, reason)
+    except Exception:
+        pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # API clients
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -105,10 +134,12 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
                 "[live_retriever] Serper returned %s for %r",
                 r.status_code, query[:60],
             )
+            _trace_query("serper", query, [])
             return []
         data = r.json()
     except Exception as exc:
         logger.warning("[live_retriever] Serper exception: %s", exc)
+        _trace_query("serper", query, [])
         return []
     organic = data.get("organic", []) or []
     out: list[dict[str, Any]] = []
@@ -119,6 +150,7 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
             "snippet": item.get("snippet", ""),
             "source": "serper",
         })
+    _trace_query("serper", query, [o["url"] for o in out])
     return out
 
 
@@ -146,10 +178,12 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
                 "[live_retriever] S2 returned %s for %r",
                 r.status_code, query[:60],
             )
+            _trace_query("semantic_scholar", query, [])
             return []
         data = r.json()
     except Exception as exc:
         logger.warning("[live_retriever] S2 exception: %s", exc)
+        _trace_query("semantic_scholar", query, [])
         return []
     papers = data.get("data", []) or []
     out: list[dict[str, Any]] = []
@@ -181,6 +215,7 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
             "year": p.get("year"),
             "venue": p.get("venue"),
         })
+    _trace_query("semantic_scholar", query, [o["url"] for o in out])
     return out
 
 
@@ -1428,8 +1463,11 @@ def run_live_retrieval(
 
     # ── Step 3: prefetch off-topic filter ──────────────────────────
     if enable_prefetch_filter and candidates:
+        _pre_offtopic_urls = {c.url for c in candidates}
         filt = filter_search_results(candidates, research_question)
         candidates = filt.kept
+        for _dropped_url in _pre_offtopic_urls - {c.url for c in candidates}:
+            _trace_drop(_dropped_url, "offtopic")
         notes.append(
             f"prefetch_offtopic: {filt.total_kept} kept / "
             f"{filt.total_rejected} rejected (threshold={filt.threshold_used:.2f})"
@@ -1443,12 +1481,15 @@ def run_live_retrieval(
     # queries was previously illusory). I-bug-776 (#817) layer-4 seed lane preserved:
     # primary-trial DOI seeds (empty title/snippet) are split out and prepended AFTER
     # ranking so relevance scoring can never drop them — they remain additive.
+    _pre_rerank_urls = {c.url for c in candidates}
     candidates = _rerank_and_reserve(
         candidates,
         research_question=research_question,
         fetch_cap=fetch_cap,
         n_seed_injected=_n_seed_injected,
     )
+    for _dropped_url in _pre_rerank_urls - {c.url for c in candidates}:
+        _trace_drop(_dropped_url, "rerank_not_selected")
 
     classified_sources: list[CorpusSource] = []
     evidence_rows: list[dict[str, Any]] = []
@@ -1589,6 +1630,7 @@ def run_live_retrieval(
         api_calls["fetch"] += 1
         if not ok:
             failed_fetch += 1
+            _trace_drop(cand.url, "fetch_failed")
         else:
             fetched += 1
 
@@ -1676,6 +1718,7 @@ def run_live_retrieval(
                     "[live_retriever] skipping content-starved evidence "
                     "for %r (len=%d)", cand.url, len(content),
                 )
+                _trace_drop(cand.url, "content_starved")
             else:
                 direct_quote = _build_provenance_quote(
                     content, head_chars=1500, window_chars=500,
@@ -1689,6 +1732,7 @@ def run_live_retrieval(
                     "source": cand.source,
                     "full_content_length": len(content),
                 })
+                _trace_kept(cand.url, cand.source)
 
     return LiveRetrievalResult(
         classified_sources=classified_sources,

@@ -1,0 +1,391 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index fac36023..7cbc5780 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1342,6 +1342,26 @@ async def run_one_query(
+     _reasoning_collector.flush(run_dir)
+     set_reasoning_sink(_reasoning_collector)
+ 
++    # I-meta-002-q1d (#945): per-call retrieval_trace.jsonl (mirror of reasoning_trace.jsonl for the
++    # search/fetch half — the operator's §-1.1 line-by-line audit requirement). Start a FRESH per-query
++    # trace and materialize the (possibly empty) file now so an early abort still produces it. The
++    # recorders are best-effort no-ops; the §9.1 retrieval/verify chokepoint is never altered.
++    from src.polaris_graph.benchmark.pathB_capture import (
++        retrieval_trace_records as _retrieval_trace_records,
++        start_retrieval_trace as _start_retrieval_trace,
++    )
++    _start_retrieval_trace()
++
++    def _flush_retrieval_trace() -> None:
++        try:
++            with (run_dir / "retrieval_trace.jsonl").open("w", encoding="utf-8") as _rt:
++                for _rec in _retrieval_trace_records():
++                    _rt.write(json.dumps(_rec, ensure_ascii=False) + "\n")
++        except Exception as _exc:  # noqa: BLE001 — best-effort observability, never abort the run
++            print(f"[retrieval_trace] flush error (skipped): {_exc}")
++
++    _flush_retrieval_trace()
++
+     log_path = run_dir / "run_log.txt"
+     log_f = log_path.open("w", encoding="utf-8")
+ 
+@@ -2005,6 +2025,10 @@ async def run_one_query(
+             except Exception as exc:
+                 _log(f"[deepener]    FAILED (fail-open): {exc}")
+ 
++        # I-meta-002-q1d (#945): all retrieval (base + R-6 + deepener) is complete here — flush the
++        # retrieval_trace.jsonl now so EVERY exit path below (abort_corpus_inadequate, approval-denied,
++        # and the success path) ships the full per-call search/fetch trace for line-by-line audit.
++        _flush_retrieval_trace()
+         # R-6 Gap-1: if adequacy still says ABORT after optional
+         # expansion, refuse to synthesize — emit a short "corpus
+         # inadequate" manifest and return status=abort_corpus_inadequate.
+diff --git a/src/polaris_graph/benchmark/pathB_capture.py b/src/polaris_graph/benchmark/pathB_capture.py
+index 022c17d5..3a9c057a 100644
+--- a/src/polaris_graph/benchmark/pathB_capture.py
++++ b/src/polaris_graph/benchmark/pathB_capture.py
+@@ -35,6 +35,13 @@ logger = logging.getLogger(__name__)
+ _SINK: contextvars.ContextVar[list | None] = contextvars.ContextVar("_PATHB_SINK", default=None)
+ _ROLE: contextvars.ContextVar[str | None] = contextvars.ContextVar("_PATHB_ROLE", default=None)
+ _RETRIEVAL: contextvars.ContextVar[set | None] = contextvars.ContextVar("_PATHB_RETRIEVAL", default=None)
++# I-meta-002-q1d (#945): per-call retrieval trace (mirror of the generator's reasoning_trace.jsonl for the
++# search/fetch half). Holds an ordered list of {kind: query|kept|drop, ...} records for the §-1.1 line-by-
++# line audit. PURELY OBSERVATIONAL — populated by best-effort recorders that no-op when not started; the
++# §9.1 retrieval/strict_verify chokepoint is never altered. Started fresh PER QUERY by start_retrieval_trace().
++_RETRIEVAL_TRACE: contextvars.ContextVar[list | None] = contextvars.ContextVar(
++    "_PATHB_RETRIEVAL_TRACE", default=None,
++)
+ # I-bug-946 (#932): per-role resolved provider (e.g. {"generator":"Fireworks","evaluator":"Novita"}).
+ # Populated by gate_around_question() after preflight resolves each role's actual served provider
+ # via GET /api/v1/models/<id>/endpoints. openrouter_client and entailment_judge read this to force
+@@ -58,6 +65,7 @@ def clear_pathB_capture() -> None:
+     _SINK.set(None)
+     _ROLE.set(None)
+     _RETRIEVAL.set(None)
++    _RETRIEVAL_TRACE.set(None)
+     _ROLE_PROVIDER.set(None)
+ 
+ 
+@@ -151,6 +159,45 @@ def attempted_backends() -> set:
+     return set(backends) if backends is not None else set()
+ 
+ 
++# ── I-meta-002-q1d (#945): per-call retrieval trace (best-effort, no-op when not started) ──────────
++def start_retrieval_trace() -> None:
++    """Begin a FRESH retrieval trace for the current query (P2 lifecycle hygiene, Codex brief-gate):
++    a new list so a prior query's records can never leak into a later run_dir flush. Call once at the
++    top of run_one_query, before retrieval."""
++    _RETRIEVAL_TRACE.set([])
++
++
++def record_retrieval_query(backend: str, query: str, urls: list[str]) -> None:
++    """Record one search/fetch backend call: backend, query text, return count, returned URLs."""
++    trace = _RETRIEVAL_TRACE.get()
++    if trace is not None:
++        trace.append({
++            "kind": "query", "backend": backend, "query": query,
++            "return_count": len(urls), "urls": list(urls),
++        })
++
++
++def record_retrieval_kept(url: str, backend: str) -> None:
++    """Record that a fetched source was KEPT into the evidence pool, with its originating backend."""
++    trace = _RETRIEVAL_TRACE.get()
++    if trace is not None:
++        trace.append({"kind": "kept", "url": url, "backend": backend})
++
++
++def record_retrieval_drop(url: str, reason: str) -> None:
++    """Record that a candidate/source was DROPPED, with the reason (content_starved | fetch_failed |
++    offtopic | rerank_not_selected | ...)."""
++    trace = _RETRIEVAL_TRACE.get()
++    if trace is not None:
++        trace.append({"kind": "drop", "url": url, "reason": reason})
++
++
++def retrieval_trace_records() -> list[dict]:
++    """Return the current query's retrieval-trace records (empty when not started)."""
++    trace = _RETRIEVAL_TRACE.get()
++    return list(trace) if trace is not None else []
++
++
+ def collected_calls() -> list[dict]:
+     sink = _SINK.get()
+     return list(sink) if sink is not None else []
+diff --git a/src/polaris_graph/retrieval/domain_backends.py b/src/polaris_graph/retrieval/domain_backends.py
+index 92bb8909..78b9abf0 100644
+--- a/src/polaris_graph/retrieval/domain_backends.py
++++ b/src/polaris_graph/retrieval/domain_backends.py
+@@ -206,6 +206,12 @@ def policy_targeted_serper(
+             snippet=item.get("snippet", "") or "",
+             source="serper_policy",
+         ))
++    # I-meta-002-q1d (#945): per-call retrieval trace (best-effort, no-op when not started).
++    try:
++        from src.polaris_graph.benchmark import pathB_capture as _pathb
++        _pathb.record_retrieval_query("serper_policy", q, [c.url for c in out])
++    except Exception:
++        pass
+     return out
+ 
+ 
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index 2514203a..6536319b 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -77,6 +77,35 @@ class LiveRetrievalResult:
+     notes: list[str] = field(default_factory=list)
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────────────
++# I-meta-002-q1d (#945): per-call retrieval-trace helpers. Best-effort, lazy-import, no-op when the
++# trace is not started — PURELY OBSERVATIONAL (the retrieval/verify chokepoint is never altered).
++# Mirrors the existing record_retrieval_attempt idiom (lazy import + swallow any error).
++# ─────────────────────────────────────────────────────────────────────────────
++def _trace_query(backend: str, query: str, urls: list[str]) -> None:
++    try:
++        from src.polaris_graph.benchmark import pathB_capture as _pathb
++        _pathb.record_retrieval_query(backend, query, urls)
++    except Exception:
++        pass
++
++
++def _trace_kept(url: str, backend: str) -> None:
++    try:
++        from src.polaris_graph.benchmark import pathB_capture as _pathb
++        _pathb.record_retrieval_kept(url, backend)
++    except Exception:
++        pass
++
++
++def _trace_drop(url: str, reason: str) -> None:
++    try:
++        from src.polaris_graph.benchmark import pathB_capture as _pathb
++        _pathb.record_retrieval_drop(url, reason)
++    except Exception:
++        pass
++
++
+ # ─────────────────────────────────────────────────────────────────────────────
+ # API clients
+ # ─────────────────────────────────────────────────────────────────────────────
+@@ -105,10 +134,12 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
+                 "[live_retriever] Serper returned %s for %r",
+                 r.status_code, query[:60],
+             )
++            _trace_query("serper", query, [])
+             return []
+         data = r.json()
+     except Exception as exc:
+         logger.warning("[live_retriever] Serper exception: %s", exc)
++        _trace_query("serper", query, [])
+         return []
+     organic = data.get("organic", []) or []
+     out: list[dict[str, Any]] = []
+@@ -119,6 +150,7 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
+             "snippet": item.get("snippet", ""),
+             "source": "serper",
+         })
++    _trace_query("serper", query, [o["url"] for o in out])
+     return out
+ 
+ 
+@@ -146,10 +178,12 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
+                 "[live_retriever] S2 returned %s for %r",
+                 r.status_code, query[:60],
+             )
++            _trace_query("semantic_scholar", query, [])
+             return []
+         data = r.json()
+     except Exception as exc:
+         logger.warning("[live_retriever] S2 exception: %s", exc)
++        _trace_query("semantic_scholar", query, [])
+         return []
+     papers = data.get("data", []) or []
+     out: list[dict[str, Any]] = []
+@@ -181,6 +215,7 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
+             "year": p.get("year"),
+             "venue": p.get("venue"),
+         })
++    _trace_query("semantic_scholar", query, [o["url"] for o in out])
+     return out
+ 
+ 
+@@ -1428,8 +1463,11 @@ def run_live_retrieval(
+ 
+     # ── Step 3: prefetch off-topic filter ──────────────────────────
+     if enable_prefetch_filter and candidates:
++        _pre_offtopic_urls = {c.url for c in candidates}
+         filt = filter_search_results(candidates, research_question)
+         candidates = filt.kept
++        for _dropped_url in _pre_offtopic_urls - {c.url for c in candidates}:
++            _trace_drop(_dropped_url, "offtopic")
+         notes.append(
+             f"prefetch_offtopic: {filt.total_kept} kept / "
+             f"{filt.total_rejected} rejected (threshold={filt.threshold_used:.2f})"
+@@ -1443,12 +1481,15 @@ def run_live_retrieval(
+     # queries was previously illusory). I-bug-776 (#817) layer-4 seed lane preserved:
+     # primary-trial DOI seeds (empty title/snippet) are split out and prepended AFTER
+     # ranking so relevance scoring can never drop them — they remain additive.
++    _pre_rerank_urls = {c.url for c in candidates}
+     candidates = _rerank_and_reserve(
+         candidates,
+         research_question=research_question,
+         fetch_cap=fetch_cap,
+         n_seed_injected=_n_seed_injected,
+     )
++    for _dropped_url in _pre_rerank_urls - {c.url for c in candidates}:
++        _trace_drop(_dropped_url, "rerank_not_selected")
+ 
+     classified_sources: list[CorpusSource] = []
+     evidence_rows: list[dict[str, Any]] = []
+@@ -1589,6 +1630,7 @@ def run_live_retrieval(
+         api_calls["fetch"] += 1
+         if not ok:
+             failed_fetch += 1
++            _trace_drop(cand.url, "fetch_failed")
+         else:
+             fetched += 1
+ 
+@@ -1676,6 +1718,7 @@ def run_live_retrieval(
+                     "[live_retriever] skipping content-starved evidence "
+                     "for %r (len=%d)", cand.url, len(content),
+                 )
++                _trace_drop(cand.url, "content_starved")
+             else:
+                 direct_quote = _build_provenance_quote(
+                     content, head_chars=1500, window_chars=500,
+@@ -1689,6 +1732,7 @@ def run_live_retrieval(
+                     "source": cand.source,
+                     "full_content_length": len(content),
+                 })
++                _trace_kept(cand.url, cand.source)
+ 
+     return LiveRetrievalResult(
+         classified_sources=classified_sources,
+diff --git a/tests/polaris_graph/test_retrieval_trace.py b/tests/polaris_graph/test_retrieval_trace.py
+new file mode 100644
+index 00000000..3630644c
+--- /dev/null
++++ b/tests/polaris_graph/test_retrieval_trace.py
+@@ -0,0 +1,120 @@
++"""Per-call retrieval_trace.jsonl (I-meta-002-q1d #945). NO network / NO spend.
++
++Asserts the Codex-gate behaviors: the contextvar recorders accumulate query/kept/drop records, no-op
++when not started, round-trip to jsonl, and — critically — the live_retriever hooks are PURELY
++OBSERVATIONAL (they do NOT change retrieval return values; the §9.1 chokepoint is untouched).
++"""
++
++from __future__ import annotations
++
++import json
++
++import pytest
++
++import src.polaris_graph.benchmark.pathB_capture as pathb
++
++
++@pytest.fixture(autouse=True)
++def _clean_trace():
++    # ensure each test starts/ends with no leaked trace state
++    pathb._RETRIEVAL_TRACE.set(None)
++    yield
++    pathb._RETRIEVAL_TRACE.set(None)
++
++
++def test_recorders_noop_when_not_started():
++    pathb.record_retrieval_query("serper", "q", ["https://a"])
++    pathb.record_retrieval_kept("https://a", "serper")
++    pathb.record_retrieval_drop("https://b", "content_starved")
++    assert pathb.retrieval_trace_records() == []  # no-op without start_retrieval_trace()
++
++
++def test_recorders_accumulate_after_start():
++    pathb.start_retrieval_trace()
++    pathb.record_retrieval_query("serper", "tirzepatide HbA1c", ["https://a", "https://b"])
++    pathb.record_retrieval_kept("https://a", "serper")
++    pathb.record_retrieval_drop("https://b", "content_starved")
++    recs = pathb.retrieval_trace_records()
++    assert len(recs) == 3
++    q = recs[0]
++    assert q == {"kind": "query", "backend": "serper", "query": "tirzepatide HbA1c",
++                 "return_count": 2, "urls": ["https://a", "https://b"]}
++    assert recs[1] == {"kind": "kept", "url": "https://a", "backend": "serper"}
++    assert recs[2] == {"kind": "drop", "url": "https://b", "reason": "content_starved"}
++
++
++def test_start_resets_to_fresh_list_no_stale_leak():
++    pathb.start_retrieval_trace()
++    pathb.record_retrieval_query("serper", "q1", ["https://x"])
++    assert len(pathb.retrieval_trace_records()) == 1
++    pathb.start_retrieval_trace()  # next query — must NOT carry q1's records (P2 lifecycle hygiene)
++    assert pathb.retrieval_trace_records() == []
++
++
++def test_records_round_trip_jsonl():
++    pathb.start_retrieval_trace()
++    pathb.record_retrieval_query("semantic_scholar", "q", ["https://a"])
++    pathb.record_retrieval_drop("https://b", "rerank_not_selected")
++    lines = [json.dumps(r, ensure_ascii=False) for r in pathb.retrieval_trace_records()]
++    parsed = [json.loads(line) for line in lines]
++    assert parsed[0]["kind"] == "query" and parsed[0]["backend"] == "semantic_scholar"
++    assert parsed[1] == {"kind": "drop", "url": "https://b", "reason": "rerank_not_selected"}
++
++
++def test_clear_pathb_capture_resets_trace():
++    pathb.start_retrieval_trace()
++    pathb.record_retrieval_drop("https://b", "fetch_failed")
++    assert len(pathb.retrieval_trace_records()) == 1
++    pathb.clear_pathB_capture()
++    assert pathb.retrieval_trace_records() == []
++
++
++# --- the live_retriever serper hook does NOT alter the return value + emits a query record ----------
++def test_serper_hook_observational_only(monkeypatch):
++    import src.polaris_graph.retrieval.live_retriever as lr
++
++    class _FakeResp:
++        status_code = 200
++
++        @staticmethod
++        def json():
++            return {"organic": [
++                {"link": "https://a", "title": "A", "snippet": "sa"},
++                {"link": "https://b", "title": "B", "snippet": "sb"},
++            ]}
++
++    class _FakeClient:
++        def __init__(self, *a, **k):
++            pass
++
++        def __enter__(self):
++            return self
++
++        def __exit__(self, *a):
++            return False
++
++        def post(self, *a, **k):
++            return _FakeResp()
++
++    monkeypatch.setenv("SERPER_API_KEY", "fake-key")
++    monkeypatch.setattr(lr.httpx, "Client", _FakeClient)
++    pathb.start_retrieval_trace()
++    out = lr._serper_search("tirzepatide", num=10)
++    # return value is exactly the parsed candidates — the trace hook did NOT alter it
++    assert [o["url"] for o in out] == ["https://a", "https://b"]
++    assert all(o["source"] == "serper" for o in out)
++    # AND a query record was emitted with the returned URLs
++    recs = [r for r in pathb.retrieval_trace_records() if r["kind"] == "query"]
++    assert recs and recs[-1]["backend"] == "serper"
++    assert recs[-1]["urls"] == ["https://a", "https://b"] and recs[-1]["return_count"] == 2
++
++
++def test_live_retriever_trace_helpers_are_best_effort(monkeypatch):
++    """The lazy-import trace helpers must never raise even if pathB import blows up."""
++    import src.polaris_graph.retrieval.live_retriever as lr
++    # not started -> no-op, no raise
++    pathb._RETRIEVAL_TRACE.set(None)
++    lr._trace_query("serper", "q", ["https://a"])
++    lr._trace_kept("https://a", "serper")
++    lr._trace_drop("https://b", "offtopic")
++    assert pathb.retrieval_trace_records() == []

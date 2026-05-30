@@ -206,6 +206,12 @@ def policy_targeted_serper(
             snippet=item.get("snippet", "") or "",
             source="serper_policy",
         ))
+    # I-meta-002-q1d (#945): per-call retrieval trace (best-effort, no-op when not started).
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_query("serper_policy", q, [c.url for c in out])
+    except Exception:
+        pass
     return out
 
 

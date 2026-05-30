@@ -35,6 +35,13 @@ logger = logging.getLogger(__name__)
 _SINK: contextvars.ContextVar[list | None] = contextvars.ContextVar("_PATHB_SINK", default=None)
 _ROLE: contextvars.ContextVar[str | None] = contextvars.ContextVar("_PATHB_ROLE", default=None)
 _RETRIEVAL: contextvars.ContextVar[set | None] = contextvars.ContextVar("_PATHB_RETRIEVAL", default=None)
+# I-meta-002-q1d (#945): per-call retrieval trace (mirror of the generator's reasoning_trace.jsonl for the
+# search/fetch half). Holds an ordered list of {kind: query|kept|drop, ...} records for the §-1.1 line-by-
+# line audit. PURELY OBSERVATIONAL — populated by best-effort recorders that no-op when not started; the
+# §9.1 retrieval/strict_verify chokepoint is never altered. Started fresh PER QUERY by start_retrieval_trace().
+_RETRIEVAL_TRACE: contextvars.ContextVar[list | None] = contextvars.ContextVar(
+    "_PATHB_RETRIEVAL_TRACE", default=None,
+)
 # I-bug-946 (#932): per-role resolved provider (e.g. {"generator":"Fireworks","evaluator":"Novita"}).
 # Populated by gate_around_question() after preflight resolves each role's actual served provider
 # via GET /api/v1/models/<id>/endpoints. openrouter_client and entailment_judge read this to force
@@ -58,6 +65,7 @@ def clear_pathB_capture() -> None:
     _SINK.set(None)
     _ROLE.set(None)
     _RETRIEVAL.set(None)
+    _RETRIEVAL_TRACE.set(None)
     _ROLE_PROVIDER.set(None)
 
 
@@ -149,6 +157,45 @@ def record_retrieval_attempt(backend: str) -> None:
 def attempted_backends() -> set:
     backends = _RETRIEVAL.get()
     return set(backends) if backends is not None else set()
+
+
+# ── I-meta-002-q1d (#945): per-call retrieval trace (best-effort, no-op when not started) ──────────
+def start_retrieval_trace() -> None:
+    """Begin a FRESH retrieval trace for the current query (P2 lifecycle hygiene, Codex brief-gate):
+    a new list so a prior query's records can never leak into a later run_dir flush. Call once at the
+    top of run_one_query, before retrieval."""
+    _RETRIEVAL_TRACE.set([])
+
+
+def record_retrieval_query(backend: str, query: str, urls: list[str]) -> None:
+    """Record one search/fetch backend call: backend, query text, return count, returned URLs."""
+    trace = _RETRIEVAL_TRACE.get()
+    if trace is not None:
+        trace.append({
+            "kind": "query", "backend": backend, "query": query,
+            "return_count": len(urls), "urls": list(urls),
+        })
+
+
+def record_retrieval_kept(url: str, backend: str) -> None:
+    """Record that a fetched source was KEPT into the evidence pool, with its originating backend."""
+    trace = _RETRIEVAL_TRACE.get()
+    if trace is not None:
+        trace.append({"kind": "kept", "url": url, "backend": backend})
+
+
+def record_retrieval_drop(url: str, reason: str) -> None:
+    """Record that a candidate/source was DROPPED, with the reason (content_starved | fetch_failed |
+    offtopic | rerank_not_selected | ...)."""
+    trace = _RETRIEVAL_TRACE.get()
+    if trace is not None:
+        trace.append({"kind": "drop", "url": url, "reason": reason})
+
+
+def retrieval_trace_records() -> list[dict]:
+    """Return the current query's retrieval-trace records (empty when not started)."""
+    trace = _RETRIEVAL_TRACE.get()
+    return list(trace) if trace is not None else []
 
 
 def collected_calls() -> list[dict]:
