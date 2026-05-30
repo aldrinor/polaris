@@ -395,12 +395,32 @@ def _format_evidence_pool_for_prompt(
     return "\n\n".join(blocks)
 
 
+def _format_prior_verified_context(prior_verified_context: list[dict[str, Any]] | None) -> str:
+    """Render the campaign KG-reuse advisory block (I-meta-002-q1d #948). Each item is a prior-VERIFIED
+    claim that the MECHANICAL match-gate already confirmed is INDEPENDENTLY supported by THIS question's
+    evidence (anchored to a CURRENT evidence id). Advisory only — the analyst still cites by [N] from the
+    current bibliography; no prior evidence ids appear. Empty input → empty block (prompt byte-identical)."""
+    items = [c for c in (prior_verified_context or []) if c.get("claim_text")]
+    if not items:
+        return ""
+    lines = [
+        "=== CROSS-QUESTION CONSISTENCY (advisory) ===\n",
+        "These facts were VERIFIED on prior campaign questions AND are independently supported by THIS",
+        "question's evidence pool. Prioritise them where relevant, but cite ONLY by [N] from the",
+        "bibliography above (the matching current source); do NOT invent citations or reuse prior ids.\n",
+    ]
+    for c in items:
+        lines.append(f"- {c['claim_text']}  (supported here by evidence {c.get('evidence_id', '')})")
+    return "\n".join(lines) + "\n\n"
+
+
 async def generate_analyst_synthesis(
     *,
     verified_prose: str,
     bibliography: list[dict[str, Any]],
     evidence_rows: list[dict[str, Any]],
     research_question: str,
+    prior_verified_context: list[dict[str, Any]] | None = None,
     model: str = "deepseek/deepseek-v4-pro",
     max_tokens: int = 4000,
     temperature: float = 0.3,
@@ -441,6 +461,7 @@ async def generate_analyst_synthesis(
         f"{biblio_block}\n\n"
         f"=== EVIDENCE POOL (for synthesis context) ===\n\n"
         f"{evidence_block}\n\n"
+        f"{_format_prior_verified_context(prior_verified_context)}"
         f"=== TASK ===\n\n"
         f"Write the Analyst Synthesis section now, following the rules. "
         f"Hedge interpretive claims; cite by [N] only; no [#ev:...] tokens; "

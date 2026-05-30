@@ -2545,11 +2545,29 @@ async def run_one_query(
         # I-safety-002b (#925) PR-2: tag this entire call as the report-generator role
         # so the Path-B gate captures every nested LLM completion (multi-section + analyst
         # + retries + reason) under role="generator". No-op when the gate is inactive.
+        # I-meta-002-q1d (#948): campaign KG reuse (default-OFF PG_SWEEP_KG_REUSE). Gather prior-VERIFIED
+        # claims that the MECHANICAL match-gate confirms are independently supported by THIS question's
+        # evidence pool, and feed them ONLY as advisory context to the UNVERIFIED analyst layer
+        # (fail-closed: claim text + CURRENT evidence id only; no prior ids; no provenance). Fail-open.
+        _prior_verified_context: list[dict] = []
+        try:
+            from src.polaris_graph.memory.kg_reuse_gate import gather_reuse_context
+            _prior_verified_context = gather_reuse_context(
+                str(out_root / "verified_claim_graph_campaign.db"),
+                q["question"], evidence_for_gen,
+            )
+            if _prior_verified_context:
+                _log(f"[kg-reuse] {len(_prior_verified_context)} prior-verified claim(s) re-grounded "
+                     f"in current corpus → analyst advisory")
+        except Exception as _exc:  # noqa: BLE001 — reuse is advisory; never abort a run
+            _log(f"[kg-reuse] gather skipped (fail-open): {_exc}")
+
         _pathb_gen_tok = _pathb.set_role("generator")
         try:
             multi = await generate_multi_section_report(
                 research_question=q["question"],
                 evidence=evidence_for_gen,
+                prior_verified_context=_prior_verified_context,
                 section_temperature=0.3,
             # M-31 (2026-04-21): raise outline_max_tokens 800→2500 to
             # match the upstream default. V19 had 3 / V20 had 2
@@ -3427,6 +3445,9 @@ async def run_one_query(
                 slug=q["slug"],
                 domain=q["domain"],
                 ev_pool=ev_pool,
+                # I-meta-002-q1d (#948): persist the snowball KG to the CAMPAIGN-scoped db so later
+                # questions in this sweep can reuse THIS question's VERIFIED claims (fail-closed read).
+                campaign_kg_db=str(out_root / "verified_claim_graph_campaign.db"),
             )
             # Demote the legacy gate to ADVISORY metadata; D8 owns the headline decision.
             manifest["evaluator_gate_advisory"] = manifest.pop("evaluator_gate")

@@ -177,8 +177,15 @@ def run_four_role_evaluation(
     model_slugs: dict[str, str],
     rewrite_already_attempted: bool = False,
     d8_config_path: str | Path | None = None,
+    campaign_kg_db: str | Path | None = None,
 ) -> FourRoleEvaluationResult:
     """Drive the per-claim 4-role pipeline, apply the SINGLE binding D8 gate, persist the KG.
+
+    I-meta-002-q1d (#948): when `campaign_kg_db` is given, the snowball KG is persisted to that
+    CAMPAIGN-scoped sqlite path (shared across the sweep's questions) instead of the per-question
+    `run_dir`, so question N can reuse questions 1..N-1's VERIFIED claims. Default None preserves the
+    per-`run_dir` behavior (existing callers/tests unchanged). The sweep runs questions sequentially, so
+    there are no concurrent writers; anti-poisoning (only VERIFIED rows reusable) is unchanged.
 
     Pure orchestration over the INJECTED `transport` (no network, no spend). For EACH claim:
     run `run_claim_pipeline`, collect its `D8ClaimRow` + served-identity records + final
@@ -251,7 +258,12 @@ def run_four_role_evaluation(
     # for line-by-line review. `reasoning` is its OWN field — NEVER concatenated into the verdict.
     role_call_log: list[dict] = []
 
-    kg_store = VerifiedClaimGraphStore(run_dir=run_dir)
+    # I-meta-002-q1d (#948): campaign-scoped KG when given, else per-question run_dir (default).
+    kg_store = (
+        VerifiedClaimGraphStore(db_path=campaign_kg_db)
+        if campaign_kg_db is not None
+        else VerifiedClaimGraphStore(run_dir=run_dir)
+    )
     try:
         for claim in claims:
             result = run_claim_pipeline(
@@ -383,6 +395,7 @@ def run_four_role_seam(
     slug: str | None = None,
     domain: str | None = None,
     ev_pool: object = None,
+    campaign_kg_db: str | Path | None = None,
 ) -> FourRoleEvaluationResult:
     """Resolve the 4-role inputs (builder WINS), run the SINGLE binding D8 gate, persist audit.
 
@@ -423,6 +436,7 @@ def run_four_role_seam(
             required_s0_categories=inputs.required_s0_categories,
             model_slugs=inputs.model_slugs,
             rewrite_already_attempted=inputs.rewrite_already_attempted,
+            campaign_kg_db=campaign_kg_db,
         )
         # The SEAM (not the builder) persists the per-claim audit map alongside the run.
         (run_dir / FOUR_ROLE_CLAIM_AUDIT_FILENAME).write_text(
@@ -448,4 +462,5 @@ def run_four_role_seam(
         required_s0_categories=four_role_inputs.required_s0_categories,
         model_slugs=four_role_inputs.model_slugs,
         rewrite_already_attempted=four_role_inputs.rewrite_already_attempted,
+        campaign_kg_db=campaign_kg_db,
     )

@@ -102,6 +102,7 @@ class VerifiedClaimGraphStore:
         *,
         db_path: str | Path | None = None,
         run_dir: str | Path | None = None,
+        read_only: bool = False,
     ) -> None:
         if db_path is not None and run_dir is not None:
             raise ValueError("pass exactly one of db_path or run_dir, not both")
@@ -111,11 +112,24 @@ class VerifiedClaimGraphStore:
             resolved = Path(run_dir) / _DEFAULT_DB_FILENAME
         else:
             raise ValueError("VerifiedClaimGraphStore requires db_path or run_dir")
-        resolved.parent.mkdir(parents=True, exist_ok=True)
+        # I-meta-002-q1d (#948) Codex diff-gate iter-1 P1: a READ-ONLY open for the campaign reuse
+        # read-path. Opens the existing db via the SQLite `mode=ro` URI — it does NOT create the parent
+        # dir, does NOT create/migrate the table, and cannot mutate or write-lock the file. A missing or
+        # unreadable db raises sqlite3.OperationalError (the caller fail-opens). Write mode (default) is
+        # unchanged: mkdir + writable connection + _ensure_table.
         self._db_path = resolved
-        self._conn = sqlite3.connect(str(resolved))
-        self._conn.row_factory = sqlite3.Row
-        self._ensure_table()
+        self._read_only = read_only
+        if read_only:
+            self._conn = sqlite3.connect(
+                f"file:{resolved}?mode=ro", uri=True, check_same_thread=False,
+            )
+            self._conn.row_factory = sqlite3.Row
+            # NO _ensure_table — a read-only connection must not attempt DDL.
+        else:
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            self._conn = sqlite3.connect(str(resolved))
+            self._conn.row_factory = sqlite3.Row
+            self._ensure_table()
 
     @property
     def db_path(self) -> Path:
