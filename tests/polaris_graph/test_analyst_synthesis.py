@@ -120,6 +120,44 @@ def test_scrub_removes_multiple_ev_tokens():
     assert "First" in cleaned and "then" in cleaned and "always" in cleaned
 
 
+def test_scrub_removes_bare_ev_token():
+    """I-meta-002-q1d (#946): a bare [ev_012] (no #ev: prefix) is a leaked audit token and MUST be
+    scrubbed — this is the exact defect that leaked into a published report.md."""
+    text = "The drug reduced HbA1c by 1.5% [ev_012] in adults."
+    cleaned = _scrub_ev_tokens(text)
+    assert "[ev_" not in cleaned
+    assert "1.5%" in cleaned
+
+
+def test_scrub_removes_bare_ev_token_with_span():
+    text = "Body weight fell [ev_007:12-48] over 72 weeks."
+    cleaned = _scrub_ev_tokens(text)
+    assert "[ev_" not in cleaned and "72 weeks" in cleaned
+
+
+def test_scrub_removes_mixed_prefixed_and_bare_ev_tokens():
+    text = "Effect A [#ev:ev_a:0-10] and effect B [ev_022] both held."
+    cleaned = _scrub_ev_tokens(text)
+    assert "[#ev:" not in cleaned and "[ev_" not in cleaned
+    assert "Effect A" in cleaned and "effect B" in cleaned and "both held" in cleaned
+
+
+def test_scrub_preserves_ordinary_bracketed_words_and_n_markers():
+    """The ev-token scrub must NOT touch numeric [N] citations or ordinary bracketed words whose
+    content merely starts with 'ev' (the [:_] guard requires 'ev:' / 'ev_')."""
+    text = "An adverse [event] at the highest [evidence] [1] level remained [2]."
+    cleaned = _scrub_ev_tokens(text)
+    assert "[event]" in cleaned and "[evidence]" in cleaned
+    assert "[1]" in cleaned and "[2]" in cleaned
+
+
+def test_scrub_no_dangling_ev_token_substring_survives():
+    """Acceptance (#946): no dangling ev-token substring survives the synthesis chokepoint."""
+    text = "Mixed [#ev:ev_x:0-9] prose with [ev_001] and [ev_099:3-7] tokens."
+    cleaned = _scrub_ev_tokens(text)
+    assert "[ev_" not in cleaned and "[#ev" not in cleaned
+
+
 def test_scrub_preserves_n_bibliography_markers():
     """[N] citation markers MUST survive — they are the legitimate
     synthesis citation format. Scrub MUST NOT touch them.

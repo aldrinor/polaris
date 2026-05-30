@@ -1,0 +1,129 @@
+diff --git a/scripts/pg_preflight.py b/scripts/pg_preflight.py
+index c18ff298..3448787a 100644
+--- a/scripts/pg_preflight.py
++++ b/scripts/pg_preflight.py
+@@ -76,7 +76,7 @@ class TestResult:
+ 
+ 
+ # ===================================================================
+-# TIER 1: Hard Failures (10 tests) -- Would crash immediately
++# TIER 1: Hard Failures (11 tests; +T02b serper-credit-pool advisory, #947) -- Would crash immediately
+ # ===================================================================
+ 
+ 
+@@ -112,26 +112,45 @@ async def test_serper_api_key() -> TestResult:
+     )
+ 
+ 
++async def test_serper_credit_pool() -> TestResult:
++    """T02b: Serper prepaid-pool honesty (I-meta-002-q1d #947). Serper exposes NO programmatic
++    total-prepaid-pool API — the per-request `X-...-Credits` header is a refill-WINDOW counter, not the
++    remaining prepaid balance. So this is an explicit advisory (NO network, NO SPEND): before a PAID run,
++    verify the prepaid balance on the Serper dashboard. Surfacing this as a preflight line makes the
++    credit check honest rather than implying the header tells us the pool."""
++    return TestResult(
++        "test_serper_credit_pool",
++        SKIP,
++        "advisory: Serper prepaid pool is NOT programmatically queryable (the per-request credits "
++        "header is a refill-window counter, not the total) — verify the balance at "
++        "https://serper.dev/dashboard before a paid run",
++    )
++
++
+ async def test_exa_api_key() -> TestResult:
+-    """T03: Check EXA_API_KEY exists when PG_EXA_ENABLED=1."""
++    """T03: Exa key advisory. I-meta-002-q1d (#947): Exa is Pipeline-B-ONLY (searcher.py) and is NOT
++    used by the Pipeline-A benchmark path (live_retriever.py). A missing EXA_API_KEY must NOT hard-FAIL
++    this benchmark preflight (it was previously a FAIL, so preflight was not a faithful mirror of
++    benchmark-required creds). Missing key -> SKIP with a clear Pipeline-B-only advisory."""
+     exa_enabled = os.getenv("PG_EXA_ENABLED", "1") == "1"
+     if not exa_enabled:
+         return TestResult(
+             "test_exa_api_key",
+             SKIP,
+-            "PG_EXA_ENABLED=0, skipping",
++            "PG_EXA_ENABLED=0, skipping (Exa is Pipeline-B-only)",
+         )
+     key = os.getenv("EXA_API_KEY", "")
+     if key:
+         return TestResult(
+             "test_exa_api_key",
+             PASS,
+-            f"API key present ({len(key)} chars)",
++            f"API key present ({len(key)} chars) — Pipeline-B-only",
+         )
+     return TestResult(
+         "test_exa_api_key",
+-        FAIL,
+-        "EXA_API_KEY missing but PG_EXA_ENABLED=1",
++        SKIP,
++        "EXA_API_KEY missing — Exa is Pipeline-B-only (searcher.py), NOT used by the "
++        "Pipeline-A benchmark (live_retriever.py); not a benchmark blocker",
+     )
+ 
+ 
+@@ -1673,6 +1692,7 @@ async def test_state_keys_complete() -> TestResult:
+ TIER_1_TESTS = [
+     ("test_openrouter_api_key", test_openrouter_api_key),
+     ("test_serper_api_key", test_serper_api_key),
++    ("test_serper_credit_pool", test_serper_credit_pool),
+     ("test_exa_api_key", test_exa_api_key),
+     ("test_s2_api_key", test_s2_api_key),
+     ("test_openrouter_budget", test_openrouter_budget),
+diff --git a/tests/test_pg_preflight_credit.py b/tests/test_pg_preflight_credit.py
+new file mode 100644
+index 00000000..875d250a
+--- /dev/null
++++ b/tests/test_pg_preflight_credit.py
+@@ -0,0 +1,51 @@
++"""Search-credit / preflight-honesty fixes (I-meta-002-q1d #947). NO network / NO spend.
++
++(a) Exa is Pipeline-B-ONLY (searcher.py); a missing EXA_API_KEY must NOT hard-FAIL the Pipeline-A
++benchmark preflight — it is an advisory SKIP. (b) Serper exposes no programmatic prepaid-pool API, so
++the credit check is an explicit documented advisory.
++
++`pg_preflight` is imported as a module (NOT `from ... import test_*`) so pytest does not collect the
++preflight's own async `test_*` functions as tests in this file.
++"""
++
++from __future__ import annotations
++
++import asyncio
++
++import scripts.pg_preflight as pf
++
++
++def test_exa_missing_is_advisory_skip_not_fail(monkeypatch):
++    """#947 core: a missing EXA key is no longer a benchmark FAIL (Exa is Pipeline-B-only)."""
++    monkeypatch.setenv("PG_EXA_ENABLED", "1")
++    monkeypatch.delenv("EXA_API_KEY", raising=False)
++    res = asyncio.run(pf.test_exa_api_key())
++    assert res.status == pf.SKIP  # was pf.FAIL before #947
++    assert res.status != pf.FAIL
++    assert "Pipeline-B-only" in res.message
++
++
++def test_exa_present_is_pass(monkeypatch):
++    monkeypatch.setenv("PG_EXA_ENABLED", "1")
++    monkeypatch.setenv("EXA_API_KEY", "exa-key-1234567890")
++    res = asyncio.run(pf.test_exa_api_key())
++    assert res.status == pf.PASS
++
++
++def test_exa_disabled_is_skip(monkeypatch):
++    monkeypatch.setenv("PG_EXA_ENABLED", "0")
++    res = asyncio.run(pf.test_exa_api_key())
++    assert res.status == pf.SKIP
++
++
++def test_serper_credit_pool_is_advisory_skip():
++    res = asyncio.run(pf.test_serper_credit_pool())
++    assert res.status == pf.SKIP  # advisory, never a hard fail (no programmatic pool API)
++    assert "serper.dev" in res.message
++    assert "not programmatically queryable" in res.message.lower()
++
++
++def test_serper_credit_pool_registered_in_tier1():
++    names = {n for n, _ in pf.TIER_1_TESTS}
++    assert "test_serper_credit_pool" in names
++    assert "test_serper_api_key" in names and "test_exa_api_key" in names

@@ -1,0 +1,28 @@
+codex
+1. ✓ closed  
+2. ✓ closed  
+3. ✓ closed  
+4. ✓ closed  
+5. ✗ broke something: §3 is fixed, but §7 reintroduces the old bad gate: `≥2 (target ≥3)` SMEs per domain. That contradicts the corrected min 3-4/claim and target 5-6/domain. See [0a-1A_sme_panel_role_governance.md](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1A_sme_panel_role_governance.md:149).  
+6. ✗ broke something: §4 canonical COI is fixed, but §7 roster schema still has free-text `declared_interests` and omits `entity_ids[]`, `topic_conflict_ids[]`, `coi_cleared`, `screened_by`, `screened_at`. See [0a-1A_sme_panel_role_governance.md](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1A_sme_panel_role_governance.md:136).  
+7. ✓ closed  
+8. △ wording: §6 is correct, but §1 panel row still says only “Operator + Codex” and should say `Operator + Codex + ≥1 domain-qualified SME`, with clinical MD/PharmD where applicable. See [0a-1A_sme_panel_role_governance.md](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1A_sme_panel_role_governance.md:20).
+
+Fix:
+- Update §7 roster schema to match §3/§4: evidence-tag fields plus canonical `entity_ids[]` / `topic_conflict_ids[]`; remove or mark free-text `declared_interests` as non-binding/non-validator input.
+- Replace §7 construction gate with §3’s corrected capacity rule: min 3 unique eligible SMEs per claim, 4 when tiebreak live, target 5-6 per domain.
+- Update §1 panel table to include the required domain-qualified SME.
+18,907
+1. ✓ closed  
+2. ✓ closed  
+3. ✓ closed  
+4. ✓ closed  
+5. ✗ broke something: §3 is fixed, but §7 reintroduces the old bad gate: `≥2 (target ≥3)` SMEs per domain. That contradicts the corrected min 3-4/claim and target 5-6/domain. See [0a-1A_sme_panel_role_governance.md](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1A_sme_panel_role_governance.md:149).  
+6. ✗ broke something: §4 canonical COI is fixed, but §7 roster schema still has free-text `declared_interests` and omits `entity_ids[]`, `topic_conflict_ids[]`, `coi_cleared`, `screened_by`, `screened_at`. See [0a-1A_sme_panel_role_governance.md](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1A_sme_panel_role_governance.md:136).  
+7. ✓ closed  
+8. △ wording: §6 is correct, but §1 panel row still says only “Operator + Codex” and should say `Operator + Codex + ≥1 domain-qualified SME`, with clinical MD/PharmD where applicable. See [0a-1A_sme_panel_role_governance.md](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1A_sme_panel_role_governance.md:20).
+
+Fix:
+- Update §7 roster schema to match §3/§4: evidence-tag fields plus canonical `entity_ids[]` / `topic_conflict_ids[]`; remove or mark free-text `declared_interests` as non-binding/non-validator input.
+- Replace §7 construction gate with §3’s corrected capacity rule: min 3 unique eligible SMEs per claim, 4 when tiebreak live, target 5-6 per domain.
+- Update §1 panel table to include the required domain-qualified SME.

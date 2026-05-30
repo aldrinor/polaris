@@ -1,0 +1,40 @@
+codex
+Re-review result: not lockable yet.
+
+1. ✓ Source-class-conditioned identity precedence is closed.
+2. ✓ Normalization, DOI/PMID aliasing, preprint/published separation, and `source_version_id` are present.
+3. ✓ Clinical T-label contradiction is closed; validator authority moved to scope templates.
+4. △ Partially closed, but still internally inconsistent. §3 says admissible classes are “not narrower than” scope templates and “none currently” are excluded, but the table still omits admitted template classes:
+   - `clinical.yaml`: T4 narrative reviews, T5 HCP/marketing with caps, T6 context/news/blog, T7 abstracts/preprints.
+   - `due_diligence.yaml`: peer-reviewed tech/mechanism articles, systematic market reviews, narrative reviews/white papers, conference/preprint early signals.
+   - `canada_us.yaml`: HTA/policy analyst reports, systematic reviews, industry/vendor positions, narrative reviews.
+   Either list these with their caps/context limits or add explicit overrides with rationales.
+5. ✓ Recompute-class validator, hard deny, and blinding-unit role-disjoint exception path are closed.
+6. ✓ Claim-level Jaccard, empty-set behavior, and active landing/PDF aliasing are closed.
+7. ✓ §5 COI union and fail-closed behavior are closed, but §7 still has stale shorthand: “`entity_ids` from source records.” Align that note to the §5 union.
+
+`SRC-NNN` never being canonical is explicitly closed.
+
+0a.-1.D does **not** yet unblock 0a.-1.C, because §3 leaves the admissibility validator with conflicting authority between the table and the scope templates.
+
+Fix §3 scope-template reconciliation/explicit overrides, plus the stale §7 COI note.
+121,201
+Re-review result: not lockable yet.
+
+1. ✓ Source-class-conditioned identity precedence is closed.
+2. ✓ Normalization, DOI/PMID aliasing, preprint/published separation, and `source_version_id` are present.
+3. ✓ Clinical T-label contradiction is closed; validator authority moved to scope templates.
+4. △ Partially closed, but still internally inconsistent. §3 says admissible classes are “not narrower than” scope templates and “none currently” are excluded, but the table still omits admitted template classes:
+   - `clinical.yaml`: T4 narrative reviews, T5 HCP/marketing with caps, T6 context/news/blog, T7 abstracts/preprints.
+   - `due_diligence.yaml`: peer-reviewed tech/mechanism articles, systematic market reviews, narrative reviews/white papers, conference/preprint early signals.
+   - `canada_us.yaml`: HTA/policy analyst reports, systematic reviews, industry/vendor positions, narrative reviews.
+   Either list these with their caps/context limits or add explicit overrides with rationales.
+5. ✓ Recompute-class validator, hard deny, and blinding-unit role-disjoint exception path are closed.
+6. ✓ Claim-level Jaccard, empty-set behavior, and active landing/PDF aliasing are closed.
+7. ✓ §5 COI union and fail-closed behavior are closed, but §7 still has stale shorthand: “`entity_ids` from source records.” Align that note to the §5 union.
+
+`SRC-NNN` never being canonical is explicitly closed.
+
+0a.-1.D does **not** yet unblock 0a.-1.C, because §3 leaves the admissibility validator with conflicting authority between the table and the scope templates.
+
+Fix §3 scope-template reconciliation/explicit overrides, plus the stale §7 COI note.

@@ -1,0 +1,567 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e6cec-317c-7f50-b1c0-4b512b066f93
+--------
+user
+# HARD CONSTRAINT CHANGE: zero human SMEs — best-effort human-free test+validate
+
+## The operator directive (binding, 2026-05-27)
+
+"We don't have money to hire anyone. What can we do for best effort to test and validate it. Stop telling me to hire anyone. Also tell it to Codex."
+
+This is the SAME class of directive as the earlier "no external statistician — Claude+Codex work it out." Now: **NO human subject-matter experts (SMEs), ever. The ONLY budget is API fees.** The verifier safety validation must be doable with Claude + Codex + the POLARIS LLM stack + deterministic Python, and NOTHING human.
+
+This is a binding HARD CONSTRAINT, not a preference. Do not propose hiring, recruiting, contracting, or "an external reviewer." If your design needs a human, the design is wrong for this constraint — find the human-free path.
+
+## What this breaks (the locked design assumed humans)
+
+The 14 locked Phase-0a.0 deliverables (state/polaris_statistical_contract/v3_4_phase_0a_0/) assume human SMEs in load-bearing places:
+- **0a.-1.A** SME panel + role governance (constructor/adjudicator/tiebreaker = humans)
+- **0a.-1.B** §4 ground-truth = human adjudicator consensus; first-pass blinded HUMAN labels
+- **0a.-1.C** blinded_adjudication_labels + consensus_gold_labels = human-produced; severity_stratum derived from human consensus
+- **Gate E** (contract v3.3 §7) = human inter-rater reliability (Gwet AC1 / Krippendorff on SME labels) — the VALIDITY gate that makes Gates A/B/D interpretable
+- **D8** SME/template balancing + roster feasibility precheck
+- **D6** sme_qualifications_required
+
+These need rework for a human-free model.
+
+## My proposed human-free architecture (pressure-test this)
+
+**Split the two human jobs and replace each:**
+
+### Job 1 — fabrication STATUS (is the claim fake?): make it MECHANICAL
+- Build the gold set by taking REAL claims grounded in REAL fetched sources (prefer STRUCTURED sources where truth is a field value: clinical-trial registries NCT/EudraCT, drug labels with structured dose/contraindication fields, DOI'd papers with extractable numbers).
+- PROGRAMMATICALLY inject fabrications by deterministic mutation (0a.-1.B's existing 7-type taxonomy): quantitative (5mg→15mg), entity_swap (drug A→drug B), qualitative_negation ("did"→"did not"), temporal (current→withdrawn), relation_direction (A>B→B>A). The ground truth "is this fabricated?" is MECHANICAL — we KNOW because we injected it. No human, and arguably more reliable than human fab-status labeling.
+- citation_swap / scope_overreach are harder to make purely mechanical — flag which fab-types are mechanical vs need LLM-panel judgment.
+
+### Job 2 — SEVERITY (how dangerous?): cross-family LLM panel + deterministic guardrails
+- Severity (S0/S1/S2) is the irreducibly-judgment part. Human-free: a panel of DIFFERENT-FAMILY LLMs (e.g. Codex/GPT family + Claude family + the Qwen judge — distinct lineages so they don't share one blind spot), each applying the 0a.-1.B severity rubric, cross-checking.
+- Deterministic guardrails where possible: a wrong dose in a structured drug-label field auto-flags S0-candidate; a mutation to a contraindication field auto-flags S0-candidate. The structured-source mutation TYPE constrains the plausible severity.
+- DISCLOSE: severity is LLM-panel-adjudicated, NOT expert. The claim license forbids "expert-validated."
+
+### Gate E reframed: cross-family LLM-judge agreement (not human IRR)
+- Was: human inter-rater reliability. Now: agreement ACROSS the different-family LLM judges (AC1 / Krippendorff on their first-pass labels). Measures LLM-PANEL consistency, honestly labeled as such — NOT expert agreement.
+
+### Independence / anti-circularity (the obvious objection)
+- The risk: "LLMs checking LLMs." Defenses: (a) fab-STATUS ground truth is MECHANICAL (deterministic injection), not LLM-judged — so the core "did the verifier miss a fake?" measurement does NOT depend on an LLM judge; (b) two-family separation (generator family ≠ verifier family ≠ judge-panel families, per the contract's existing two-family rule); (c) deterministic Python checks (DOI/numeric/date) as an independent third leg; (d) §P3.4 LLM-as-judge leakage controls already locked.
+
+### The honest claim (claim license must enforce)
+- CAN claim: "verifier miss-rate bounded at X% on deterministically-injected fabrications against cited sources, severity cross-family-LLM-adjudicated."
+- CANNOT claim: "expert-validated" / "clinically validated by physicians."
+
+## What I need from you (design-partner mode, not grading)
+
+1. Is the Job-1-mechanical / Job-2-LLM-panel split the strongest honest human-free design, or is there a better one?
+2. Which fabrication types can be MECHANICAL ground truth (no LLM judgment) vs which irreducibly need LLM-panel judgment? Be specific per the 7 types.
+3. Is the cross-family LLM panel for severity defensible, and how do we keep it from being circular/contaminated? Is 2 families enough or do we need 3+?
+4. Gate E as cross-family-LLM-judge agreement — does that still mean anything as a validity gate, or does removing humans gut Gate E's purpose? If gutted, what replaces its role (making Gates A/B/D interpretable)?
+5. How much does removing humans WEAKEN the claim — honestly? What's the strongest defensible sentence POLARIS can say after a human-free validation?
+6. Which of the 14 locked deliverables need revision, and is this a v3.3-contract amendment (the contract's Gate E + SME assumptions change) or just a Phase-0a.0 deliverable revision?
+7. Anything in the human-free path that is SELF-DECEIVING (looks like validation but isn't) — call it out hard. Clinical-safety context: a fake-looking validation is worse than honestly saying "this is a bench test, not expert validation."
+
+## Output
+
+Long-form prose, design-partner mode (TEACH + co-design, not APPROVE/REJECT). Be brutally honest about what human-free validation can and cannot establish. No filesystem search needed; everything's in this brief. Do NOT suggest hiring anyone — that option does not exist.
+
+codex
+The split is the right direction, but I would tighten the terminology:
+
+POLARIS can make **fabrication status** a true benchmark label through deterministic source-grounded mutation. POLARIS cannot make **clinical severity** fully ground truth without humans. It can make severity a **machine-adjudicated risk stratum** using structured-source guardrails plus cross-family LLM adjudication.
+
+That distinction matters. The strongest honest design is:
+
+- **Status label:** mechanical truth.
+- **Mutation provenance:** deterministic and auditable.
+- **Severity/risk stratum:** structured-rule constrained, LLM-panel adjudicated.
+- **Claims license:** explicitly forbids “expert validated,” “clinically validated,” or equivalent language.
+
+**1. Is This The Strongest Human-Free Design?**
+
+Yes, with one improvement: do not let the LLM panel be the primary severity system when a deterministic proxy is available.
+
+Use a three-layer design:
+
+1. **Mechanical fabrication oracle**
+   Real source claim → deterministic mutation → known fabricated/non-fabricated label.
+
+2. **Deterministic hazard scaffold**
+   The source field and mutation type assign a presumptive risk band where possible:
+   dose, contraindication, boxed warning, withdrawal status, pediatric population, pregnancy warning, endpoint direction, mortality/safety outcome, etc.
+
+3. **Cross-family LLM severity adjudication**
+   Used for cases where structured rules cannot fully determine severity, or to confirm/challenge the deterministic hazard scaffold.
+
+So the better framing is not “Job 1 mechanical, Job 2 LLM.” It is:
+
+> Fabrication status is mechanical. Severity is mostly provenance-constrained and only partly LLM-adjudicated.
+
+That is stronger because it reduces how much of the safety claim rests on LLM judgment.
+
+**2. Mechanical Vs LLM-Panel Fabrication Types**
+
+For the 7-type taxonomy, I would classify them like this.
+
+**Mechanical ground truth, strong:**
+
+- **Quantitative mutation**
+  Example: `5 mg` → `15 mg`, `12%` → `21%`, `n=140` → `n=410`.
+  Strong if the original value is parsed from a structured source or exact source text.
+
+- **Entity swap**
+  Example: drug A → drug B, trial ID A → trial ID B, disease X → disease Y.
+  Strong if entities come from controlled vocabularies or structured fields.
+
+- **Qualitative negation**
+  Example: “reduced mortality” → “did not reduce mortality.”
+  Strong when generated from known templates and the original polarity is explicit.
+
+- **Temporal mutation**
+  Example: active → withdrawn, completed → recruiting, current label → superseded label.
+  Strong if sourced from dated registries, versioned labels, approval/withdrawal records, or trial status fields.
+
+- **Relation direction**
+  Example: A increased B → A decreased B; treatment superior to control → control superior to treatment.
+  Strong when relation is template-controlled and the original relation is extractable.
+
+**Mechanical ground truth, possible but needs careful fixture design:**
+
+- **Citation swap**
+  Mechanical if the cited source is programmatically replaced with a source that does not support the claim, while the original claim remains unchanged.
+  Risk: “does not support” is sometimes semantic, not mechanical. This is strongest when the swapped citation is from a disjoint entity/trial/drug/population.
+
+- **Scope overreach**
+  Mechanical if generated from structured narrowing/widening.
+  Example: source says “adults with condition X in trial Y” → claim says “all patients with condition X.”
+  Risk: generalization boundaries are often semantic. This should be split into subtypes:
+  - structured population overreach: mechanical
+  - indication overreach: mechanical if label fields support it
+  - causal/clinical recommendation overreach: LLM-panel judged
+
+So I would not treat citation_swap and scope_overreach as uniformly non-mechanical. They are mechanical only when the unsupportedness is created by controlled source/field mismatch.
+
+**3. Is Cross-Family LLM Severity Defensible?**
+
+Defensible, but only if POLARIS calls it exactly what it is: **cross-family LLM severity adjudication**, not expert severity.
+
+Two families is the minimum useful separation. Three is better if API budget allows. I would use:
+
+- one GPT/Codex-family judge,
+- one Claude-family judge,
+- one non-aligned third family such as Qwen or another independently trained model available in the POLARIS stack.
+
+Two-family agreement can catch some model-family-specific quirks. Three-family agreement lets you detect one-family outliers and compute more meaningful agreement statistics.
+
+To reduce circularity:
+
+- Keep generator, verifier, and judge roles separated by model family where feasible.
+- Do not let judges see verifier outputs, rationales, scores, or failure labels.
+- Freeze prompts, rubrics, model versions, decoding settings, and source packets before evaluation.
+- Use deterministic Python to extract and compare numeric/date/identifier facts.
+- Store judge first-pass labels before any consensus step.
+- Include adversarial controls where the correct fabrication status is known but severity is intentionally ambiguous.
+- Report disagreement, not just consensus.
+
+The strongest protection is still this: **fabrication status is not judged by LLMs.** The LLM panel only affects severity/risk stratification.
+
+**4. Does Gate E Still Mean Anything?**
+
+Gate E no longer means what it used to mean.
+
+Human Gate E used to ask:
+
+> Are trained humans applying the label rubric consistently enough that Gates A/B/D are interpretable?
+
+Human-free Gate E can only ask:
+
+> Are the machine judges applying the severity/risk rubric consistently enough that severity-stratified results are stable?
+
+That is weaker. It does not validate clinical truth. But it still has value if renamed and scoped correctly.
+
+I would replace Gate E with two gates:
+
+**Gate E1: Mechanical Oracle Integrity**
+
+This becomes the validity backbone. It checks that the benchmark labels are actually known.
+
+Examples:
+
+- source fetch reproducibility,
+- structured field extraction correctness,
+- mutation audit logs,
+- original-vs-mutated diff validity,
+- no accidental unsupported original claims,
+- deterministic expected label regeneration,
+- fixture hash stability.
+
+This is what makes Gates A/B/D interpretable for fabrication miss-rate.
+
+**Gate E2: Machine Severity Stability**
+
+This is the old agreement gate, reframed.
+
+Examples:
+
+- AC1 / Krippendorff across LLM judges,
+- per-stratum disagreement rates,
+- family-specific bias checks,
+- deterministic guardrail override rates,
+- consensus-vs-rule conflict rates.
+
+If E2 fails, POLARIS can still report overall fabrication miss-rate, but it should not make strong severity-stratified claims.
+
+**5. How Much Does This Weaken The Claim?**
+
+A lot for clinical safety. Less for verifier engineering.
+
+What remains strong:
+
+> POLARIS can measure whether the verifier catches known, deterministically injected fabrications against cited sources.
+
+That is a real benchmark. It is not fake.
+
+What becomes weaker:
+
+> POLARIS cannot claim that the benchmark’s severity labels are clinically expert-grounded.
+
+It can say the severity strata are machine-adjudicated and provenance-constrained. That is useful, but it is not the same epistemic object.
+
+Strongest defensible sentence:
+
+> “POLARIS achieved a verifier miss-rate bounded at X% on a reproducible benchmark of deterministically injected fabrications against fetched cited sources; fabrication status labels are mechanical, while severity strata are provenance-constrained and cross-family-LLM adjudicated, not expert-validated.”
+
+Even stronger if split:
+
+> “The fabrication detection result is mechanically labeled. The severity-stratified result is machine-adjudicated and should be interpreted as a bench safety stress test, not clinical validation.”
+
+That is the honest claim.
+
+**6. Which Deliverables Need Revision?**
+
+This is not just a Phase-0a.0 cleanup. It changes the meaning of Gate E and the validity story, so it needs a **v3.3 contract amendment** plus Phase-0a.0 deliverable revisions.
+
+Affected items:
+
+- **0a.-1.A**
+  Replace SME panel governance with model-family judge governance, deterministic oracle governance, role separation, prompt/version freezing, and contamination controls.
+
+- **0a.-1.B**
+  Replace human consensus ground truth with mechanical fabrication oracle. Split severity into deterministic hazard scaffold plus LLM-panel adjudication.
+
+- **0a.-1.C**
+  Replace `blinded_adjudication_labels` / `consensus_gold_labels` with:
+  `mechanical_fabrication_labels`,
+  `mutation_audit_log`,
+  `structured_source_fields`,
+  `llm_first_pass_severity_labels`,
+  `llm_consensus_severity_labels`,
+  `severity_guardrail_overrides`.
+
+- **Gate E**
+  Must be amended. Human IRR no longer exists. Replace with E1 oracle integrity and E2 machine severity stability.
+
+- **D8**
+  Replace SME/template balancing with source-template/mutation-template/model-family balancing.
+
+- **D6**
+  Replace `sme_qualifications_required` with judge model eligibility, model-family separation, prompt controls, deterministic extractor requirements, and audit requirements.
+
+Also likely affected:
+
+- claim license language,
+- reporting template,
+- benchmark manifest,
+- leakage controls,
+- severity rubric,
+- data provenance schema,
+- acceptance criteria for Gates A/B/D when severity labels are unstable.
+
+**7. Self-Deception Risks**
+
+The biggest self-deception would be pretending LLM severity consensus equals clinical truth. It does not.
+
+Other failure modes:
+
+- **Benchmark over-templating**
+  If mutations are too formulaic, the verifier may learn benchmark artifacts instead of real fabrication detection.
+
+- **Source-selection bias**
+  Structured sources are easier to validate than messy clinical prose. Performance may not transfer to unstructured papers, guidelines, or ambiguous real-world claims.
+
+- **Severity laundering**
+  A deterministic “dose field changed” flag does not automatically prove S0. It proves a safety-relevant field was altered. S0 still needs cautious wording unless the rule is explicitly defined as “S0-candidate.”
+
+- **Citation-swap illusion**
+  Replacing a citation does not always prove unsupportedness unless the mismatch is mechanically guaranteed.
+
+- **Scope-overreach ambiguity**
+  Some overreach is obvious; some requires domain judgment. Treating all of it as mechanical would be dishonest.
+
+- **Judge contamination**
+  If judge prompts, verifier prompts, and generator prompts share examples or rationales, agreement may reflect shared conditioning rather than independent validation.
+
+- **Agreement worship**
+  High AC1 among LLM judges can mean consistent bias. It is a stability signal, not a truth signal.
+
+- **Clinical claim creep**
+  The final report must not let “safety validation,” “clinical validation,” or “expert-grade” sneak back in through phrasing.
+
+The hard line I would put into the contract:
+
+> Human-free POLARIS validation is a reproducible bench test of verifier behavior under mechanically known fabrications. It is not clinical expert validation. Severity labels are machine-adjudicated risk strata and must be reported as such.
+
+Codex directive received: no human SMEs, no hiring, no external reviewers. Designs must be Claude + Codex + POLARIS LLM stack + deterministic Python only.
+tokens used
+10,318
+The split is the right direction, but I would tighten the terminology:
+
+POLARIS can make **fabrication status** a true benchmark label through deterministic source-grounded mutation. POLARIS cannot make **clinical severity** fully ground truth without humans. It can make severity a **machine-adjudicated risk stratum** using structured-source guardrails plus cross-family LLM adjudication.
+
+That distinction matters. The strongest honest design is:
+
+- **Status label:** mechanical truth.
+- **Mutation provenance:** deterministic and auditable.
+- **Severity/risk stratum:** structured-rule constrained, LLM-panel adjudicated.
+- **Claims license:** explicitly forbids “expert validated,” “clinically validated,” or equivalent language.
+
+**1. Is This The Strongest Human-Free Design?**
+
+Yes, with one improvement: do not let the LLM panel be the primary severity system when a deterministic proxy is available.
+
+Use a three-layer design:
+
+1. **Mechanical fabrication oracle**
+   Real source claim → deterministic mutation → known fabricated/non-fabricated label.
+
+2. **Deterministic hazard scaffold**
+   The source field and mutation type assign a presumptive risk band where possible:
+   dose, contraindication, boxed warning, withdrawal status, pediatric population, pregnancy warning, endpoint direction, mortality/safety outcome, etc.
+
+3. **Cross-family LLM severity adjudication**
+   Used for cases where structured rules cannot fully determine severity, or to confirm/challenge the deterministic hazard scaffold.
+
+So the better framing is not “Job 1 mechanical, Job 2 LLM.” It is:
+
+> Fabrication status is mechanical. Severity is mostly provenance-constrained and only partly LLM-adjudicated.
+
+That is stronger because it reduces how much of the safety claim rests on LLM judgment.
+
+**2. Mechanical Vs LLM-Panel Fabrication Types**
+
+For the 7-type taxonomy, I would classify them like this.
+
+**Mechanical ground truth, strong:**
+
+- **Quantitative mutation**
+  Example: `5 mg` → `15 mg`, `12%` → `21%`, `n=140` → `n=410`.
+  Strong if the original value is parsed from a structured source or exact source text.
+
+- **Entity swap**
+  Example: drug A → drug B, trial ID A → trial ID B, disease X → disease Y.
+  Strong if entities come from controlled vocabularies or structured fields.
+
+- **Qualitative negation**
+  Example: “reduced mortality” → “did not reduce mortality.”
+  Strong when generated from known templates and the original polarity is explicit.
+
+- **Temporal mutation**
+  Example: active → withdrawn, completed → recruiting, current label → superseded label.
+  Strong if sourced from dated registries, versioned labels, approval/withdrawal records, or trial status fields.
+
+- **Relation direction**
+  Example: A increased B → A decreased B; treatment superior to control → control superior to treatment.
+  Strong when relation is template-controlled and the original relation is extractable.
+
+**Mechanical ground truth, possible but needs careful fixture design:**
+
+- **Citation swap**
+  Mechanical if the cited source is programmatically replaced with a source that does not support the claim, while the original claim remains unchanged.
+  Risk: “does not support” is sometimes semantic, not mechanical. This is strongest when the swapped citation is from a disjoint entity/trial/drug/population.
+
+- **Scope overreach**
+  Mechanical if generated from structured narrowing/widening.
+  Example: source says “adults with condition X in trial Y” → claim says “all patients with condition X.”
+  Risk: generalization boundaries are often semantic. This should be split into subtypes:
+  - structured population overreach: mechanical
+  - indication overreach: mechanical if label fields support it
+  - causal/clinical recommendation overreach: LLM-panel judged
+
+So I would not treat citation_swap and scope_overreach as uniformly non-mechanical. They are mechanical only when the unsupportedness is created by controlled source/field mismatch.
+
+**3. Is Cross-Family LLM Severity Defensible?**
+
+Defensible, but only if POLARIS calls it exactly what it is: **cross-family LLM severity adjudication**, not expert severity.
+
+Two families is the minimum useful separation. Three is better if API budget allows. I would use:
+
+- one GPT/Codex-family judge,
+- one Claude-family judge,
+- one non-aligned third family such as Qwen or another independently trained model available in the POLARIS stack.
+
+Two-family agreement can catch some model-family-specific quirks. Three-family agreement lets you detect one-family outliers and compute more meaningful agreement statistics.
+
+To reduce circularity:
+
+- Keep generator, verifier, and judge roles separated by model family where feasible.
+- Do not let judges see verifier outputs, rationales, scores, or failure labels.
+- Freeze prompts, rubrics, model versions, decoding settings, and source packets before evaluation.
+- Use deterministic Python to extract and compare numeric/date/identifier facts.
+- Store judge first-pass labels before any consensus step.
+- Include adversarial controls where the correct fabrication status is known but severity is intentionally ambiguous.
+- Report disagreement, not just consensus.
+
+The strongest protection is still this: **fabrication status is not judged by LLMs.** The LLM panel only affects severity/risk stratification.
+
+**4. Does Gate E Still Mean Anything?**
+
+Gate E no longer means what it used to mean.
+
+Human Gate E used to ask:
+
+> Are trained humans applying the label rubric consistently enough that Gates A/B/D are interpretable?
+
+Human-free Gate E can only ask:
+
+> Are the machine judges applying the severity/risk rubric consistently enough that severity-stratified results are stable?
+
+That is weaker. It does not validate clinical truth. But it still has value if renamed and scoped correctly.
+
+I would replace Gate E with two gates:
+
+**Gate E1: Mechanical Oracle Integrity**
+
+This becomes the validity backbone. It checks that the benchmark labels are actually known.
+
+Examples:
+
+- source fetch reproducibility,
+- structured field extraction correctness,
+- mutation audit logs,
+- original-vs-mutated diff validity,
+- no accidental unsupported original claims,
+- deterministic expected label regeneration,
+- fixture hash stability.
+
+This is what makes Gates A/B/D interpretable for fabrication miss-rate.
+
+**Gate E2: Machine Severity Stability**
+
+This is the old agreement gate, reframed.
+
+Examples:
+
+- AC1 / Krippendorff across LLM judges,
+- per-stratum disagreement rates,
+- family-specific bias checks,
+- deterministic guardrail override rates,
+- consensus-vs-rule conflict rates.
+
+If E2 fails, POLARIS can still report overall fabrication miss-rate, but it should not make strong severity-stratified claims.
+
+**5. How Much Does This Weaken The Claim?**
+
+A lot for clinical safety. Less for verifier engineering.
+
+What remains strong:
+
+> POLARIS can measure whether the verifier catches known, deterministically injected fabrications against cited sources.
+
+That is a real benchmark. It is not fake.
+
+What becomes weaker:
+
+> POLARIS cannot claim that the benchmark’s severity labels are clinically expert-grounded.
+
+It can say the severity strata are machine-adjudicated and provenance-constrained. That is useful, but it is not the same epistemic object.
+
+Strongest defensible sentence:
+
+> “POLARIS achieved a verifier miss-rate bounded at X% on a reproducible benchmark of deterministically injected fabrications against fetched cited sources; fabrication status labels are mechanical, while severity strata are provenance-constrained and cross-family-LLM adjudicated, not expert-validated.”
+
+Even stronger if split:
+
+> “The fabrication detection result is mechanically labeled. The severity-stratified result is machine-adjudicated and should be interpreted as a bench safety stress test, not clinical validation.”
+
+That is the honest claim.
+
+**6. Which Deliverables Need Revision?**
+
+This is not just a Phase-0a.0 cleanup. It changes the meaning of Gate E and the validity story, so it needs a **v3.3 contract amendment** plus Phase-0a.0 deliverable revisions.
+
+Affected items:
+
+- **0a.-1.A**
+  Replace SME panel governance with model-family judge governance, deterministic oracle governance, role separation, prompt/version freezing, and contamination controls.
+
+- **0a.-1.B**
+  Replace human consensus ground truth with mechanical fabrication oracle. Split severity into deterministic hazard scaffold plus LLM-panel adjudication.
+
+- **0a.-1.C**
+  Replace `blinded_adjudication_labels` / `consensus_gold_labels` with:
+  `mechanical_fabrication_labels`,
+  `mutation_audit_log`,
+  `structured_source_fields`,
+  `llm_first_pass_severity_labels`,
+  `llm_consensus_severity_labels`,
+  `severity_guardrail_overrides`.
+
+- **Gate E**
+  Must be amended. Human IRR no longer exists. Replace with E1 oracle integrity and E2 machine severity stability.
+
+- **D8**
+  Replace SME/template balancing with source-template/mutation-template/model-family balancing.
+
+- **D6**
+  Replace `sme_qualifications_required` with judge model eligibility, model-family separation, prompt controls, deterministic extractor requirements, and audit requirements.
+
+Also likely affected:
+
+- claim license language,
+- reporting template,
+- benchmark manifest,
+- leakage controls,
+- severity rubric,
+- data provenance schema,
+- acceptance criteria for Gates A/B/D when severity labels are unstable.
+
+**7. Self-Deception Risks**
+
+The biggest self-deception would be pretending LLM severity consensus equals clinical truth. It does not.
+
+Other failure modes:
+
+- **Benchmark over-templating**
+  If mutations are too formulaic, the verifier may learn benchmark artifacts instead of real fabrication detection.
+
+- **Source-selection bias**
+  Structured sources are easier to validate than messy clinical prose. Performance may not transfer to unstructured papers, guidelines, or ambiguous real-world claims.
+
+- **Severity laundering**
+  A deterministic “dose field changed” flag does not automatically prove S0. It proves a safety-relevant field was altered. S0 still needs cautious wording unless the rule is explicitly defined as “S0-candidate.”
+
+- **Citation-swap illusion**
+  Replacing a citation does not always prove unsupportedness unless the mismatch is mechanically guaranteed.
+
+- **Scope-overreach ambiguity**
+  Some overreach is obvious; some requires domain judgment. Treating all of it as mechanical would be dishonest.
+
+- **Judge contamination**
+  If judge prompts, verifier prompts, and generator prompts share examples or rationales, agreement may reflect shared conditioning rather than independent validation.
+
+- **Agreement worship**
+  High AC1 among LLM judges can mean consistent bias. It is a stability signal, not a truth signal.
+
+- **Clinical claim creep**
+  The final report must not let “safety validation,” “clinical validation,” or “expert-grade” sneak back in through phrasing.
+
+The hard line I would put into the contract:
+
+> Human-free POLARIS validation is a reproducible bench test of verifier behavior under mechanically known fabrications. It is not clinical expert validation. Severity labels are machine-adjudicated risk strata and must be reported as such.
+
+Codex directive received: no human SMEs, no hiring, no external reviewers. Designs must be Claude + Codex + POLARIS LLM stack + deterministic Python only.
