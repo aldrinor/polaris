@@ -718,21 +718,111 @@ def _bounded_openalex_enrich(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# I-meta-002-q1d (#954): table-aware linearization. _strip_html flattens <table> markup to running text,
+# so a result-table cell loses its header association ("Discontinuation due to nausea ... 3.8%" collapses to
+# a floating "3.8") and integer / %-without-decimal cells become unanchored — strict_verify can then only
+# verify the loose decimals that survive in prose, under-verifying the richest clinical data (results tables).
+# This no-network pass detects <table> blocks and linearizes each data row as "header: cell | header: cell"
+# BEFORE flattening, so the cell keeps its column header in the text the provenance window captures.
+_TABLE_RE = re.compile(r"<table\b[^>]*>(.*?)</table>", re.DOTALL | re.IGNORECASE)
+_ROW_RE = re.compile(r"<tr\b[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
+# Capture each cell WITH its tag (th vs td) so a column-header row is distinguishable from a row-header.
+_CELL_TAGGED_RE = re.compile(r"<(t[hd])\b[^>]*>(.*?)</t[hd]>", re.DOTALL | re.IGNORECASE)
+# colspan/rowspan shift columns → index-zip would mis-align → degrade (Codex diff-gate iter-1 P1).
+_SPAN_ATTR_RE = re.compile(r"\b(?:col|row)span\s*=", re.IGNORECASE)
+
+
+def _cell_text(cell_html: str) -> str:
+    """Strip inner tags from a single cell and collapse whitespace."""
+    txt = re.sub(r"<[^>]+>", " ", cell_html)
+    return re.sub(r"\s+", " ", txt).strip()
+
+
+def _parse_row_cells(row_html: str) -> list[tuple[str, str]]:
+    """Return [(tag, text)] for each <th>/<td> in the row (tag lowercased)."""
+    return [(m.group(1).lower(), _cell_text(m.group(2))) for m in _CELL_TAGGED_RE.finditer(row_html)]
+
+
+def linearize_html_tables(html: str) -> str:
+    """Return result-table rows linearized so table numbers survive in text WITH their column header when —
+    and ONLY when — the source unambiguously declares one. Pure regex, no network, fail-open ('').
+
+    Header:cell association is emitted ONLY for the CANONICAL column-header table: the first non-empty row
+    is ENTIRELY <th> with non-empty header text, the table has >1 column, NO colspan/rowspan anywhere, and
+    <th> appears in NO other row (so it is column headers, not per-row row-headers). EVERY other shape —
+    span tables, headerless tables, row-header / mixed <th>+<td> data rows, empty-<th>-before-data — DEGRADES
+    to plain ' | '-joined cells. Joined still surfaces the number next to its row label, but a cell can NEVER
+    receive a column header the source did not declare (no fabricated provenance). This single conservative
+    rule covers the Codex diff-gate P1s (colspan/rowspan, headerless-multirow, row-header, empty-th-before-
+    data) without enumerating each."""
+    try:
+        out_rows: list[str] = []
+        for table_html in _TABLE_RE.findall(html or ""):
+            raw_rows = _ROW_RE.findall(table_html)
+            if not raw_rows:
+                continue
+            rows = [_parse_row_cells(r) for r in raw_rows]
+            rows = [r for r in rows if any(text for _tag, text in r)]  # drop all-empty rows
+            if not rows:
+                continue
+
+            def _join(r: list[tuple[str, str]]) -> str:
+                return " | ".join(text for _tag, text in r if text)
+
+            first = rows[0]
+            canonical = (
+                not _SPAN_ATTR_RE.search(table_html)              # no colspan/rowspan
+                and len(first) > 1                                # multi-column
+                and all(tag == "th" for tag, _t in first)         # row 0 is ENTIRELY <th> (column headers)
+                and all(text for _tag, text in first)             # ... with non-empty header text
+                and not any(tag == "th" for r in rows[1:] for tag, _t in r)  # <th> only in row 0
+            )
+            if not canonical:
+                # DEGRADE: every ambiguous shape joins plainly — never a fabricated header:cell.
+                out_rows.extend(j for r in rows if (j := _join(r)))
+                continue
+            # CANONICAL column-header table: zip each data row to the <th> header row by column index.
+            headers = [text for _tag, text in first]
+            for row in rows[1:]:
+                cells = [text for _tag, text in row]
+                pairs = [
+                    f"{headers[j]}: {cells[j]}"
+                    if j < len(headers) and headers[j] and cells[j]
+                    else cells[j]
+                    for j in range(len(cells))
+                ]
+                joined = " | ".join(p for p in pairs if p)
+                if joined:
+                    out_rows.append(joined)
+        return "\n".join(r for r in out_rows if r)
+    except Exception:  # noqa: BLE001 — additive observability; never break fetch on a malformed table
+        return ""
+
+
 def _strip_html(html: str) -> str:
-    """Extract visible text from HTML via basic regex (trafilatura if available)."""
+    """Extract visible text from HTML via basic regex (trafilatura if available), then APPEND table-aware
+    linearized rows (#954) so result-table cells survive with their column headers regardless of how the
+    base extractor flattened the tables. Default-ON; PG_FETCH_TABLE_LINEARIZE=0 disables the append."""
+    base = ""
     try:
         import trafilatura  # type: ignore
         extracted = trafilatura.extract(html) or ""
         if extracted:
-            return extracted
+            base = extracted
     except Exception:
         pass
-    # Fallback: strip tags + collapse whitespace
-    no_tags = re.sub(r"<script[^>]*>.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
-    no_tags = re.sub(r"<style[^>]*>.*?</style>", " ", no_tags, flags=re.DOTALL | re.IGNORECASE)
-    no_tags = re.sub(r"<[^>]+>", " ", no_tags)
-    no_tags = re.sub(r"\s+", " ", no_tags)
-    return no_tags.strip()
+    if not base:
+        # Fallback: strip tags + collapse whitespace
+        no_tags = re.sub(r"<script[^>]*>.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+        no_tags = re.sub(r"<style[^>]*>.*?</style>", " ", no_tags, flags=re.DOTALL | re.IGNORECASE)
+        no_tags = re.sub(r"<[^>]+>", " ", no_tags)
+        no_tags = re.sub(r"\s+", " ", no_tags)
+        base = no_tags.strip()
+    if os.getenv("PG_FETCH_TABLE_LINEARIZE", "1").strip().lower() not in ("0", "false", "no", "off", ""):
+        tables = linearize_html_tables(html)
+        if tables:
+            base = (base + "\n\n" + tables).strip() if base else tables
+    return base
 
 
 def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str, str]:
