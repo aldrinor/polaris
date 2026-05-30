@@ -1,0 +1,22 @@
+codex
+1. ✓ severity_stratum_manifest: present, sealed, derived from consensus gold; §2 input updated.
+2. ✓ facet keying/rollup: `facet_id` + `label_scope` added; ANY-facet fab and max-severity rollup defined.
+3. △ relation scoping: §2.1 is fixed, but §1.7 still has singular `stratum` in `pairwise_relation_manifest`, which breaks cross-stratum base rows. Use `stratum_i`/`stratum_j` or remove `stratum`.
+4. ✓ per-stratum output schema: required fields are present.
+5. △ determinism/fail-closed: interval math, dedup, exact 24h are closed. But fail-closed field list uses non-schema `prompt_family_id` and omits several relation inputs; enumerate actual fields.
+6. ✓ fixtures: requested cases are present.
+7. ✓ placeholders/packet_class: fail-closed at run time; `packet_class` provenance added.
+8. △ §4 process fix: §10/§187 are correct, but §1 line 18 still says “Seven” and claims JSON Schemas are hash-pinned in `state/data_lineage/schemas/`, contradicting the deferred-files process fix and §4’s “8 manifest schemas.”
+
+Fix: §1 line 18 count/hash-pinning sentence; §1.7 cross-stratum pair schema; §2.3 fail-closed field list.
+96,342
+1. ✓ severity_stratum_manifest: present, sealed, derived from consensus gold; §2 input updated.
+2. ✓ facet keying/rollup: `facet_id` + `label_scope` added; ANY-facet fab and max-severity rollup defined.
+3. △ relation scoping: §2.1 is fixed, but §1.7 still has singular `stratum` in `pairwise_relation_manifest`, which breaks cross-stratum base rows. Use `stratum_i`/`stratum_j` or remove `stratum`.
+4. ✓ per-stratum output schema: required fields are present.
+5. △ determinism/fail-closed: interval math, dedup, exact 24h are closed. But fail-closed field list uses non-schema `prompt_family_id` and omits several relation inputs; enumerate actual fields.
+6. ✓ fixtures: requested cases are present.
+7. ✓ placeholders/packet_class: fail-closed at run time; `packet_class` provenance added.
+8. △ §4 process fix: §10/§187 are correct, but §1 line 18 still says “Seven” and claims JSON Schemas are hash-pinned in `state/data_lineage/schemas/`, contradicting the deferred-files process fix and §4’s “8 manifest schemas.”
+
+Fix: §1 line 18 count/hash-pinning sentence; §1.7 cross-stratum pair schema; §2.3 fail-closed field list.

@@ -1,0 +1,8 @@
+codex
+Lock 0a.-1.D
+
+Confirmed: no remaining table-as-allowlist contradiction. Lines 12, 23, 70, 74, and 76 consistently make `config/scope_templates/{domain}.yaml` the authoritative admissibility allowlist; the table is only a high-authority summary and does not narrow or replace the templates.
+15,164
+Lock 0a.-1.D
+
+Confirmed: no remaining table-as-allowlist contradiction. Lines 12, 23, 70, 74, and 76 consistently make `config/scope_templates/{domain}.yaml` the authoritative admissibility allowlist; the table is only a high-authority summary and does not narrow or replace the templates.

@@ -1,0 +1,41 @@
+codex
+Fixed two residual stale-schema wordings:
+
+- §2.2 COI bullet now uses `sme.entity_ids`, `claim.entity_ids`, `sme.topic_conflict_ids`, and `claim.microtopic_tags`.
+- §4 no longer backticks `declared_interests` as if it were a schema field.
+
+§4 step 2 now matches the §7 roster schema fields, and the broader pass found no remaining stale roster-schema references.
+
+Lock 0a.-1.A
+diff --git a/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1A_sme_panel_role_governance.md b/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1A_sme_panel_role_governance.md
+index 9c5f322f3d0201020949998a810fadd1dbff824f..16cb4cf4ad39c18dd2cf6d02457cd47d6842f033
+--- a/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1A_sme_panel_role_governance.md
++++ b/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1A_sme_panel_role_governance.md
+@@ -54,7 +54,7 @@
+ - any assigned `sme_id` is `active == false` or credential-unverified, OR
+ - any assigned `sme_id` lacks qualification for the claim's domain, OR
+ - the claim's entity/topic IDs are unresolved (fail-closed; see §4), OR
+-- a COI hit: an assigned `sme_id` has a declared `entity_id`/topic that intersects the claim's entity/topic IDs, OR
++- a COI hit: an assigned `sme_id` has `sme.entity_ids ∩ claim.entity_ids ≠ ∅` OR `sme.topic_conflict_ids ∩ claim.microtopic_tags ≠ ∅`, OR
+ - exposure-log contamination: an assigned adjudicator/tiebreaker's exposure log shows a disqualifying prior read (constructor-intent, consensus label, or another adjudicator's first-pass for that blinding unit).
+ 
+ The validator is hash-pinned (per 0a.-1.E custody). Its code hash is recorded alongside the relation-builder/randomizer hashes.
+@@ -96,7 +96,7 @@
+ 
+ ## §4. COI screen protocol (mechanically enumerable — Codex round-1 #6)
+ 
+-`declared_interests` as free text is NOT mechanically enumerable. v1 uses canonical IDs:
++Free-text declared-interest prose is NOT mechanically enumerable. v1 uses canonical IDs:
+ 
+ 1. Each SME completes a declared-interest form recording canonical IDs, NOT prose:
+    - `entity_ids[]`: companies, sponsors, drugs/devices, governments, regulators, vendors (canonical identity per 0a.-1.D — DOI/registry/org-id scheme)
+
+23,994
+Fixed two residual stale-schema wordings:
+
+- §2.2 COI bullet now uses `sme.entity_ids`, `claim.entity_ids`, `sme.topic_conflict_ids`, and `claim.microtopic_tags`.
+- §4 no longer backticks `declared_interests` as if it were a schema field.
+
+§4 step 2 now matches the §7 roster schema fields, and the broader pass found no remaining stale roster-schema references.
+
+Lock 0a.-1.A

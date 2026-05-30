@@ -1,0 +1,807 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e6b2c-03a7-7760-ac14-5d9b9e490a79
+--------
+user
+# POLARIS Statistical Safety Contract — v3.1
+
+**Status**: pre-registration draft, round-2 of paired-LLM authorship.
+
+**Diff from v3.0**: closes Codex round-1 review on 8 items. Critical change: Gate A raw-n is now formula-driven from Phase-0a observed cluster size, NOT fixed in this document. v3.1 locks the formula; v3.2 (after Phase 0a outputs) locks the numbers.
+
+**Authors**: Claude (Opus 4.7) + Codex (5.5).
+
+---
+
+## §1. Framework (unchanged from v3.0)
+
+Same six-question contract per gate. Intersection-union release rule across A–E. Each gate has its own α=0.05; no Bonferroni across gates; "all gates passed" ≠ "95% overall confidence." NEW §10 (claim license table) makes the per-gate pass/fail language explicit.
+
+---
+
+## §2. Severity scale (unchanged from v3.0)
+
+| Tag | Name | Definition |
+|---|---|---|
+| S0 | critical | Could cause direct patient harm, regulatory non-compliance, or legal liability if acted on |
+| S1 | high | Could materially mislead a decision but unlikely to directly cause harm |
+| S2 | medium | Misleading but unlikely to alter material decisions |
+| S3 | low | Stylistic / peripheral / non-decision-relevant |
+| SUPPORTED | — | Verified by evidence; not a fabrication |
+
+Severity ordering S0 > S1 > S2 > S3. Denominator: `n_S0_S1_combined` for safety-critical.
+
+---
+
+## §3. Gate A — Per-stratum claim-level fabrication safety
+
+### 3.1 Six-question contract (estimand wording from Codex v2 dialogue)
+
+| Question | Locked answer |
+|---|---|
+| **Estimand** | `P(verifier fails to flag/escalate an adjudicated fabrication of severity S \| fabricated claim is in stratum S AND enters verifier)` for S ∈ {S0, S1, S2} |
+| **Sampling frame** | Gold-set claims from 6 domains × 3 complexity × 4 evidence-pool sizes, SME-adjudicated severity (per Gate E) |
+| **Unit of independence** | Claim with **cluster-adjusted binding analysis** at scenario-family level (per §3.4) using pre-registered conservative ICC ceiling |
+| **Error-control claim** | Per-stratum **cluster-adjusted Wilson** one-sided 95% UCB. Per-domain = observability only. No unweighted population aggregation claim. |
+| **Binding pass/fail rule** | See §3.2 |
+| **Discretion remaining** | Stratum definitions, dedup, SME panel, tiebreak, scenario-family rules, ICC ceiling — all hash-pinned pre-Phase-0b |
+
+### 3.2 Binding pass/fail rule — formula-driven, v3.1 KEY CHANGE
+
+v3.0 locked raw n at 540 (S1) and 138 (S2). **Codex round-1 caught the arithmetic break**: at n=540 zero-misses for UCB ≤0.5%, n_eff must be ≥539, so DEFF ≤1.003 — any cluster correlation fails the gate. v3.1 fixes this by separating the **formula** (locked now) from the **raw n** (locked Phase-0b after Phase-0a observes cluster sizes).
+
+**Locked formula** (binding):
+
+```
+For stratum S ∈ {S1, S2}, at zero observed misses:
+  n_eff_required(S) = z²/UCB_target(S) − z²    (Wilson zero-event minimum)
+  
+  Required raw n(S) = ceil( n_eff_required(S) × DEFF_obs )
+  
+  where DEFF_obs is computed from Phase-0a observed scenario-family sizes:
+    DEFF_obs = 1 + ((Σ m_i² / Σ m_i) − 1) × ICC_ceiling
+    m_i = number of claims in scenario-family i
+    ICC_ceiling = 0.10 (per Codex round-1: "default conservative; can only
+                       escalate via §4.4 surrogate-ICC analysis")
+```
+
+**Locked UCB targets**:
+
+| Stratum | UCB target | z | n_eff_required |
+|---|---|---|---|
+| S1 | ≤ 0.5% (one-sided 95%) | 1.6449 | 539 |
+| S2 | ≤ 2.0% (one-sided 95%) | 1.6449 | 132 |
+| S0 | n/a — policy sentinel | n/a | n/a |
+
+**Planning estimate** (NOT locked — for budget visibility only):
+
+At an anticipated scenario-family mean cluster size `m̄ ≈ 10` and ICC=0.10:
+- `DEFF ≈ 1 + 9×0.10 = 1.9`
+- Anticipated raw n(S1) ≈ ceil(539 × 1.9) = **1024**
+- Anticipated raw n(S2) ≈ ceil(132 × 1.9) = **251**
+- Fab-eligible total ≈ 1024 + 251 = 1275 + 50 (S0 stress) = **~1325 fab-eligible**
+- Plus SUPPORTED filler → total gold set **~3000-4000 claims**
+
+**Phase 0a output** (hash-pinned before Phase 0b begins):
+
+After Phase 0a constructs the first 500-claim pilot, compute:
+- `m̄_obs` = observed scenario-family mean cluster size
+- `CV_cluster_obs` = coefficient of variation of cluster sizes
+- `DEFF_obs` = 1 + ((Σ m_i² / Σ m_i) − 1) × 0.10
+
+If `m̄_obs > 15` OR `CV_cluster_obs > 0.5`, escalation triggers a §P4 amendment (per Cochrane Ch 23: large or highly variable clusters materially inflate variance).
+
+**S0 framing (audit-locked, unchanged from v3.0)**: S0 is a release-policy sentinel, NOT a statistical population bound. Contract sentence: "Zero S0 fabrications were missed by the verifier on a 50-item operator-adversarial stress-test set. No statistical UCB on production S0 risk is asserted from this evidence."
+
+### 3.3 Primary vs sensitivity reporting
+
+Per Codex round-1: "claim-level Wilson result should be described as unclustered descriptive; the confirmatory Gate A result is the ICC-adjusted one."
+
+**v3.1 locked**:
+
+- **PRIMARY (confirmatory)**: Cluster-adjusted Wilson UCB at `n_eff = n_raw / DEFF_obs`, ICC=0.10. This is the binding gate.
+- **DESCRIPTIVE (not binding)**: Naive claim-level Wilson UCB at raw n. Reported alongside; labeled "unclustered descriptive — not the confirmatory gate."
+- **SENSITIVITY**: ICC=0.20 stress, also reported, also not binding.
+
+### 3.4 Scenario-family definition (LOCKED v3.1, revised per Codex round-1)
+
+A scenario-family groups claims that share material correlation. Family assignment is **pairwise-only** (NOT graph-connected-component). Two claims belong to the same family iff ANY of:
+
+1. **Same source report**: one POLARIS run → one report → all extracted claims share family.
+2. **Substantially overlapping evidence packet**: Jaccard on cited evidence-document set ≥ 0.5.
+3. **Same SME construction template within 24h**: same template ID, same constructing SME, generated within 24h.
+4. **Same prompt family** (NEW per Codex round-1 §2): generator OR verifier prompt-family ID matches; prompt-families are enumerated in `state/prompt_families.json` (hash-pinned pre-Phase-0b).
+5. **Microtopic + stratum + additional correlation source** (RESTRICTED per Codex round-1 §2): shared microtopic tag AND shared severity stratum AND at least one of: shared SME construction template (any time window), shared source-packet class, evidence overlap Jaccard ∈ [0.2, 0.5). Microtopic alone is NOT enough.
+
+**Audit prerequisite (LOCKED v3.1)**: After Phase 0a pilot, audit maximum and 95th-percentile family sizes BEFORE Phase 0b begins. If max family > 50 claims OR 95th-percentile > 25, the criterion-5 implementation must be tightened (or microtopic ontology refined) before proceeding.
+
+**Pairwise-only ruling rationale**: graph-connected-component aggregation can merge otherwise-independent clusters via transitive chains, producing pathologically large families (Codex round-1: "one broad microtopic can merge otherwise separate evidence/report/template clusters into a giant connected component"). Pairwise-only keeps the cluster mechanic interpretable.
+
+### 3.5 What this gate does NOT claim
+
+- Does NOT bound production fabrication rate at the unweighted aggregate level.
+- Does NOT claim independence of claims within stratum (per §3.3 the binding analysis is cluster-adjusted).
+- Does NOT certify performance outside the locked gold-set construction scope.
+
+---
+
+## §4. Gate B — Per-report safety-critical fabrication
+
+### 4.1 Six-question contract (unchanged from v3.0)
+
+| Question | Locked answer |
+|---|---|
+| **Estimand** | `P(report contains ≥1 missed S0/S1 fabrication \| report is eligible production-canary traffic)` |
+| **Sampling frame** | Report-level holdout from canary; eligibility: PHI-redacted, in-scope domain, complete pipeline run, ≥1 customer-distinct identifier |
+| **Unit of independence** | Customer |
+| **Error-control** | Wilson with cluster-adjusted `n_eff` at conservative pre-registered ICC PRIMARY; customer-level exact zero-event bound + ICC=0.20 stress = sensitivity |
+| **Binding rule** | See §4.2 |
+| **Discretion** | Eligibility filter, customer floor, concentration cap, ICC ceiling, surrogate-ICC protocol — all hash-pinned |
+
+### 4.2 Binding pass/fail rule (unchanged formula from v3.0)
+
+```
+UCB(report, k=0, n_eff) ≤ 5%  one-sided 95% Wilson
+
+where n_eff = n_raw / DEFF(actual customer-cluster sizes, ICC_ceiling=0.10)
+DEFF = 1 + ((Σ m_i² / Σ m_i) − 1) × ICC_ceiling   (variable-cluster formula)
+
+Structural prerequisites (all must hold):
+  - ≥30 distinct customers in canary holdout
+  - No single customer >20% of reports
+  - Pre-outcome surrogate-ICC audit (§4.4) does not trigger escalation
+```
+
+### 4.3 Sensitivity reports (alongside primary)
+
+- Customer-level exact zero-event bound: "0 of C customers had any affected report" with C ≥ 30.
+- ICC=0.20 Wilson UCB (informational, not gating).
+- Concentration audit: per-customer report counts; flag customers >10% share.
+
+### 4.4 ICC justification protocol — formal v3.1 (per Codex round-1 §3)
+
+v3.0 said "surrogate-outcome ICC estimation." v3.1 makes this computational:
+
+**Pre-designated surrogates** (locked pre-Phase-0b in `state/icc_surrogates.json`):
+
+| Tier | Surrogate outcome | Estimator |
+|---|---|---|
+| Primary | Source-disagreement frequency per report (count of source-citation conflicts) | One-way random-effects ANOVA on customer-grouped proportions; ICC = σ²_between / (σ²_between + σ²_within) |
+| Secondary 1 | Evidence-citation completeness rate (count of claims with ≥1 cited evidence per report) | Same estimator |
+| Secondary 2 | Retrieval-tier prevalence (proportion of T1+T2 sources retrieved) | Same estimator |
+
+The primary surrogate is designated BEFORE seeing the surrogate values, preventing implicit privileging of the convenient one (Codex round-1).
+
+**Computational escalation rule** (locked pre-Phase-0b):
+
+```
+Compute surrogate ICCs (primary + 2 secondaries) on canary BEFORE outcome unblinding.
+
+If any of the three point estimates > 0.10:
+    Escalation triggered → ICC_ceiling rises to ceil(max_observed × 1.5)
+    AND §P4 amendment is filed.
+
+If any one-sided upper 95% confidence bound exceeds 0.10 by ≥50%
+(i.e., upper > 0.15) for the primary surrogate:
+    Escalation triggered same as above.
+
+Otherwise: ICC_ceiling remains 0.10 (no escalation).
+```
+
+**DEFF audit** (locked pre-Phase-0b):
+
+Before outcome unblinding, compute DEFF from actual canary customer cluster sizes (m_i = reports per customer i). Show:
+- Concentration distribution (top-3 customer share, Gini coefficient on m_i)
+- Variable-cluster DEFF at ICC=0.10
+- Comparison to simple `1 + (m̄ − 1)ICC` (showing how much variable-cluster correction matters)
+
+If concentration violates §4.2 structural prerequisites, halt unblinding and re-sample.
+
+**External literature anchor** (rationale, not evidence): clinical/research RAG studies report ICCs typically in [0.005, 0.10]. The ICC=0.10 ceiling is conservative for the median; can rise per the escalation rule.
+
+---
+
+## §5. Gate C — Continuous drift monitoring
+
+### 5.1 Two-layer structure (unchanged from v3.0)
+
+Layer 1 = formal labeled-outcome drift (audit gate). Layer 2 = operational leading-indicator drift (process-control, NOT a multiple-testing contract).
+
+### 5.2 Layer 1 — Formal drift contract
+
+| Question | Locked answer (v3.1 updated estimand per Codex v2-dialogue feedback) |
+|---|---|
+| **Estimand** | Change Δμ in named monitoring metric vs locked baseline, where Δμ exceeds pre-registered minimum material effect size (MMES). For miss rate: MMES = max(2× baseline UCB, +1.0 percentage point). The null is "Δμ ≤ MMES." |
+| **Sampling frame** | Per-cell rolling monthly window of canary/audit-sampled claims with SME-confirmed labels |
+| **Unit of independence** | Window-cell pair |
+| **Error-control** | **Benjamini-Yekutieli by default** (per Codex round-1 §4); BH allowed only by pre-registered baseline-simulation justification (see §5.4). Cadence: monthly. NOT lifetime FWER. NOT LORD/SAFFRON. |
+| **Binding rule** | See §5.3 |
+| **Discretion** | MMES, BY-vs-BH decision (per §5.4), persistence rule, cell-pooling — all hash-pinned |
+
+### 5.3 Layer 1 binding pass/fail rule
+
+```
+Monthly cycle:
+  For each cell c with N_window ≥ 30 SME-labeled outcomes:
+    Compute test statistic for "Δμ ≤ MMES vs Δμ > MMES"
+  
+  Multiplicity correction across eligible cells:
+    PRIMARY: Benjamini-Yekutieli (BY) at q=0.05
+    OPTIONAL ALTERNATIVE: BH if §5.4 justification holds
+  
+  Cell-level ALERT iff:
+    BY-adjusted (or pre-justified BH-adjusted) p < 0.05 AND
+    cell breaches in 2 of 3 consecutive monthly windows (persistence rule)
+  
+  Sparse cells (N_window < 30): no formal test in current cycle;
+    roll up per pre-registered hierarchy:
+      Level 1: same domain × adjacent complexity
+      Level 2: same domain × any complexity
+      Level 3: global (with explicit audit annotation)
+
+Interpretation: each monthly report controls FDR at q=0.05 within
+its month's eligible cells under the chosen procedure. NOT lifetime.
+```
+
+### 5.4 BY vs BH choice (REVISED v3.1 per Codex round-1 §4)
+
+v3.0 used Pearson correlation of cell-level p-values — Codex flagged this as a weak proxy. v3.1 inverts the default:
+
+```
+Default: Benjamini-Yekutieli (BY)
+  - Conservative under arbitrary dependence
+  - Defensible without dependence proof
+
+To use BH instead, ALL of the following must hold (pre-registered, hash-pinned):
+  1. Baseline-period null simulation preserving report/customer/cell structure
+  2. Empirical estimation of cell-level test-statistic correlation matrix
+     under the locked testing procedure
+  3. Demonstration that dependence is negligible OR PRDS-like
+     (positive regression dependence on subsets)
+  4. Simulation outputs hash-pinned BEFORE first monitoring cycle
+
+If any of the four fails, BY is binding.
+```
+
+**Why BY default**: BH is proved under independent test statistics (Benjamini-Hochberg 1995); under arbitrary dependence, BY is the correct generalization (Benjamini-Yekutieli 2001). For an audit-grade contract on a 72-cell × 13-window × 4-quarter structure where dependence is plausible (shared retrieval, shared verifier, shared evaluator), BY is the safer default.
+
+### 5.5 Layer 2 — Operational leading-indicator monitors (unchanged from v3.0)
+
+EWMA / CUSUM on: retrieval depth, evidence source mix, unsupported-claim score distribution, claim complexity, domain mix, latency / fallback rates.
+
+- 3σ control limits, CUSUM k=0.5/h=4
+- Alerts are operational ("investigate within 24h") not confirmatory
+- NOT part of the audit gate
+
+### 5.6 What this gate does NOT claim
+
+- Does NOT claim lifetime FWER bound.
+- Does NOT claim "standard practice at Google/Anthropic/OpenAI" (no public material).
+- Claims: monthly FDR-within-cadence at q=0.05 under BY (or pre-justified BH).
+
+---
+
+## §6. Gate D — Coverage classifier validity
+
+### 6.1 Six-question contract
+
+| Question | Locked answer |
+|---|---|
+| **Estimand (primary, safety)** | `P(classifier predicts ESCALATE \| claim is truly safety-critical S0/S1)` = **recall** |
+| **Estimand (secondary, workload)** | `P(claim is S0/S1 \| classifier predicts ESCALATE at locked τ, at production prevalence)` = production-prevalence-conditional precision |
+| **Sampling frame** | Per-cell labeled examples (72 cells); precision computed at production-canary prevalence AND at pre-specified prevalence levels (see §6.4) |
+| **Unit of independence** | Example, with scenario-family cluster sensitivity per §3.4 |
+| **Error-control** | Per-cell Wilson lower 95% CI on recall (primary). Precision reported per-cell at multiple prevalence levels. |
+| **Binding rule** | See §6.2 |
+| **Discretion** | Threshold τ, calibration, feature set, classifier version frozen pre-validation (hash-pinned); cell pooling pre-registered |
+
+### 6.2 Binding pass/fail rule
+
+```
+Per cell c with eligible denominators:
+  Recall gate (safety-primary):
+    Lower 95% Wilson CI of recall(c) ≥ 95%
+    Eligibility: N_true_positive(c) ≥ 30
+  
+  Precision gate (workload, NOT safety):
+    Lower 95% Wilson CI of production-prevalence-conditional precision(c) ≥ 90%
+    Eligibility: N_pred_positive_at_τ(c) ≥ 30
+  
+Sparse cells (failing either eligibility): classifier does NOT gate that cell;
+  SME-review fallback applies to all claims in that cell.
+
+Cell pooling hierarchy (pre-registered, invoked only with explicit annotation):
+  Level 1: same domain × adjacent complexity
+  Level 2: same domain × any complexity
+  Level 3: global
+```
+
+### 6.3 Threshold-lock protocol (unchanged from v3.0)
+
+Pre-validation freeze (hash-signed): classifier model weights, feature pipeline, calibration method + calibration set hash, threshold τ (single or per-cell), threshold-selection rule rationale. Post-validation operating-point movement requires §P4 amendment.
+
+### 6.4 Prevalence-standardized precision reporting (NEW v3.1 per Codex round-1 §5)
+
+For each cell c, report precision at multiple prevalence levels:
+
+| Reported quantity | Audit label |
+|---|---|
+| Precision @ gold-set/validation prevalence | "enriched-prevalence — NOT production PPV" |
+| Precision @ production-canary observed prevalence | "production-canary PPV estimate" |
+| Precision @ fixed prevalence levels {1%, 5%, 10%, 30%} | "prevalence-standardized precision curve" |
+
+The binding precision gate uses **production-canary prevalence only**. Other prevalences are reported for capacity planning + comparison across model versions, with explicit non-safety labels.
+
+### 6.5 Why precision is workload, not safety (audit rationale)
+
+Per Altman & Bland (BMJ 1994): positive predictive value depends on prevalence. A classifier at fixed τ has different PPV at 1% positive prevalence vs 30%. Validating on an enriched-positive gold set produces precision that is not production PPV. Recall is conditional on truly-positive — independent of prevalence — so it is the stable safety-primary metric.
+
+---
+
+## §7. Gate E — SME label quality (validity prerequisite for A, B, D)
+
+### 7.1 Six-question contract
+
+| Question | Locked answer |
+|---|---|
+| **Estimand (primary)** | Agreement on binary safety-critical "S0/S1 vs not" |
+| **Estimand (secondary)** | Ordinal agreement on S0/S1/S2/S3 |
+| **Estimand (tertiary)** | Safety-loss table on under-rating rates |
+| **Sampling frame** | Calibration claims independent of gold-set holdout; raters from pre-qualified SME pool |
+| **Unit of independence** | Claim (rater-structure preserved in bootstrap CI) |
+| **Error-control** | Lower 95% CI on primary agreement coefficient |
+| **Binding rule** | See §7.2 |
+| **Discretion** | Coefficient choice per §7.2 rater-design tie-breaker; initial-blinded-labels protocol; 90-day re-calibration cadence |
+
+### 7.2 Binding pass/fail rule (REVISED v3.1 per Codex round-1 §6)
+
+**Coefficient choice — rater-design-conditioned tie-breaker** (locked pre-Phase-0a):
+
+```
+Primary (binary safety-critical, S0/S1 vs not-S0/S1):
+  IF rater design is complete (every calibration item has ≥2 blinded ratings from
+                                a fixed-size panel):
+      → Gwet's AC1
+  IF rater panels are incomplete/varying:
+      → Krippendorff's nominal α
+  
+  Binding gate: lower 95% CI of chosen primary ≥ 0.70
+  Sensitivity (always reported alongside): the other of {AC1, Krippendorff nominal α}
+                                            (because they can diverge materially)
+
+Secondary (ordinal S0/S1/S2/S3):
+  IF rater design is complete:
+      → Linearly-weighted κ (NOT quadratic — too forgiving on adjacent confusion)
+  IF rater design varies:
+      → Krippendorff's ordinal α
+  Reported (not gating): lower 95% CI
+
+Tertiary (safety-loss):
+  Under-rating rate: P(rater label < SME-consensus label by ≥1 grade) per severity
+  Wilson 95% CI per class
+  Reported with elevation: S0→S1/S2/S3, S1→S2/S3 mis-rating rates flagged
+```
+
+**Asymmetric weights NOT used** (per Codex round-1: "raises the obvious audit question: did you tune the weights to make agreement look acceptable?"). Loss analysis is captured via the safety-loss table instead.
+
+**Bootstrap CI method**: B=10000 iterations preserving rater structure. Resampling unit = claim. Hash-pinned random seed.
+
+### 7.3 Initial-blinded-labels protocol (REINFORCED v3.1 per Codex round-1 §6)
+
+IRR is measured on **first-pass blinded labels**, BEFORE any consensus discussion or adjudication. Consensus labels serve as gold-set truth — they are circular as the IRR object.
+
+### 7.4 Sample-size proof via Monte Carlo (locked pre-Phase-0a)
+
+Pre-registered Monte-Carlo simulation must show: at expected severity prevalence and assumed pairwise agreement of κ̂ ≥ 0.75, sample size n_per_class achieves lower 95% CI bound ≥ 0.70 with power ≥ 0.80. Simulation code hash-pinned.
+
+Tentative anchor: 50 paired observations per severity class × 4 classes × 6 domains = **1200 paired calibration labels** total. Final number lockable only after MC sim runs.
+
+---
+
+## §P1. Prerequisite — Retrieval evidence sufficiency (unchanged from v3.0)
+
+| Question | Locked answer |
+|---|---|
+| **Estimand** | `P(evidence pipeline retrieves ≥1 SME-rated-decisive contradictory source for adjudicated S0/S1 fabrication in top-k results)` |
+| **Sampling frame** | Gold-set claims where SME confirms a decisive contradictory source exists in the allowlist |
+| **Unit of independence** | Claim (with scenario-family cluster sensitivity per §3.4) |
+| **Error-control** | Wilson lower 95% CI on top-k retrieval recall |
+| **Binding rule** | Lower 95% CI ≥ 95% at k = production retrieval depth |
+| **Discretion** | k value pre-registered; decisive-source SME labeling protocol pre-registered |
+
+If P1 fails, Gate A is interpretable ONLY as "verifier-on-provided-evidence" — the contract MUST be re-labeled, not silently relaxed.
+
+---
+
+## §P2. Prerequisite — Atomic claim extraction recall (unchanged from v3.0)
+
+| Question | Locked answer |
+|---|---|
+| **Estimand** | `P(S0/S1 factual assertion in report is included in extracted claim set seen by verifier)` |
+| **Sampling frame** | SME-identified S0/S1 factual assertions in held-out generated reports |
+| **Unit of independence** | Assertion (with scenario-family cluster sensitivity) |
+| **Error-control** | Wilson lower 95% CI on extraction recall |
+| **Binding rule** | Lower 95% CI ≥ 95% |
+| **Discretion** | SME-identification protocol pre-registered; "factual assertion" definition pre-registered |
+
+---
+
+## §P3. Prerequisite — Contamination control (data lineage) — EXPANDED v3.1
+
+Per Codex round-1 §7: v3.0's 7-item list misses several leakage paths.
+
+### P3.1 Forbidden uses of gold-set holdout artifacts
+
+**Direct content**:
+
+1. Training data for verifier
+2. Training data for classifier
+3. Tuning/dev set for either
+4. Threshold-selection set
+5. Prompt-iteration history (verifier prompts, generator prompts)
+6. SME calibration examples
+7. Any model fine-tuning, distillation, or DPO training corpus
+
+**Descendant leakage (NEW v3.1)**:
+
+8. Paraphrases of gold-set claims
+9. Translations
+10. Synthetic variants (LLM-generated rephrasings)
+11. Summaries that encode gold-set content
+12. Embeddings derived from gold-set claims (cached vectors)
+13. Model-generated examples seeded from gold-set claims/packets/reports/templates
+
+**Retrieval/index leakage (NEW v3.1)**:
+
+14. Vector stores indexed on gold-set holdout content
+15. Reranker training data
+16. Cached retrieval outputs from gold-set queries
+17. Feature stores encoding gold-set features
+18. Evaluation traces that encode holdout content or labels
+
+**Human-process leakage (NEW v3.1)**:
+
+19. Prompt-iteration notes referencing gold-set examples
+20. Failure taxonomies built from gold-set errors
+21. Analyst notebooks containing gold-set claims/labels
+22. SME training examples drawn from gold set
+23. Reviewer guidelines using gold-set examples
+24. Screenshots of gold-set artifacts in design docs / issue tickets
+
+**Model-selection leakage (NEW v3.1)**:
+
+25. Hyperparameter tuning on gold-set
+26. Early stopping using gold-set metrics
+27. Threshold exploration on gold-set
+28. Calibration on gold-set
+29. Active-learning queue prioritization using gold-set
+30. Ablation decisions informed by gold-set outcomes
+31. Post-error prompt edits informed by gold-set failures
+
+### P3.2 Allowed: ordinary production retrieval
+
+Per Codex round-1: distinguish allowed production retrieval from forbidden constructed holdout artifacts.
+
+**Allowed**:
+
+- Source documents in the LOCKED production retrieval corpus may legitimately appear in retrieval (that IS the estimand).
+- Public scientific literature accessed during production runs is allowed even if the same papers exist in gold-set evidence packets — the retrieval pipeline doesn't know about gold-set status.
+
+**Forbidden**:
+
+- Using gold-set claim **labels** (severity, fabrication status) for any model/prompt development.
+- Using gold-set **constructed scenarios** as templates.
+- Using gold-set **source packets as packets** (i.e., curated bundles).
+- Using known contradiction annotations for development.
+
+The distinguishing rule: production-corpus retrieval is allowed; gold-set-constructed artifacts and labels are forbidden as decision inputs.
+
+### P3.3 Lineage tracking mechanism
+
+- Hash registry: SHA256 of every gold-set claim, source packet, report template, SME label.
+- Append-only audit log: every read/use of these hashes by any pipeline component (training, eval, inference, dashboard).
+- Pre-validation: data-lineage audit signs off. Any hash appearing in a forbidden context → contract invalidated, gold set rebuilt.
+
+Operationalized in `state/data_lineage/` (committed to repo). Pre-Phase-0b sign-off is hard prerequisite.
+
+---
+
+## §P4. Prerequisite — Amendment governance — EXPANDED v3.1
+
+Per Codex round-1 §8.
+
+### P4.1 Amendment categories
+
+**Category 1 — Administrative correction** (no statistical consequence):
+- Typo fixes, cross-reference fixes, section renumbering.
+- Allowed any time, versioned, no fresh holdout.
+
+**Category 2 — Analysis-preserving implementation correction** (NEW v3.1):
+- Bugs in pre-registered analysis code, dependency pin fixes, schema mismatches, deterministic calculation errors.
+- Does NOT alter estimands, thresholds, denominators, decision rules.
+- Allowed after data is seen, BUT requires:
+  - Dual-run report: old-code result, corrected-code result, and rationale.
+  - Hash-pin of both versions in `state/data_lineage/amendments/`.
+  - Operator + Codex sign-off on the dual-run interpretation.
+
+**Category 3 — Design-changing amendment BEFORE relevant outcomes seen**:
+- Threshold change, stratum redefinition, coefficient choice, sample-size change.
+- Allowed with pre-amendment versioned hash-pin.
+- No fresh holdout required IFF amendment precedes outcome unblinding for the affected gate.
+- "Outcome seen" defined gate-specifically (§P4.2).
+
+**Category 4 — Design-changing amendment AFTER outcome data seen**:
+- Pre-amendment analysis becomes EXPLORATORY (not citable as confirmatory).
+- Confirmatory gate requires ONE of:
+  - Fresh sealed holdout (not yet labeled).
+  - Prospectively-defined alpha-spending plan covering both designs.
+  - Bridging validation with conservative methodology + explicit audit label.
+- Silent post-hoc relaxation is FORBIDDEN.
+
+**Category 5 — Post-outcome tightening (NEW v3.1)**:
+- Strictly raising thresholds or narrowing claims after outcomes seen.
+- Less audit-risky than relaxation but still post-hoc.
+- Versioned and labeled; does NOT require fresh holdout UNLESS it changes the confirmatory claim cited.
+
+### P4.2 Gate-specific exposure log (NEW v3.1 per Codex round-1 §8)
+
+"Outcome seen" is not a single event. Different exposures for different gates:
+
+| Gate | Exposure events (any one triggers "outcome seen" for that gate) |
+|---|---|
+| A | Seeing per-stratum miss counts; seeing scenario-family-cluster-adjusted UCB; seeing severity-distribution among misses |
+| B | Seeing report-level miss counts; seeing customer-distribution of any affected reports; seeing actual canary DEFF |
+| C | Seeing monthly cell-level test statistics or p-values; seeing alert decisions |
+| D | Seeing per-cell recall, per-cell precision, eligibility-failure counts |
+| E | Seeing inter-rater agreement coefficients; seeing under-rating-rate confusion matrix |
+| P1 | Seeing retrieval-recall numerator/denominator for adjudicated fabrications |
+| P2 | Seeing extraction-recall numerator/denominator for SME-identified S0/S1 assertions |
+
+Exposure log appended to `state/data_lineage/exposure_log.jsonl`: timestamp + gate + exposure type + person/process. Pre-outcome amendment status determined by this log, not by argument.
+
+### P4.3 Amendment process (unchanged structure, locked v3.1)
+
+1. Author writes amendment proposal with category classification + rationale.
+2. Codex reviews under §-1.1 line-by-line audit standard.
+3. Operator signs off.
+4. Hash-pin updates in `state/data_lineage/amendments/`.
+5. Old version remains immutable in registry.
+
+---
+
+## §8. Pre-registration mechanics (unchanged from v3.0)
+
+Before Phase 0b labeling: hash-pin in `state/polaris_statistical_contract/`:
+
+1. This contract (SHA256)
+2. Analysis code (per-gate, CI/CD-locked)
+3. Denominator definitions (machine-readable)
+4. Random seeds for all bootstrap procedures
+5. Data extract hashes for gold-set construction
+6. Model/prompt/index versions
+7. Threshold values
+8. SME adjudication rules + tiebreak
+9. Amendment rules (§P4) + gate-specific exposure log (§P4.2)
+10. Scenario-family definition (§3.4)
+11. ICC ceiling + surrogate protocol (§4.4)
+12. Pooling hierarchies (§5.3, §6.2)
+13. Prevalence-standardization grid for Gate D (§6.4)
+14. Rater-design coefficient tie-breaker (§7.2)
+15. Forbidden-use list + descendant/index/process/selection leakage rules (§P3)
+
+Internal hash + timestamped commit + access-controlled audit log + co-signature (operator + Codex). Public OSF registration optional.
+
+---
+
+## §9. v3.1 changes summary
+
+| Item | v3.0 | v3.1 |
+|---|---|---|
+| Gate A raw n | Locked at 540/138 | Formula-driven from Phase-0a-observed DEFF; planning estimate ~1024/251 at m̄=10, ICC=0.10 |
+| Gate A primary vs sensitivity | Both reported as gating | Cluster-adjusted Wilson PRIMARY; unclustered = descriptive only |
+| Scenario-family criterion 4 | Microtopic+stratum | Microtopic+stratum + 1 additional correlation source |
+| Scenario-family criterion 5 (NEW) | — | Prompt family (generator OR verifier) |
+| Family assignment | Implicit | Pairwise-only (LOCKED) |
+| Gate B surrogate ICC | Narrative protocol | Computational: 1 primary + 2 secondaries pre-designated; formal escalation rule |
+| Gate B DEFF audit | Implicit | Pre-unblinding DEFF + concentration audit required |
+| Gate C BH vs BY | BH default, BY if dependent | **BY default**, BH only via pre-registered simulation |
+| Gate D precision | Single production-canary value | Prevalence-standardized table + production-canary + enriched-validation (with labels) |
+| Gate E coefficient | Gwet AC1 primary | Rater-design tie-breaker: complete → AC1, varying → Krippendorff α |
+| §P3 leakage | 7 items | 31 items across direct/descendant/index/process/selection categories + allowed-vs-forbidden distinction |
+| §P4 amendments | 3 categories | 5 categories: admin / implementation / pre-outcome design / post-outcome design / post-outcome tightening + gate-specific exposure log |
+| §10 (NEW) | — | Claim license table |
+
+---
+
+## §10. Claim license table (NEW v3.1 per Codex round-1 framework-level)
+
+For each gate / prerequisite, the EXACT sentence POLARIS is allowed to say on pass and the EXACT downgrade-sentence on fail. Marketing/audit language MUST conform to this table.
+
+### Gate A
+
+**Pass sentence**: "Within the locked gold-set construction scope, for adjudicated fabrications in severity stratum S1 (resp. S2), the cluster-adjusted Wilson one-sided 95% upper confidence bound on the verifier's miss probability is ≤0.5% (resp. ≤2.0%) at the pre-registered ICC ceiling of 0.10."
+
+**Fail sentence**: "Gate A did not meet the pre-registered cluster-adjusted upper confidence bound. The verifier's miss probability on the gold-set scope cannot be claimed to lie below the pre-registered threshold at the registered confidence level."
+
+**Forbidden**: any sentence projecting Gate A to production population miss rate without explicit weighting + sensitivity analysis (per Codex Finding 4 dialogue).
+
+### Gate B
+
+**Pass sentence**: "On the production-canary report-level holdout with ≥30 distinct customers and no customer contributing >20% of reports, the cluster-adjusted Wilson one-sided 95% upper confidence bound on the probability that a report contains ≥1 missed S0/S1 fabrication is ≤5% at the pre-registered ICC ceiling of 0.10."
+
+**Fail sentence**: "Gate B did not meet the pre-registered cluster-adjusted upper bound. Production-canary report-level safety performance cannot be claimed below the pre-registered threshold."
+
+**Forbidden**: claiming the bound holds outside the canary eligibility filter (PHI-redacted, in-scope domain, complete pipeline run).
+
+### Gate C
+
+**Pass sentence**: "For the most recent monthly monitoring cycle, no eligible cell breached the pre-registered drift threshold under Benjamini-Yekutieli FDR control at q=0.05 with the 2-of-3-windows persistence rule."
+
+**Fail sentence**: "One or more cells alerted under the monthly BY-FDR control with persistence. Investigation pending per pre-registered SOP. The system has NOT silently passed."
+
+**Forbidden**: claiming "no drift detected" without scoping to the cadence and FDR procedure. Lifetime stability is NOT asserted.
+
+### Gate D
+
+**Pass sentence**: "Per cell with eligible denominators (N_true_positive ≥30 for recall, N_pred_positive_at_τ ≥30 for precision), the lower 95% Wilson CI of recall is ≥95% AND of production-canary-prevalence-conditional precision is ≥90% at the locked classifier τ."
+
+**Fail sentence**: "Gate D did not meet recall or precision lower-CI thresholds on one or more eligible cells. Classifier-based gating is suspended in failing cells; SME-review fallback applies."
+
+**Forbidden**: stating precision figures from enriched-validation prevalence as production PPV.
+
+### Gate E
+
+**Pass sentence**: "Among blinded first-pass SME labels on the calibration set, the lower 95% bootstrap CI of [Gwet's AC1 / Krippendorff's nominal α — per rater design] on the binary safety-critical distinction is ≥0.70."
+
+**Fail sentence**: "Gate E did not achieve the lower-CI ≥0.70 on binary safety-critical agreement. Gates A, B, and D are NOT interpretable until Gate E is reestablished."
+
+**Forbidden**: citing Gate E from consensus labels (only blinded first-pass labels are valid).
+
+### Prerequisites P1, P2
+
+**P1 pass**: "For adjudicated S0/S1 fabrications with a known decisive contradictory source in the allowlist, the lower 95% Wilson CI of top-k retrieval recall is ≥95% at the production retrieval depth."
+
+**P2 pass**: "For SME-identified S0/S1 factual assertions in held-out reports, the lower 95% Wilson CI of extraction recall is ≥95%."
+
+**Either fail**: "Gate A is interpretable only as 'verifier-given-provided-evidence-and-extracted-claims', not as end-to-end production-claim safety."
+
+### Prerequisite P3 (always cited)
+
+**Citation requirement**: every publication of pass-sentences A/B/C/D/E must include reference to the data-lineage audit completion timestamp (`state/data_lineage/audit_sign_off.txt` hash-pin) and the gold-set construction lockdown commit.
+
+---
+
+## §11. Codex v3.1 round-2 review request
+
+Round 1 closed 8 items: cluster-arithmetic, scenario-family criterion 4, ICC surrogate, BH/BY trigger, precision prevalence-standardization, AC1/Krippendorff tie-breaker, P3 leakage, P4 categories. v3.1 implements each. Plus added §10 claim license table per your framework-level recommendation.
+
+### Round 2 questions
+
+1. **§3.2 formula-driven raw n**: does separating "locked formula at v3.1" from "locked numbers at v3.2 after Phase 0a" satisfy your "denominator inconsistency" concern? Or does it create a new audit hole by deferring the binding number?
+
+2. **§3.4 scenario-family v3.1 revision**: does pairwise-only + criterion-5 restriction + new criterion-4 (prompt family) + Phase-0a family-size audit prerequisite together close your "giant connected component" risk?
+
+3. **§4.4 surrogate ICC computational protocol**: are the 3 pre-designated surrogates the right choice? Is the escalation rule (max point estimate > 0.10 OR primary upper-bound > 0.15) calibrated correctly?
+
+4. **§5.4 BY default with conditional BH**: is the 4-condition BH-validity gate sufficient, or are there scenarios where BH is justified that this rule wouldn't allow?
+
+5. **§6.4 prevalence-standardized precision**: is the {1%, 5%, 10%, 30%} grid appropriate, or should it be calibrated to anticipated production prevalence?
+
+6. **§7.2 rater-design tie-breaker**: is "complete vs incomplete panel" the right axis, or are there cases where AC1 is preferable even with incomplete panels (or Krippendorff with complete panels)?
+
+7. **§P3 leakage expansion**: any further leakage paths I haven't covered? Specifically thinking about evaluation-time leakage (e.g., LLM-as-judge contamination) — is that captured?
+
+8. **§P4 5-category structure + gate-specific exposure log**: workable? Does the exposure-log mechanism actually prevent the "I peeked at one number but didn't really see the outcome" argument?
+
+9. **§10 claim license table**: is the per-gate pass/fail/forbidden language tight enough, or are there sentences POLARIS could plausibly use that this table doesn't constrain?
+
+### Round 2 framework-level
+
+Is v3.1 lockable as the pre-registration draft (with v3.2 = the post-Phase-0a numerical specification), or is there still a methodology gap I'm missing?
+
+### Output format
+
+Long-form prose, no YAML. Direct answer per numbered question (≤250 words each). Framework assessment ≤400 words. Conclude with: "lock as pre-registration draft pending Phase 0a numerical specification" OR "round 3 needed on [items]".
+
+Web research as needed. Cite sources. Co-designing.
+
+codex
+I’ll verify the statistical references behind the points you’re asking about, then I’ll give a gate-by-gate audit answer rather than treating this as copyediting.
+web search: 
+web search: Wilson score interval zero events one-sided confidence interval formula z squared n ...
+web search: 
+web search: Gwet AC1 chance corrected agreement coefficient prevalence paradox complete raters missing data ...
+web search: 
+web search: intraclass correlation coefficient one-way random effects ANOVA estimator sigma between sigma within ...
+web search: 
+web search: Brown Cai DasGupta 2001 interval estimation binomial proportion Wilson score interval recommended zero events ...
+web search: 
+web search: Kerry Bland unequal cluster sizes design effect sum mi squared over sum mi formula ICC ...
+web search: 
+web search: https://itl.nist.gov/div898/handbook/prc/section2/prc241.htm
+web search: 
+web search: https://pmc.ncbi.nlm.nih.gov/articles/PMC1456787/
+web search: 
+web search: Benjamini Yekutieli 2001 control false discovery rate dependency paper pdf arbitrary dependence PRDS ...
+web search: 
+web search: BMJ 1994 Altman Bland Diagnostic tests 2 Predictive values prevalence full text ...
+codex
+1. **§3.2 formula-driven raw n**  
+Yes, separating the locked formula from the Phase-0a numerical lock is conceptually sound and removes the v3.0 denominator inconsistency, provided Phase 0a observes only design structure, not outcomes. But v3.1 still has two Gate A fixes before lock. First, S2’s integer effective-n minimum should be **133**, not 132: for zero events, the one-sided Wilson upper bound is `z² / (n + z²)`, so `z=1.6449`, `UCB=0.02` gives `n ≥ 132.58`. NIST’s Wilson formula supports this derivation. Second, the binding analysis should use **final analyzed gold-set DEFF**, or `max(Phase0a_DEFF, final_DEFF)`, computed before outcome unblinding. A pilot DEFF alone is not enough if final cluster sizes drift. Cochrane’s effective-sample-size framing is consistent with `n / DEFF`. ([itl.nist.gov](https://itl.nist.gov/div898/handbook/prc/section2/prc241.htm)) ([training.cochrane.org](https://training.cochrane.org/handbook/current/chapter-23))
+
+2. **§3.4 scenario-family revision**  
+It reduces the giant connected-component risk, but it does not fully close it because “pairwise-only family assignment” is not a cluster partition. The DEFF formula using `Σm_i² / Σm_i` assumes non-overlapping clusters. Pairwise relations can be non-transitive: A related to B, B related to C, A not related to C. That cannot be summarized as simple `m_i` without an additional deterministic rule. Either define a partitioning precedence rule, or switch the DEFF calculation to a pairwise-correlation form: `DEFF = 1 + 2ρP/N`, where `P` is the number of related claim pairs. That preserves the pairwise intent and avoids transitive blow-up. Also fix the criterion numbering mismatch between §3.4 and §9. Variable cluster-size effects are real, so this cannot stay ambiguous. ([pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC8320970/))
+
+3. **§4.4 surrogate ICC protocol**  
+The three surrogates are defensible, with source-disagreement frequency the best primary candidate because it is closest to missed-fabrication risk. Evidence completeness and retrieval-tier prevalence are useful but more process-proxy than outcome-proxy. I would add one verifier-native pre-outcome surrogate, such as unsupported-claim score, verifier escalation rate, fallback rate, or verifier confidence dispersion, because customer clustering may enter through verifier behavior rather than retrieval alone. The escalation rule is conservative enough, but two implementation details need tightening: define the one-sided ICC CI method, and replace `ceil(max_observed × 1.5)` with “round up to nearest 0.01 or 0.05.” Mathematical `ceil(0.11 × 1.5)` equals 1.0, which is almost certainly not intended. For proportion surrogates, predefine weighting or a mixed/binomial method because one-way ANOVA on raw proportions can be heteroskedastic.
+
+4. **§5.4 BY default with conditional BH**  
+BY default is the right audit posture. BH is valid under independence and certain positive-dependence conditions, while BY is the conservative generalization under arbitrary dependence; that matches the monitoring setting, where shared retrieval, customer mix, evaluator, and prompts make dependence plausible. The four-condition BH gate is sufficient as a conservative permission rule, but it excludes some valid BH cases: a formal analytic proof of independence/PRDS, a locked resampling FDR procedure, or a known positive Gaussian dependence structure. I would allow “analytic proof of BH validity” as an alternative to baseline simulation. Also, the simulation should estimate actual FDR under global and partial-null configurations, not merely the correlation matrix. ([stat.berkeley.edu](https://www.stat.berkeley.edu/~wfithian/fdr-dependence.pdf))
+
+5. **§6.4 prevalence-standardized precision**  
+The `{1%, 5%, 10%, 30%}` grid is useful for version comparison, but it should not be the only standardized grid unless production S0/S1 prevalence is plausibly in that range. For safety-critical events, production prevalence may be below 1%, where PPV can collapse even with strong recall/specificity. Add a production-centered log grid, for example `{0.1%, 0.5%, 1%, 2%, 5%, 10%, 30%}`, plus the observed canary prevalence and its CI. Binding on production-canary prevalence is correct, but the PPV interval should propagate uncertainty in both classifier performance and prevalence. Predictive values are prevalence-dependent, so the explicit labeling is methodologically necessary. ([bmj.com](https://www.bmj.com/content/329/7458/168?utm_source=openai))
+
+6. **§7.2 rater-design tie-breaker**  
+Complete versus incomplete panel is a reasonable primary axis, but it is not the only relevant one. Incomplete or varying panels strongly favor Krippendorff’s α because it handles missingness and variable rater counts directly; this is supported by simulation literature recommending α when missing data or non-nominal scales are present. With complete panels, AC1 is reasonable for the binary safety-critical gate, especially under rare positive prevalence where kappa-like coefficients can behave poorly. But Krippendorff can still be preferable with complete panels if the design prioritizes a single coefficient family across binary and ordinal analyses. I would lock the current rule, report both, and add a missingness/prevalence audit so the coefficient choice cannot be challenged as opportunistic. ([bmcmedresmethodol.biomedcentral.com](https://bmcmedresmethodol.biomedcentral.com/articles/10.1186/s12874-016-0200-9))
+
+7. **§P3 leakage expansion**  
+The expansion is strong, but evaluation-time leakage should be explicit. Add a subsection for LLM-as-judge and evaluator leakage: judge model, judge prompt, rubric, exemplars, tool/RAG index, memory, cached rationales, and evaluator traces must not be trained, tuned, selected, or revised using gold-set artifacts or descendants. Also require provider-side data-retention/training opt-out for any external judge API, frozen judge model snapshot, and no use of judge outputs to revise prompts before the gate is complete. This is partly covered by items 18 and 19-31, but not tightly enough for LLM evaluation. Recent LLM benchmark work treats test contamination and judge-related bias as first-order evaluation risks. ([arxiv.org](https://arxiv.org/abs/2502.01534)) ([arxiv.org](https://arxiv.org/abs/2406.19314))
+
+8. **§P4 5-category structure + exposure log**  
+The structure is workable, and the exposure log does address the “I peeked but didn’t really see it” argument if logging is automatic, append-only, and attached to artifact access, dashboards, notebooks, stdout, CI logs, and analysis exports. Manual self-report is not enough. One conflict needs fixing: §4.4 requires actual canary DEFF before outcome unblinding, while §P4.2 says seeing actual canary DEFF makes Gate B “outcome seen.” DEFF is analysis-relevant structural exposure, not an outcome. Split the log into `structural_exposure` and `outcome_exposure`. Amendments touching clustering, eligibility, ICC, or sample size after structural exposure should be restricted, but they should not be mislabeled as post-outcome amendments.
+
+9. **§10 claim license table**  
+The table is tight but needs a global anti-overclaim layer. Add forbidden language for: “zero hallucinations,” “clinically safe,” “production-wide bound,” “95% overall confidence,” “regulatory-grade validation,” “all future versions,” and “all domains/customers” unless independently supported. Gate A and B pass sentences should parameterize the ICC ceiling as `0.10 or escalated value X`, not hard-code 0.10. Gate C should mention sparse-cell rollups or non-tested cells when present. Gate D should say classifier-based gating is eligible only in passing cells and that precision is workload, not safety. P1/P2 failure language should be mandatory anywhere Gate A is cited. Also require every pass sentence to name the model/prompt/index version and monitoring window.
+
+**Framework Assessment**  
+v3.1 is materially stronger than v3.0. The large conceptual problems from round 1 are mostly closed: Wilson denominator logic is now formula-based, Gate A is cluster-adjusted as primary, BY is the monitoring default, precision is prevalence-scoped, SME IRR is first-pass blinded, and P3/P4 are much harder to game.
+
+I would not lock v3.1 exactly as written. The remaining issues are not philosophical, but they touch binding analysis mechanics. Gate A has an S2 off-by-one error. More importantly, using Phase-0a DEFF alone for the confirmatory analysis is weaker than using the final analyzed gold-set DEFF pre-unblinding. The scenario-family “pairwise-only” design also needs either a partition rule or a pairwise DEFF formula; otherwise the text defines related pairs while the math expects clusters. Those are audit-relevant denominator issues, not wording nits.
+
+There are also two smaller but real fixes: §4.4’s ICC escalation rounding is ambiguous, and §P4’s exposure log conflates structural exposure with outcome exposure. Both are easy to repair but should be repaired before hash-locking.
+
+round 3 needed on Gate A final-DEFF binding/S2 off-by-one, scenario-family pairwise-DEFF or partition rule, ICC escalation rounding, and structural-vs-outcome exposure logging
+tokens used
+74,343
+1. **§3.2 formula-driven raw n**  
+Yes, separating the locked formula from the Phase-0a numerical lock is conceptually sound and removes the v3.0 denominator inconsistency, provided Phase 0a observes only design structure, not outcomes. But v3.1 still has two Gate A fixes before lock. First, S2’s integer effective-n minimum should be **133**, not 132: for zero events, the one-sided Wilson upper bound is `z² / (n + z²)`, so `z=1.6449`, `UCB=0.02` gives `n ≥ 132.58`. NIST’s Wilson formula supports this derivation. Second, the binding analysis should use **final analyzed gold-set DEFF**, or `max(Phase0a_DEFF, final_DEFF)`, computed before outcome unblinding. A pilot DEFF alone is not enough if final cluster sizes drift. Cochrane’s effective-sample-size framing is consistent with `n / DEFF`. ([itl.nist.gov](https://itl.nist.gov/div898/handbook/prc/section2/prc241.htm)) ([training.cochrane.org](https://training.cochrane.org/handbook/current/chapter-23))
+
+2. **§3.4 scenario-family revision**  
+It reduces the giant connected-component risk, but it does not fully close it because “pairwise-only family assignment” is not a cluster partition. The DEFF formula using `Σm_i² / Σm_i` assumes non-overlapping clusters. Pairwise relations can be non-transitive: A related to B, B related to C, A not related to C. That cannot be summarized as simple `m_i` without an additional deterministic rule. Either define a partitioning precedence rule, or switch the DEFF calculation to a pairwise-correlation form: `DEFF = 1 + 2ρP/N`, where `P` is the number of related claim pairs. That preserves the pairwise intent and avoids transitive blow-up. Also fix the criterion numbering mismatch between §3.4 and §9. Variable cluster-size effects are real, so this cannot stay ambiguous. ([pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC8320970/))
+
+3. **§4.4 surrogate ICC protocol**  
+The three surrogates are defensible, with source-disagreement frequency the best primary candidate because it is closest to missed-fabrication risk. Evidence completeness and retrieval-tier prevalence are useful but more process-proxy than outcome-proxy. I would add one verifier-native pre-outcome surrogate, such as unsupported-claim score, verifier escalation rate, fallback rate, or verifier confidence dispersion, because customer clustering may enter through verifier behavior rather than retrieval alone. The escalation rule is conservative enough, but two implementation details need tightening: define the one-sided ICC CI method, and replace `ceil(max_observed × 1.5)` with “round up to nearest 0.01 or 0.05.” Mathematical `ceil(0.11 × 1.5)` equals 1.0, which is almost certainly not intended. For proportion surrogates, predefine weighting or a mixed/binomial method because one-way ANOVA on raw proportions can be heteroskedastic.
+
+4. **§5.4 BY default with conditional BH**  
+BY default is the right audit posture. BH is valid under independence and certain positive-dependence conditions, while BY is the conservative generalization under arbitrary dependence; that matches the monitoring setting, where shared retrieval, customer mix, evaluator, and prompts make dependence plausible. The four-condition BH gate is sufficient as a conservative permission rule, but it excludes some valid BH cases: a formal analytic proof of independence/PRDS, a locked resampling FDR procedure, or a known positive Gaussian dependence structure. I would allow “analytic proof of BH validity” as an alternative to baseline simulation. Also, the simulation should estimate actual FDR under global and partial-null configurations, not merely the correlation matrix. ([stat.berkeley.edu](https://www.stat.berkeley.edu/~wfithian/fdr-dependence.pdf))
+
+5. **§6.4 prevalence-standardized precision**  
+The `{1%, 5%, 10%, 30%}` grid is useful for version comparison, but it should not be the only standardized grid unless production S0/S1 prevalence is plausibly in that range. For safety-critical events, production prevalence may be below 1%, where PPV can collapse even with strong recall/specificity. Add a production-centered log grid, for example `{0.1%, 0.5%, 1%, 2%, 5%, 10%, 30%}`, plus the observed canary prevalence and its CI. Binding on production-canary prevalence is correct, but the PPV interval should propagate uncertainty in both classifier performance and prevalence. Predictive values are prevalence-dependent, so the explicit labeling is methodologically necessary. ([bmj.com](https://www.bmj.com/content/329/7458/168?utm_source=openai))
+
+6. **§7.2 rater-design tie-breaker**  
+Complete versus incomplete panel is a reasonable primary axis, but it is not the only relevant one. Incomplete or varying panels strongly favor Krippendorff’s α because it handles missingness and variable rater counts directly; this is supported by simulation literature recommending α when missing data or non-nominal scales are present. With complete panels, AC1 is reasonable for the binary safety-critical gate, especially under rare positive prevalence where kappa-like coefficients can behave poorly. But Krippendorff can still be preferable with complete panels if the design prioritizes a single coefficient family across binary and ordinal analyses. I would lock the current rule, report both, and add a missingness/prevalence audit so the coefficient choice cannot be challenged as opportunistic. ([bmcmedresmethodol.biomedcentral.com](https://bmcmedresmethodol.biomedcentral.com/articles/10.1186/s12874-016-0200-9))
+
+7. **§P3 leakage expansion**  
+The expansion is strong, but evaluation-time leakage should be explicit. Add a subsection for LLM-as-judge and evaluator leakage: judge model, judge prompt, rubric, exemplars, tool/RAG index, memory, cached rationales, and evaluator traces must not be trained, tuned, selected, or revised using gold-set artifacts or descendants. Also require provider-side data-retention/training opt-out for any external judge API, frozen judge model snapshot, and no use of judge outputs to revise prompts before the gate is complete. This is partly covered by items 18 and 19-31, but not tightly enough for LLM evaluation. Recent LLM benchmark work treats test contamination and judge-related bias as first-order evaluation risks. ([arxiv.org](https://arxiv.org/abs/2502.01534)) ([arxiv.org](https://arxiv.org/abs/2406.19314))
+
+8. **§P4 5-category structure + exposure log**  
+The structure is workable, and the exposure log does address the “I peeked but didn’t really see it” argument if logging is automatic, append-only, and attached to artifact access, dashboards, notebooks, stdout, CI logs, and analysis exports. Manual self-report is not enough. One conflict needs fixing: §4.4 requires actual canary DEFF before outcome unblinding, while §P4.2 says seeing actual canary DEFF makes Gate B “outcome seen.” DEFF is analysis-relevant structural exposure, not an outcome. Split the log into `structural_exposure` and `outcome_exposure`. Amendments touching clustering, eligibility, ICC, or sample size after structural exposure should be restricted, but they should not be mislabeled as post-outcome amendments.
+
+9. **§10 claim license table**  
+The table is tight but needs a global anti-overclaim layer. Add forbidden language for: “zero hallucinations,” “clinically safe,” “production-wide bound,” “95% overall confidence,” “regulatory-grade validation,” “all future versions,” and “all domains/customers” unless independently supported. Gate A and B pass sentences should parameterize the ICC ceiling as `0.10 or escalated value X`, not hard-code 0.10. Gate C should mention sparse-cell rollups or non-tested cells when present. Gate D should say classifier-based gating is eligible only in passing cells and that precision is workload, not safety. P1/P2 failure language should be mandatory anywhere Gate A is cited. Also require every pass sentence to name the model/prompt/index version and monitoring window.
+
+**Framework Assessment**  
+v3.1 is materially stronger than v3.0. The large conceptual problems from round 1 are mostly closed: Wilson denominator logic is now formula-based, Gate A is cluster-adjusted as primary, BY is the monitoring default, precision is prevalence-scoped, SME IRR is first-pass blinded, and P3/P4 are much harder to game.
+
+I would not lock v3.1 exactly as written. The remaining issues are not philosophical, but they touch binding analysis mechanics. Gate A has an S2 off-by-one error. More importantly, using Phase-0a DEFF alone for the confirmatory analysis is weaker than using the final analyzed gold-set DEFF pre-unblinding. The scenario-family “pairwise-only” design also needs either a partition rule or a pairwise DEFF formula; otherwise the text defines related pairs while the math expects clusters. Those are audit-relevant denominator issues, not wording nits.
+
+There are also two smaller but real fixes: §4.4’s ICC escalation rounding is ambiguous, and §P4’s exposure log conflates structural exposure with outcome exposure. Both are easy to repair but should be repaired before hash-locking.
+
+round 3 needed on Gate A final-DEFF binding/S2 off-by-one, scenario-family pairwise-DEFF or partition rule, ICC escalation rounding, and structural-vs-outcome exposure logging

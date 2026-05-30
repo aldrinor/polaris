@@ -1,0 +1,575 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e6b3a-6560-7b52-9ec8-649feb65fed9
+--------
+user
+# v3.3 final confirmation — close-out before lock
+
+## Why this brief
+
+You said round 3 verdict: "lock as pre-registration draft pending Phase 0a numerical specification." Remaining items were 10 local text patches. v3.3 applies each. This brief asks **only**: do the 10 patches do what they should, without introducing new issues?
+
+NOT another design round. NOT broad redesign. Just confirm the 10 patches.
+
+## Constraints
+
+- No filesystem search.
+- Treat this as final close-out, not iterative review.
+- Answer per-item: ✓ closed, △ small wording fix needed, ✗ patch broke something.
+
+## v3.3 patches against your round-3 items
+
+| # | Round-3 item | v3.3 patch |
+|---|---|---|
+| 1 | §3.2 final-DEFF as structural exposure; per-stratum P_final, N_final, degree, relation-table, DEFF_binding | §P4.2 structural-exposure row added explicitly; §3.2 text mentions Phase-0b lock hash-pin |
+| 2 | §3.4 pair deduplication | §3.4 explicit "pair deduplication required: deterministic OR over criteria, stored as boolean per pair"; saturation math confirmed |
+| 3 | §4.4 escalation: minimum-0.15 inside escalation branch only + cap at 1.0 + tolerance | §4.4 pseudocode: `1e-12` tolerance + cap at 1.0 + minimum inside escalation branch |
+| 4 | §4.4 logit-ANOVA → beta-binomial / logistic-normal GLMM primary | §4.4 ICC estimator REVISED: GLMM primary (Nakagawa-Schielzeth); empirical-logit weighted ANOVA as convergence fallback |
+| 5 | §5.4 Path 3 wording: "alternative procedure" not "BH allowed" | §5.4 heading: "A less-conservative-than-BY binding procedure is allowed iff"; Path 3 stated as its own alternative |
+| 6 | §6.4 PPV CI: joint vs separate sample, logit-scale OR constrained beta/binomial draws | §6.4 explicit branching: joint cluster bootstrap if same sample, independent if separate; logit-scale or constrained beta/binomial draws to avoid impossible values |
+| 7 | §7.2 blinded sign-off: named custodian + timestamp + hashes + statement, NOT independent third-party audit | §7.2.1 added: lightweight blinded sign-off with named custodian, timestamp, artifact hashes, signed non-viewing statement; explicit "NOT independent third-party audit" |
+| 8 | §P3.4 mechanistic / hidden-state judge leakage explicit | §P3.4 item #41 NEW: hidden states, attention maps, logits/logprobs, embeddings, activation patches, mechanistic-interp outputs, gradient-like traces |
+| 9 | §P4.2 explicit row for denominator distributions as structural; agreement coefficient values as outcome | §P4.2 explicit rows added for both |
+| 10 | §10.0 add autonomy-implying phrases | §10.0 expanded from 8 to 18 forbidden phrases (added: AI-verified, machine-checked [with carve-out for formal checker], auto-validated, self-auditing, certified, guaranteed safe, hallucination-free, formally verified, validated for production, human-equivalent review) |
+
+## Ask
+
+For each numbered item: ✓ / △ / ✗ with ≤80 words explanation. Then a single line:
+
+- **"Lock v3.3 as pre-registration draft"** OR
+- **"Apply [list of small fixes] and lock"** OR  
+- **"v3.4 round needed on [items]"**
+
+If "Lock v3.3," I will:
+
+1. Hash-sign v3.3 in `state/polaris_statistical_contract/v3_3/`
+2. Surface the contract to operator with the convergence trail
+3. Mark Phase 0a as the next operational step
+
+No new statistical research needed for this brief; web search only if a v3.3 patch made a factual error.
+# POLARIS Statistical Safety Contract — v3.3 (LOCKED PRE-REGISTRATION DRAFT)
+
+**Status**: Codex round-3 verdict "lock as pre-registration draft pending Phase 0a numerical specification." v3.3 applies 10 local text patches from round 3.
+
+**Diff from v3.2**: 10 local edits, no architectural change. Items 1, 4, 5 changed methodology details (logit-ANOVA → beta-binomial GLMM primary; Path 3 wording; mechanistic-judge leakage explicit). Items 2, 3, 6-10 are wording/tolerance/governance refinements.
+
+**Numerical lock**: this contract locks formulas, methodology, and governance. Numbers (raw n per stratum, ICC ceiling if escalated, etc.) lock at v3.4 after Phase 0a outputs are observed.
+
+**Authors**: Claude (Opus 4.7) + Codex (5.5), co-designed across 3 rounds. NO external statistician — operator instruction 2026-05-27 ("Codex 5.5 + Claude 4.7 with max reasoning power... combine effort... only bill I can pay is your API fee").
+
+---
+
+## §1. Framework (unchanged from v3.0-v3.2)
+
+Six-question contract per gate. Intersection-union conjunctive release. No Bonferroni across gates. "All gates passed" ≠ "95% overall confidence."
+
+---
+
+## §2. Severity scale (unchanged)
+
+S0=critical > S1=high > S2=medium > S3=low; SUPPORTED = verified.
+
+---
+
+## §3. Gate A — Per-stratum claim-level fabrication safety
+
+### 3.1 Six-question contract (unchanged from v3.1-v3.2)
+
+| Question | Locked answer |
+|---|---|
+| **Estimand** | `P(verifier fails to flag/escalate an adjudicated fabrication of severity S \| fabricated claim is in stratum S AND enters verifier)` for S ∈ {S0, S1, S2} |
+| **Sampling frame** | Gold-set claims, 6 domains × 3 complexity × 4 evidence-pool sizes, SME-adjudicated severity per Gate E |
+| **Unit of independence** | Claim with cluster-adjusted binding analysis using pairwise scenario-family relations (§3.4) and ICC ceiling per §4.4 |
+| **Error-control** | Per-stratum cluster-adjusted Wilson one-sided 95% UCB. Per-domain = observability only. No unweighted population claim. |
+| **Binding rule** | See §3.2 |
+| **Discretion** | All hash-pinned pre-Phase-0b |
+
+### 3.2 Binding pass/fail rule
+
+**Locked UCB targets and corrected n_eff minimums** (S2 corrected to 133 per Codex round-2):
+
+| Stratum | UCB target | z | n_eff_required (Wilson zero-event, integer ceil) |
+|---|---|---|---|
+| S1 | ≤ 0.5% one-sided 95% | 1.6449 | `ceil(z²/0.005 − z²) = 539` |
+| S2 | ≤ 2.0% one-sided 95% | 1.6449 | `ceil(z²/0.02 − z²) = 133` |
+| S0 | n/a — policy sentinel | n/a | ≥50 stress-test items, 0 misses |
+
+**Locked formula**:
+
+```
+n_eff_required(S) = ceil(z²/UCB_target(S) − z²)
+Required raw n(S) = ceil(n_eff_required(S) × DEFF_binding)
+DEFF_binding = max(DEFF_Phase0a_pilot, DEFF_final_gold_set)  computed pre-unblinding
+DEFF = 1 + 2 × P × ρ / N  (pairwise DEFF formula, §3.4)
+```
+
+**Planning estimate** (P/N≈5, ρ=0.10): DEFF≈2.0 → raw n(S1)≈1078, raw n(S2)≈266.
+
+**Phase 0a outputs hash-pinned**: P_pilot, N_pilot, P_pilot/N_pilot + 95% bootstrap CI, DEFF_Phase0a_pilot.
+
+**Phase 0b lock hash-pinned**: P_final, N_final, DEFF_final_gold_set, DEFF_binding.
+
+If DEFF_binding > 2.5, §P4 Category-3 amendment required.
+
+**Phase 0a sees STRUCTURE only**, not outcomes — see §P4.2.
+
+### 3.3 Primary vs sensitivity reporting (unchanged from v3.1-v3.2)
+
+PRIMARY: cluster-adjusted Wilson UCB at n_eff = n_raw/DEFF_binding, ρ=ICC ceiling.
+DESCRIPTIVE: naive Wilson at raw n, labeled "unclustered descriptive — not the confirmatory gate."
+SENSITIVITY: ρ=0.20 stress, informational.
+
+### 3.4 Scenario-family pairwise relations + pairwise DEFF
+
+**Pairwise relation rules** (unchanged from v3.2): two claims are scenario-family-related iff ANY of criteria 1-5 (same report, evidence Jaccard≥0.5, same template/SME/24h, same prompt family, microtopic+stratum+correlation).
+
+**Pairwise DEFF formula**:
+
+```
+DEFF = 1 + 2 × P × ρ / N
+  N = total claims in stratum
+  P = total unordered pairs of related claims in stratum (deduplicated; see below)
+  ρ = ICC ceiling per §4.4
+
+Edge cases (Codex round-3 confirmed):
+  P=0 → DEFF=1
+  P=N(N-1)/2 (saturation) → DEFF = 1 + (N-1)ρ (exchangeable cluster)
+  saturation does not break the formula; it just collapses n_eff
+
+Mitigations:
+  - **Pair deduplication required** (NEW v3.3 per Codex round-3): if a pair
+    satisfies multiple criteria, it counts as ONE related pair, not multiple.
+    Implementation: deterministic OR over criteria, stored as boolean per pair.
+  - ρ=0.20 sensitivity retained (covers missed positive correlations among
+    "unrelated" pairs and true pair correlations above ICC ceiling).
+```
+
+**Audit prerequisite**: max claim degree, 95th-percentile degree — committed pre-Phase-0b. 95th-percentile > 25 triggers refinement.
+
+**Pairwise lookup table**: (claim_id_i, claim_id_j) → related? boolean, hash-pinned.
+
+### 3.5 What this gate does NOT claim (unchanged)
+
+---
+
+## §4. Gate B — Per-report safety-critical fabrication
+
+### 4.1-4.3 (unchanged from v3.1-v3.2)
+
+Customer is naturally partitioned → variable-cluster DEFF `1 + ((Σm_i²/Σm_i)−1)ρ` remains correct here (in contrast to Gate A's pairwise structure).
+
+```
+UCB(report, k=0, n_eff) ≤ 5%  one-sided 95% Wilson
+n_eff = n_raw / DEFF_customer
+DEFF_customer = 1 + ((Σ m_i²/Σ m_i) − 1) × ρ_customer
+Structural prerequisites: ≥30 customers, no customer >20% of reports.
+```
+
+### 4.4 ICC justification protocol (REVISED v3.3 per Codex round-3 §4)
+
+**Pre-designated surrogates** (unchanged from v3.2): 4 surrogates (source-disagreement primary; evidence-completeness, retrieval-tier, verifier escalation rate as secondaries).
+
+**ICC estimator** (REVISED v3.3 per Codex round-3 §4):
+
+```
+PRIMARY: beta-binomial / logistic-normal random-intercept GLMM where
+  denominators are available (statsmodels.BinomialBayesMixedGLM or
+  glmmTMB equivalent in R).
+  
+  ICC computed via Nakagawa-Schielzeth distribution-specific variance for
+  binomial GLMM (Nakagawa, Johnson, Schielzeth 2017).
+  
+  Locked random seed for any MCMC/variational inference.
+
+SENSITIVITY / CONVERGENCE FALLBACK: empirical-logit weighted ANOVA on
+  per-customer proportions with:
+    - Continuity correction +0.5/+1 for boundary proportions (Haldane-Anscombe)
+    - Inverse-variance weighting by denominator
+    - Zero-denominator customers dropped from ICC computation, reported separately
+    - Boundary ICC clipped to [0, 1]
+  
+  Used IFF GLMM fails to converge OR per pre-registered convergence diagnostics.
+
+CI: parametric bootstrap on logit-ICC (B=10000) for either estimator.
+```
+
+**Why beta-binomial GLMM primary** (per Codex round-3): canonical for count-over-denominator proportions with unequal denominators and overdispersion. Logit-ANOVA on raw proportions is heteroskedastic; viable as fallback only.
+
+**Escalation rule** (REVISED v3.3 per Codex round-3 §3 — added tolerance + cap):
+
+```
+If any surrogate ICC point estimate > 0.10 + 1e-12
+    OR any one-sided upper 95% CI > 0.15 + 1e-12:
+        Escalation triggered.
+        
+        Escalated ICC ceiling = min(
+            max(
+                round_up_to_nearest(max_observed_point_estimate, 0.05),
+                round_up_to_nearest(max_observed_upper_95_CI, 0.05),
+                0.15
+            ),
+            1.0   # capped at 1.0, NEW v3.3 per Codex round-3
+        )
+        
+        round_up_to_nearest(x, 0.05) = ceil(x / 0.05) × 0.05
+        Strict comparison after deterministic rounding (1e-12 tolerance)
+
+§P4 Category-3 amendment filed.
+```
+
+---
+
+## §5. Gate C — Continuous drift monitoring
+
+### 5.1-5.3 (unchanged from v3.1-v3.2)
+
+### 5.4 BY default + alternative-procedure paths (REVISED v3.3 per Codex round-3 §5)
+
+```
+Default: Benjamini-Yekutieli (BY) at q=0.05 monthly.
+  Conservative under arbitrary dependence (Benjamini-Yekutieli 2001).
+
+A LESS-CONSERVATIVE-THAN-BY BINDING PROCEDURE is allowed iff
+(REVISED v3.3 — was "BH allowed iff" in v3.2; corrected per Codex round-3
+because PATH 3 is its own procedure, not justification for BH):
+  
+  PATH 1 — Baseline-period null simulation supports BH:
+    1. Simulation preserves report/customer/cell structure
+    2. Estimates actual FDR under both global-null AND partial-null configurations
+    3. Demonstrates BH controls FDR ≤ q=0.05 in both
+    4. Hash-pinned BEFORE first monitoring cycle
+    → BH at q=0.05 becomes binding
+  
+  PATH 2 — Analytic proof of BH validity:
+    1. Formal proof of independence OR positive regression dependence on
+       subsets (PRDS) for locked test statistics
+    2. Proof reviewed under §-1.1 standard
+    3. Hash-pinned
+    → BH at q=0.05 becomes binding
+  
+  PATH 3 — Locked resampling FDR procedure (own alternative, NOT BH):
+    1. Permutation/bootstrap FDR procedure with provable validity under the
+       cell-test structure
+    2. Procedure hash-pinned BEFORE first monitoring cycle
+    → Locked resampling FDR at q=0.05 becomes binding (in lieu of BY)
+
+If none of paths 1-3 are satisfied, BY is binding.
+```
+
+### 5.5-5.6 (unchanged from v3.1-v3.2)
+
+---
+
+## §6. Gate D — Coverage classifier validity
+
+### 6.1-6.3 (unchanged from v3.1-v3.2)
+
+### 6.4 Prevalence-standardized precision + PPV CI (REVISED v3.3 per Codex round-3 §6)
+
+**Prevalence grid** (unchanged from v3.2): {0.1%, 0.5%, 1%, 2%, 5%, 10%, 30%} + canary observed + 95% CI.
+
+**PPV CI propagation** (REVISED v3.3 per Codex round-3 §6):
+
+```
+PPV = sens × prev / [sens × prev + (1 − spec) × (1 − prev)]
+
+Bootstrap method:
+  - If sens/spec and canary prevalence come from THE SAME sample units:
+      Joint cluster bootstrap (B=10000) preserving customer-cluster structure.
+      Compute PPV per replicate from joint (sens, spec, prev) realization.
+  
+  - If sens/spec and canary prevalence come from SEPARATE samples
+      (e.g., gold-set for sens/spec, canary for prev):
+      INDEPENDENT bootstrap of each source, then combine per replicate.
+      Preserve cluster structure within each source.
+
+To avoid impossible PPV values (>1 or <0):
+  Use logit-scale draws for sens/spec/prev, then back-transform; OR
+  Constrained beta/binomial draws with informative-conjugate priors at the
+  source-distribution scale (NOT for the PPV gate itself — keep frequentist).
+
+Random seeds hash-pinned per cycle.
+```
+
+**Binding gate**: production-canary prevalence ONLY; other prevalences are reporting-only with explicit non-safety labels.
+
+### 6.5 (unchanged)
+
+---
+
+## §7. Gate E — SME label quality
+
+### 7.1-7.2 (mostly unchanged from v3.1-v3.2)
+
+Coefficient choice unchanged: complete-panel binary → AC1; varying → Krippendorff α; ordinal → Krippendorff ordinal α or linearly-weighted κ (complete only).
+
+### 7.2.1 Missingness/prevalence audit + blinded sign-off (REVISED v3.3 per Codex round-3 §7)
+
+**Missingness/prevalence audit** (unchanged from v3.2):
+
+1. Missingness rate per claim (target: <5%)
+2. Severity-class prevalence (expected S0/S1 ~10-30%)
+3. Rater-completeness matrix
+
+**Lightweight blinded sign-off** (NEW v3.3 per Codex round-3 §7):
+
+Coefficient choice deterministic from the pre-outcome missingness/prevalence/completeness audit. To prevent governance challenge, attach:
+
+- Named **audit custodian** (single person, identified in `state/icc_surrogates.json`)
+- Timestamp of audit completion
+- Hashes of all audit artifacts (missingness table, prevalence table, completeness matrix)
+- Custodian-signed statement: "I did NOT view inter-rater agreement coefficient values or any miss-outcome data while making this coefficient choice. The choice follows the §7.2 rule deterministically."
+
+**NOT an independent third-party audit.** Codex review remains for §-1.1 line-by-line, but Codex is NOT described as independent third-party. Per Codex round-3: full audit committee is NOT statistically required.
+
+### 7.3-7.4 (unchanged)
+
+---
+
+## §P1 / §P2 (unchanged from v3.1-v3.2)
+
+---
+
+## §P3. Contamination control (EXPANDED v3.3 per Codex round-3 §8)
+
+### P3.1-P3.3 (unchanged from v3.1-v3.2 — 31-item list across direct / descendant / index / process / selection)
+
+### P3.4 LLM-as-judge / evaluator leakage (EXPANDED v3.3 per Codex round-3 §8)
+
+v3.2 had 9 items. v3.3 adds explicit mechanistic/hidden-state path:
+
+**Forbidden uses (v3.3 final list, items 32-41)**:
+
+32. Judge model selection informed by gold-set outcomes
+33. Judge prompt iteration informed by gold-set outcomes
+34. Judge rubric tuning on gold-set examples
+35. Judge exemplar/few-shot selection from gold-set
+36. Judge RAG index containing gold-set artifacts
+37. Judge persistent memory containing gold-set content
+38. Cached judge rationales from gold-set queries
+39. Evaluator traces (judge intermediate outputs) used to revise prompts before gate completion
+40. Judge outputs on Phase-0a pilot used to revise verifier prompts before Phase-0b gate
+41. **Judge hidden states, attention maps, logits/logprobs, embeddings, activation patches, mechanistic-interpretability outputs, or gradient-like traces from gold-set or Phase-0a queries used to revise judge/verifier prompts, judge selection, rubrics, exemplars, or model choice before gate completion** (NEW v3.3 per Codex round-3 §8)
+
+**Provider opt-out requirements** (unchanged from v3.2):
+
+- External judge API provider-side data-retention/training opt-out documented in `state/provider_opt_outs/`
+- Judge model snapshot frozen across entire gate evaluation; provider-side silent model updates invalidate the affected cycle
+
+### P3.5 Allowed: ordinary production retrieval (unchanged)
+
+---
+
+## §P4. Amendment governance (REVISED v3.3 per Codex round-3 §9)
+
+### P4.1 (unchanged from v3.1-v3.2 — 5 categories)
+
+### P4.2 Gate-specific exposure log — STRUCTURAL vs OUTCOME (REVISED v3.3)
+
+**Structural exposure events** (visible pre-outcome; v3.3 row additions per Codex round-3 §1, §9):
+
+| Event | Notes |
+|---|---|
+| Phase-0a pilot cluster size, P_pilot, N_pilot | Allowed; needed for Phase-0b DEFF lock |
+| **Per-stratum P_final, N_final, claim degree statistics, relation-table hash, DEFF_binding** (NEW v3.3 row per Codex round-3 §1) | Allowed pre-unblinding; needed for binding analysis. Stratum denominators implicitly exposed (acceptable since severity labels are locked and verifier-outcomes are not visible). |
+| Canary customer count, m_i distribution, concentration | Allowed; §4.2 prerequisite check |
+| Surrogate ICC values (4 surrogates) | Allowed; §4.4 escalation |
+| Canary observed prevalence | Allowed; §6.4 PPV propagation |
+| Eligibility-failure counts | Allowed; §4.2 prerequisite check |
+| Per-cell denominator counts | Allowed; §6.2 eligibility |
+| **Domain/stratum/cell denominator distributions + eligibility distributions** (NEW v3.3 explicit row per Codex round-3 §9) | Allowed pre-outcome |
+| Per-stratum severity label distributions (pre-outcome) | Allowed |
+| Missingness/prevalence/completeness audit (Gate E) | Allowed |
+
+**Outcome exposure events** (must be blinded until gate analysis):
+
+| Event | Notes |
+|---|---|
+| Per-stratum / per-cell / per-domain miss counts | Outcome |
+| Severity-distribution AMONG MISSES | Outcome |
+| Customer-distribution of any affected reports | Outcome (vs aggregate customer count = structural) |
+| **Inter-rater agreement coefficient values** (NEW v3.3 explicit note per Codex round-3 §9 — even though severity labels themselves are needed structurally for Gate A) | Outcome |
+| Under-rating-rate confusion matrix | Outcome |
+| Retrieval recall numerators | Outcome |
+| Extraction recall numerators | Outcome |
+
+After structural exposure: amendments touching CLUSTERING/ELIGIBILITY/ICC/SAMPLE SIZE require §P4 Category-3 (pre-outcome design) treatment.
+
+After outcome exposure: amendments require §P4 Category-4 (post-outcome design) — analysis becomes exploratory.
+
+**Logging**: automatic, append-only, attached to all access channels (dashboards, notebooks, CI logs, stdout, exports, screenshots). Manual self-report insufficient. Lives at `state/data_lineage/exposure_log.jsonl`.
+
+### P4.3 (unchanged)
+
+---
+
+## §8. Pre-registration mechanics (unchanged from v3.1-v3.2; full hash-pin list)
+
+---
+
+## §9. v3.3 changes summary
+
+| Item | v3.2 | v3.3 |
+|---|---|---|
+| §3.4 pair deduplication | Implicit | Explicitly required: pairs satisfying multiple criteria count once |
+| §3.4 saturation note | Implicit | Confirmed math: P=0→DEFF=1; saturation→exchangeable cluster |
+| §4.4 ICC estimator | Logit-ANOVA primary | **Beta-binomial / logistic-normal GLMM primary** (Nakagawa-Schielzeth), empirical-logit ANOVA as convergence fallback |
+| §4.4 escalation cap | None | Capped at ICC ≤ 1.0 |
+| §4.4 tolerance | None | Strict comparison + 1e-12 tolerance after deterministic rounding |
+| §5.4 path naming | "BH allowed iff" | "A less-conservative-than-BY binding procedure is allowed iff" — Path 3 is its own alternative procedure |
+| §6.4 PPV bootstrap | Joint always | Joint if same sample, independent if separate-sample (clarified) + logit-scale OR constrained beta/binomial draws |
+| §7.2 governance | Audit alone | + lightweight blinded sign-off (named custodian, timestamp, signed statement) |
+| §P3.4 LLM-as-judge | 9 items | 10 items (added hidden-state/mechanistic-interp explicit) |
+| §P4.2 structural exposure | Some rows implicit | + explicit: P_final/N_final/degree/relation-hash/DEFF_binding row; + explicit denominator-distribution row |
+| §P4.2 outcome exposure | Some rows implicit | + explicit note: agreement coefficient values are outcome (even though severity labels are structural) |
+| §10.0 anti-overclaim | 8 phrases | 18 phrases (added autonomy-implying terms) |
+
+---
+
+## §10. Claim license table (EXPANDED v3.3)
+
+### 10.0 Global anti-overclaim layer (EXPANDED v3.3 per Codex round-3 §10)
+
+**FORBIDDEN phrases** (any POLARIS output: audit, marketing, README, demo, customer comms, regulatory filing) without explicit qualifying language matched to actual gate scope:
+
+| Phrase | Reason |
+|---|---|
+| "Zero hallucinations" | The contract bounds rates with confidence intervals, never asserts zero |
+| "Clinically safe" | "Safe" is regulatory/clinical determination, not a POLARIS contract output |
+| "Production-wide bound" | Bounds are scoped to gold-set construction OR canary eligibility |
+| "95% overall confidence" | Intersection-union, not joint coverage |
+| "Regulatory-grade validation" | No regulatory body has reviewed POLARIS |
+| "All future versions" | Each version validated separately |
+| "All domains / all customers" | Gates A/B are scoped |
+| "Independently audited" | Codex audit ≠ regulatory or third-party |
+| **"AI-verified"** (NEW v3.3) | Verification is contractual, not autonomous |
+| **"Machine-checked"** (NEW v3.3) | Allowed ONLY if it refers to actual formal checker / deterministic test artifact, NOT an LLM judgment |
+| **"Auto-validated"** (NEW v3.3) | Implies autonomous validation; the contract requires human SME adjudication and Codex review |
+| **"Self-auditing"** (NEW v3.3) | The system does not self-audit; the contract specifies external SME + Codex |
+| **"Certified"** (NEW v3.3) | No certification authority has reviewed |
+| **"Guaranteed safe"** (NEW v3.3) | The contract bounds rates with confidence intervals, never guarantees |
+| **"Hallucination-free"** (NEW v3.3) | Same as "zero hallucinations" |
+| **"Formally verified"** (NEW v3.3) | Formal verification is a mathematical proof technique not used here |
+| **"Validated for production"** (NEW v3.3) | Validation is per-cycle, not blanket; production state changes invalidate |
+| **"Human-equivalent review"** (NEW v3.3) | The verifier and judges are LLMs; SME review remains the human-equivalent layer |
+
+**Every pass sentence MUST name**:
+
+- Model version (verifier, classifier, judge model snapshots — SHA256)
+- Prompt version (verifier, generator prompts — SHA256)
+- Retrieval index version (SHA256)
+- Monitoring window (Gate C) or evaluation cycle (A/B/D/E)
+
+### 10.1 Gate A pass / fail (unchanged from v3.2)
+
+Pass and fail sentences unchanged; ρ_binding parameterized; prerequisite citations (Gate E, P1, P2, P3) mandatory; downgrade-on-prerequisite-fail unchanged.
+
+### 10.2 Gate B pass / fail (unchanged from v3.2)
+
+### 10.3 Gate C pass / fail (unchanged from v3.2 — sparse-cell rollups already mentioned)
+
+### 10.4 Gate D pass / fail (unchanged from v3.2 — classifier-eligible-cell scoping + precision-is-workload already mentioned)
+
+### 10.5 Gate E pass / fail (unchanged from v3.2)
+
+### 10.6 Prerequisites P1, P2, P3 (unchanged from v3.2)
+
+---
+
+## §11. Lock status (NEW v3.3)
+
+Codex round-3 verdict (2026-05-27): **"lock as pre-registration draft pending Phase 0a numerical specification."**
+
+v3.3 is the **methodology-locked draft**. Hash-signing this contract requires:
+
+1. Operator sign-off
+2. Hash-pin commit in `state/polaris_statistical_contract/v3_3/` 
+3. Notarized timestamp
+
+After v3.3 lock and Phase 0a execution, v3.4 will lock the numerical specification:
+
+- Final raw n per stratum (per §3.2 formula at Phase-0a-observed DEFF)
+- ICC ceiling (default 0.10 OR escalated per §4.4)
+- BY/alternative-procedure choice per §5.4
+- Coefficient choice per §7.2 missingness/prevalence audit
+- Pairwise relation lookup table hash (§3.4)
+
+NO architectural change between v3.3 and v3.4 — only numerical substitution within the locked formulas.
+
+---
+
+## §12. Authorship and methodology trail
+
+**v3.0 → v3.3** authored 2026-05-27 in single working session by:
+
+- **Claude (Opus 4.7)**: drafted v3.0 architecture, applied Codex review findings, drafted v3.1/v3.2/v3.3 revisions
+- **Codex (gpt-5.5)**: design-partner reviewer with deep statistical research; identified architectural gaps and mechanical errors across 3 review rounds
+
+Authorship is paired-LLM, NO external statistician (per operator instruction 2026-05-27: "Codex 5.5 + Claude 4.7 with max reasoning power + super deep research skill on CLI beat 99.999% statisticians in the world... combine effort between Codex 5.5 + Claude 4.7 with max reasoning power, to work it out, stop asking me to reach out another person to help").
+
+**Trail of references in `.codex/I-gen-005-step5/`**:
+
+- `codex_deep_dialogue_v2_response.txt` — Codex's pedagogical response to 9 v2.8 findings (the prior failure mode that motivated v3.0)
+- `codex_design_partner_v1_response.txt` — Codex's round-0 design-partner review of v3.0 architecture
+- `polaris_safety_contract_v3_0_codex_review.txt` — Codex round-1 review
+- `polaris_safety_contract_v3_1_codex_review.txt` — Codex round-2 review  
+- `polaris_safety_contract_v3_2_codex_review.txt` — Codex round-3 review with lock verdict
+
+**Standing methodology references**: Wilson score interval (NIST), Cochrane Ch 23 cluster guidance, Benjamini-Hochberg 1995, Benjamini-Yekutieli 2001, Gwet 2008 AC1, Krippendorff α (BMC Methods 2016), Nakagawa-Schielzeth 2017 ICC for GLMM, Altman-Bland 1994 PPV-prevalence, RAGTruth (arXiv:2401.00396), SAFE (arXiv:2403.18802), HHEM (Vectara docs), ICH E6(R3) GCP, FDA Multiple Endpoints in Clinical Trials.
+
+---
+
+END OF v3.3 (LOCKED PRE-REGISTRATION DRAFT)
+
+codex
+1. ✓ closed. §P4.2 now treats final P/N, degree stats, relation hash, and DEFF_binding as structural exposure, and §3.2 hash-pins Phase 0b final DEFF inputs pre-unblinding.
+
+2. ✓ closed. Pair deduplication is explicit: deterministic OR, one boolean per unordered pair. Saturation math is correctly stated.
+
+3. ✓ closed. Escalation minimum is only inside the triggered branch, the ceiling is capped at 1.0, and tolerance is specified.
+
+4. ✓ closed. GLMM is now primary, with empirical-logit weighted ANOVA demoted to convergence fallback. This fixes the prior methodology issue.
+
+5. ✓ closed. Path 3 is correctly framed as an alternative binding procedure, not a justification for BH.
+
+6. ✓ closed. Joint vs independent bootstrap branching is explicit, and impossible PPV values are addressed via logit-scale or constrained beta/binomial draws.
+
+7. ✓ closed. The sign-off is lightweight, named, timestamped, hash-based, and explicitly not described as independent third-party audit.
+
+8. ✓ closed. Mechanistic and hidden-state leakage paths are now explicit and broad enough to cover the intended failure mode.
+
+9. ✓ closed. Denominator distributions are structural, agreement coefficient values are outcome, and both are now explicitly logged.
+
+10. ✓ closed. The added forbidden phrases cover the autonomy/certification overclaim surface, with the needed carve-out for real formal/deterministic checks.
+
+**Lock v3.3 as pre-registration draft**
+tokens used
+9,455
+1. ✓ closed. §P4.2 now treats final P/N, degree stats, relation hash, and DEFF_binding as structural exposure, and §3.2 hash-pins Phase 0b final DEFF inputs pre-unblinding.
+
+2. ✓ closed. Pair deduplication is explicit: deterministic OR, one boolean per unordered pair. Saturation math is correctly stated.
+
+3. ✓ closed. Escalation minimum is only inside the triggered branch, the ceiling is capped at 1.0, and tolerance is specified.
+
+4. ✓ closed. GLMM is now primary, with empirical-logit weighted ANOVA demoted to convergence fallback. This fixes the prior methodology issue.
+
+5. ✓ closed. Path 3 is correctly framed as an alternative binding procedure, not a justification for BH.
+
+6. ✓ closed. Joint vs independent bootstrap branching is explicit, and impossible PPV values are addressed via logit-scale or constrained beta/binomial draws.
+
+7. ✓ closed. The sign-off is lightweight, named, timestamped, hash-based, and explicitly not described as independent third-party audit.
+
+8. ✓ closed. Mechanistic and hidden-state leakage paths are now explicit and broad enough to cover the intended failure mode.
+
+9. ✓ closed. Denominator distributions are structural, agreement coefficient values are outcome, and both are now explicitly logged.
+
+10. ✓ closed. The added forbidden phrases cover the autonomy/certification overclaim surface, with the needed carve-out for real formal/deterministic checks.
+
+**Lock v3.3 as pre-registration draft**

@@ -1,0 +1,52 @@
+POLARIS PR-7 / M1 (I-meta-002) — SMOKE RESULTS
+Agent: SMOKE  |  cwd: C:/POLARIS  |  Date: 2026-05-29
+Execution: serialized, NO parallel runs (CLAUDE.md §8.4)
+
+OVERALL: ALL THREE STEPS PASSED.
+
+----------------------------------------------------------------------
+STEP 1 — pytest (single run)
+  cmd: python -m pytest tests/roles tests/architecture tests/dr_benchmark -q
+  result: 316 passed in 4.44s
+  exit code: 0
+  (collected 316 items; tests/roles, tests/architecture, tests/dr_benchmark)
+
+STEP 2 — architecture lock consistency
+  cmd: python -m scripts.architecture.verify_lock --consistency
+  result: "Consistency: OK — families registered, family_policy holds,
+           code defaults match lock, canonical_pin includes lock file"
+  exit code: 0   (expected 0 — MATCH)
+
+STEP 3 — Gate-A no-spend dry run
+  cmd: python -m scripts.dr_benchmark.gate_a_dry_run
+  result: OVERALL: PASS (no-spend, offline)
+    [PASS] pytest_suites: all 3 suites passed (serialized)
+    [PASS] lock_consistency: Consistency OK
+    [PASS] frozen_lock_coverage: 4 roles pinned + all-distinct families
+           {generator: deepseek, mirror: cohere, sentinel: ibm-granite, judge: qwen}
+    [PASS] role_contracts: via transport: Sentinel yes=UNGROUNDED,
+           Judge off-enum raises, Mirror two-pass binds
+  JSON report: C:\POLARIS\outputs\gate_a\dry_run_report.json
+  exit code: 0   (expected OVERALL PASS, no live probes — MATCH)
+
+----------------------------------------------------------------------
+NO REAL NETWORK CALL — CONFIRMED.
+
+Evidence:
+- The RoleTransport (OpenAICompatibleRoleTransport) takes an INJECTED
+  httpx.Client in its constructor:
+    src/polaris_graph/roles/openai_compatible_transport.py:307
+      def __init__(self, http_client: httpx.Client) -> None:
+  The class never constructs its own client and uses no requests/urllib.
+- The transport tests build the client with httpx.MockTransport, which
+  intercepts every request in-process and returns canned responses — no
+  socket is opened:
+    tests/roles/test_openai_compatible_transport.py:58-61
+      client = httpx.Client(transport=httpx.MockTransport(handler))
+      return OpenAICompatibleRoleTransport(client)
+- Base URLs in tests are non-resolving fake internal hosts
+  (http://mirror.internal:8001, sentinel.internal:8002, judge.internal:8003).
+- Gate-A dry run (Step 3) self-declares "no-spend, offline" and runs no
+  live probes; spend-to-date remains $0 per state/active_issue.json.
+
+No bluffing: all three exit codes were 0 / PASS as captured above.

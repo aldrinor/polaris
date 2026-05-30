@@ -1,0 +1,28 @@
+codex
+§-1.1 review: no blocking findings.
+
+The two new checklist files match the loader contract. `load_checklist()` requires `topics[*].id`, defaults `label`, and normalizes `keywords`, `applies_if`, and `expand_queries` when present; both new files provide `id`, `label`, `keywords`, and `expand_queries` for every topic. The topic sets are substantive, not placeholder content: `ai_sovereignty` covers governance, residency, procurement, provenance, controls, and vendor dependence; `canada_us` covers agreements, tariffs/customs, immigration, defense/security, energy, and regulatory alignment.
+
+The guard is correct for D1’s required failure mode. `VALIDATION_DOMAINS` is exactly the locked D1a six, excluding `workforce` and `custom`; `missing_validation_checklists()` delegates to the production loader; and `assert_validation_checklists_present()` raises when any requested validation domain resolves to zero loaded topics. Reusing `load_checklist()` is the right test for “present and loadable under production semantics,” and it also fails closed for missing, empty, unparseable, or PyYAML-unavailable cases because those all return `[]`.
+
+Guard placement in `src/polaris_safety/` is also the right scope. It does not mutate `completeness_checker.py`, so production remains permissive for arbitrary production domains. The hardcoded six are acceptable here because D1a is the locked contract authority, not an importable runtime module; creating a second config source would add drift risk unless it were itself hash-governed.
+
+The tests are sound for D1: they cover all-present, exact locked-six membership, explicit `workforce`/`custom` exclusion, missing-domain raise, offender naming, and per-domain topic loading. I ran `python -m pytest tests/polaris_safety/test_validation_domain_guard.py`: 6 passed, with only a local pytest cache permission warning.
+
+The rationale doc stays within the validation-scope framing. It explicitly avoids “all domains” / population overclaim language and keeps `workforce`/`custom` as production/canonical-8 members outside validation only. The canonical-8 frontend failure is genuinely unrelated to D1: the D1 changes are the two checklist YAMLs, the safety guard, its tests, and the D1 rationale doc; `web/app/dashboard/page.tsx` is not touched, and the canonical test specifically looks for a `FALLBACK_TEMPLATES` block that the dashboard file no longer contains.
+
+Lock D1
+56,641
+§-1.1 review: no blocking findings.
+
+The two new checklist files match the loader contract. `load_checklist()` requires `topics[*].id`, defaults `label`, and normalizes `keywords`, `applies_if`, and `expand_queries` when present; both new files provide `id`, `label`, `keywords`, and `expand_queries` for every topic. The topic sets are substantive, not placeholder content: `ai_sovereignty` covers governance, residency, procurement, provenance, controls, and vendor dependence; `canada_us` covers agreements, tariffs/customs, immigration, defense/security, energy, and regulatory alignment.
+
+The guard is correct for D1’s required failure mode. `VALIDATION_DOMAINS` is exactly the locked D1a six, excluding `workforce` and `custom`; `missing_validation_checklists()` delegates to the production loader; and `assert_validation_checklists_present()` raises when any requested validation domain resolves to zero loaded topics. Reusing `load_checklist()` is the right test for “present and loadable under production semantics,” and it also fails closed for missing, empty, unparseable, or PyYAML-unavailable cases because those all return `[]`.
+
+Guard placement in `src/polaris_safety/` is also the right scope. It does not mutate `completeness_checker.py`, so production remains permissive for arbitrary production domains. The hardcoded six are acceptable here because D1a is the locked contract authority, not an importable runtime module; creating a second config source would add drift risk unless it were itself hash-governed.
+
+The tests are sound for D1: they cover all-present, exact locked-six membership, explicit `workforce`/`custom` exclusion, missing-domain raise, offender naming, and per-domain topic loading. I ran `python -m pytest tests/polaris_safety/test_validation_domain_guard.py`: 6 passed, with only a local pytest cache permission warning.
+
+The rationale doc stays within the validation-scope framing. It explicitly avoids “all domains” / population overclaim language and keeps `workforce`/`custom` as production/canonical-8 members outside validation only. The canonical-8 frontend failure is genuinely unrelated to D1: the D1 changes are the two checklist YAMLs, the safety guard, its tests, and the D1 rationale doc; `web/app/dashboard/page.tsx` is not touched, and the canonical test specifically looks for a `FALLBACK_TEMPLATES` block that the dashboard file no longer contains.
+
+Lock D1

@@ -1,0 +1,33 @@
+{
+  "per_query_report_contract": {
+    "fixture_slug": {
+      "schema_version": "fixture-v1",
+      "required_entities": [
+        {
+          "id": "trial_doi_entity",
+          "type": "pivotal_trial",
+          "anchor": "TRIAL-DOI",
+          "doi": "10.1056/NEJMoa2107519",
+          "pmid": "34170647",
+          "severity": "S1"
+        },
+        {
+          "id": "trial_pmid_entity",
+          "type": "pivotal_trial",
+          "anchor": "TRIAL-PMID",
+          "pmid": "37786396",
+          "severity": "S2"
+        },
+        {
+          "id": "label_url_entity",
+          "type": "regulatory",
+          "anchor": "FDA-LABEL",
+          "url_pattern": "https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf",
+          "severity": "S0",
+          "s0_category": "contraindications",
+          "coverage_content_requirements": ["contraindicated", "hypersensitivity"]
+        }
+      ]
+    }
+  }
+}
