@@ -2181,15 +2181,42 @@ async def run_one_query(
             retrieval.evidence_rows, domain=q["domain"],
         )
         contradictions = detect_contradictions(numeric_claims)
+        # Qualitative present-vs-absent clinical-safety conflict detection (I-meta-002-q1d #944).
+        # Default ON (no-spend, additive, rule-cue only); kill-switch PG_SWEEP_QUALITATIVE_CONFLICT.
+        # Merged into the SAME contradictions.json list (a `type:"qualitative"` discriminator +
+        # `severity:"review"` distinguish them; downstream renderers branch on those). Fail-open: a
+        # detector error never aborts the sweep.
+        qualitative_records = []
+        try:
+            # ALL detector imports inside the fail-open try (Codex diff-gate iter-1 P2.1): a module
+            # import failure must log + skip, never abort the sweep.
+            from src.polaris_graph.retrieval.qualitative_conflict_detector import (
+                detect_qualitative_conflicts,
+                extract_qualitative_assertions,
+                qualitative_conflict_enabled,
+            )
+            if qualitative_conflict_enabled():
+                qualitative_records = detect_qualitative_conflicts(
+                    extract_qualitative_assertions(
+                        retrieval.evidence_rows, domain=q["domain"],
+                    )
+                )
+        except Exception as exc:  # noqa: BLE001 — fail-open, log loudly, never abort the sweep
+            _log(f"[qual-conflict] detector error (skipped, fail-open): {exc}")
+            qualitative_records = []
         (run_dir / "contradictions.json").write_text(
             json.dumps(
-                [asdict(c) for c in contradictions],
+                [asdict(c) for c in contradictions]
+                + [asdict(qr) for qr in qualitative_records],
                 indent=2, sort_keys=True, default=str,
             ) + "\n",
             encoding="utf-8",
         )
+        _qual_hard = sum(1 for qr in qualitative_records if qr.severity in ("high", "medium"))
+        _qual_review = sum(1 for qr in qualitative_records if qr.severity == "review")
         _log(f"[contradict]  numeric_claims={len(numeric_claims)}  "
-             f"contradictions={len(contradictions)}")
+             f"numeric_contradictions={len(contradictions)}  "
+             f"qualitative_conflicts={_qual_hard}  qualitative_review_flags={_qual_review}")
 
         # Multi-section generation with Limitations (R-1)
         # BUG-M-201 fix (deep-dive R6): tier-balanced + relevance-ranked
@@ -2934,6 +2961,29 @@ async def run_one_query(
                 f"discrepancy to its source regardless of detector "
                 f"granularity.\n"
             )
+
+        # Qualitative present-vs-absent safety-conflict disclosure (#944). Renders by ASSERTION
+        # STATUS (present/absent/indeterminate/statistical_null) — NOT the loader-required numeric
+        # value — and separates hard conflicts from review flags (Codex brief-gate iter-1 P1.5).
+        if qualitative_records:
+            _hard = [r for r in qualitative_records if r.severity in ("high", "medium")]
+            _review = [r for r in qualitative_records if r.severity == "review"]
+            methods += (
+                f"\n## Qualitative safety-conflict disclosures\n"
+                f"The qualitative detector flagged {len(_hard)} present-vs-absent clinical-safety "
+                f"conflict(s) (contraindication / drug-interaction / eligibility / warning / "
+                f"adverse-event causation) and {len(_review)} review-flagged item(s) requiring human "
+                f"adjudication. Status is shown as asserted PRESENT/ABSENT/INDETERMINATE, not a "
+                f"numeric value; review flags are NOT adjudicated conflicts.\n\n"
+            )
+            for r in _hard + _review:
+                _label = "CONFLICT" if r.severity in ("high", "medium") else "REVIEW"
+                _statuses = " vs ".join(
+                    f"{cl.get('assertion_status', '?')} "
+                    f"[ev={cl.get('evidence_id', '')}, tier={cl.get('source_tier', '')}]"
+                    for cl in r.claims
+                )
+                methods += f"- [{_label}] {r.subject} / {r.predicate}: {_statuses} — {r.conflict_reason}\n"
 
         biblio_section = "\n\n## Bibliography\n"
         for b in multi.bibliography:

@@ -1,0 +1,1135 @@
+diff --git a/config/clinical_safety/qualitative_conflict_lexicon.yaml b/config/clinical_safety/qualitative_conflict_lexicon.yaml
+new file mode 100644
+index 00000000..9440d424
+--- /dev/null
++++ b/config/clinical_safety/qualitative_conflict_lexicon.yaml
+@@ -0,0 +1,97 @@
++# Qualitative clinical-safety conflict-detection lexicon (I-meta-002-q1d #944).
++#
++# SME-editable cue lexicons for the NegEx/ConText-grounded qualitative present-vs-absent
++# conflict detector (src/polaris_graph/retrieval/qualitative_conflict_detector.py). LAW VI:
++# all cues live here, not hard-coded. The loader validates that every REQUIRED section below
++# is present and non-empty at first use (fail-loud RuntimeError otherwise).
++#
++# Cue-class PRECEDENCE per span (highest first), per Codex brief-gate iter-2 P1.a:
++#   permissive_allow -> statistical_null -> uncertainty -> real_negation -> antonym/affirmation -> hedge
++# A permissive/deontic "may be co-administered" (ABSENT, definite) MUST win over the generic
++# epistemic hedge "may" (INDETERMINATE) so the mandatory DDI antonym recall case hard-fires.
++
++# ── Concept types (the 5 clinical-safety axes). assertion-status comparison runs ONLY within
++#    the same concept_type. Each concept owns exactly ONE of object_slot / condition_scope for a
++#    given span (canonical ownership, Codex iter-2 P2.b) — see object_slot_owner below.
++concept_types:
++  contraindication:
++    present_cues: ["contraindicated", "contraindication", "avoid in", "should not be used in",
++                   "should be avoided in", "do not use in", "is precluded in"]
++    absent_cues: ["not contraindicated", "no contraindication", "safe in", "safe to use in",
++                  "can be used in", "may be used in", "well tolerated in"]
++  drug_interaction:
++    present_cues: ["contraindicated with", "avoid", "do not co-administer", "should not be co-administered",
++                   "do not combine", "should not be used with", "do not administer with", "avoid concomitant"]
++    # absent_cues include the permissive/allowed-interaction phrasings so the sentence is DETECTED as a
++    # drug_interaction ABSENT assertion (status resolution then confirms via permissive_allow precedence).
++    absent_cues: ["no interaction with", "not contraindicated with", "no clinically significant interaction",
++                  "may be co-administered", "can be co-administered", "may be used with", "can be used with",
++                  "may be administered with", "can be administered with", "is compatible with",
++                  "may be combined with"]
++  eligibility_exclusion:
++    present_cues: ["excluded", "exclusion criterion", "ineligible", "not eligible", "were excluded",
++                   "are excluded", "exclusion criteria"]
++    absent_cues: ["eligible", "were included", "are included", "not excluded", "no exclusion",
++                  "permitted to enroll"]
++  warning:
++    present_cues: ["boxed warning", "black box warning", "black-box warning", "warning of",
++                   "increased risk of", "risk of", "caution in", "should be monitored for"]
++    absent_cues: ["no increased risk of", "no warning", "no excess risk of"]
++  ae_causation:
++    present_cues: ["causes", "caused", "leads to", "led to", "results in", "resulted in",
++                   "is associated with", "was associated with", "associated with", "a leading cause of",
++                   "leading cause of", "induces", "induced"]
++    absent_cues: ["did not cause", "does not cause", "did not lead to", "does not lead to",
++                  "not a cause of", "did not result in"]
++
++# Which key field owns the extracted text per concept_type (no double-encoding).
++#   "condition_scope" => the population/organ-status owns the key (object_slot stays "").
++#   "object_slot"     => the co-drug / criterion / hazard / outcome owns the key.
++object_slot_owner:
++  contraindication: condition_scope
++  drug_interaction: object_slot      # the interacting co-drug
++  eligibility_exclusion: object_slot # the criterion
++  warning: object_slot               # the hazard
++  ae_causation: object_slot          # the AE / outcome
++
++# ── Cue classes (precedence order enforced in code) ───────────────────────────────────────────
++# permissive/deontic permission => ABSENT (definite, CAN anchor a hard conflict). MUST precede hedge.
++permissive_allow: ["may be co-administered", "may be used with", "can be co-administered",
++                   "can be used with", "may be administered with", "can be administered with",
++                   "is compatible with", "may be combined with", "no interaction with"]
++
++# statistical null => STATISTICAL_NULL (cannot anchor a hard conflict; opposing a definite => review).
++# The statistical-significance family is the LETHAL false-positive class (a stats statement is NOT a
++# clinical absence assertion). Kept distinct from real negation.
++statistical_null: ["no significant difference", "no significant increase", "no significant decrease",
++                   "no significant change", "no significant association", "no significant correlation",
++                   "not statistically significant", "not associated with an increased risk",
++                   "not associated with increased risk", "no increase in", "no significant effect"]
++
++# epistemic uncertainty => INDETERMINATE (route to review, never silent absent).
++uncertainty: ["cannot be excluded", "cannot be ruled out", "can not be excluded", "not ruled out",
++              "could not be excluded", "remains uncertain", "unclear whether"]
++
++# true pseudo-negation / no-assertion => the concept is NOT asserted; skip (no assertion extracted).
++no_assertion: ["gram negative", "gram-negative", "not only", "without difficulty", "no doubt"]
++
++# real negation cues => flip polarity within the bounded scope (net XOR).
++real_negation: ["no evidence of", "negative for", "ruled out", "free of", "no sign of", "no signs of",
++                "no", "not", "never", "absent", "without", "denies", "denied"]
++
++# epistemic hedge => INDETERMINATE (only AFTER permissive_allow has been ruled out).
++hedge: ["may", "might", "possibly", "suggested", "could", "potential", "perhaps", "uncertain if"]
++
++# scope terminators bound the negation window (NegEx termination terms).
++termination_terms: ["but", "however", "yet", "though", "although", "except", "aside from",
++                    "apart from", "nevertheless", "whereas", "while", "otherwise"]
++
++# condition / population qualifier cues (used to extract condition_scope for contraindication/eligibility
++# and to detect condition-stratified non-conflicts). SINGLE-WORD only — the token-by-token extractor cannot
++# match multi-word cues (Codex diff-gate iter-1 P2.2); 'creatinine'/'clearance' cover the renal qualifier.
++condition_scope_cues: ["renal", "hepatic", "egfr", "creatinine", "clearance", "pregnan", "lactation",
++                       "breastfeeding", "elderly", "geriatric", "pediatric", "paediatric", "child",
++                       "impairment", "insufficiency", "dialysis", "cirrhosis", "failure"]
++
++# token-window cap for negation scope (original NegEx 1-6 word window; precision over recall).
++scope_token_cap: 6
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 1815cbbe..fac36023 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -2181,15 +2181,42 @@ async def run_one_query(
+             retrieval.evidence_rows, domain=q["domain"],
+         )
+         contradictions = detect_contradictions(numeric_claims)
++        # Qualitative present-vs-absent clinical-safety conflict detection (I-meta-002-q1d #944).
++        # Default ON (no-spend, additive, rule-cue only); kill-switch PG_SWEEP_QUALITATIVE_CONFLICT.
++        # Merged into the SAME contradictions.json list (a `type:"qualitative"` discriminator +
++        # `severity:"review"` distinguish them; downstream renderers branch on those). Fail-open: a
++        # detector error never aborts the sweep.
++        qualitative_records = []
++        try:
++            # ALL detector imports inside the fail-open try (Codex diff-gate iter-1 P2.1): a module
++            # import failure must log + skip, never abort the sweep.
++            from src.polaris_graph.retrieval.qualitative_conflict_detector import (
++                detect_qualitative_conflicts,
++                extract_qualitative_assertions,
++                qualitative_conflict_enabled,
++            )
++            if qualitative_conflict_enabled():
++                qualitative_records = detect_qualitative_conflicts(
++                    extract_qualitative_assertions(
++                        retrieval.evidence_rows, domain=q["domain"],
++                    )
++                )
++        except Exception as exc:  # noqa: BLE001 — fail-open, log loudly, never abort the sweep
++            _log(f"[qual-conflict] detector error (skipped, fail-open): {exc}")
++            qualitative_records = []
+         (run_dir / "contradictions.json").write_text(
+             json.dumps(
+-                [asdict(c) for c in contradictions],
++                [asdict(c) for c in contradictions]
++                + [asdict(qr) for qr in qualitative_records],
+                 indent=2, sort_keys=True, default=str,
+             ) + "\n",
+             encoding="utf-8",
+         )
++        _qual_hard = sum(1 for qr in qualitative_records if qr.severity in ("high", "medium"))
++        _qual_review = sum(1 for qr in qualitative_records if qr.severity == "review")
+         _log(f"[contradict]  numeric_claims={len(numeric_claims)}  "
+-             f"contradictions={len(contradictions)}")
++             f"numeric_contradictions={len(contradictions)}  "
++             f"qualitative_conflicts={_qual_hard}  qualitative_review_flags={_qual_review}")
+ 
+         # Multi-section generation with Limitations (R-1)
+         # BUG-M-201 fix (deep-dive R6): tier-balanced + relevance-ranked
+@@ -2935,6 +2962,29 @@ async def run_one_query(
+                 f"granularity.\n"
+             )
+ 
++        # Qualitative present-vs-absent safety-conflict disclosure (#944). Renders by ASSERTION
++        # STATUS (present/absent/indeterminate/statistical_null) — NOT the loader-required numeric
++        # value — and separates hard conflicts from review flags (Codex brief-gate iter-1 P1.5).
++        if qualitative_records:
++            _hard = [r for r in qualitative_records if r.severity in ("high", "medium")]
++            _review = [r for r in qualitative_records if r.severity == "review"]
++            methods += (
++                f"\n## Qualitative safety-conflict disclosures\n"
++                f"The qualitative detector flagged {len(_hard)} present-vs-absent clinical-safety "
++                f"conflict(s) (contraindication / drug-interaction / eligibility / warning / "
++                f"adverse-event causation) and {len(_review)} review-flagged item(s) requiring human "
++                f"adjudication. Status is shown as asserted PRESENT/ABSENT/INDETERMINATE, not a "
++                f"numeric value; review flags are NOT adjudicated conflicts.\n\n"
++            )
++            for r in _hard + _review:
++                _label = "CONFLICT" if r.severity in ("high", "medium") else "REVIEW"
++                _statuses = " vs ".join(
++                    f"{cl.get('assertion_status', '?')} "
++                    f"[ev={cl.get('evidence_id', '')}, tier={cl.get('source_tier', '')}]"
++                    for cl in r.claims
++                )
++                methods += f"- [{_label}] {r.subject} / {r.predicate}: {_statuses} — {r.conflict_reason}\n"
++
+         biblio_section = "\n\n## Bibliography\n"
+         for b in multi.bibliography:
+             biblio_section += (
+diff --git a/src/polaris_graph/retrieval/qualitative_conflict_detector.py b/src/polaris_graph/retrieval/qualitative_conflict_detector.py
+new file mode 100644
+index 00000000..4cd7f22a
+--- /dev/null
++++ b/src/polaris_graph/retrieval/qualitative_conflict_detector.py
+@@ -0,0 +1,551 @@
++"""Qualitative present-vs-absent clinical-safety conflict detector (I-meta-002-q1d #944).
++
++The numeric `contradiction_detector` only sees disagreements that carry a number. The most
++patient-dangerous disagreements — contraindication PRESENT vs ABSENT, drug-interaction warning
++present vs absent, eligibility/exclusion — carry NO number and are structurally invisible to it
++(the lethal-error class per `feedback_qualitative_negation_escapes_regex_2026_05_26`). This module
++adds a parallel, precision-first qualitative assertion-status conflict path, surfaced into the SAME
++`contradictions.json` + report.
++
++Method: NegEx (Chapman 2001) / ConText (Harkema-Chapman 2009) rule-cue assertion-status — no LLM by
++default (NO SPEND). Cue precedence per span (Codex brief-gate iter-2 P1.a):
++    permissive_allow -> statistical_null -> uncertainty -> real_negation(net XOR) -> antonym/affirm -> hedge
++so a deontic "may be co-administered" (ABSENT, definite) wins over the epistemic hedge "may"
++(INDETERMINATE) and the mandatory DDI antonym recall case hard-fires.
++
++Two-pass detection (Codex brief-gate iter-1 P1.2 + iter-2 P1.b):
++- PASS A (hard conflict): group by the FULL key (subject, concept_type, object_slot, condition_scope);
++  flag only same-key clusters with >=2 DISTINCT sources holding DIFFERING DEFINITE polarity
++  (PRESENT vs ABSENT). INDETERMINATE / STATISTICAL_NULL cannot anchor a hard conflict.
++- PASS B (review candidate): group by the COARSE key (subject, concept_type) only; every definite-
++  disagreeing distinct-source pair NOT already a hard conflict — because object_slot/condition_scope
++  differ or are missing/broad, or a definite opposes an INDETERMINATE/STATISTICAL_NULL — is emitted as
++  a `review_flag` (severity "review"), NEVER dropped. Only BOTH object_slots resolved to clearly-
++  different specific entities is a determinable non-conflict (no flag).
++
++Fail-safe = escalate-to-review, never silent: a missed contradiction is the lethal error.
++"High precision" means do NOT fire on a DETERMINABLE non-conflict, NOT go quiet when unsure.
++"""
++
++from __future__ import annotations
++
++import os
++import re
++from dataclasses import dataclass, field
++from pathlib import Path
++from typing import Any, Optional
++
++import yaml
++
++# ─────────────────────────────────────────────────────────────────────────────
++# Lexicon (LAW VI: SME-editable config, validated fail-loud at first use)
++# ─────────────────────────────────────────────────────────────────────────────
++
++_DEFAULT_LEXICON_PATH = (
++    Path(__file__).resolve().parents[3]
++    / "config" / "clinical_safety" / "qualitative_conflict_lexicon.yaml"
++)
++_REQUIRED_SECTIONS = (
++    "concept_types", "object_slot_owner", "permissive_allow", "statistical_null",
++    "uncertainty", "no_assertion", "real_negation", "hedge", "termination_terms",
++    "condition_scope_cues", "scope_token_cap",
++)
++_lexicon_cache: dict[str, Any] | None = None
++
++
++def _load_lexicon() -> dict[str, Any]:
++    """Load + validate the cue lexicon once. Fail-loud RuntimeError on a missing/empty section
++    (Codex brief-gate iter-2 P2: validate required sections, no silent partial lexicon)."""
++    global _lexicon_cache
++    if _lexicon_cache is not None:
++        return _lexicon_cache
++    path = Path(os.getenv("PG_QUALITATIVE_CONFLICT_LEXICON", str(_DEFAULT_LEXICON_PATH)))
++    if not path.exists():
++        raise RuntimeError(f"qualitative_conflict_lexicon not found at {path}")
++    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
++    missing = [s for s in _REQUIRED_SECTIONS if not data.get(s)]
++    if missing:
++        raise RuntimeError(
++            f"qualitative_conflict_lexicon at {path} missing/empty required sections: {missing}"
++        )
++    if not isinstance(data["concept_types"], dict) or not data["concept_types"]:
++        raise RuntimeError("qualitative_conflict_lexicon: concept_types must be a non-empty mapping")
++    _lexicon_cache = data
++    return data
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# Assertion status + loader-safe finite float encoding (Codex iter-1 P1.4)
++# ─────────────────────────────────────────────────────────────────────────────
++
++PRESENT = "present"
++ABSENT = "absent"
++INDETERMINATE = "indeterminate"
++STATISTICAL_NULL = "statistical_null"
++
++_VALUE_BY_STATUS: dict[str, float] = {
++    PRESENT: 1.0, ABSENT: 0.0, INDETERMINATE: 0.5, STATISTICAL_NULL: 0.5,
++}
++_DEFINITE = frozenset({PRESENT, ABSENT})
++
++_OFF_VALUES = frozenset({"0", "false", "False", "no", "off"})
++
++
++def qualitative_conflict_enabled() -> bool:
++    """The sweep kill-switch. Default ON (no-spend, additive); `PG_SWEEP_QUALITATIVE_CONFLICT=0`
++    disables the qualitative pass (numeric detection is unaffected)."""
++    return os.getenv("PG_SWEEP_QUALITATIVE_CONFLICT", "1") not in _OFF_VALUES
++
++
++@dataclass
++class QualitativeAssertion:
++    """One clinical-safety assertion extracted from one evidence quote."""
++    evidence_id: str
++    subject: str
++    concept_type: str
++    object_slot: str
++    condition_scope: str
++    assertion_status: str
++    cue: str
++    context_snippet: str
++    source_url: str
++    source_tier: str
++
++
++@dataclass
++class QualitativeConflictRecord:
++    """A qualitative conflict (or review-flag) record. Shaped for `audit_ir.loader`: it has the
++    REQUIRED `predicate` + `claims` (list>=2, each with evidence_id/predicate/value:float), so the
++    sweep's existing `[asdict(c) for c in contradictions]` writer serializes it without a mixed
++    serializer (Codex iter-1 P1.1). `type`/`conflict_reason`/`assertion_status` ride as loader-
++    tolerated extras; downstream MUST branch on `type` + `severity` (Codex iter-1 P1.5)."""
++    predicate: str
++    claims: list[dict]
++    subject: str = ""
++    severity: str = "medium"          # high | medium | review
++    type: str = "qualitative"         # discriminator vs numeric records
++    conflict_reason: str = ""
++    recommended_action: str = (
++        "Qualitative present-vs-absent disagreement across sources — verify against primary labels."
++    )
++    absolute_difference: float = 0.0  # loader-tolerated numeric fields (N/A for qualitative)
++    relative_difference: float = 0.0
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# Extraction
++# ─────────────────────────────────────────────────────────────────────────────
++
++_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.;!?])\s+")
++_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9\-']*")
++
++
++def _split_sentences(text: str) -> list[str]:
++    return [s.strip() for s in _SENTENCE_SPLIT_RE.split(text or "") if s.strip()]
++
++
++def _split_clauses(text: str, term_terms: list[str]) -> list[str]:
++    """Split a sentence into clauses on commas/semicolons AND termination terms (NegEx conjunctions),
++    so high-precedence status cues (permissive/statistical/uncertainty/hedge) are scoped to the clause
++    that holds the concept — NOT leaked across clauses (Codex diff-gate iter-1 P1.3). ALSO splits on
++    coordinating `and`/`or` so same-concept coordinated assertions ('safe in pregnancy AND
++    contraindicated in lactation') become SEPARATE assertions each bound to its own condition (Codex
++    diff-gate iter-4 P1); a clause that loses its drug inherits the sentence subject. Over-splitting a
++    compound condition ('renal AND hepatic impairment') only UNDER-captures (the trailing fragment has
++    no concept cue) — it never manufactures a false conflict. Original case preserved for the snippet."""
++    pattern = r"[;,]|\b(?:and|or|" + "|".join(re.escape(t) for t in term_terms) + r")\b"
++    return [p.strip() for p in re.split(pattern, text or "", flags=re.IGNORECASE) if p and p.strip()]
++
++
++def _find_longest_cue(sentence_lc: str, cues: list[str]) -> Optional[tuple[str, int]]:
++    """Return (cue, position) of the LONGEST matching cue in the sentence, else None.
++    Longest-first so 'no contraindication' (absent) beats 'contraindication' (present)."""
++    best: Optional[tuple[str, int]] = None
++    for cue in cues:
++        pos = sentence_lc.find(cue)
++        if pos >= 0 and (best is None or len(cue) > len(best[0])):
++            best = (cue, pos)
++    return best
++
++
++def _phrase_present(sentence_lc: str, phrases: list[str]) -> Optional[str]:
++    for p in phrases:
++        if p in sentence_lc:
++            return p
++    return None
++
++
++def _pre_scope(sentence_lc: str, concept_pos: int, term_terms: list[str], token_cap: int) -> str:
++    """Bounded pre-negation region: up to token_cap words BEFORE the concept term, stopping at the
++    nearest termination term (NegEx directional, precision-tightened window)."""
++    pre = sentence_lc[:concept_pos]
++    # truncate at the last termination term before the concept
++    cut = 0
++    for tt in term_terms:
++        idx = pre.rfind(f" {tt} ")
++        if idx >= 0:
++            cut = max(cut, idx + len(tt) + 2)
++    pre = pre[cut:]
++    words = _WORD_RE.findall(pre)
++    return " ".join(words[-token_cap:])
++
++
++def _net_negation_flip(pre_region: str, concept_cue: str, real_neg: list[str]) -> bool:
++    """Count real-negation cues in the bounded pre-region + a leading 'non-' on the concept; return
++    True if the NET polarity flips (odd count) — collapses double negation (Codex iter-1 P1.6 net XOR).
++    Cues are matched LONGEST-FIRST and each match is MASKED so an overlapping short cue cannot
++    re-count inside it (Codex diff-gate iter-2 P1.b: 'no evidence of' must NOT also count 'no')."""
++    region = " " + pre_region + " "
++    count = 0
++    for cue in sorted(real_neg, key=len, reverse=True):
++        if " " in cue:
++            pat = re.compile(re.escape(cue))
++        else:
++            pat = re.compile(rf"(?<![A-Za-z]){re.escape(cue)}(?![A-Za-z])")
++        region, n = pat.subn(lambda m: " " * (m.end() - m.start()), region)
++        count += n
++    if concept_cue.startswith("non-") or " non-" in (" " + pre_region):
++        count += 1
++    return count % 2 == 1
++
++
++def _local_window(text_lc: str, concept_pos: int, cue_len: int, token_window: int,
++                  term_terms: list[str]) -> str:
++    """A bounded window around the matched concept cue, CLIPPED at the nearest coordinating boundary
++    (comma/semicolon/'and'/'or'/termination term) on EACH side, then capped to `token_window` words.
++    High-precedence status cues are checked HERE (not clause-wide) so a permissive/statistical/hedge
++    cue that belongs to a DIFFERENT coordinated concept cannot leak onto this one — in EITHER order
++    (Codex diff-gate iter-2 P1.a + iter-3 P1: '... and may be co-administered' must not flip a
++    preceding contraindication)."""
++    boundary = re.compile(r"[;,]|\b(?:and|or|" + "|".join(re.escape(t) for t in term_terms) + r")\b",
++                          re.IGNORECASE)
++    start = 0
++    for m in boundary.finditer(text_lc[:concept_pos]):
++        start = m.end()
++    cue_end = concept_pos + cue_len
++    nxt = boundary.search(text_lc, cue_end)
++    end = nxt.start() if nxt else len(text_lc)
++    seg, cpos = text_lc[start:end], concept_pos - start
++    pre_words = _WORD_RE.findall(seg[:cpos])[-token_window:]
++    post_words = _WORD_RE.findall(seg[cpos + cue_len:])[:token_window]
++    return " ".join(pre_words) + " " + seg[cpos:cpos + cue_len] + " " + " ".join(post_words)
++
++
++def _classify_status(clause_lc: str, concept_cue: str, concept_pos: int, base: str,
++                     lex: dict[str, Any]) -> str:
++    """Resolve assertion status with the fixed cue precedence, evaluating the high-precedence cue
++    classes in a BOUNDED, coordinator-clipped WINDOW around the matched concept (not clause-wide)."""
++    window = _local_window(clause_lc, concept_pos, len(concept_cue),
++                           int(lex["scope_token_cap"]), lex["termination_terms"])
++    # 1. permissive/deontic permission -> ABSENT (definite), wins over hedge.
++    if _phrase_present(window, lex["permissive_allow"]):
++        return ABSENT
++    # 2. statistical null (the lethal-FP class) -> STATISTICAL_NULL.
++    if _phrase_present(window, lex["statistical_null"]):
++        return STATISTICAL_NULL
++    # 3. epistemic uncertainty -> INDETERMINATE.
++    if _phrase_present(window, lex["uncertainty"]):
++        return INDETERMINATE
++    # 4. real-negation net XOR over the bounded pre-scope, applied to the base antonym polarity.
++    pre = _pre_scope(clause_lc, concept_pos, lex["termination_terms"], int(lex["scope_token_cap"]))
++    status = base
++    if _net_negation_flip(pre, concept_cue, lex["real_negation"]):
++        status = ABSENT if base == PRESENT else PRESENT
++    # 5. epistemic hedge (permissive already ruled out at step 1) -> INDETERMINATE.
++    if _phrase_present(window, lex["hedge"]):
++        return INDETERMINATE
++    return status
++
++
++def _normalize_subject_co_drug(sentence: str, subject: str) -> str:
++    """Return the FIRST drug name in the sentence that is NOT the subject (DDI co-drug), else ''."""
++    from src.polaris_graph.nodes.scope_gate import _DRUG_NAME_RE
++    for m in _DRUG_NAME_RE.finditer(sentence or ""):
++        name = m.group(1).lower()
++        if name and name != (subject or "").lower():
++            return name
++    return ""
++
++
++_OBJECT_AFTER_CUE_RE = re.compile(r"[A-Za-z][A-Za-z0-9\- ]{2,40}")
++
++
++def _extract_object_slot(sentence: str, sentence_lc: str, concept_type: str, concept_pos: int,
++                         concept_cue: str, subject: str) -> str:
++    """Concept-specific object_slot (canonical ownership; '' when unresolved -> routes to review)."""
++    if concept_type == "drug_interaction":
++        return _normalize_subject_co_drug(sentence, subject)
++    if concept_type in ("ae_causation", "warning", "eligibility_exclusion"):
++        tail = sentence_lc[concept_pos + len(concept_cue):].lstrip(" :,")
++        m = _OBJECT_AFTER_CUE_RE.match(tail)
++        if m:
++            phrase = m.group(0).strip()
++            # cut at a clause boundary word for tightness
++            for stop in (" but ", " however ", " and ", " which ", " in patients", " with "):
++                k = phrase.find(stop)
++                if k > 0:
++                    phrase = phrase[:k]
++            return phrase.strip().lower()[:40]
++    return ""
++
++
++# Severity/normality qualifiers that DISCRIMINATE a condition scope. Adjacent to the organ/condition
++# cue, they distinguish "renal impairment" / "severe renal" from "normal renal function" so condition-
++# stratified statements do NOT collapse to the same key. Concept-polarity words (contraindicated/safe/
++# avoid) are NEVER included — only the population/organ qualifier survives.
++_PRE_QUALIFIERS = frozenset({"normal", "severe", "mild", "moderate", "preserved", "chronic", "acute",
++                             "advanced", "significant", "end-stage", "endstage", "decompensated"})
++_POST_QUALIFIERS = frozenset({"impairment", "insufficiency", "failure", "dysfunction", "disease"})
++
++
++def _extract_condition_scope(sentence_lc: str, lex: dict[str, Any]) -> str:
++    """Return a DISCRIMINATING condition-scope phrase = the organ/condition cue word plus an adjacent
++    severity/normality qualifier ONLY (never the concept-polarity verb). 'renal impairment' and
++    'normal renal function' stay distinct (the red-team condition-stratified false-positive), while
++    identical conditions ('pregnancy' both sides) collapse to the same key (a real conflict)."""
++    tokens = [re.sub(r"[^a-z\-]", "", w) for w in sentence_lc.split()]
++    for i, tok in enumerate(tokens):
++        if not tok:
++            continue
++        if any(cue in tok for cue in lex["condition_scope_cues"]):
++            parts = [tok]
++            if i > 0 and tokens[i - 1] in _PRE_QUALIFIERS:
++                parts.insert(0, tokens[i - 1])
++            if i + 1 < len(tokens) and tokens[i + 1] in _POST_QUALIFIERS:
++                parts.append(tokens[i + 1])
++            return " ".join(parts)[:48]
++    return ""
++
++
++def extract_qualitative_assertions(
++    evidence: list[dict[str, Any]], domain: str | None = None,
++) -> list[QualitativeAssertion]:
++    """Extract qualitative clinical-safety assertions from evidence rows. One row may yield several
++    (one per concept occurrence per sentence). `no_assertion` pseudo cues skip the span entirely."""
++    lex = _load_lexicon()
++    from src.polaris_graph.retrieval.contradiction_detector import _normalize_subject
++    out: list[QualitativeAssertion] = []
++    for ev in evidence or []:
++        quote = ev.get("direct_quote") or ev.get("statement") or ""
++        if not quote:
++            continue
++        evid = str(ev.get("evidence_id", ""))
++        url = ev.get("source_url", "") or ev.get("url", "")
++        tier = ev.get("tier", "") or ev.get("source_tier", "")
++        for sentence in _split_sentences(quote):
++            # the drug usually appears once at the head of the sentence; a clause that names no drug
++            # inherits the sentence subject (so 'X is contraindicated ... but safe in ...' keeps X).
++            sentence_subject = _normalize_subject(sentence, fallback="")
++            for clause_raw in _split_clauses(sentence, lex["termination_terms"]):
++                clause = clause_raw.lower()
++                # true pseudo / no-assertion -> the concept is not asserted; skip this clause.
++                if _phrase_present(clause, lex["no_assertion"]):
++                    continue
++                for concept_type, cset in lex["concept_types"].items():
++                    present_hit = _find_longest_cue(clause, cset.get("present_cues", []))
++                    absent_hit = _find_longest_cue(clause, cset.get("absent_cues", []))
++                    hit, base = None, None
++                    # prefer the longest matching cue across both polarities
++                    if present_hit and absent_hit:
++                        if len(absent_hit[0]) >= len(present_hit[0]):
++                            hit, base = absent_hit, ABSENT
++                        else:
++                            hit, base = present_hit, PRESENT
++                    elif present_hit:
++                        hit, base = present_hit, PRESENT
++                    elif absent_hit:
++                        hit, base = absent_hit, ABSENT
++                    if hit is None:
++                        continue
++                    cue, pos = hit
++                    status = _classify_status(clause, cue, pos, base, lex)
++                    subject = _normalize_subject(clause, fallback="") or sentence_subject
++                    owner = lex["object_slot_owner"].get(concept_type, "object_slot")
++                    object_slot, condition_scope = "", ""
++                    cscope = _extract_condition_scope(clause, lex)
++                    if owner == "condition_scope":
++                        condition_scope = cscope
++                    else:
++                        object_slot = _extract_object_slot(
++                            clause_raw, clause, concept_type, pos, cue, subject
++                        )
++                        condition_scope = cscope
++                    out.append(QualitativeAssertion(
++                        evidence_id=evid, subject=subject, concept_type=concept_type,
++                        object_slot=object_slot, condition_scope=condition_scope,
++                        assertion_status=status, cue=cue, context_snippet=clause_raw[:200],
++                        source_url=url, source_tier=tier,
++                    ))
++    return out
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# Conflict detection (two-pass)
++# ─────────────────────────────────────────────────────────────────────────────
++
++_NCT_RE = re.compile(r"\bNCT\d{8}\b", re.IGNORECASE)
++_DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+", re.IGNORECASE)
++_PMID_RE = re.compile(r"/pubmed/(\d+)|[?&]pmid=(\d+)|\bPMID[:\s]+(\d+)", re.IGNORECASE)
++
++
++def _normalize_source_id(url: str) -> str:
++    """Normalize a source to a stable identity (NCT / DOI / PMID / host+path), so the same source
++    self-quoted in two sections counts as ONE source and cannot raise a cross-source conflict."""
++    u = (url or "").strip().lower()
++    if not u:
++        return ""
++    m = _NCT_RE.search(u)
++    if m:
++        return "nct:" + m.group(0).lower()
++    m = _DOI_RE.search(u)
++    if m:
++        return "doi:" + m.group(0)
++    m = _PMID_RE.search(u)
++    if m:
++        return "pmid:" + next(g for g in m.groups() if g)
++    u = re.split(r"[?#]", u)[0].rstrip("/")
++    return u
++
++
++def _claim_dict(a: QualitativeAssertion) -> dict[str, Any]:
++    return {
++        "evidence_id": a.evidence_id,
++        "predicate": a.concept_type,
++        "value": _VALUE_BY_STATUS.get(a.assertion_status, 0.5),  # finite float, loader-safe
++        "subject": a.subject,
++        "assertion_status": a.assertion_status,
++        "object_slot": a.object_slot,
++        "condition_scope": a.condition_scope,
++        "source_url": a.source_url,
++        "source_tier": a.source_tier,
++        "context_snippet": a.context_snippet,
++    }
++
++
++def _predicate_label(concept_type: str, object_slot: str, condition_scope: str) -> str:
++    qual = object_slot or condition_scope
++    return f"{concept_type} ({qual})" if qual else concept_type
++
++
++def _distinct_sources(assertions: list[QualitativeAssertion]) -> set[str]:
++    return {_normalize_source_id(a.source_url) for a in assertions if _normalize_source_id(a.source_url)}
++
++
++def _owner_value(a: QualitativeAssertion, owner_of: dict[str, str]) -> str:
++    """The canonical discriminating slot value for this assertion's concept_type (Codex iter-2 P2.b)."""
++    return a.object_slot if owner_of.get(a.concept_type, "object_slot") == "object_slot" else a.condition_scope
++
++
++def _objects_disjoint(o1: str, o2: str) -> bool:
++    """Two resolved object slots are 'determinably different' ONLY if both are non-empty and NEITHER
++    contains the other — so 'an increased risk of pancreatitis' and 'pancreatitis' are NOT treated as
++    different (same outcome, looser extraction), but 'nausea' and 'pancreatitis' ARE. An empty slot is
++    unresolved → not determinably different → routes to review (never a silent drop)."""
++    if not o1 or not o2:
++        return False
++    return o1 != o2 and o1 not in o2 and o2 not in o1
++
++
++def detect_qualitative_conflicts(
++    assertions: list[QualitativeAssertion],
++) -> list[QualitativeConflictRecord]:
++    """Two-pass: exact-key hard conflicts (Pass A) + coarse-key review flags (Pass B)."""
++    owner_of = _load_lexicon()["object_slot_owner"]
++    records: list[QualitativeConflictRecord] = []
++    full: dict[tuple[str, str, str, str], list[QualitativeAssertion]] = {}
++    coarse: dict[tuple[str, str], list[QualitativeAssertion]] = {}
++    for a in assertions:
++        if a.subject:
++            full.setdefault((a.subject, a.concept_type, a.object_slot, a.condition_scope), []).append(a)
++        coarse.setdefault((a.subject, a.concept_type), []).append(a)
++
++    # ── PASS A: hard conflicts on the FULL key — ONLY when the owner slot is RESOLVED ────────────
++    # (Codex diff-gate iter-1 P1.1: an unresolved/empty owner key must NOT hard-fire; it routes to
++    # Pass B review.) The hard-conflict identity is keyed by the FULL key + the exact source pair
++    # (Codex diff-gate iter-1 P1.2), so a hard conflict at one scope does NOT suppress review flags
++    # for a DIFFERENT object_slot/condition_scope between the same sources.
++    hard_keys: set[tuple] = set()  # (subject, concept_type, object_slot, condition_scope, src_a, src_b)
++    for (subject, concept_type, object_slot, condition_scope), group in full.items():
++        owner_val = object_slot if owner_of.get(concept_type, "object_slot") == "object_slot" else condition_scope
++        if not owner_val:
++            continue  # unresolved owner -> defer to Pass B review, never a hard conflict
++        present = [a for a in group if a.assertion_status == PRESENT]
++        absent = [a for a in group if a.assertion_status == ABSENT]
++        if not present or not absent:
++            continue
++        src_present, src_absent = _distinct_sources(present), _distinct_sources(absent)
++        if not src_present or not src_absent:
++            continue  # need resolvable sources on both sides
++        if not any(sp != sa for sp in src_present for sa in src_absent):
++            continue  # all present/absent from the same single source -> not cross-source
++        records.append(QualitativeConflictRecord(
++            predicate=_predicate_label(concept_type, object_slot, condition_scope),
++            claims=[_claim_dict(a) for a in present + absent], subject=subject, severity="high",
++            conflict_reason=(
++                f"{concept_type} asserted PRESENT and ABSENT across "
++                f"{len(src_present | src_absent)} distinct sources at the same "
++                f"{owner_of.get(concept_type, 'object')}='{owner_val}'."
++            ),
++        ))
++        for sp in present:
++            for sa in absent:
++                pair = tuple(sorted((_normalize_source_id(sp.source_url),
++                                     _normalize_source_id(sa.source_url))))
++                hard_keys.add((subject, concept_type, object_slot, condition_scope, pair[0], pair[1]))
++
++    # ── PASS B: review flags on the COARSE key (Codex iter-1 P1.2 + iter-2 P1.b/P2.a) ───────────
++    for (subject, concept_type), group in coarse.items():
++        definite = [a for a in group if a.assertion_status in _DEFINITE]
++        soft = [a for a in group if a.assertion_status not in _DEFINITE]
++        for i in range(len(definite)):
++            for j in range(i + 1, len(definite)):
++                ai, aj = definite[i], definite[j]
++                if ai.assertion_status == aj.assertion_status:
++                    continue
++                sid_i, sid_j = _normalize_source_id(ai.source_url), _normalize_source_id(aj.source_url)
++                if not sid_i or not sid_j or sid_i == sid_j:
++                    continue  # same/unresolved source: not a cross-source disagreement
++                # Suppress ONLY the EXACT pair already emitted as a hard conflict (same full key +
++                # same source pair) — a hard conflict at a DIFFERENT scope/object does not suppress.
++                if ai.object_slot == aj.object_slot and ai.condition_scope == aj.condition_scope:
++                    pair = tuple(sorted((sid_i, sid_j)))
++                    if (subject, concept_type, ai.object_slot, ai.condition_scope, pair[0], pair[1]) in hard_keys:
++                        continue
++                # determinable non-conflict ONLY if both object_slots resolved + clearly different
++                if _objects_disjoint(ai.object_slot, aj.object_slot):
++                    continue
++                records.append(_review_record(
++                    subject, concept_type, [ai, aj],
++                    "object_slot or condition_scope differs/missing — review (not auto-fired)",
++                ))
++        # definite opposed by an INDETERMINATE / STATISTICAL_NULL across distinct sources -> review
++        for d in definite:
++            for s in soft:
++                sid_d, sid_s = _normalize_source_id(d.source_url), _normalize_source_id(s.source_url)
++                if not sid_d or not sid_s or sid_d == sid_s:
++                    continue
++                # determinable-different outcomes are unrelated -> no review noise (Codex diff-gate
++                # iter-4 P2; same containment-aware guard as the definite-vs-definite path).
++                if _objects_disjoint(d.object_slot, s.object_slot):
++                    continue
++                records.append(_review_record(
++                    subject, concept_type, [d, s],
++                    f"definite {d.assertion_status} vs {s.assertion_status} across sources — review",
++                ))
++
++    rank = {"high": 0, "medium": 1, "review": 2}
++    records.sort(key=lambda r: (rank.get(r.severity, 3), r.predicate))
++    return records
++
++
++def _review_record(subject: str, concept_type: str, pair: list[QualitativeAssertion],
++                   reason: str) -> QualitativeConflictRecord:
++    objs = [a.object_slot for a in pair if a.object_slot]
++    scopes = [a.condition_scope for a in pair if a.condition_scope]
++    qual = (objs or scopes or [""])[0]
++    return QualitativeConflictRecord(
++        predicate=_predicate_label(concept_type, objs[0] if objs else "", scopes[0] if scopes else ""),
++        claims=[_claim_dict(a) for a in pair], subject=subject, severity="review",
++        conflict_reason=reason,
++        recommended_action="Indeterminate qualitative disagreement — route to human review; do not treat as resolved.",
++    )
+diff --git a/tests/polaris_graph/test_qualitative_conflict_detector.py b/tests/polaris_graph/test_qualitative_conflict_detector.py
+new file mode 100644
+index 00000000..9da5c635
+--- /dev/null
++++ b/tests/polaris_graph/test_qualitative_conflict_detector.py
+@@ -0,0 +1,390 @@
++"""Qualitative present-vs-absent clinical-safety conflict detector (I-meta-002-q1d #944).
++
++NO network / NO model / NO spend — pure rule-cue. Every test asserts a Codex brief-gate required
++behavior: pseudo-negation/statistical false-positive suppression, antonym/variant false-negative
++recall, concept-type+subject+object+condition keying, source-distinctness, permissive-vs-hedge `may`,
++fail-safe-to-review (never silent), finite-float encoding, and loader-schema round-trip.
++
++Drugs are drawn from the GLP-1 allowlist (`scope_gate._DRUG_NAME_RE`) the detector reuses for subject
++extraction — the actual golden-benchmark domain. (Generalizing the drug lexicon beyond GLP-1 is the
++named follow-up #qual-drug-lexicon.)
++"""
++
++from __future__ import annotations
++
++import json
++
++import pytest
++
++import src.polaris_graph.retrieval.qualitative_conflict_detector as qcd
++from src.polaris_graph.retrieval.qualitative_conflict_detector import (
++    ABSENT,
++    INDETERMINATE,
++    PRESENT,
++    STATISTICAL_NULL,
++    detect_qualitative_conflicts,
++    extract_qualitative_assertions,
++)
++
++
++def _ev(eid: str, quote: str, url: str, tier: str = "T1") -> dict:
++    return {"evidence_id": eid, "direct_quote": quote, "source_url": url, "tier": tier}
++
++
++def _statuses(quote: str) -> list[str]:
++    rows = extract_qualitative_assertions([_ev("ev_000", quote, "https://x")])
++    return [a.assertion_status for a in rows]
++
++
++def _severities(records) -> list[str]:
++    return sorted(r.severity for r in records)
++
++
++# ── RECALL (must fire / must NOT be silent) ──────────────────────────────────────────────────────
++def test_antonym_present_vs_absent_no_negation_token_hard_conflict():
++    """The lethal false-negative: a disagreement carrying NO 'no/not' token and NO number."""
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Semaglutide is contraindicated in pregnancy.", "https://a"),
++        _ev("ev_001", "Semaglutide is safe in pregnancy.", "https://b"),
++    ]))
++    high = [r for r in records if r.severity == "high"]
++    assert len(high) == 1
++    assert high[0].subject == "semaglutide"
++    assert "contraindication" in high[0].predicate
++
++
++def test_permissive_ddi_vs_avoid_hard_conflict_not_downgraded():
++    """`may be co-administered` is deontic permission (ABSENT), must hard-fire vs `avoid` — NOT
++    downgraded to review by the generic hedge rule (Codex brief-gate iter-2 P1.a)."""
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Avoid metformin with semaglutide.", "https://a"),
++        _ev("ev_001", "Metformin may be co-administered with semaglutide.", "https://b"),
++    ]))
++    assert any(r.severity == "high" for r in records)
++
++
++def test_ae_causation_did_not_lead_vs_leading_cause_hard_conflict():
++    """The exact 2026-05-26 real-smoke miss (feedback_qualitative_negation_escapes_regex)."""
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "With semaglutide, constipation did not lead to discontinuation.", "https://a"),
++        _ev("ev_001", "Semaglutide constipation was a leading cause of discontinuation.", "https://b"),
++    ]))
++    assert any(r.severity == "high" for r in records)
++
++
++# ── PRECISION (must NOT hard-fire) ───────────────────────────────────────────────────────────────
++def test_statistical_null_not_a_hard_conflict_is_review():
++    """'not associated with an increased risk' is a STATISTICAL statement, not an ABSENT assertion —
++    must NOT manufacture a phantom hard conflict; surfaced as review instead."""
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Tirzepatide was not associated with an increased risk of pancreatitis.", "https://a"),
++        _ev("ev_001", "Tirzepatide is associated with pancreatitis.", "https://b"),
++    ]))
++    assert not any(r.severity == "high" for r in records)
++    assert any(r.severity == "review" for r in records)
++    assert STATISTICAL_NULL in _statuses(
++        "Tirzepatide was not associated with an increased risk of pancreatitis."
++    )
++
++
++def test_different_subject_no_conflict():
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Metformin is contraindicated in pregnancy.", "https://a"),
++        _ev("ev_001", "Empagliflozin is safe in pregnancy.", "https://b"),
++    ]))
++    assert records == []
++
++
++def test_different_concept_type_no_conflict():
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Semaglutide causes nausea.", "https://a"),
++        _ev("ev_001", "Semaglutide is not contraindicated in renal impairment.", "https://b"),
++    ]))
++    assert not any(r.severity == "high" for r in records)
++
++
++def test_condition_stratified_is_review_not_hard_conflict():
++    """contraindicated in renal impairment vs not contraindicated in normal renal function are
++    COMPLEMENTARY, not contradictory — review, never a hard conflict (red-team textbook case)."""
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Metformin is contraindicated in renal impairment.", "https://a"),
++        _ev("ev_001", "Metformin is not contraindicated in normal renal function.", "https://b"),
++    ]))
++    assert not any(r.severity == "high" for r in records)
++    assert any(r.severity == "review" for r in records)
++
++
++def test_double_negation_agrees_no_conflict():
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Semaglutide is not non-contraindicated in pregnancy.", "https://a"),
++        _ev("ev_001", "Semaglutide is contraindicated in pregnancy.", "https://b"),
++    ]))
++    assert records == []
++
++
++def test_same_source_both_ways_no_cross_source_conflict():
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Semaglutide is contraindicated in pregnancy.", "https://same"),
++        _ev("ev_001", "Semaglutide is safe in pregnancy.", "https://same"),
++    ]))
++    assert records == []
++
++
++# ── status resolution (permissive vs hedge; uncertainty) ─────────────────────────────────────────
++def test_permissive_may_is_absent_definite():
++    assert ABSENT in _statuses("Metformin may be co-administered with semaglutide.")
++
++
++def test_epistemic_may_is_indeterminate():
++    assert _statuses("Semaglutide may be contraindicated in renal impairment.") == [INDETERMINATE]
++
++
++def test_uncertainty_cannot_be_excluded_is_indeterminate_and_reviewed_not_dropped():
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Tirzepatide-induced pancreatitis cannot be excluded.", "https://a"),
++        _ev("ev_001", "Tirzepatide causes pancreatitis.", "https://b"),
++    ]))
++    assert any(r.severity == "review" for r in records)
++    assert not any(r.severity == "high" for r in records)
++
++
++# ── object_slot fail-safe (Codex iter-2 P1.b) ────────────────────────────────────────────────────
++def test_missing_object_slot_routes_to_review_not_dropped():
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Avoid metformin.", "https://a"),  # no co-drug -> object_slot ""
++        _ev("ev_001", "Metformin may be co-administered with semaglutide.", "https://b"),
++    ]))
++    assert any(r.severity == "review" for r in records)
++
++
++def test_determinable_different_object_slot_no_flag():
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Avoid tirzepatide with semaglutide.", "https://a"),
++        _ev("ev_001", "Tirzepatide may be co-administered with metformin.", "https://b"),
++    ]))
++    assert records == []
++
++
++def test_coarse_group_with_hard_conflict_still_emits_review_for_extra_evidence():
++    """Pass B must not skip a coarse group that already has a hard conflict (Codex iter-2 P2.a)."""
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Semaglutide is contraindicated in pregnancy.", "https://a"),
++        _ev("ev_001", "Semaglutide is safe in pregnancy.", "https://b"),
++        _ev("ev_002", "Semaglutide contraindication in pregnancy cannot be excluded.", "https://c"),
++    ]))
++    sev = _severities(records)
++    assert "high" in sev
++    assert "review" in sev
++
++
++def test_unresolved_owner_both_sides_is_review_not_hard():
++    """Codex diff-gate iter-1 P1.1: a full-key group whose OWNER slot is unresolved on both sides
++    (DDI with no co-drug) must NOT hard-fire — it routes to review."""
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Avoid metformin.", "https://a"),            # DDI present, co-drug unresolved
++        _ev("ev_001", "Metformin may be co-administered.", "https://b"),  # DDI absent, co-drug unresolved
++    ]))
++    assert not any(r.severity == "high" for r in records)
++    assert any(r.severity == "review" for r in records)
++
++
++def test_hard_conflict_one_scope_does_not_suppress_review_another_scope_same_sources():
++    """Codex diff-gate iter-1 P1.2: a pregnancy hard conflict between sources A/B must NOT suppress
++    a DIFFERENT-scope (renal) review between the same A/B sources."""
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Semaglutide is contraindicated in pregnancy.", "https://a"),
++        _ev("ev_001", "Semaglutide is safe in pregnancy.", "https://b"),
++        _ev("ev_002", "Semaglutide is contraindicated in renal impairment.", "https://a"),
++        _ev("ev_003", "Semaglutide is not contraindicated in normal renal function.", "https://b"),
++    ]))
++    assert any(r.severity == "high" for r in records)    # pregnancy hard conflict
++    assert any(r.severity == "review" for r in records)  # renal scope-stratified review NOT suppressed
++
++
++def test_cross_clause_cue_does_not_leak():
++    """Codex diff-gate iter-1 P1.3: a permissive DDI cue in one clause must NOT flip the
++    contraindication assertion in a different clause to ABSENT."""
++    rows = extract_qualitative_assertions([
++        _ev("ev_000",
++            "Semaglutide may be co-administered with metformin, but is contraindicated in pregnancy.",
++            "https://a"),
++    ])
++    contra = [a for a in rows if a.concept_type == "contraindication"]
++    assert contra and all(a.assertion_status == PRESENT for a in contra)
++    # and end-to-end it still hard-fires vs a "safe in pregnancy" source
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000",
++            "Semaglutide may be co-administered with metformin, but is contraindicated in pregnancy.",
++            "https://a"),
++        _ev("ev_001", "Semaglutide is safe in pregnancy.", "https://b"),
++    ]))
++    assert any(r.severity == "high" for r in records)
++
++
++def test_coordinated_and_cue_does_not_leak_across_concept():
++    """Codex diff-gate iter-2 P1.a: a permissive DDI cue earlier in an UNSPLIT 'and' clause must NOT
++    flip a later contraindication to ABSENT — high-precedence cues are concept-local-windowed."""
++    rows = extract_qualitative_assertions([
++        _ev("ev_000",
++            "Semaglutide may be co-administered with metformin and is contraindicated in pregnancy.",
++            "https://a"),
++    ])
++    contra = [a for a in rows if a.concept_type == "contraindication"]
++    assert contra and all(a.assertion_status == PRESENT for a in contra)
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000",
++            "Semaglutide may be co-administered with metformin and is contraindicated in pregnancy.",
++            "https://a"),
++        _ev("ev_001", "Semaglutide is safe in pregnancy.", "https://b"),
++    ]))
++    assert any(r.severity == "high" for r in records)
++
++
++def test_coordinated_and_cue_does_not_leak_reverse_order():
++    """Codex diff-gate iter-3 P1: a permissive DDI cue that FOLLOWS the contraindication across an
++    'and' must NOT flip it to ABSENT (the reverse-order coordination leak)."""
++    rows = extract_qualitative_assertions([
++        _ev("ev_000",
++            "Semaglutide is contraindicated in pregnancy and may be co-administered with metformin.",
++            "https://a"),
++    ])
++    contra = [a for a in rows if a.concept_type == "contraindication"]
++    assert contra and all(a.assertion_status == PRESENT for a in contra)
++    # the DDI permissive in the SAME sentence is still its own ABSENT assertion (not lost)
++    ddi = [a for a in rows if a.concept_type == "drug_interaction"]
++    assert ddi and all(a.assertion_status == ABSENT for a in ddi)
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000",
++            "Semaglutide is contraindicated in pregnancy and may be co-administered with metformin.",
++            "https://a"),
++        _ev("ev_001", "Semaglutide is safe in pregnancy.", "https://b"),
++    ]))
++    assert any(r.severity == "high" for r in records)
++
++
++def test_no_evidence_of_negation_not_double_counted():
++    """Codex diff-gate iter-2 P1.b: 'no evidence of contraindication' must resolve ABSENT — the
++    overlapping 'no' inside 'no evidence of' must NOT cancel the net negation."""
++    assert ABSENT in _statuses("Semaglutide shows no evidence of contraindication in pregnancy.")
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Semaglutide shows no evidence of contraindication in pregnancy.", "https://a"),
++        _ev("ev_001", "Semaglutide is contraindicated in pregnancy.", "https://b"),
++    ]))
++    assert any(r.severity == "high" for r in records)
++
++
++def test_same_concept_coordinated_assertions_not_collapsed():
++    """Codex diff-gate iter-4 P1: 'safe in pregnancy and contraindicated in lactation' must yield TWO
++    assertions, so a real pregnancy PRESENT-vs-ABSENT conflict vs another source is NOT missed."""
++    rows = extract_qualitative_assertions([
++        _ev("ev_000", "Semaglutide is safe in pregnancy and contraindicated in lactation.", "https://a"),
++    ])
++    scopes = {(a.assertion_status, a.condition_scope) for a in rows if a.concept_type == "contraindication"}
++    assert (ABSENT, "pregnancy") in scopes      # safe in pregnancy
++    assert any(st == PRESENT and "lactation" in sc for (st, sc) in scopes)  # contraindicated in lactation
++    # the pregnancy disagreement vs another source is now caught as a HARD conflict
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Semaglutide is safe in pregnancy and contraindicated in lactation.", "https://a"),
++        _ev("ev_001", "Semaglutide is contraindicated in pregnancy.", "https://b"),
++    ]))
++    assert any(r.severity == "high" for r in records)
++
++
++def test_definite_vs_soft_disjoint_outcomes_no_review_noise():
++    """Codex diff-gate iter-4 P2: a definite PRESENT on one outcome vs a STATISTICAL_NULL on an
++    UNRELATED outcome (nausea vs pancreatitis) must NOT emit a review flag."""
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Semaglutide causes nausea.", "https://a"),
++        _ev("ev_001", "Semaglutide is not associated with an increased risk of pancreatitis.", "https://b"),
++    ]))
++    assert records == []
++
++
++# ── finite-float encoding + loader-schema round-trip ─────────────────────────────────────────────
++def test_finite_float_encoding_for_all_statuses():
++    assert qcd._VALUE_BY_STATUS[PRESENT] == 1.0
++    assert qcd._VALUE_BY_STATUS[ABSENT] == 0.0
++    assert qcd._VALUE_BY_STATUS[INDETERMINATE] == 0.5
++    assert qcd._VALUE_BY_STATUS[STATISTICAL_NULL] == 0.5
++    for v in qcd._VALUE_BY_STATUS.values():
++        assert isinstance(v, float)
++
++
++def test_records_roundtrip_through_audit_ir_loader(tmp_path):
++    from dataclasses import asdict
++    from src.polaris_graph.audit_ir import loader as audit_loader
++
++    records = detect_qualitative_conflicts(extract_qualitative_assertions([
++        _ev("ev_000", "Semaglutide is contraindicated in pregnancy.", "https://a"),
++        _ev("ev_001", "Semaglutide is safe in pregnancy.", "https://b"),
++    ]))
++    assert records
++    payload = [asdict(r) for r in records]
++    # loader-required invariants: list; each record predicate+claims(len>=2); each claim value is float
++    assert isinstance(payload, list)
++    for rec in payload:
++        assert "predicate" in rec and isinstance(rec["claims"], list) and len(rec["claims"]) >= 2
++        for cl in rec["claims"]:
++            assert {"evidence_id", "predicate", "value"} <= set(cl)
++            assert isinstance(float(cl["value"]), float)
++    # actually parse through the audit loader (the real consumer)
++    p = tmp_path / "contradictions.json"
++    p.write_text(json.dumps(payload), encoding="utf-8")
++    clusters = audit_loader._parse_contradictions(json.loads(p.read_text(encoding="utf-8")))
++    assert len(clusters) == len(payload)
++
++
++# ── lexicon validation (fail-loud) ───────────────────────────────────────────────────────────────
++def test_missing_lexicon_section_fails_loud(tmp_path, monkeypatch):
++    bad = tmp_path / "bad_lexicon.yaml"
++    bad.write_text("concept_types: {contraindication: {present_cues: [x], absent_cues: [y]}}\n",
++                   encoding="utf-8")
++    monkeypatch.setenv("PG_QUALITATIVE_CONFLICT_LEXICON", str(bad))
++    monkeypatch.setattr(qcd, "_lexicon_cache", None)
++    with pytest.raises(RuntimeError, match="missing/empty required sections"):
++        extract_qualitative_assertions([_ev("ev_000", "x is contraindicated in y.", "https://a")])
++    monkeypatch.setattr(qcd, "_lexicon_cache", None)  # reset for other tests
++
++
++# ── kill-switch + offline smoke (Codex brief-gate P2) ────────────────────────────────────────────
++def test_kill_switch_default_on_and_off(monkeypatch):
++    monkeypatch.delenv("PG_SWEEP_QUALITATIVE_CONFLICT", raising=False)
++    assert qcd.qualitative_conflict_enabled() is True   # default ON
++    monkeypatch.setenv("PG_SWEEP_QUALITATIVE_CONFLICT", "0")
++    assert qcd.qualitative_conflict_enabled() is False
++    monkeypatch.setenv("PG_SWEEP_QUALITATIVE_CONFLICT", "off")
++    assert qcd.qualitative_conflict_enabled() is False
++
++
++def test_offline_smoke_full_path_no_spend(tmp_path):
++    """Drive extract -> detect -> serialize -> audit_ir.loader round-trip -> report render, all
++    offline (the brief's mandated no-spend smoke). Mirrors the run_honest_sweep_r3 wiring."""
++    from dataclasses import asdict
++    from src.polaris_graph.audit_ir import loader as audit_loader
++
++    evidence = [
++        _ev("ev_000", "Semaglutide is contraindicated in pregnancy.", "https://a"),
++        _ev("ev_001", "Semaglutide is safe in pregnancy.", "https://b"),
++        _ev("ev_002", "Tirzepatide was not associated with an increased risk of pancreatitis.", "https://c"),
++        _ev("ev_003", "Tirzepatide is associated with pancreatitis.", "https://d"),
++    ]
++    records = detect_qualitative_conflicts(extract_qualitative_assertions(evidence, domain="clinical"))
++    # serialize EXACTLY as the sweep does (homogeneous dataclass list -> asdict, no mixed serializer)
++    payload = [asdict(r) for r in records]
++    p = tmp_path / "contradictions.json"
++    p.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
++    clusters = audit_loader._parse_contradictions(json.loads(p.read_text(encoding="utf-8")))
++    assert len(clusters) == len(payload)
++    # the report renders by assertion_status text, never the raw float
++    for r in records:
++        for cl in r.claims:
++            assert cl["assertion_status"] in (PRESENT, ABSENT, INDETERMINATE, STATISTICAL_NULL)
++    # at least the pregnancy hard conflict + the pancreatitis statistical-null review flag
++    sev = _severities(records)
++    assert "high" in sev and "review" in sev
++
++
++# ── empty inputs ─────────────────────────────────────────────────────────────────────────────────
++def test_empty_inputs():
++    assert extract_qualitative_assertions([]) == []
++    assert detect_qualitative_conflicts([]) == []
